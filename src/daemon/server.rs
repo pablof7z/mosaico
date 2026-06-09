@@ -308,6 +308,9 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
         "project_edit" => rpc_project_edit(state, &req.params).await,
+        "list_threads" => rpc_list_threads(state, &req.params).await,
+        "messages" => rpc_messages(state, &req.params),
+        "thread_meta" => rpc_thread_meta(state, &req.params),
         other => Err(anyhow::anyhow!("unknown method {other}")),
     };
     match result {
@@ -510,6 +513,12 @@ struct SendMessageParams {
     cwd: Option<String>,
     #[serde(default)]
     agent: Option<String>,
+    /// Optional canonical thread id to reply into.  When Some, the provider
+    /// encodes a NIP-10 root `e` tag pointing at the thread's relay-native key
+    /// so the recipient materializer groups the reply into the same thread.
+    /// Default: None → new thread root (Phase 6 behavior preserved).
+    #[serde(default)]
+    thread_id: Option<String>,
 }
 
 async fn rpc_send_message(
@@ -543,7 +552,7 @@ async fn rpc_send_message(
         body: p.message,
         target_session: recipient.target_session.clone(),
         from_session: Some(rec.session_id.clone()),
-        thread_id: None,
+        thread_id: p.thread_id.clone(),
     };
 
     // Publish + canonical dual-write. On error the error propagates unchanged.
@@ -1043,6 +1052,69 @@ async fn rpc_project_edit(state: &Arc<DaemonState>, params: &serde_json::Value) 
         "event_id": event_id.to_hex(),
         "project": p.project,
     }))
+}
+
+// ── list_threads / messages / thread_meta (Phase 7 read RPCs) ────────────────
+
+/// `list_threads`: return enriched thread list for a project.
+///
+/// Params: `{ "project": "<slug-or-project_id>" }` (slug resolved via
+/// `project_id_for_slug` on the kind1-nip29 fabric; no-op create if unknown).
+async fn rpc_list_threads(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        project: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("list_threads params")?;
+    let pi = state.provider.provider_instance.clone();
+
+    // Read-only: resolve slug → project_id without creating an origin.
+    // When the project has no recorded origin yet (no message traffic; no backfill)
+    // return an empty list rather than erroring — consistent with other read-model
+    // methods that gracefully degrade to empty on an empty store.
+    let Some(project_id) = state
+        .with_store(|s| s.project_id_for_slug(crate::fabric::provider::FABRIC, &pi, &p.project))?
+    else {
+        return Ok(serde_json::json!([]));
+    };
+
+    let threads = state.with_store(|s| s.list_threads(&project_id))?;
+    Ok(serde_json::to_value(&threads)?)
+}
+
+/// `messages`: return canonical messages for a thread.
+///
+/// Params: `{ "thread_id": "<thread_id>" }`
+fn rpc_messages(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        thread_id: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("messages params")?;
+    let msgs = state.with_store(|s| s.messages_for_thread(&p.thread_id))?;
+    Ok(serde_json::to_value(&msgs)?)
+}
+
+/// `thread_meta`: return enriched metadata for a single thread.
+///
+/// Params: `{ "thread_id": "<thread_id>" }`
+fn rpc_thread_meta(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        thread_id: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("thread_meta params")?;
+    let meta = state.with_store(|s| s.thread_meta(&p.thread_id))?;
+    Ok(serde_json::to_value(&meta)?)
 }
 
 // ── wait_for_mention (long-poll) ─────────────────────────────────────────────

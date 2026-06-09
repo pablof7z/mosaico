@@ -52,6 +52,20 @@ enum Cmd {
         /// My session id; if omitted, resolved from the current directory.
         #[arg(long)]
         session: Option<String>,
+        /// Canonical thread id to reply into (encodes NIP-10 root e-tag on the
+        /// published event so the recipient groups the reply into the same thread).
+        /// Omit for a new root message (default Phase 6 behavior).
+        #[arg(long = "thread", value_name = "THREAD_ID")]
+        thread_id: Option<String>,
+    },
+    /// List threads and messages for a project (Phase 7 Communications plane).
+    Threads {
+        /// Project slug (defaults to the project resolved from the current directory).
+        #[arg(long)]
+        project: Option<String>,
+        /// Show messages for a specific thread id.
+        #[arg(long)]
+        thread: Option<String>,
     },
     /// List peers currently visible (with session-id prefixes for targeting).
     Who {
@@ -156,13 +170,15 @@ pub async fn run(cli: Cli) -> Result<()> {
             recipient_flag,
             message_flag,
             session,
+            thread_id,
         } => {
             let recipient = recipient_flag
                 .or(recipient)
                 .context("missing recipient; use `tenex-edge send-message --recipient <target> --message \"...\"`")?;
             let message = resolve_send_message_body(message_flag.or(message))?;
-            send_message(recipient, message, session).await
+            send_message(recipient, message, session, thread_id).await
         }
+        Cmd::Threads { project, thread } => threads(project, thread).await,
         Cmd::Who {
             project,
             all,
@@ -237,7 +253,12 @@ fn session_end(session: String) -> Result<()> {
 
 // ── send-message ─────────────────────────────────────────────────────────────
 
-async fn send_message(recipient: String, message: String, session: Option<String>) -> Result<()> {
+async fn send_message(
+    recipient: String,
+    message: String,
+    session: Option<String>,
+    thread_id: Option<String>,
+) -> Result<()> {
     let params = serde_json::json!({
         "recipient": recipient,
         "message": message,
@@ -245,6 +266,7 @@ async fn send_message(recipient: String, message: String, session: Option<String
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": std::env::var("TENEX_EDGE_AGENT").ok(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "thread_id": thread_id,
     });
     let v = daemon_call_async("send_message", params).await?;
     let to_pubkey = v["to_pubkey"].as_str().unwrap_or_default().to_string();
@@ -252,6 +274,62 @@ async fn send_message(recipient: String, message: String, session: Option<String
     match target_session {
         Some(s) => println!("mentioned {} (session {})", short_id(&to_pubkey), short_id(&s)),
         None => println!("mentioned {}", short_id(&to_pubkey)),
+    }
+    Ok(())
+}
+
+// ── threads ───────────────────────────────────────────────────────────────────
+
+/// `threads`: list threads for a project, or messages for a specific thread.
+///
+/// Routes to the daemon via `list_threads`, `messages`, or `thread_meta` RPCs
+/// and prints a human-readable summary.
+async fn threads(project: Option<String>, thread: Option<String>) -> Result<()> {
+    if let Some(tid) = thread {
+        // Show messages for a specific thread.
+        let v = daemon_call_async("messages", serde_json::json!({ "thread_id": tid })).await?;
+        let meta_v = daemon_call_async("thread_meta", serde_json::json!({ "thread_id": tid })).await?;
+
+        if let Some(subject) = meta_v.get("subject").and_then(|v| v.as_str()) {
+            println!("Thread: {}", subject);
+        } else {
+            println!("Thread: {}", short_id(&tid));
+        }
+        if let Some(msgs) = v.as_array() {
+            for msg in msgs {
+                let dir = msg["direction"].as_str().unwrap_or("?");
+                let author = msg["author_pubkey"].as_str().unwrap_or("?");
+                let body = msg["body"].as_str().unwrap_or("");
+                let ts = msg["created_at"].as_u64().unwrap_or(0);
+                let arrow = if dir == "outbound" { "->" } else { "<-" };
+                println!("[{}] {} {} {}: {}", ts, short_id(author), arrow, dir, body);
+            }
+        }
+        return Ok(());
+    }
+
+    // List threads for a project.
+    let proj = project.unwrap_or_else(|| {
+        crate::project::resolve(&std::env::current_dir().unwrap_or_default())
+    });
+    let v = daemon_call_async("list_threads", serde_json::json!({ "project": proj })).await?;
+    if let Some(threads) = v.as_array() {
+        if threads.is_empty() {
+            println!("No threads in project {:?}", proj);
+            return Ok(());
+        }
+        println!("Threads in {}:", proj);
+        for t in threads {
+            let tid = t["thread_id"].as_str().unwrap_or("?");
+            let count = t["message_count"].as_u64().unwrap_or(0);
+            let last = t["last_message_at"].as_u64();
+            let subject = t["subject"].as_str();
+            let label = subject.unwrap_or_else(|| "no subject");
+            match last {
+                Some(ts) => println!("  {} ({} msg, last at {}) - {}", short_id(tid), count, ts, label),
+                None => println!("  {} (no messages) - {}", short_id(tid), label),
+            }
+        }
     }
     Ok(())
 }

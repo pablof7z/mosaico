@@ -254,14 +254,22 @@ impl Kind1Nip29Provider {
     /// Publish one outbound message and dual-write canonical read-model rows.
     ///
     /// Behavior:
-    /// 1. Encode the intent as a Mention DomainEvent and publish it.
-    ///    On publish error the error propagates unchanged (same as today).
-    /// 2. On success, lock the store ONCE and write:
+    /// 1. If `intent.thread_id` is Some, look up the thread's root native key
+    ///    (BEFORE publish; no lock held across await).
+    /// 2. Encode the intent as a Mention DomainEvent. When a root native key was
+    ///    found, append a NIP-10 root `["e", <key>, "", "root"]` tag to the
+    ///    EventBuilder so the recipient materializer groups the reply into the
+    ///    same thread.  If the thread has no registered origin, publish without
+    ///    the tag (safe degradation: reply becomes a new root on the recipient's
+    ///    side).
+    /// 3. Publish. On error, propagate immediately — no canonical row written.
+    /// 4. On success, lock the store ONCE and write:
     ///    - `projects` / `project_origins` (idempotent)
-    ///    - `threads` / `thread_origins` (idempotent, keyed by event id)
+    ///    - `threads` / `thread_origins` (idempotent, keyed by event id for new
+    ///      roots, by existing thread_id for replies)
     ///    - `messages` with `sync_state="published"` (idempotent on native_event_id)
     ///    - `message_recipients`
-    /// 3. Return `OutboundReceipt` carrying the published event id and the new
+    /// 5. Return `OutboundReceipt` carrying the published event id and the new
     ///    canonical `message_id`.
     ///
     /// The legacy inbox path is NOT touched here — local delivery is the
@@ -271,18 +279,40 @@ impl Kind1Nip29Provider {
         intent: SendIntent,
         agent_keys: &nostr_sdk::Keys,
     ) -> Result<OutboundReceipt> {
-        // Build the wire event from the intent's Mention.
-        let mention = intent.to_mention();
-        let builder = self.wire.encode(&DomainEvent::Mention(mention))?;
+        use nostr_sdk::Tag;
 
-        // Publish. On error, propagate immediately — no canonical row written.
+        // Step 1: Resolve root native key for replies (store read, no await).
+        // Two separate with_store calls ensure the guard is never held across await.
+        let root_native_key: Option<String> = intent.thread_id.as_deref().and_then(|tid| {
+            self.with_store(|s| s.thread_root_native_key(tid, FABRIC, &self.provider_instance))
+        });
+
+        // Step 2: Encode the intent's Mention.
+        let mention = intent.to_mention();
+        let mut builder = self.wire.encode(&DomainEvent::Mention(mention))?;
+
+        // Append root e-tag if this is a reply into an existing thread.
+        if let Some(ref root_key) = root_native_key {
+            match Tag::parse(["e", root_key, "", "root"]) {
+                Ok(tag) => {
+                    builder = builder.tags([tag]);
+                }
+                Err(e) => {
+                    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                        eprintln!("[provider] could not build root e-tag: {e:#}; sending without reply threading");
+                    }
+                }
+            }
+        }
+
+        // Step 3: Publish. On error, propagate immediately — no canonical row written.
         let event_id = self
             .transport
             .publish_signed(builder, agent_keys)
             .await?;
         let eid_hex = event_id.to_hex();
 
-        // Dual-write canonical rows (single lock, no await inside).
+        // Step 4: Dual-write canonical rows (single lock, no await inside).
         let now = now_secs();
         let pi = self.provider_instance.clone();
         let (message_id,) = self.with_store(|s| -> Result<(String,)> {
@@ -294,9 +324,11 @@ impl Kind1Nip29Provider {
                 now,
             )?;
             let thread_id = if let Some(tid) = intent.thread_id.as_deref() {
+                // Replying into an existing thread: use the existing thread_id.
+                // Ensure the thread_origins row exists (it should, but be safe).
                 tid.to_string()
             } else {
-                // Each outbound root is its own thread for now; Phase 7 refines.
+                // New root message: each outbound root is its own thread.
                 s.ensure_thread_origin(&project_id, FABRIC, &pi, &eid_hex, now)?
             };
             let message_id = s.record_message(
@@ -408,4 +440,83 @@ fn derive_provider_instance(relays: &[String]) -> String {
     let mut h = DefaultHasher::new();
     joined.hash(&mut h);
     format!("{:016x}", h.finish())
+}
+
+// ── unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::AgentRef;
+    use crate::fabric::kind1::wire::Kind1WireCodec;
+    use nostr_sdk::prelude::{Keys, Tag};
+
+    /// Verify that `builder.tags([root_e_tag])` APPENDS rather than replaces:
+    /// the resulting signed event must carry BOTH the original routing tags
+    /// (p-tag, h-tag) AND the new root e-tag — all three present.
+    #[test]
+    fn reply_encoding_preserves_original_tags_and_adds_root_e_tag() {
+        let wire = Kind1WireCodec;
+        let sender_keys = Keys::generate();
+        let recipient_pk = Keys::generate().public_key().to_hex();
+        // Use a fixed 64-char hex root key (valid EventId format for Tag::parse).
+        let root_hex = "b".repeat(64);
+
+        let mention = crate::domain::Mention {
+            from: AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
+            to_pubkey: recipient_pk.clone(),
+            project: "myproj".into(),
+            body: "hello reply".into(),
+            target_session: None,
+            from_session: None,
+        };
+
+        let builder = wire
+            .encode(&crate::domain::DomainEvent::Mention(mention))
+            .expect("encode succeeded");
+
+        // Append the root e-tag (simulating what provider.send does for replies).
+        let root_tag = Tag::parse(["e", &root_hex, "", "root"]).expect("valid root tag");
+        let builder = builder.tags([root_tag]);
+
+        // Sign to materialise the final event.
+        let event = builder
+            .sign_with_keys(&sender_keys)
+            .expect("signing succeeded");
+
+        // Collect tag names present on the event.
+        let tag_names: Vec<&str> = event
+            .tags
+            .iter()
+            .filter_map(|t| t.as_slice().first().map(String::as_str))
+            .collect();
+
+        assert!(
+            tag_names.contains(&"p"),
+            "p-tag (recipient) must be present; tags: {:?}",
+            tag_names
+        );
+        assert!(
+            tag_names.contains(&"h"),
+            "h-tag (project/group) must be present; tags: {:?}",
+            tag_names
+        );
+        assert!(
+            tag_names.contains(&"e"),
+            "e-tag (root) must be present; tags: {:?}",
+            tag_names
+        );
+
+        // Verify root e-tag has marker "root".
+        let root_tag_found = event.tags.iter().any(|t| {
+            let s = t.as_slice();
+            s.first().map(String::as_str) == Some("e")
+                && s.get(3).map(String::as_str) == Some("root")
+        });
+        assert!(
+            root_tag_found,
+            "e-tag must carry the 'root' marker; tags: {:?}",
+            event.tags
+        );
+    }
 }

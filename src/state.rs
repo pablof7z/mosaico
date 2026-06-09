@@ -65,6 +65,35 @@ pub struct InboxRow {
     pub from_session: String,
 }
 
+// ── Phase 7 read-model types ─────────────────────────────────────────────────
+
+/// Enriched thread summary returned by `list_threads` and `thread_meta`.
+///
+/// `last_message_at` is `None` when the thread has no messages yet.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ThreadMeta {
+    pub thread_id: String,
+    pub project_id: String,
+    pub subject: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub message_count: u64,
+    pub last_message_at: Option<u64>,
+}
+
+/// One canonical message row returned by `messages_for_thread`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MessageRow {
+    pub message_id: String,
+    pub thread_id: String,
+    pub author_pubkey: String,
+    pub body: String,
+    pub created_at: u64,
+    pub direction: String,
+    pub sync_state: String,
+    pub native_event_id: Option<String>,
+}
+
 // ── Phase 1 read-model types ─────────────────────────────────────────────────
 
 /// Whether a pubkey is a member of a project at a given timestamp.
@@ -1321,32 +1350,129 @@ impl Store {
         Ok(rows)
     }
 
-    /// Canonical threads for a project.  Returns empty until Phase 7 populates
-    /// the `threads` table via dual-write.
+    /// Canonical threads for a project, ordered by last activity (most-active first).
+    ///
+    /// Ordering: `COALESCE(MAX(m.created_at), t.created_at) DESC` — threads with
+    /// recent messages sort before inactive threads; threads with no messages at all
+    /// sort by their own `created_at` DESC.
     ///
     /// `project_id` is the canonical surrogate key from `projects`.
-    pub fn list_threads(&self, project_id: &str) -> Result<Vec<String>> {
+    pub fn list_threads(&self, project_id: &str) -> Result<Vec<ThreadMeta>> {
         let mut stmt = self.conn.prepare(
-            "SELECT thread_id FROM threads WHERE project_id=?1 ORDER BY created_at",
+            "SELECT t.thread_id, t.project_id, t.subject, t.created_at, t.updated_at,
+                    COUNT(m.message_id) AS message_count,
+                    MAX(m.created_at) AS last_message_at
+             FROM threads t
+             LEFT JOIN messages m ON m.thread_id = t.thread_id
+             WHERE t.project_id = ?1
+             GROUP BY t.thread_id
+             ORDER BY COALESCE(MAX(m.created_at), t.created_at) DESC",
         )?;
-        let rows: Vec<String> = stmt
-            .query_map(params![project_id], |r| r.get(0))?
+        let rows: Vec<ThreadMeta> = stmt
+            .query_map(params![project_id], |r| {
+                Ok(ThreadMeta {
+                    thread_id: r.get(0)?,
+                    project_id: r.get(1)?,
+                    subject: r.get(2)?,
+                    created_at: r.get(3)?,
+                    updated_at: r.get(4)?,
+                    message_count: r.get(5)?,
+                    last_message_at: r.get(6)?,
+                })
+            })?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
     }
 
-    /// Canonical messages for a thread.  Returns empty until Phase 6 dual-write
-    /// populates the `messages` table.
-    pub fn messages_for_thread(&self, thread_id: &str) -> Result<Vec<String>> {
+    /// Canonical messages for a thread, ordered by `created_at` ascending
+    /// (chronological order for conversation rendering).
+    pub fn messages_for_thread(&self, thread_id: &str) -> Result<Vec<MessageRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT message_id FROM messages WHERE thread_id=?1 ORDER BY created_at",
+            "SELECT message_id, thread_id, author_pubkey, body, created_at,
+                    direction, sync_state, native_event_id
+             FROM messages WHERE thread_id=?1 ORDER BY created_at",
         )?;
-        let rows: Vec<String> = stmt
-            .query_map(params![thread_id], |r| r.get(0))?
+        let rows: Vec<MessageRow> = stmt
+            .query_map(params![thread_id], |r| {
+                Ok(MessageRow {
+                    message_id: r.get(0)?,
+                    thread_id: r.get(1)?,
+                    author_pubkey: r.get(2)?,
+                    body: r.get(3)?,
+                    created_at: r.get(4)?,
+                    direction: r.get(5)?,
+                    sync_state: r.get(6)?,
+                    native_event_id: r.get(7)?,
+                })
+            })?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
+    }
+
+    /// Enriched metadata for a single thread by its canonical id.
+    /// Returns `None` if no thread with that id exists.
+    pub fn thread_meta(&self, thread_id: &str) -> Result<Option<ThreadMeta>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.thread_id, t.project_id, t.subject, t.created_at, t.updated_at,
+                    COUNT(m.message_id) AS message_count,
+                    MAX(m.created_at) AS last_message_at
+             FROM threads t
+             LEFT JOIN messages m ON m.thread_id = t.thread_id
+             WHERE t.thread_id = ?1
+             GROUP BY t.thread_id",
+        )?;
+        let mut rows = stmt.query(params![thread_id])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some(ThreadMeta {
+                thread_id: r.get(0)?,
+                project_id: r.get(1)?,
+                subject: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+                message_count: r.get(5)?,
+                last_message_at: r.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Resolve the native relay key for a thread's root message.
+    ///
+    /// Used by `provider.send` when encoding a reply: the root `e` tag must
+    /// carry the relay-native event id of the thread's originating message so
+    /// the recipient's inbound materializer groups the reply into the same thread.
+    ///
+    /// Returns `None` when the thread has no registered origin (safe degradation:
+    /// the caller publishes without the root tag, creating a new thread on the
+    /// recipient's side).
+    pub fn thread_root_native_key(
+        &self,
+        thread_id: &str,
+        fabric: &str,
+        provider_instance: &str,
+    ) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT native_thread_key FROM thread_origins
+                 WHERE thread_id=?1 AND fabric=?2 AND provider_instance=?3",
+                params![thread_id, fabric, provider_instance],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+    }
+
+    /// Resolve a project display-slug to its canonical `project_id` for the
+    /// kind1-nip29 fabric.  Read-only — does NOT create an origin.
+    pub fn project_id_for_slug(
+        &self,
+        fabric: &str,
+        provider_instance: &str,
+        slug: &str,
+    ) -> Result<Option<String>> {
+        self.project_id_for_origin(fabric, provider_instance, slug)
     }
 
     /// Peek (non-destructive read) of undelivered inbox rows for a session.
@@ -2229,18 +2355,23 @@ mod tests {
         assert_eq!(scoped[0].2, "working");
     }
 
-    /// list_threads returns empty until populated (canonical table, Phase 7).
+    /// list_threads returns empty on a fresh store (canonical table, Phase 7).
     #[test]
     fn phase2_list_threads_empty_until_phase7() {
         let s = Store::open_memory().unwrap();
         let pid = s.ensure_project_origin("kind1-nip29", "ri", "p", "p", 1).unwrap();
         assert!(s.list_threads(&pid).unwrap().is_empty(), "threads empty before Phase 7");
-        // After ensure_thread_origin it is populated.
+        // After ensure_thread_origin it is populated — verify the enriched struct.
         let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2).unwrap();
-        assert_eq!(s.list_threads(&pid).unwrap(), vec![tid]);
+        let threads = s.list_threads(&pid).unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].thread_id, tid);
+        assert_eq!(threads[0].project_id, pid);
+        assert_eq!(threads[0].message_count, 0);
+        assert!(threads[0].last_message_at.is_none());
     }
 
-    /// messages_for_thread returns empty until populated (canonical table, Phase 6).
+    /// messages_for_thread returns empty on a fresh thread (canonical table, Phase 6).
     #[test]
     fn phase2_messages_for_thread_empty_until_phase6() {
         let s = Store::open_memory().unwrap();
@@ -2248,7 +2379,10 @@ mod tests {
         let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2).unwrap();
         assert!(s.messages_for_thread(&tid).unwrap().is_empty());
         let mid = s.record_message(&tid, "pk", "hello", 3, "inbound", "accepted", None).unwrap();
-        assert_eq!(s.messages_for_thread(&tid).unwrap(), vec![mid]);
+        let msgs = s.messages_for_thread(&tid).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].message_id, mid);
+        assert_eq!(msgs[0].body, "hello");
     }
 
     /// undelivered_messages_for_session is non-destructive (same as peek_inbox).
@@ -2570,5 +2704,153 @@ mod tests {
             )
             .unwrap();
         assert_eq!(inbox_count, 1, "exactly one legacy inbox row after echo");
+    }
+
+    // ── Phase 7 tests ─────────────────────────────────────────────────────────
+
+    /// list_threads/messages_for_thread/thread_meta return correct enriched data.
+    #[test]
+    fn phase7_read_model_enriched_data() {
+        let s = Store::open_memory().unwrap();
+        let pi = "test-pi-p7";
+        let pid = s.ensure_project_origin("kind1-nip29", pi, "myproj", "myproj", 100).unwrap();
+
+        // Two threads; second thread has messages; first does not.
+        let tid1 = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t1", 100).unwrap();
+        let tid2 = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t2", 200).unwrap();
+
+        // Add two messages to tid2.
+        let _m1 = s.record_message(&tid2, "pk-a", "first", 300, "inbound", "received", Some("eid-1")).unwrap();
+        let _m2 = s.record_message(&tid2, "pk-b", "second", 400, "outbound", "published", Some("eid-2")).unwrap();
+
+        // list_threads — tid2 (last activity 400) should come first.
+        let threads = s.list_threads(&pid).unwrap();
+        assert_eq!(threads.len(), 2);
+        assert_eq!(threads[0].thread_id, tid2, "most-active thread is first");
+        assert_eq!(threads[0].message_count, 2);
+        assert_eq!(threads[0].last_message_at, Some(400));
+        assert_eq!(threads[1].thread_id, tid1, "inactive thread is second");
+        assert_eq!(threads[1].message_count, 0);
+        assert!(threads[1].last_message_at.is_none());
+
+        // messages_for_thread — chronological order.
+        let msgs = s.messages_for_thread(&tid2).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].body, "first");
+        assert_eq!(msgs[0].direction, "inbound");
+        assert_eq!(msgs[1].body, "second");
+        assert_eq!(msgs[1].direction, "outbound");
+        assert_eq!(msgs[1].native_event_id.as_deref(), Some("eid-2"));
+
+        // thread_meta — single thread lookup.
+        let meta = s.thread_meta(&tid2).unwrap().expect("thread_meta found");
+        assert_eq!(meta.thread_id, tid2);
+        assert_eq!(meta.message_count, 2);
+        assert_eq!(meta.last_message_at, Some(400));
+
+        // thread_meta on a non-existent id returns None.
+        assert!(s.thread_meta("no-such-thread").unwrap().is_none());
+    }
+
+    /// thread_root_native_key resolves the relay-native key for a thread origin.
+    #[test]
+    fn phase7_thread_root_native_key() {
+        let s = Store::open_memory().unwrap();
+        let pi = "pi-rootkey";
+        let pid = s.ensure_project_origin("kind1-nip29", pi, "proj", "proj", 1).unwrap();
+        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "root-event-abc", 2).unwrap();
+
+        let key = s.thread_root_native_key(&tid, "kind1-nip29", pi);
+        assert_eq!(key.as_deref(), Some("root-event-abc"));
+
+        // Wrong fabric or provider_instance → None.
+        assert!(s.thread_root_native_key(&tid, "other-fabric", pi).is_none());
+        assert!(s.thread_root_native_key(&tid, "kind1-nip29", "wrong-pi").is_none());
+    }
+
+    /// Reply grouping round-trip: a reply event carrying a root `e` tag pointing
+    /// at an existing outbound thread's native key lands in the SAME thread.
+    ///
+    /// The Phase 6 inbound materializer reads `["e", ..., "root"]` to determine
+    /// `native_thread_key`.  This test proves the end-to-end grouping works.
+    #[test]
+    fn phase7_reply_groups_into_same_thread() {
+        use crate::domain::{AgentRef, Mention};
+        use crate::fabric::kind1::materializer::Kind1Materializer;
+        use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+
+        let s = Store::open_memory().unwrap();
+        let pi = "pi-rg";
+        let proj = "reply-proj";
+
+        // Use a fixed 64-char hex as the "root event id" (E1).
+        // In production this comes from the published Nostr event id.
+        let e1_hex = "a".repeat(64);
+
+        // Seed the outbound root: project origin → thread origin keyed on E1.
+        let pid = s.ensure_project_origin("kind1-nip29", pi, proj, proj, 100).unwrap();
+        let root_tid = s.ensure_thread_origin(&pid, "kind1-nip29", pi, &e1_hex, 100).unwrap();
+        let _root_mid = s.record_message(&root_tid, "pk-sender", "root message", 100, "outbound", "published", Some(&e1_hex)).unwrap();
+
+        // Build a signed inbound reply event carrying ["e", E1, "", "root"].
+        let recipient_keys = Keys::generate();
+        let recipient_pk = recipient_keys.public_key().to_hex();
+
+        // Create a recipient session so the legacy inbox path has somewhere to deliver.
+        let rec = SessionRecord {
+            session_id: "sess-reply-rg".into(),
+            agent_slug: "agent".into(),
+            agent_pubkey: recipient_pk.clone(),
+            project: proj.into(),
+            host: "host".into(),
+            child_pid: None,
+            watch_pid: None,
+            created_at: 1,
+            alive: true,
+            rel_cwd: String::new(),
+        };
+        s.upsert_session(&rec).unwrap();
+
+        let sender_keys = Keys::generate();
+        // Build a reply event with a NIP-10 root e-tag pointing at E1.
+        let reply_event = EventBuilder::new(Kind::from(1u16), "reply body")
+            .tags([
+                Tag::parse(["h", proj]).unwrap(),
+                Tag::parse(["p", &recipient_pk]).unwrap(),
+                Tag::parse(["e", &e1_hex, "", "root"]).unwrap(),
+            ])
+            .sign_with_keys(&sender_keys)
+            .unwrap();
+
+        let mention = Mention {
+            from: AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
+            to_pubkey: recipient_pk.clone(),
+            project: proj.into(),
+            body: "reply body".into(),
+            target_session: Some("sess-reply-rg".into()),
+            from_session: None,
+        };
+
+        Kind1Materializer::materialize_inbound_message(
+            &s,
+            &recipient_pk,
+            &mention,
+            &reply_event,
+            pi,
+            200,
+        );
+
+        // The reply must land in the SAME thread as the root.
+        let thread_count: i64 = s
+            .conn
+            .query_row("SELECT COUNT(*) FROM threads WHERE project_id=?1", params![pid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(thread_count, 1, "reply must join the existing thread, not create a new one");
+
+        let msgs = s.messages_for_thread(&root_tid).unwrap();
+        assert_eq!(msgs.len(), 2, "one root + one reply in the same thread");
+        assert_eq!(msgs[0].direction, "outbound");
+        assert_eq!(msgs[1].direction, "inbound");
+        assert_eq!(msgs[1].body, "reply body");
     }
 }
