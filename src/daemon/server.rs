@@ -14,7 +14,7 @@ use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
 };
 use super::{lock_path, socket_path, store_path};
-use crate::codec::{Codec, Kind1Codec, SubScope};
+use crate::codec::{Codec, Kind1Codec};
 use crate::config::{self, Config};
 use crate::domain::{DomainEvent, Mention};
 use crate::identity::{self, AgentIdentity};
@@ -52,6 +52,7 @@ struct SessionHandle {
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
     transport: Arc<Transport>,
+    delivery: crate::fabric::nostr_delivery::NostrDelivery,
     codec: Kind1Codec,
     cfg: Config,
     host: String,
@@ -115,9 +116,11 @@ pub async fn run() -> Result<()> {
             .context("daemon relay connect")?,
     );
 
+    let delivery = crate::fabric::nostr_delivery::NostrDelivery::new(transport.clone());
     let state = Arc::new(DaemonState {
         store: Arc::new(Mutex::new(Store::open(&store_path())?)),
         transport,
+        delivery,
         codec: Kind1Codec,
         cfg,
         host,
@@ -1514,22 +1517,24 @@ async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
 
     for project in &projects {
         if hosted.is_empty() {
-            let scope = SubScope {
+            let scope = crate::fabric::Scope {
                 authors: authors.clone(),
                 project: Some(project.clone()),
                 mentions_to: None,
                 owners: owners.clone(),
+                thread: None,
             };
-            state.transport.subscribe(state.codec.filters(&scope)).await?;
+            state.delivery.subscribe(scope).await?;
         } else {
             for me in &hosted {
-                let scope = SubScope {
+                let scope = crate::fabric::Scope {
                     authors: authors.clone(),
                     project: Some(project.clone()),
                     mentions_to: Some(me.clone()),
                     owners: owners.clone(),
+                    thread: None,
                 };
-                state.transport.subscribe(state.codec.filters(&scope)).await?;
+                state.delivery.subscribe(scope).await?;
             }
         }
     }
