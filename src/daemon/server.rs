@@ -21,7 +21,7 @@ use crate::identity::{self, AgentIdentity};
 use crate::runtime::{self, route_mention_into, route_mention_into_with_id, EngineParams};
 use crate::state::{InboxRow, Store};
 use crate::transport::Transport;
-use crate::util::now_secs;
+use crate::util::{now_secs, session_short_code};
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::{Event, Keys, RelayMessage, RelayPoolNotification};
 use std::collections::HashMap;
@@ -692,6 +692,15 @@ fn resolve_recipient(
                 project: s.project,
             });
         }
+        // Try matching against hash-based session short codes (from `who` display).
+        // This is a fallback for when users copy session codes from `who` output.
+        if let Some(found) = find_session_by_hash(store, target)? {
+            return Ok(ResolvedRecipient {
+                pubkey: found.pubkey,
+                target_session: Some(found.session_id),
+                project: found.project,
+            });
+        }
     }
     if let Some(pk) = store.resolve_agent_pubkey(target, Some(my_project))? {
         return Ok(ResolvedRecipient {
@@ -701,6 +710,46 @@ fn resolve_recipient(
         });
     }
     anyhow::bail!("can't resolve recipient {target:?} (try `tenex-edge who`)")
+}
+
+struct SessionMatch {
+    pubkey: String,
+    session_id: String,
+    project: String,
+}
+
+/// Try to find a session (peer or own) matching the given hash code.
+/// Hash codes are what `who` displays for sessions (6-char hex strings).
+fn find_session_by_hash(store: &Store, hash_code: &str) -> Result<Option<SessionMatch>> {
+    let target_code = hash_code.to_lowercase();
+
+    // Search peer sessions
+    if let Ok(peers) = store.list_peer_sessions(None, 0) {
+        for peer in peers {
+            if session_short_code(&peer.session_id).to_lowercase() == target_code {
+                return Ok(Some(SessionMatch {
+                    pubkey: peer.pubkey,
+                    session_id: peer.session_id,
+                    project: peer.project,
+                }));
+            }
+        }
+    }
+
+    // Search own sessions
+    if let Ok(sessions) = store.list_my_live_sessions(0) {
+        for session in sessions {
+            if session_short_code(&session.session_id).to_lowercase() == target_code {
+                return Ok(Some(SessionMatch {
+                    pubkey: session.agent_pubkey,
+                    session_id: session.session_id,
+                    project: session.project,
+                }));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 // ── inbox / turn_start / turn_check / turn_end ───────────────────────────────
