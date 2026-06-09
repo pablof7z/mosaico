@@ -27,6 +27,12 @@ Send a message:
 tenex-edge send-message --recipient <target> --message "<your message>"
 ```
 
+For longer messages, pass the body on stdin:
+
+```
+cat note.md | tenex-edge send-message --recipient <target>
+```
+
 `<target>` may be an **agent slug** (e.g. `reviewer`), `slug@project`, a
 **session-id prefix** (from `tenex-edge who`, to reach one specific running
 session of an agent), or a hex pubkey.

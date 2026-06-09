@@ -20,7 +20,7 @@ use crossterm::{
 use nostr_sdk::prelude::RelayPoolNotification;
 use owo_colors::OwoColorize;
 use std::fmt::Write as _;
-use std::io::{self, Write as _};
+use std::io::{self, IsTerminal as _, Read as _, Write as _};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -204,9 +204,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             let recipient = recipient_flag
                 .or(recipient)
                 .context("missing recipient; use `tenex-edge send-message --recipient <target> --message \"...\"`")?;
-            let message = message_flag
-                .or(message)
-                .context("missing message; use `tenex-edge send-message --recipient <target> --message \"...\"`")?;
+            let message = resolve_send_message_body(message_flag.or(message))?;
             send_message(recipient, message, session).await
         }
         Cmd::Who {
@@ -464,6 +462,45 @@ async fn send_message(recipient: String, message: String, session: Option<String
         None => println!("mentioned {}", short_id(&to_pubkey)),
     }
     Ok(())
+}
+
+fn resolve_send_message_body(raw: Option<String>) -> Result<String> {
+    match raw {
+        Some(message) if message == "-" => read_stdin_message(),
+        Some(message) if message.is_empty() => bail!("message must not be empty"),
+        Some(message) => Ok(message),
+        None => {
+            if io::stdin().is_terminal() {
+                bail!(
+                    "missing message; use `tenex-edge send-message --recipient <target> --message \"...\"` \
+                     or pipe/heredoc the message on stdin"
+                );
+            }
+            read_stdin_message()
+        }
+    }
+}
+
+fn read_stdin_message() -> Result<String> {
+    let mut message = String::new();
+    io::stdin()
+        .read_to_string(&mut message)
+        .context("failed to read message from stdin")?;
+    let message = strip_single_trailing_newline(message);
+    if message.is_empty() {
+        bail!("message from stdin was empty");
+    }
+    Ok(message)
+}
+
+fn strip_single_trailing_newline(mut s: String) -> String {
+    if s.ends_with('\n') {
+        s.pop();
+        if s.ends_with('\r') {
+            s.pop();
+        }
+    }
+    s
 }
 
 fn resolve_recipient(

@@ -1,13 +1,12 @@
 # Copy these hook entries into ~/.codex/config.toml, or into a trusted
-# <repo>/.codex/config.toml. Replace __HOOK__ with the absolute path to
-# integrations/codex/te-hook.py.
+# <repo>/.codex/config.toml. tenex-edge must be on PATH (or set TENEX_EDGE_BIN).
 
 [[hooks.SessionStart]]
 matcher = "startup|resume"
 
 [[hooks.SessionStart.hooks]]
 type = "command"
-command = 'python3 "__HOOK__" session-start'
+command = 'tenex-edge hook --host codex --type session-start'
 timeout = 30
 statusMessage = "Starting tenex-edge"
 
@@ -15,7 +14,7 @@ statusMessage = "Starting tenex-edge"
 
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
-command = 'python3 "__HOOK__" user-prompt-submit'
+command = 'tenex-edge hook --host codex --type user-prompt-submit'
 timeout = 30
 statusMessage = "tenex-edge turn start"
 
@@ -23,7 +22,7 @@ statusMessage = "tenex-edge turn start"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = 'python3 "__HOOK__" post-tool-use'
+command = 'tenex-edge hook --host codex --type post-tool-use'
 timeout = 10
 statusMessage = "tenex-edge turn check"
 
@@ -31,6 +30,6 @@ statusMessage = "tenex-edge turn check"
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = 'python3 "__HOOK__" stop'
+command = 'tenex-edge hook --host codex --type stop'
 timeout = 30
 statusMessage = "tenex-edge turn end"

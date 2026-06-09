@@ -1,37 +1,36 @@
 # Codex integration
 
-Codex integrates through Codex lifecycle hooks. The hook dispatcher is
-`te-hook.py`:
+Codex integrates through Codex lifecycle hooks. Each hook calls the
+`tenex-edge` binary directly:
 
-    integrations/codex/te-hook.py
+    tenex-edge hook --host codex --type <hook-type>
 
 Install the hooks by copying `config.template.toml` into either:
 
 - `~/.codex/config.toml` for all Codex projects
 - `<repo>/.codex/config.toml` for one trusted project
 
-Replace `__HOOK__` with the absolute path to `integrations/codex/te-hook.py`.
-Codex requires non-managed hooks to be reviewed and trusted in `/hooks`.
+`tenex-edge` must be on PATH. Codex requires non-managed hooks to be reviewed
+and trusted in `/hooks`.
 
 The hook mapping is:
 
-- `SessionStart` -> `tenex-edge session-start --agent codex --session-id <codex-session-id> --cwd <cwd>`
-- `UserPromptSubmit` -> `tenex-edge turn-start --session <codex-session-id> --transcript <transcript_path>` (marks the
-  turn "working" so the engine starts its distillation timer), and inject pending mentions and `tenex-edge who` output
-  as developer context
-- `Stop` -> `tenex-edge turn-end --session <codex-session-id>` (marks the session idle when the turn finishes)
+- `SessionStart` → `tenex-edge hook --host codex --type session-start`
+- `UserPromptSubmit` → `tenex-edge hook --host codex --type user-prompt-submit`
+  (marks the turn "working", injects pending mentions and `tenex-edge who` output)
+- `PostToolUse` → `tenex-edge hook --host codex --type post-tool-use`
+  (read-only inbox peek mid-turn; does not drain the inbox)
+- `Stop` → `tenex-edge hook --host codex --type stop`
+  (marks the session idle when the turn finishes)
 
-The adapter accepts Codex session identifiers under `session_id`, `sessionId`, `conversation_id`, `conversationId`,
-`thread_id`, or `threadId`, then uses that value consistently as the tenex-edge session id. Codex hook payloads may also
-carry a live `transcript_path` (a JSONL rollout file Codex keeps appending to during the turn), so the transcript path is
-handed once at `turn-start` and the engine re-reads that same file as the turn progresses. Distillation is driven by the
-turn lifecycle, not individual tool calls — there is no `PostToolUse` hook. Note that Codex hooks only fire in the
-interactive TUI, not in `codex exec`.
+The adapter accepts Codex session identifiers under `session_id`, `sessionId`,
+`conversation_id`, `conversationId`, `thread_id`, or `threadId`, then uses that
+value consistently as the tenex-edge session id. Codex hook payloads may carry a
+live `transcript_path` (a JSONL rollout file) handed at `turn-start` and re-read
+as the turn progresses.
 
-For diagnostics, the adapter appends quiet status lines to `~/.tenex/edge/codex-hook.log`; set
-`TENEX_EDGE_HOOK_LOG=/path/to/log` to override that location.
+Codex hooks only fire in the interactive TUI, not in `codex exec`.
 
-Codex does not currently document a `SessionEnd` hook. The dispatcher therefore
-passes Codex's process id to `session-start --watch-pid` when it can identify the
-Codex ancestor process; the tenex-edge liveness reaper stops presence when Codex
-exits.
+Codex does not currently document a `SessionEnd` hook. The binary detects the
+Codex ancestor process via `pid_search` and passes it to `session-start
+--watch-pid`; the liveness reaper stops presence when Codex exits.
