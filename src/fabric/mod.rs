@@ -68,8 +68,11 @@ pub struct MaterializationOutcome {
 /// decoded event (including is_self), and `wake_mentions` is set only when a
 /// mention is actually routed.
 ///
-/// ACL note: today every hosted-addressed mention is routed with no membership
-/// gate — keep it that way.
+/// Routing gate for directed Mentions (to_pubkey ∈ hosted):
+///   admitted = signer ∈ hosted  OR  signer ∈ owners  OR  is_group_member(project, signer)
+/// The self-asserted `["agent", …]` wire tag carries no authority and is not
+/// consulted here or anywhere; routing is by signer pubkey only.
+///
 /// Phase 6: `provider_instance` is threaded through to `materialize_inbound_message`
 /// so canonical dual-write rows are keyed by the correct origin.
 pub fn materialize(
@@ -135,33 +138,33 @@ pub fn materialize(
         }
 
         DomainEvent::Mention(ref m) if hosted.contains(&m.to_pubkey) => {
-            // Admission gate: agent-tagged mentions route unconditionally (existing
-            // behavior — any ACL-cleared remote peer, any machine).
-            // Owner-note mentions (no `agent` tag on the raw event) route ONLY when
-            // the sender's pubkey is in `owners`. Strangers cannot inject notes.
-            let has_agent = event
-                .tags
-                .iter()
-                .any(|t| t.as_slice().first().map(String::as_str) == Some("agent"));
+            // Admission gate: route only when the SIGNER is trusted.
+            // admitted = signer ∈ hosted  OR  signer ∈ owners  OR
+            //            is_group_member(project, signer)
+            // The old self-asserted ["agent", …] wire tag is no longer consulted;
+            // identity is the signer pubkey only.
             let sender_pk = event.pubkey.to_hex();
-            let admitted = has_agent || owners.contains(&sender_pk);
+            let admitted = hosted.contains(&sender_pk)
+                || owners.contains(&sender_pk)
+                || store
+                    .is_group_member(&m.project, &sender_pk)
+                    .unwrap_or(false);
             if admitted {
                 let to = m.to_pubkey.clone();
-                // Enrich owner-note slug before routing so inbox rows carry a
-                // readable sender name. Agent-tagged mentions already carry a slug
-                // in AgentRef.
-                let enriched: std::borrow::Cow<Mention> = if !has_agent && m.from.slug.is_empty() {
-                    let slug = store
-                        .resolve_slug_for_pubkey(&sender_pk)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| "operator".to_string());
+                // Slug is no longer on the wire; resolve from profiles/sessions table
+                // so inbox rows carry a readable sender name for all senders.
+                let resolved_slug = store
+                    .resolve_slug_for_pubkey(&sender_pk)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let enriched = if resolved_slug.is_empty() {
+                    std::borrow::Cow::Borrowed(m)
+                } else {
                     std::borrow::Cow::Owned(Mention {
-                        from: crate::domain::AgentRef::new(sender_pk, slug),
+                        from: crate::domain::AgentRef::new(sender_pk, resolved_slug),
                         ..m.clone()
                     })
-                } else {
-                    std::borrow::Cow::Borrowed(m)
                 };
                 let routed = Kind1Materializer::materialize_inbound_message(
                     store,
@@ -303,9 +306,9 @@ mod tests {
         assert!(inbox.is_empty(), "inbox must be empty for stranger note");
     }
 
-    /// Agent-tagged mention still routes (existing behavior must not regress).
+    /// Hosted-sender mention routes (signer ∈ hosted is the new gate).
     #[test]
-    fn agent_tagged_mention_still_routes() {
+    fn hosted_sender_mention_routes() {
         let store = Store::open_memory().unwrap();
         let sender_keys = Keys::generate();
         let recipient_keys = Keys::generate();
@@ -326,9 +329,8 @@ mod tests {
             rel_cwd: String::new(),
         }).unwrap();
         store.touch_session(session_id, 1_000).unwrap();
-        // Sender is in ACL (allowed).
-        crate::acl::allow(&sender_pk, "sender").ok();
 
+        // Wire event has NO agent tag — the sender is hosted (same daemon).
         let event = build_event(
             &sender_keys,
             1,
@@ -336,19 +338,69 @@ mod tests {
             vec![
                 make_tag(&["h", "myproject"]),
                 make_tag(&["p", &recipient_pk]),
-                make_tag(&["agent", &sender_pk, "sender"]),
                 make_tag(&["session-id", session_id]),
             ],
         );
 
+        // Sender is in the hosted set — that is the admission criterion.
+        let hosted = vec![recipient_pk.clone(), sender_pk.clone()];
+        let owners: Vec<String> = vec![];
+        let env = RawEnvelope::Nostr(event);
+        let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
+
+        assert!(outcome.wake_mentions, "hosted-sender mention must route");
+        let inbox = store.drain_inbox(session_id).unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0].body, "hey review this");
+    }
+
+    /// Group-member sender mention routes (signer ∈ is_group_member).
+    #[test]
+    fn group_member_sender_mention_routes() {
+        let store = Store::open_memory().unwrap();
+        let sender_keys = Keys::generate();
+        let recipient_keys = Keys::generate();
+        let sender_pk = sender_keys.public_key().to_hex();
+        let recipient_pk = recipient_keys.public_key().to_hex();
+        let session_id = "test-sess-member-1";
+
+        store.upsert_session(&crate::state::SessionRecord {
+            session_id: session_id.to_string(),
+            agent_slug: "claude".to_string(),
+            agent_pubkey: recipient_pk.clone(),
+            project: "myproject".to_string(),
+            host: "laptop".to_string(),
+            child_pid: None,
+            watch_pid: None,
+            created_at: 1,
+            alive: true,
+            rel_cwd: String::new(),
+        }).unwrap();
+        store.touch_session(session_id, 1_000).unwrap();
+
+        // Register sender as a group member via the 39002 membership cache.
+        store.replace_group_members("myproject", &[(sender_pk.clone(), "member".to_string())], 100).unwrap();
+
+        let event = build_event(
+            &sender_keys,
+            1,
+            "review please",
+            vec![
+                make_tag(&["h", "myproject"]),
+                make_tag(&["p", &recipient_pk]),
+                make_tag(&["session-id", session_id]),
+            ],
+        );
+
+        // Sender is NOT hosted, NOT owner — admitted via group membership.
         let hosted = vec![recipient_pk.clone()];
         let owners: Vec<String> = vec![];
         let env = RawEnvelope::Nostr(event);
         let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
 
-        assert!(outcome.wake_mentions, "agent-tagged mention must still route");
+        assert!(outcome.wake_mentions, "group-member mention must route");
         let inbox = store.drain_inbox(session_id).unwrap();
         assert_eq!(inbox.len(), 1);
-        assert_eq!(inbox[0].body, "hey review this");
+        assert_eq!(inbox[0].body, "review please");
     }
 }

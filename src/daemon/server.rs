@@ -706,7 +706,7 @@ struct ProposeParams {
 ///   ["p", <owner>]              — per owner in cfg.owners, surfaces to the human
 ///   ["e", <root>, "", "root"]   — only when --thread given; links to work-thread
 ///   ["session-id", <session>]   — authoring session, lets a note route back
-///   ["agent", <pubkey>, <slug>] — author identity (consistent with other events)
+///   (no agent tag — author identity is the event signer pubkey; kind:0 carries slug)
 ///
 /// Dual-writes a canonical row: project_origin → thread_origin (thread_id or
 /// the proposal's own event id as a new root) → message (direction=outbound,
@@ -758,7 +758,7 @@ async fn rpc_propose(
         Tag::parse(["title", &p.title]).context("title tag")?,
         Tag::parse(["h", &rec.project]).context("h tag")?,
         Tag::parse(["session-id", &rec.session_id]).context("session-id tag")?,
-        Tag::parse(["agent", &id.pubkey_hex(), &rec.agent_slug]).context("agent tag")?,
+        // No agent tag: author identity is the event signer (pubkey); slug is in kind:0.
     ];
     // p-tag each owner so the proposal surfaces in their inbox.
     for owner in &state.owners {

@@ -39,29 +39,32 @@ impl Kind1Materializer {
 
     /// Apply a decoded `Presence` (kind:1 presence variant) to the store.
     ///
-    /// Byte-identical to the Presence arm in `handle_incoming`: expired events
-    /// are silently ignored; otherwise upsert the peer session and (if slug is
-    /// non-empty) upsert the profile too.
+    /// Expired events are silently ignored. The slug is NOT on the wire; it is
+    /// resolved from the `profiles` table (populated by kind:0 events). Profile
+    /// rows are NOT seeded from presence — only kind:0 is authoritative for slug.
     pub fn materialize_presence(store: &Store, pr: &Presence, now: u64) {
         if pr.expires_at <= now {
             return;
         }
+        // Resolve slug from kind:0 profile (authoritative); fall back to empty.
+        let slug = store
+            .resolve_slug_for_pubkey(&pr.agent.pubkey)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         store
             .upsert_peer_session(
                 &pr.session_id,
                 &pr.agent.pubkey,
-                &pr.agent.slug,
+                &slug,
                 &pr.project,
                 &pr.host,
                 &pr.rel_cwd,
                 now,
             )
             .ok();
-        if !pr.agent.slug.is_empty() {
-            store
-                .upsert_profile(&pr.agent.pubkey, &pr.agent.slug, &pr.host, now)
-                .ok();
-        }
+        // Do NOT upsert_profile from presence — only kind:0 Profile events are
+        // authoritative for the profiles table.
     }
 
     /// Apply a decoded `Status` to the store.
