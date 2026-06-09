@@ -87,6 +87,10 @@ pub struct Mention {
     pub body: String,
     /// When `Some`, only the recipient's matching session should surface it.
     pub target_session: Option<String>,
+    /// The SENDER's session id, when known. Lets the recipient reply to the exact
+    /// sibling session that wrote this (sessions of one agent share a pubkey, so
+    /// the author key alone can't disambiguate them). `None` for old peers.
+    pub from_session: Option<String>,
 }
 
 /// The closed set of things that travel on the fabric. A codec encodes each of

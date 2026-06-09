@@ -71,6 +71,7 @@ async fn publishes_and_decodes_all_event_types() {
             project: project.clone(),
             body: "can you review?".into(),
             target_session: Some("sess-1".into()),
+            from_session: Some("sender-sess-1".into()),
         }),
     ];
     for ev in &events {

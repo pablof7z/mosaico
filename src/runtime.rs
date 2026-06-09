@@ -268,6 +268,7 @@ pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &st
                 project: m.project.clone(),
                 body: m.body.clone(),
                 created_at: now_secs(),
+                from_session: m.from_session.clone().unwrap_or_default(),
             })
             .unwrap_or(false);
         routed = routed || newly;
@@ -332,6 +333,7 @@ mod tests {
             project: "proj".to_string(),
             body: "hi sibling".to_string(),
             target_session: target_session.map(str::to_string),
+            from_session: None,
         };
         let event = Kind1Codec
             .encode(&DomainEvent::Mention(m.clone()))

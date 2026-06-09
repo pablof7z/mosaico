@@ -6,7 +6,7 @@
 //! | Presence  | kind:30315 (NIP-38-style heartbeat), `["h", project]`, `["d", "tenex-edge-presence:<session>"]`, `["p", peer]…`, `["agent", pk, slug]`, `["session-id", id]`, `["host", host]`, optional `["rel-cwd", rel]`, `["expiration", ts]` |
 //! | Activity  | kind:1,    `["h", project]`, `["agent", pk, slug]` |
 //! | Status    | kind:30315 (NIP-38), `["h", project]`, `["d", project]`, `["agent", pk, slug]`, optional `["rel-cwd", rel]`, `["expiration", ts]` |
-//! | Mention   | kind:1,    `["h", project]`, `["p", to]`, `["agent", pk, slug]`, optional `["session-id", target]` |
+//! | Mention   | kind:1,    `["h", project]`, `["p", to]`, `["agent", pk, slug]`, optional `["session-id", target]`, optional `["from-session", sender]` |
 //!
 //! Activity vs Mention (both kind:1) is disambiguated on decode by the presence
 //! of a `p` tag.
@@ -224,6 +224,7 @@ impl Codec for Kind1Codec {
                 project,
                 body,
                 target_session,
+                from_session,
             }) => {
                 let mut tags = vec![
                     project_tag(project)?,
@@ -232,6 +233,9 @@ impl Codec for Kind1Codec {
                 ];
                 if let Some(sess) = target_session {
                     tags.push(tag(&["session-id", sess])?);
+                }
+                if let Some(sess) = from_session {
+                    tags.push(tag(&["from-session", sess])?);
                 }
                 // allow_self_tagging: a mention to a sibling session of the SAME
                 // agent has p == author; nostr would otherwise strip that p tag.
@@ -288,6 +292,7 @@ impl Codec for Kind1Codec {
                             project,
                             body: event.content.clone(),
                             target_session: first_tag(event, "session-id").map(String::from),
+                            from_session: first_tag(event, "from-session").map(String::from),
                         }));
                     }
                 }
@@ -541,8 +546,40 @@ mod tests {
             project: "tenex-edge".into(),
             body: "can you review?".into(),
             target_session: Some("sess-xyz".into()),
+            // Distinct from target_session so the roundtrip proves they don't swap.
+            from_session: Some("sender-sess-1".into()),
         });
         assert_eq!(roundtrip(ev.clone(), &keys), ev);
+    }
+
+    #[test]
+    fn mention_emits_from_session_tag_and_back_compat_decodes_none() {
+        let keys = Keys::generate();
+        // With a sender session → a `from-session` tag rides the wire.
+        let ev = DomainEvent::Mention(Mention {
+            from: agent(&keys, "coder"),
+            to_pubkey: "cc".repeat(32),
+            project: "tenex-edge".into(),
+            body: "ping".into(),
+            target_session: None,
+            from_session: Some("sender-9".into()),
+        });
+        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        assert!(has_tag(&signed, "from-session", "sender-9"));
+
+        // An old-peer note WITHOUT the tag decodes to `from_session: None`.
+        let legacy = EventBuilder::new(Kind::from(KIND_NOTE), "ping")
+            .tags([
+                tag(&["h", "tenex-edge"]).unwrap(),
+                tag(&["p", &"cc".repeat(32)]).unwrap(),
+                tag(&["agent", &keys.public_key().to_hex(), "coder"]).unwrap(),
+            ])
+            .sign_with_keys(&keys)
+            .unwrap();
+        match Kind1Codec.decode(&legacy) {
+            Some(DomainEvent::Mention(m)) => assert_eq!(m.from_session, None),
+            other => panic!("expected mention, got {other:?}"),
+        }
     }
 
     #[test]
@@ -554,6 +591,7 @@ mod tests {
             project: "tenex-edge".into(),
             body: "can you review?".into(),
             target_session: Some("sess-xyz".into()),
+            from_session: None,
         });
         let signed = Kind1Codec
             .encode(&ev)
@@ -576,6 +614,7 @@ mod tests {
             project: "p".into(),
             body: "hi".into(),
             target_session: Some("s2".into()),
+            from_session: Some("s1".into()),
         });
         let signed = Kind1Codec
             .encode(&ev)

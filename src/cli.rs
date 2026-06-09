@@ -978,6 +978,37 @@ async fn acl(action: Option<AclAction>) -> Result<()> {
     Ok(())
 }
 
+// ── mention rendering (one place; reused by inbox / wait / turn injection) ────
+
+/// The fully-qualified `--recipient` handle the receiver should reply to. Prefer
+/// the sender's exact session id — so a reply reaches the precise sibling session
+/// that wrote this — but only when that session actually resolves on our side;
+/// otherwise fall back to `slug@project`, which always routes to the agent.
+pub fn mention_reply_handle(store: &Store, row: &crate::state::InboxRow) -> String {
+    if !row.from_session.is_empty() {
+        let resolves = store
+            .find_peer_session_by_prefix(&row.from_session)
+            .ok()
+            .flatten()
+            .is_some()
+            || store
+                .find_session_by_prefix(&row.from_session)
+                .ok()
+                .flatten()
+                .is_some();
+        if resolves {
+            return row.from_session.clone();
+        }
+    }
+    format!("{}@{}", row.from_slug, row.project)
+}
+
+/// One injected line for an inbound mention. `reply_to` is the literal value to
+/// pass to `tenex-edge send-message --recipient <reply_to>`.
+pub fn format_mention_line(from_slug: &str, project: &str, reply_to: &str, body: &str) -> String {
+    format!("[mention from {from_slug}@{project} · reply-to {reply_to}] {body}")
+}
+
 // ── inbox ────────────────────────────────────────────────────────────────────
 
 async fn inbox(session: Option<String>) -> Result<()> {
@@ -991,10 +1022,13 @@ async fn inbox(session: Option<String>) -> Result<()> {
     if let Some(rows) = v["rows"].as_array() {
         for r in rows {
             println!(
-                "[mention from {}@{}] {}",
-                r["from_slug"].as_str().unwrap_or(""),
-                r["project"].as_str().unwrap_or(""),
-                r["body"].as_str().unwrap_or("")
+                "{}",
+                format_mention_line(
+                    r["from_slug"].as_str().unwrap_or(""),
+                    r["project"].as_str().unwrap_or(""),
+                    r["reply_to"].as_str().unwrap_or(""),
+                    r["body"].as_str().unwrap_or(""),
+                )
             );
         }
     }
@@ -1035,10 +1069,13 @@ async fn wait_for_mention(session: Option<String>, timeout: u64) -> Result<()> {
     if let Some(rows) = v["rows"].as_array().filter(|r| !r.is_empty()) {
         for r in rows {
             println!(
-                "[mention from {}@{}] {}",
-                r["from_slug"].as_str().unwrap_or(""),
-                r["project"].as_str().unwrap_or(""),
-                r["body"].as_str().unwrap_or("")
+                "{}",
+                format_mention_line(
+                    r["from_slug"].as_str().unwrap_or(""),
+                    r["project"].as_str().unwrap_or(""),
+                    r["reply_to"].as_str().unwrap_or(""),
+                    r["body"].as_str().unwrap_or(""),
+                )
             );
         }
         println!("[tenex-edge] Run `tenex-edge wait-for-mention` with run_in_background=true to receive the next mention.");
@@ -1092,19 +1129,24 @@ pub fn assemble_turn_start_context(
     }
 
     // Drain inbox (authoritative delivery; turn_check only peeks).
-    let inbox_rows = {
+    let inbox_lines = {
         let s = store.lock().expect("store mutex poisoned");
         let rows = s.drain_inbox(&rec.session_id).unwrap_or_default();
-        for r in &rows {
-            s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
-                .ok();
-        }
-        rows
+        // Render each line (incl. its reply-to handle) while we hold the lock —
+        // the handle resolution needs the store.
+        rows.iter()
+            .map(|r| {
+                s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
+                    .ok();
+                let handle = mention_reply_handle(&s, r);
+                format_mention_line(&r.from_slug, &r.project, &handle, &r.body)
+            })
+            .collect::<Vec<_>>()
     };
-    if !inbox_rows.is_empty() {
+    if !inbox_lines.is_empty() {
         let mut text = String::from("Messages from other agents (tenex-edge):");
-        for r in &inbox_rows {
-            let _ = write!(text, "\n[mention from {}@{}] {}", r.from_slug, r.project, r.body);
+        for line in &inbox_lines {
+            let _ = write!(text, "\n{line}");
         }
         blocks.push(text);
     }
@@ -1140,16 +1182,22 @@ pub fn assemble_turn_start_context(
 
 /// Mid-turn inbox PEEK (read-only) shared by the daemon's `turn_check` RPC.
 pub fn assemble_turn_check_context(store: &std::sync::Mutex<Store>, session_id: &str) -> Option<String> {
-    let rows = {
+    let lines = {
         let s = store.lock().expect("store mutex poisoned");
-        s.peek_inbox(session_id).unwrap_or_default()
+        let rows = s.peek_inbox(session_id).unwrap_or_default();
+        rows.iter()
+            .map(|r| {
+                let handle = mention_reply_handle(&s, r);
+                format_mention_line(&r.from_slug, &r.project, &handle, &r.body)
+            })
+            .collect::<Vec<_>>()
     };
-    if rows.is_empty() {
+    if lines.is_empty() {
         return None;
     }
     let mut text = String::from("[tenex-edge] Message(s) arrived while you were working:");
-    for r in &rows {
-        let _ = write!(text, "\n[mention from {}@{}] {}", r.from_slug, r.project, r.body);
+    for line in &lines {
+        let _ = write!(text, "\n{line}");
     }
     Some(text)
 }

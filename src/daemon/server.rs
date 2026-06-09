@@ -621,6 +621,8 @@ async fn rpc_send_message(
         project: recipient.project.clone(),
         body: p.message,
         target_session: recipient.target_session.clone(),
+        // Stamp the sender's own session so the recipient can reply to it precisely.
+        from_session: Some(rec.session_id.clone()),
     };
     let builder = state.codec.encode(&DomainEvent::Mention(mention.clone()))?;
     // Publish over the shared relay; the returned EventId is the canonical id of
@@ -780,9 +782,10 @@ async fn rpc_inbox(state: &Arc<DaemonState>, params: &serde_json::Value) -> Resu
         rows
     });
     let pending = state.with_store(|s| s.list_pending_agents().unwrap_or_default());
+    let rows_json = state.with_store(|s| rows_to_json(s, &rows));
 
     Ok(serde_json::json!({
-        "rows": rows_to_json(&rows),
+        "rows": rows_json,
         "pending_agents": pending.iter().map(|p| serde_json::json!({"slug": p.slug, "pubkey": p.pubkey})).collect::<Vec<_>>(),
     }))
 }
@@ -1126,7 +1129,8 @@ async fn handle_wait_for_mention(state: &Arc<DaemonState>, req: &Request) -> Res
             rows
         });
         if !rows.is_empty() {
-            return Response::ok(req.id, serde_json::json!({ "rows": rows_to_json(&rows) }));
+            let rows_json = state.with_store(|s| rows_to_json(s, &rows));
+            return Response::ok(req.id, serde_json::json!({ "rows": rows_json }));
         }
         // Park until a mention is routed or a short timeout for re-check.
         let wait = state.mention_notify.notified();
@@ -1579,7 +1583,7 @@ impl DaemonState {
     }
 }
 
-fn rows_to_json(rows: &[InboxRow]) -> Vec<serde_json::Value> {
+fn rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value> {
     rows.iter()
         .map(|r| {
             serde_json::json!({
@@ -1587,6 +1591,9 @@ fn rows_to_json(rows: &[InboxRow]) -> Vec<serde_json::Value> {
                 "project": r.project,
                 "body": r.body,
                 "mention_event_id": r.mention_event_id,
+                "from_session": r.from_session,
+                // Fully-qualified handle the receiver passes to `--recipient`.
+                "reply_to": crate::cli::mention_reply_handle(store, r),
             })
         })
         .collect()

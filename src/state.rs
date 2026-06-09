@@ -59,6 +59,9 @@ pub struct InboxRow {
     pub project: String,
     pub body: String,
     pub created_at: u64,
+    /// The sender's session id (empty when unknown — old peers / untargeted).
+    /// Lets the recipient reply to the exact sibling session that wrote this.
+    pub from_session: String,
 }
 
 const SCHEMA: &str = r#"
@@ -101,6 +104,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     body             TEXT NOT NULL,
     created_at       INTEGER NOT NULL,
     delivered        INTEGER NOT NULL DEFAULT 0,
+    from_session     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (mention_event_id, target_session)
 );
 -- Per-session turn state: flipped by the host's turn-start/turn-end hooks. The
@@ -193,6 +197,12 @@ impl Store {
         );
         let _ = conn.execute(
             "ALTER TABLE peer_sessions ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // Sender session id on inbox mentions, so a reply can target the exact
+        // sibling session that wrote the message.
+        let _ = conn.execute(
+            "ALTER TABLE inbox ADD COLUMN from_session TEXT NOT NULL DEFAULT ''",
             [],
         );
         Ok(Self { conn })
@@ -527,11 +537,11 @@ impl Store {
     pub fn enqueue_mention(&self, m: &InboxRow) -> Result<bool> {
         let changed = self.conn.execute(
             "INSERT OR IGNORE INTO inbox
-               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,0)",
+               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, from_session)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8)",
             params![
                 m.mention_event_id, m.target_session, m.from_pubkey, m.from_slug,
-                m.project, m.body, m.created_at
+                m.project, m.body, m.created_at, m.from_session
             ],
         )?;
         Ok(changed > 0)
@@ -541,7 +551,7 @@ impl Store {
     /// mid-turn checks (turn_check) — no writes to state.db.
     pub fn peek_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at
+            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session
              FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
         )?;
         let rows: Vec<InboxRow> = stmt
@@ -554,6 +564,7 @@ impl Store {
                     project: row.get(4)?,
                     body: row.get(5)?,
                     created_at: row.get(6)?,
+                    from_session: row.get(7)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -773,7 +784,7 @@ impl Store {
     /// Return undelivered mentions for a session and mark them delivered.
     pub fn drain_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at
+            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session
              FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
         )?;
         let rows: Vec<InboxRow> = stmt
@@ -786,6 +797,7 @@ impl Store {
                     project: row.get(4)?,
                     body: row.get(5)?,
                     created_at: row.get(6)?,
+                    from_session: row.get(7)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -870,6 +882,7 @@ mod tests {
             project: "proj".into(),
             body: "look here".into(),
             created_at: 5,
+            from_session: "sender-A".into(),
         };
         assert!(s.enqueue_mention(&row).unwrap()); // new
         assert!(!s.enqueue_mention(&row).unwrap()); // duplicate ignored
