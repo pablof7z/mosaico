@@ -18,7 +18,7 @@ use crate::codec::{Codec, Kind1Codec};
 use crate::config::{self, Config};
 use crate::domain::{DomainEvent, Mention};
 use crate::identity::{self, AgentIdentity};
-use crate::runtime::{self, route_mention_into, route_mention_into_with_id, EngineParams};
+use crate::runtime::{self, route_mention_into_with_id, EngineParams};
 use crate::state::{InboxRow, Store};
 use crate::transport::Transport;
 use crate::util::{now_secs, session_short_code};
@@ -1266,96 +1266,19 @@ fn spawn_demux(state: Arc<DaemonState>) {
 
 /// Decode one event and apply it. Multi-agent aware: "me" is the SET of hosted
 /// local pubkeys; a mention routes by `to_pubkey` to that agent's sessions only.
+///
+/// Thin dispatch to `crate::fabric::materialize` (Phase 4).
 fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
-    // NIP-29 group metadata cache (kind:39000, relay-authored).
-    if event.kind.as_u16() == 39000 {
-        if let (Some(project), about) = (event_tag(event, "d"), event_tag(event, "about").unwrap_or("")) {
-            state.with_store(|s| {
-                s.upsert_project_meta(project, about, event.created_at.as_secs()).ok();
-            });
-        }
-        return;
-    }
-    // NIP-29 membership snapshot (kind:39002, relay-authored). Replace the cached
-    // member set for the group so it self-heals against the relay's authority.
-    if event.kind.as_u16() == 39002 {
-        if let Some(project) = event_tag(event, "d") {
-            let members: Vec<(String, String)> = event
-                .tags
-                .iter()
-                .filter_map(|t| {
-                    let s = t.as_slice();
-                    if s.first().map(String::as_str) == Some("p") {
-                        s.get(1).map(|pk| {
-                            (pk.clone(), s.get(2).cloned().unwrap_or_else(|| "member".to_string()))
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            state.with_store(|s| {
-                s.replace_group_members(project, &members, event.created_at.as_secs()).ok();
-            });
-        }
-        return;
-    }
-    let Some(de) = state.codec.decode(event) else {
-        return;
-    };
-    let _ = state.tail_tx_send(de.clone());
-
+    let env = crate::fabric::RawEnvelope::Nostr(event.clone());
     let hosted = state.hosted_pubkeys();
-    let is_self = hosted.contains(&event.pubkey.to_hex());
+    let owners = state.owners.clone();
     let now = now_secs();
-
-    match de {
-        DomainEvent::Profile(_)
-        | DomainEvent::Presence(_)
-        | DomainEvent::Activity(_)
-        | DomainEvent::Status(_)
-            if is_self => {}
-        DomainEvent::Profile(pf) => {
-            let pk = pf.agent.pubkey.clone();
-            if crate::acl::is_allowed(&pk) {
-                state.with_store(|s| {
-                    s.upsert_profile(&pk, &pf.agent.slug, &pf.host, now).ok();
-                    s.remove_pending_agent(&pk).ok();
-                });
-            } else if !crate::acl::is_blocked(&pk) && pf.owners.iter().any(|o| state.owners.contains(o)) {
-                state.with_store(|s| {
-                    s.upsert_pending_agent(&pk, &pf.agent.slug, &pf.host, &pf.owners.join(","), now)
-                        .ok();
-                });
-            }
-        }
-        DomainEvent::Presence(pr) => {
-            if pr.expires_at <= now {
-                return;
-            }
-            state.with_store(|s| {
-                s.upsert_peer_session(&pr.session_id, &pr.agent.pubkey, &pr.agent.slug, &pr.project, &pr.host, &pr.rel_cwd, now).ok();
-                if !pr.agent.slug.is_empty() {
-                    s.upsert_profile(&pr.agent.pubkey, &pr.agent.slug, &pr.host, now).ok();
-                }
-            });
-        }
-        DomainEvent::Status(st) => {
-            if st.expires_at.map(|e| e <= now).unwrap_or(false) {
-                return;
-            }
-            state.with_store(|s| {
-                s.set_agent_status(&st.agent.pubkey, &st.project, &st.text, now).ok();
-            });
-        }
-        DomainEvent::Mention(m) if hosted.contains(&m.to_pubkey) => {
-            let to = m.to_pubkey.clone();
-            let routed = state.with_store(|s| route_mention_into(s, &to, &m, event));
-            if routed {
-                state.mention_notify.notify_waiters();
-            }
-        }
-        _ => {}
+    let outcome = state.with_store(|s| crate::fabric::materialize(&env, &hosted, &owners, now, s));
+    if let Some(de) = outcome.tail {
+        let _ = state.tail_tx_send(de);
+    }
+    if outcome.wake_mentions {
+        state.mention_notify.notify_waiters();
     }
 }
 
@@ -1378,16 +1301,18 @@ async fn fetch_mentions_into_inbox(state: &Arc<DaemonState>, rec: &crate::state:
     let pk = PublicKey::from_hex(&me)?;
     let filter = Filter::new().kind(Kind::from(1u16)).pubkey(pk).limit(50);
     if let Ok(events) = state.transport.fetch(filter, Duration::from_secs(3)).await {
+        // Use a single-element slice so the Mention guard in materialize checks
+        // `m.to_pubkey == me` exactly (relay filter already restricts to p-tagged me).
+        let hosted = vec![me.clone()];
+        let owners = state.owners.clone();
+        let now = now_secs();
         for ev in events {
-            if let Some(DomainEvent::Mention(m)) = state.codec.decode(&ev) {
-                if m.to_pubkey != me {
-                    continue;
-                }
-                let to = me.clone();
-                let routed = state.with_store(|s| route_mention_into(s, &to, &m, &ev));
-                if routed {
-                    state.mention_notify.notify_waiters();
-                }
+            let env = crate::fabric::RawEnvelope::Nostr(ev);
+            let outcome = state.with_store(|s| crate::fabric::materialize(&env, &hosted, &owners, now, s));
+            // NOTE: do NOT send outcome.tail here — fetch is startup catchup only;
+            // historical mentions must not be replayed onto the tail channel.
+            if outcome.wake_mentions {
+                state.mention_notify.notify_waiters();
             }
         }
     }
