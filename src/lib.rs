@@ -18,6 +18,7 @@ pub mod util;
 
 pub mod cli;
 pub mod codec;
+pub mod daemon;
 pub mod distill;
 pub mod runtime;
 pub mod state;

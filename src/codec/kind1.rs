@@ -3,9 +3,9 @@
 //! | Domain    | Wire |
 //! |-----------|------|
 //! | Profile   | kind:0,    content `{"name": slug}`, `["host", host]` |
-//! | Presence  | kind:30315 (NIP-38-style heartbeat), `["h", project]`, `["d", "tenex-edge-presence:<session>"]`, `["p", peer]…`, `["agent", pk, slug]`, `["session-id", id]`, `["host", host]`, `["expiration", ts]` |
+//! | Presence  | kind:30315 (NIP-38-style heartbeat), `["h", project]`, `["d", "tenex-edge-presence:<session>"]`, `["p", peer]…`, `["agent", pk, slug]`, `["session-id", id]`, `["host", host]`, optional `["rel-cwd", rel]`, `["expiration", ts]` |
 //! | Activity  | kind:1,    `["h", project]`, `["agent", pk, slug]` |
-//! | Status    | kind:30315 (NIP-38), `["h", project]`, `["d", project]`, `["agent", pk, slug]`, `["expiration", ts]` |
+//! | Status    | kind:30315 (NIP-38), `["h", project]`, `["d", project]`, `["agent", pk, slug]`, optional `["rel-cwd", rel]`, `["expiration", ts]` |
 //! | Mention   | kind:1,    `["h", project]`, `["p", to]`, `["agent", pk, slug]`, optional `["session-id", target]` |
 //!
 //! Activity vs Mention (both kind:1) is disambiguated on decode by the presence
@@ -20,6 +20,14 @@ pub const KIND_PROFILE: u16 = 0;
 pub const KIND_PRESENCE: u16 = 30315;
 pub const KIND_NOTE: u16 = 1;
 pub const KIND_STATUS: u16 = 30315;
+
+// NIP-29 group management (operator/userNsec-signed) + relay-authored state.
+pub const KIND_GROUP_CREATE: u16 = 9007;
+pub const KIND_GROUP_PUT_USER: u16 = 9000;
+pub const KIND_GROUP_EDIT_METADATA: u16 = 9002;
+pub const KIND_GROUP_METADATA: u16 = 39000;
+pub const KIND_GROUP_ADMINS: u16 = 39001;
+pub const KIND_GROUP_MEMBERS: u16 = 39002;
 
 const PRESENCE_D_PREFIX: &str = "tenex-edge-presence:";
 
@@ -39,6 +47,40 @@ fn h_filter(f: Filter, project: &str) -> Filter {
 
 fn project_tag(project: &str) -> Result<Tag> {
     tag(&["h", project])
+}
+
+// ── NIP-29 group management builders (signed by the operator's userNsec) ──────
+//
+// These sit outside the DomainEvent flow: they manage the relay's group, they
+// aren't fabric domain events. The relay rules these encode were validated by
+// `tests/nip29_probe.rs` against nip29.f7z.io. Recipe for an owned closed group:
+//   group_create -> group_lock_closed -> group_put_user (per agent).
+
+/// kind:9007 create-group with a client-chosen id (`h` == project slug). The
+/// signer becomes the group admin. NOTE: a fresh group is OPEN until locked.
+pub fn group_create(project: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_CREATE), "").tags([project_tag(project)?]))
+}
+
+/// kind:9002 edit-metadata that locks the group `closed` (only members may write)
+/// while keeping it `public` (anyone may read — required so the non-member daemon
+/// connection still receives group events). Names the group after the slug.
+pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags([
+        project_tag(project)?,
+        tag(&["name", project])?,
+        tag(&["closed"])?,
+        tag(&["public"])?,
+    ]))
+}
+
+/// kind:9000 put-user adding `pubkey` to the group as a member, so it can publish
+/// presence/activity/mentions into the now-closed group.
+pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "").tags([
+        project_tag(project)?,
+        tag(&["p", pubkey, "member"])?,
+    ]))
 }
 
 fn presence_d(session_id: &str) -> String {
@@ -126,6 +168,7 @@ impl Codec for Kind1Codec {
                 project,
                 session_id,
                 host,
+                rel_cwd,
                 audience,
                 expires_at,
             }) => {
@@ -139,6 +182,9 @@ impl Codec for Kind1Codec {
                 tags.push(tag(&["agent", &agent.pubkey, &agent.slug])?);
                 tags.push(tag(&["session-id", session_id])?);
                 tags.push(tag(&["host", host])?);
+                if !rel_cwd.is_empty() {
+                    tags.push(tag(&["rel-cwd", rel_cwd])?);
+                }
                 tags.push(tag(&["expiration", &expires_at.to_string()])?);
                 EventBuilder::new(kind(KIND_PRESENCE), "online")
                     .tags(tags)
@@ -156,6 +202,7 @@ impl Codec for Kind1Codec {
                 agent,
                 project,
                 text,
+                rel_cwd,
                 expires_at,
             }) => {
                 let mut tags = vec![
@@ -163,6 +210,9 @@ impl Codec for Kind1Codec {
                     tag(&["d", project])?,
                     tag(&["agent", &agent.pubkey, &agent.slug])?,
                 ];
+                if !rel_cwd.is_empty() {
+                    tags.push(tag(&["rel-cwd", rel_cwd])?);
+                }
                 if let Some(exp) = expires_at {
                     tags.push(tag(&["expiration", &exp.to_string()])?);
                 }
@@ -209,6 +259,7 @@ impl Codec for Kind1Codec {
                         project: project_from_tags(event)?,
                         session_id: session_id.to_string(),
                         host: first_tag(event, "host").unwrap_or_default().to_string(),
+                        rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                         audience: all_tag_values(event, "p"),
                         expires_at: expires_at?,
                     }))
@@ -217,6 +268,7 @@ impl Codec for Kind1Codec {
                         agent: AgentRef::new(pubkey, agent_slug(event)),
                         project: project_from_tags(event)?,
                         text: event.content.clone(),
+                        rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                         expires_at,
                     }))
                 }
@@ -224,21 +276,26 @@ impl Codec for Kind1Codec {
             KIND_NOTE => {
                 let project = project_from_tags(event)?;
                 let agent = AgentRef::new(pubkey, agent_slug(event));
-                if let Some(to) = first_tag(event, "p") {
-                    Some(DomainEvent::Mention(Mention {
-                        from: agent,
-                        to_pubkey: to.to_string(),
-                        project,
-                        body: event.content.clone(),
-                        target_session: first_tag(event, "session-id").map(String::from),
-                    }))
-                } else {
-                    Some(DomainEvent::Activity(Activity {
-                        agent,
-                        project,
-                        text: event.content.clone(),
-                    }))
+                // Require an `agent` tag to classify as Mention. User-posted OPs
+                // carry a `p` tag (targeting the agent) but no `agent` tag, so
+                // they must not be re-injected as intra-agent messages.
+                let has_agent = first_tag(event, "agent").is_some();
+                if has_agent {
+                    if let Some(to) = first_tag(event, "p") {
+                        return Some(DomainEvent::Mention(Mention {
+                            from: agent,
+                            to_pubkey: to.to_string(),
+                            project,
+                            body: event.content.clone(),
+                            target_session: first_tag(event, "session-id").map(String::from),
+                        }));
+                    }
                 }
+                Some(DomainEvent::Activity(Activity {
+                    agent,
+                    project,
+                    text: event.content.clone(),
+                }))
             }
             _ => None,
         }
@@ -268,8 +325,8 @@ impl Codec for Kind1Codec {
         if let Some(p) = &scope.project {
             presence_status = h_filter(presence_status, p);
         }
-        // NIP-29 project groups are open for now: group-scoped events are not
-        // author-gated locally. The relay owns group membership/policy.
+        // Group-scoped events are not author-gated locally; the relay enforces
+        // membership for groups this daemon owns (created closed via userNsec).
         filters.push(presence_status);
 
         // Notes (kind:1) — activity + mentions.
@@ -292,6 +349,22 @@ impl Codec for Kind1Codec {
             if let Ok(pk) = PublicKey::from_hex(owner) {
                 filters.push(Filter::new().kind(kind(KIND_PROFILE)).pubkey(pk));
             }
+        }
+
+        // NIP-29 relay-authored group state (metadata/admins/members) for the
+        // scoped group. Keeping this live is "check which groups we own at all
+        // times": it feeds the membership cache. Addressable + relay-signed, so
+        // filter by the `d` tag (group id == project slug), never by author.
+        if let Some(p) = &scope.project {
+            filters.push(
+                Filter::new()
+                    .kinds([
+                        kind(KIND_GROUP_METADATA),
+                        kind(KIND_GROUP_ADMINS),
+                        kind(KIND_GROUP_MEMBERS),
+                    ])
+                    .identifier(p),
+            );
         }
 
         filters
@@ -347,10 +420,51 @@ mod tests {
             project: "tenex-edge".into(),
             session_id: "sess-123".into(),
             host: "laptop".into(),
+            rel_cwd: String::new(),
             audience: vec!["aa".repeat(32), "bb".repeat(32)],
             expires_at: 1_900_000_000,
         });
         assert_eq!(roundtrip(ev.clone(), &keys), ev);
+    }
+
+    #[test]
+    fn presence_rel_cwd_roundtrips_and_emits_tag() {
+        let keys = Keys::generate();
+        let ev = DomainEvent::Presence(Presence {
+            agent: agent(&keys, "coder"),
+            project: "tenex-edge".into(),
+            session_id: "sess-123".into(),
+            host: "laptop".into(),
+            rel_cwd: "worktree1".into(),
+            audience: vec!["aa".repeat(32)],
+            expires_at: 1_900_000_000,
+        });
+        // The relative dir survives encode→decode …
+        assert_eq!(roundtrip(ev.clone(), &keys), ev);
+        // … and lands as a `rel-cwd` tag on the wire.
+        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        assert!(has_tag(&signed, "rel-cwd", "worktree1"));
+    }
+
+    #[test]
+    fn empty_rel_cwd_emits_no_tag_and_decodes_empty() {
+        // Wire compat: events without a rel-cwd tag (old peers) decode to "".
+        let keys = Keys::generate();
+        let ev = DomainEvent::Presence(Presence {
+            agent: agent(&keys, "coder"),
+            project: "tenex-edge".into(),
+            session_id: "sess-1".into(),
+            host: "laptop".into(),
+            rel_cwd: String::new(),
+            audience: vec![],
+            expires_at: 1_900_000_000,
+        });
+        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        assert!(!has_tag_name(&signed, "rel-cwd"));
+        match Kind1Codec.decode(&signed) {
+            Some(DomainEvent::Presence(p)) => assert_eq!(p.rel_cwd, ""),
+            other => panic!("expected presence, got {other:?}"),
+        }
     }
 
     #[test]
@@ -361,6 +475,7 @@ mod tests {
             project: "tenex-edge".into(),
             session_id: "sess-123".into(),
             host: "laptop".into(),
+            rel_cwd: String::new(),
             audience: vec!["aa".repeat(32)],
             expires_at: 1_900_000_000,
         });
@@ -411,6 +526,7 @@ mod tests {
             agent: agent(&keys, "coder"),
             project: "tenex-edge".into(),
             text: "reviewing PR".into(),
+            rel_cwd: String::new(),
             expires_at: Some(1_900_000_000),
         });
         assert_eq!(roundtrip(ev.clone(), &keys), ev);
@@ -541,10 +657,51 @@ mod tests {
             owners: vec![Keys::generate().public_key().to_hex()],
         };
         let filters = Kind1Codec.filters(&scope);
-        // profiles, presence/status, notes, mentions-to-me, owner-discovery
-        assert_eq!(filters.len(), 5);
+        // profiles, presence/status, notes, mentions-to-me, owner-discovery,
+        // NIP-29 group-state (39000/39001/39002 by #d).
+        assert_eq!(filters.len(), 6);
         let json = serde_json::to_string(&filters).unwrap();
         assert!(json.contains("\"#h\""));
         assert!(!json.contains("\"#t\""));
+        // group-state filter present: addressable kinds scoped by #d=slug.
+        assert!(json.contains("\"#d\""));
+        assert!(json.contains("39002"));
+    }
+
+    #[test]
+    fn group_create_has_h_tag() {
+        let b = group_create("tenex-edge").unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_CREATE);
+        assert!(has_tag(&ev, "h", "tenex-edge"));
+    }
+
+    #[test]
+    fn group_lock_closed_is_closed_and_public() {
+        let b = group_lock_closed("tenex-edge").unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
+        assert!(has_tag(&ev, "h", "tenex-edge"));
+        assert!(has_tag(&ev, "name", "tenex-edge"));
+        assert!(has_tag_name(&ev, "closed"));
+        assert!(has_tag_name(&ev, "public"));
+        // Must NOT be private — would blind the non-member daemon connection.
+        assert!(!has_tag_name(&ev, "private"));
+    }
+
+    #[test]
+    fn group_put_user_tags_member() {
+        let member = Keys::generate().public_key().to_hex();
+        let b = group_put_user("tenex-edge", &member).unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_PUT_USER);
+        assert!(has_tag(&ev, "h", "tenex-edge"));
+        // p tag carries the member pubkey with the "member" role.
+        assert!(ev.tags.iter().any(|t| {
+            let s = t.as_slice();
+            s.first().map(String::as_str) == Some("p")
+                && s.get(1).map(String::as_str) == Some(member.as_str())
+                && s.get(2).map(String::as_str) == Some("member")
+        }));
     }
 }

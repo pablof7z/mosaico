@@ -15,6 +15,7 @@ sources:
   - session:f3a730bf-9a3b-4952-b687-c93ade5fd7ec
   - session:96aedf14-df2c-425b-b548-0fa7d1c1ba63
   - session:240ffb86-8827-4741-932b-29fb1824c0c7
+  - session:98f9939c-f42b-43dd-baba-d9a176d4b2d7
 ---
 
 # Tenex-Edge Configuration
@@ -26,11 +27,9 @@ The hostname value in the `@` suffix is sourced from the `backendName` field in 
 <!-- citations: [^f3a73-48] [^f3a73-19] [^f3a73-27] [^f3a73-59] [^f3a73-67] [^240ff-3] -->
 ## Global Configuration
 
-Whitelisted pubkeys come from `~/.tenex/config.json` field `whitelistedPubkeys` and relay is configured in the same file.
+Whitelisted pubkeys come from `~/.tenex/config.json` field `whitelistedPubkeys` and relay is configured in the same file. The Config struct includes `user_nsec` as `Option<String>`, and RawConfig deserializes it from the JSON key `userNsec` with a serde rename. The `@opencode-ai/plugin` dependency version must match the installed opencode version (1.16.2) in both `~/.config/opencode/package.json` and `~/.opencode/package.json`. The opencode binary is located at `~/.opencode/bin/opencode`.
 
-The `@opencode-ai/plugin` dependency version must match the installed opencode version (1.16.2) in both `~/.config/opencode/package.json` and `~/.opencode/package.json`. The opencode binary is located at `~/.opencode/bin/opencode`. <!-- [^96aed-2] -->
-
-<!-- citations: [^f3a73-20] [^f3a73-28] [^f3a73-68] -->
+<!-- citations: [^96aed-2] [^f3a73-20] [^f3a73-28] [^f3a73-68] [^98f99-1] -->
 ## Relay Authentication
 
 Relay NIP-42 AUTH must be built into the transport layer from day one, as publishes fail silently without it. <!-- [^f3a73-21] -->

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "tenex-edge": {
+      "command": "bun",
+      "args": [
+        "/Users/pablofernandez/src/tenex-edge/integrations/claude-code/channel/server.ts"
+      ]
+    }
+  }
+}

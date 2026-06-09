@@ -40,6 +40,9 @@ pub struct Presence {
     pub project: String,
     pub session_id: String,
     pub host: String,
+    /// Project-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
+    /// PUBLIC kind → never the absolute `$HOME/...` path (privacy).
+    pub rel_cwd: String,
     /// Pubkeys this presence is addressed to (the operator's whitelist).
     pub audience: Vec<String>,
     /// Absolute unix seconds after which this heartbeat should be ignored.
@@ -60,6 +63,9 @@ pub struct Status {
     pub agent: AgentRef,
     pub project: String,
     pub text: String,
+    /// Project-relative working directory (see `Presence::rel_cwd`). Carried on
+    /// status too so a mid-turn `who` reflects where the agent is working.
+    pub rel_cwd: String,
     /// Absolute unix seconds after which this status should be considered
     /// stale (crash safety). `None` = no expiry.
     pub expires_at: Option<u64>,
@@ -105,12 +111,14 @@ mod tests {
             agent: agent.clone(),
             project: "p".into(),
             text: "   ".into(),
+            rel_cwd: String::new(),
             expires_at: None,
         };
         let busy = Status {
             agent,
             project: "p".into(),
             text: "fixing auth".into(),
+            rel_cwd: String::new(),
             expires_at: Some(10),
         };
         assert!(idle.is_idle());

@@ -1,0 +1,11 @@
+// Sync ONLY markdown files.
+// Rule order matters: first match wins in Syncthing.
+
+// 1. Never ignore directories — Syncthing needs to recurse into them
+!*/
+
+// 2. Never ignore markdown files
+!*.md
+
+// 3. Ignore everything else
+*

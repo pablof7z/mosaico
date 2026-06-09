@@ -56,6 +56,7 @@ async fn publishes_and_decodes_all_event_types() {
             project: project.clone(),
             session_id: "sess-1".into(),
             host: "test-host".into(),
+            rel_cwd: String::new(),
             audience: vec![reader_pk.clone()],
             expires_at: 1_900_000_000,
         }),

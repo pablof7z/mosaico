@@ -1,6 +1,7 @@
 ---
 title: the sessionstarthookspecificoutputwire struct contains two f
 slug: the-sessionstarthookspecificoutputwire-struct-contains-two-f
+topic: general
 summary: "The SessionStartHookSpecificOutputWire struct contains two fields: suppressOutput and systemMessage."
 tags:
   - capture
@@ -18,4 +19,6 @@ sources:
 
 ## SessionStartHookSpecificOutputWire
 
-The SessionStartHookSpecificOutputWire struct contains two fields: suppressOutput and systemMessage. <!-- [^2cee1-2] -->
+The SessionStartHookSpecificOutputWire struct contains two fields: suppressOutput and systemMessage. Codex SessionStart hook output must be valid JSON with a systemMessage field rather than plain text; Claude Code hook output uses plain text. All Codex hook output types (SessionStart, UserPromptSubmit, PostToolUse, Stop) share the same base JSON schema with fields: systemMessage, suppressOutput, stopReason, hookSpecificOutput.
+
+<!-- citations: [^2cee1-2] [^2cee1-9] [^2cee1-13] -->

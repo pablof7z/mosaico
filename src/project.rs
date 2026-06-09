@@ -37,6 +37,53 @@ pub fn resolve(cwd: &Path) -> String {
     basename(cwd).unwrap_or_else(|| "unknown-project".to_string())
 }
 
+/// The project ROOT directory for a working dir: the dir `resolve` walked up
+/// from. Used to compute the project-relative cwd (`rel_cwd`) advertised on
+/// presence/status. Mirrors `resolve`'s search order:
+///   1. the dir holding the nearest `.tenex/project.json` (cwd → git_root|fs root),
+///   2. else the git toplevel,
+///   3. else None (caller falls back to the cwd basename).
+pub fn project_root(cwd: &Path) -> Option<PathBuf> {
+    let git_root = git_toplevel(cwd);
+    if let Some(dir) = find_project_file_dir(cwd, git_root.as_deref()) {
+        return Some(dir);
+    }
+    git_root
+}
+
+/// Project-relative working directory for the public presence/status wire field.
+/// Never leaks the absolute `$HOME/...` path:
+///   - cwd under a resolvable project root → the relative path (`/`-joined),
+///     with the root itself rendered as `.`.
+///   - no resolvable root → the cwd **basename** (still not absolute).
+///   - empty basename (fs root) → empty string.
+pub fn rel_cwd(cwd: &Path) -> String {
+    if let Some(root) = project_root(cwd) {
+        if let Ok(rel) = cwd.strip_prefix(&root) {
+            let s = rel.to_string_lossy().replace('\\', "/");
+            return if s.is_empty() { ".".to_string() } else { s };
+        }
+    }
+    basename(cwd).unwrap_or_default()
+}
+
+/// Like `find_project_file_slug`, but returns the DIRECTORY that holds the
+/// `.tenex/project.json` (the project root), not the slug inside it.
+fn find_project_file_dir(start: &Path, stop_at: Option<&Path>) -> Option<PathBuf> {
+    let mut dir = Some(start.to_path_buf());
+    while let Some(d) = dir {
+        let candidate = d.join(".tenex").join("project.json");
+        if read_slug(&candidate).is_some() {
+            return Some(d);
+        }
+        if Some(d.as_path()) == stop_at {
+            break;
+        }
+        dir = d.parent().map(|p| p.to_path_buf());
+    }
+    None
+}
+
 /// Walk from `start` upward, reading `.tenex/project.json` if present. Stops
 /// after processing `stop_at` (inclusive) when given, else at the fs root.
 fn find_project_file_slug(start: &Path, stop_at: Option<&Path>) -> Option<String> {
@@ -123,6 +170,42 @@ mod tests {
         let sub = dir.path().join("the-basename");
         std::fs::create_dir_all(&sub).unwrap();
         assert_eq!(resolve_no_git(&sub), "the-basename");
+    }
+
+    #[test]
+    fn rel_cwd_root_is_dot() {
+        let dir = tempfile::tempdir().unwrap();
+        let tenex = dir.path().join(".tenex");
+        std::fs::create_dir_all(&tenex).unwrap();
+        std::fs::write(tenex.join("project.json"), r#"{"slug":"p"}"#).unwrap();
+        // canonicalize: tempdir on macOS lives under /var → /private/var symlink.
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        assert_eq!(rel_cwd(&root), ".");
+    }
+
+    #[test]
+    fn rel_cwd_subdir_is_relative_joined() {
+        let dir = tempfile::tempdir().unwrap();
+        let tenex = dir.path().join(".tenex");
+        std::fs::create_dir_all(&tenex).unwrap();
+        std::fs::write(tenex.join("project.json"), r#"{"slug":"p"}"#).unwrap();
+        let sub = dir.path().join("worktree1").join("nested");
+        std::fs::create_dir_all(&sub).unwrap();
+        let sub = std::fs::canonicalize(&sub).unwrap();
+        assert_eq!(rel_cwd(&sub), "worktree1/nested");
+    }
+
+    #[test]
+    fn rel_cwd_no_root_falls_back_to_basename() {
+        // A bare dir with no .tenex marker and (in tests) no git root → basename.
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("just-a-dir");
+        std::fs::create_dir_all(&sub).unwrap();
+        // project_root may still find a git root in CI checkouts; only assert the
+        // basename fallback shape when no root is resolvable.
+        if project_root(&sub).is_none() {
+            assert_eq!(rel_cwd(&sub), "just-a-dir");
+        }
     }
 
     #[test]

@@ -360,6 +360,8 @@ fn who_live(project: Option<String>, all: bool, all_projects: bool, refresh: Dur
 pub struct OtherProjectSummary {
     project: String,
     agent_count: usize,
+    #[serde(default)]
+    agents: Vec<String>,
     about: Option<String>,
 }
 
@@ -426,7 +428,7 @@ pub fn load_who_snapshot(
         .collect();
 
     let mut rows = Vec::new();
-    let mut other_counts: std::collections::BTreeMap<String, usize> =
+    let mut other_agents: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
         std::collections::BTreeMap::new();
 
     for s in &mine {
@@ -449,7 +451,10 @@ pub fn load_who_snapshot(
                 remote: false,
             });
         } else {
-            *other_counts.entry(s.project.clone()).or_default() += 1;
+            other_agents
+                .entry(s.project.clone())
+                .or_default()
+                .insert(s.agent_slug.clone());
         }
     }
 
@@ -469,17 +474,22 @@ pub fn load_who_snapshot(
                 remote: slugify_host(&p.host) != local_host,
             });
         } else {
-            *other_counts.entry(p.project.clone()).or_default() += 1;
+            other_agents
+                .entry(p.project.clone())
+                .or_default()
+                .insert(p.slug.clone());
         }
     }
 
-    let other_projects = other_counts
+    let other_projects = other_agents
         .into_iter()
-        .map(|(project, agent_count)| {
+        .map(|(project, agents)| {
             let about = store.get_project_meta(&project).ok().flatten();
+            let agents: Vec<String> = agents.into_iter().collect();
             OtherProjectSummary {
                 project,
-                agent_count,
+                agent_count: agents.len(),
+                agents,
                 about,
             }
         })
@@ -563,51 +573,30 @@ fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
 
     let scope = if snapshot.project == "*" {
-        "any project".to_string()
+        "all projects".to_string()
     } else {
         snapshot.project.clone()
     };
+    let _ = writeln!(out, "{}", scope.bold());
+    let _ = writeln!(out);
+
     if snapshot.rows.is_empty() {
         let _ = writeln!(
             out,
-            "(no live agents in {}{})",
-            scope,
+            "(no live agents{})",
             if snapshot.all {
                 ""
             } else {
                 " — start a session, or run with --all to include stale"
             }
         );
-    } else {
-        let _ = writeln!(out, "{}", "agents:".bold());
+    } else if snapshot.project == "*" {
         for row in &snapshot.rows {
-            let stale = if row.fresh {
-                String::new()
-            } else {
-                format!(" {}", "(stale)".dimmed())
-            };
-            // §8e: same-machine agents get NO annotation; a true remote (peer on
-            // a different host than the daemon) gets ` (remote)`.
-            let remote = if row.remote {
-                format!(" {}", "(remote)".dimmed())
-            } else {
-                String::new()
-            };
-            let dir = rel_cwd_bracket(&row.rel_cwd)
-                .map(|d| format!(" {}", format!("[{d}]").dimmed()))
-                .unwrap_or_default();
-            // Line 1: identity. Line 2 (indented): what it's doing.
-            let _ = writeln!(
-                out,
-                "  {}@{} [session {}]{}{}{}",
-                row.slug.cyan(),
-                row.project,
-                short_id(&row.session_id).yellow(),
-                dir,
-                remote,
-                stale,
-            );
-            let _ = writeln!(out, "      {}", status_plain(&row.status));
+            render_who_row(&mut out, row, true);
+        }
+    } else {
+        for row in &snapshot.rows {
+            render_who_row(&mut out, row, false);
         }
     }
 
@@ -616,18 +605,54 @@ fn render_who_once(snapshot: &WhoSnapshot) -> String {
         let _ = writeln!(out);
         let _ = writeln!(out, "{} other agent(s) in other projects:", total);
         for op in &snapshot.other_projects {
-            match &op.about {
-                Some(about) if !about.is_empty() => {
-                    let _ = writeln!(out, "  * {} — {}", op.project, about);
-                }
-                _ => {
-                    let _ = writeln!(out, "  * {}", op.project);
+            for agent in &op.agents {
+                let name = format!("{agent}@{}", op.project);
+                match &op.about {
+                    Some(about) if !about.is_empty() => {
+                        let _ = writeln!(out, "  * {} - {}", name, about);
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  * {}", name);
+                    }
                 }
             }
         }
     }
 
     out
+}
+
+fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
+    let stale = if row.fresh {
+        String::new()
+    } else {
+        format!(" {}", "(stale)".dimmed())
+    };
+    // §8e: same-machine agents get NO annotation; a true remote (peer on
+    // a different host than the daemon) gets ` (remote)`.
+    let remote = if row.remote {
+        format!(" {}", "(remote)".dimmed())
+    } else {
+        String::new()
+    };
+    let dir = rel_cwd_bracket(&row.rel_cwd)
+        .map(|d| format!(" {}", format!("[{d}]").dimmed()))
+        .unwrap_or_default();
+    let name = if include_project {
+        format!("{}@{}", row.slug, row.project).cyan().to_string()
+    } else {
+        row.slug.cyan().to_string()
+    };
+    let _ = writeln!(
+        out,
+        "{} [session {}]{}{}{} - {}",
+        name,
+        short_id(&row.session_id).yellow(),
+        dir,
+        remote,
+        stale,
+        status_plain(&row.status),
+    );
 }
 
 /// The `[dir]` to show for a row's `rel_cwd`: `None` when empty or the project
@@ -696,6 +721,24 @@ impl Drop for LiveTerminal {
 #[cfg(test)]
 mod who_tests {
     use super::*;
+
+    fn strip_ansi(input: &str) -> String {
+        let mut out = String::new();
+        let mut chars = input.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' && chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
 
     fn local_session(id: &str) -> crate::state::SessionRecord {
         crate::state::SessionRecord {
@@ -770,8 +813,9 @@ mod who_tests {
         assert!(!coder.remote, "local session must never be remote");
         assert!(reviewer.remote, "tower peer must be remote vs laptop");
 
-        let once = render_who_once(&snapshot);
-        assert!(once.contains("@proj"));
+        let once = strip_ansi(&render_who_once(&snapshot));
+        assert!(once.starts_with("proj\n\n"));
+        assert!(once.contains("coder [session local-se] - idle"));
         assert!(once.contains("coder"));
         // The remote tag appears only for the genuine remote.
         assert!(once.contains("(remote)"));
@@ -789,7 +833,7 @@ mod who_tests {
         let sib = snap.rows.iter().find(|r| r.slug == "codex").expect("sibling row");
         assert!(!sib.remote, "same-host peer must not be remote");
         assert_eq!(sib.rel_cwd, "worktree1");
-        let once = render_who_once(&snap);
+        let once = strip_ansi(&render_who_once(&snap));
         assert!(!once.contains("(remote)"), "no remote tag for same-host peer");
         assert!(once.contains("[worktree1]"), "rel_cwd shown in bracket");
     }
@@ -802,7 +846,7 @@ mod who_tests {
             .upsert_peer_session("r", "pk-a", "a", "proj", "tower", ".", 1_000)
             .unwrap();
         let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
-        let once = render_who_once(&snap);
+        let once = strip_ansi(&render_who_once(&snap));
         assert!(!once.contains("[.]"), "root cwd must not render a bracket");
         assert!(once.contains("(remote)"));
     }
@@ -829,9 +873,57 @@ mod who_tests {
         };
 
         // --live uses render_who_once: same content, plus a dim quit-hint footer.
-        let once = render_who_once(&snapshot);
+        let once = strip_ansi(&render_who_once(&snapshot));
         assert!(once.contains("reviewer"));
         assert!(once.contains("reviewing the patch"));
+    }
+
+    #[test]
+    fn who_renderer_summarizes_other_projects() {
+        let store = Store::open_memory().unwrap();
+        store
+            .upsert_peer_session("s1", "pk-a", "a", "proj", "laptop", "", 1_000)
+            .unwrap();
+        store
+            .upsert_peer_session("s2", "pk-b", "b", "other", "laptop", "", 1_000)
+            .unwrap();
+        store
+            .upsert_peer_session("s3", "pk-b", "b", "other", "laptop", "worktree", 1_001)
+            .unwrap();
+        store.upsert_project_meta("other", "Other work", 1_000).unwrap();
+
+        let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+        let once = strip_ansi(&render_who_once(&snap));
+
+        assert!(once.contains("a [session s1] - idle"));
+        assert!(once.contains("1 other agent(s) in other projects:"));
+        assert!(once.contains("  * b@other - Other work"));
+    }
+
+    #[test]
+    fn who_all_projects_includes_project_in_agent_names() {
+        let snapshot = WhoSnapshot {
+            project: "*".to_string(),
+            all: false,
+            now: 1_000,
+            rows: vec![WhoRow {
+                source: WhoSource::Peer,
+                fresh: true,
+                slug: "reviewer".to_string(),
+                project: "other".to_string(),
+                status: String::new(),
+                host: "tower".to_string(),
+                session_id: "remote-session".to_string(),
+                age_secs: Some(5),
+                rel_cwd: String::new(),
+                remote: false,
+            }],
+            other_projects: vec![],
+        };
+
+        let once = strip_ansi(&render_who_once(&snapshot));
+        assert!(once.starts_with("all projects\n\n"));
+        assert!(once.contains("reviewer@other [session remote-s] - idle"));
     }
 
 }

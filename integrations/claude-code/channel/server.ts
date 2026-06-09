@@ -32,15 +32,14 @@ import {
 // ── config ────────────────────────────────────────────────────────────────
 
 // Bare `tenex-edge` is usually NOT on PATH in the env Claude Code spawns us with,
-// so resolve it the same way te-hook.py does: TENEX_EDGE_BIN, else ~/.local/bin.
+// so resolve via TENEX_EDGE_BIN, then fall back to ~/.local/bin.
 const BIN =
   process.env.TENEX_EDGE_BIN ||
   `${process.env.HOME}/.local/bin/tenex-edge`;
 
-// Session id, if the host exported it (Claude Code sets nothing by default; the
-// te-hook.py SessionStart path can export TENEX_EDGE_SESSION). When set we pass
-// it through to `wait-for-mention`/`send-message`; when unset the CLI resolves
-// the latest live session for the current project from its cwd.
+// Session id exported by the SessionStart hook (TENEX_EDGE_SESSION). When set we
+// pass it through to `wait-for-mention`/`send-message`; when unset the CLI
+// resolves the latest live session for the current project from its cwd.
 const SESSION = process.env.TENEX_EDGE_SESSION || "";
 
 // On error (e.g. "no active session" before the SessionStart hook has run), wait
@@ -208,11 +207,12 @@ function parseAndEmit(stdout: string) {
     if (m) {
       flush();
       cur = { slug: m[1], project: m[2], body: m[3] };
-    } else if (cur) {
-      // continuation of a multi-line body
+    } else if (cur && line !== "") {
+      // continuation of a multi-line body (skip blank lines, e.g. the trailing
+      // newline at end of the wait-for-mention dump).
       cur.body += "\n" + line;
     }
-    // else: stray line before any mention — ignore.
+    // else: stray/blank line before any mention — ignore.
   }
   flush();
 }

@@ -8,11 +8,12 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
 verified: 2026-06-08
 compiled-from: conversation
 sources:
   - session:f3a730bf-9a3b-4952-b687-c93ade5fd7ec
+  - session:162f9965-82ca-420b-aa24-99faa15cb59a
 ---
 
 # Tenex-Edge Awareness
@@ -30,6 +31,8 @@ Q1 collision logging lives entirely inside tenex-edge's awareness model as the s
 
 Agent activity is published as Nostr kind 1 events with a NIP-29 `h` tag whose value is the project slug, plus human-readable intent-level content. Activity distillation is auto-distilled (not agent-manual), using an LLM step to produce intent-level awareness lines. Agents maintain a running NIP-38 status per project, `h`-tagging the project slug and retaining a `d` value for replacement identity, with the status empty when idle. NIP-38 status events include a NIP-40 expiration tag so that stale status clears even if the process dies unexpectedly.
 
+The cwd field is added to the status event so that the `who` renderer can display working directories. The project-relative form of cwd is put on the wire (not absolute $HOME paths) to mitigate leaking filesystem paths in world-readable public events on relay.tenex.chat. <!-- [^162f9-10] -->
+
 <!-- citations: [^f3a73-18] [^f3a73-23] -->
 
 ## Presence Events
@@ -45,3 +48,7 @@ A `tenex-edge tail -f <optional-project-slug>` command provides a colorized stre
 Once tenex-edge's awareness board is live, pc's legacy awareness module will be removed and pc will become a thin adapter that injects context and captures host events, consuming awareness deltas from tenex-edge instead.
 
 <!-- citations: [^f3a73-26] [^f3a73-87] -->
+
+## `who` Command
+
+The `who` command displays agents as: agent@hostname [session $id] [$relativePwd] followed by their current status, where relativePwd is relative to the project root (showing `.` for the root). Agents on the same machine show no host annotation; agents on a different host are annotated with (remote). <!-- [^162f9-11] -->

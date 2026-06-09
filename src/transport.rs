@@ -44,7 +44,7 @@ impl Transport {
         Ok(Self { client, pubkey })
     }
 
-    /// Sign (with our key) and publish an event template.
+    /// Sign (with the connection's key) and publish an event template.
     pub async fn publish_builder(&self, builder: EventBuilder) -> Result<EventId> {
         let out = self
             .client
@@ -52,6 +52,44 @@ impl Transport {
             .await
             .context("publishing event")?;
         Ok(out.val)
+    }
+
+    /// Sign with a SPECIFIC agent's keys, then publish over this (shared)
+    /// connection. The per-machine daemon hosts several agent identities on one
+    /// relay connection; each outgoing event must carry its true author's
+    /// signature, not the connection's AUTH identity. Verified on the live relay
+    /// (tests/relay_probe.rs): a B-signed event published over an A-authed
+    /// connection lands under B's authorship.
+    pub async fn publish_signed(&self, builder: EventBuilder, keys: &Keys) -> Result<EventId> {
+        let unsigned = builder.build(keys.public_key());
+        let signed = keys.sign_event(unsigned).await.context("signing event")?;
+        let out = self
+            .client
+            .send_event(&signed)
+            .await
+            .context("publishing signed event")?;
+        Ok(out.val)
+    }
+
+    /// Like [`publish_signed`], but FAILS when no relay accepted the event.
+    /// `send_event` resolves `Ok` even when every relay rejected (e.g. NIP-29
+    /// `blocked` / `rate-limited`), reporting per-relay outcomes in `failed`.
+    /// Callers that gate persistent state on a publish actually landing (NIP-29
+    /// group create/membership) need that distinction, so this surfaces the
+    /// relay's rejection reason as an error instead of swallowing it.
+    pub async fn publish_signed_checked(&self, builder: EventBuilder, keys: &Keys) -> Result<()> {
+        let unsigned = builder.build(keys.public_key());
+        let signed = keys.sign_event(unsigned).await.context("signing event")?;
+        let out = self
+            .client
+            .send_event(&signed)
+            .await
+            .context("publishing signed event")?;
+        if out.success.is_empty() {
+            let reasons: Vec<String> = out.failed.values().cloned().collect();
+            anyhow::bail!("relay rejected event: {}", reasons.join("; "));
+        }
+        Ok(())
     }
 
     /// One-shot query (used for resolution — e.g. fetch a `kind:0` profile).

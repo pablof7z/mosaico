@@ -25,6 +25,8 @@ pub struct SessionRecord {
     pub watch_pid: Option<i32>,
     pub created_at: u64,
     pub alive: bool,
+    /// Project-relative working directory advertised on presence/status.
+    pub rel_cwd: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +37,8 @@ pub struct PeerSession {
     pub project: String,
     pub host: String,
     pub last_seen: u64,
+    /// Peer's project-relative working dir, learned from its presence events.
+    pub rel_cwd: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +73,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at    INTEGER NOT NULL,
     last_seen     INTEGER NOT NULL DEFAULT 0,
     transcript_path TEXT,
-    alive         INTEGER NOT NULL DEFAULT 1
+    alive         INTEGER NOT NULL DEFAULT 1,
+    rel_cwd       TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS profiles (
     pubkey     TEXT PRIMARY KEY,
@@ -84,7 +89,8 @@ CREATE TABLE IF NOT EXISTS peer_sessions (
     project    TEXT NOT NULL,
     host       TEXT NOT NULL,
     last_seen  INTEGER NOT NULL,
-    first_seen INTEGER NOT NULL DEFAULT 0
+    first_seen INTEGER NOT NULL DEFAULT 0,
+    rel_cwd    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS inbox (
     mention_event_id TEXT NOT NULL,
@@ -135,6 +141,20 @@ CREATE TABLE IF NOT EXISTS project_meta (
     about      TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+-- NIP-29 groups this daemon owns/manages (created + locked closed via userNsec).
+CREATE TABLE IF NOT EXISTS owned_groups (
+    project    TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+);
+-- NIP-29 group membership cache (relay-authoritative kind 39002 + our optimistic
+-- put-user writes). Lets session_start skip redundant 9000 publishes idempotently.
+CREATE TABLE IF NOT EXISTS group_members (
+    project    TEXT NOT NULL,
+    pubkey     TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'member',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (project, pubkey)
+);
 "#;
 
 impl Store {
@@ -166,6 +186,15 @@ impl Store {
             "ALTER TABLE peer_sessions ADD COLUMN first_seen INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // §8e: project-relative cwd, on own sessions and the peer directory.
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE peer_sessions ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(Self { conn })
     }
 
@@ -175,19 +204,27 @@ impl Store {
         Ok(Self { conn })
     }
 
+    /// `PRAGMA integrity_check` → "ok" on a healthy db, else the first problem
+    /// line. Used by the concurrency/corruption test to assert no corruption.
+    pub fn integrity_check(&self) -> Result<String> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))?)
+    }
+
     // ── sessions (mine) ──────────────────────────────────────────────────
 
     pub fn upsert_session(&self, r: &SessionRecord) -> Result<()> {
         self.conn.execute(
             "INSERT INTO sessions
-               (session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+               (session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(session_id) DO UPDATE SET
                agent_slug=?2, agent_pubkey=?3, project=?4, host=?5,
-               child_pid=?6, watch_pid=?7, alive=?9",
+               child_pid=?6, watch_pid=?7, alive=?9, rel_cwd=?10",
             params![
                 r.session_id, r.agent_slug, r.agent_pubkey, r.project, r.host,
-                r.child_pid, r.watch_pid, r.created_at, r.alive as i32
+                r.child_pid, r.watch_pid, r.created_at, r.alive as i32, r.rel_cwd
             ],
         )?;
         Ok(())
@@ -195,7 +232,7 @@ impl Store {
 
     pub fn get_session(&self, id: &str) -> Result<Option<SessionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE session_id=?1",
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -208,7 +245,7 @@ impl Store {
 
     pub fn list_alive_sessions(&self) -> Result<Vec<SessionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE alive=1 ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], |row| row_to_session(row))?;
@@ -219,10 +256,32 @@ impl Store {
     /// doesn't know its session id resolve "my session" from the cwd.
     pub fn latest_alive_session_for_project(&self, project: &str) -> Result<Option<SessionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE alive=1 AND project=?1 ORDER BY created_at DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(params![project])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row_to_session(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Most-recent still-alive session for a SPECIFIC agent in a project. Used by
+    /// session resolution so a sender's identity is scoped to the invoking agent
+    /// (`$TENEX_EDGE_AGENT`) rather than falling back to whatever agent was most
+    /// recently active in the project — which would sign/record a `claude` send as
+    /// `opencode` if opencode happened to be the latest-active session.
+    pub fn latest_alive_session_for_agent_in_project(
+        &self,
+        agent_slug: &str,
+        project: &str,
+    ) -> Result<Option<SessionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
+             FROM sessions WHERE alive=1 AND project=?1 AND agent_slug=?2 ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![project, agent_slug])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row_to_session(row)?))
         } else {
@@ -283,7 +342,7 @@ impl Store {
     /// My own sessions whose heartbeat is fresh (alive + recently touched).
     pub fn list_my_live_sessions(&self, since: u64) -> Result<Vec<SessionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE alive=1 AND last_seen>=?1 ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map(params![since], |row| row_to_session(row))?;
@@ -308,24 +367,37 @@ impl Store {
         slug: &str,
         project: &str,
         host: &str,
+        rel_cwd: &str,
         ts: u64,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO peer_sessions (session_id, pubkey, slug, project, host, last_seen, first_seen)
-             VALUES (?1,?2,?3,?4,?5,?6,?6)
-             ON CONFLICT(session_id) DO UPDATE SET pubkey=?2, slug=?3, project=?4, host=?5, last_seen=?6",
-            params![session_id, pubkey, slug, project, host, ts],
+            "INSERT INTO peer_sessions (session_id, pubkey, slug, project, host, rel_cwd, last_seen, first_seen)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?7)
+             ON CONFLICT(session_id) DO UPDATE SET pubkey=?2, slug=?3, project=?4, host=?5, rel_cwd=?6, last_seen=?7",
+            params![session_id, pubkey, slug, project, host, rel_cwd, ts],
         )?;
         Ok(())
     }
 
-    /// Resolve an agent slug to a pubkey: prefer a known profile, else any peer
-    /// session advertising that slug (optionally scoped to a project).
+    /// Resolve an agent slug to a pubkey. With a project scope, this behaves
+    /// like `slug@project`: prefer presence in that project, and do not let a
+    /// global profile from another project hijack the route.
     pub fn resolve_agent_pubkey(
         &self,
         slug: &str,
         project: Option<&str>,
     ) -> Result<Option<String>> {
+        if let Some(project) = project {
+            return Ok(self
+                .conn
+                .query_row(
+                    "SELECT pubkey FROM peer_sessions WHERE slug=?1 AND project=?2 ORDER BY last_seen DESC LIMIT 1",
+                    params![slug, project],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok());
+        }
+
         if let Some(pk) = self
             .conn
             .query_row(
@@ -337,21 +409,14 @@ impl Store {
         {
             return Ok(Some(pk));
         }
-        let sql = match project {
-            Some(_) => "SELECT pubkey FROM peer_sessions WHERE slug=?1 AND project=?2 ORDER BY last_seen DESC LIMIT 1",
-            None => "SELECT pubkey FROM peer_sessions WHERE slug=?1 ORDER BY last_seen DESC LIMIT 1",
-        };
-        let res = match project {
-            Some(p) => self
-                .conn
-                .query_row(sql, params![slug, p], |r| r.get::<_, String>(0))
-                .ok(),
-            None => self
-                .conn
-                .query_row(sql, params![slug], |r| r.get::<_, String>(0))
-                .ok(),
-        };
-        Ok(res)
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT pubkey FROM peer_sessions WHERE slug=?1 ORDER BY last_seen DESC LIMIT 1",
+                params![slug],
+                |r| r.get::<_, String>(0),
+            )
+            .ok())
     }
 
     /// Find one of MY sessions by session-id prefix (for messaging a sibling
@@ -359,7 +424,7 @@ impl Store {
     pub fn find_session_by_prefix(&self, prefix: &str) -> Result<Option<SessionRecord>> {
         let pat = format!("{prefix}%");
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE session_id LIKE ?1 ORDER BY created_at DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(params![pat])?;
@@ -373,19 +438,12 @@ impl Store {
     pub fn find_peer_session_by_prefix(&self, prefix: &str) -> Result<Option<PeerSession>> {
         let pat = format!("{prefix}%");
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, pubkey, slug, project, host, last_seen
+            "SELECT session_id, pubkey, slug, project, host, last_seen, rel_cwd
              FROM peer_sessions WHERE session_id LIKE ?1 ORDER BY last_seen DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(params![pat])?;
         if let Some(row) = rows.next()? {
-            Ok(Some(PeerSession {
-                session_id: row.get(0)?,
-                pubkey: row.get(1)?,
-                slug: row.get(2)?,
-                project: row.get(3)?,
-                host: row.get(4)?,
-                last_seen: row.get(5)?,
-            }))
+            Ok(Some(row_to_peer(row)?))
         } else {
             Ok(None)
         }
@@ -400,20 +458,11 @@ impl Store {
         since: u64,
     ) -> Result<Vec<PeerSession>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, pubkey, slug, project, host, last_seen FROM peer_sessions
+            "SELECT session_id, pubkey, slug, project, host, last_seen, rel_cwd FROM peer_sessions
              WHERE last_seen>=?1 AND (?2 IS NULL OR project=?2) ORDER BY last_seen DESC",
         )?;
         let rows: Vec<PeerSession> = stmt
-            .query_map(params![since, project], |row| {
-                Ok(PeerSession {
-                    session_id: row.get(0)?,
-                    pubkey: row.get(1)?,
-                    slug: row.get(2)?,
-                    project: row.get(3)?,
-                    host: row.get(4)?,
-                    last_seen: row.get(5)?,
-                })
-            })?
+            .query_map(params![since, project], row_to_peer)?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
@@ -520,21 +569,12 @@ impl Store {
         project: Option<&str>,
     ) -> Result<Vec<PeerSession>> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, pubkey, slug, project, host, last_seen FROM peer_sessions
+            "SELECT session_id, pubkey, slug, project, host, last_seen, rel_cwd FROM peer_sessions
              WHERE first_seen>=?1 AND last_seen>=?2 AND (?3 IS NULL OR project=?3)
              ORDER BY first_seen",
         )?;
         let rows: Vec<PeerSession> = stmt
-            .query_map(params![since, fresh_since, project], |row| {
-                Ok(PeerSession {
-                    session_id: row.get(0)?,
-                    pubkey: row.get(1)?,
-                    slug: row.get(2)?,
-                    project: row.get(3)?,
-                    host: row.get(4)?,
-                    last_seen: row.get(5)?,
-                })
-            })?
+            .query_map(params![since, fresh_since, project], row_to_peer)?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
@@ -657,6 +697,70 @@ impl Store {
             .ok())
     }
 
+    pub fn list_project_meta(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project, about FROM project_meta ORDER BY project",
+        )?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    // ── NIP-29 owned groups + membership ─────────────────────────────────
+
+    pub fn mark_group_owned(&self, project: &str, ts: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO owned_groups (project, created_at) VALUES (?1, ?2)
+             ON CONFLICT(project) DO NOTHING",
+            params![project, ts],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_group_owned(&self, project: &str) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM owned_groups WHERE project=?1",
+            params![project],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn upsert_group_member(&self, project: &str, pubkey: &str, role: &str, ts: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO group_members (project, pubkey, role, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(project, pubkey) DO UPDATE SET role=?3, updated_at=?4",
+            params![project, pubkey, role, ts],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_group_member(&self, project: &str, pubkey: &str) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM group_members WHERE project=?1 AND pubkey=?2",
+            params![project, pubkey],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Apply a relay-authoritative 39002 members snapshot for one group: replace
+    /// the cached membership wholesale so we self-heal if our optimistic writes drifted.
+    pub fn replace_group_members(&self, project: &str, members: &[(String, String)], ts: u64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM group_members WHERE project=?1", params![project])?;
+        for (pubkey, role) in members {
+            self.conn.execute(
+                "INSERT INTO group_members (project, pubkey, role, updated_at) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(project, pubkey) DO UPDATE SET role=?3, updated_at=?4",
+                params![project, pubkey, role, ts],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn is_mention_seen(&self, agent_pubkey: &str, event_id: &str) -> Result<bool> {
         let n: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM seen_mentions WHERE agent_pubkey=?1 AND mention_event_id=?2",
@@ -705,6 +809,20 @@ fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<SessionRecord> {
         watch_pid: row.get(6)?,
         created_at: row.get(7)?,
         alive: row.get::<_, i32>(8)? != 0,
+        rel_cwd: row.get(9)?,
+    })
+}
+
+/// Column order: session_id, pubkey, slug, project, host, last_seen, rel_cwd.
+fn row_to_peer(row: &rusqlite::Row) -> rusqlite::Result<PeerSession> {
+    Ok(PeerSession {
+        session_id: row.get(0)?,
+        pubkey: row.get(1)?,
+        slug: row.get(2)?,
+        project: row.get(3)?,
+        host: row.get(4)?,
+        last_seen: row.get(5)?,
+        rel_cwd: row.get(6)?,
     })
 }
 
@@ -723,6 +841,7 @@ mod tests {
             watch_pid: Some(7),
             created_at: 1000,
             alive: true,
+            rel_cwd: String::new(),
         }
     }
 
@@ -766,10 +885,56 @@ mod tests {
         assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1);
     }
 
+    /// Bug C (agent-scoped sender resolution): the latest-alive fallback must be
+    /// scoped to the invoking agent, not the most-recently-active session of ANY
+    /// agent in the project. Otherwise a `claude` send is recorded as `opencode`
+    /// merely because opencode was the latest-active session.
     #[test]
-    fn resolve_prefers_profile_then_presence() {
+    fn latest_alive_session_is_agent_scoped() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("sess-x", "pk-from-presence", "reviewer", "proj", "host", 1)
+        let mut claude = sample_session("sess-claude");
+        claude.agent_slug = "claude".into();
+        claude.agent_pubkey = "pk-claude".into();
+        claude.created_at = 100;
+        s.upsert_session(&claude).unwrap();
+
+        let mut opencode = sample_session("sess-opencode");
+        opencode.agent_slug = "opencode".into();
+        opencode.agent_pubkey = "pk-opencode".into();
+        opencode.created_at = 200; // more recently active
+        s.upsert_session(&opencode).unwrap();
+
+        // Agent-agnostic lookup returns opencode (the latest active) — the BUG.
+        assert_eq!(
+            s.latest_alive_session_for_project("proj").unwrap().unwrap().agent_slug,
+            "opencode"
+        );
+        // Agent-scoped lookup honors the invoking agent.
+        assert_eq!(
+            s.latest_alive_session_for_agent_in_project("claude", "proj")
+                .unwrap()
+                .unwrap()
+                .agent_slug,
+            "claude"
+        );
+        assert_eq!(
+            s.latest_alive_session_for_agent_in_project("opencode", "proj")
+                .unwrap()
+                .unwrap()
+                .agent_slug,
+            "opencode"
+        );
+        // No alive session for an unknown agent.
+        assert!(s
+            .latest_alive_session_for_agent_in_project("codex", "proj")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn resolve_with_project_scope_prefers_matching_presence() {
+        let s = Store::open_memory().unwrap();
+        s.upsert_peer_session("sess-x", "pk-from-presence", "reviewer", "proj", "host", "", 1)
             .unwrap();
         assert_eq!(
             s.resolve_agent_pubkey("reviewer", Some("proj"))
@@ -783,6 +948,18 @@ mod tests {
             s.resolve_agent_pubkey("reviewer", Some("proj"))
                 .unwrap()
                 .as_deref(),
+            Some("pk-from-presence")
+        );
+        assert_eq!(
+            s.resolve_agent_pubkey("reviewer", Some("other"))
+                .unwrap()
+                .as_deref(),
+            None
+        );
+        assert_eq!(
+            s.resolve_agent_pubkey("reviewer", None)
+                .unwrap()
+                .as_deref(),
             Some("pk-from-profile")
         );
     }
@@ -790,9 +967,9 @@ mod tests {
     #[test]
     fn peer_freshness_and_prune() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("old", "pk1", "stale", "proj", "h", 100)
+        s.upsert_peer_session("old", "pk1", "stale", "proj", "h", "", 100)
             .unwrap();
-        s.upsert_peer_session("new", "pk2", "live", "proj", "h", 1000)
+        s.upsert_peer_session("new", "pk2", "live", "proj", "h", "", 1000)
             .unwrap();
         // since=500 → only the fresh one is "live"
         let live = s.list_peer_sessions(Some("proj"), 500).unwrap();
@@ -803,6 +980,43 @@ mod tests {
         // prune removes the stale one
         assert_eq!(s.prune_peer_sessions(500).unwrap(), 1);
         assert_eq!(s.list_peer_sessions(Some("proj"), 0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn rel_cwd_persists_on_peer_and_own_sessions() {
+        let s = Store::open_memory().unwrap();
+        // Peer session learns rel_cwd from presence.
+        s.upsert_peer_session("p1", "pk", "rev", "proj", "tower", "worktree2", 1_000)
+            .unwrap();
+        let peers = s.list_peer_sessions(Some("proj"), 0).unwrap();
+        assert_eq!(peers[0].rel_cwd, "worktree2");
+        // Updating keeps the latest rel_cwd.
+        s.upsert_peer_session("p1", "pk", "rev", "proj", "tower", "sub/dir", 1_001)
+            .unwrap();
+        assert_eq!(s.list_peer_sessions(Some("proj"), 0).unwrap()[0].rel_cwd, "sub/dir");
+
+        // Own session stores + reads back rel_cwd (needed by reconcile).
+        s.upsert_session(&sample_session("mine")).unwrap();
+        let mut rec = sample_session("mine");
+        rec.rel_cwd = "worktree1".into();
+        s.upsert_session(&rec).unwrap();
+        assert_eq!(s.get_session("mine").unwrap().unwrap().rel_cwd, "worktree1");
+    }
+
+    #[test]
+    fn rel_cwd_migration_is_idempotent_on_reopen() {
+        // Opening an on-disk db twice must not fail on the guarded ALTER TABLE
+        // (the column already exists the second time).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        {
+            let s = Store::open(&path).unwrap();
+            let mut rec = sample_session("m");
+            rec.rel_cwd = "wt".into();
+            s.upsert_session(&rec).unwrap();
+        }
+        let s2 = Store::open(&path).unwrap();
+        assert_eq!(s2.get_session("m").unwrap().unwrap().rel_cwd, "wt");
     }
 
     #[test]
@@ -822,7 +1036,7 @@ mod tests {
     #[test]
     fn session_prefix_lookup() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("abcdef123456", "pk", "coder", "proj", "host", 1)
+        s.upsert_peer_session("abcdef123456", "pk", "coder", "proj", "host", "", 1)
             .unwrap();
         let found = s.find_peer_session_by_prefix("abcdef").unwrap().unwrap();
         assert_eq!(found.pubkey, "pk");
@@ -832,9 +1046,9 @@ mod tests {
     #[test]
     fn turn_delta_peer_sessions_can_be_project_scoped() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("sess-a", "pk-a", "same", "current", "host", 100)
+        s.upsert_peer_session("sess-a", "pk-a", "same", "current", "host", "", 100)
             .unwrap();
-        s.upsert_peer_session("sess-b", "pk-b", "other", "elsewhere", "host", 100)
+        s.upsert_peer_session("sess-b", "pk-b", "other", "elsewhere", "host", "", 100)
             .unwrap();
 
         let scoped = s.list_new_peer_sessions(50, 50, Some("current")).unwrap();
@@ -867,5 +1081,52 @@ mod tests {
 
         let all = s.list_status_changes_since(50, None).unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn owned_groups_roundtrip_and_idempotent() {
+        let s = Store::open_memory().unwrap();
+        assert!(!s.is_group_owned("proj").unwrap());
+        s.mark_group_owned("proj", 100).unwrap();
+        assert!(s.is_group_owned("proj").unwrap());
+        // Re-marking is a no-op (keeps the original created_at), not an error.
+        s.mark_group_owned("proj", 200).unwrap();
+        assert!(s.is_group_owned("proj").unwrap());
+        assert!(!s.is_group_owned("other").unwrap());
+    }
+
+    #[test]
+    fn group_member_upsert_and_query() {
+        let s = Store::open_memory().unwrap();
+        assert!(!s.is_group_member("proj", "pk-a").unwrap());
+        s.upsert_group_member("proj", "pk-a", "member", 100).unwrap();
+        assert!(s.is_group_member("proj", "pk-a").unwrap());
+        // Membership is per (project, pubkey).
+        assert!(!s.is_group_member("other", "pk-a").unwrap());
+        assert!(!s.is_group_member("proj", "pk-b").unwrap());
+        // Upsert is idempotent on the primary key.
+        s.upsert_group_member("proj", "pk-a", "admin", 200).unwrap();
+        assert!(s.is_group_member("proj", "pk-a").unwrap());
+    }
+
+    #[test]
+    fn replace_group_members_is_authoritative() {
+        let s = Store::open_memory().unwrap();
+        s.upsert_group_member("proj", "stale", "member", 100).unwrap();
+        // A relay 39002 snapshot replaces the whole set: 'stale' drops out.
+        s.replace_group_members(
+            "proj",
+            &[("pk-a".into(), "member".into()), ("pk-b".into(), "admin".into())],
+            300,
+        )
+        .unwrap();
+        assert!(!s.is_group_member("proj", "stale").unwrap());
+        assert!(s.is_group_member("proj", "pk-a").unwrap());
+        assert!(s.is_group_member("proj", "pk-b").unwrap());
+        // Scoped to the project — a different group is untouched.
+        s.upsert_group_member("other", "pk-x", "member", 100).unwrap();
+        s.replace_group_members("proj", &[], 400).unwrap();
+        assert!(!s.is_group_member("proj", "pk-a").unwrap());
+        assert!(s.is_group_member("other", "pk-x").unwrap());
     }
 }

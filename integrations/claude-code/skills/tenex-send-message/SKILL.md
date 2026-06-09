@@ -33,6 +33,8 @@ For longer messages, pass the body on stdin:
 cat note.md | tenex-edge send-message --recipient <target>
 ```
 
-`<target>` may be an **agent slug** (e.g. `reviewer`), `slug@project`, a
+Prefer `slug@project` from `tenex-edge who` so messages do not accidentally
+route to the same agent slug in another project. `<target>` may also be an
+**agent slug** in your current project (e.g. `reviewer`), a
 **session-id prefix** (from `tenex-edge who`, to reach one specific running
 session of an agent), or a hex pubkey.

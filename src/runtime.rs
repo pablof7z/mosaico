@@ -9,16 +9,14 @@
 //!   - watches the host PID and stops cleanly (idle status) when it dies or on
 //!     SIGTERM (the `session-end` path).
 
-use crate::codec::{Codec, Kind1Codec, SubScope};
+use crate::codec::{Codec, Kind1Codec};
 use crate::distill;
 use crate::domain::{Activity, AgentRef, DomainEvent, Mention, Presence, Profile, Status};
 use crate::state::{InboxRow, Store};
 use crate::transport::Transport;
 use crate::util::now_secs;
 use anyhow::Result;
-use nostr_sdk::prelude::{
-    Alphabet, Event, Filter, Kind, PublicKey, RelayMessage, RelayPoolNotification, SingleLetterTag,
-};
+use nostr_sdk::prelude::Event;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -29,6 +27,8 @@ pub struct EngineParams {
     pub project: String,
     pub session_id: String,
     pub host: String,
+    /// Project-relative working directory (§8e), advertised on presence/status.
+    pub rel_cwd: String,
     /// The human owner pubkey(s) — p-tagged on our profile + presence, and used
     /// to discover foreign agents claiming the same owner (ACL pending set).
     pub owners: Vec<String>,
@@ -62,119 +62,95 @@ pub fn compute_targets(target_session: Option<&str>, my_alive_sessions: &[String
     }
 }
 
-pub async fn run_session(p: EngineParams) -> Result<()> {
-    let store = Store::open(&p.store_path)?;
+// ── daemon-hosted session task (the relocated engine) ────────────────────────
+
+/// Run the per-session engine INSIDE the daemon, using the SHARED relay
+/// connection and the SHARED store (single writer). Unlike `run_session`, this
+/// does NOT open its own store/transport and does NOT subscribe or demux: the
+/// daemon owns one union subscription and demuxes incoming events centrally,
+/// routing mentions to the right agent's inbox. This task only:
+///   - publishes profile + presence once (signed with the agent's own keys),
+///   - heartbeats presence (and refreshes a live status' TTL),
+///   - distills turn activity → Activity + Status,
+///   - watches the host pid and exits cleanly (idle presence/status) on pid
+///     death or on `cancel` (the `session-end` path).
+///
+/// Store access goes through the shared `Arc<Mutex<Store>>`; the guard is held
+/// only across the synchronous rusqlite calls, NEVER across `.await`.
+pub async fn run_session_in_daemon(
+    p: EngineParams,
+    transport: std::sync::Arc<Transport>,
+    store: std::sync::Arc<std::sync::Mutex<Store>>,
+    cancel: std::sync::Arc<tokio::sync::Notify>,
+) -> Result<()> {
     let codec = Kind1Codec;
-    let transport = Transport::connect(&p.relays, p.keys.clone()).await?;
     let me = p.agent_pubkey.clone();
+    let keys = p.keys.clone();
     let aref = AgentRef::new(me.clone(), p.agent_slug.clone());
     let ttl = p.status_ttl.as_secs();
-
     let owners = p.owners.clone();
-    let build_scope = |authors: Vec<String>| SubScope {
-        authors,
-        project: Some(p.project.clone()),
-        mentions_to: Some(me.clone()),
-        owners: owners.clone(),
-    };
 
-    // Publish our identity card (declares our owner(s) via p-tags).
-    publish(
-        &transport,
-        &codec,
-        DomainEvent::Profile(Profile {
-            agent: aref.clone(),
-            host: p.host.clone(),
-            owners: owners.clone(),
-        }),
-    )
-    .await;
-
-    // Subscribe: trusted authors (the ACL allowlist ∪ me) + this project +
-    // mentions to me + owner-discovery. Trust is recomputed each heartbeat and
-    // re-subscribed when it changes (e.g. after `tenex-edge acl allow`).
-    let mut current_authors = trusted_authors(&me);
-    let mut notifications = transport.notifications();
-    let initial_filters = codec.filters(&build_scope(current_authors.clone()));
-    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-        eprintln!(
-            "[engine] connected; subscribing {} filters; owners={:?} authors={:?}",
-            initial_filters.len(),
-            owners,
-            current_authors
-        );
+    macro_rules! st {
+        ($f:expr) => {{
+            let g = store.lock().expect("store mutex poisoned");
+            #[allow(clippy::redundant_closure_call)]
+            ($f)(&*g)
+        }};
     }
-    transport.subscribe(initial_filters).await?;
 
-    // One-shot fetch of kind 39000 (NIP-29 group metadata) for this project.
-    // Populates the project_meta cache so `who` can show about-text for other
-    // projects without waiting for a live publish.
-    let group_meta_filter = Filter::new()
-        .kind(Kind::from(39000u16))
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::D),
-            p.project.as_str(),
-        );
-    if let Ok(events) = transport
-        .fetch(group_meta_filter, Duration::from_secs(2))
-        .await
-    {
-        for ev in events {
-            if let Some(project) = event_tag(&ev, "d") {
-                let about = event_tag(&ev, "about").unwrap_or("");
-                store
-                    .upsert_project_meta(project, about, ev.created_at.as_secs())
-                    .ok();
+    let publish_de = |ev: DomainEvent| {
+        let transport = transport.clone();
+        let codec = &codec;
+        let keys = keys.clone();
+        async move {
+            if let Ok(b) = codec.encode(&ev) {
+                let _ = transport.publish_signed(b, &keys).await;
             }
         }
-    }
-
-    // Announce liveness immediately (don't make presence wait on anything).
+    };
     let presence = |expires_at| {
         DomainEvent::Presence(Presence {
             agent: aref.clone(),
             project: p.project.clone(),
             session_id: p.session_id.clone(),
             host: p.host.clone(),
+            rel_cwd: p.rel_cwd.clone(),
             audience: owners.clone(),
             expires_at,
         })
     };
-    publish(&transport, &codec, presence(now_secs() + ttl)).await;
-    publish_status(&transport, &codec, &aref, &p.project, "", ttl).await; // start idle
-    store.set_agent_status(&me, &p.project, "", now_secs()).ok();
-    store.touch_session(&p.session_id, now_secs()).ok(); // mark myself live now
+    let status_de = |text: &str| {
+        DomainEvent::Status(Status {
+            agent: aref.clone(),
+            project: p.project.clone(),
+            text: text.to_string(),
+            rel_cwd: p.rel_cwd.clone(),
+            expires_at: Some(now_secs() + ttl),
+        })
+    };
 
-    // Startup: pull recent stored mentions addressed to me (offline delivery).
-    if let Ok(pk) = PublicKey::from_hex(&me) {
-        let f = Filter::new()
-            .kind(nostr_sdk::prelude::Kind::from(1u16))
-            .pubkey(pk)
-            .limit(50);
-        if let Ok(events) = transport.fetch(f, Duration::from_secs(2)).await {
-            for ev in events {
-                if let Some(DomainEvent::Mention(m)) = codec.decode(&ev) {
-                    route_mention(&store, &me, &m, &ev);
-                }
-            }
-        }
-    }
+    // Identity card + immediate liveness.
+    publish_de(DomainEvent::Profile(Profile {
+        agent: aref.clone(),
+        host: p.host.clone(),
+        owners: owners.clone(),
+    }))
+    .await;
+    publish_de(presence(now_secs() + ttl)).await;
+    publish_de(status_de("")).await;
+    st!(|s: &Store| {
+        s.set_agent_status(&me, &p.project, "", now_secs()).ok();
+        s.touch_session(&p.session_id, now_secs()).ok();
+    });
 
-    // Turn-driven activity. The host's turn-start/turn-end hooks flip `turn_state`;
-    // we poll it. The LLM distiller fires `turn_first` (30s) into a turn, then
-    // every `turn_repeat` (5m) while it runs — so a turn that finishes in <30s
-    // never costs a call. Engine-local state tracks the current turn + the last
-    // line we published, so the heartbeat can refresh the (TTL'd) Status cheaply
-    // without re-running the LLM.
     let turn_first = p.turn_first.as_secs();
     let turn_repeat = p.turn_repeat.as_secs();
-    let mut cur_turn_start: u64 = 0; // turn we're tracking (0 = idle)
-    let mut last_distill: u64 = 0; // when we last attempted a distill this turn
-    let mut cur_line: Option<String> = None; // last published intent (None = idle)
+    let mut cur_turn_start: u64 = 0;
+    let mut last_distill: u64 = 0;
+    let mut cur_line: Option<String> = None;
 
     let mut hb = tokio::time::interval(p.heartbeat);
     let mut obs = tokio::time::interval(p.obs_interval);
-    let mut sigterm = unix_sigterm();
 
     loop {
         tokio::select! {
@@ -182,294 +158,125 @@ pub async fn run_session(p: EngineParams) -> Result<()> {
                 if let Some(pid) = p.watch_pid {
                     if !pid_alive(pid) { break; }
                 }
-                // Pick up newly-authorized agents (allowlist changes).
-                let latest = trusted_authors(&me);
-                if latest != current_authors {
-                    current_authors = latest;
-                    let _ = transport.subscribe(codec.filters(&build_scope(current_authors.clone()))).await;
-                }
-                // Housekeeping: drop peers whose heartbeats stopped long ago.
-                let _ = store.prune_peer_sessions(now_secs().saturating_sub(PRUNE_PEER_AFTER_SECS));
-                store.touch_session(&p.session_id, now_secs()).ok(); // keep myself fresh
-                publish(&transport, &codec, presence(now_secs() + ttl)).await;
-                // Refresh the (TTL'd) Status while a turn is live, so a long turn
-                // between distillations doesn't let our status expire. This re-
-                // publishes the replaceable kind:30315 only — NOT the append-only
-                // Activity note — and runs no LLM. The heartbeat (30s) is well
-                // under the status TTL (90s).
+                st!(|s: &Store| { s.touch_session(&p.session_id, now_secs()).ok(); });
+                publish_de(presence(now_secs() + ttl)).await;
                 if let Some(line) = cur_line.clone() {
-                    publish_status(&transport, &codec, &aref, &p.project, &line, ttl).await;
-                    store.set_agent_status(&me, &p.project, &line, now_secs()).ok();
+                    publish_de(status_de(&line)).await;
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, &line, now_secs()).ok(); });
                 }
             }
             _ = obs.tick() => {
-                let (working, turn_started_at) = store.get_turn_state(&p.session_id).unwrap_or((false, 0));
+                let (working, turn_started_at) = st!(|s: &Store| s.get_turn_state(&p.session_id).unwrap_or((false, 0)));
                 let now = now_secs();
                 if working {
-                    // A fresh turn_started_at means a new turn: reset the distill clock.
                     if turn_started_at != cur_turn_start {
                         cur_turn_start = turn_started_at;
                         last_distill = 0;
                     }
-                    // First distill `turn_first` into the turn, then every `turn_repeat`.
                     let due = if last_distill == 0 {
                         now.saturating_sub(cur_turn_start) >= turn_first
                     } else {
                         now.saturating_sub(last_distill) >= turn_repeat
                     };
                     if due {
-                        // Distill from the conversation transcript (LLM-only). On a
-                        // missing transcript or LLM failure nothing publishes — by
-                        // design — but we still advance `last_distill` so a failing
-                        // model isn't retried every tick (we respect the cadence).
-                        let ctx = store
-                            .get_session_transcript(&p.session_id)
-                            .ok()
-                            .flatten()
+                        let ctx = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
                             .and_then(|path| crate::transcript::read_recent(std::path::Path::new(&path), 14, 2500));
                         if let Some(ctx) = ctx {
                             if let Some(line) = distill::distill_activity(&ctx).await {
-                                publish(&transport, &codec, DomainEvent::Activity(Activity {
+                                publish_de(DomainEvent::Activity(Activity {
                                     agent: aref.clone(),
                                     project: p.project.clone(),
                                     text: format!("{line} #{}", p.project),
                                 })).await;
-                                publish_status(&transport, &codec, &aref, &p.project, &line, ttl).await;
-                                store.set_agent_status(&me, &p.project, &line, now).ok();
+                                publish_de(status_de(&line)).await;
+                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, &line, now).ok(); });
                                 cur_line = Some(line);
                             }
                         }
                         last_distill = now;
                     }
+                } else if cur_line.is_some() {
+                    publish_de(status_de("")).await;
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, "", now).ok(); });
+                    cur_line = None;
+                    cur_turn_start = 0;
+                    last_distill = 0;
                 } else {
-                    // Turn ended (or never started): go idle, once.
-                    if cur_line.is_some() {
-                        publish_status(&transport, &codec, &aref, &p.project, "", ttl).await;
-                        store.set_agent_status(&me, &p.project, "", now).ok();
-                        cur_line = None;
-                    }
                     cur_turn_start = 0;
                     last_distill = 0;
                 }
             }
-            n = notifications.recv() => {
-                // Handle both the deduped `Event` variant and the raw `Message`
-                // (EVENT) variant — auth-gated relays + the warmup fetch can mark
-                // events "already seen", suppressing the `Event` variant.
-                let ev: Option<Event> = match n {
-                    Ok(RelayPoolNotification::Event { event, .. }) => Some(*event),
-                    Ok(RelayPoolNotification::Message {
-                        message: RelayMessage::Event { event, .. }, ..
-                    }) => Some(event.into_owned()),
-                    Ok(_) => None,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    Err(_) => None, // lagged; keep going
-                };
-                if let Some(event) = ev {
-                    handle_incoming(&store, &me, &owners, &codec, &event);
-                }
-            }
-            _ = recv_sigterm(&mut sigterm) => { break; }
+            _ = cancel.notified() => { break; }
         }
     }
 
-    // Clean exit: go idle and mark the session dead.
-    publish(&transport, &codec, presence(now_secs())).await;
-    publish_status(&transport, &codec, &aref, &p.project, "", ttl).await;
-    store.mark_session_dead(&p.session_id).ok();
-    transport.shutdown().await;
+    // Clean exit: expire presence, go idle, mark the session dead.
+    publish_de(presence(now_secs())).await;
+    publish_de(status_de("")).await;
+    st!(|s: &Store| { s.mark_session_dead(&p.session_id).ok(); });
     Ok(())
 }
 
-fn handle_incoming(store: &Store, me: &str, owners: &[String], codec: &Kind1Codec, event: &Event) {
-    // NIP-29 group metadata: cache the 'about' text for the channel.
-    if event.kind.as_u16() == 39000 {
-        if let Some(project) = event_tag(event, "d") {
-            let about = event_tag(event, "about").unwrap_or("");
-            store
-                .upsert_project_meta(project, about, event.created_at.as_secs())
-                .ok();
-        }
-        return;
-    }
-
-    let is_self = event.pubkey.to_hex() == me;
-    let Some(de) = codec.decode(event) else {
-        return;
-    };
-    let now = now_secs();
-    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-        let kind = event.kind.as_u16();
-        let author = &event.pubkey.to_hex()[..8];
-        eprintln!(
-            "[recv] kind={kind} author={author} variant={}",
-            de_name(&de)
-        );
-    }
-    match de {
-        // Our own profile/presence/activity/status are noise to us — skip. But a
-        // Mention to our own pubkey (a sibling session of the same agent) must
-        // still be routed, so it falls through below.
-        DomainEvent::Profile(_)
-        | DomainEvent::Presence(_)
-        | DomainEvent::Activity(_)
-        | DomainEvent::Status(_)
-            if is_self => {}
-        DomainEvent::Profile(pf) => {
-            let pk = &pf.agent.pubkey;
-            if crate::acl::is_allowed(pk) {
-                // Authorized agent: into the directory; clear any pending entry.
-                store.upsert_profile(pk, &pf.agent.slug, &pf.host, now).ok();
-                store.remove_pending_agent(pk).ok();
-            } else if !crate::acl::is_blocked(pk) && pf.owners.iter().any(|o| owners.contains(o)) {
-                // Unknown agent claiming our owner → pending human decision.
-                store
-                    .upsert_pending_agent(pk, &pf.agent.slug, &pf.host, &pf.owners.join(","), now)
-                    .ok();
-            }
-        }
-        DomainEvent::Presence(pr) => {
-            if pr.expires_at <= now {
-                return;
-            }
-            store
-                .upsert_peer_session(
-                    &pr.session_id,
-                    &pr.agent.pubkey,
-                    &pr.agent.slug,
-                    &pr.project,
-                    &pr.host,
-                    now,
-                )
-                .ok();
-            if !pr.agent.slug.is_empty() {
-                store
-                    .upsert_profile(&pr.agent.pubkey, &pr.agent.slug, &pr.host, now)
-                    .ok();
-            }
-        }
-        DomainEvent::Status(st) => {
-            if st.expires_at.map(|e| e <= now).unwrap_or(false) {
-                return;
-            }
-            // What a peer is currently doing (self is handled above).
-            store
-                .set_agent_status(&st.agent.pubkey, &st.project, &st.text, now)
-                .ok();
-        }
-        DomainEvent::Mention(m) if m.to_pubkey == me => {
-            route_mention(store, me, &m, event);
-        }
-        _ => {}
-    }
+/// Route a mention addressed to agent `me` into the per-session inbox(es) of
+/// `me`'s alive sessions, deduped per-agent across sessions. Returns true if any
+/// row was newly enqueued (so the daemon can wake `wait-for-mention` waiters).
+///
+/// Multi-agent and multi-project safe: only sessions whose `agent_pubkey == me`
+/// and `project == m.project` are considered, so a mention to agent A never
+/// lands in agent B's inbox, and `codex@project-a` never wakes a `codex`
+/// session in `project-b` on the same machine.
+pub fn route_mention_into(store: &Store, me: &str, m: &Mention, event: &Event) -> bool {
+    route_mention_into_with_id(store, me, m, &event.id.to_hex())
 }
 
-fn route_mention(store: &Store, me: &str, m: &Mention, event: &Event) {
+/// Like [`route_mention_into`], but takes the mention's event id directly instead
+/// of a decoded `Event`. Used by the local-delivery path in `send_message`, where
+/// the daemon publishes the event and routes it to a hosted sibling session
+/// without waiting for (and without relying on) a relay echo. The published
+/// `EventId` is identical to what the relay would echo, so the inbox PK
+/// `(mention_event_id, target_session)` keeps delivery idempotent across both
+/// paths.
+pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &str) -> bool {
     // Already delivered to this agent in some session? Don't re-enqueue it in a
     // new session (mentions persist on the relay as stored kind:1 events).
-    let eid = event.id.to_hex();
-    if store.is_mention_seen(me, &eid).unwrap_or(false) {
-        return;
+    // Per-agent dedup applies ONLY to agent-wide (untargeted) mentions, so an
+    // already-seen agent-wide mention does not resurface in every later session.
+    // SESSION-TARGETED mentions bypass per-agent dedup: a reply between sibling
+    // sessions of the same agent (same pubkey) must reach its target session even
+    // if another sibling already marked the event seen. Idempotency for the
+    // targeted case is carried by the inbox PK `(mention_event_id, target_session)`
+    // (`enqueue_mention` is INSERT OR IGNORE; delivered rows are never deleted).
+    if m.target_session.is_none() && store.is_mention_seen(me, eid).unwrap_or(false) {
+        return false;
     }
     let alive: Vec<String> = store
         .list_alive_sessions()
         .unwrap_or_default()
         .into_iter()
-        .filter(|s| s.agent_pubkey == me)
+        .filter(|s| s.agent_pubkey == me && s.project == m.project)
         .map(|s| s.session_id)
         .collect();
     let targets = compute_targets(m.target_session.as_deref(), &alive);
+    let mut routed = false;
     for t in targets {
-        let _ = store.enqueue_mention(&InboxRow {
-            mention_event_id: event.id.to_hex(),
-            target_session: t,
-            from_pubkey: m.from.pubkey.clone(),
-            from_slug: m.from.slug.clone(),
-            project: m.project.clone(),
-            body: m.body.clone(),
-            created_at: now_secs(),
-        });
+        let newly = store
+            .enqueue_mention(&InboxRow {
+                mention_event_id: eid.to_string(),
+                target_session: t,
+                from_pubkey: m.from.pubkey.clone(),
+                from_slug: m.from.slug.clone(),
+                project: m.project.clone(),
+                body: m.body.clone(),
+                created_at: now_secs(),
+            })
+            .unwrap_or(false);
+        routed = routed || newly;
     }
-}
-
-async fn publish(transport: &Transport, codec: &Kind1Codec, ev: DomainEvent) {
-    if let Ok(b) = codec.encode(&ev) {
-        let _ = transport.publish_builder(b).await;
-    }
-}
-
-async fn publish_status(
-    transport: &Transport,
-    codec: &Kind1Codec,
-    agent: &AgentRef,
-    project: &str,
-    text: &str,
-    ttl: u64,
-) {
-    let ev = DomainEvent::Status(Status {
-        agent: agent.clone(),
-        project: project.to_string(),
-        text: text.to_string(),
-        expires_at: Some(now_secs() + ttl),
-    });
-    publish(transport, codec, ev).await;
-}
-
-/// Drop peers whose heartbeat stopped more than this ago (pollution cleanup).
-const PRUNE_PEER_AFTER_SECS: u64 = 600;
-
-/// Trusted authors = the ACL allowlist ∪ me, sorted & unique. The allowlist is
-/// the set of agent pubkeys this computer has authorized (own fleet is
-/// auto-added on key creation; foreign agents via `tenex-edge acl`).
-fn trusted_authors(me: &str) -> Vec<String> {
-    let mut set: Vec<String> = crate::acl::allowed().into_iter().collect();
-    set.push(me.to_string());
-    set.sort();
-    set.dedup();
-    set
-}
-
-fn de_name(de: &DomainEvent) -> &'static str {
-    match de {
-        DomainEvent::Profile(_) => "Profile",
-        DomainEvent::Presence(_) => "Presence",
-        DomainEvent::Activity(_) => "Activity",
-        DomainEvent::Status(_) => "Status",
-        DomainEvent::Mention(_) => "Mention",
-    }
-}
-
-fn event_tag<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
-    event.tags.iter().find_map(|t| {
-        let s = t.as_slice();
-        if s.first().map(String::as_str) == Some(name) {
-            s.get(1).map(String::as_str)
-        } else {
-            None
-        }
-    })
+    routed
 }
 
 fn pid_alive(pid: i32) -> bool {
     nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
-}
-
-// ── SIGTERM handling (the graceful session-end path) ─────────────────────────
-
-#[cfg(unix)]
-type SigTerm = tokio::signal::unix::Signal;
-#[cfg(unix)]
-fn unix_sigterm() -> Option<SigTerm> {
-    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok()
-}
-#[cfg(unix)]
-async fn recv_sigterm(s: &mut Option<SigTerm>) {
-    match s {
-        Some(sig) => {
-            sig.recv().await;
-        }
-        None => std::future::pending::<()>().await,
-    }
 }
 
 #[cfg(test)]
@@ -492,5 +299,146 @@ mod tests {
     #[test]
     fn current_pid_is_alive() {
         assert!(pid_alive(std::process::id() as i32));
+    }
+
+    // ── helpers for routing/dedup tests ───────────────────────────────────
+    use crate::state::SessionRecord;
+    use nostr_sdk::prelude::Keys;
+
+    fn alive_session(id: &str, pubkey: &str) -> SessionRecord {
+        alive_session_in_project(id, pubkey, "proj")
+    }
+
+    fn alive_session_in_project(id: &str, pubkey: &str, project: &str) -> SessionRecord {
+        SessionRecord {
+            session_id: id.into(),
+            agent_slug: "claude".into(),
+            agent_pubkey: pubkey.into(),
+            project: project.into(),
+            host: "laptop".into(),
+            child_pid: None,
+            watch_pid: None,
+            created_at: 1000,
+            alive: true,
+            rel_cwd: String::new(),
+        }
+    }
+
+    /// Build a real signed kind:1 Mention event from `from_keys` to `to_pubkey`.
+    fn signed_mention(from_keys: &Keys, to_pubkey: &str, target_session: Option<&str>) -> (Mention, Event) {
+        let m = Mention {
+            from: AgentRef::new(from_keys.public_key().to_hex(), "claude"),
+            to_pubkey: to_pubkey.to_string(),
+            project: "proj".to_string(),
+            body: "hi sibling".to_string(),
+            target_session: target_session.map(str::to_string),
+        };
+        let event = Kind1Codec
+            .encode(&DomainEvent::Mention(m.clone()))
+            .unwrap()
+            .sign_with_keys(from_keys)
+            .unwrap();
+        (m, event)
+    }
+
+    /// Bug A (sibling session delivery): a claude session A sends to a DIFFERENT
+    /// claude session B that shares the same pubkey. The mention must land in B's
+    /// inbox and NOT in A's. (Both sessions are alive.)
+    #[test]
+    fn sibling_session_mention_lands_in_target_not_sender() {
+        let s = Store::open_memory().unwrap();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        s.upsert_session(&alive_session("sess-A", &pubkey)).unwrap();
+        s.upsert_session(&alive_session("sess-B", &pubkey)).unwrap();
+
+        let (m, event) = signed_mention(&keys, &pubkey, Some("sess-B"));
+        let routed = route_mention_into(&s, &pubkey, &m, &event);
+        assert!(routed, "sibling-targeted mention should be newly routed");
+
+        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "B must receive it");
+        assert!(s.drain_inbox("sess-A").unwrap().is_empty(), "A (sender) must NOT receive it");
+    }
+
+    /// Bug B (per-(pubkey,session) dedup): a session-targeted mention must still be
+    /// delivered to its target session even if a SIBLING session of the same agent
+    /// already "saw" (per-agent dedup-marked) that event. Per-agent dedup must NOT
+    /// block session-targeted delivery.
+    #[test]
+    fn session_targeted_mention_not_blocked_by_sibling_seen() {
+        let s = Store::open_memory().unwrap();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        s.upsert_session(&alive_session("sess-A", &pubkey)).unwrap();
+        s.upsert_session(&alive_session("sess-B", &pubkey)).unwrap();
+
+        let (m, event) = signed_mention(&keys, &pubkey, Some("sess-B"));
+        // Sibling A marks the event seen per-agent (e.g. it drained an agent-wide
+        // copy in its own turn). This must NOT block the session-targeted delivery.
+        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs()).unwrap();
+
+        let routed = route_mention_into(&s, &pubkey, &m, &event);
+        assert!(routed, "session-targeted mention must bypass per-agent dedup");
+        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "B must still receive it");
+    }
+
+    /// Bug A (local delivery): `send_message` routes the just-published event to a
+    /// hosted sibling session via `route_mention_into_with_id`, using the SAME
+    /// event id it published. Delivery must reach the target sibling, not the
+    /// sender, and a later relay echo of the same id must NOT double-deliver
+    /// (idempotent on the inbox PK).
+    #[test]
+    fn local_delivery_by_event_id_is_idempotent_and_targets_sibling() {
+        let s = Store::open_memory().unwrap();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        s.upsert_session(&alive_session("sess-A", &pubkey)).unwrap();
+        s.upsert_session(&alive_session("sess-B", &pubkey)).unwrap();
+
+        let (m, event) = signed_mention(&keys, &pubkey, Some("sess-B"));
+        let eid = event.id.to_hex();
+
+        // Local delivery (send_message path).
+        assert!(route_mention_into_with_id(&s, &pubkey, &m, &eid));
+        // A later relay echo of the SAME event id (handle_incoming path).
+        assert!(!route_mention_into_with_id(&s, &pubkey, &m, &eid), "echo must not double-deliver");
+
+        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "exactly one delivery to B");
+        assert!(s.drain_inbox("sess-A").unwrap().is_empty(), "sender A must not receive");
+    }
+
+    #[test]
+    fn local_delivery_only_routes_to_sessions_in_mentions_project() {
+        let s = Store::open_memory().unwrap();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        s.upsert_session(&alive_session_in_project("sess-current", &pubkey, "current"))
+            .unwrap();
+        s.upsert_session(&alive_session_in_project("sess-other", &pubkey, "other"))
+            .unwrap();
+
+        let mut m = signed_mention(&keys, &pubkey, None).0;
+        m.project = "current".to_string();
+
+        assert!(route_mention_into_with_id(&s, &pubkey, &m, "event-project-current"));
+        assert_eq!(s.drain_inbox("sess-current").unwrap().len(), 1);
+        assert!(s.drain_inbox("sess-other").unwrap().is_empty());
+    }
+
+    /// Preserve: an AGENT-WIDE (untargeted) mention is still deduped per-agent so it
+    /// does not resurface in every session once seen.
+    #[test]
+    fn agent_wide_mention_still_deduped_per_agent() {
+        let s = Store::open_memory().unwrap();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        s.upsert_session(&alive_session("sess-A", &pubkey)).unwrap();
+
+        let (m, event) = signed_mention(&keys, &pubkey, None);
+        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs()).unwrap();
+
+        let routed = route_mention_into(&s, &pubkey, &m, &event);
+        assert!(!routed, "agent-wide mention already seen must not re-route");
+        assert!(s.drain_inbox("sess-A").unwrap().is_empty());
     }
 }

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_RELAY: &str = "wss://relay.tenex.chat";
+pub const DEFAULT_RELAY: &str = "wss://nip29.f7z.io";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -17,6 +17,9 @@ pub struct Config {
     pub relays: Vec<String>,
     /// Host label published on the agent's profile (M1 §3 `host` tag).
     pub host: String,
+    /// Human user's Nostr secret key (bech32 nsec or hex). Used to publish
+    /// user-prompt events on behalf of the human, not the agent.
+    pub user_nsec: Option<String>,
 }
 
 /// Mirror of the relevant fields in `~/.tenex/config.json`. Unknown fields are
@@ -29,6 +32,8 @@ struct RawConfig {
     relays: Vec<String>,
     #[serde(default, rename = "backendName")]
     backend_name: Option<String>,
+    #[serde(default, rename = "userNsec")]
+    user_nsec: Option<String>,
 }
 
 impl Config {
@@ -48,6 +53,7 @@ impl Config {
             whitelisted_pubkeys: raw.whitelisted_pubkeys,
             relays,
             host,
+            user_nsec: raw.user_nsec,
         })
     }
 

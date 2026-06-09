@@ -1,16 +1,16 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "python3 __HOOK__ session-start" }] }
+      { "hooks": [{ "type": "command", "command": "tenex-edge hook --host claude-code --type session-start" }] }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "python3 __HOOK__ session-end" }] }
+      { "hooks": [{ "type": "command", "command": "tenex-edge hook --host claude-code --type session-end" }] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "python3 __HOOK__ user-prompt-submit" }] }
+      { "hooks": [{ "type": "command", "command": "tenex-edge hook --host claude-code --type user-prompt-submit" }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "python3 __HOOK__ stop" }] }
+      { "hooks": [{ "type": "command", "command": "tenex-edge hook --host claude-code --type stop" }] }
     ]
   }
 }

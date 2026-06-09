@@ -1,0 +1,10 @@
+{
+  "name": "tenex-edge-channel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code channel adapter for tenex-edge inter-agent mentions",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}
