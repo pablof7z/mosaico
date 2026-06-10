@@ -82,7 +82,7 @@ pub fn assemble_turn_start_context(
     if !pending.is_empty() {
         let names: Vec<String> = pending
             .iter()
-            .map(|p| format!("{} ({})", p.slug, short_id(&p.pubkey)))
+            .map(|p| format!("{} ({})", p.slug, pubkey_short(&p.pubkey)))
             .collect();
         blocks.push(format!(
             "[tenex-edge] {} unauthorized agent(s) claim your owner: {}. \

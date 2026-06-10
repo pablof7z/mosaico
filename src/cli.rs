@@ -2,7 +2,7 @@
 
 use crate::domain::DomainEvent;
 use crate::state::Store;
-use crate::util::{now_secs, session_short_code, short_id, slugify_host};
+use crate::util::{now_secs, pubkey_short, slugify_host, SessionId};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use crossterm::{

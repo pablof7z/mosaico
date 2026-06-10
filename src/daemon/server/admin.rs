@@ -86,7 +86,7 @@ pub(super) async fn rpc_doctor(state: &Arc<DaemonState>) -> Result<serde_json::V
         .tags([Tag::parse(["h", &t])?]);
     // Sign with the daemon's connection key (any key works for the probe).
     let publish = match state.transport.publish_builder(builder).await {
-        Ok(id) => format!("OK ({})", crate::util::short_id(&id.to_hex())),
+        Ok(id) => format!("OK ({})", crate::util::pubkey_short(&id.to_hex())),
         Err(e) => format!("ERR {e:#}"),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;

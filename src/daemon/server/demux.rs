@@ -95,6 +95,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         | DomainEvent::Presence(_)
         | DomainEvent::Activity(_)
         | DomainEvent::Status(_)
+        | DomainEvent::TurnReply(_)
             if is_self => {}
         DomainEvent::Profile(pf) => {
             let pk = pf.agent.pubkey.clone();
@@ -124,7 +125,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             }
             state.with_store(|s| {
                 s.upsert_peer_session(
-                    &pr.session_id,
+                    pr.session_id.as_str(),
                     &pr.agent.pubkey,
                     &pr.agent.slug,
                     &pr.project,

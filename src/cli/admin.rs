@@ -13,7 +13,7 @@ pub(super) async fn acl(action: Option<AclAction>) -> Result<()> {
             println!(
                 "authorized {} ({})",
                 v["slug"].as_str().unwrap_or("").cyan(),
-                short_id(v["pubkey"].as_str().unwrap_or(""))
+                pubkey_short(v["pubkey"].as_str().unwrap_or(""))
             );
         }
         Some(AclAction::Block { target }) => {
@@ -25,7 +25,7 @@ pub(super) async fn acl(action: Option<AclAction>) -> Result<()> {
             println!(
                 "blocked {} ({})",
                 v["slug"].as_str().unwrap_or(""),
-                short_id(v["pubkey"].as_str().unwrap_or(""))
+                pubkey_short(v["pubkey"].as_str().unwrap_or(""))
             );
         }
         Some(AclAction::List) | None => {
@@ -43,7 +43,7 @@ pub(super) async fn acl(action: Option<AclAction>) -> Result<()> {
                         "  {} {}  ({})  host {}",
                         "?".yellow(),
                         p["slug"].as_str().unwrap_or("").cyan(),
-                        short_id(p["pubkey"].as_str().unwrap_or("")),
+                        pubkey_short(p["pubkey"].as_str().unwrap_or("")),
                         p["host"].as_str().unwrap_or("").dimmed()
                     );
                 }
@@ -174,7 +174,7 @@ fn render(de: &DomainEvent) -> String {
             "live".green(),
             p.agent.slug.cyan(),
             slugify_host(&p.host),
-            session_short_code(&p.session_id).yellow(),
+            p.session_id.to_string().yellow(),
             p.project.dimmed()
         ),
         DomainEvent::Activity(a) => {
@@ -190,12 +190,15 @@ fn render(de: &DomainEvent) -> String {
             "{} {} -> {}{}: {}",
             "msg ".yellow(),
             m.from.slug.cyan(),
-            short_id(&m.to_pubkey),
+            pubkey_short(&m.to_pubkey),
             m.target_session
-                .as_deref()
-                .map(|s| format!(" ({})", session_short_code(s)))
+                .as_ref()
+                .map(|s| format!(" ({s})"))
                 .unwrap_or_default(),
             m.body
         ),
+        DomainEvent::TurnReply(r) => {
+            format!("{} {}: {}", "turn".blue(), r.agent.slug.cyan(), r.body)
+        }
     }
 }

@@ -205,6 +205,23 @@ impl Store {
             "ALTER TABLE inbox ADD COLUMN from_session TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // NIP-10 thread tracking: root event (first user prompt in the session
+        // thread) and most recent user prompt (triggers TurnReply at stop-hook).
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN thread_root_event_id TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN last_prompt_event_id TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // Snapshot of the last assistant text at the beginning of each turn.
+        // Used by rpc_turn_end to poll until a *new* response appears in the
+        // transcript (Claude Code writes the transcript after the stop hook fires).
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN last_assistant_text_at_turn_start TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(Self { conn })
     }
 

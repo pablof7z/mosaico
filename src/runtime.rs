@@ -14,7 +14,7 @@ use crate::distill;
 use crate::domain::{Activity, AgentRef, DomainEvent, Mention, Presence, Profile, Status};
 use crate::state::{InboxRow, Store};
 use crate::transport::Transport;
-use crate::util::now_secs;
+use crate::util::{now_secs, SessionId};
 use anyhow::Result;
 use nostr_sdk::prelude::Event;
 use std::path::PathBuf;
@@ -112,7 +112,7 @@ pub async fn run_session_in_daemon(
         DomainEvent::Presence(Presence {
             agent: aref.clone(),
             project: p.project.clone(),
-            session_id: p.session_id.clone(),
+            session_id: SessionId::from(p.session_id.clone()),
             host: p.host.clone(),
             rel_cwd: p.rel_cwd.clone(),
             audience: owners.clone(),
@@ -258,7 +258,7 @@ pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &st
         .filter(|s| s.agent_pubkey == me && s.project == m.project)
         .map(|s| s.session_id)
         .collect();
-    let targets = compute_targets(m.target_session.as_deref(), &alive);
+    let targets = compute_targets(m.target_session.as_ref().map(|s| s.as_str()), &alive);
     let mut routed = false;
     for t in targets {
         let from_slug = if m.from.slug.is_empty() {
@@ -275,7 +275,11 @@ pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &st
                 project: m.project.clone(),
                 body: m.body.clone(),
                 created_at: now_secs(),
-                from_session: m.from_session.clone().unwrap_or_default(),
+                from_session: m
+                    .from_session
+                    .as_ref()
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_default(),
             })
             .unwrap_or(false);
         routed = routed || newly;

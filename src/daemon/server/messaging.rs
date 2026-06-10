@@ -39,9 +39,9 @@ pub(super) async fn rpc_send_message(
         to_pubkey: recipient.pubkey.clone(),
         project: recipient.project.clone(),
         body: p.message,
-        target_session: recipient.target_session.clone(),
+        target_session: recipient.target_session.clone().map(SessionId::from),
         // Stamp the sender's own session so the recipient can reply to it precisely.
-        from_session: Some(rec.session_id.clone()),
+        from_session: Some(SessionId::from(rec.session_id.clone())),
     };
     let builder = state.codec.encode(&DomainEvent::Mention(mention.clone()))?;
     // Publish over the shared relay; the returned EventId is the canonical id of

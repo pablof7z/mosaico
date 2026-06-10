@@ -118,7 +118,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "inbox" => rpc_inbox(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params),
-        "turn_end" => rpc_turn_end(state, &req.params),
+        "turn_end" => rpc_turn_end(state, &req.params).await,
         "acl" => rpc_acl(state, &req.params).await,
         "doctor" => rpc_doctor(state).await,
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
@@ -266,6 +266,7 @@ fn render_fabric_line(de: &DomainEvent, project: Option<&str>) -> Option<String>
             DomainEvent::Activity(a) => a.project == pr,
             DomainEvent::Status(s) => s.project == pr,
             DomainEvent::Mention(m) => m.project == pr,
+            DomainEvent::TurnReply(r) => r.project == pr,
             DomainEvent::Profile(_) => true,
         };
         if !matches {

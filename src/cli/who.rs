@@ -90,7 +90,7 @@ struct WhoRow {
     project: String,
     status: String,
     host: String,
-    session_id: String,
+    session_id: SessionId,
     age_secs: Option<u64>,
     /// Project-relative working dir (§8e). Empty or "." → rendered without a
     /// `[dir]` bracket; otherwise shown so worktrees render distinctly.
@@ -153,7 +153,7 @@ pub fn load_who_snapshot(
                 project: s.project.clone(),
                 status: status_for(store, &s.agent_pubkey, &s.project),
                 host: s.host.clone(),
-                session_id: s.session_id.clone(),
+                session_id: SessionId::from(s.session_id.clone()),
                 age_secs,
                 rel_cwd: s.rel_cwd.clone(),
                 remote: false,
@@ -176,7 +176,7 @@ pub fn load_who_snapshot(
                 project: p.project.clone(),
                 status: status_for(store, &p.pubkey, &p.project),
                 host: p.host.clone(),
-                session_id: p.session_id.clone(),
+                session_id: SessionId::from(p.session_id.clone()),
                 age_secs: Some(age),
                 rel_cwd: p.rel_cwd.clone(),
                 remote: slugify_host(&p.host) != local_host,
@@ -262,7 +262,7 @@ pub(super) fn push_turn_fabric_block(
                 p.slug,
                 slugify_host(&p.host),
                 p.project,
-                session_short_code(&p.session_id),
+                SessionId::from(p.session_id.as_str()),
             ));
         }
         for (slug, proj, text) in &status_changes {

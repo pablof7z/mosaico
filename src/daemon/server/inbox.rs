@@ -66,6 +66,13 @@ pub(super) async fn rpc_turn_start(
         s.mark_turn_start(&p.session, now_secs()).ok();
         if let Some(path) = p.transcript.as_deref().filter(|x| !x.is_empty()) {
             s.set_session_transcript(&p.session, path).ok();
+            // Snapshot the last assistant text so rpc_turn_end can poll until a
+            // *new* (different) response appears — Claude Code writes the
+            // transcript after the stop hook fires, so reading at stop time often
+            // returns the previous turn's content.
+            let baseline = crate::transcript::read_last_assistant_text(std::path::Path::new(path))
+                .unwrap_or_default();
+            s.set_last_assistant_text_at_turn_start(&p.session, &baseline).ok();
         }
         prev
     });
@@ -119,17 +126,72 @@ struct TurnEndParams {
     session: String,
 }
 
-pub(super) fn rpc_turn_end(
+pub(super) async fn rpc_turn_end(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
+    use crate::domain::{AgentRef, DomainEvent, TurnReply};
+    use std::path::Path;
+
     let p: TurnEndParams =
         serde_json::from_value(params.clone()).context("parsing turn_end params")?;
-    if !p.session.is_empty() {
+    if p.session.is_empty() {
+        return Ok(serde_json::json!({ "ok": true }));
+    }
+
+    // Collect everything we need while holding the store lock, then release it.
+    // The IDs are captured NOW so a concurrent user_prompt for the next turn
+    // cannot overwrite last_prompt_event_id before we publish.
+    let (root_event_id, last_prompt_event_id, transcript_path, baseline_text, session_rec) =
         state.with_store(|s| {
             s.mark_turn_end(&p.session).ok();
+            let (root, prompt) = s.get_thread_event_ids(&p.session);
+            let transcript = s.get_session_transcript(&p.session).ok().flatten();
+            let baseline = s.get_last_assistant_text_at_turn_start(&p.session);
+            let rec = s.get_session(&p.session).ok().flatten();
+            (root, prompt, transcript, baseline, rec)
         });
+
+    // Publish the TurnReply when we have full threading context.
+    if !root_event_id.is_empty() && !last_prompt_event_id.is_empty() {
+        if let Some(rec) = session_rec {
+            // Claude Code writes the transcript *after* the stop hook fires, so
+            // the response may not be on disk yet. Poll (up to ~2 s) until the
+            // last assistant text differs from what we snapshotted at turn_start.
+            let body = if let Some(path) = transcript_path.as_deref() {
+                let mut result = String::new();
+                for _ in 0..20u8 {
+                    if let Some(text) = crate::transcript::read_last_assistant_text(Path::new(path)) {
+                        if !text.is_empty() && text != baseline_text {
+                            result = text;
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                result
+            } else {
+                String::new()
+            };
+
+            if !body.is_empty() {
+                let ev = DomainEvent::TurnReply(TurnReply {
+                    agent: AgentRef::new(rec.agent_pubkey.clone(), rec.agent_slug.clone()),
+                    project: rec.project.clone(),
+                    body,
+                    root_event_id,
+                    reply_event_id: last_prompt_event_id,
+                });
+                let edge = crate::config::edge_home();
+                if let Ok(id) = crate::identity::load_or_create(&edge, &rec.agent_slug, crate::util::now_secs()) {
+                    if let Ok(builder) = state.codec.encode(&ev) {
+                        state.transport.publish_signed(builder, &id.keys).await.ok();
+                    }
+                }
+            }
+        }
     }
+
     Ok(serde_json::json!({ "ok": true }))
 }
 
@@ -185,13 +247,17 @@ pub(super) async fn rpc_user_prompt(
     ]);
     let event_id = state.transport.publish_signed(builder, &user_keys).await?;
 
-    // Pre-mark the event as already consumed for this session.  The user-prompt
-    // is operator-signed so handle_incoming/fetch_mentions skip it via the owners
-    // check, but suppress_inbox_event is a belt-and-suspenders guard for any
-    // fetch that predates or races the in-memory owners set.
     let eid = event_id.to_hex();
     let sid = rec.session_id.clone();
-    state.with_store(|s| s.suppress_inbox_event(&sid, &eid).ok());
+    state.with_store(|s| {
+        // Pre-mark as consumed (belt-and-suspenders; owners check is primary guard).
+        s.suppress_inbox_event(&sid, &eid).ok();
+        // NIP-10 thread tracking: first prompt becomes the root; every prompt is
+        // the "last trigger" the next TurnReply will reply to.
+        let (root, _) = s.get_thread_event_ids(&sid);
+        let new_root = if root.is_empty() { eid.clone() } else { root };
+        s.set_thread_event_ids(&sid, &new_root, &eid).ok();
+    });
 
     Ok(serde_json::json!({ "event_id": eid }))
 }

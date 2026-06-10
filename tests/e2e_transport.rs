@@ -99,14 +99,14 @@ async fn publishes_and_decodes_all_event_types() {
 
     let has_presence = seen
         .iter()
-        .any(|e| matches!(e, DomainEvent::Presence(p) if p.session_id == "sess-1"));
+        .any(|e| matches!(e, DomainEvent::Presence(p) if p.session_id.as_str() == "sess-1"));
     let has_activity = seen
         .iter()
         .any(|e| matches!(e, DomainEvent::Activity(a) if a.text == "fixing the auth bug"));
     let has_profile = seen
         .iter()
         .any(|e| matches!(e, DomainEvent::Profile(p) if p.host == "test-host"));
-    let has_mention = seen.iter().any(|e| matches!(e, DomainEvent::Mention(m) if m.to_pubkey == reader_pk && m.target_session.as_deref() == Some("sess-1")));
+    let has_mention = seen.iter().any(|e| matches!(e, DomainEvent::Mention(m) if m.to_pubkey == reader_pk && m.target_session.as_ref().map(|s| s.as_str()) == Some("sess-1")));
 
     assert!(has_presence, "expected presence; saw {seen:#?}");
     assert!(has_activity, "expected activity; saw {seen:#?}");

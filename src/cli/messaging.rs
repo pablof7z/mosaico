@@ -21,10 +21,10 @@ pub(super) async fn send_message(
     match target_session {
         Some(s) => println!(
             "mentioned {} (session {})",
-            short_id(&to_pubkey),
-            session_short_code(&s)
+            pubkey_short(&to_pubkey),
+            SessionId::from(s)
         ),
-        None => println!("mentioned {}", short_id(&to_pubkey)),
+        None => println!("mentioned {}", pubkey_short(&to_pubkey)),
     }
     Ok(())
 }
@@ -136,7 +136,7 @@ pub(super) async fn inbox(session: Option<String>) -> Result<()> {
                 format!(
                     "{} ({})",
                     p["slug"].as_str().unwrap_or(""),
-                    short_id(p["pubkey"].as_str().unwrap_or(""))
+                    pubkey_short(p["pubkey"].as_str().unwrap_or(""))
                 )
             })
             .collect();

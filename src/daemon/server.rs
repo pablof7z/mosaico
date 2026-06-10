@@ -21,7 +21,7 @@ use crate::identity::{self, AgentIdentity};
 use crate::runtime::{self, route_mention_into, route_mention_into_with_id, EngineParams};
 use crate::state::{InboxRow, Store};
 use crate::transport::Transport;
-use crate::util::{now_secs, session_short_code};
+use crate::util::{now_secs, session_short_code, SessionId};
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::{Event, Keys, RelayMessage, RelayPoolNotification};
 use std::collections::{HashMap, VecDeque};

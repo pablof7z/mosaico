@@ -1,5 +1,6 @@
 use super::render::render_who_once;
 use super::*;
+use crate::util::session_short_code;
 
 fn strip_ansi(input: &str) -> String {
     let mut out = String::new();
@@ -85,7 +86,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     assert!(!snapshot
         .rows
         .iter()
-        .any(|r| r.source == WhoSource::Peer && r.session_id == "local-session"));
+        .any(|r| r.source == WhoSource::Peer && r.session_id.as_str() == "local-session"));
 
     // §8e same-host/remote: this machine's own session is NOT remote; a peer
     // on a different host IS.
@@ -161,7 +162,7 @@ fn live_renderer_same_as_once_with_hint() {
             project: "proj".to_string(),
             status: "reviewing the patch".to_string(),
             host: "tower".to_string(),
-            session_id: "remote-session".to_string(),
+            session_id: SessionId::from("remote-session"),
             age_secs: Some(5),
             rel_cwd: String::new(),
             remote: false,
@@ -212,7 +213,7 @@ fn who_all_projects_includes_project_in_agent_names() {
             project: "other".to_string(),
             status: String::new(),
             host: "tower".to_string(),
-            session_id: "remote-session".to_string(),
+            session_id: SessionId::from("remote-session"),
             age_secs: Some(5),
             rel_cwd: String::new(),
             remote: false,

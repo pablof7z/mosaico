@@ -4,6 +4,8 @@
 //! concrete Nostr kinds, tags, or wire-protocol concepts. Everything here is
 //! what tenex-edge *means*, never how it travels.
 
+use crate::util::SessionId;
+
 /// A reference to an agent: its sovereign pubkey and the slug it goes by.
 /// Identity is `(agent, machine)` — the same tool on another machine is a
 /// different agent with a different pubkey (M1 §4).
@@ -38,7 +40,7 @@ pub struct Profile {
 pub struct Presence {
     pub agent: AgentRef,
     pub project: String,
-    pub session_id: String,
+    pub session_id: SessionId,
     pub host: String,
     /// Project-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
     /// PUBLIC kind → never the absolute `$HOME/...` path (privacy).
@@ -55,6 +57,26 @@ pub struct Activity {
     pub agent: AgentRef,
     pub project: String,
     pub text: String,
+}
+
+/// The agent's completed reply to a conversation turn, published at stop-hook
+/// time as a NIP-10 threaded kind:1. Carries the response text and two e-tags
+/// so any Nostr client can reconstruct the conversation thread:
+///   ["e", root_event_id,  "", "root"]  — the first message in the session thread
+///   ["e", reply_event_id, "", "reply"] — the user prompt that triggered this turn
+///
+/// For published artifacts (e.g. kind:30023 long-form articles) generated during
+/// a session, the same `root_event_id` should be e-tagged so the artifact can be
+/// traced back to the conversation that produced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnReply {
+    pub agent: AgentRef,
+    pub project: String,
+    pub body: String,
+    /// Event ID of the first message in this session's conversation thread.
+    pub root_event_id: String,
+    /// Event ID of the user prompt that triggered this turn.
+    pub reply_event_id: String,
 }
 
 /// The agent's live, replaceable status for a project. Empty text = idle.
@@ -86,11 +108,11 @@ pub struct Mention {
     pub project: String,
     pub body: String,
     /// When `Some`, only the recipient's matching session should surface it.
-    pub target_session: Option<String>,
+    pub target_session: Option<SessionId>,
     /// The SENDER's session id, when known. Lets the recipient reply to the exact
     /// sibling session that wrote this (sessions of one agent share a pubkey, so
     /// the author key alone can't disambiguate them). `None` for old peers.
-    pub from_session: Option<String>,
+    pub from_session: Option<SessionId>,
 }
 
 /// The closed set of things that travel on the fabric. A codec encodes each of
@@ -102,6 +124,7 @@ pub enum DomainEvent {
     Activity(Activity),
     Status(Status),
     Mention(Mention),
+    TurnReply(TurnReply),
 }
 
 #[cfg(test)]

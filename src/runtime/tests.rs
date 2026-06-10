@@ -52,7 +52,7 @@ fn signed_mention(
         to_pubkey: to_pubkey.to_string(),
         project: "proj".to_string(),
         body: "hi sibling".to_string(),
-        target_session: target_session.map(str::to_string),
+        target_session: target_session.map(crate::util::SessionId::from),
         from_session: None,
     };
     let event = Kind1Codec
