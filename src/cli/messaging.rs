@@ -29,6 +29,32 @@ pub(super) async fn send_message(
     Ok(())
 }
 
+// ── propose ──────────────────────────────────────────────────────────────────
+
+pub(super) async fn propose(
+    title: String,
+    body: String,
+    thread_id: Option<String>,
+    d: Option<String>,
+    session: Option<String>,
+) -> Result<()> {
+    let params = serde_json::json!({
+        "title": title,
+        "body": body,
+        "thread_id": thread_id,
+        "d": d,
+        "session": session,
+        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
+        "agent": std::env::var("TENEX_EDGE_AGENT").ok(),
+        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+    });
+    let v = daemon_call_async("propose", params).await?;
+    let title_echo = v["title"].as_str().unwrap_or(&title);
+    let d_tag = v["d_tag"].as_str().unwrap_or("?");
+    println!("published proposal {title_echo} ({d_tag})");
+    Ok(())
+}
+
 /// Async daemon call helper for `async fn` verbs (uses the async client; we are
 /// inside the tokio runtime so we must NOT block_on a sync client here).
 async fn daemon_call_async(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {

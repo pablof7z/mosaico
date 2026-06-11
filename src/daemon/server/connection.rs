@@ -5,7 +5,7 @@ use super::inbox::{
     rpc_turn_start, rpc_user_prompt,
 };
 use super::lifecycle::ensure_subscription;
-use super::messaging::rpc_send_message;
+use super::messaging::{rpc_propose, rpc_send_message};
 use super::session::{resolve_session, rpc_session_end, rpc_session_start};
 use super::*;
 
@@ -115,6 +115,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_start" => rpc_session_start(state, &req.params).await,
         "session_end" => rpc_session_end(state, &req.params),
         "send_message" => rpc_send_message(state, &req.params).await,
+        "propose" => rpc_propose(state, &req.params).await,
         "inbox" => rpc_inbox(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params),

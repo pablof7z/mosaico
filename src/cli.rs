@@ -109,6 +109,26 @@ enum Cmd {
         #[arg(long, default_value = "300")]
         timeout: u64,
     },
+    /// Publish a long-form proposal (kind:30023) from this agent's session.
+    Propose {
+        /// Proposal title.
+        #[arg(long)]
+        title: String,
+        /// Proposal body (Markdown). Use "-" or omit to read from stdin.
+        #[arg(long = "message", value_name = "BODY")]
+        message: Option<String>,
+        /// Event id of the conversation this proposal belongs to (becomes an "e" root tag).
+        #[arg(long = "thread", value_name = "EVENT_ID")]
+        thread_id: Option<String>,
+        /// Stable addressable identifier (the kind:30023 `d` tag). Reuse the same
+        /// value to publish a REVISION that supersedes a prior proposal at the
+        /// same address. Omit to mint a fresh id (a new proposal).
+        #[arg(long = "d", value_name = "IDENTIFIER")]
+        d: Option<String>,
+        /// My session id; if omitted, resolved from the current directory.
+        #[arg(long)]
+        session: Option<String>,
+    },
     /// Manage NIP-29 project groups (list, set description).
     Project {
         #[command(subcommand)]
@@ -191,6 +211,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             } else {
                 who::who(project, all, all_projects)
             }
+        }
+        Cmd::Propose { title, message, thread_id, d, session } => {
+            let body = messaging::resolve_send_message_body(message)?;
+            messaging::propose(title, body, thread_id, d, session).await
         }
         Cmd::Acl { action } => admin::acl(action).await,
         Cmd::Tail { project } => admin::tail(project).await,

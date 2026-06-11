@@ -76,6 +76,113 @@ pub(super) async fn rpc_send_message(
     )
 }
 
+// ── propose ──────────────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize, Default)]
+struct ProposeParams {
+    title: String,
+    body: String,
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    env_session: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    /// Event id of the conversation this proposal belongs to (NIP-10 "e" root tag).
+    #[serde(default)]
+    thread_id: Option<String>,
+    /// Stable `d` tag identifier. Supply to revise an existing proposal at the
+    /// same (author, d) naddr; omit to mint a fresh one.
+    #[serde(default)]
+    d: Option<String>,
+}
+
+/// Publish a kind:30023 (NIP-23 long-form) proposal signed by the agent's identity.
+///
+/// Tags:
+///   ["d", <id>]                    — NIP-33 addressable identifier
+///   ["title", <title>]             — human-readable title
+///   ["h", <project>]               — NIP-29 group
+///   ["p", <owner>]…                — one per owner; surfaces to the human
+///   ["e", <thread_id>, "", "root"] — when --thread given; links to conversation
+///   ["session-id", <session>]      — authoring session (omitted when no live session)
+pub(super) async fn rpc_propose(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use nostr_sdk::prelude::{EventBuilder, Kind, Tag};
+
+    let p: ProposeParams =
+        serde_json::from_value(params.clone()).context("parsing propose params")?;
+    if p.title.is_empty() {
+        anyhow::bail!("title must not be empty");
+    }
+
+    // Resolve session if one is live; fall back to cwd-based project + env agent.
+    // propose doesn't require a live session — it just needs a project and a key.
+    let session_rec = resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+    )
+    .ok();
+
+    let cwd = p
+        .cwd
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let project = session_rec
+        .as_ref()
+        .map(|r| r.project.clone())
+        .unwrap_or_else(|| crate::project::resolve(&cwd));
+    let agent_slug = session_rec
+        .as_ref()
+        .map(|r| r.agent_slug.clone())
+        .or_else(|| p.agent.clone().filter(|a| !a.is_empty()))
+        .unwrap_or_else(|| "agent".to_string());
+
+    let id = identity::load_or_create(&config::edge_home(), &agent_slug, now_secs())?;
+
+    let d_tag = p
+        .d
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("prop-{:x}", now_secs()));
+
+    let mut tags: Vec<Tag> = vec![
+        Tag::parse(["d", &d_tag]).context("d tag")?,
+        Tag::parse(["title", &p.title]).context("title tag")?,
+        Tag::parse(["h", &project]).context("h tag")?,
+    ];
+    if let Some(ref rec) = session_rec {
+        tags.push(Tag::parse(["session-id", rec.session_id.as_str()]).context("session-id tag")?);
+    }
+    for owner in &state.owners {
+        tags.push(Tag::parse(["p", owner]).context("p tag")?);
+    }
+    if let Some(ref eid) = p.thread_id {
+        tags.push(Tag::parse(["e", eid, "", "root"]).context("e root tag")?);
+    }
+
+    let builder = EventBuilder::new(Kind::from(30023u16), p.body).tags(tags);
+    let event_id = state
+        .transport
+        .publish_signed(builder, &id.keys)
+        .await
+        .context("publishing proposal")?;
+
+    Ok(serde_json::json!({
+        "event_id": event_id.to_hex(),
+        "d_tag": d_tag,
+        "title": p.title,
+    }))
+}
+
 struct ResolvedRecipient {
     pubkey: String,
     target_session: Option<String>,
