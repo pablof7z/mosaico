@@ -45,9 +45,9 @@ fn turn_delta_status_changes_can_be_project_scoped() {
     let s = Store::open_memory().unwrap();
     s.upsert_profile("pk-a", "alpha", "host", 1).unwrap();
     s.upsert_profile("pk-b", "bravo", "host", 1).unwrap();
-    s.set_agent_status("pk-a", "current", "working here", 100)
+    s.set_agent_status("pk-a", "current", Some("sess-a"), "working here", 100)
         .unwrap();
-    s.set_agent_status("pk-b", "elsewhere", "working there", 100)
+    s.set_agent_status("pk-b", "elsewhere", Some("sess-b"), "working there", 100)
         .unwrap();
 
     let scoped = s.list_status_changes_since(50, Some("current")).unwrap();

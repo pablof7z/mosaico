@@ -123,6 +123,7 @@ pub async fn run_session_in_daemon(
         DomainEvent::Status(Status {
             agent: aref.clone(),
             project: p.project.clone(),
+            session_id: Some(SessionId::from(p.session_id.clone())),
             text: text.to_string(),
             rel_cwd: p.rel_cwd.clone(),
             expires_at: Some(now_secs() + ttl),
@@ -139,7 +140,8 @@ pub async fn run_session_in_daemon(
     publish_de(presence(now_secs() + ttl)).await;
     publish_de(status_de("")).await;
     st!(|s: &Store| {
-        s.set_agent_status(&me, &p.project, "", now_secs()).ok();
+        s.set_agent_status(&me, &p.project, Some(&p.session_id), "", now_secs())
+            .ok();
         s.touch_session(&p.session_id, now_secs()).ok();
     });
 
@@ -162,7 +164,7 @@ pub async fn run_session_in_daemon(
                 publish_de(presence(now_secs() + ttl)).await;
                 if let Some(line) = cur_line.clone() {
                     publish_de(status_de(&line)).await;
-                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, &line, now_secs()).ok(); });
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &line, now_secs()).ok(); });
                 }
             }
             _ = obs.tick() => {
@@ -189,7 +191,7 @@ pub async fn run_session_in_daemon(
                                     text: format!("{line} #{}", p.project),
                                 })).await;
                                 publish_de(status_de(&line)).await;
-                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, &line, now).ok(); });
+                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &line, now).ok(); });
                                 cur_line = Some(line);
                             }
                         }
@@ -197,7 +199,7 @@ pub async fn run_session_in_daemon(
                     }
                 } else if cur_line.is_some() {
                     publish_de(status_de("")).await;
-                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, "", now).ok(); });
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), "", now).ok(); });
                     cur_line = None;
                     cur_turn_start = 0;
                     last_distill = 0;

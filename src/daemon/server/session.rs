@@ -80,6 +80,26 @@ pub(super) async fn rpc_session_start(
     let project = crate::project::resolve(&cwd);
     let rel_cwd = crate::project::rel_cwd(&cwd);
     let session_id = p.session_id.unwrap_or_else(gen_session_id);
+    if let Some(watch_pid) = p.watch_pid {
+        let stale_ids: Vec<String> = state
+            .with_store(|s| s.list_alive_sessions().unwrap_or_default())
+            .into_iter()
+            .filter(|rec| {
+                rec.session_id != session_id
+                    && rec.agent_slug == p.agent
+                    && rec.project == project
+                    && rec.host == state.host
+                    && rec.watch_pid == Some(watch_pid)
+            })
+            .map(|rec| rec.session_id)
+            .collect();
+        for old_id in stale_ids {
+            cancel_session(state, &old_id);
+            state.with_store(|s| {
+                s.mark_session_dead(&old_id).ok();
+            });
+        }
+    }
 
     state.with_store(|s| {
         s.upsert_session(&crate::state::SessionRecord {
@@ -97,6 +117,9 @@ pub(super) async fn rpc_session_start(
         .ok();
         s.touch_session(&session_id, now_secs()).ok();
     });
+    if state.sessions.lock().unwrap().contains_key(&session_id) {
+        return Ok(serde_json::json!({ "session_id": session_id }));
+    }
 
     // Make sure the project's NIP-29 group exists and this agent is a member
     // BEFORE the engine starts publishing, so its presence lands in a group it

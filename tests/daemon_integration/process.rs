@@ -121,6 +121,39 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
 }
 
 #[test]
+fn claude_user_prompt_submit_reasserts_missing_session() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+
+    let out = run_cli_stdin(
+        &home,
+        &[
+            "hook",
+            "--host",
+            "claude-code",
+            "--type",
+            "user-prompt-submit",
+        ],
+        r#"{"session_id":"revive-claude","cwd":"/tmp","prompt":"hello"}"#,
+    );
+    assert!(
+        out.status.success(),
+        "user-prompt-submit failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let store = Store::open(&home.store_path()).unwrap();
+    let rec = store
+        .get_session("revive-claude")
+        .unwrap()
+        .expect("revived session row");
+    assert!(rec.alive);
+    assert_eq!(rec.agent_slug, "claude");
+
+    stop_daemon(&home);
+}
+
+#[test]
 fn version_skew_client_detects_and_respawns() {
     // A daemon spawned at protocol 1, then a NEWER client (protocol 2) running
     // the real `connect_or_spawn` must detect the skew, make the old daemon

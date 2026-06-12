@@ -139,6 +139,18 @@ CREATE TABLE IF NOT EXISTS agent_status (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (pubkey, project)
 );
+-- Current status scoped to one concrete session. This avoids showing one
+-- Claude/Codex turn beside every sibling session that shares the same agent
+-- pubkey in a project. `agent_status` remains as a legacy fallback for older
+-- peers that publish agent-level status without a session-id tag.
+CREATE TABLE IF NOT EXISTS session_status (
+    pubkey     TEXT NOT NULL,
+    project    TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (pubkey, project, session_id)
+);
 -- NIP-29 group metadata cache: the 'about' text for each project channel (kind 39000).
 CREATE TABLE IF NOT EXISTS project_meta (
     project    TEXT PRIMARY KEY,

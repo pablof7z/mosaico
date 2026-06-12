@@ -145,8 +145,14 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
                 return;
             }
             state.with_store(|s| {
-                s.set_agent_status(&st.agent.pubkey, &st.project, &st.text, now)
-                    .ok();
+                s.set_agent_status(
+                    &st.agent.pubkey,
+                    &st.project,
+                    st.session_id.as_ref().map(|s| s.as_str()),
+                    &st.text,
+                    now,
+                )
+                .ok();
             });
         }
         DomainEvent::Mention(m) if hosted.contains(&m.to_pubkey) => {

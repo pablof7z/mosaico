@@ -65,7 +65,13 @@ fn who_snapshot_merges_local_and_peer_sessions() {
         )
         .unwrap();
     store
-        .set_agent_status("pk-reviewer", "proj", "reviewing the patch", 995)
+        .set_agent_status(
+            "pk-reviewer",
+            "proj",
+            Some("remote-session"),
+            "reviewing the patch",
+            995,
+        )
         .unwrap();
 
     // Daemon/viewer host is "laptop" → the local coder is same-machine; the
@@ -102,6 +108,69 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     assert!(once.contains("coder"));
     // The remote tag appears only for the genuine remote.
     assert!(once.contains("(remote)"));
+}
+
+#[test]
+fn who_snapshot_uses_session_scoped_status_for_sibling_sessions() {
+    let store = Store::open_memory().unwrap();
+    let mut a = local_session("session-a");
+    a.agent_slug = "claude".to_string();
+    a.agent_pubkey = "pk-claude".to_string();
+    a.created_at = 1;
+    let mut b = a.clone();
+    b.session_id = "session-b".to_string();
+    b.created_at = 2;
+    store.upsert_session(&a).unwrap();
+    store.upsert_session(&b).unwrap();
+    store.touch_session("session-a", 1_000).unwrap();
+    store.touch_session("session-b", 1_000).unwrap();
+    store
+        .set_agent_status("pk-claude", "proj", Some("session-a"), "reading files", 995)
+        .unwrap();
+    store
+        .set_agent_status("pk-claude", "proj", Some("session-b"), "running tests", 996)
+        .unwrap();
+
+    let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let row_a = snapshot
+        .rows
+        .iter()
+        .find(|r| r.session_id.as_str() == "session-a")
+        .expect("session-a row");
+    let row_b = snapshot
+        .rows
+        .iter()
+        .find(|r| r.session_id.as_str() == "session-b")
+        .expect("session-b row");
+    assert_eq!(row_a.status, "reading files");
+    assert_eq!(row_b.status, "running tests");
+}
+
+#[test]
+fn who_snapshot_ignores_same_host_peer_echo_for_known_local_agent() {
+    let store = Store::open_memory().unwrap();
+    let mut old = local_session("old-local");
+    old.agent_slug = "claude".to_string();
+    old.agent_pubkey = "pk-claude".to_string();
+    old.alive = false;
+    store.upsert_session(&old).unwrap();
+    store
+        .upsert_peer_session(
+            "old-local",
+            "pk-claude",
+            "claude",
+            "proj",
+            "laptop",
+            "",
+            1_000,
+        )
+        .unwrap();
+
+    let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    assert!(
+        snapshot.rows.is_empty(),
+        "same-host peer echo for our own local identity should be hidden"
+    );
 }
 
 #[test]

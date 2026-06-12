@@ -3,16 +3,51 @@ use super::*;
 impl Store {
     // ── agent status ("what is X doing") ─────────────────────────────────
 
-    pub fn set_agent_status(&self, pubkey: &str, project: &str, text: &str, ts: u64) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO agent_status (pubkey, project, text, updated_at) VALUES (?1,?2,?3,?4)
-             ON CONFLICT(pubkey, project) DO UPDATE SET text=?3, updated_at=?4",
-            params![pubkey, project, text, ts],
-        )?;
+    pub fn set_agent_status(
+        &self,
+        pubkey: &str,
+        project: &str,
+        session_id: Option<&str>,
+        text: &str,
+        ts: u64,
+    ) -> Result<()> {
+        if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
+            self.conn.execute(
+                "INSERT INTO session_status (pubkey, project, session_id, text, updated_at)
+                 VALUES (?1,?2,?3,?4,?5)
+                 ON CONFLICT(pubkey, project, session_id) DO UPDATE SET text=?4, updated_at=?5",
+                params![pubkey, project, session_id, text, ts],
+            )?;
+        } else {
+            self.conn.execute(
+                "INSERT INTO agent_status (pubkey, project, text, updated_at) VALUES (?1,?2,?3,?4)
+                 ON CONFLICT(pubkey, project) DO UPDATE SET text=?3, updated_at=?4",
+                params![pubkey, project, text, ts],
+            )?;
+        }
         Ok(())
     }
 
-    pub fn get_agent_status(&self, pubkey: &str, project: &str) -> Result<Option<String>> {
+    pub fn get_agent_status(
+        &self,
+        pubkey: &str,
+        project: &str,
+        session_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
+            if let Some(text) = self
+                .conn
+                .query_row(
+                    "SELECT text FROM session_status
+                     WHERE pubkey=?1 AND project=?2 AND session_id=?3",
+                    params![pubkey, project, session_id],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok()
+            {
+                return Ok(Some(text));
+            }
+        }
         Ok(self
             .conn
             .query_row(

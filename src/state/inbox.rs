@@ -88,10 +88,19 @@ impl Store {
                  (SELECT slug FROM profiles WHERE pubkey=ast.pubkey LIMIT 1),
                  (SELECT slug FROM peer_sessions WHERE pubkey=ast.pubkey ORDER BY last_seen DESC LIMIT 1),
                  'unknown'
-             ), ast.project, ast.text
+             ), ast.project, ast.text, ast.updated_at
              FROM agent_status ast
              WHERE ast.updated_at>=?1 AND (?2 IS NULL OR ast.project=?2)
-             ORDER BY ast.updated_at",
+             UNION ALL
+             SELECT COALESCE(
+                 (SELECT agent_slug FROM sessions WHERE session_id=sst.session_id LIMIT 1),
+                 (SELECT slug FROM peer_sessions WHERE session_id=sst.session_id LIMIT 1),
+                 (SELECT slug FROM profiles WHERE pubkey=sst.pubkey LIMIT 1),
+                 'unknown'
+             ), sst.project, sst.text, sst.updated_at
+             FROM session_status sst
+             WHERE sst.updated_at>=?1 AND (?2 IS NULL OR sst.project=?2)
+             ORDER BY 4",
         )?;
         let rows: Vec<(String, String, String)> = stmt
             .query_map(params![since, project], |row| {

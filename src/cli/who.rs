@@ -129,10 +129,18 @@ pub fn load_who_snapshot(
     let mine = store.list_my_live_sessions(since)?;
     let my_ids: std::collections::HashSet<String> =
         mine.iter().map(|s| s.session_id.clone()).collect();
+    let local_agent_pubkeys: std::collections::HashSet<String> = store
+        .list_local_agent_pubkeys()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
     let all_peers: Vec<_> = store
         .list_peer_sessions(None, since)?
         .into_iter()
         .filter(|p| !my_ids.contains(&p.session_id))
+        .filter(|p| {
+            !(slugify_host(&p.host) == local_host && local_agent_pubkeys.contains(&p.pubkey))
+        })
         .collect();
 
     let mut rows = Vec::new();
@@ -151,7 +159,7 @@ pub fn load_who_snapshot(
                 fresh: age_secs.map(|a| a <= PEER_FRESH_SECS).unwrap_or(true),
                 slug: s.agent_slug.clone(),
                 project: s.project.clone(),
-                status: status_for(store, &s.agent_pubkey, &s.project),
+                status: status_for(store, &s.agent_pubkey, &s.project, Some(&s.session_id)),
                 host: s.host.clone(),
                 session_id: SessionId::from(s.session_id.clone()),
                 age_secs,
@@ -174,7 +182,7 @@ pub fn load_who_snapshot(
                 fresh: age <= PEER_FRESH_SECS,
                 slug: p.slug.clone(),
                 project: p.project.clone(),
-                status: status_for(store, &p.pubkey, &p.project),
+                status: status_for(store, &p.pubkey, &p.project, Some(&p.session_id)),
                 host: p.host.clone(),
                 session_id: SessionId::from(p.session_id.clone()),
                 age_secs: Some(age),
@@ -212,9 +220,9 @@ pub fn load_who_snapshot(
     })
 }
 
-fn status_for(store: &Store, pubkey: &str, project: &str) -> String {
+fn status_for(store: &Store, pubkey: &str, project: &str, session_id: Option<&str>) -> String {
     store
-        .get_agent_status(pubkey, project)
+        .get_agent_status(pubkey, project, session_id)
         .ok()
         .flatten()
         .unwrap_or_default()

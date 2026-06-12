@@ -84,6 +84,9 @@ pub struct TurnReply {
 pub struct Status {
     pub agent: AgentRef,
     pub project: String,
+    /// Session this status belongs to. `None` is legacy agent-level status from
+    /// older peers; local runtime publishes session-scoped status.
+    pub session_id: Option<SessionId>,
     pub text: String,
     /// Project-relative working directory (see `Presence::rel_cwd`). Carried on
     /// status too so a mid-turn `who` reflects where the agent is working.
@@ -137,6 +140,7 @@ mod tests {
         let idle = Status {
             agent: agent.clone(),
             project: "p".into(),
+            session_id: None,
             text: "   ".into(),
             rel_cwd: String::new(),
             expires_at: None,
@@ -144,6 +148,7 @@ mod tests {
         let busy = Status {
             agent,
             project: "p".into(),
+            session_id: None,
             text: "fixing auth".into(),
             rel_cwd: String::new(),
             expires_at: Some(10),

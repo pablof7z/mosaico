@@ -41,6 +41,14 @@ impl Store {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    pub fn list_local_agent_pubkeys(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT agent_pubkey FROM sessions")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Most-recent still-alive session for a project — lets an agent that
     /// doesn't know its session id resolve "my session" from the cwd.
     pub fn latest_alive_session_for_project(&self, project: &str) -> Result<Option<SessionRecord>> {
@@ -122,7 +130,12 @@ impl Store {
 
     /// Update the NIP-10 thread tracking for a session.
     /// `root_id` is the first user prompt event; `prompt_id` is the most recent.
-    pub fn set_thread_event_ids(&self, session_id: &str, root_id: &str, prompt_id: &str) -> Result<()> {
+    pub fn set_thread_event_ids(
+        &self,
+        session_id: &str,
+        root_id: &str,
+        prompt_id: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET thread_root_event_id=?2, last_prompt_event_id=?3 WHERE session_id=?1",
             params![session_id, root_id, prompt_id],
@@ -154,7 +167,11 @@ impl Store {
     /// polls until the transcript returns something *different* from this value,
     /// so it reliably reads the current turn's response even when Claude Code
     /// writes the transcript after the stop hook fires.
-    pub fn set_last_assistant_text_at_turn_start(&self, session_id: &str, text: &str) -> Result<()> {
+    pub fn set_last_assistant_text_at_turn_start(
+        &self,
+        session_id: &str,
+        text: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET last_assistant_text_at_turn_start=?2 WHERE session_id=?1",
             params![session_id, text],

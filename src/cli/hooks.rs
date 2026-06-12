@@ -48,7 +48,7 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         transcript_field: Some("transcript_path"),
         output_format: HookOutputFormat::PlainText,
-        pid_search: None,
+        pid_search: Some("claude"),
         generates_sid: false,
     },
     HostDef {
@@ -180,6 +180,21 @@ pub(super) async fn hook_run(host_name: String, hook_type: String) -> Result<()>
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(str::to_string);
+            if !sid.is_empty() {
+                let watch_pid = obj
+                    .and_then(|o| o.get("pid").or_else(|| o.get("watch_pid")))
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+                    .or_else(|| host.pid_search.and_then(find_ancestor_pid));
+                if let Err(e) = session_start_inner(
+                    agent_slug.clone(),
+                    Some(sid.clone()),
+                    Some(cwd.clone()),
+                    watch_pid,
+                ) {
+                    eprintln!("[tenex-edge] session reassert skipped: {e:#}");
+                }
+            }
             turn_start(sid.clone(), transcript, json_out).await?;
             // Publish the user's prompt as a kind:1 OP on the Nostr fabric.
             // Fail open: if userNsec is absent or the relay is unreachable, the

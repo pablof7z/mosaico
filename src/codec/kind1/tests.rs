@@ -157,11 +157,18 @@ fn status_roundtrip_with_expiry() {
     let ev = DomainEvent::Status(Status {
         agent: agent(&keys, "coder"),
         project: "tenex-edge".into(),
+        session_id: Some("sess-123".into()),
         text: "reviewing PR".into(),
         rel_cwd: String::new(),
         expires_at: Some(1_900_000_000),
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
+    let signed = Kind1Codec
+        .encode(&ev)
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap();
+    assert!(has_tag(&signed, "session-id", "sess-123"));
 }
 
 #[test]
