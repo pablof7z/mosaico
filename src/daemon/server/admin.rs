@@ -186,3 +186,76 @@ pub(super) async fn rpc_project_edit(
         "project": p.project,
     }))
 }
+
+// ── project_add ──────────────────────────────────────────────────────────────
+
+/// Publish a NIP-29 kind:9000 (put-user) event to add a pubkey to the group.
+/// Accepts hex, npub (bech32), or a NIP-05 address (user@domain.com).
+pub(super) async fn rpc_project_add(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use nostr_sdk::prelude::Keys;
+
+    #[derive(serde::Deserialize)]
+    struct P {
+        project: String,
+        pubkey: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("project_add params")?;
+
+    let nsec = state
+        .cfg
+        .user_nsec
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
+    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+
+    let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
+
+    let builder = crate::codec::kind1::group_put_user(&p.project, &pubkey_hex)?;
+    state
+        .transport
+        .publish_signed_checked(builder, &user_keys)
+        .await?;
+
+    state.with_store(|s| {
+        s.upsert_group_member(&p.project, &pubkey_hex, "member", now_secs())
+            .ok();
+    });
+
+    Ok(serde_json::json!({
+        "project": p.project,
+        "pubkey": pubkey_hex,
+    }))
+}
+
+async fn resolve_pubkey_hex(input: &str) -> Result<String> {
+    use nostr_sdk::prelude::PublicKey;
+
+    // hex / npub / nostr: URI
+    if let Ok(pk) = PublicKey::parse(input) {
+        return Ok(pk.to_hex());
+    }
+
+    // NIP-05: name@domain
+    if let Some((name, domain)) = input.split_once('@') {
+        if !domain.is_empty() {
+            let url = format!("https://{domain}/.well-known/nostr.json?name={name}");
+            let json: serde_json::Value = reqwest::get(url)
+                .await
+                .with_context(|| format!("NIP-05 HTTP request to {domain} failed"))?
+                .json()
+                .await
+                .context("NIP-05 response is not valid JSON")?;
+            let hex = json["names"][name]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("NIP-05: name {name:?} not found at {domain}"))?;
+            return PublicKey::from_hex(hex)
+                .map(|pk| pk.to_hex())
+                .context("NIP-05 returned invalid pubkey");
+        }
+    }
+
+    anyhow::bail!("cannot parse {input:?} as pubkey (hex/npub) or NIP-05 (user@domain)")
+}

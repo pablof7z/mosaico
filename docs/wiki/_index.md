@@ -2,7 +2,7 @@
 
 > Derived cache — do not hand-edit. Rebuilt by proactive-context after each capture.
 
-Last updated: 2026-06-09
+Last updated: 2026-06-12
 
 ## data-synchronization (1 guide)
 
@@ -16,7 +16,7 @@ Last updated: 2026-06-09
 |------|-------|---------|------|------------|----------|-------|
 | [the-sessionstarthookspecificoutputwire-struct-contains-two-f](the-sessionstarthookspecificoutputwire-struct-contains-two-f.md) | the sessionstarthookspecificoutputwire struct contains two f | The SessionStartHookSpecificOutputWire struct contains two fields: suppressOutput and systemMessage. | capture | warm | 2026-06-09 | general |
 
-## tenex-edge (23 guides)
+## tenex-edge (24 guides)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
@@ -39,8 +39,15 @@ Last updated: 2026-06-09
 | [tenex-edge-relay-configuration](tenex-edge-relay-configuration.md) | Tenex-Edge Relay Configuration | The default relay is wss://nip29.f7z.io (using nip29) | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-session-display](tenex-edge-session-display.md) | Tenex-Edge Session Display | Session display IDs use a hash-based short code derived from the full UUID rather than truncating the UUID prefix. | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-session-management](tenex-edge-session-management.md) | Tenex-Edge Session Management | MVP1 session start is invoked as `tenex-edge session-start --agent <agent-slug>`, which forks a background process and begins publishing a presence heartbeat | capture | warm | 2026-06-08 | tenex-edge |
-| [tenex-edge-transport-codec](tenex-edge-transport-codec.md) | Tenex-Edge Transport Codec | Envelope encoding and decoding is modularized as a codec set providing per-event encode, decode, and subscribe operations | capture | warm | 2026-06-08 | tenex-edge |
+| [tenex-edge-tail-stream](tenex-edge-tail-stream.md) | Tenex-Edge Tail Stream | The canonical store deduplicates writes on event id, but the tail v2 broadcast emits duplicate messages because one message produces identical tail events for e | capture | warm | 2026-06-12 | tenex-edge |
+| [tenex-edge-transport-codec](tenex-edge-transport-codec.md) | Tenex-Edge Transport Codec | Envelope encoding and decoding is modularized as a codec set providing per-event encode, decode, and subscribe operations, decoupling envelope shapes from busin | capture | warm | 2026-06-08 | tenex-edge |
 | [tenex-edge-turn-context-injection](tenex-edge-turn-context-injection.md) | Tenex-Edge Turn Context Injection | The turn-start command itself emits the context the agent should see (inbox messages, peer presence/status changes since last update), rather than delegating th | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-user-prompt-submit](tenex-edge-user-prompt-submit.md) | Tenex-Edge User Prompt Submit | The user-prompt-submit hook creates a kind:1 Nostr note that is a root event (OP) with no e-tag | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-wait-for-mention](tenex-edge-wait-for-mention.md) | Tenex-Edge Wait-for-Mention | The `wait-for-mention` command polls the SQLite inbox every ~500ms until a mention arrives | capture | warm | 2026-06-09 | tenex-edge |
+
+## Episode Cards (1 card)
+
+| Card | Date | Title | Salience | Status |
+|------|------|-------|----------|--------|
+| [2026-06-12-1-provider-seam-closure-must-happen-in](episodes/2026-06-12-1-provider-seam-closure-must-happen-in.md) | 2026-06-12 | Provider seam closure must happen in this task — no deferred wire-shape leaks | architecture | active |
 

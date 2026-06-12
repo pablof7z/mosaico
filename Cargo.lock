@@ -2456,6 +2456,7 @@ dependencies = [
  "nix",
  "nostr-sdk",
  "owo-colors",
+ "reqwest",
  "rig-core",
  "rusqlite",
  "rustls",

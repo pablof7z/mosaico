@@ -1,4 +1,4 @@
-use super::admin::{rpc_acl, rpc_doctor, rpc_project_edit, rpc_project_list};
+use super::admin::{rpc_acl, rpc_doctor, rpc_project_add, rpc_project_edit, rpc_project_list};
 use super::awareness::rpc_who;
 use super::inbox::{
     fetch_mentions_into_inbox, rows_to_json, rpc_inbox, rpc_turn_check, rpc_turn_end,
@@ -125,6 +125,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
         "project_edit" => rpc_project_edit(state, &req.params).await,
+        "project_add" => rpc_project_add(state, &req.params).await,
         other => Err(anyhow::anyhow!("unknown method {other}")),
     };
     match result {

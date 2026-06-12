@@ -339,6 +339,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
         "project_edit" => rpc_project_edit(state, &req.params).await,
+        "project_add" => rpc_project_add(state, &req.params).await,
         "list_threads" => rpc_list_threads(state, &req.params).await,
         "messages" => rpc_messages(state, &req.params),
         "thread_meta" => rpc_thread_meta(state, &req.params),
@@ -1398,6 +1399,79 @@ async fn rpc_project_edit(state: &Arc<DaemonState>, params: &serde_json::Value) 
         "event_id": event_id.to_hex(),
         "project": p.project,
     }))
+}
+
+// ── project_add ──────────────────────────────────────────────────────────────
+
+/// Publish a NIP-29 kind:9000 (put-user) event to add a pubkey to the group.
+/// Accepts hex, npub (bech32), or a NIP-05 address (user@domain.com).
+async fn rpc_project_add(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use nostr_sdk::prelude::Keys;
+
+    #[derive(serde::Deserialize)]
+    struct P {
+        project: String,
+        pubkey: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("project_add params")?;
+
+    let nsec = state
+        .cfg
+        .user_nsec
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
+    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+
+    let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
+
+    let builder = crate::fabric::nip29::lifecycle::group_put_user(&p.project, &pubkey_hex)?;
+    state
+        .transport
+        .publish_signed_checked(builder, &user_keys)
+        .await?;
+
+    state.with_store(|s| {
+        s.upsert_group_member(&p.project, &pubkey_hex, "member", now_secs())
+            .ok();
+    });
+
+    Ok(serde_json::json!({
+        "project": p.project,
+        "pubkey": pubkey_hex,
+    }))
+}
+
+async fn resolve_pubkey_hex(input: &str) -> Result<String> {
+    use nostr_sdk::prelude::PublicKey;
+
+    // hex / npub / nostr: URI
+    if let Ok(pk) = PublicKey::parse(input) {
+        return Ok(pk.to_hex());
+    }
+
+    // NIP-05: name@domain
+    if let Some((name, domain)) = input.split_once('@') {
+        if !domain.is_empty() {
+            let url = format!("https://{domain}/.well-known/nostr.json?name={name}");
+            let json: serde_json::Value = reqwest::get(url)
+                .await
+                .with_context(|| format!("NIP-05 HTTP request to {domain} failed"))?
+                .json()
+                .await
+                .context("NIP-05 response is not valid JSON")?;
+            let hex = json["names"][name]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("NIP-05: name {name:?} not found at {domain}"))?;
+            return PublicKey::from_hex(hex)
+                .map(|pk| pk.to_hex())
+                .context("NIP-05 returned invalid pubkey");
+        }
+    }
+
+    anyhow::bail!("cannot parse {input:?} as pubkey (hex/npub) or NIP-05 (user@domain)")
 }
 
 // ── list_threads / messages / thread_meta (Phase 7 read RPCs) ────────────────

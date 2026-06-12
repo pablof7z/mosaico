@@ -107,6 +107,19 @@ pub(super) async fn project(action: ProjectAction) -> Result<()> {
             let event_id = v["event_id"].as_str().unwrap_or("?");
             println!("Updated {slug}: {}", &event_id[..event_id.len().min(8)]);
         }
+        ProjectAction::Add { project, pubkey } => {
+            let v = daemon_call_async(
+                "project_add",
+                serde_json::json!({ "project": project, "pubkey": pubkey }),
+            )
+            .await?;
+            let resolved = v["pubkey"].as_str().unwrap_or(&pubkey);
+            println!(
+                "added {} to {}",
+                pubkey_short(resolved).cyan(),
+                project.bold()
+            );
+        }
     }
     Ok(())
 }

@@ -49,6 +49,29 @@ pub fn assemble_turn_start_context(
              Re-run it each time one is received."
                 .to_string(),
         );
+
+        // Warn if this agent couldn't be added to the NIP-29 group (e.g. the
+        // daemon on this machine is not the relay admin). The session-start hook
+        // tried and failed silently; surface it here so the agent can tell the
+        // user what to fix.
+        let not_member = {
+            let s = store.lock().expect("store mutex poisoned");
+            !s.is_group_member(&rec.project, &rec.agent_pubkey)
+                .unwrap_or(true)
+        };
+        if not_member {
+            blocks.push(format!(
+                "[tenex-edge] WARNING: this agent ({slug}, pubkey {pubkey}) \
+                 is not a member of the NIP-29 group for project \"{project}\". \
+                 Messages published by this session may be rejected by the relay. \
+                 Tell the user to run the following command from a machine that \
+                 has relay admin access (e.g. where this project was first set up):\n\
+                 \n  tenex-edge project add {project} {pubkey}",
+                slug = rec.agent_slug,
+                pubkey = rec.agent_pubkey,
+                project = rec.project,
+            ));
+        }
     }
 
     // Drain inbox (authoritative delivery; turn_check only peeks).

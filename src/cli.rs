@@ -226,6 +226,15 @@ enum ProjectAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Add a pubkey to a project's NIP-29 group (kind:9000 put-user).
+    /// Accepts hex pubkey, npub (bech32), or a NIP-05 address (user@domain.com).
+    Add {
+        /// Project slug.
+        project: String,
+        /// Hex pubkey, npub, or NIP-05 address.
+        #[arg(value_name = "PUBKEY")]
+        pubkey: String,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -1317,6 +1326,29 @@ pub fn assemble_turn_start_context(
              Re-run it each time one is received."
                 .to_string(),
         );
+
+        // Warn if this agent couldn't be added to the NIP-29 group (e.g. the
+        // daemon on this machine is not the relay admin). The session-start hook
+        // tried and failed silently; surface it here so the agent can tell the
+        // user what to fix.
+        let not_member = {
+            let s = store.lock().expect("store mutex poisoned");
+            !s.is_group_member(&rec.project, &rec.agent_pubkey)
+                .unwrap_or(true)
+        };
+        if not_member {
+            blocks.push(format!(
+                "[tenex-edge] WARNING: this agent ({slug}, pubkey {pubkey}) \
+                 is not a member of the NIP-29 group for project \"{project}\". \
+                 Messages published by this session may be rejected by the relay. \
+                 Tell the user to run the following command from a machine that \
+                 has relay admin access (e.g. where this project was first set up):\n\
+                 \n  tenex-edge project add {project} {pubkey}",
+                slug = rec.agent_slug,
+                pubkey = rec.agent_pubkey,
+                project = rec.project,
+            ));
+        }
     }
 
     // Drain inbox (authoritative delivery; turn_check only peeks).
@@ -1488,6 +1520,19 @@ async fn project(action: ProjectAction) -> Result<()> {
             .await?;
             let event_id = v["event_id"].as_str().unwrap_or("?");
             println!("Updated {slug}: {}", &event_id[..event_id.len().min(8)]);
+        }
+        ProjectAction::Add { project, pubkey } => {
+            let v = daemon_call_async(
+                "project_add",
+                serde_json::json!({ "project": project, "pubkey": pubkey }),
+            )
+            .await?;
+            let resolved = v["pubkey"].as_str().unwrap_or(&pubkey);
+            println!(
+                "added {} to {}",
+                pubkey_short(resolved).cyan(),
+                project.bold()
+            );
         }
     }
     Ok(())
