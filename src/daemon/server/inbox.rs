@@ -36,7 +36,7 @@ pub(super) async fn rpc_inbox(
         rows
     });
     let pending = state.with_store(|s| s.list_pending_agents().unwrap_or_default());
-    let rows_json = state.with_store(|s| rows_to_json(s, &rows));
+    let rows_json = rows_to_json(&rows, &state.host);
 
     Ok(serde_json::json!({
         "rows": rows_json,
@@ -116,7 +116,7 @@ pub(super) fn rpc_turn_check(
         p.cwd.as_deref(),
         p.agent.as_deref(),
     )?;
-    let context = crate::cli::assemble_turn_check_context(&state.store, &rec.session_id)
+    let context = crate::cli::assemble_turn_check_context(&state.store, &rec.session_id, &state.host)
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context }))
@@ -327,17 +327,26 @@ pub(super) async fn fetch_mentions_into_inbox(
     Ok(())
 }
 
-pub(super) fn rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value> {
+/// Serialize inbox rows for the CLI, which renders the email-like envelope via
+/// `cli::messaging::format_envelope`. `self_host` is the daemon's own host, so
+/// the client can decide whether the sender is `[remote: …]` without re-deriving
+/// it. `id` is the short prefix the receiver passes to `inbox reply --id`.
+pub(super) fn rows_to_json(rows: &[InboxRow], self_host: &str) -> Vec<serde_json::Value> {
     rows.iter()
         .map(|r| {
             serde_json::json!({
                 "from_slug": r.from_slug,
                 "project": r.project,
-                "body": r.body,
-                "mention_event_id": r.mention_event_id,
                 "from_session": r.from_session,
-                // Fully-qualified handle the receiver passes to `--recipient`.
-                "reply_to": crate::cli::mention_reply_handle(store, r),
+                "host": r.host,
+                "self_host": self_host,
+                "subject": r.subject,
+                "branch": r.branch,
+                "commit": r.commit,
+                "dirty": r.dirty,
+                "created_at": r.created_at,
+                "id": crate::cli::mention_short_id(&r.mention_event_id),
+                "body": r.body,
             })
         })
         .collect()

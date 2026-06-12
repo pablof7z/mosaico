@@ -1,4 +1,5 @@
-use super::messaging::{format_mention_line, mention_reply_handle};
+use super::messaging::{format_envelope, mention_short_id, EnvelopeView};
+use crate::state::InboxRow;
 use super::who::push_turn_fabric_block;
 use super::*;
 
@@ -42,8 +43,9 @@ pub fn assemble_turn_start_context(
         blocks.push(
             "[tenex-edge] You are connected to the tenex-edge agent fabric. \
              You can run `tenex-edge who`, `tenex-edge inbox`, and \
-             `tenex-edge send-message --recipient <agent@project|session-id> --message \"...\"`. \
-             If the user asks you to message/contact/tell another agent, run `tenex-edge send-message`; \
+             `tenex-edge inbox send --to <agent@project|session-id> --subject \"...\" --message \"...\"`. \
+             Reply to a message you received with `tenex-edge inbox reply --id <ID> \"...\"`. \
+             If the user asks you to message/contact/tell another agent, run `tenex-edge inbox send`; \
              do not say you cannot send messages from here. Run `tenex-edge wait-for-mention` \
              with run_in_background=true so you are woken when a mention arrives. \
              Re-run it each time one is received."
@@ -75,24 +77,22 @@ pub fn assemble_turn_start_context(
     }
 
     // Drain inbox (authoritative delivery; turn_check only peeks).
-    let inbox_lines = {
+    let inbox_envelopes = {
         let s = store.lock().expect("store mutex poisoned");
         let rows = s.drain_inbox(&rec.session_id).unwrap_or_default();
-        // Render each line (incl. its reply-to handle) while we hold the lock —
-        // the handle resolution needs the store.
-        rows.iter()
-            .map(|r| {
-                s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
-                    .ok();
-                let handle = mention_reply_handle(&s, r);
-                format_mention_line(&r.from_slug, &r.project, &handle, &r.body)
-            })
-            .collect::<Vec<_>>()
+        for r in &rows {
+            s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
+                .ok();
+        }
+        rows
     };
-    if !inbox_lines.is_empty() {
-        let mut text = String::from("Messages from other agents (tenex-edge):");
-        for line in &inbox_lines {
-            let _ = write!(text, "\n{line}");
+    if !inbox_envelopes.is_empty() {
+        let now = now_secs();
+        let mut text = String::from(
+            "Messages from other agents (tenex-edge) — reply with `tenex-edge inbox reply --id <ID> \"...\"`:",
+        );
+        for r in &inbox_envelopes {
+            let _ = write!(text, "\n\n{}", row_envelope(r, &rec.host, now));
         }
         blocks.push(text);
     }
@@ -135,28 +135,46 @@ pub fn assemble_turn_start_context(
 }
 
 /// Mid-turn inbox PEEK (read-only) shared by the daemon's `turn_check` RPC.
+/// `self_host` is the viewer's own host (used to flag remote senders).
 pub fn assemble_turn_check_context(
     store: &std::sync::Mutex<Store>,
     session_id: &str,
+    self_host: &str,
 ) -> Option<String> {
-    let lines = {
+    let rows = {
         let s = store.lock().expect("store mutex poisoned");
-        let rows = s.peek_inbox(session_id).unwrap_or_default();
-        rows.iter()
-            .map(|r| {
-                let handle = mention_reply_handle(&s, r);
-                format_mention_line(&r.from_slug, &r.project, &handle, &r.body)
-            })
-            .collect::<Vec<_>>()
+        s.peek_inbox(session_id).unwrap_or_default()
     };
-    if lines.is_empty() {
+    if rows.is_empty() {
         return None;
     }
+    let now = now_secs();
     let mut text = String::from("[tenex-edge] Message(s) arrived while you were working:");
-    for line in &lines {
-        let _ = write!(text, "\n{line}");
+    for r in &rows {
+        let _ = write!(text, "\n\n{}", row_envelope(r, self_host, now));
     }
     Some(text)
+}
+
+/// Render an `InboxRow` as an email-like envelope (the daemon-side path; the CLI
+/// path renders from JSON). `self_host` decides the `[remote: …]` annotation.
+fn row_envelope(r: &InboxRow, self_host: &str, now: u64) -> String {
+    let id = mention_short_id(&r.mention_event_id);
+    format_envelope(&EnvelopeView {
+        from_slug: &r.from_slug,
+        project: &r.project,
+        from_session: &r.from_session,
+        host: &r.host,
+        self_host,
+        subject: &r.subject,
+        branch: &r.branch,
+        commit: &r.commit,
+        dirty: r.dirty,
+        id: &id,
+        sent_at: r.created_at,
+        now,
+        body: &r.body,
+    })
 }
 
 /// Mid-turn inbox check for PostToolUse hooks. Thin client: the daemon peeks.

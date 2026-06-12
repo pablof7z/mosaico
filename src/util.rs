@@ -10,6 +10,55 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Format a unix timestamp as local-time `YYYY-MM-DD HH:MM` (via `localtime_r`,
+/// so it honors the daemon machine's timezone — the wall-clock an agent expects).
+pub fn format_local_datetime(unix_secs: u64) -> String {
+    // SAFETY: `localtime_r` writes into a zeroed `tm` we own; no shared state.
+    unsafe {
+        let t = unix_secs as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return "unknown".to_string();
+        }
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+        )
+    }
+}
+
+/// Human-friendly relative time: `just now` (<60s), `N min ago`, `N hour(s) ago`,
+/// `yesterday`, then `N days ago`.
+pub fn relative_time(then: u64, now: u64) -> String {
+    let d = now.saturating_sub(then);
+    if d < 60 {
+        "just now".to_string()
+    } else if d < 3600 {
+        format!("{} min ago", d / 60)
+    } else if d < 86_400 {
+        let h = d / 3600;
+        format!("{h} hour{} ago", if h == 1 { "" } else { "s" })
+    } else if d < 172_800 {
+        "yesterday".to_string()
+    } else {
+        format!("{} days ago", d / 86_400)
+    }
+}
+
+/// The ` [N file(s) dirty]` suffix for an envelope's Branch line. Empty when the
+/// sender's working tree was clean (`n == 0`), so a clean branch renders bare.
+pub fn dirty_label(n: u32) -> String {
+    match n {
+        0 => String::new(),
+        1 => " [1 file dirty]".to_string(),
+        _ => format!(" [{n} files dirty]"),
+    }
+}
+
 /// A short, human-targetable prefix of a PUBKEY (its first 8 hex chars).
 /// Only meaningful for pubkeys — never use it to display a session id (use the
 /// `SessionId` newtype, whose `Display` routes through `session_short_code`).

@@ -72,6 +72,7 @@ async fn publishes_and_decodes_all_event_types() {
             body: "can you review?".into(),
             target_session: Some("sess-1".into()),
             from_session: Some("sender-sess-1".into()),
+            meta: tenex_edge::domain::MentionMeta::default(),
         }),
     ];
     for ev in &events {

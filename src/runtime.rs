@@ -230,7 +230,9 @@ pub async fn run_session_in_daemon(
 /// lands in agent B's inbox, and `codex@project-a` never wakes a `codex`
 /// session in `project-b` on the same machine.
 pub fn route_mention_into(store: &Store, me: &str, m: &Mention, event: &Event) -> bool {
-    route_mention_into_with_id(store, me, m, &event.id.to_hex())
+    // Use the event's own timestamp as the send time so the envelope Date reflects
+    // when the sender published, not when we fetched/routed it.
+    route_mention_into_with_id(store, me, m, &event.id.to_hex(), event.created_at.as_secs())
 }
 
 /// Like [`route_mention_into`], but takes the mention's event id directly instead
@@ -240,7 +242,13 @@ pub fn route_mention_into(store: &Store, me: &str, m: &Mention, event: &Event) -
 /// `EventId` is identical to what the relay would echo, so the inbox PK
 /// `(mention_event_id, target_session)` keeps delivery idempotent across both
 /// paths.
-pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &str) -> bool {
+pub fn route_mention_into_with_id(
+    store: &Store,
+    me: &str,
+    m: &Mention,
+    eid: &str,
+    sent_at: u64,
+) -> bool {
     // Already delivered to this agent in some session? Don't re-enqueue it in a
     // new session (mentions persist on the relay as stored kind:1 events).
     // Per-agent dedup applies ONLY to agent-wide (untargeted) mentions, so an
@@ -276,12 +284,17 @@ pub fn route_mention_into_with_id(store: &Store, me: &str, m: &Mention, eid: &st
                 from_slug,
                 project: m.project.clone(),
                 body: m.body.clone(),
-                created_at: now_secs(),
+                created_at: sent_at,
                 from_session: m
                     .from_session
                     .as_ref()
                     .map(|s| s.as_str().to_owned())
                     .unwrap_or_default(),
+                subject: m.meta.subject.clone(),
+                branch: m.meta.branch.clone(),
+                commit: m.meta.commit.clone(),
+                dirty: m.meta.dirty,
+                host: m.meta.host.clone(),
             })
             .unwrap_or(false);
         routed = routed || newly;

@@ -7,14 +7,32 @@ impl Store {
     pub fn enqueue_mention(&self, m: &InboxRow) -> Result<bool> {
         let changed = self.conn.execute(
             "INSERT OR IGNORE INTO inbox
-               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, from_session)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8)",
+               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, from_session, subject, branch, commit_hash, dirty, host)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,?10,?11,?12,?13)",
             params![
                 m.mention_event_id, m.target_session, m.from_pubkey, m.from_slug,
-                m.project, m.body, m.created_at, m.from_session
+                m.project, m.body, m.created_at, m.from_session,
+                m.subject, m.branch, m.commit, m.dirty, m.host
             ],
         )?;
         Ok(changed > 0)
+    }
+
+    /// Find any inbox row whose `mention_event_id` starts with `prefix` (the short
+    /// `ID` shown in an envelope). Used by `inbox reply --id` to recover the
+    /// original sender + event to thread the reply against. Returns the first
+    /// match ordered by recency; `None` if nothing matches.
+    pub fn find_inbox_by_event_prefix(&self, prefix: &str) -> Result<Option<InboxRow>> {
+        let pattern = format!("{prefix}%");
+        let mut stmt = self.conn.prepare(
+            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
+             FROM inbox WHERE mention_event_id LIKE ?1 ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let row = stmt
+            .query_map(params![pattern], row_to_inbox)?
+            .filter_map(|r| r.ok())
+            .next();
+        Ok(row)
     }
 
     /// Pre-mark a (session_id, event_id) pair as already delivered so that any
@@ -36,22 +54,11 @@ impl Store {
     /// mid-turn checks (turn_check) — no writes to state.db.
     pub fn peek_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session
+            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
              FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
         )?;
         let rows: Vec<InboxRow> = stmt
-            .query_map(params![session_id], |row| {
-                Ok(InboxRow {
-                    mention_event_id: row.get(0)?,
-                    target_session: row.get(1)?,
-                    from_pubkey: row.get(2)?,
-                    from_slug: row.get(3)?,
-                    project: row.get(4)?,
-                    body: row.get(5)?,
-                    created_at: row.get(6)?,
-                    from_session: row.get(7)?,
-                })
-            })?
+            .query_map(params![session_id], row_to_inbox)?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
@@ -161,22 +168,11 @@ impl Store {
     /// Return undelivered mentions for a session and mark them delivered.
     pub fn drain_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session
+            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
              FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
         )?;
         let rows: Vec<InboxRow> = stmt
-            .query_map(params![session_id], |row| {
-                Ok(InboxRow {
-                    mention_event_id: row.get(0)?,
-                    target_session: row.get(1)?,
-                    from_pubkey: row.get(2)?,
-                    from_slug: row.get(3)?,
-                    project: row.get(4)?,
-                    body: row.get(5)?,
-                    created_at: row.get(6)?,
-                    from_session: row.get(7)?,
-                })
-            })?
+            .query_map(params![session_id], row_to_inbox)?
             .filter_map(|r| r.ok())
             .collect();
         self.conn.execute(
@@ -185,4 +181,25 @@ impl Store {
         )?;
         Ok(rows)
     }
+}
+
+/// Column order: mention_event_id, target_session, from_pubkey, from_slug,
+/// project, body, created_at, from_session, subject, branch, commit_hash, dirty,
+/// host. Shared by `peek_inbox`, `drain_inbox`, and `find_inbox_by_event_prefix`.
+fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
+    Ok(InboxRow {
+        mention_event_id: row.get(0)?,
+        target_session: row.get(1)?,
+        from_pubkey: row.get(2)?,
+        from_slug: row.get(3)?,
+        project: row.get(4)?,
+        body: row.get(5)?,
+        created_at: row.get(6)?,
+        from_session: row.get(7)?,
+        subject: row.get(8)?,
+        branch: row.get(9)?,
+        commit: row.get(10)?,
+        dirty: row.get::<_, i64>(11)? as u32,
+        host: row.get(12)?,
+    })
 }

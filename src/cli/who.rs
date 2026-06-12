@@ -248,7 +248,7 @@ pub(super) fn push_turn_fabric_block(
                 let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
                 "tenex-edge fabric — agents you can message. To send, run \
-                 `tenex-edge send-message --recipient <agent@project|session-id> --message \"...\"`:\n{}",
+                 `tenex-edge inbox send --to <agent@project|session-id> --subject \"...\" --message \"...\"`:\n{}",
                 who_text.trim_end()
             ));
             }

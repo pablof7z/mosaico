@@ -58,10 +58,22 @@ pub struct InboxRow {
     pub from_slug: String,
     pub project: String,
     pub body: String,
+    /// When the sender published this mention (the kind:1 event timestamp), so the
+    /// envelope's Date reflects send time, not local receipt/route time.
     pub created_at: u64,
     /// The sender's session id (empty when unknown — old peers / untargeted).
     /// Lets the recipient reply to the exact sibling session that wrote this.
     pub from_session: String,
+    /// Envelope: one-line subject ("" when unset).
+    pub subject: String,
+    /// Envelope: sender's git branch at send time ("" outside a repo).
+    pub branch: String,
+    /// Envelope: sender's short commit hash at send time ("" outside a repo).
+    pub commit: String,
+    /// Envelope: count of dirty, non-gitignored files in the sender's tree.
+    pub dirty: u32,
+    /// Envelope: sender's host label (drives the `[remote: <host>]` annotation).
+    pub host: String,
 }
 
 const SCHEMA: &str = r#"
@@ -105,6 +117,11 @@ CREATE TABLE IF NOT EXISTS inbox (
     created_at       INTEGER NOT NULL,
     delivered        INTEGER NOT NULL DEFAULT 0,
     from_session     TEXT NOT NULL DEFAULT '',
+    subject          TEXT NOT NULL DEFAULT '',
+    branch           TEXT NOT NULL DEFAULT '',
+    commit_hash      TEXT NOT NULL DEFAULT '',
+    dirty            INTEGER NOT NULL DEFAULT 0,
+    host             TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (mention_event_id, target_session)
 );
 -- Per-session turn state: flipped by the host's turn-start/turn-end hooks. The
@@ -217,6 +234,16 @@ impl Store {
             "ALTER TABLE inbox ADD COLUMN from_session TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // Envelope columns: subject + the sender's workspace snapshot at send time.
+        for col in [
+            "subject TEXT NOT NULL DEFAULT ''",
+            "branch TEXT NOT NULL DEFAULT ''",
+            "commit_hash TEXT NOT NULL DEFAULT ''",
+            "dirty INTEGER NOT NULL DEFAULT 0",
+            "host TEXT NOT NULL DEFAULT ''",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE inbox ADD COLUMN {col}"), []);
+        }
         // NIP-10 thread tracking: root event (first user prompt in the session
         // thread) and most recent user prompt (triggers TurnReply at stop-hook).
         let _ = conn.execute(

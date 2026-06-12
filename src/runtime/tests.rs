@@ -54,6 +54,7 @@ fn signed_mention(
         body: "hi sibling".to_string(),
         target_session: target_session.map(crate::util::SessionId::from),
         from_session: None,
+        meta: crate::domain::MentionMeta::default(),
     };
     let event = Kind1Codec
         .encode(&DomainEvent::Mention(m.clone()))
@@ -136,10 +137,10 @@ fn local_delivery_by_event_id_is_idempotent_and_targets_sibling() {
     let eid = event.id.to_hex();
 
     // Local delivery (send_message path).
-    assert!(route_mention_into_with_id(&s, &pubkey, &m, &eid));
+    assert!(route_mention_into_with_id(&s, &pubkey, &m, &eid, 1000));
     // A later relay echo of the SAME event id (handle_incoming path).
     assert!(
-        !route_mention_into_with_id(&s, &pubkey, &m, &eid),
+        !route_mention_into_with_id(&s, &pubkey, &m, &eid, 1000),
         "echo must not double-deliver"
     );
 
@@ -175,7 +176,8 @@ fn local_delivery_only_routes_to_sessions_in_mentions_project() {
         &s,
         &pubkey,
         &m,
-        "event-project-current"
+        "event-project-current",
+        1000
     ));
     assert_eq!(s.drain_inbox("sess-current").unwrap().len(), 1);
     assert!(s.drain_inbox("sess-other").unwrap().is_empty());

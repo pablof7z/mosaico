@@ -41,6 +41,11 @@ fn inbox_is_idempotent_per_session() {
         body: "look here".into(),
         created_at: 5,
         from_session: "sender-A".into(),
+        subject: String::new(),
+        branch: String::new(),
+        commit: String::new(),
+        dirty: 0,
+        host: String::new(),
     };
     assert!(s.enqueue_mention(&row).unwrap()); // new
     assert!(!s.enqueue_mention(&row).unwrap()); // duplicate ignored

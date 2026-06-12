@@ -182,8 +182,48 @@ fn mention_roundtrip_session_targeted() {
         target_session: Some("sess-xyz".into()),
         // Distinct from target_session so the roundtrip proves they don't swap.
         from_session: Some("sender-sess-1".into()),
+        meta: MentionMeta::default(),
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
+}
+
+#[test]
+fn mention_roundtrip_envelope_meta() {
+    let keys = Keys::generate();
+    let ev = DomainEvent::Mention(Mention {
+        from: agent(&keys, ""),
+        to_pubkey: "cc".repeat(32),
+        project: "tenex-edge".into(),
+        body: "have a look".into(),
+        target_session: None,
+        from_session: Some("sender-1".into()),
+        meta: MentionMeta {
+            subject: "NIP-29 group creation failing".into(),
+            branch: "features/oauth".into(),
+            commit: "a1b2c3d".into(),
+            dirty: 3,
+            host: "prod-01".into(),
+            reply_to_event_id: Some("ab".repeat(32)),
+        },
+    });
+    // Full roundtrip preserves every envelope field, incl. the reply e-tag.
+    assert_eq!(roundtrip(ev.clone(), &keys), ev);
+
+    let signed = Kind1Codec
+        .encode(&ev)
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap();
+    assert!(has_tag(&signed, "subject", "NIP-29 group creation failing"));
+    assert!(has_tag(&signed, "git-branch", "features/oauth"));
+    assert!(has_tag(&signed, "git-commit", "a1b2c3d"));
+    assert!(has_tag(&signed, "git-dirty", "3"));
+    assert!(has_tag(&signed, "from-host", "prod-01"));
+    // A p-tagged note with an e-tag still decodes as a Mention (priority 1).
+    assert!(matches!(
+        Kind1Codec.decode(&signed),
+        Some(DomainEvent::Mention(_))
+    ));
 }
 
 #[test]
@@ -197,6 +237,7 @@ fn mention_emits_from_session_tag_and_back_compat_decodes_none() {
         body: "ping".into(),
         target_session: None,
         from_session: Some("sender-9".into()),
+        meta: MentionMeta::default(),
     });
     let signed = Kind1Codec
         .encode(&ev)
@@ -230,6 +271,7 @@ fn mention_uses_nip29_h_tag_not_hashtag() {
         body: "can you review?".into(),
         target_session: Some("sess-xyz".into()),
         from_session: None,
+        meta: MentionMeta::default(),
     });
     let signed = Kind1Codec
         .encode(&ev)
@@ -253,6 +295,7 @@ fn mention_to_self_keeps_p_tag() {
         body: "hi".into(),
         target_session: Some("s2".into()),
         from_session: Some("s1".into()),
+        meta: MentionMeta::default(),
     });
     let signed = Kind1Codec
         .encode(&ev)

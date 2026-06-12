@@ -2,7 +2,10 @@
 
 use crate::domain::DomainEvent;
 use crate::state::Store;
-use crate::util::{now_secs, pubkey_short, slugify_host, SessionId};
+use crate::util::{
+    dirty_label, format_local_datetime, now_secs, pubkey_short, relative_time, session_short_code,
+    slugify_host, SessionId,
+};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use crossterm::{
@@ -24,7 +27,7 @@ mod turn;
 mod who;
 
 pub use admin::render_fabric;
-pub use messaging::{format_mention_line, mention_reply_handle};
+pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub use who::load_who_snapshot;
 
@@ -46,24 +49,6 @@ enum Cmd {
     // corresponding private fn (session_start_inner / session_end / turn_start /
     // turn_check / turn_end). There is no host-facing way — or need — to invoke
     // them by hand.
-    /// Mention another agent or a specific session.
-    SendMessage {
-        /// session-id (or prefix), agent slug, slug@project, or hex pubkey.
-        #[arg(value_name = "RECIPIENT")]
-        recipient: Option<String>,
-        /// Message body.
-        #[arg(value_name = "MESSAGE")]
-        message: Option<String>,
-        /// session-id (or prefix), agent slug, slug@project, or hex pubkey.
-        #[arg(long = "recipient", value_name = "RECIPIENT")]
-        recipient_flag: Option<String>,
-        /// Message body.
-        #[arg(long = "message", value_name = "MESSAGE")]
-        message_flag: Option<String>,
-        /// My session id; if omitted, resolved from the current directory.
-        #[arg(long)]
-        session: Option<String>,
-    },
     /// List peers currently visible (with session-id prefixes for targeting).
     Who {
         #[arg(long)]
@@ -91,12 +76,16 @@ enum Cmd {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Print + drain pending mentions for a session. Used by the opencode
-    /// injection path and as a manual "check my messages" command. (Claude Code
-    /// and Codex drain via the `hook --type user-prompt-submit` path instead.)
+    /// Read your messages (bare `inbox`), or `send` / `reply` to other agents.
+    ///
+    /// Bare `inbox` prints + drains pending mentions for a session — used by the
+    /// opencode injection path and as a manual "check my messages" command.
+    /// (Claude Code and Codex drain via the `hook --type user-prompt-submit` path.)
     Inbox {
+        #[command(subcommand)]
+        action: Option<InboxAction>,
         /// Session id; if omitted, resolved from the current directory.
-        #[arg(long)]
+        #[arg(long, global = true)]
         session: Option<String>,
     },
     /// Block until a mention arrives for this session, then print it and exit.
@@ -155,6 +144,38 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
+enum InboxAction {
+    /// Send a message to another agent or a specific session.
+    Send {
+        /// Recipient: session-id (or prefix), agent slug, slug@project, or hex pubkey.
+        #[arg(long = "to", value_name = "RECIPIENT")]
+        to: String,
+        /// One-line subject ("what this is about").
+        #[arg(long)]
+        subject: Option<String>,
+        /// Message body. Positional, or via --message, or piped on stdin.
+        #[arg(value_name = "MESSAGE")]
+        message: Option<String>,
+        #[arg(long = "message", value_name = "MESSAGE")]
+        message_flag: Option<String>,
+    },
+    /// Reply to a message by its ID (the `ID:` shown on each message you receive).
+    Reply {
+        /// The ID shown on the message you're replying to.
+        #[arg(long)]
+        id: String,
+        /// Subject; defaults to "Re: <original subject>".
+        #[arg(long)]
+        subject: Option<String>,
+        /// Reply body. Positional, or via --message, or piped on stdin.
+        #[arg(value_name = "MESSAGE")]
+        message: Option<String>,
+        #[arg(long = "message", value_name = "MESSAGE")]
+        message_flag: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum AclAction {
     /// List pending (unauthorized) + authorized + blocked agents.
     List,
@@ -190,19 +211,6 @@ enum ProjectAction {
 
 pub async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
-        Cmd::SendMessage {
-            recipient,
-            message,
-            recipient_flag,
-            message_flag,
-            session,
-        } => {
-            let recipient = recipient_flag
-                .or(recipient)
-                .context("missing recipient; use `tenex-edge send-message --recipient <target> --message \"...\"`")?;
-            let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-            messaging::send_message(recipient, message, session).await
-        }
         Cmd::Who {
             project,
             all,
@@ -233,7 +241,27 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Acl { action } => admin::acl(action).await,
         Cmd::Tail { project } => admin::tail(project).await,
-        Cmd::Inbox { session } => messaging::inbox(session).await,
+        Cmd::Inbox { action, session } => match action {
+            None => messaging::inbox(session).await,
+            Some(InboxAction::Send {
+                to,
+                subject,
+                message,
+                message_flag,
+            }) => {
+                let message = messaging::resolve_send_message_body(message_flag.or(message))?;
+                messaging::inbox_send(to, subject, message, session).await
+            }
+            Some(InboxAction::Reply {
+                id,
+                subject,
+                message,
+                message_flag,
+            }) => {
+                let message = messaging::resolve_send_message_body(message_flag.or(message))?;
+                messaging::inbox_reply(id, subject, message, session).await
+            }
+        },
         Cmd::WaitForMention { session, timeout } => {
             messaging::wait_for_mention(session, timeout).await
         }
