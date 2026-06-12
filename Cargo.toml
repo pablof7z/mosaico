@@ -26,6 +26,7 @@ owo-colors = "4"
 rig = { package = "rig-core", version = "0.37" }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"

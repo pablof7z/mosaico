@@ -21,7 +21,10 @@ pub(crate) fn unique_slug() -> String {
 }
 
 pub(crate) fn h_tag(slug: &str) -> Tag {
-    Tag::custom(TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)), [slug])
+    Tag::custom(
+        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
+        [slug],
+    )
 }
 
 pub(crate) async fn connect(keys: Keys, relay: &str) -> Client {
@@ -32,7 +35,10 @@ pub(crate) async fn connect(keys: Keys, relay: &str) -> Client {
     client.wait_for_connection(Duration::from_secs(8)).await;
     // NIP-42 warm-up: force AUTH before any REQ/EVENT (relay29 is auth-gated).
     let _ = client
-        .fetch_events(Filter::new().kind(Kind::from(0u16)).limit(1), Duration::from_secs(5))
+        .fetch_events(
+            Filter::new().kind(Kind::from(0u16)).limit(1),
+            Duration::from_secs(5),
+        )
         .await;
     client
 }
@@ -68,7 +74,10 @@ pub(crate) async fn fetch(client: &Client, filter: Filter, label: &str) -> Vec<E
             "[probe]   kind={} pubkey={} tags={:?} content={:?}",
             e.kind.as_u16(),
             &e.pubkey.to_hex()[..8],
-            e.tags.iter().map(|t| t.as_slice().to_vec()).collect::<Vec<_>>(),
+            e.tags
+                .iter()
+                .map(|t| t.as_slice().to_vec())
+                .collect::<Vec<_>>(),
             e.content
         );
     }
@@ -111,13 +120,17 @@ pub(crate) async fn create_group_with_retry(admin: &Keys, admin_c: &Client, slug
 pub(crate) async fn group_id_honored(admin_c: &Client, slug: &str, created_ok: bool) -> bool {
     let meta = fetch(
         admin_c,
-        Filter::new().kind(Kind::from(KIND_GROUP_METADATA)).identifier(slug),
+        Filter::new()
+            .kind(Kind::from(KIND_GROUP_METADATA))
+            .identifier(slug),
         "39000 metadata (#d=slug)",
     )
     .await;
     let admins = fetch(
         admin_c,
-        Filter::new().kind(Kind::from(KIND_GROUP_ADMINS)).identifier(slug),
+        Filter::new()
+            .kind(Kind::from(KIND_GROUP_ADMINS))
+            .identifier(slug),
         "39001 admins (#d=slug)",
     )
     .await;

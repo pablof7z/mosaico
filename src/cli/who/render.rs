@@ -60,9 +60,9 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
         format!(" {}", "(stale)".dimmed())
     };
     // §8e: same-machine agents get NO annotation; a true remote (peer on
-    // a different host than the daemon) gets ` (remote)`.
+    // a different host than the daemon) gets ` (hostname)`.
     let remote = if row.remote {
-        format!(" {}", "(remote)".dimmed())
+        format!(" {}", format!("({})", row.host).dimmed())
     } else {
         String::new()
     };
@@ -153,19 +153,20 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "agents:");
     for row in &snapshot.rows {
         let stale = if row.fresh { "" } else { " (stale)" };
-        let remote = if row.remote { " (remote)" } else { "" };
+        let remote_ann;
+        let remote = if row.remote {
+            remote_ann = format!(" ({})", row.host);
+            &*remote_ann
+        } else {
+            ""
+        };
         let dir = rel_cwd_bracket(&row.rel_cwd)
             .map(|d| format!(" [{d}]"))
             .unwrap_or_default();
         let _ = writeln!(
             out,
             "  {}@{} [session {}]{}{}{}",
-            row.slug,
-            row.project,
-            row.session_id,
-            dir,
-            remote,
-            stale,
+            row.slug, row.project, row.session_id, dir, remote, stale,
         );
         let _ = writeln!(out, "      {}", status_plain(&row.status));
     }

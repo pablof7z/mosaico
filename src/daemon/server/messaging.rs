@@ -148,11 +148,10 @@ pub(super) async fn rpc_propose(
 
     let id = identity::load_or_create(&config::edge_home(), &agent_slug, now_secs())?;
 
-    let d_tag = p
-        .d
-        .clone()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("prop-{:x}", now_secs()));
+    let d_tag =
+        p.d.clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("prop-{:x}", now_secs()));
 
     let mut tags: Vec<Tag> = vec![
         Tag::parse(["d", &d_tag]).context("d tag")?,

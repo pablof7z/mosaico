@@ -63,7 +63,13 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
     let dproto = welcome["protocol"].as_u64().unwrap_or(0) as u32;
     if dproto < protocol_version() {
         // Older daemon under a newer binary: ask it to exit, then respawn.
-        writeln!(w, "{}", serde_json::to_string(&PleaseExit { protocol: protocol_version() })?)?;
+        writeln!(
+            w,
+            "{}",
+            serde_json::to_string(&PleaseExit {
+                protocol: protocol_version()
+            })?
+        )?;
         let _ = w.flush();
         return Ok(Outcome::SkewExit);
     }
@@ -75,7 +81,11 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
     }
 
     // request → response.
-    writeln!(w, "{}", serde_json::json!({"id": 1, "method": method, "params": params}))?;
+    writeln!(
+        w,
+        "{}",
+        serde_json::json!({"id": 1, "method": method, "params": params})
+    )?;
     let mut resp_line = String::new();
     if r.read_line(&mut resp_line)? == 0 {
         bail!("daemon closed the connection");
@@ -86,7 +96,9 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
         let msg = err["message"].as_str().unwrap_or("").to_string();
         return Ok(Outcome::Err(code, msg));
     }
-    Ok(Outcome::Ok(resp.get("ok").cloned().unwrap_or(serde_json::Value::Null)))
+    Ok(Outcome::Ok(
+        resp.get("ok").cloned().unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 /// Synchronous spawn-if-absent: under the startup `flock`, reclaim a stale

@@ -11,6 +11,8 @@
 
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::*;
+use regex::Regex;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
@@ -18,6 +20,75 @@ pub struct Transport {
     client: Client,
     pub pubkey: PublicKey,
 }
+
+// ── secret scrubbing ──────────────────────────────────────────────────────────
+
+static SCRUB_PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+
+fn secret_patterns() -> &'static Vec<Regex> {
+    SCRUB_PATTERNS.get_or_init(|| {
+        let raw: &[&str] = &[
+            // AWS access key IDs
+            r"(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|APKA)[0-9A-Z]{16}",
+            // GitHub tokens (classic PATs, fine-grained, OAuth, runner, server)
+            r"gh[pousr]_[A-Za-z0-9]{36,255}",
+            // Slack tokens
+            r"xox[baprs]-[A-Za-z0-9\-]{10,255}",
+            // Google API keys
+            r"AIza[0-9A-Za-z\-_]{35}",
+            // Anthropic API keys
+            r"sk-ant-[A-Za-z0-9\-_]{20,255}",
+            // OpenAI / generic sk- keys (after more-specific patterns)
+            r"sk-[A-Za-z0-9]{20,255}",
+            // Nostr secret keys (bech32 nsec)
+            r"nsec1[a-z0-9]{58}",
+            // PEM private key blocks
+            r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----",
+        ];
+        raw.iter()
+            .filter_map(|p| match Regex::new(p) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    eprintln!("[tenex-edge] scrub: failed to compile pattern {p:?}: {e}");
+                    None
+                }
+            })
+            .collect()
+    })
+}
+
+/// Replace detected credential spans with `[REDACTED]`. Fail-open: always
+/// returns a valid string; compile errors on individual patterns are skipped.
+fn scrub_secrets(input: &str) -> String {
+    let mut out = input.to_string();
+    for re in secret_patterns() {
+        let replaced = re.replace_all(&out, "[REDACTED]");
+        if let std::borrow::Cow::Owned(s) = replaced {
+            out = s;
+        }
+    }
+    out
+}
+
+/// Scrub content in-place on an `UnsignedEvent`. Resets `id` to `None` when
+/// content changed so the signing step recomputes the event ID over the
+/// scrubbed content (required — nostr-sdk validates id vs content on sign).
+fn scrub_unsigned(unsigned: &mut UnsignedEvent) {
+    if unsigned.content.is_empty() {
+        return;
+    }
+    let scrubbed = scrub_secrets(&unsigned.content);
+    if scrubbed != unsigned.content {
+        eprintln!(
+            "[tenex-edge] redacted secret(s) from outgoing kind:{} event",
+            unsigned.kind.as_u16()
+        );
+        unsigned.content = scrubbed;
+        unsigned.id = None; // force id recompute over scrubbed content at sign time
+    }
+}
+
+// ── Transport ─────────────────────────────────────────────────────────────────
 
 impl Transport {
     /// Connect to the configured relays and authenticate.
@@ -61,7 +132,8 @@ impl Transport {
     /// (tests/relay_probe.rs): a B-signed event published over an A-authed
     /// connection lands under B's authorship.
     pub async fn publish_signed(&self, builder: EventBuilder, keys: &Keys) -> Result<EventId> {
-        let unsigned = builder.build(keys.public_key());
+        let mut unsigned = builder.build(keys.public_key());
+        scrub_unsigned(&mut unsigned);
         let signed = keys.sign_event(unsigned).await.context("signing event")?;
         let out = self
             .client
@@ -78,7 +150,8 @@ impl Transport {
     /// group create/membership) need that distinction, so this surfaces the
     /// relay's rejection reason as an error instead of swallowing it.
     pub async fn publish_signed_checked(&self, builder: EventBuilder, keys: &Keys) -> Result<()> {
-        let unsigned = builder.build(keys.public_key());
+        let mut unsigned = builder.build(keys.public_key());
+        scrub_unsigned(&mut unsigned);
         let signed = keys.sign_event(unsigned).await.context("signing event")?;
         let out = self
             .client
@@ -120,5 +193,104 @@ impl Transport {
 
     pub async fn shutdown(&self) {
         self.client.disconnect().await;
+    }
+}
+
+// ── tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── scrub_secrets unit tests ──────────────────────────────────────────────
+
+    #[test]
+    fn redacts_aws_key() {
+        let input = "my key is AKIAIOSFODNN7EXAMPLE right there";
+        let out = scrub_secrets(input);
+        assert!(out.contains("[REDACTED]"), "should redact AWS key");
+        assert!(!out.contains("AKIAIOSFODNN7EXAMPLE"), "should not leak key");
+    }
+
+    #[test]
+    fn redacts_github_pat() {
+        let token = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
+        let input = format!("use this token: {token}");
+        let out = scrub_secrets(&input);
+        assert!(out.contains("[REDACTED]"));
+        assert!(!out.contains(token));
+    }
+
+    #[test]
+    fn redacts_anthropic_key() {
+        let key = "sk-ant-api03-abc123def456ghi789jkl012mno345pqr";
+        let out = scrub_secrets(key);
+        assert!(out.contains("[REDACTED]"));
+        assert!(!out.contains("sk-ant-"));
+    }
+
+    #[test]
+    fn redacts_openai_key() {
+        let key = "sk-abcdefghijklmnopqrstuvwxyz123456";
+        let out = scrub_secrets(key);
+        assert!(out.contains("[REDACTED]"));
+        assert!(!out.contains(key));
+    }
+
+    #[test]
+    fn redacts_nsec() {
+        let nsec = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k3ram0a4wy";
+        let input = format!("my key: {nsec}");
+        let out = scrub_secrets(&input);
+        assert!(out.contains("[REDACTED]"));
+        assert!(!out.contains("nsec1"));
+    }
+
+    #[test]
+    fn does_not_redact_plain_text() {
+        let input = "please refactor the akimbo module and fix the bug";
+        let out = scrub_secrets(input);
+        assert_eq!(out, input, "ordinary text must pass through unchanged");
+    }
+
+    #[test]
+    fn empty_content_unchanged() {
+        assert_eq!(scrub_secrets(""), "");
+    }
+
+    // ── end-to-end: scrub + sign produces a valid event ───────────────────────
+
+    #[tokio::test]
+    async fn scrub_unsigned_then_sign_verifies() {
+        let keys = Keys::generate();
+        let token = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
+        let raw_content = format!("leak {token} in prompt");
+
+        let builder = EventBuilder::new(Kind::from(1u16), raw_content);
+        let mut unsigned = builder.build(keys.public_key());
+        scrub_unsigned(&mut unsigned);
+
+        assert!(unsigned.content.contains("[REDACTED]"), "content scrubbed");
+        assert!(!unsigned.content.contains(token), "token absent");
+
+        // Sign and verify: nostr-sdk recomputes the id from scrubbed content
+        // on sign, so verify() must succeed (proves id reset was applied).
+        let signed = keys.sign_event(unsigned).await.expect("signing");
+        assert!(signed.verify().is_ok(), "signature valid over scrubbed content");
+        assert!(!signed.content.contains(token), "token absent from signed event");
+    }
+
+    #[tokio::test]
+    async fn scrub_unsigned_noop_on_empty_content() {
+        let keys = Keys::generate();
+        // Kind 9000 put-user events have empty content — must be untouched.
+        let builder = EventBuilder::new(Kind::from(9000u16), "");
+        let mut unsigned = builder.build(keys.public_key());
+        let original_id = unsigned.id;
+        scrub_unsigned(&mut unsigned);
+        assert_eq!(
+            unsigned.id, original_id,
+            "id must not be reset when content is empty"
+        );
     }
 }

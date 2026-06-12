@@ -106,8 +106,8 @@ fn who_snapshot_merges_local_and_peer_sessions() {
         session_short_code("local-session")
     )));
     assert!(once.contains("coder"));
-    // The remote tag appears only for the genuine remote.
-    assert!(once.contains("(remote)"));
+    // The remote tag shows the actual hostname only for the genuine remote.
+    assert!(once.contains("(tower)"));
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn same_host_peer_is_not_remote() {
     assert_eq!(sib.rel_cwd, "worktree1");
     let once = strip_ansi(&render_who_once(&snap));
     assert!(
-        !once.contains("(remote)"),
+        !once.contains("(laptop)"),
         "no remote tag for same-host peer"
     );
     assert!(once.contains("[worktree1]"), "rel_cwd shown in bracket");
@@ -215,7 +215,7 @@ fn root_rel_cwd_has_no_bracket() {
     let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
     let once = strip_ansi(&render_who_once(&snap));
     assert!(!once.contains("[.]"), "root cwd must not render a bracket");
-    assert!(once.contains("(remote)"));
+    assert!(once.contains("(tower)"), "remote peer shows hostname");
 }
 
 #[test]

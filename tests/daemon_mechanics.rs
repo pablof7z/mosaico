@@ -190,7 +190,10 @@ fn stale_socket_is_reclaimed() {
         let mut c = Client::connect_or_spawn().await?;
         c.call("ping", serde_json::json!({})).await
     });
-    assert_eq!(res.expect("ping after reclaim")["pong"], serde_json::json!(true));
+    assert_eq!(
+        res.expect("ping after reclaim")["pong"],
+        serde_json::json!(true)
+    );
     stop_daemon(&home);
 }
 
@@ -223,7 +226,10 @@ fn version_skew_old_daemon_exits_and_respawns() {
             }
         }
     };
-    assert!(gone, "old daemon should exit after a protocol-skew please_exit");
+    assert!(
+        gone,
+        "old daemon should exit after a protocol-skew please_exit"
+    );
 
     // Now a normal client respawns a fresh daemon and works.
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -231,7 +237,10 @@ fn version_skew_old_daemon_exits_and_respawns() {
         let mut c = Client::connect_or_spawn().await?;
         c.call("ping", serde_json::json!({})).await
     });
-    assert_eq!(res.expect("ping after respawn")["pong"], serde_json::json!(true));
+    assert_eq!(
+        res.expect("ping after respawn")["pong"],
+        serde_json::json!(true)
+    );
     stop_daemon(&home);
 }
 

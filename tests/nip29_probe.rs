@@ -29,7 +29,6 @@
 //! Hard asserts: id honored, lock enforces membership (non-member write blocked),
 //! and non-member read stays open. Other answers are reported via eprintln.
 
-
 #[path = "nip29_probe/support.rs"]
 mod support;
 
@@ -90,7 +89,9 @@ async fn nip29_group_lifecycle() {
     tokio::time::sleep(Duration::from_millis(800)).await;
     let members = fetch(
         &admin_c,
-        Filter::new().kind(Kind::from(KIND_GROUP_MEMBERS)).identifier(&slug),
+        Filter::new()
+            .kind(Kind::from(KIND_GROUP_MEMBERS))
+            .identifier(&slug),
         "39002 members (#d=slug)",
     )
     .await;
@@ -126,10 +127,9 @@ async fn nip29_group_lifecycle() {
     tokio::time::sleep(Duration::from_millis(800)).await;
     let notes = fetch(
         &admin_c,
-        Filter::new().kind(Kind::from(KIND_NOTE)).custom_tag(
-            SingleLetterTag::lowercase(Alphabet::H),
-            &slug,
-        ),
+        Filter::new()
+            .kind(Kind::from(KIND_NOTE))
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &slug),
         "kind:1 in group (readback)",
     )
     .await;
@@ -194,8 +194,12 @@ async fn nip29_group_lifecycle() {
         "non-member reads group kind:1",
     )
     .await;
-    let non_member_can_read = rnotes.iter().any(|e| e.content.starts_with("te-probe-member"));
-    eprintln!("[probe] Q6 => non-member (daemon-key) CAN read closed+public group: {non_member_can_read}");
+    let non_member_can_read = rnotes
+        .iter()
+        .any(|e| e.content.starts_with("te-probe-member"));
+    eprintln!(
+        "[probe] Q6 => non-member (daemon-key) CAN read closed+public group: {non_member_can_read}"
+    );
 
     // ── Q7: PRODUCTION TOPOLOGY. The daemon has ONE connection authed as a
     // non-member key and signs each event with a *different* key (agent or admin).
@@ -237,7 +241,9 @@ async fn nip29_group_lifecycle() {
     let topo_member_write = notes3.iter().any(|e| e.content == m3);
     let members3 = fetch(
         &reader_c,
-        Filter::new().kind(Kind::from(KIND_GROUP_MEMBERS)).identifier(&slug),
+        Filter::new()
+            .kind(Kind::from(KIND_GROUP_MEMBERS))
+            .identifier(&slug),
         "39002 members (topology readback)",
     )
     .await;
@@ -249,9 +255,7 @@ async fn nip29_group_lifecycle() {
     eprintln!(
         "[probe] Q7 => member-signed write over non-member conn accepted: {topo_member_write}"
     );
-    eprintln!(
-        "[probe] Q7 => admin-signed 9000 over non-member conn accepted: {topo_admin_write}"
-    );
+    eprintln!("[probe] Q7 => admin-signed 9000 over non-member conn accepted: {topo_admin_write}");
 
     admin_c.disconnect().await;
     member_c.disconnect().await;
@@ -263,7 +267,10 @@ async fn nip29_group_lifecycle() {
     eprintln!("[probe] Q3 member added:               {member_listed}");
     eprintln!("[probe] Q5 fresh group open (pre-lock): {outsider_accepted}");
     eprintln!("[probe] Q5b member writes after lock:  {member_write_after_lock}");
-    eprintln!("[probe] Q5b outsider blocked after lock:{}", !outsider_write_after_lock);
+    eprintln!(
+        "[probe] Q5b outsider blocked after lock:{}",
+        !outsider_write_after_lock
+    );
     eprintln!("[probe] Q6 non-member can read:        {non_member_can_read}");
     eprintln!("[probe] Q7 member write over non-member conn: {topo_member_write}");
     eprintln!("[probe] Q7 admin 9000 over non-member conn:   {topo_admin_write}");

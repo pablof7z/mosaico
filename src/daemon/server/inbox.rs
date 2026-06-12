@@ -72,7 +72,8 @@ pub(super) async fn rpc_turn_start(
             // returns the previous turn's content.
             let baseline = crate::transcript::read_last_assistant_text(std::path::Path::new(path))
                 .unwrap_or_default();
-            s.set_last_assistant_text_at_turn_start(&p.session, &baseline).ok();
+            s.set_last_assistant_text_at_turn_start(&p.session, &baseline)
+                .ok();
         }
         prev
     });
@@ -142,8 +143,8 @@ pub(super) async fn rpc_turn_end(
     // Collect everything we need while holding the store lock, then release it.
     // The IDs are captured NOW so a concurrent user_prompt for the next turn
     // cannot overwrite last_prompt_event_id before we publish.
-    let (root_event_id, last_prompt_event_id, transcript_path, baseline_text, session_rec) =
-        state.with_store(|s| {
+    let (root_event_id, last_prompt_event_id, transcript_path, baseline_text, session_rec) = state
+        .with_store(|s| {
             s.mark_turn_end(&p.session).ok();
             let (root, prompt) = s.get_thread_event_ids(&p.session);
             let transcript = s.get_session_transcript(&p.session).ok().flatten();
@@ -161,7 +162,8 @@ pub(super) async fn rpc_turn_end(
             let body = if let Some(path) = transcript_path.as_deref() {
                 let mut result = String::new();
                 for _ in 0..20u8 {
-                    if let Some(text) = crate::transcript::read_last_assistant_text(Path::new(path)) {
+                    if let Some(text) = crate::transcript::read_last_assistant_text(Path::new(path))
+                    {
                         if !text.is_empty() && text != baseline_text {
                             result = text;
                             break;
@@ -183,9 +185,13 @@ pub(super) async fn rpc_turn_end(
                     reply_event_id: last_prompt_event_id,
                 });
                 let edge = crate::config::edge_home();
-                if let Ok(id) = crate::identity::load_or_create(&edge, &rec.agent_slug, crate::util::now_secs()) {
+                if let Ok(id) =
+                    crate::identity::load_or_create(&edge, &rec.agent_slug, crate::util::now_secs())
+                {
                     if let Ok(builder) = state.codec.encode(&ev) {
-                        if let Ok(reply_eid) = state.transport.publish_signed(builder, &id.keys).await {
+                        if let Ok(reply_eid) =
+                            state.transport.publish_signed(builder, &id.keys).await
+                        {
                             let sid = p.session.clone();
                             let eid_hex = reply_eid.to_hex();
                             state.with_store(|s| {

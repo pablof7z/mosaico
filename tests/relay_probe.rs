@@ -54,9 +54,11 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     sender.connect().await;
     sender.wait_for_connection(Duration::from_secs(8)).await;
     let marker = format!("te-probe-{}", key_c.public_key().to_hex());
-    let builder = EventBuilder::new(Kind::from(1u16), &marker)
-        .tags([Tag::public_key(pk_b)]);
-    sender.send_event_builder(builder).await.expect("send mention to B");
+    let builder = EventBuilder::new(Kind::from(1u16), &marker).tags([Tag::public_key(pk_b)]);
+    sender
+        .send_event_builder(builder)
+        .await
+        .expect("send mention to B");
     eprintln!("[probe] sent mention to B with marker {marker}");
 
     // Did the A-authed connection receive it?
@@ -113,7 +115,12 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
     daemon.add_relay(&relay).await.unwrap();
     daemon.connect().await;
     daemon.wait_for_connection(Duration::from_secs(8)).await;
-    let _ = daemon.fetch_events(Filter::new().kind(Kind::from(0u16)).limit(1), Duration::from_secs(5)).await;
+    let _ = daemon
+        .fetch_events(
+            Filter::new().kind(Kind::from(0u16)).limit(1),
+            Duration::from_secs(5),
+        )
+        .await;
 
     // Publish an event SIGNED BY B over the A-authed connection via send_event.
     let marker = format!("te-probe-multisign-{}", key_b.public_key().to_hex());
@@ -128,12 +135,26 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
     reader.connect().await;
     reader.wait_for_connection(Duration::from_secs(8)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let f = Filter::new().kind(Kind::from(1u16)).author(key_b.public_key()).limit(5);
-    let evs = reader.fetch_events(f, Duration::from_secs(5)).await.unwrap_or_default();
-    let found = evs.into_iter().any(|e| e.content == marker && e.pubkey == key_b.public_key());
+    let f = Filter::new()
+        .kind(Kind::from(1u16))
+        .author(key_b.public_key())
+        .limit(5);
+    let evs = reader
+        .fetch_events(f, Duration::from_secs(5))
+        .await
+        .unwrap_or_default();
+    let found = evs
+        .into_iter()
+        .any(|e| e.content == marker && e.pubkey == key_b.public_key());
 
     daemon.disconnect().await;
     reader.disconnect().await;
-    eprintln!("[probe] RESULT: B-signed event over A-conn {} land under B's authorship", if found {"DID"} else {"DID NOT"});
-    assert!(found, "multi-agent publish requires send_event(pre-signed) to work over the shared connection");
+    eprintln!(
+        "[probe] RESULT: B-signed event over A-conn {} land under B's authorship",
+        if found { "DID" } else { "DID NOT" }
+    );
+    assert!(
+        found,
+        "multi-agent publish requires send_event(pre-signed) to work over the shared connection"
+    );
 }
