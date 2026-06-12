@@ -42,6 +42,8 @@ fn secret_patterns() -> &'static Vec<Regex> {
             r"sk-[A-Za-z0-9]{20,255}",
             // Nostr secret keys (bech32 nsec)
             r"nsec1[a-z0-9]{58}",
+            // Ollama cloud API keys: <32-hex>.<20-64 alphanumeric>
+            r"[a-f0-9]{32}\.[A-Za-z0-9]{20,64}",
             // PEM private key blocks
             r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----",
         ];
@@ -239,11 +241,21 @@ mod tests {
 
     #[test]
     fn redacts_nsec() {
-        let nsec = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k3ram0a4wy";
+        // bech32-encoded nostr secret key: "nsec1" + 58 lowercase alphanumeric chars
+        let nsec = format!("nsec1{}", "a".repeat(58));
         let input = format!("my key: {nsec}");
         let out = scrub_secrets(&input);
-        assert!(out.contains("[REDACTED]"));
-        assert!(!out.contains("nsec1"));
+        assert!(out.contains("[REDACTED]"), "should redact nsec; got: {out}");
+        assert!(!out.contains("nsec1"), "should not leak nsec prefix");
+    }
+
+    #[test]
+    fn redacts_ollama_key() {
+        let key = "e1a1e08cbfbc4bbf9b702162cbdbd0f6.qQmkiYini5T9hrtMgiYalWb2";
+        let input = format!("my ollama key is {key}");
+        let out = scrub_secrets(&input);
+        assert!(out.contains("[REDACTED]"), "should redact ollama key; got: {out}");
+        assert!(!out.contains(key));
     }
 
     #[test]
