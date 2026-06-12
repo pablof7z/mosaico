@@ -8,11 +8,12 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-12
 verified: 2026-06-09
 compiled-from: conversation
 sources:
   - session:9ac666e5-b468-4af2-be5e-83e5c8f2d1d2
+  - session:081ec521-c99b-42fb-9aa7-4a109519a62f
 ---
 
 # Tenex-Edge Hook Subcommand
@@ -20,6 +21,10 @@ sources:
 ## Hook Subcommand Role
 
 `tenex-edge hook --host <name> --type <hook-type>` is the sole host-facing entry point for session and turn lifecycle operations. It dispatches to internal private functions while adding stdin JSON parsing, session-id extraction, PID handling, and output-format selection. The `user-prompt-submit` hook type does more than the bare `turn-start` verb by also publishing the prompt as a kind:1 OP, making `hook` the real surface for that behavior. The opencode integration was migrated from calling bare verbs directly to piping a JSON payload to `tenex-edge hook` and reading stdout back; it passes an explicit `pid` field in its hook JSON payload rather than relying on ancestor pid_search.
+
+The tenex-edge integration on the remote machine is configured via hooks in ~/.claude/settings.json calling the Rust binary directly, not via an MCP server. <!-- [^081ec-1] -->
+
+The tenex-edge Rust binary is symlinked at ~/.local/bin/tenex-edge so hook commands can find it. <!-- [^081ec-2] -->
 
 <!-- citations: [^9ac66-1] [^9ac66-8] -->
 ## Standalone Verb Status

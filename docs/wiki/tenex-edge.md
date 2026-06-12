@@ -14,6 +14,7 @@ compiled-from: conversation
 sources:
   - session:8a3eb1b2-7bbf-4761-ad1a-411a0a1fa666
   - session:f3a730bf-9a3b-4952-b687-c93ade5fd7ec
+  - session:ab9998c4-6e65-410e-b298-122a2072171c
 ---
 
 # Tenex-Edge
@@ -41,6 +42,8 @@ tenex-edge provides awareness of shared active work, goals, and access to resour
 ## Cross-Agent Collaboration
 
 tenex-edge enables cross-agent collaboration, including heterogeneous agents (e.g., Codex and Claude Code) running in different sessions being aware of each other's work on the same project, collaborating on bug fixes, determining ownership, and coordinating by waiting for another agent to finish working on a shared directory path.
+
+tenex-edge enables cross-agent collaboration, including heterogeneous agents (e.g., Codex and Claude Code) running in different sessions being aware of each other's work on the same project, collaborating on bug fixes, determining ownership, and coordinating by waiting for another agent to finish working on a shared directory path. Real agent end-to-end testing with Claude Code, Codex, and OpenCode across all three adapters is verified — a 3-agent threaded conversation through the refactored daemon grouped correctly via NIP-10 root tags. <!-- [^ab999-65] -->
 
 <!-- citations: [^8a3eb-5] [^8a3eb-12] -->
 ## Cross-Person Collaboration

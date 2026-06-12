@@ -8,12 +8,13 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-12
 verified: 2026-06-09
 compiled-from: conversation
 sources:
   - session:98f9939c-f42b-43dd-baba-d9a176d4b2d7
   - session:d208c058-7b2b-4ff8-bb82-d63623d51097
+  - session:081ec521-c99b-42fb-9aa7-4a109519a62f
 ---
 
 # Tenex-Edge Project Management
@@ -41,3 +42,5 @@ All domain events except Profile carry an h tag with the project slug: Presence 
 ## Group Creation and Membership
 
 No explicit NIP-29 group creation (kind:9000) or membership management is wired yet; the relay accepts events either because groups are implicitly open or because the user's key has admin rights. <!-- [^98f99-16] -->
+
+The CLI command to add a pubkey to a project group is `tenex-edge project add <project> <pubkey-or-npub-or-nip05>`, which accepts hex, npub/bech32, or NIP-05 identifiers, resolving NIP-05 via HTTP fetch. <!-- [^081ec-9] -->

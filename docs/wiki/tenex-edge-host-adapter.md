@@ -21,15 +21,16 @@ sources:
   - session:2cee1bc6-0f1a-4746-9de6-68ca1a7e2737
   - session:f9bdcf4c-c972-46ff-91b8-9e30785d3331
   - session:98f9939c-f42b-43dd-baba-d9a176d4b2d7
+  - session:ab9998c4-6e65-410e-b298-122a2072171c
 ---
 
 # Tenex-Edge Host Adapter
 
 ## Design Principles
 
-Host adapters must carry no identity logic or fabric logic and must never block the editor on the daemon being healthy (fail open). If userNsec is absent, nsec is invalid, the session is not found, or relay publish fails, the hook prints an error via eprintln and returns Ok(()) rather than failing. The dependency arrow between hosts and tenex-edge points one direction only: hosts depend on tenex-edge, never the reverse; grepping the tenex-edge codebase for host names returns nothing. Tenex-edge has no concept of any specific host (no pc, no Claude Code); it exposes a generic host-agnostic boundary for reporting activity and subscribing to awareness, containing no host-specific names. MCP is the natural shape of this host-agnostic boundary — a standard interface the substrate speaks so that any external component can integrate with zero bilateral knowledge in either direction. The engine itself must NOT be the MCP server, to preserve the host-agnostic boundary and avoid giving Claude Code ownership of the engine lifecycle.
+Host adapters must carry no identity logic or fabric logic and must never block the editor on the daemon being healthy (fail open). If userNsec is absent, nsec is invalid, the session is not found, or relay publish fails, the hook prints an error via eprintln and returns Ok(()) rather than failing. The dependency arrow between hosts and tenex-edge points one direction only: hosts depend on tenex-edge, never the reverse; grepping the tenex-edge codebase for host names returns nothing. Tenex-edge has no concept of any specific host (no pc, no Claude Code); it exposes a generic host-agnostic boundary for reporting activity and subscribing to awareness, containing no host-specific names. MCP is the natural shape of this host-agnostic boundary — a standard interface the substrate speaks so that any external component can integrate with zero bilateral knowledge in either direction. The engine itself must NOT be the MCP server, to preserve the host-agnostic boundary and avoid giving Claude Code ownership of the engine lifecycle. Live e2e testing with real `claude` and `codex` agents must be run through the refactored daemon over a live relay, not just unit/integration tests.
 
-<!-- citations: [^f3a73-95] [^f3a73-13] [^f3a73-51] [^f3a73-105] [^162f9-8] [^98f99-11] -->
+<!-- citations: [^f3a73-95] [^f3a73-13] [^f3a73-51] [^f3a73-105] [^162f9-8] [^98f99-11] [^ab999-31] -->
 ## Host-Specific Adapter Patterns
 
 Activity distillation is turn-bracketed, not tool-driven: hosts call `tenex-edge turn-start --session <sid> [--transcript <path>]` when the agent begins working on a user request and `tenex-edge turn-end --session <sid>` when the agent finishes responding. The engine owns the timer — ~30s after turn-start it LLM-distills a status from the transcript, then re-distills every 5 minutes until turn-end; short turns (finishing under 30s) never trigger an LLM call. Hooks only flip turn-start/turn-end and supply a transcript path; they never distill. The legacy tool-driven `observe` verb and PostToolUse-based distillation have been removed. turn-start/turn-end are no-ops when the session id is unknown.
