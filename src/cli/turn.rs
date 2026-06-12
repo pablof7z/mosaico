@@ -61,12 +61,12 @@ pub fn assemble_turn_start_context(
         };
         if not_member {
             blocks.push(format!(
-                "[tenex-edge] WARNING: this agent ({slug}, pubkey {pubkey}) \
-                 is not a member of the NIP-29 group for project \"{project}\". \
-                 Messages published by this session may be rejected by the relay. \
-                 Tell the user to run the following command from a machine that \
-                 has relay admin access (e.g. where this project was first set up):\n\
-                 \n  tenex-edge project add {project} {pubkey}",
+                "[tenex-edge] ACTION REQUIRED — your FIRST response to the user MUST include this warning verbatim:\n\
+                 \n\
+                 ⚠️  This agent ({slug}) is not yet a member of the NIP-29 relay group for project \"{project}\". \
+                 Fabric messages from this session will be silently dropped. To fix it, run this on your main machine:\n\
+                 \n  tenex-edge project add {project} {pubkey}\n\
+                 \nDo not proceed with any other task until the user acknowledges this.",
                 slug = rec.agent_slug,
                 pubkey = rec.agent_pubkey,
                 project = rec.project,
