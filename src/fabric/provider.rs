@@ -172,6 +172,25 @@ impl Kind1Nip29Provider {
         self.transport.publish_signed(builder, keys).await
     }
 
+    /// Publish a mention that the daemon is emitting on behalf of `suppress_for`'s
+    /// OWN session (a local user-prompt), pre-recording it as seen for that agent
+    /// BEFORE the wire send so its relay echo is never routed back into that
+    /// agent's own inbox. Marking seen before publishing closes the race where the
+    /// echo arrives and routes before a post-publish mark could land. Returns the
+    /// published event id. (Events are built/signed only here, never above the seam.)
+    pub async fn publish_seen_by(
+        &self,
+        ev: &DomainEvent,
+        keys: &nostr_sdk::prelude::Keys,
+        suppress_for: &str,
+    ) -> Result<nostr_sdk::prelude::EventId> {
+        let builder = self.wire.encode(ev)?;
+        let signed = self.transport.sign(builder, keys).await?;
+        let eid = signed.id.to_hex();
+        self.with_store(|s| s.mark_mention_seen(suppress_for, &eid, now_secs()).ok());
+        self.transport.publish_event(&signed).await
+    }
+
     /// Connectivity probe: publish a uniquely-tagged throwaway note on the
     /// daemon's connection key and read it back. Returns
     /// `(publish_result, readback_result)` as display strings — the wire shape

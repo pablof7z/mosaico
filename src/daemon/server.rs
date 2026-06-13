@@ -1456,7 +1456,19 @@ async fn rpc_user_prompt(state: &Arc<DaemonState>, params: &serde_json::Value) -
         from_session: None,
         meta: crate::domain::MentionMeta::default(),
     });
-    let event_id = state.provider.publish(&ev, &user_keys).await?;
+    // Suppress the relay echo of our own prompt: this RPC is only ever invoked
+    // by the LOCAL harness's user-prompt-submit hook, so the agent already has
+    // the prompt in front of it. Routing the echoed kind:1 back into this same
+    // agent's inbox would create a phantom unread mention — and because the tmux
+    // doorbell auto-submits its nudge text as a prompt, that echo perpetually
+    // re-arms the doorbell (an infinite "you have new mentions" loop). Publishing
+    // via `publish_seen_by` records the event as seen BEFORE the wire send, so
+    // `route_mention_into` drops the untargeted echo even though it arrives on a
+    // separate task. Remote prompts never pass through this RPC, so they're safe.
+    let event_id = state
+        .provider
+        .publish_seen_by(&ev, &user_keys, &rec.agent_pubkey)
+        .await?;
 
     // NIP-10 thread tracking: first prompt becomes the root; every prompt is
     // the "last trigger" the next TurnReply will reply to.
@@ -1467,16 +1479,6 @@ async fn rpc_user_prompt(state: &Arc<DaemonState>, params: &serde_json::Value) -
         let new_root = if root.is_empty() { eid.clone() } else { root };
         s.set_thread_event_ids(&sid, &new_root, &eid).ok();
     });
-
-    // Suppress the relay echo of our own prompt: this RPC is only ever invoked
-    // by the LOCAL harness's user-prompt-submit hook, so the agent already has
-    // the prompt in front of it. Routing the echoed kind:1 back into this same
-    // agent's inbox would create a phantom unread mention — and because the tmux
-    // doorbell auto-submits its nudge text as a prompt, that echo perpetually
-    // re-arms the doorbell (an infinite "you have new mentions" loop). Marking
-    // the event seen makes `route_mention_into` drop the untargeted echo.
-    // Remote prompts never pass through this RPC, so they are unaffected.
-    state.with_store(|s| s.mark_mention_seen(&rec.agent_pubkey, &eid, now_secs()).ok());
 
     Ok(serde_json::json!({ "event_id": eid }))
 }

@@ -167,6 +167,26 @@ impl Transport {
         Ok(())
     }
 
+    /// Sign `builder` with `keys` and return the signed event WITHOUT publishing.
+    /// Lets a caller learn the final `EventId` and act on it (e.g. record it as
+    /// already-seen) BEFORE the wire send, so the relay echo cannot race ahead.
+    /// Wire-identical to [`publish_signed`] up to the `send_event` call.
+    pub async fn sign(&self, builder: EventBuilder, keys: &Keys) -> Result<Event> {
+        let mut unsigned = builder.build(keys.public_key());
+        scrub_unsigned(&mut unsigned);
+        keys.sign_event(unsigned).await.context("signing event")
+    }
+
+    /// Publish an already-signed event (see [`sign`]).
+    pub async fn publish_event(&self, signed: &Event) -> Result<EventId> {
+        let out = self
+            .client
+            .send_event(signed)
+            .await
+            .context("publishing signed event")?;
+        Ok(out.val)
+    }
+
     /// One-shot query (used for resolution — e.g. fetch a `kind:0` profile).
     pub async fn fetch(&self, filter: Filter, timeout: Duration) -> Result<Vec<Event>> {
         let events = self
