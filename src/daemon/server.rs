@@ -1468,6 +1468,16 @@ async fn rpc_user_prompt(state: &Arc<DaemonState>, params: &serde_json::Value) -
         s.set_thread_event_ids(&sid, &new_root, &eid).ok();
     });
 
+    // Suppress the relay echo of our own prompt: this RPC is only ever invoked
+    // by the LOCAL harness's user-prompt-submit hook, so the agent already has
+    // the prompt in front of it. Routing the echoed kind:1 back into this same
+    // agent's inbox would create a phantom unread mention — and because the tmux
+    // doorbell auto-submits its nudge text as a prompt, that echo perpetually
+    // re-arms the doorbell (an infinite "you have new mentions" loop). Marking
+    // the event seen makes `route_mention_into` drop the untargeted echo.
+    // Remote prompts never pass through this RPC, so they are unaffected.
+    state.with_store(|s| s.mark_mention_seen(&rec.agent_pubkey, &eid, now_secs()).ok());
+
     Ok(serde_json::json!({ "event_id": eid }))
 }
 
