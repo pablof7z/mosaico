@@ -303,8 +303,12 @@ pub(super) fn push_turn_fabric_block(
                 SessionId::from(p.session_id.as_str()),
             ));
         }
-        for (slug, proj, text) in &status_changes {
-            delta.push(format!("  ↻ {slug}@{proj} — {text}"));
+        for (slug, proj, text, session_id) in &status_changes {
+            if let Some(sid) = session_id {
+                delta.push(format!("  ↻ {slug}@{proj} [session {sid}] — {text}"));
+            } else {
+                delta.push(format!("  ↻ {slug}@{proj} — {text}"));
+            }
         }
         if !delta.is_empty() {
             blocks.push(format!(

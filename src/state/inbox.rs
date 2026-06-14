@@ -83,19 +83,20 @@ impl Store {
         Ok(rows)
     }
 
-    /// Agent status rows updated at or after `since`. Returns (slug, project, text).
+    /// Agent status rows updated at or after `since`. Returns (slug, project, text, session_id).
+    /// `session_id` is `None` for legacy `agent_status` rows and `Some(id)` for `session_status` rows.
     /// Resolves slug from profiles then peer_sessions, falling back to "unknown".
     pub fn list_status_changes_since(
         &self,
         since: u64,
         project: Option<&str>,
-    ) -> Result<Vec<(String, String, String)>> {
+    ) -> Result<Vec<(String, String, String, Option<String>)>> {
         let mut stmt = self.conn.prepare(
             "SELECT COALESCE(
                  (SELECT slug FROM profiles WHERE pubkey=ast.pubkey LIMIT 1),
                  (SELECT slug FROM peer_sessions WHERE pubkey=ast.pubkey ORDER BY last_seen DESC LIMIT 1),
                  'unknown'
-             ), ast.project, ast.text, ast.updated_at
+             ), ast.project, ast.text, NULL, ast.updated_at
              FROM agent_status ast
              WHERE ast.updated_at>=?1 AND (?2 IS NULL OR ast.project=?2)
              UNION ALL
@@ -104,14 +105,14 @@ impl Store {
                  (SELECT slug FROM peer_sessions WHERE session_id=sst.session_id LIMIT 1),
                  (SELECT slug FROM profiles WHERE pubkey=sst.pubkey LIMIT 1),
                  'unknown'
-             ), sst.project, sst.text, sst.updated_at
+             ), sst.project, sst.text, sst.session_id, sst.updated_at
              FROM session_status sst
              WHERE sst.updated_at>=?1 AND (?2 IS NULL OR sst.project=?2)
-             ORDER BY 4",
+             ORDER BY 5",
         )?;
-        let rows: Vec<(String, String, String)> = stmt
+        let rows: Vec<(String, String, String, Option<String>)> = stmt
             .query_map(params![since, project], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
             .filter_map(|r| r.ok())
             .collect();

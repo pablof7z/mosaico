@@ -56,7 +56,8 @@ fn turn_delta_status_changes_can_be_project_scoped() {
         vec![(
             "alpha".to_string(),
             "current".to_string(),
-            "working here".to_string()
+            "working here".to_string(),
+            Some("sess-a".to_string())
         )]
     );
 
