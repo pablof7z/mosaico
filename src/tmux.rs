@@ -84,25 +84,19 @@ fn find_spawn_def(slug: &str) -> Option<&'static SpawnDef> {
 
 // ── spawnable-agents query ─────────────────────────────────────────────────
 
-fn which_available(cmd: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Returns `(slug, command[0])` pairs for spawn definitions whose primary
-/// command is available in `$PATH`. Returns an empty vec when tmux is absent,
-/// so callers never show a spawnable section if spawning would be impossible.
+/// Returns `(slug, command[0])` pairs for agents tenex-edge has an identity
+/// for, cross-referenced with a known SPAWN_DEFS entry so the TUI knows how
+/// to start them. Returns an empty vec when tmux is absent.
 pub fn spawnable_agents() -> Vec<(String, String)> {
     if !tmux_available() {
         return Vec::new();
     }
-    SPAWN_DEFS
-        .iter()
-        .filter(|d| which_available(d.command[0]))
-        .map(|d| (d.slug.to_string(), d.command[0].to_string()))
+    let edge_home = crate::config::edge_home();
+    crate::identity::list_local_slugs(&edge_home)
+        .into_iter()
+        .filter_map(|slug| {
+            find_spawn_def(&slug).map(|d| (slug, d.command[0].to_string()))
+        })
         .collect()
 }
 

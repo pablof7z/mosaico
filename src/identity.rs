@@ -107,6 +107,27 @@ pub fn list_local_pubkeys(edge_home: &Path) -> Vec<String> {
     out
 }
 
+/// Slugs of every agent in the local keystore. Used to populate the
+/// "spawnable" list in the TUI — agents tenex-edge already knows about
+/// and can start a new session for.
+pub fn list_local_slugs(edge_home: &Path) -> Vec<String> {
+    let dir = agents_dir(edge_home);
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            if let Some(stem) = path.file_stem().and_then(|x| x.to_str()) {
+                out.push(stem.to_string());
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Write via a temp file + rename so a crash never leaves a half-written key.
 fn atomic_write(path: &Path, body: &str) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
