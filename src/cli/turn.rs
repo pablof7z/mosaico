@@ -1,5 +1,4 @@
-use super::messaging::{format_envelope, mention_short_id, EnvelopeView};
-use crate::state::InboxRow;
+use super::messaging::row_envelope;
 use super::who::push_turn_fabric_block;
 use super::*;
 
@@ -63,12 +62,12 @@ pub fn assemble_turn_start_context(
         };
         if not_member {
             blocks.push(format!(
-                "[tenex-edge] ACTION REQUIRED — your FIRST response to the user MUST include this warning verbatim:\n\
-                 \n\
-                 ⚠️  This agent ({slug}) is not yet a member of the NIP-29 relay group for project \"{project}\". \
-                 Fabric messages from this session will be silently dropped. To fix it, run this on your main machine:\n\
-                 \n  tenex-edge project add {project} {pubkey}\n\
-                 \nDo not proceed with any other task until the user acknowledges this.",
+                "[tenex-edge] WARNING: this agent ({slug}, pubkey {pubkey}) \
+                 is not a member of the NIP-29 group for project \"{project}\". \
+                 Messages published by this session may be rejected by the relay. \
+                 Tell the user to run the following command from a machine that \
+                 has relay admin access (e.g. where this project was first set up):\n\
+                 \n  tenex-edge project add {project} {pubkey}",
                 slug = rec.agent_slug,
                 pubkey = rec.agent_pubkey,
                 project = rec.project,
@@ -95,25 +94,6 @@ pub fn assemble_turn_start_context(
             let _ = write!(text, "\n\n{}", row_envelope(r, &rec.host, now));
         }
         blocks.push(text);
-    }
-
-    // Pending ACL agents (unknown agents claiming this owner).
-    let pending = {
-        let s = store.lock().expect("store mutex poisoned");
-        s.list_pending_agents().unwrap_or_default()
-    };
-    if !pending.is_empty() {
-        let names: Vec<String> = pending
-            .iter()
-            .map(|p| format!("{} ({})", p.slug, pubkey_short(&p.pubkey)))
-            .collect();
-        blocks.push(format!(
-            "[tenex-edge] {} unauthorized agent(s) claim your owner: {}. \
-             They are NOT visible until you decide — tell your human to run \
-             `tenex-edge acl` to allow or block them.",
-            pending.len(),
-            names.join(", ")
-        ));
     }
 
     // Peer presence — full roster on the first turn; deltas on subsequent turns.
@@ -143,7 +123,9 @@ pub fn assemble_turn_check_context(
 ) -> Option<String> {
     let rows = {
         let s = store.lock().expect("store mutex poisoned");
-        s.peek_inbox(session_id).unwrap_or_default()
+        // Route through the read-model method (peek semantics preserved).
+        s.undelivered_messages_for_session(session_id)
+            .unwrap_or_default()
     };
     if rows.is_empty() {
         return None;
@@ -154,27 +136,6 @@ pub fn assemble_turn_check_context(
         let _ = write!(text, "\n\n{}", row_envelope(r, self_host, now));
     }
     Some(text)
-}
-
-/// Render an `InboxRow` as an email-like envelope (the daemon-side path; the CLI
-/// path renders from JSON). `self_host` decides the `[remote: …]` annotation.
-fn row_envelope(r: &InboxRow, self_host: &str, now: u64) -> String {
-    let id = mention_short_id(&r.mention_event_id);
-    format_envelope(&EnvelopeView {
-        from_slug: &r.from_slug,
-        project: &r.project,
-        from_session: &r.from_session,
-        host: &r.host,
-        self_host,
-        subject: &r.subject,
-        branch: &r.branch,
-        commit: &r.commit,
-        dirty: r.dirty,
-        id: &id,
-        sent_at: r.created_at,
-        now,
-        body: &r.body,
-    })
 }
 
 /// Mid-turn inbox check for PostToolUse hooks. Thin client: the daemon peeks.

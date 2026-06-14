@@ -64,7 +64,8 @@ pub(super) async fn rpc_tmux_send(
 
     crate::tmux::inject_doorbell_pub(&pane_id).await?;
     state.with_store(|s| {
-        s.touch_session_endpoint_verified(&rec.session_id, "tmux", crate::util::now_secs()).ok()
+        s.touch_session_endpoint_verified(&rec.session_id, "tmux", crate::util::now_secs())
+            .ok()
     });
 
     Ok(serde_json::json!({ "injected": true, "pane_id": pane_id }))

@@ -80,14 +80,6 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
         }
     }
 
-    // Discover ANY profile (any author) that claims one of our owners — the
-    // ACL pending set. Deliberately NOT author-restricted.
-    for owner in &scope.owners {
-        if let Ok(pk) = PublicKey::from_hex(owner) {
-            filters.push(Filter::new().kind(kind(KIND_PROFILE)).pubkey(pk));
-        }
-    }
-
     // NIP-29 relay-authored group state (metadata/admins/members) for the
     // scoped group. Keeping this live is "check which groups we own at all
     // times": it feeds the membership cache. Addressable + relay-signed, so
@@ -123,9 +115,9 @@ mod tests {
             thread: None,
         };
         let filters = scope_filters(&scope);
-        // profiles, presence/status, notes, mentions-to-me, owner-discovery,
-        // NIP-29 group-state (39000/39001/39002 by #d).
-        assert_eq!(filters.len(), 6);
+        // profiles, presence/status, notes, mentions-to-me, and NIP-29
+        // group-state (39000/39001/39002 by #d).
+        assert_eq!(filters.len(), 5);
         let json = serde_json::to_string(&filters).unwrap();
         assert!(json.contains("\"#h\""));
         assert!(!json.contains("\"#t\""));

@@ -20,23 +20,30 @@ async fn tmux_status() -> Result<()> {
     let v = crate::daemon::blocking::call("tmux_status", serde_json::json!({}))
         .context("tmux_status RPC")?;
 
-    let endpoints = v["endpoints"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let endpoints = v["endpoints"].as_array().cloned().unwrap_or_default();
 
     if endpoints.is_empty() {
         println!("No tmux endpoints registered.");
         return Ok(());
     }
 
-    println!("{:<22} {:<8} {:<12} {}", "session".bold(), "pane".bold(), "command".bold(), "alive".bold());
+    println!(
+        "{:<22} {:<8} {:<12} {}",
+        "session".bold(),
+        "pane".bold(),
+        "command".bold(),
+        "alive".bold()
+    );
     for ep in &endpoints {
         let sid = ep["session_id"].as_str().unwrap_or("");
         let pane = ep["pane_id"].as_str().unwrap_or("");
         let cmd = ep["pane_command"].as_str().unwrap_or("");
         let alive = ep["alive"].as_bool().unwrap_or(false);
-        let alive_str = if alive { "yes".green().to_string() } else { "DEAD".red().to_string() };
+        let alive_str = if alive {
+            "yes".green().to_string()
+        } else {
+            "DEAD".red().to_string()
+        };
         println!("{sid:<22} {pane:<8} {cmd:<12} {alive_str}");
     }
     Ok(())
@@ -45,11 +52,8 @@ async fn tmux_status() -> Result<()> {
 // ── send (manual doorbell) ────────────────────────────────────────────────────
 
 async fn tmux_send(session: String) -> Result<()> {
-    let v = crate::daemon::blocking::call(
-        "tmux_send",
-        serde_json::json!({ "session": session }),
-    )
-    .context("tmux_send RPC")?;
+    let v = crate::daemon::blocking::call("tmux_send", serde_json::json!({ "session": session }))
+        .context("tmux_send RPC")?;
 
     let injected = v["injected"].as_bool().unwrap_or(false);
     if injected {
@@ -64,9 +68,8 @@ async fn tmux_send(session: String) -> Result<()> {
 // ── spawn ─────────────────────────────────────────────────────────────────────
 
 async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
-    let project = project.unwrap_or_else(|| {
-        crate::project::resolve(&std::env::current_dir().unwrap_or_default())
-    });
+    let project = project
+        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
     let v = crate::daemon::blocking::call(
         "tmux_spawn",
         serde_json::json!({ "agent": agent, "project": project }),
@@ -87,11 +90,9 @@ async fn tmux_attach(session: String) -> Result<()> {
 // ── shared attach logic ───────────────────────────────────────────────────────
 
 fn attach_session(session_id: &str) -> Result<()> {
-    let v = crate::daemon::blocking::call(
-        "tmux_attach",
-        serde_json::json!({ "session": session_id }),
-    )
-    .context("tmux_attach RPC")?;
+    let v =
+        crate::daemon::blocking::call("tmux_attach", serde_json::json!({ "session": session_id }))
+            .context("tmux_attach RPC")?;
 
     let pane_id = match v["pane_id"].as_str() {
         Some(p) => p.to_string(),
@@ -130,7 +131,7 @@ struct LiveRow {
     session_id: String,    // full raw id for RPC calls
     session_short: String, // short display code (6 chars)
     status: String,
-    attachable: bool,      // has a live tmux endpoint
+    attachable: bool, // has a live tmux endpoint
 }
 
 struct SpawnRow {
@@ -192,8 +193,8 @@ fn fetch_tui_data() -> Result<TuiData> {
 
 enum TuiExit {
     Quit,
-    Attach(String),      // full session_id
-    AttachPane(String),  // direct pane_id (used after spawn)
+    Attach(String),     // full session_id
+    AttachPane(String), // direct pane_id (used after spawn)
 }
 
 fn draw_tui(data: &TuiData, selected: usize, status: &str) -> Result<()> {
@@ -261,21 +262,9 @@ fn draw_tui(data: &TuiData, selected: usize, status: &str) -> Result<()> {
             let label = format!("{}@{}", row.slug, row.host);
             let tag = format!("[spawnable via {}]", row.command);
             if abs_idx == selected {
-                let _ = writeln!(
-                    out,
-                    "  {} {}  {}",
-                    cursor,
-                    label.bold(),
-                    tag.dimmed(),
-                );
+                let _ = writeln!(out, "  {} {}  {}", cursor, label.bold(), tag.dimmed(),);
             } else {
-                let _ = writeln!(
-                    out,
-                    "  {} {}  {}",
-                    cursor,
-                    label.dimmed(),
-                    tag.dimmed(),
-                );
+                let _ = writeln!(out, "  {} {}  {}", cursor, label.dimmed(), tag.dimmed(),);
             }
         }
     }
@@ -330,9 +319,7 @@ pub(super) fn tmux_tui() -> Result<()> {
                 if let TermEvent::Key(key) = event::read()? {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Char('c')
-                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             break
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
@@ -352,7 +339,8 @@ pub(super) fn tmux_tui() -> Result<()> {
                                     result = TuiExit::Attach(row.session_id.clone());
                                     break;
                                 } else {
-                                    status_msg = "Session not running in tmux — cannot attach.".to_string();
+                                    status_msg =
+                                        "Session not running in tmux — cannot attach.".to_string();
                                 }
                             } else {
                                 // Selected item is a spawnable — hint to use 'n'.
@@ -435,13 +423,22 @@ fn attach_pane(pane_id: &str) -> Result<()> {
     // Not inside tmux: find which session:window owns this pane, then exec
     // attach-session so this process is replaced by the tmux client.
     let out = std::process::Command::new("tmux")
-        .args(["list-panes", "-a", "-F", "#{pane_id} #{session_name}:#{window_index}"])
+        .args([
+            "list-panes",
+            "-a",
+            "-F",
+            "#{pane_id} #{session_name}:#{window_index}",
+        ])
         .output()
         .context("tmux list-panes")?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let target = stdout.lines().find_map(|line| {
         let (pid, rest) = line.split_once(' ')?;
-        if pid == pane_id { Some(rest.to_string()) } else { None }
+        if pid == pane_id {
+            Some(rest.to_string())
+        } else {
+            None
+        }
     });
 
     match target {
@@ -453,7 +450,9 @@ fn attach_pane(pane_id: &str) -> Result<()> {
             anyhow::bail!("exec tmux attach-session: {err}");
         }
         None => {
-            eprintln!("Pane {pane_id} not found in any tmux session. Run: tmux attach-session -t tenex");
+            eprintln!(
+                "Pane {pane_id} not found in any tmux session. Run: tmux attach-session -t tenex"
+            );
             Ok(())
         }
     }

@@ -1,12 +1,13 @@
 use super::*;
 
-// ── inbox send ───────────────────────────────────────────────────────────────
+// ── send-message ─────────────────────────────────────────────────────────────
 
 pub(super) async fn inbox_send(
     recipient: String,
     subject: Option<String>,
     message: String,
     session: Option<String>,
+    thread_id: Option<String>,
 ) -> Result<()> {
     let params = serde_json::json!({
         "recipient": recipient,
@@ -16,13 +17,12 @@ pub(super) async fn inbox_send(
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": std::env::var("TENEX_EDGE_AGENT").ok(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "thread_id": thread_id,
     });
     let v = daemon_call_async("send_message", params).await?;
     print_send_ack(&v);
     Ok(())
 }
-
-// ── inbox reply (by ID) ──────────────────────────────────────────────────────
 
 pub(super) async fn inbox_reply(
     id: String,
@@ -60,7 +60,7 @@ fn print_send_ack(v: &serde_json::Value) {
     }
 }
 
-// ── propose ──────────────────────────────────────────────────────────────────
+// ── propose ───────────────────────────────────────────────────────────────────
 
 pub(super) async fn propose(
     title: String,
@@ -72,25 +72,97 @@ pub(super) async fn propose(
     let params = serde_json::json!({
         "title": title,
         "body": body,
-        "thread_id": thread_id,
-        "d": d,
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": std::env::var("TENEX_EDGE_AGENT").ok(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "thread_id": thread_id,
+        "d": d,
     });
     let v = daemon_call_async("propose", params).await?;
     let title_echo = v["title"].as_str().unwrap_or(&title);
     let d_tag = v["d_tag"].as_str().unwrap_or("?");
-    println!("published proposal {title_echo} ({d_tag})");
+    println!("published proposal {} ({})", title_echo, d_tag);
+    // The relay accepted the write (or rpc_propose would have errored), but
+    // confirm it's actually retrievable. A false here means the relay ACKed then
+    // dropped the event — warn loudly so a green publish isn't mistaken for one
+    // that landed.
+    if v.get("retrievable").is_some() && !v["retrievable"].as_bool().unwrap_or(true) {
+        let eid = v["event_id"].as_str().unwrap_or("?");
+        eprintln!(
+            "{} proposal {} accepted by the relay but NOT retrievable on read-back \
+             (event {}). It may not be stored — verify with `tenex-edge doctor`.",
+            "warning:".yellow(),
+            d_tag,
+            &eid[..eid.len().min(8)],
+        );
+    }
     Ok(())
 }
 
-/// Async daemon call helper for `async fn` verbs (uses the async client; we are
-/// inside the tokio runtime so we must NOT block_on a sync client here).
-async fn daemon_call_async(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
-    let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
-    client.call(method, params).await
+// ── threads ───────────────────────────────────────────────────────────────────
+
+/// `threads`: list threads for a project, or messages for a specific thread.
+///
+/// Routes to the daemon via `list_threads`, `messages`, or `thread_meta` RPCs
+/// and prints a human-readable summary.
+pub(super) async fn threads(project: Option<String>, thread: Option<String>) -> Result<()> {
+    if let Some(tid) = thread {
+        // Show messages for a specific thread.
+        let v = daemon_call_async("messages", serde_json::json!({ "thread_id": tid })).await?;
+        let meta_v =
+            daemon_call_async("thread_meta", serde_json::json!({ "thread_id": tid })).await?;
+
+        if let Some(subject) = meta_v.get("subject").and_then(|v| v.as_str()) {
+            println!("Thread: {}", subject);
+        } else {
+            println!("Thread: {}", pubkey_short(&tid));
+        }
+        if let Some(msgs) = v.as_array() {
+            for msg in msgs {
+                let dir = msg["direction"].as_str().unwrap_or("?");
+                let author = msg["author_pubkey"].as_str().unwrap_or("?");
+                let body = msg["body"].as_str().unwrap_or("");
+                let ts = msg["created_at"].as_u64().unwrap_or(0);
+                let arrow = if dir == "outbound" { "->" } else { "<-" };
+                println!(
+                    "[{}] {} {} {}: {}",
+                    ts,
+                    pubkey_short(author),
+                    arrow,
+                    dir,
+                    body
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    // List threads for a project.
+    let proj = project
+        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
+    let v = daemon_call_async("list_threads", serde_json::json!({ "project": proj })).await?;
+    if let Some(threads) = v.as_array() {
+        if threads.is_empty() {
+            println!("No threads in project {:?}", proj);
+            return Ok(());
+        }
+        println!("Threads in {}:", proj);
+        for t in threads {
+            let tid = t["thread_id"].as_str().unwrap_or("?");
+            let count = t["message_count"].as_u64().unwrap_or(0);
+            let last = t["last_message_at"].as_u64();
+            let subject = t["subject"].as_str();
+            let label = subject.unwrap_or("no subject");
+            match last {
+                // Print the FULL thread id — it is the argument the user passes
+                // back to `threads --thread <id>`; a pubkey_short() would be unusable.
+                Some(ts) => println!("  {} ({} msg, last at {}) - {}", tid, count, ts, label),
+                None => println!("  {} (no messages) - {}", tid, label),
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn resolve_send_message_body(raw: Option<String>) -> Result<String> {
@@ -130,6 +202,33 @@ fn strip_single_trailing_newline(mut s: String) -> String {
         }
     }
     s
+}
+
+// ── mention rendering (one place; reused by inbox / wait / turn injection) ────
+
+/// The fully-qualified `--recipient` handle the receiver should reply to. Prefer
+/// the sender's exact session id — so a reply reaches the precise sibling session
+/// that wrote this — but only when that session actually resolves on our side;
+/// otherwise fall back to `slug@project`, which always routes to the agent.
+/// Render an `InboxRow` as an email-like envelope (the daemon-side path; the CLI
+/// path renders from JSON). `self_host` decides the `[remote: …]` annotation.
+pub(super) fn row_envelope(r: &crate::state::InboxRow, self_host: &str, now: u64) -> String {
+    let id = mention_short_id(&r.mention_event_id);
+    format_envelope(&EnvelopeView {
+        from_slug: &r.from_slug,
+        project: &r.project,
+        from_session: &r.from_session,
+        host: &r.host,
+        self_host,
+        subject: &r.subject,
+        branch: &r.branch,
+        commit: &r.commit,
+        dirty: r.dirty,
+        id: &id,
+        sent_at: r.created_at,
+        now,
+        body: &r.body,
+    })
 }
 
 // ── envelope rendering (one place; reused by inbox / wait / turn injection) ───
@@ -205,7 +304,13 @@ pub fn format_envelope(e: &EnvelopeView) -> String {
         } else {
             format!(" ({})", e.commit)
         };
-        let _ = write!(s, "\nBranch: {}{}{}", e.branch, commit, dirty_label(e.dirty));
+        let _ = write!(
+            s,
+            "\nBranch: {}{}{}",
+            e.branch,
+            commit,
+            dirty_label(e.dirty)
+        );
     }
     let _ = write!(s, "\nID: {}", e.id);
     let _ = write!(s, "\n--\n{}", e.body);
@@ -251,24 +356,6 @@ pub(super) async fn inbox(session: Option<String>) -> Result<()> {
             println!("{}", format_envelope_json(r, now));
         }
     }
-    if let Some(pending) = v["pending_agents"].as_array().filter(|p| !p.is_empty()) {
-        let names: Vec<String> = pending
-            .iter()
-            .map(|p| {
-                format!(
-                    "{} ({})",
-                    p["slug"].as_str().unwrap_or(""),
-                    pubkey_short(p["pubkey"].as_str().unwrap_or(""))
-                )
-            })
-            .collect();
-        println!(
-            "[tenex-edge] {} unauthorized agent(s) claim your owner: {}. \
-They are NOT visible until you decide — tell your human to run `tenex-edge acl` to allow or block them.",
-            pending.len(),
-            names.join(", ")
-        );
-    }
     Ok(())
 }
 
@@ -296,70 +383,4 @@ pub(super) async fn wait_for_mention(session: Option<String>, timeout: u64) -> R
         println!("\n[tenex-edge] Run `tenex-edge wait-for-mention` with run_in_background=true to receive the next mention.");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn view<'a>() -> EnvelopeView<'a> {
-        EnvelopeView {
-            from_slug: "codex",
-            project: "tenex-edge",
-            from_session: "sender-session-id",
-            host: "",
-            self_host: "my-box",
-            subject: "NIP-29 group creation failing",
-            branch: "features/oauth",
-            commit: "a1b2c3d",
-            dirty: 0,
-            id: "01234567",
-            sent_at: 1_000,
-            now: 1_180, // +3 min
-            body: "can you take a look?",
-        }
-    }
-
-    #[test]
-    fn envelope_has_email_like_headers_then_body() {
-        let out = format_envelope(&view());
-        let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(
-            lines[0],
-            format!(
-                "From: codex@tenex-edge [session {}]",
-                session_short_code("sender-session-id")
-            )
-        );
-        assert!(lines[1].starts_with("Date: ") && lines[1].ends_with("(3 min ago)"));
-        assert_eq!(lines[2], "Subject: NIP-29 group creation failing");
-        assert_eq!(lines[3], "Branch: features/oauth (a1b2c3d)");
-        assert_eq!(lines[4], "ID: 01234567");
-        assert_eq!(lines[5], "--");
-        assert_eq!(lines[6], "can you take a look?");
-    }
-
-    #[test]
-    fn dirty_count_and_remote_host_annotate() {
-        let mut v = view();
-        v.dirty = 1;
-        v.host = "prod-01.example.com";
-        let out = format_envelope(&v);
-        assert!(out.contains("[remote: prod-01.example.com]"));
-        assert!(out.contains("Branch: features/oauth (a1b2c3d) [1 file dirty]"));
-        v.dirty = 3;
-        assert!(format_envelope(&v).contains("[3 files dirty]"));
-    }
-
-    #[test]
-    fn subject_and_branch_lines_omitted_when_empty() {
-        let mut v = view();
-        v.subject = "";
-        v.branch = "";
-        let out = format_envelope(&v);
-        assert!(!out.contains("Subject:"));
-        assert!(!out.contains("Branch:"));
-        // Same-host sender → no remote annotation.
-        assert!(!out.contains("remote:"));
-    }
 }

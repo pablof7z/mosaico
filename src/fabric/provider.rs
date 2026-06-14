@@ -61,7 +61,10 @@ impl SendIntent {
             to_pubkey: self.to_pubkey.clone(),
             project: self.project.clone(),
             body: self.body.clone(),
-            target_session: self.target_session.clone().map(crate::util::SessionId::from),
+            target_session: self
+                .target_session
+                .clone()
+                .map(crate::util::SessionId::from),
             from_session: self.from_session.clone().map(crate::util::SessionId::from),
             meta: self.meta.clone(),
         }
@@ -167,7 +170,11 @@ impl Kind1Nip29Provider {
     /// Encode + sign + publish ONE domain event. The single wire-publish entry
     /// for everything above the seam (session engine liveness, turn replies,
     /// user prompts, proposals). Nothing above the provider builds an event.
-    pub async fn publish(&self, ev: &DomainEvent, keys: &nostr_sdk::prelude::Keys) -> Result<nostr_sdk::prelude::EventId> {
+    pub async fn publish(
+        &self,
+        ev: &DomainEvent,
+        keys: &nostr_sdk::prelude::Keys,
+    ) -> Result<nostr_sdk::prelude::EventId> {
         let builder = self.wire.encode(ev)?;
         self.transport.publish_signed(builder, keys).await
     }
@@ -248,7 +255,11 @@ impl Kind1Nip29Provider {
             .kind(Kind::from(1u16))
             .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &t)
             .limit(5);
-        let readback = match self.transport.fetch(f, std::time::Duration::from_secs(5)).await {
+        let readback = match self
+            .transport
+            .fetch(f, std::time::Duration::from_secs(5))
+            .await
+        {
             Ok(evs) => format!("{} event(s) with #h={t}", evs.len()),
             Err(e) => format!("ERR {e:#}"),
         };
@@ -418,7 +429,8 @@ impl Kind1Nip29Provider {
 
         // 3. Add this agent as a member if the relay's live roster lacks it.
         if !members.contains(agent_pubkey) && !roles.contains_key(agent_pubkey) {
-            let added = match crate::fabric::nip29::lifecycle::group_put_user(project, agent_pubkey) {
+            let added = match crate::fabric::nip29::lifecycle::group_put_user(project, agent_pubkey)
+            {
                 Ok(b) => publish(b, "9000 put-user").await,
                 Err(_) => false,
             };
@@ -496,23 +508,15 @@ impl Kind1Nip29Provider {
         }
 
         // Step 3: Publish. On error, propagate immediately — no canonical row written.
-        let event_id = self
-            .transport
-            .publish_signed(builder, agent_keys)
-            .await?;
+        let event_id = self.transport.publish_signed(builder, agent_keys).await?;
         let eid_hex = event_id.to_hex();
 
         // Step 4: Dual-write canonical rows (single lock, no await inside).
         let now = now_secs();
         let pi = self.provider_instance.clone();
         let (message_id, thread_id) = self.with_store(|s| -> Result<(String, String)> {
-            let project_id = s.ensure_project_origin(
-                FABRIC,
-                &pi,
-                &intent.project,
-                &intent.project,
-                now,
-            )?;
+            let project_id =
+                s.ensure_project_origin(FABRIC, &pi, &intent.project, &intent.project, now)?;
             let thread_id = if let Some(tid) = intent.thread_id.as_deref() {
                 // Replying into an existing thread: use the existing thread_id.
                 // Ensure the thread_origins row exists (it should, but be safe).
@@ -591,29 +595,20 @@ impl Kind1Nip29Provider {
     /// intentionally NOT the daemon's full hosted set — so the Mention guard
     /// (`m.to_pubkey == me`) works exactly (relay filter already restricts).
     /// The caller fires `mention_notify.notify_waiters()` if the count > 0.
-    pub async fn catch_up_mentions(
-        &self,
-        rec: &SessionRecord,
-        owners: &[String],
-    ) -> Result<usize> {
+    pub async fn catch_up_mentions(&self, rec: &SessionRecord, owners: &[String]) -> Result<usize> {
         use nostr_sdk::prelude::{Filter, Kind, PublicKey};
         let me = rec.agent_pubkey.clone();
         let pk = PublicKey::from_hex(&me)?;
         let filter = Filter::new().kind(Kind::from(1u16)).pubkey(pk).limit(50);
         let mut wake_count = 0usize;
-        if let Ok(events) = self
-            .transport
-            .fetch(filter, Duration::from_secs(3))
-            .await
-        {
+        if let Ok(events) = self.transport.fetch(filter, Duration::from_secs(3)).await {
             let hosted = vec![me.clone()];
             let now = now_secs();
             let pi = self.provider_instance.clone();
             for ev in events {
                 let env = RawEnvelope::Nostr(ev);
-                let outcome = self.with_store(|s| {
-                    crate::fabric::materialize(&env, &hosted, owners, now, &pi, s)
-                });
+                let outcome = self
+                    .with_store(|s| crate::fabric::materialize(&env, &hosted, owners, now, &pi, s));
                 // NOTE: do NOT send outcome.tail here — fetch is startup catchup only;
                 // historical mentions must not be replayed onto the tail channel.
                 if outcome.wake_mentions {

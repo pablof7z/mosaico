@@ -48,7 +48,27 @@ impl CommandDistiller {
         }
     }
 
+    /// Run the command and return its FULL stdout (all lines), so callers that
+    /// need a multi-line response (e.g. the combined TITLE/NOW distiller) can
+    /// parse it themselves. Returns None on spawn/exec failure.
+    pub fn summarize_full(&self, context: &str) -> Option<String> {
+        match self.run_all(context) {
+            Ok(out) if !out.trim().is_empty() => Some(out),
+            _ => None,
+        }
+    }
+
     fn run(&self, input: &str) -> Result<String> {
+        Ok(self
+            .run_all(input)?
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string())
+    }
+
+    fn run_all(&self, input: &str) -> Result<String> {
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(&self.command)
@@ -60,39 +80,73 @@ impl CommandDistiller {
             stdin.write_all(input.as_bytes())?;
         }
         let out = child.wait_with_output()?;
-        Ok(String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string())
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 }
 
-/// System prompt for the native rig distiller (live activity line).
-const RIG_SYSTEM_PROMPT: &str = "Summarize what a coding agent is currently doing, in at most 8 words, present tense, intent not mechanics, no trailing punctuation. Output only the phrase.";
+/// System prompt for the combined session distiller. ONE model call yields BOTH
+/// a stable session TITLE (what the session is about) and a live NOW line (what
+/// the agent is doing this moment) — see [`distill_session`]. Giving the model an
+/// explicit NOW slot is what keeps step-level mechanics OUT of the title: it has
+/// somewhere else to put them. The title is nudged-to-keep (only changes when the
+/// objective substantively changes); NOW is regenerated every turn.
+const SESSION_SYSTEM_PROMPT: &str = "You maintain two labels for a coding session. Output EXACTLY two lines, nothing else:\n\nTITLE: the session's overall objective — what the agent was asked to accomplish, NOT the step it happens to be doing right now. A stable noun phrase or imperative, at most 8 words, no trailing punctuation. Prefer the user's stated request. It must stay valid for the WHOLE session; if it would go stale in a few messages it is too specific — zoom out to the goal. You may be given the CURRENT title; if it still fits, repeat it verbatim. Only change it when the objective itself has substantively changed.\n\nNOW: what the agent is doing at this moment — the current step or mechanics. At most 8 words, present tense, no trailing punctuation. This is expected to change every turn.\n\nExample:\nTITLE: Fix GitHub issue 1\nNOW: reading the issue tracker";
 
-/// System prompt for the session TITLE distiller. Stable by design: the model is
-/// nudged to keep an accurate current title rather than reword it, so the title
-/// only changes when the session's work substantively changes.
-const TITLE_SYSTEM_PROMPT: &str = "You write a short, stable TITLE for a coding session: at most 8 words, present tense, intent not mechanics, no trailing punctuation. You may be given the CURRENT title. If the current title still accurately describes the work, return it UNCHANGED, verbatim. Only produce a new title when the work has SUBSTANTIVELY changed — never reword, rephrase, or re-punctuate an accurate title. Output only the title.";
-
-/// Summarize a context string into a one-line intent using rig (rig.rs), via
-/// either openrouter or ollama per `resolved.provider`. Returns `None` on any
-/// error (network, auth, empty output) so the caller can fall back.
-pub async fn summarize_via_rig(
-    resolved: &crate::llmconfig::ResolvedModel,
-    context: &str,
-) -> Option<String> {
-    summarize_via_rig_with_preamble(resolved, context, RIG_SYSTEM_PROMPT).await
+/// One distilled (title, activity) pair from a single model call.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionLabels {
+    /// Stable session title — what the session is about.
+    pub title: String,
+    /// Live "what it's doing now" line; empty when the model omits it.
+    pub activity: String,
 }
 
-/// Like [`summarize_via_rig`] but with a caller-supplied system preamble, so the
-/// same provider plumbing serves both the activity line and the session title.
-pub async fn summarize_via_rig_with_preamble(
+/// Trim a distilled label: strip whitespace and trailing sentence punctuation,
+/// cap at 80 chars. Returns None when nothing meaningful remains.
+fn clean_label(s: &str) -> Option<String> {
+    let s = s.trim().trim_end_matches(['.', ' ', '\t']).trim();
+    if s.is_empty() {
+        return None;
+    }
+    let s: String = s.chars().take(80).collect();
+    let s = s.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// Parse the two-line `TITLE:`/`NOW:` distiller output. Tolerant of label
+/// casing, surrounding whitespace, and a model that emits only one of the lines.
+/// Accepts `ACTIVITY`/`DOING` as synonyms for `NOW`. A bare single line with no
+/// recognized label is treated as the title (degrade gracefully).
+fn parse_labels(out: &str) -> (Option<String>, Option<String>) {
+    let mut title = None;
+    let mut activity = None;
+    let mut unlabeled = None;
+    for line in out.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match line.split_once(':') {
+            Some((label, value)) => match label.trim().to_ascii_uppercase().as_str() {
+                "TITLE" => title = title.or_else(|| clean_label(value)),
+                "NOW" | "ACTIVITY" | "DOING" => activity = activity.or_else(|| clean_label(value)),
+                _ => unlabeled = unlabeled.or_else(|| clean_label(line)),
+            },
+            None => unlabeled = unlabeled.or_else(|| clean_label(line)),
+        }
+    }
+    (title.or(unlabeled), activity)
+}
+
+/// Complete the combined session prompt natively via rig (openrouter/ollama),
+/// returning the raw multi-line text. `None` on any error so the caller falls back.
+async fn complete_via_rig(
     resolved: &crate::llmconfig::ResolvedModel,
     context: &str,
-    preamble: &str,
 ) -> Option<String> {
     use rig::client::CompletionClient;
     use rig::completion::Prompt;
@@ -102,12 +156,11 @@ pub async fn summarize_via_rig_with_preamble(
             let client = rig::providers::openrouter::Client::new(&resolved.api_key).ok()?;
             let agent = client
                 .agent(&resolved.model)
-                .preamble(preamble)
+                .preamble(SESSION_SYSTEM_PROMPT)
                 .temperature(0.2)
-                .max_tokens(64)
+                .max_tokens(96)
                 .build();
-            let out: String = agent.prompt(context).await.ok()?;
-            out
+            agent.prompt(context).await.ok()?
         }
         "ollama" => {
             use rig::providers::ollama::OllamaApiKey;
@@ -122,83 +175,94 @@ pub async fn summarize_via_rig_with_preamble(
             let client = builder.build().ok()?;
             let agent = client
                 .agent(&resolved.model)
-                .preamble(preamble)
+                .preamble(SESSION_SYSTEM_PROMPT)
                 .temperature(0.2)
-                .max_tokens(64)
+                .max_tokens(96)
                 .build();
-            let out: String = agent.prompt(context).await.ok()?;
-            out
+            agent.prompt(context).await.ok()?
         }
         _ => return None,
     };
-
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let line: String = line.chars().take(80).collect();
-    let line = line.trim().to_string();
-    if line.is_empty() {
+    if text.trim().is_empty() {
         None
     } else {
-        Some(line)
+        Some(text)
     }
 }
 
-/// Distill the agent's current activity from its recent **conversation
-/// transcript** (where real intent lives). Ordering:
+/// Assemble a [`SessionLabels`] from parsed lines, applying nudge-to-keep: a
+/// missing/empty title falls back to `current_title`. Returns None only when
+/// there is no title at all (no parse, no current) — so the caller can try the
+/// next provider.
+fn assemble(
+    parsed: (Option<String>, Option<String>),
+    current_title: Option<&str>,
+) -> Option<SessionLabels> {
+    let (title, activity) = parsed;
+    let title = title.or_else(|| {
+        current_title
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+    })?;
+    Some(SessionLabels {
+        title,
+        activity: activity.unwrap_or_default(),
+    })
+}
+
+/// Distill BOTH the persistent session title and the live activity line from the
+/// recent transcript in a **single** model call (see [`SESSION_SYSTEM_PROMPT`]).
+/// The `current_title` is fed back so the model keeps a still-accurate title
+/// (nudge-to-keep). Ordering:
 ///   (a) `$TENEX_EDGE_DISTILL_CMD` set → external command (explicit override);
 ///   (b) else the `edge-distillation` role resolves → native rig (openrouter/ollama);
-///   (c) else `None` — LLM-only, no heuristic fallback.
-pub async fn distill_activity(transcript: &str) -> Option<String> {
+///   (c) else **nudge-to-keep**: retain the current title with an empty activity.
+pub async fn distill_session(
+    transcript: &str,
+    current_title: Option<&str>,
+) -> Option<SessionLabels> {
     let ctx = transcript.trim();
     if ctx.is_empty() {
-        return None;
-    }
-    // (a) explicit external-command override.
-    if let Some(cmd) = CommandDistiller::resolve() {
-        if let Some(line) = cmd.summarize(ctx) {
-            return Some(line);
-        }
-    }
-    // (b) native rig via the edge-distillation role.
-    if let Some(resolved) = crate::llmconfig::resolve_role("edge-distillation") {
-        if let Some(line) = summarize_via_rig(&resolved, ctx).await {
-            return Some(line);
-        }
-    }
-    // (c) no fallback.
-    None
-}
-
-/// Distill a PERSISTENT session title from the recent transcript, feeding back
-/// the `current_title` (if any) so the model keeps a still-accurate title rather
-/// than rewording it (see [`TITLE_SYSTEM_PROMPT`]). Ordering mirrors
-/// [`distill_activity`], except the fallback is **nudge-to-keep**: when no model
-/// is configured (or it yields nothing), the current title is retained.
-pub async fn distill_title(transcript: &str, current_title: Option<&str>) -> Option<String> {
-    let ctx = transcript.trim();
-    if ctx.is_empty() {
-        return current_title.map(str::to_string);
+        // Nothing new to read: keep the title, no live activity.
+        return current_title
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| SessionLabels {
+                title: t.to_string(),
+                activity: String::new(),
+            });
     }
     // Give the model the current title as context so it can choose to keep it.
     let input = match current_title.map(str::trim).filter(|t| !t.is_empty()) {
         Some(t) => format!("CURRENT TITLE: {t}\n\nTRANSCRIPT:\n{ctx}"),
         None => ctx.to_string(),
     };
-    // (a) explicit external-command override.
+    // (a) explicit external-command override. The command sees SESSION_SYSTEM_PROMPT
+    // semantics by convention (it is the LLM seam); we parse its two-line output.
     if let Some(cmd) = CommandDistiller::resolve() {
-        if let Some(line) = cmd.summarize(&input) {
-            return Some(line);
+        if let Some(out) = cmd.summarize_full(&input) {
+            if let Some(labels) = assemble(parse_labels(&out), current_title) {
+                return Some(labels);
+            }
         }
     }
-    // (b) native rig via the edge-distillation role, with the TITLE preamble.
+    // (b) native rig via the edge-distillation role, with the combined preamble.
     if let Some(resolved) = crate::llmconfig::resolve_role("edge-distillation") {
-        if let Some(line) =
-            summarize_via_rig_with_preamble(&resolved, &input, TITLE_SYSTEM_PROMPT).await
-        {
-            return Some(line);
+        if let Some(out) = complete_via_rig(&resolved, &input).await {
+            if let Some(labels) = assemble(parse_labels(&out), current_title) {
+                return Some(labels);
+            }
         }
     }
     // (c) no model / empty output → keep the existing title (nudge-to-keep).
-    current_title.map(str::to_string)
+    current_title
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| SessionLabels {
+            title: t.to_string(),
+            activity: String::new(),
+        })
 }
 
 #[cfg(test)]
@@ -232,24 +296,68 @@ mod tests {
         assert!(d.summarize("anything").is_none());
     }
 
-    /// With a distiller that echoes back the `CURRENT TITLE:` line from stdin,
-    /// `distill_title` keeps an existing title unchanged (nudge-to-keep).
-    #[tokio::test]
-    async fn distill_title_keeps_existing_title_via_command() {
-        std::env::set_var(
-            "TENEX_EDGE_DISTILL_CMD",
-            // Echo only the value after "CURRENT TITLE: " on the first line.
-            "sed -n 's/^CURRENT TITLE: //p' | head -n1",
-        );
-        let got = distill_title("TRANSCRIPT:\nuser: keep going", Some("refactoring the auth flow")).await;
-        std::env::remove_var("TENEX_EDGE_DISTILL_CMD");
-        assert_eq!(got.as_deref(), Some("refactoring the auth flow"));
+    #[test]
+    fn parse_labels_reads_both_lines() {
+        let (title, activity) =
+            parse_labels("TITLE: Fix GitHub issue 1\nNOW: reading the issue tracker");
+        assert_eq!(title.as_deref(), Some("Fix GitHub issue 1"));
+        assert_eq!(activity.as_deref(), Some("reading the issue tracker"));
     }
 
-    /// Empty transcript returns the current title rather than re-distilling.
+    #[test]
+    fn parse_labels_is_case_and_synonym_tolerant() {
+        let (title, activity) = parse_labels("title:  Refactor parser  \nActivity: writing tests.");
+        assert_eq!(title.as_deref(), Some("Refactor parser"));
+        // Trailing punctuation is stripped.
+        assert_eq!(activity.as_deref(), Some("writing tests"));
+    }
+
+    #[test]
+    fn parse_labels_bare_line_is_title() {
+        let (title, activity) = parse_labels("Fixing the auth bug");
+        assert_eq!(title.as_deref(), Some("Fixing the auth bug"));
+        assert_eq!(activity, None);
+    }
+
+    /// Drive `distill_session` through the external-command seam. Both scenarios
+    /// live in ONE test: `TENEX_EDGE_DISTILL_CMD` is process-global, so parallel
+    /// env-mutating tests would race.
     #[tokio::test]
-    async fn distill_title_empty_transcript_returns_current() {
-        let got = distill_title("   ", Some("writing the parser")).await;
-        assert_eq!(got.as_deref(), Some("writing the parser"));
+    async fn distill_session_via_command() {
+        // (1) A distiller emitting both lines populates title and activity.
+        std::env::set_var(
+            "TENEX_EDGE_DISTILL_CMD",
+            "cat >/dev/null; printf 'TITLE: Fix GitHub issue 1\\nNOW: reading the issue tracker\\n'",
+        );
+        let got = distill_session("user: fix github issue 1", None)
+            .await
+            .unwrap();
+        assert_eq!(got.title, "Fix GitHub issue 1");
+        assert_eq!(got.activity, "reading the issue tracker");
+
+        // (2) Echoing only the prior title back keeps it (nudge-to-keep), no NOW.
+        std::env::set_var(
+            "TENEX_EDGE_DISTILL_CMD",
+            "sed -n 's/^CURRENT TITLE: /TITLE: /p' | head -n1",
+        );
+        let got = distill_session(
+            "TRANSCRIPT:\nuser: keep going",
+            Some("refactoring the auth flow"),
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("TENEX_EDGE_DISTILL_CMD");
+        assert_eq!(got.title, "refactoring the auth flow");
+        assert_eq!(got.activity, "");
+    }
+
+    /// Empty transcript returns the current title (no activity) rather than re-distilling.
+    #[tokio::test]
+    async fn distill_session_empty_transcript_returns_current() {
+        let got = distill_session("   ", Some("writing the parser"))
+            .await
+            .unwrap();
+        assert_eq!(got.title, "writing the parser");
+        assert_eq!(got.activity, "");
     }
 }

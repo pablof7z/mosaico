@@ -136,7 +136,10 @@ pub fn render_statusline(v: &StatuslineView, color: bool) -> String {
             format!("{}@{}", v.agent, slugify_host(&v.host)),
             "36" // cyan
         ),
-        paint(format!(" [{}]", SessionId::from(v.session_id.as_str())), "2"),
+        paint(
+            format!(" [{}]", SessionId::from(v.session_id.as_str())),
+            "2"
+        ),
     ));
 
     // Counts: ⬡ project roster (NIP-29 members), ◉ live sessions (incl. idle).
@@ -153,7 +156,11 @@ pub fn render_statusline(v: &StatuslineView, color: bool) -> String {
 
     // What this session says it is doing right now (its `who` status).
     if v.working {
-        let status = if v.status.is_empty() { "working" } else { &v.status };
+        let status = if v.status.is_empty() {
+            "working"
+        } else {
+            &v.status
+        };
         segs.push(format!(
             "{} {}",
             paint("✎".to_string(), "32"),

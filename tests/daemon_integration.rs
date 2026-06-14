@@ -9,11 +9,11 @@
 mod common;
 #[path = "daemon_integration/harness.rs"]
 mod daemon_harness;
+#[path = "daemon_integration/freeze.rs"]
+mod freeze;
 #[path = "daemon_integration/groups.rs"]
 mod groups;
 #[path = "daemon_integration/messaging.rs"]
 mod messaging;
 #[path = "daemon_integration/process.rs"]
 mod process;
-#[path = "daemon_integration/freeze.rs"]
-mod freeze;

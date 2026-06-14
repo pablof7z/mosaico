@@ -10,8 +10,8 @@
 //!     SIGTERM (the `session-end` path).
 
 use crate::distill;
-use crate::fabric::provider::Kind1Nip29Provider;
 use crate::domain::{Activity, AgentRef, DomainEvent, Mention, Presence, Profile, Status};
+use crate::fabric::provider::Kind1Nip29Provider;
 use crate::state::{InboxRow, Store};
 use crate::util::{now_secs, SessionId};
 use anyhow::Result;
@@ -28,8 +28,7 @@ pub struct EngineParams {
     pub host: String,
     /// Project-relative working directory (§8e), advertised on presence/status.
     pub rel_cwd: String,
-    /// The human owner pubkey(s) — p-tagged on our profile + presence, and used
-    /// to discover foreign agents claiming the same owner (ACL pending set).
+    /// The human owner pubkey(s) — p-tagged on our profile + presence.
     pub owners: Vec<String>,
     pub relays: Vec<String>,
     pub watch_pid: Option<i32>,
@@ -116,12 +115,13 @@ pub async fn run_session_in_daemon(
             expires_at,
         })
     };
-    let status_de = |text: &str, active: bool| {
+    let status_de = |text: &str, activity: &str, active: bool| {
         DomainEvent::Status(Status {
             agent: aref.clone(),
             project: p.project.clone(),
             session_id: Some(SessionId::from(p.session_id.clone())),
             text: text.to_string(),
+            activity: activity.to_string(),
             active,
             rel_cwd: p.rel_cwd.clone(),
             expires_at: Some(now_secs() + ttl),
@@ -149,17 +149,28 @@ pub async fn run_session_in_daemon(
         s.get_agent_status(&me, &p.project, Some(&p.session_id))
             .ok()
             .flatten()
-            .map(|(t, _)| t)
+            .map(|(t, _a, _)| t)
     })
     .filter(|t| !t.trim().is_empty());
+    // Live "doing now" line. Ephemeral: NOT recovered across a daemon restart
+    // (it describes the current step, which is stale by then) and cleared on idle.
+    let mut cur_activity: Option<String> = None;
 
-    // Publish initial status: retain any recovered title, but go idle until a
-    // turn starts.
+    // Publish initial status: retain any recovered title, but go idle (no live
+    // activity) until a turn starts.
     let init_title = cur_title.clone().unwrap_or_default();
-    publish_de(status_de(&init_title, false)).await;
+    publish_de(status_de(&init_title, "", false)).await;
     st!(|s: &Store| {
-        s.set_agent_status(&me, &p.project, Some(&p.session_id), &init_title, false, now_secs())
-            .ok();
+        s.set_agent_status(
+            &me,
+            &p.project,
+            Some(&p.session_id),
+            &init_title,
+            "",
+            false,
+            now_secs(),
+        )
+        .ok();
         s.touch_session(&p.session_id, now_secs()).ok();
     });
 
@@ -176,10 +187,12 @@ pub async fn run_session_in_daemon(
                 publish_de(presence(now_secs() + ttl)).await;
                 // Refresh the title's TTL with the live active flag so an idle
                 // session keeps its title alive on the relay (until it exits).
+                // The live activity is only meaningful mid-turn; clear it when idle.
                 if let Some(title) = cur_title.clone() {
                     let (working, _) = st!(|s: &Store| s.get_turn_state(&p.session_id).unwrap_or((false, 0)));
-                    publish_de(status_de(&title, working)).await;
-                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, working, now_secs()).ok(); });
+                    let activity = if working { cur_activity.clone().unwrap_or_default() } else { String::new() };
+                    publish_de(status_de(&title, &activity, working)).await;
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, &activity, working, now_secs()).ok(); });
                 }
             }
             _ = obs.tick() => {
@@ -187,16 +200,18 @@ pub async fn run_session_in_daemon(
                 let now = now_secs();
                 if working {
                     // Rising edge / new user message: mark active immediately
-                    // (retaining the current title) and arm a re-distillation.
+                    // (retaining the current title) and arm a re-distillation. The
+                    // prior turn's live activity is now stale → clear it.
                     if turn_started_at != cur_turn_start {
                         cur_turn_start = turn_started_at;
                         last_distill = 0;
+                        cur_activity = None;
                         let title = cur_title.clone().unwrap_or_default();
-                        publish_de(status_de(&title, true)).await;
-                        st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, true, now).ok(); });
+                        publish_de(status_de(&title, "", true)).await;
+                        st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, "", true, now).ok(); });
                     }
-                    // Distill the title shortly after turn start, then optionally
-                    // re-check on very long turns (turn_repeat == 0 disables that).
+                    // Distill the title + live activity shortly after turn start,
+                    // then optionally re-check on long turns (turn_repeat == 0 off).
                     let due = if last_distill == 0 {
                         now.saturating_sub(cur_turn_start) >= turn_first
                     } else {
@@ -206,28 +221,33 @@ pub async fn run_session_in_daemon(
                         let ctx = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
                             .and_then(|path| crate::transcript::read_recent(std::path::Path::new(&path), 14, 2500));
                         if let Some(ctx) = ctx {
-                            if let Some(title) = distill::distill_title(&ctx, cur_title.as_deref()).await {
+                            // One model call yields BOTH the stable title and the
+                            // live activity line (see distill::distill_session).
+                            if let Some(labels) = distill::distill_session(&ctx, cur_title.as_deref()).await {
                                 // Only announce an Activity note when the title actually changes.
-                                let changed = cur_title.as_deref() != Some(title.as_str());
-                                cur_title = Some(title.clone());
+                                let changed = cur_title.as_deref() != Some(labels.title.as_str());
+                                cur_title = Some(labels.title.clone());
+                                cur_activity = (!labels.activity.is_empty()).then(|| labels.activity.clone());
                                 if changed {
                                     publish_de(DomainEvent::Activity(Activity {
                                         agent: aref.clone(),
                                         project: p.project.clone(),
-                                        text: format!("{title} #{}", p.project),
+                                        text: format!("{} #{}", labels.title, p.project),
                                     })).await;
                                 }
-                                publish_de(status_de(&title, true)).await;
-                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, true, now).ok(); });
+                                publish_de(status_de(&labels.title, &labels.activity, true)).await;
+                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &labels.title, &labels.activity, true, now).ok(); });
                             }
                         }
                         last_distill = now;
                     }
                 } else if prev_working {
-                    // Falling edge: turn ended → go idle but KEEP the title.
+                    // Falling edge: turn ended → go idle but KEEP the title; the
+                    // live activity is dropped (only the persistent title survives).
+                    cur_activity = None;
                     let title = cur_title.clone().unwrap_or_default();
-                    publish_de(status_de(&title, false)).await;
-                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, false, now).ok(); });
+                    publish_de(status_de(&title, "", false)).await;
+                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, "", false, now).ok(); });
                     cur_turn_start = 0;
                     last_distill = 0;
                 }
@@ -240,9 +260,18 @@ pub async fn run_session_in_daemon(
     // Clean exit: expire presence, clear the title (the ONLY place a live title
     // is dropped), and mark the session dead.
     publish_de(presence(now_secs())).await;
-    publish_de(status_de("", false)).await;
+    publish_de(status_de("", "", false)).await;
     st!(|s: &Store| {
-        s.set_agent_status(&me, &p.project, Some(&p.session_id), "", false, now_secs()).ok();
+        s.set_agent_status(
+            &me,
+            &p.project,
+            Some(&p.session_id),
+            "",
+            "",
+            false,
+            now_secs(),
+        )
+        .ok();
         s.mark_session_dead(&p.session_id).ok();
     });
     Ok(())
@@ -374,7 +403,11 @@ mod tests {
     }
 
     /// Build a real signed kind:1 Mention event from `from_keys` to `to_pubkey`.
-    fn signed_mention(from_keys: &Keys, to_pubkey: &str, target_session: Option<&str>) -> (Mention, Event) {
+    fn signed_mention(
+        from_keys: &Keys,
+        to_pubkey: &str,
+        target_session: Option<&str>,
+    ) -> (Mention, Event) {
         let m = Mention {
             from: AgentRef::new(from_keys.public_key().to_hex(), "claude"),
             to_pubkey: to_pubkey.to_string(),
@@ -408,8 +441,15 @@ mod tests {
         let routed = route_mention_into(&s, &pubkey, &m, &event);
         assert!(routed, "sibling-targeted mention should be newly routed");
 
-        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "B must receive it");
-        assert!(s.drain_inbox("sess-A").unwrap().is_empty(), "A (sender) must NOT receive it");
+        assert_eq!(
+            s.drain_inbox("sess-B").unwrap().len(),
+            1,
+            "B must receive it"
+        );
+        assert!(
+            s.drain_inbox("sess-A").unwrap().is_empty(),
+            "A (sender) must NOT receive it"
+        );
     }
 
     /// Bug B (per-(pubkey,session) dedup): a session-targeted mention must still be
@@ -427,11 +467,19 @@ mod tests {
         let (m, event) = signed_mention(&keys, &pubkey, Some("sess-B"));
         // Sibling A marks the event seen per-agent (e.g. it drained an agent-wide
         // copy in its own turn). This must NOT block the session-targeted delivery.
-        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs()).unwrap();
+        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs())
+            .unwrap();
 
         let routed = route_mention_into(&s, &pubkey, &m, &event);
-        assert!(routed, "session-targeted mention must bypass per-agent dedup");
-        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "B must still receive it");
+        assert!(
+            routed,
+            "session-targeted mention must bypass per-agent dedup"
+        );
+        assert_eq!(
+            s.drain_inbox("sess-B").unwrap().len(),
+            1,
+            "B must still receive it"
+        );
     }
 
     /// Bug A (local delivery): `send_message` routes the just-published event to a
@@ -453,10 +501,20 @@ mod tests {
         // Local delivery (send_message path).
         assert!(route_mention_into_with_id(&s, &pubkey, &m, &eid, 12345));
         // A later relay echo of the SAME event id (handle_incoming path).
-        assert!(!route_mention_into_with_id(&s, &pubkey, &m, &eid, 12345), "echo must not double-deliver");
+        assert!(
+            !route_mention_into_with_id(&s, &pubkey, &m, &eid, 12345),
+            "echo must not double-deliver"
+        );
 
-        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1, "exactly one delivery to B");
-        assert!(s.drain_inbox("sess-A").unwrap().is_empty(), "sender A must not receive");
+        assert_eq!(
+            s.drain_inbox("sess-B").unwrap().len(),
+            1,
+            "exactly one delivery to B"
+        );
+        assert!(
+            s.drain_inbox("sess-A").unwrap().is_empty(),
+            "sender A must not receive"
+        );
     }
 
     #[test]
@@ -464,15 +522,25 @@ mod tests {
         let s = Store::open_memory().unwrap();
         let keys = Keys::generate();
         let pubkey = keys.public_key().to_hex();
-        s.upsert_session(&alive_session_in_project("sess-current", &pubkey, "current"))
-            .unwrap();
+        s.upsert_session(&alive_session_in_project(
+            "sess-current",
+            &pubkey,
+            "current",
+        ))
+        .unwrap();
         s.upsert_session(&alive_session_in_project("sess-other", &pubkey, "other"))
             .unwrap();
 
         let mut m = signed_mention(&keys, &pubkey, None).0;
         m.project = "current".to_string();
 
-        assert!(route_mention_into_with_id(&s, &pubkey, &m, "event-project-current", 12345));
+        assert!(route_mention_into_with_id(
+            &s,
+            &pubkey,
+            &m,
+            "event-project-current",
+            12345
+        ));
         assert_eq!(s.drain_inbox("sess-current").unwrap().len(), 1);
         assert!(s.drain_inbox("sess-other").unwrap().is_empty());
     }
@@ -487,7 +555,8 @@ mod tests {
         s.upsert_session(&alive_session("sess-A", &pubkey)).unwrap();
 
         let (m, event) = signed_mention(&keys, &pubkey, None);
-        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs()).unwrap();
+        s.mark_mention_seen(&pubkey, &event.id.to_hex(), now_secs())
+            .unwrap();
 
         let routed = route_mention_into(&s, &pubkey, &m, &event);
         assert!(!routed, "agent-wide mention already seen must not re-route");
@@ -510,9 +579,13 @@ mod tests {
         let (m, event) = signed_mention(&keys, &pubkey, Some("sess-B"));
         let routed = route_mention_into(&s, &pubkey, &m, &event);
 
-        assert!(routed, "FREEZE: targeted mention to sess-B must be newly routed");
+        assert!(
+            routed,
+            "FREEZE: targeted mention to sess-B must be newly routed"
+        );
         assert_eq!(
-            s.drain_inbox("sess-B").unwrap().len(), 1,
+            s.drain_inbox("sess-B").unwrap().len(),
+            1,
             "FREEZE: sess-B must receive exactly one row"
         );
         assert!(
@@ -537,10 +610,18 @@ mod tests {
         let keys2 = Keys::generate();
         let pk2 = keys2.public_key().to_hex();
 
-        s.upsert_session(&alive_session_in_project("sess-1", &pk1, "proj")).unwrap();
-        s.upsert_session(&alive_session_in_project("sess-2", &pk1, "proj")).unwrap();
-        s.upsert_session(&alive_session_in_project("sess-other-agent", &pk2, "proj")).unwrap();
-        s.upsert_session(&alive_session_in_project("sess-other-proj", &pk1, "other-proj")).unwrap();
+        s.upsert_session(&alive_session_in_project("sess-1", &pk1, "proj"))
+            .unwrap();
+        s.upsert_session(&alive_session_in_project("sess-2", &pk1, "proj"))
+            .unwrap();
+        s.upsert_session(&alive_session_in_project("sess-other-agent", &pk2, "proj"))
+            .unwrap();
+        s.upsert_session(&alive_session_in_project(
+            "sess-other-proj",
+            &pk1,
+            "other-proj",
+        ))
+        .unwrap();
 
         // Untargeted mention addressed to pk1/proj.
         let (m, event) = signed_mention(&keys2, &pk1, None);
@@ -548,11 +629,13 @@ mod tests {
 
         assert!(routed, "FREEZE: untargeted mention must be newly routed");
         assert_eq!(
-            s.drain_inbox("sess-1").unwrap().len(), 1,
+            s.drain_inbox("sess-1").unwrap().len(),
+            1,
             "FREEZE: sess-1 (pk1/proj) must receive untargeted mention"
         );
         assert_eq!(
-            s.drain_inbox("sess-2").unwrap().len(), 1,
+            s.drain_inbox("sess-2").unwrap().len(),
+            1,
             "FREEZE: sess-2 (pk1/proj) must receive untargeted mention"
         );
         assert!(
@@ -580,8 +663,10 @@ mod tests {
         let s = Store::open_memory().unwrap();
         let keys = Keys::generate();
         let pk = keys.public_key().to_hex();
-        s.upsert_session(&alive_session_in_project("sess-1", &pk, "proj")).unwrap();
-        s.upsert_session(&alive_session_in_project("sess-2", &pk, "proj")).unwrap();
+        s.upsert_session(&alive_session_in_project("sess-1", &pk, "proj"))
+            .unwrap();
+        s.upsert_session(&alive_session_in_project("sess-2", &pk, "proj"))
+            .unwrap();
 
         let (m, event) = signed_mention(&keys, &pk, None);
         let eid = event.id.to_hex();
@@ -594,15 +679,20 @@ mod tests {
         // inbox PK (eid, sess-1) and (eid, sess-2) already exist → both INSERT OR
         // IGNORE fire → nothing new, returns false.
         let second = route_mention_into_with_id(&s, &pk, &m, &eid, 12345);
-        assert!(!second, "FREEZE: second route of same eid must be idempotent (no new rows)");
+        assert!(
+            !second,
+            "FREEZE: second route of same eid must be idempotent (no new rows)"
+        );
 
         // Each session has exactly one undelivered row — no duplicates.
         assert_eq!(
-            s.drain_inbox("sess-1").unwrap().len(), 1,
+            s.drain_inbox("sess-1").unwrap().len(),
+            1,
             "FREEZE: sess-1 must have exactly one delivery (no duplicate)"
         );
         assert_eq!(
-            s.drain_inbox("sess-2").unwrap().len(), 1,
+            s.drain_inbox("sess-2").unwrap().len(),
+            1,
             "FREEZE: sess-2 must have exactly one delivery (no duplicate)"
         );
     }
@@ -620,7 +710,10 @@ mod tests {
         let (m, _event) = signed_mention(&keys, &pk, Some("nonexistent-session"));
         let routed = route_mention_into_with_id(&s, &pk, &m, "eid-unknown", 12345);
 
-        assert!(!routed, "FREEZE: mention targeting unknown session must not route");
+        assert!(
+            !routed,
+            "FREEZE: mention targeting unknown session must not route"
+        );
         assert!(
             s.drain_inbox("sess-A").unwrap().is_empty(),
             "FREEZE: sess-A must not receive a mention targeting a different session id"

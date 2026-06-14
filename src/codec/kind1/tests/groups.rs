@@ -10,9 +10,9 @@ fn filters_cover_all_kinds_and_mentions() {
         owners: vec![Keys::generate().public_key().to_hex()],
     };
     let filters = Kind1Codec.filters(&scope);
-    // profiles, presence/status, notes, mentions-to-me, owner-discovery,
-    // NIP-29 group-state (39000/39001/39002 by #d).
-    assert_eq!(filters.len(), 6);
+    // profiles, presence/status, notes, mentions-to-me, and NIP-29 group-state
+    // (39000/39001/39002 by #d).
+    assert_eq!(filters.len(), 5);
     let json = serde_json::to_string(&filters).unwrap();
     assert!(json.contains("\"#h\""));
     assert!(!json.contains("\"#t\""));

@@ -42,14 +42,6 @@ pub(super) fn filters(scope: &SubScope) -> Vec<Filter> {
         }
     }
 
-    // Discover ANY profile (any author) that claims one of our owners — the
-    // ACL pending set. Deliberately NOT author-restricted.
-    for owner in &scope.owners {
-        if let Ok(pk) = PublicKey::from_hex(owner) {
-            filters.push(Filter::new().kind(kind(KIND_PROFILE)).pubkey(pk));
-        }
-    }
-
     // NIP-29 relay-authored group state (metadata/admins/members) for the
     // scoped group. Keeping this live is "check which groups we own at all
     // times": it feeds the membership cache. Addressable + relay-signed, so

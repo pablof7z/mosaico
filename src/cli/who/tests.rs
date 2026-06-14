@@ -70,6 +70,8 @@ fn who_snapshot_merges_local_and_peer_sessions() {
             "proj",
             Some("remote-session"),
             "reviewing the patch",
+            "",
+            false,
             995,
         )
         .unwrap();
@@ -126,10 +128,26 @@ fn who_snapshot_uses_session_scoped_status_for_sibling_sessions() {
     store.touch_session("session-a", 1_000).unwrap();
     store.touch_session("session-b", 1_000).unwrap();
     store
-        .set_agent_status("pk-claude", "proj", Some("session-a"), "reading files", 995)
+        .set_agent_status(
+            "pk-claude",
+            "proj",
+            Some("session-a"),
+            "reading files",
+            "",
+            false,
+            995,
+        )
         .unwrap();
     store
-        .set_agent_status("pk-claude", "proj", Some("session-b"), "running tests", 996)
+        .set_agent_status(
+            "pk-claude",
+            "proj",
+            Some("session-b"),
+            "running tests",
+            "",
+            false,
+            996,
+        )
         .unwrap();
 
     let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
@@ -234,11 +252,14 @@ fn live_renderer_same_as_once_with_hint() {
             slug: "reviewer".to_string(),
             project: "proj".to_string(),
             status: "reviewing the patch".to_string(),
+            activity: String::new(),
+            active: false,
             host: "tower".to_string(),
-            session_id: SessionId::from("remote-session"),
+            session_id: "remote-session".to_string(),
             age_secs: Some(5),
             rel_cwd: String::new(),
             remote: false,
+            attachable: false,
         }],
         other_projects: vec![],
         spawnable: vec![],
@@ -289,11 +310,14 @@ fn who_all_projects_includes_project_in_agent_names() {
             slug: "reviewer".to_string(),
             project: "other".to_string(),
             status: String::new(),
+            activity: String::new(),
+            active: false,
             host: "tower".to_string(),
-            session_id: SessionId::from("remote-session"),
+            session_id: "remote-session".to_string(),
             age_secs: Some(5),
             rel_cwd: String::new(),
             remote: false,
+            attachable: false,
         }],
         other_projects: vec![],
         spawnable: vec![],

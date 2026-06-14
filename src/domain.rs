@@ -111,6 +111,11 @@ pub struct Status {
     /// The session title: a short, stable description of what the session is
     /// about. Retained across idle turns; only cleared when the session exits.
     pub text: String,
+    /// The live activity line: what the agent is doing *right now* (the current
+    /// step/mechanics). Distilled alongside `text` in one model call and refreshed
+    /// every turn; cleared on idle (only the persistent title survives). Empty
+    /// when no live activity is known.
+    pub activity: String,
     /// Whether the session is mid-turn (busy). Decoupled from `text` so an idle
     /// session keeps showing its title with a separate idle marker.
     pub active: bool,
@@ -197,6 +202,7 @@ mod tests {
             project: "p".into(),
             session_id: None,
             text: "fixing auth".into(),
+            activity: String::new(),
             active: false,
             rel_cwd: String::new(),
             expires_at: None,
@@ -206,6 +212,7 @@ mod tests {
             project: "p".into(),
             session_id: None,
             text: "fixing auth".into(),
+            activity: String::new(),
             active: true,
             rel_cwd: String::new(),
             expires_at: Some(10),

@@ -14,27 +14,11 @@ pub struct Kind1Materializer;
 impl Kind1Materializer {
     /// Apply a decoded `Profile` (kind:0) to the store.
     ///
-    /// ACL logic: byte-identical to the Profile arm in `handle_incoming`.
-    /// - Allowed → upsert_profile + remove_pending_agent.
-    /// - Not blocked AND shares an owner with local `owners` → upsert_pending_agent.
-    /// - Otherwise: no-op.
-    pub fn materialize_profile(
-        store: &Store,
-        owners: &[String],
-        pf: &Profile,
-        now: u64,
-    ) {
+    /// NIP-29 admission happens at the relay/group layer. If a profile event is
+    /// delivered by our scoped subscription, persist it for identity resolution.
+    pub fn materialize_profile(store: &Store, pf: &Profile, now: u64) {
         let pk = &pf.agent.pubkey;
-        if crate::acl::is_allowed(pk) {
-            store.upsert_profile(pk, &pf.agent.slug, &pf.host, now).ok();
-            store.remove_pending_agent(pk).ok();
-        } else if !crate::acl::is_blocked(pk)
-            && pf.owners.iter().any(|o| owners.contains(o))
-        {
-            store
-                .upsert_pending_agent(pk, &pf.agent.slug, &pf.host, &pf.owners.join(","), now)
-                .ok();
-        }
+        store.upsert_profile(pk, &pf.agent.slug, &pf.host, now).ok();
     }
 
     /// Apply a decoded `Presence` (kind:1 presence variant) to the store.
@@ -81,6 +65,7 @@ impl Kind1Materializer {
                 &st.project,
                 st.session_id.as_ref().map(|s| s.as_str()),
                 &st.text,
+                &st.activity,
                 st.active,
                 now,
             )
@@ -154,8 +139,13 @@ impl Kind1Materializer {
         let created_at = event.created_at.as_secs();
 
         let thread_id = (|| -> anyhow::Result<String> {
-            let project_id =
-                store.ensure_project_origin(FABRIC, provider_instance, &m.project, &m.project, now)?;
+            let project_id = store.ensure_project_origin(
+                FABRIC,
+                provider_instance,
+                &m.project,
+                &m.project,
+                now,
+            )?;
             let thread_id = store.ensure_thread_origin(
                 &project_id,
                 FABRIC,
@@ -172,7 +162,11 @@ impl Kind1Materializer {
                 "received",
                 Some(&eid_hex),
             )?;
-            store.add_message_recipient(&message_id, to_pubkey, m.target_session.as_ref().map(|s| s.as_str()))?;
+            store.add_message_recipient(
+                &message_id,
+                to_pubkey,
+                m.target_session.as_ref().map(|s| s.as_str()),
+            )?;
             Ok(thread_id)
         })()
         .ok(); // best-effort; never fail the legacy inbox path

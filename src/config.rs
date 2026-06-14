@@ -105,22 +105,6 @@ pub fn tenex_dir() -> PathBuf {
     home_dir().join(".tenex")
 }
 
-/// Authorized agent pubkeys this computer will see/trust (one per line).
-pub fn agents_allowlist_path() -> PathBuf {
-    if let Ok(p) = std::env::var("TENEX_AGENTS_ALLOWLIST") {
-        return PathBuf::from(p);
-    }
-    tenex_dir().join("whitelisted-agents.txt")
-}
-
-/// Explicitly blocked agent pubkeys (one per line).
-pub fn agents_blocklist_path() -> PathBuf {
-    if let Ok(p) = std::env::var("TENEX_AGENTS_BLOCKLIST") {
-        return PathBuf::from(p);
-    }
-    tenex_dir().join("blocked-agents.txt")
-}
-
 pub fn ensure_dir(p: &Path) -> Result<()> {
     std::fs::create_dir_all(p).with_context(|| format!("creating {}", p.display()))?;
     Ok(())

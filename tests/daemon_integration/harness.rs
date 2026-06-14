@@ -32,9 +32,6 @@ impl Home {
         std::env::set_var("TENEX_CONFIG", &cfg);
         std::env::set_var("TENEX_EDGE_DAEMON_GRACE_S", "30");
         std::env::set_var("TENEX_EDGE_BIN", bin());
-        // Keep allow/block lists inside the temp home so we never touch ~/.tenex.
-        std::env::set_var("TENEX_AGENTS_ALLOWLIST", dir.path().join("allow.txt"));
-        std::env::set_var("TENEX_AGENTS_BLOCKLIST", dir.path().join("block.txt"));
         Home { dir }
     }
     pub(crate) fn store_path(&self) -> PathBuf {
@@ -64,8 +61,6 @@ pub(crate) fn run_cli(home: &Home, args: &[&str]) -> std::process::Output {
         .env("TENEX_CONFIG", home.dir.path().join("config.json"))
         .env("TENEX_EDGE_BIN", bin())
         .env("TENEX_EDGE_DAEMON_GRACE_S", "30")
-        .env("TENEX_AGENTS_ALLOWLIST", home.dir.path().join("allow.txt"))
-        .env("TENEX_AGENTS_BLOCKLIST", home.dir.path().join("block.txt"))
         .output()
         .expect("run tenex-edge")
 }
@@ -83,8 +78,6 @@ pub(crate) fn run_cli_stdin(home: &Home, args: &[&str], stdin: &str) -> std::pro
         .env("TENEX_CONFIG", home.dir.path().join("config.json"))
         .env("TENEX_EDGE_BIN", bin())
         .env("TENEX_EDGE_DAEMON_GRACE_S", "30")
-        .env("TENEX_AGENTS_ALLOWLIST", home.dir.path().join("allow.txt"))
-        .env("TENEX_AGENTS_BLOCKLIST", home.dir.path().join("block.txt"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

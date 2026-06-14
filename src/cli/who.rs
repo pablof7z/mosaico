@@ -68,14 +68,6 @@ pub struct OtherProjectSummary {
     about: Option<String>,
 }
 
-/// An agent that can be spawned on this machine via tmux.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(super) struct SpawnableRow {
-    pub(super) slug: String,
-    pub(super) command: String,
-    pub(super) host: String,
-}
-
 // The daemon serializes a WhoSnapshot and the thin `who` client renders it with
 // the EXACT renderers below — so output is byte-identical by construction and
 // can never drift from a separate copy.
@@ -86,17 +78,16 @@ pub struct WhoSnapshot {
     now: u64,
     rows: Vec<WhoRow>,
     other_projects: Vec<OtherProjectSummary>,
-    /// Agents that can be spawned on this machine via tmux. These represent a
-    /// standing capability and appear even when live sessions already exist.
+    /// Agents tenex-edge has an identity for that can be spawned via tmux.
     #[serde(default)]
     spawnable: Vec<SpawnableRow>,
 }
 
-impl WhoSnapshot {
-    /// Number of visible sessions (local + peer, including idle) in scope.
-    pub fn session_count(&self) -> usize {
-        self.rows.len()
-    }
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct SpawnableRow {
+    host: String,
+    slug: String,
+    command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -105,9 +96,18 @@ struct WhoRow {
     fresh: bool,
     slug: String,
     project: String,
+    /// Persistent session title (what the session is about); survives idle turns.
     status: String,
+    /// Live "doing now" line, distilled alongside the title. Shown after the
+    /// title while mid-turn; empty (and not rendered) when idle.
+    #[serde(default)]
+    activity: String,
+    /// Whether the session is mid-turn. Drives the idle marker independently of
+    /// the title, which is retained while idle.
+    #[serde(default)]
+    active: bool,
     host: String,
-    session_id: SessionId,
+    session_id: String,
     age_secs: Option<u64>,
     /// Project-relative working dir (§8e). Empty or "." → rendered without a
     /// `[dir]` bracket; otherwise shown so worktrees render distinctly.
@@ -117,6 +117,10 @@ struct WhoRow {
     /// Local sessions and same-machine peers are never remote (the §8e fix).
     #[serde(default)]
     remote: bool,
+    /// True when this session has a live tmux endpoint registered — i.e. it
+    /// can be attached to via `tenex-edge tmux attach`.
+    #[serde(default)]
+    attachable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -143,7 +147,9 @@ pub fn load_who_snapshot(
         now.saturating_sub(PEER_FRESH_SECS)
     };
 
-    let mine = store.list_my_live_sessions(since)?;
+    // Route through Phase 2 read-model methods so Phase 8 can swap the source
+    // without touching this function.
+    let mine = store.list_agents_read_model(None, since)?;
     let my_ids: std::collections::HashSet<String> =
         mine.iter().map(|s| s.session_id.clone()).collect();
     let local_agent_pubkeys: std::collections::HashSet<String> = store
@@ -152,12 +158,20 @@ pub fn load_who_snapshot(
         .into_iter()
         .collect();
     let all_peers: Vec<_> = store
-        .list_peer_sessions(None, since)?
+        .list_presence_read_model(None, since)?
         .into_iter()
         .filter(|p| !my_ids.contains(&p.session_id))
         .filter(|p| {
             !(slugify_host(&p.host) == local_host && local_agent_pubkeys.contains(&p.pubkey))
         })
+        .collect();
+
+    // Sessions that have a tmux endpoint registered (for attachable flag).
+    let tmux_sessions: std::collections::HashSet<String> = store
+        .list_session_endpoints_of_kind("tmux")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|ep| ep.session_id)
         .collect();
 
     let mut rows = Vec::new();
@@ -171,17 +185,27 @@ pub fn load_who_snapshot(
             .flatten()
             .map(|ls| now.saturating_sub(ls));
         if current_project.map(|p| p == s.project).unwrap_or(true) {
+            let (title, activity, st_active) =
+                status_for(store, &s.agent_pubkey, &s.project, Some(&s.session_id));
+            // Local rows: prefer the live turn state so the idle marker is instant.
+            let active = store
+                .get_turn_state(&s.session_id)
+                .map(|(w, _)| w)
+                .unwrap_or(st_active);
             rows.push(WhoRow {
                 source: WhoSource::Local,
                 fresh: age_secs.map(|a| a <= PEER_FRESH_SECS).unwrap_or(true),
                 slug: s.agent_slug.clone(),
                 project: s.project.clone(),
-                status: status_for(store, &s.agent_pubkey, &s.project, Some(&s.session_id)),
+                status: title,
+                activity,
+                active,
                 host: s.host.clone(),
-                session_id: SessionId::from(s.session_id.clone()),
+                session_id: s.session_id.clone(),
                 age_secs,
                 rel_cwd: s.rel_cwd.clone(),
                 remote: false,
+                attachable: tmux_sessions.contains(&s.session_id),
             });
         } else {
             other_agents
@@ -194,17 +218,23 @@ pub fn load_who_snapshot(
     for p in &all_peers {
         let age = now.saturating_sub(p.last_seen);
         if current_project.map(|cp| cp == p.project).unwrap_or(true) {
+            // Peer rows: the active flag arrives over the wire and is persisted.
+            let (title, activity, active) =
+                status_for(store, &p.pubkey, &p.project, Some(&p.session_id));
             rows.push(WhoRow {
                 source: WhoSource::Peer,
                 fresh: age <= PEER_FRESH_SECS,
                 slug: p.slug.clone(),
                 project: p.project.clone(),
-                status: status_for(store, &p.pubkey, &p.project, Some(&p.session_id)),
+                status: title,
+                activity,
+                active,
                 host: p.host.clone(),
-                session_id: SessionId::from(p.session_id.clone()),
+                session_id: p.session_id.clone(),
                 age_secs: Some(age),
                 rel_cwd: p.rel_cwd.clone(),
                 remote: slugify_host(&p.host) != local_host,
+                attachable: false,
             });
         } else {
             other_agents
@@ -217,7 +247,8 @@ pub fn load_who_snapshot(
     let other_projects = other_agents
         .into_iter()
         .map(|(project, agents)| {
-            let about = store.get_project_meta(&project).ok().flatten();
+            // Route through the read-model method so Phase 8 can swap the source.
+            let about = store.project_meta_read_model(&project).ok().flatten();
             let agents: Vec<String> = agents.into_iter().collect();
             OtherProjectSummary {
                 project,
@@ -228,9 +259,6 @@ pub fn load_who_snapshot(
         })
         .collect();
 
-    // Spawnable: agents available locally via tmux. These represent a standing
-    // capability of the local machine — you can always start a new session with
-    // this agent — so they appear even when live sessions already exist.
     let spawnable: Vec<SpawnableRow> = crate::tmux::spawnable_agents()
         .into_iter()
         .map(|(slug, command)| SpawnableRow {
@@ -250,7 +278,22 @@ pub fn load_who_snapshot(
     })
 }
 
-fn status_for(store: &Store, pubkey: &str, project: &str, session_id: Option<&str>) -> String {
+impl WhoSnapshot {
+    /// Number of visible sessions (local + peer, including idle) in scope.
+    pub fn session_count(&self) -> usize {
+        self.rows.len()
+    }
+}
+
+/// Current (title, activity, active) for a row. The title persists across idle
+/// turns; `activity` is the live "doing now" line (empty when idle/unknown);
+/// `active` drives the idle marker. Defaults to ("", "", false) when unknown.
+fn status_for(
+    store: &Store,
+    pubkey: &str,
+    project: &str,
+    session_id: Option<&str>,
+) -> (String, String, bool) {
     store
         .get_agent_status(pubkey, project, session_id)
         .ok()
@@ -274,7 +317,7 @@ pub(super) fn push_turn_fabric_block(
     let store = store.lock().expect("store mutex poisoned");
     if first_turn {
         if let Ok(snapshot) = load_who_snapshot(&store, Some(project), false, now, daemon_host) {
-            if !snapshot.rows.is_empty() || !snapshot.spawnable.is_empty() {
+            if !snapshot.rows.is_empty() {
                 let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
                 "tenex-edge fabric — agents you can message. To send, run \
@@ -300,14 +343,15 @@ pub(super) fn push_turn_fabric_block(
                 p.slug,
                 slugify_host(&p.host),
                 p.project,
-                SessionId::from(p.session_id.as_str()),
+                pubkey_short(&p.session_id),
             ));
         }
-        for (slug, proj, text, session_id) in &status_changes {
+        for (slug, proj, text, session_id, active) in &status_changes {
+            let label = render::status_plain(text, "", *active);
             if let Some(sid) = session_id {
-                delta.push(format!("  ↻ {slug}@{proj} [session {sid}] — {text}"));
+                delta.push(format!("  ↻ {slug}@{proj} [session {sid}] — {label}"));
             } else {
-                delta.push(format!("  ↻ {slug}@{proj} — {text}"));
+                delta.push(format!("  ↻ {slug}@{proj} — {label}"));
             }
         }
         if !delta.is_empty() {

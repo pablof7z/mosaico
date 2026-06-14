@@ -38,10 +38,8 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 /// kind:9000 put-user adding `pubkey` to the group as a member, so it can publish
 /// presence/activity/mentions into the now-closed group.
 pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
-    Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "").tags([
-        project_tag(project)?,
-        tag(&["p", pubkey, "member"])?,
-    ]))
+    Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
+        .tags([project_tag(project)?, tag(&["p", pubkey, "member"])?]))
 }
 
 /// kind:9000 put-user adding `pubkey` with the `admin` role, granting it admin
@@ -50,19 +48,15 @@ pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
 /// relay29 advertises the `admin`/`moderator` roles it accepts via kind:39003;
 /// "admin" is the role tenex-edge grants to every whitelisted human pubkey.
 pub fn group_put_admin(project: &str, pubkey: &str) -> Result<EventBuilder> {
-    Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "").tags([
-        project_tag(project)?,
-        tag(&["p", pubkey, "admin"])?,
-    ]))
+    Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
+        .tags([project_tag(project)?, tag(&["p", pubkey, "admin"])?]))
 }
 
 /// kind:9002 edit-metadata: set the group's `about` text. The relay validates
 /// admin rights and re-publishes kind:39000 signed by the relay key.
 pub fn group_edit_metadata(project: &str, about: &str) -> Result<EventBuilder> {
-    Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags([
-        tag(&["d", project])?,
-        tag(&["about", about])?,
-    ]))
+    Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "")
+        .tags([tag(&["d", project])?, tag(&["about", about])?]))
 }
 
 #[cfg(test)]

@@ -132,7 +132,7 @@ pub fn materialize(
             if is_self => {}
 
         DomainEvent::Profile(ref pf) => {
-            Kind1Materializer::materialize_profile(store, owners, pf, now);
+            Kind1Materializer::materialize_profile(store, pf, now);
         }
 
         DomainEvent::Presence(ref pr) => {
@@ -228,18 +228,20 @@ mod tests {
         let session_id = "test-sess-owner-1";
 
         // Register a live session for the agent so route_mention_into finds it.
-        store.upsert_session(&crate::state::SessionRecord {
-            session_id: session_id.to_string(),
-            agent_slug: "claude".to_string(),
-            agent_pubkey: agent_pk.clone(),
-            project: "myproject".to_string(),
-            host: "laptop".to_string(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        }).unwrap();
+        store
+            .upsert_session(&crate::state::SessionRecord {
+                session_id: session_id.to_string(),
+                agent_slug: "claude".to_string(),
+                agent_pubkey: agent_pk.clone(),
+                project: "myproject".to_string(),
+                host: "laptop".to_string(),
+                child_pid: None,
+                watch_pid: None,
+                created_at: 1,
+                alive: true,
+                rel_cwd: String::new(),
+            })
+            .unwrap();
         store.touch_session(session_id, 1_000).unwrap();
 
         let event = build_event(
@@ -278,18 +280,20 @@ mod tests {
         let owner_pk = owner_keys.public_key().to_hex();
         let session_id = "test-sess-stranger-1";
 
-        store.upsert_session(&crate::state::SessionRecord {
-            session_id: session_id.to_string(),
-            agent_slug: "claude".to_string(),
-            agent_pubkey: agent_pk.clone(),
-            project: "myproject".to_string(),
-            host: "laptop".to_string(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        }).unwrap();
+        store
+            .upsert_session(&crate::state::SessionRecord {
+                session_id: session_id.to_string(),
+                agent_slug: "claude".to_string(),
+                agent_pubkey: agent_pk.clone(),
+                project: "myproject".to_string(),
+                host: "laptop".to_string(),
+                child_pid: None,
+                watch_pid: None,
+                created_at: 1,
+                alive: true,
+                rel_cwd: String::new(),
+            })
+            .unwrap();
         store.touch_session(session_id, 1_000).unwrap();
 
         let event = build_event(
@@ -309,7 +313,10 @@ mod tests {
         let env = RawEnvelope::Nostr(event);
         let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
 
-        assert!(!outcome.wake_mentions, "stranger note must NOT wake mentions");
+        assert!(
+            !outcome.wake_mentions,
+            "stranger note must NOT wake mentions"
+        );
 
         let inbox = store.drain_inbox(session_id).unwrap();
         assert!(inbox.is_empty(), "inbox must be empty for stranger note");
@@ -325,18 +332,20 @@ mod tests {
         let recipient_pk = recipient_keys.public_key().to_hex();
         let session_id = "test-sess-agent-1";
 
-        store.upsert_session(&crate::state::SessionRecord {
-            session_id: session_id.to_string(),
-            agent_slug: "codex".to_string(),
-            agent_pubkey: recipient_pk.clone(),
-            project: "myproject".to_string(),
-            host: "laptop".to_string(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        }).unwrap();
+        store
+            .upsert_session(&crate::state::SessionRecord {
+                session_id: session_id.to_string(),
+                agent_slug: "codex".to_string(),
+                agent_pubkey: recipient_pk.clone(),
+                project: "myproject".to_string(),
+                host: "laptop".to_string(),
+                child_pid: None,
+                watch_pid: None,
+                created_at: 1,
+                alive: true,
+                rel_cwd: String::new(),
+            })
+            .unwrap();
         store.touch_session(session_id, 1_000).unwrap();
 
         // Wire event has NO agent tag — the sender is hosted (same daemon).
@@ -373,22 +382,30 @@ mod tests {
         let recipient_pk = recipient_keys.public_key().to_hex();
         let session_id = "test-sess-member-1";
 
-        store.upsert_session(&crate::state::SessionRecord {
-            session_id: session_id.to_string(),
-            agent_slug: "claude".to_string(),
-            agent_pubkey: recipient_pk.clone(),
-            project: "myproject".to_string(),
-            host: "laptop".to_string(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        }).unwrap();
+        store
+            .upsert_session(&crate::state::SessionRecord {
+                session_id: session_id.to_string(),
+                agent_slug: "claude".to_string(),
+                agent_pubkey: recipient_pk.clone(),
+                project: "myproject".to_string(),
+                host: "laptop".to_string(),
+                child_pid: None,
+                watch_pid: None,
+                created_at: 1,
+                alive: true,
+                rel_cwd: String::new(),
+            })
+            .unwrap();
         store.touch_session(session_id, 1_000).unwrap();
 
         // Register sender as a group member via the 39002 membership cache.
-        store.replace_group_members("myproject", &[(sender_pk.clone(), "member".to_string())], 100).unwrap();
+        store
+            .replace_group_members(
+                "myproject",
+                &[(sender_pk.clone(), "member".to_string())],
+                100,
+            )
+            .unwrap();
 
         let event = build_event(
             &sender_keys,

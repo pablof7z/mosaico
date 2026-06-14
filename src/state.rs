@@ -43,15 +43,6 @@ pub struct PeerSession {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingAgent {
-    pub pubkey: String,
-    pub slug: String,
-    pub host: String,
-    pub owners: String, // comma-joined owner pubkeys
-    pub first_seen: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboxRow {
     pub mention_event_id: String,
     pub target_session: String,
@@ -209,13 +200,6 @@ CREATE TABLE IF NOT EXISTS turn_state (
     working         INTEGER NOT NULL DEFAULT 0,
     turn_started_at INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS pending_agents (
-    pubkey     TEXT PRIMARY KEY,
-    slug       TEXT NOT NULL,
-    host       TEXT NOT NULL,
-    owners     TEXT NOT NULL,
-    first_seen INTEGER NOT NULL
-);
 -- A mention an agent has already received, so it is never re-delivered in a
 -- later session (mentions are stored kind:1 events that persist on the relay).
 CREATE TABLE IF NOT EXISTS seen_mentions (
@@ -229,6 +213,7 @@ CREATE TABLE IF NOT EXISTS agent_status (
     pubkey     TEXT NOT NULL,
     project    TEXT NOT NULL,
     text       TEXT NOT NULL,
+    activity   TEXT NOT NULL DEFAULT '',
     active     INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (pubkey, project)
@@ -242,6 +227,7 @@ CREATE TABLE IF NOT EXISTS session_status (
     project    TEXT NOT NULL,
     session_id TEXT NOT NULL,
     text       TEXT NOT NULL,
+    activity   TEXT NOT NULL DEFAULT '',
     active     INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (pubkey, project, session_id)
@@ -458,6 +444,17 @@ impl Store {
             "ALTER TABLE agent_status ADD COLUMN active INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Live "what it's doing now" line, distilled alongside the title in one
+        // call. Separate from `text` (the persistent title) so it can be cleared
+        // on idle while the title survives.
+        let _ = conn.execute(
+            "ALTER TABLE session_status ADD COLUMN activity TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE agent_status ADD COLUMN activity TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(Self { conn })
     }
 
@@ -604,7 +601,12 @@ impl Store {
 
     /// Update the NIP-10 thread tracking for a session.
     /// `root_id` is the first user prompt event; `prompt_id` is the most recent.
-    pub fn set_thread_event_ids(&self, session_id: &str, root_id: &str, prompt_id: &str) -> Result<()> {
+    pub fn set_thread_event_ids(
+        &self,
+        session_id: &str,
+        root_id: &str,
+        prompt_id: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET thread_root_event_id=?2, last_prompt_event_id=?3 WHERE session_id=?1",
             params![session_id, root_id, prompt_id],
@@ -616,7 +618,11 @@ impl Store {
     /// polls until the transcript returns something *different* from this value,
     /// so it reliably reads the current turn's response even when Claude Code
     /// writes the transcript after the stop hook fires.
-    pub fn set_last_assistant_text_at_turn_start(&self, session_id: &str, text: &str) -> Result<()> {
+    pub fn set_last_assistant_text_at_turn_start(
+        &self,
+        session_id: &str,
+        text: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET last_assistant_text_at_turn_start=?2 WHERE session_id=?1",
             params![session_id, text],
@@ -713,14 +719,11 @@ impl Store {
                 .ok());
         }
 
-        if let Ok(pk) = self
-            .conn
-            .query_row(
-                "SELECT pubkey FROM profiles WHERE slug=?1 ORDER BY updated_at DESC LIMIT 1",
-                params![slug],
-                |r| r.get::<_, String>(0),
-            )
-        {
+        if let Ok(pk) = self.conn.query_row(
+            "SELECT pubkey FROM profiles WHERE slug=?1 ORDER BY updated_at DESC LIMIT 1",
+            params![slug],
+            |r| r.get::<_, String>(0),
+        ) {
             return Ok(Some(pk));
         }
         Ok(self
@@ -767,11 +770,14 @@ impl Store {
             return Ok(Some(slug));
         }
         // Fall back to profiles table.
-        Ok(self.conn.query_row(
-            "SELECT slug FROM profiles WHERE pubkey=?1 LIMIT 1",
-            params![pubkey],
-            |r| r.get::<_, String>(0),
-        ).ok())
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT slug FROM profiles WHERE pubkey=?1 LIMIT 1",
+                params![pubkey],
+                |r| r.get::<_, String>(0),
+            )
+            .ok())
     }
 
     /// Find one of MY sessions by session-id prefix (for messaging a sibling
@@ -829,51 +835,6 @@ impl Store {
             "DELETE FROM peer_sessions WHERE last_seen<?1",
             params![before],
         )?)
-    }
-
-    // ── ACL: pending agents (kind:0 claiming us, not yet authorized) ──────
-
-    pub fn upsert_pending_agent(
-        &self,
-        pubkey: &str,
-        slug: &str,
-        host: &str,
-        owners: &str,
-        ts: u64,
-    ) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO pending_agents (pubkey, slug, host, owners, first_seen) VALUES (?1,?2,?3,?4,?5)
-             ON CONFLICT(pubkey) DO UPDATE SET slug=?2, host=?3, owners=?4",
-            params![pubkey, slug, host, owners, ts],
-        )?;
-        Ok(())
-    }
-
-    pub fn remove_pending_agent(&self, pubkey: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM pending_agents WHERE pubkey=?1",
-            params![pubkey],
-        )?;
-        Ok(())
-    }
-
-    pub fn list_pending_agents(&self) -> Result<Vec<PendingAgent>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT pubkey, slug, host, owners, first_seen FROM pending_agents ORDER BY first_seen",
-        )?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(PendingAgent {
-                    pubkey: row.get(0)?,
-                    slug: row.get(1)?,
-                    host: row.get(2)?,
-                    owners: row.get(3)?,
-                    first_seen: row.get(4)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
     }
 
     // ── inbox ────────────────────────────────────────────────────────────
@@ -1042,48 +1003,57 @@ impl Store {
 
     // ── agent status ("what is X doing") ─────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_agent_status(
         &self,
         pubkey: &str,
         project: &str,
         session_id: Option<&str>,
         text: &str,
+        activity: &str,
         active: bool,
         ts: u64,
     ) -> Result<()> {
         let active = active as i64;
         if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
             self.conn.execute(
-                "INSERT INTO session_status (pubkey, project, session_id, text, active, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6)
-                 ON CONFLICT(pubkey, project, session_id) DO UPDATE SET text=?4, active=?5, updated_at=?6",
-                params![pubkey, project, session_id, text, active, ts],
+                "INSERT INTO session_status (pubkey, project, session_id, text, activity, active, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)
+                 ON CONFLICT(pubkey, project, session_id) DO UPDATE SET text=?4, activity=?5, active=?6, updated_at=?7",
+                params![pubkey, project, session_id, text, activity, active, ts],
             )?;
         } else {
             self.conn.execute(
-                "INSERT INTO agent_status (pubkey, project, text, active, updated_at) VALUES (?1,?2,?3,?4,?5)
-                 ON CONFLICT(pubkey, project) DO UPDATE SET text=?3, active=?4, updated_at=?5",
-                params![pubkey, project, text, active, ts],
+                "INSERT INTO agent_status (pubkey, project, text, activity, active, updated_at) VALUES (?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(pubkey, project) DO UPDATE SET text=?3, activity=?4, active=?5, updated_at=?6",
+                params![pubkey, project, text, activity, active, ts],
             )?;
         }
         Ok(())
     }
 
-    /// Current (title, active) for an agent/session. Session-scoped row first,
-    /// agent-level fallback. The title persists across idle turns; `active` is
-    /// the live mid-turn flag.
+    /// Current (title, activity, active) for an agent/session. Session-scoped row
+    /// first, agent-level fallback. The title persists across idle turns;
+    /// `activity` is the live "doing now" line (empty when idle/unknown);
+    /// `active` is the live mid-turn flag.
     pub fn get_agent_status(
         &self,
         pubkey: &str,
         project: &str,
         session_id: Option<&str>,
-    ) -> Result<Option<(String, bool)>> {
+    ) -> Result<Option<(String, String, bool)>> {
         if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
             if let Ok(row) = self.conn.query_row(
-                "SELECT text, active FROM session_status
+                "SELECT text, activity, active FROM session_status
                      WHERE pubkey=?1 AND project=?2 AND session_id=?3",
                 params![pubkey, project, session_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)? != 0,
+                    ))
+                },
             ) {
                 return Ok(Some(row));
             }
@@ -1091,9 +1061,15 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT text, active FROM agent_status WHERE pubkey=?1 AND project=?2",
+                "SELECT text, activity, active FROM agent_status WHERE pubkey=?1 AND project=?2",
                 params![pubkey, project],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)? != 0,
+                    ))
+                },
             )
             .ok())
     }
@@ -1121,9 +1097,9 @@ impl Store {
     }
 
     pub fn list_project_meta(&self) -> Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT project, about FROM project_meta ORDER BY project",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT project, about FROM project_meta ORDER BY project")?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
             .filter_map(|r| r.ok())
@@ -1162,7 +1138,13 @@ impl Store {
         Ok(n as u64)
     }
 
-    pub fn upsert_group_member(&self, project: &str, pubkey: &str, role: &str, ts: u64) -> Result<()> {
+    pub fn upsert_group_member(
+        &self,
+        project: &str,
+        pubkey: &str,
+        role: &str,
+        ts: u64,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO group_members (project, pubkey, role, updated_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(project, pubkey) DO UPDATE SET role=?3, updated_at=?4",
@@ -1182,9 +1164,16 @@ impl Store {
 
     /// Apply a relay-authoritative 39002 members snapshot for one group: replace
     /// the cached membership wholesale so we self-heal if our optimistic writes drifted.
-    pub fn replace_group_members(&self, project: &str, members: &[(String, String)], ts: u64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM group_members WHERE project=?1", params![project])?;
+    pub fn replace_group_members(
+        &self,
+        project: &str,
+        members: &[(String, String)],
+        ts: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM group_members WHERE project=?1",
+            params![project],
+        )?;
         for (pubkey, role) in members {
             self.conn.execute(
                 "INSERT INTO group_members (project, pubkey, role, updated_at) VALUES (?1, ?2, ?3, ?4)
@@ -1237,7 +1226,9 @@ impl Store {
         display_slug: &str,
         now: u64,
     ) -> Result<String> {
-        if let Some(pid) = self.project_id_for_origin(fabric, provider_instance, native_project_key)? {
+        if let Some(pid) =
+            self.project_id_for_origin(fabric, provider_instance, native_project_key)?
+        {
             return Ok(pid);
         }
         let pid = gen_id("proj");
@@ -1281,15 +1272,12 @@ impl Store {
         native_thread_key: &str,
         now: u64,
     ) -> Result<String> {
-        if let Ok(tid) = self
-            .conn
-            .query_row(
-                "SELECT thread_id FROM thread_origins
+        if let Ok(tid) = self.conn.query_row(
+            "SELECT thread_id FROM thread_origins
                  WHERE fabric=?1 AND provider_instance=?2 AND native_thread_key=?3",
-                params![fabric, provider_instance, native_thread_key],
-                |r| r.get::<_, String>(0),
-            )
-        {
+            params![fabric, provider_instance, native_thread_key],
+            |r| r.get::<_, String>(0),
+        ) {
             return Ok(tid);
         }
         let tid = gen_id("thr");
@@ -1321,14 +1309,11 @@ impl Store {
         native_event_id: Option<&str>,
     ) -> Result<String> {
         if let Some(eid) = native_event_id {
-            if let Ok(mid) = self
-                .conn
-                .query_row(
-                    "SELECT message_id FROM messages WHERE native_event_id=?1",
-                    params![eid],
-                    |r| r.get::<_, String>(0),
-                )
-            {
+            if let Ok(mid) = self.conn.query_row(
+                "SELECT message_id FROM messages WHERE native_event_id=?1",
+                params![eid],
+                |r| r.get::<_, String>(0),
+            ) {
                 return Ok(mid);
             }
         }
@@ -1437,7 +1422,12 @@ impl Store {
     /// `Unhydrated` (no rows at all for the project) is distinct from `NotMember`
     /// (rows exist, but not this pubkey) so the materializer can quarantine
     /// inbound events until membership arrives.
-    pub fn is_member_at(&self, project_id: &str, pubkey: &str, ts: u64) -> Result<MembershipDecision> {
+    pub fn is_member_at(
+        &self,
+        project_id: &str,
+        pubkey: &str,
+        ts: u64,
+    ) -> Result<MembershipDecision> {
         let project_rows: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM membership WHERE project_id=?1",
             params![project_id],
@@ -1560,7 +1550,11 @@ impl Store {
                 .prepare("SELECT project, pubkey, role FROM group_members")?;
             let v: Vec<(String, String, String)> = stmt
                 .query_map([], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
@@ -1604,7 +1598,11 @@ impl Store {
     ///
     // Retained storage (Phase 8): sessions is the deliberately-retained canonical home for
     // local agent sessions; readers query it directly per fabric-architecture.md §6.
-    pub fn list_agents_read_model(&self, project: Option<&str>, since: u64) -> Result<Vec<SessionRecord>> {
+    pub fn list_agents_read_model(
+        &self,
+        project: Option<&str>,
+        since: u64,
+    ) -> Result<Vec<SessionRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE alive=1 AND last_seen>=?1 AND (?2 IS NULL OR project=?2) ORDER BY created_at DESC",
@@ -1735,7 +1733,6 @@ impl Store {
             Ok(None)
         }
     }
-
 
     /// Query for tail backfill: returns recent messages with author/project/thread info.
     ///
@@ -1879,16 +1876,18 @@ impl Store {
     }
 
     /// Record the current NIP-38 status for an agent.  Wraps `set_agent_status`.
+    #[allow(clippy::too_many_arguments)]
     pub fn materialize_status(
         &self,
         pubkey: &str,
         project: &str,
         session_id: Option<&str>,
         text: &str,
+        activity: &str,
         active: bool,
         ts: u64,
     ) -> Result<()> {
-        self.set_agent_status(pubkey, project, session_id, text, active, ts)
+        self.set_agent_status(pubkey, project, session_id, text, activity, active, ts)
     }
 
     /// Apply a relay-authoritative NIP-29 39002 membership snapshot:
@@ -1934,7 +1933,15 @@ impl Store {
         created_at: u64,
         native_event_id: Option<&str>,
     ) -> Result<String> {
-        self.record_message(thread_id, author_pubkey, body, created_at, "outbound", "pending", native_event_id)
+        self.record_message(
+            thread_id,
+            author_pubkey,
+            body,
+            created_at,
+            "outbound",
+            "pending",
+            native_event_id,
+        )
     }
 
     /// Transition an outbound message to `accepted` (relay accepted the event).
@@ -1983,7 +1990,6 @@ fn row_to_peer(row: &rusqlite::Row) -> rusqlite::Result<PeerSession> {
         rel_cwd: row.get(6)?,
     })
 }
-
 
 /// Column order: mention_event_id, target_session, from_pubkey, from_slug,
 /// project, body, created_at, from_session, subject, branch, commit_hash, dirty,
@@ -2092,7 +2098,10 @@ mod tests {
 
         // Agent-agnostic lookup returns opencode (the latest active) — the BUG.
         assert_eq!(
-            s.latest_alive_session_for_project("proj").unwrap().unwrap().agent_slug,
+            s.latest_alive_session_for_project("proj")
+                .unwrap()
+                .unwrap()
+                .agent_slug,
             "opencode"
         );
         // Agent-scoped lookup honors the invoking agent.
@@ -2120,8 +2129,16 @@ mod tests {
     #[test]
     fn resolve_with_project_scope_prefers_matching_presence() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("sess-x", "pk-from-presence", "reviewer", "proj", "host", "", 1)
-            .unwrap();
+        s.upsert_peer_session(
+            "sess-x",
+            "pk-from-presence",
+            "reviewer",
+            "proj",
+            "host",
+            "",
+            1,
+        )
+        .unwrap();
         assert_eq!(
             s.resolve_agent_pubkey("reviewer", Some("proj"))
                 .unwrap()
@@ -2143,9 +2160,7 @@ mod tests {
             None
         );
         assert_eq!(
-            s.resolve_agent_pubkey("reviewer", None)
-                .unwrap()
-                .as_deref(),
+            s.resolve_agent_pubkey("reviewer", None).unwrap().as_deref(),
             Some("pk-from-profile")
         );
     }
@@ -2179,7 +2194,10 @@ mod tests {
         // Updating keeps the latest rel_cwd.
         s.upsert_peer_session("p1", "pk", "rev", "proj", "tower", "sub/dir", 1_001)
             .unwrap();
-        assert_eq!(s.list_peer_sessions(Some("proj"), 0).unwrap()[0].rel_cwd, "sub/dir");
+        assert_eq!(
+            s.list_peer_sessions(Some("proj"), 0).unwrap()[0].rel_cwd,
+            "sub/dir"
+        );
 
         // Own session stores + reads back rel_cwd (needed by reconcile).
         s.upsert_session(&sample_session("mine")).unwrap();
@@ -2203,20 +2221,6 @@ mod tests {
         }
         let s2 = Store::open(&path).unwrap();
         assert_eq!(s2.get_session("m").unwrap().unwrap().rel_cwd, "wt");
-    }
-
-    #[test]
-    fn pending_agents_lifecycle() {
-        let s = Store::open_memory().unwrap();
-        s.upsert_pending_agent("pkX", "intruder", "their-box", "owner1", 5)
-            .unwrap();
-        s.upsert_pending_agent("pkX", "intruder", "their-box", "owner1", 6)
-            .unwrap(); // upsert
-        let pend = s.list_pending_agents().unwrap();
-        assert_eq!(pend.len(), 1);
-        assert_eq!(pend[0].slug, "intruder");
-        s.remove_pending_agent("pkX").unwrap();
-        assert!(s.list_pending_agents().unwrap().is_empty());
     }
 
     #[test]
@@ -2250,9 +2254,9 @@ mod tests {
         let s = Store::open_memory().unwrap();
         s.upsert_profile("pk-a", "alpha", "host", 1).unwrap();
         s.upsert_profile("pk-b", "bravo", "host", 1).unwrap();
-        s.set_agent_status("pk-a", "current", None, "working here", true, 100)
+        s.set_agent_status("pk-a", "current", None, "working here", "", true, 100)
             .unwrap();
-        s.set_agent_status("pk-b", "elsewhere", None, "working there", true, 100)
+        s.set_agent_status("pk-b", "elsewhere", None, "working there", "", true, 100)
             .unwrap();
 
         let scoped = s.list_status_changes_since(50, Some("current")).unwrap();
@@ -2287,7 +2291,8 @@ mod tests {
     fn group_member_upsert_and_query() {
         let s = Store::open_memory().unwrap();
         assert!(!s.is_group_member("proj", "pk-a").unwrap());
-        s.upsert_group_member("proj", "pk-a", "member", 100).unwrap();
+        s.upsert_group_member("proj", "pk-a", "member", 100)
+            .unwrap();
         assert!(s.is_group_member("proj", "pk-a").unwrap());
         // Membership is per (project, pubkey).
         assert!(!s.is_group_member("other", "pk-a").unwrap());
@@ -2300,11 +2305,15 @@ mod tests {
     #[test]
     fn replace_group_members_is_authoritative() {
         let s = Store::open_memory().unwrap();
-        s.upsert_group_member("proj", "stale", "member", 100).unwrap();
+        s.upsert_group_member("proj", "stale", "member", 100)
+            .unwrap();
         // A relay 39002 snapshot replaces the whole set: 'stale' drops out.
         s.replace_group_members(
             "proj",
-            &[("pk-a".into(), "member".into()), ("pk-b".into(), "admin".into())],
+            &[
+                ("pk-a".into(), "member".into()),
+                ("pk-b".into(), "admin".into()),
+            ],
             300,
         )
         .unwrap();
@@ -2312,7 +2321,8 @@ mod tests {
         assert!(s.is_group_member("proj", "pk-a").unwrap());
         assert!(s.is_group_member("proj", "pk-b").unwrap());
         // Scoped to the project — a different group is untouched.
-        s.upsert_group_member("other", "pk-x", "member", 100).unwrap();
+        s.upsert_group_member("other", "pk-x", "member", 100)
+            .unwrap();
         s.replace_group_members("proj", &[], 400).unwrap();
         assert!(!s.is_group_member("proj", "pk-a").unwrap());
         assert!(s.is_group_member("other", "pk-x").unwrap());
@@ -2344,10 +2354,16 @@ mod tests {
         };
 
         // First insert: new row → true.
-        assert!(s.enqueue_mention(&base).unwrap(), "first insert must return true");
+        assert!(
+            s.enqueue_mention(&base).unwrap(),
+            "first insert must return true"
+        );
 
         // Duplicate for the SAME (event_id, session): must be ignored → false.
-        assert!(!s.enqueue_mention(&base).unwrap(), "duplicate must be ignored (idempotent)");
+        assert!(
+            !s.enqueue_mention(&base).unwrap(),
+            "duplicate must be ignored (idempotent)"
+        );
 
         // Same event id, DIFFERENT session: distinct PK → separate delivery → true.
         let mut other_session = base.clone();
@@ -2365,7 +2381,10 @@ mod tests {
         let drained = s.drain_inbox("sess-X").unwrap();
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].body, "hello");
-        assert!(s.drain_inbox("sess-X").unwrap().is_empty(), "delivered rows must not re-drain");
+        assert!(
+            s.drain_inbox("sess-X").unwrap().is_empty(),
+            "delivered rows must not re-drain"
+        );
     }
 
     /// FREEZE B2: replace_group_members applied TWICE with the same snapshot is
@@ -2380,7 +2399,8 @@ mod tests {
         ];
 
         // Seed a stale member that should vanish.
-        s.upsert_group_member("proj", "pk-stale", "member", 50).unwrap();
+        s.upsert_group_member("proj", "pk-stale", "member", 50)
+            .unwrap();
 
         // First apply.
         s.replace_group_members("proj", &snapshot, 200).unwrap();
@@ -2390,88 +2410,28 @@ mod tests {
 
         // Identical second apply — observable membership must be unchanged.
         s.replace_group_members("proj", &snapshot, 300).unwrap();
-        assert!(s.is_group_member("proj", "pk-alpha").unwrap(), "alpha still member after re-apply");
-        assert!(s.is_group_member("proj", "pk-beta").unwrap(), "beta still member after re-apply");
-        assert!(!s.is_group_member("proj", "pk-stale").unwrap(), "stale still absent after re-apply");
+        assert!(
+            s.is_group_member("proj", "pk-alpha").unwrap(),
+            "alpha still member after re-apply"
+        );
+        assert!(
+            s.is_group_member("proj", "pk-beta").unwrap(),
+            "beta still member after re-apply"
+        );
+        assert!(
+            !s.is_group_member("proj", "pk-stale").unwrap(),
+            "stale still absent after re-apply"
+        );
 
         // A sibling project is completely unaffected by both applies.
-        s.upsert_group_member("other-proj", "pk-other", "member", 100).unwrap();
+        s.upsert_group_member("other-proj", "pk-other", "member", 100)
+            .unwrap();
         s.replace_group_members("proj", &snapshot, 400).unwrap();
-        assert!(s.is_group_member("other-proj", "pk-other").unwrap(), "sibling project untouched");
+        assert!(
+            s.is_group_member("other-proj", "pk-other").unwrap(),
+            "sibling project untouched"
+        );
         assert!(!s.is_group_member("other-proj", "pk-alpha").unwrap());
-    }
-
-    /// FREEZE B3: pending_agents store primitives used by the ACL classification.
-    ///
-    /// The end-to-end ACL decision (is_allowed → upsert_profile; owner-overlap and
-    /// not-blocked → upsert_pending_agent; blocked/unrelated → ignore) lives in
-    /// daemon/server.rs and is tested at the integration layer by
-    /// tests/daemon_integration.rs (owned by a sibling agent).
-    ///
-    /// This test pins the STORE PRIMITIVES that the three branches rely on:
-    /// - "allowed" branch: profile in profiles table → resolvable, not in pending.
-    /// - "owner-related but unknown" branch: pubkey in pending_agents → in list,
-    ///   but NOT automatically resolvable via resolve_agent_pubkey (not in profiles
-    ///   or peer_sessions).
-    /// - promotion path: remove_pending_agent + upsert_profile → no longer pending,
-    ///   now resolvable.
-    ///
-    // FREEZE-NOTE: the is_allowed/is_blocked/owner-overlap selector that routes to
-    // these primitives is in daemon/server.rs (private daemon code). It reads
-    // ~/.tenex allowlist/blocklist files (process-global env vars). Pure unit
-    // coverage is impossible without touching those env vars (which would race with
-    // acl.rs's own tests). End-to-end ACL admission is frozen at the integration
-    // layer (tests/daemon_integration.rs).
-    #[test]
-    fn freeze_pending_agents_vs_profiles_store_primitives() {
-        let s = Store::open_memory().unwrap();
-
-        // ── "allowed" branch: upsert_profile → resolvable, not in pending list ──
-        s.upsert_profile("pk-allowed", "allowed-agent", "host-a", 100).unwrap();
-        assert!(
-            s.resolve_agent_pubkey("allowed-agent", None).unwrap().as_deref() == Some("pk-allowed"),
-            "allowed branch: profile resolvable"
-        );
-        assert!(
-            s.list_pending_agents().unwrap().iter().all(|p| p.pubkey != "pk-allowed"),
-            "allowed branch: not in pending_agents"
-        );
-
-        // ── "unknown but owner-related" branch: upsert_pending_agent → in pending, NOT resolvable ──
-        s.upsert_pending_agent("pk-pending", "pending-agent", "host-b", "owner-pk", 200).unwrap();
-        let pending = s.list_pending_agents().unwrap();
-        assert!(
-            pending.iter().any(|p| p.pubkey == "pk-pending"),
-            "owner-related unknown: appears in pending_agents"
-        );
-        // NOT in profiles or peer_sessions → resolve returns None.
-        assert!(
-            s.resolve_agent_pubkey("pending-agent", None).unwrap().is_none(),
-            "owner-related unknown: NOT resolvable via resolve_agent_pubkey"
-        );
-
-        // ── "blocked/unrelated" branch: neither primitive called → nothing in store ──
-        // (We just check the baseline: no row for "blocked-agent" or "pk-blocked".)
-        assert!(
-            s.resolve_agent_pubkey("blocked-agent", None).unwrap().is_none(),
-            "blocked/unrelated: not resolvable"
-        );
-        assert!(
-            s.list_pending_agents().unwrap().iter().all(|p| p.pubkey != "pk-blocked"),
-            "blocked/unrelated: not in pending_agents"
-        );
-
-        // ── promotion path: pending → remove + upsert_profile → no longer pending ──
-        s.remove_pending_agent("pk-pending").unwrap();
-        s.upsert_profile("pk-pending", "pending-agent", "host-b", 300).unwrap();
-        assert!(
-            s.list_pending_agents().unwrap().iter().all(|p| p.pubkey != "pk-pending"),
-            "after promotion: not in pending_agents"
-        );
-        assert!(
-            s.resolve_agent_pubkey("pending-agent", None).unwrap().as_deref() == Some("pk-pending"),
-            "after promotion: resolvable via profiles"
-        );
     }
 
     /// FREEZE B4: peek_inbox is read-only — rows survive a peek and remain
@@ -2497,17 +2457,31 @@ mod tests {
         s.enqueue_mention(&row).unwrap();
 
         // peek: row is visible.
-        assert_eq!(s.peek_inbox("sess-peek").unwrap().len(), 1, "peek must see the row");
+        assert_eq!(
+            s.peek_inbox("sess-peek").unwrap().len(),
+            1,
+            "peek must see the row"
+        );
         // peek again: still there (not consumed).
-        assert_eq!(s.peek_inbox("sess-peek").unwrap().len(), 1, "second peek must still see the row");
+        assert_eq!(
+            s.peek_inbox("sess-peek").unwrap().len(),
+            1,
+            "second peek must still see the row"
+        );
 
         // drain: consumes and marks delivered.
         let drained = s.drain_inbox("sess-peek").unwrap();
         assert_eq!(drained.len(), 1);
 
         // After drain, both peek and drain return empty.
-        assert!(s.peek_inbox("sess-peek").unwrap().is_empty(), "peek after drain must be empty");
-        assert!(s.drain_inbox("sess-peek").unwrap().is_empty(), "second drain must be empty");
+        assert!(
+            s.peek_inbox("sess-peek").unwrap().is_empty(),
+            "peek after drain must be empty"
+        );
+        assert!(
+            s.drain_inbox("sess-peek").unwrap().is_empty(),
+            "second drain must be empty"
+        );
     }
 
     // ── Phase 1: canonical read-model schema ─────────────────────────────
@@ -2544,7 +2518,8 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1, "no duplicate project row");
         assert_eq!(
-            s.project_id_for_origin("kind1-nip29", "relayhash", "tenex-edge").unwrap(),
+            s.project_id_for_origin("kind1-nip29", "relayhash", "tenex-edge")
+                .unwrap(),
             Some(a.clone())
         );
         // A different fabric/instance/key is a distinct project.
@@ -2566,10 +2541,13 @@ mod tests {
             MembershipDecision::Unhydrated
         );
         // Admit bob → bob is Member, alice is NotMember (rows now exist).
-        s.admit_member(&pid, "bob", "member", "nip29-39002", 50).unwrap();
+        s.admit_member(&pid, "bob", "member", "nip29-39002", 50)
+            .unwrap();
         assert_eq!(
             s.is_member_at(&pid, "bob", 100).unwrap(),
-            MembershipDecision::Member { role: "member".into() }
+            MembershipDecision::Member {
+                role: "member".into()
+            }
         );
         assert_eq!(
             s.is_member_at(&pid, "alice", 100).unwrap(),
@@ -2582,29 +2560,57 @@ mod tests {
         );
         // Revoke bob at t=80 → Revoked when queried at/after 80, still Member before.
         s.revoke_member(&pid, "bob", 80).unwrap();
-        assert_eq!(s.is_member_at(&pid, "bob", 100).unwrap(), MembershipDecision::Revoked);
-        assert_eq!(
-            s.is_member_at(&pid, "bob", 60).unwrap(),
-            MembershipDecision::Member { role: "member".into() }
-        );
-        // Re-admit clears the revocation.
-        s.admit_member(&pid, "bob", "admin", "nip29-39002", 90).unwrap();
         assert_eq!(
             s.is_member_at(&pid, "bob", 100).unwrap(),
-            MembershipDecision::Member { role: "admin".into() }
+            MembershipDecision::Revoked
+        );
+        assert_eq!(
+            s.is_member_at(&pid, "bob", 60).unwrap(),
+            MembershipDecision::Member {
+                role: "member".into()
+            }
+        );
+        // Re-admit clears the revocation.
+        s.admit_member(&pid, "bob", "admin", "nip29-39002", 90)
+            .unwrap();
+        assert_eq!(
+            s.is_member_at(&pid, "bob", 100).unwrap(),
+            MembershipDecision::Member {
+                role: "admin".into()
+            }
         );
     }
 
     #[test]
     fn phase1_record_message_dedups_on_native_event_id() {
         let s = Store::open_memory().unwrap();
-        let pid = s.ensure_project_origin("kind1-nip29", "ri", "p", "p", 1).unwrap();
-        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "root-eid", 1).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
+            .unwrap();
+        let tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "root-eid", 1)
+            .unwrap();
         let m1 = s
-            .record_message(&tid, "author", "hi", 10, "inbound", "accepted", Some("evt-1"))
+            .record_message(
+                &tid,
+                "author",
+                "hi",
+                10,
+                "inbound",
+                "accepted",
+                Some("evt-1"),
+            )
             .unwrap();
         let m2 = s
-            .record_message(&tid, "author", "hi (echo)", 10, "inbound", "accepted", Some("evt-1"))
+            .record_message(
+                &tid,
+                "author",
+                "hi (echo)",
+                10,
+                "inbound",
+                "accepted",
+                Some("evt-1"),
+            )
             .unwrap();
         assert_eq!(m1, m2, "same native_event_id → same message_id (no dup)");
         let count: i64 = s
@@ -2618,8 +2624,10 @@ mod tests {
             .unwrap();
         assert_ne!(m1, m3);
         // Recipient rows are idempotent.
-        s.add_message_recipient(&m1, "rcpt", Some("sess-1")).unwrap();
-        s.add_message_recipient(&m1, "rcpt", Some("sess-1")).unwrap();
+        s.add_message_recipient(&m1, "rcpt", Some("sess-1"))
+            .unwrap();
+        s.add_message_recipient(&m1, "rcpt", Some("sess-1"))
+            .unwrap();
         let rc: i64 = s
             .conn
             .query_row("SELECT COUNT(*) FROM message_recipients", [], |r| r.get(0))
@@ -2630,8 +2638,10 @@ mod tests {
     #[test]
     fn phase1_quarantine_roundtrip_and_idempotent() {
         let s = Store::open_memory().unwrap();
-        s.quarantine_inbound("evt-q", Some("proj-x"), "unhydrated", "{\"raw\":1}", 5).unwrap();
-        s.quarantine_inbound("evt-q", Some("proj-x"), "unhydrated", "{\"raw\":1}", 9).unwrap();
+        s.quarantine_inbound("evt-q", Some("proj-x"), "unhydrated", "{\"raw\":1}", 5)
+            .unwrap();
+        s.quarantine_inbound("evt-q", Some("proj-x"), "unhydrated", "{\"raw\":1}", 9)
+            .unwrap();
         let all = s.replay_quarantine(None).unwrap();
         assert_eq!(all.len(), 1, "INSERT OR IGNORE dedups by native_event_id");
         assert_eq!(all[0].project_id.as_deref(), Some("proj-x"));
@@ -2645,21 +2655,29 @@ mod tests {
     fn phase1_backfill_is_idempotent() {
         let s = Store::open_memory().unwrap();
         // Seed legacy state across the four source tables.
-        s.upsert_project_meta("tenex-edge", "the edge fabric", 1).unwrap();
+        s.upsert_project_meta("tenex-edge", "the edge fabric", 1)
+            .unwrap();
         s.upsert_peer_session("ps-1", "pk-peer", "peer", "otherproj", "host", "", 1)
             .unwrap();
         s.replace_group_members(
             "tenex-edge",
-            &[("pk-1".into(), "admin".into()), ("pk-2".into(), "member".into())],
+            &[
+                ("pk-1".into(), "admin".into()),
+                ("pk-2".into(), "member".into()),
+            ],
             1,
         )
         .unwrap();
 
         let projects_before = || -> i64 {
-            s.conn.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap()
+            s.conn
+                .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+                .unwrap()
         };
         let members_before = || -> i64 {
-            s.conn.query_row("SELECT COUNT(*) FROM membership", [], |r| r.get(0)).unwrap()
+            s.conn
+                .query_row("SELECT COUNT(*) FROM membership", [], |r| r.get(0))
+                .unwrap()
         };
 
         s.backfill_kind1_nip29_origins("relayhash", 100).unwrap();
@@ -2675,20 +2693,34 @@ mod tests {
             .unwrap();
         let about: Option<String> = s
             .conn
-            .query_row("SELECT about FROM projects WHERE project_id=?1", params![pid], |r| r.get(0))
+            .query_row(
+                "SELECT about FROM projects WHERE project_id=?1",
+                params![pid],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(about.as_deref(), Some("the edge fabric"));
 
         // membership reflects the roster.
         assert_eq!(
             s.is_member_at(&pid, "pk-1", 200).unwrap(),
-            MembershipDecision::Member { role: "admin".into() }
+            MembershipDecision::Member {
+                role: "admin".into()
+            }
         );
 
         // Second run is a no-op at the row-count level.
         s.backfill_kind1_nip29_origins("relayhash", 300).unwrap();
-        assert_eq!(projects_before(), p1, "no duplicate project rows on re-backfill");
-        assert_eq!(members_before(), m1, "no duplicate membership rows on re-backfill");
+        assert_eq!(
+            projects_before(),
+            p1,
+            "no duplicate project rows on re-backfill"
+        );
+        assert_eq!(
+            members_before(),
+            m1,
+            "no duplicate membership rows on re-backfill"
+        );
     }
 
     // ── Phase 2: read-model and write-facing materializer unit tests ─────────
@@ -2714,7 +2746,10 @@ mod tests {
         let s = Store::open_memory().unwrap();
         assert!(s.project_meta_read_model("missing").unwrap().is_none());
         s.upsert_project_meta("proj", "the about", 1).unwrap();
-        assert_eq!(s.project_meta_read_model("proj").unwrap().as_deref(), Some("the about"));
+        assert_eq!(
+            s.project_meta_read_model("proj").unwrap().as_deref(),
+            Some("the about")
+        );
     }
 
     /// list_agents_read_model returns alive sessions filtered by project + freshness.
@@ -2747,20 +2782,26 @@ mod tests {
     #[test]
     fn phase2_list_presence_read_model_delegates() {
         let s = Store::open_memory().unwrap();
-        s.upsert_peer_session("ps1", "pk-a", "agentA", "proj", "host", "", 500).unwrap();
+        s.upsert_peer_session("ps1", "pk-a", "agentA", "proj", "host", "", 500)
+            .unwrap();
         let rows = s.list_presence_read_model(Some("proj"), 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].slug, "agentA");
         // Since filter.
-        assert!(s.list_presence_read_model(Some("proj"), 600).unwrap().is_empty());
+        assert!(s
+            .list_presence_read_model(Some("proj"), 600)
+            .unwrap()
+            .is_empty());
     }
 
     /// list_status_read_model returns (pubkey, project, text) rows.
     #[test]
     fn phase2_list_status_read_model() {
         let s = Store::open_memory().unwrap();
-        s.set_agent_status("pk-a", "proj", None, "working", true, 100).unwrap();
-        s.set_agent_status("pk-b", "other", None, "idle", false, 200).unwrap();
+        s.set_agent_status("pk-a", "proj", None, "working", "", true, 100)
+            .unwrap();
+        s.set_agent_status("pk-b", "other", None, "idle", "", false, 200)
+            .unwrap();
         let all = s.list_status_read_model(None).unwrap();
         assert_eq!(all.len(), 2);
         let scoped = s.list_status_read_model(Some("proj")).unwrap();
@@ -2773,10 +2814,17 @@ mod tests {
     #[test]
     fn phase2_list_threads_empty_until_phase7() {
         let s = Store::open_memory().unwrap();
-        let pid = s.ensure_project_origin("kind1-nip29", "ri", "p", "p", 1).unwrap();
-        assert!(s.list_threads(&pid).unwrap().is_empty(), "threads empty before Phase 7");
+        let pid = s
+            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
+            .unwrap();
+        assert!(
+            s.list_threads(&pid).unwrap().is_empty(),
+            "threads empty before Phase 7"
+        );
         // After ensure_thread_origin it is populated — verify the enriched struct.
-        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2).unwrap();
+        let tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
+            .unwrap();
         let threads = s.list_threads(&pid).unwrap();
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].thread_id, tid);
@@ -2789,10 +2837,16 @@ mod tests {
     #[test]
     fn phase2_messages_for_thread_empty_until_phase6() {
         let s = Store::open_memory().unwrap();
-        let pid = s.ensure_project_origin("kind1-nip29", "ri", "p", "p", 1).unwrap();
-        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
+            .unwrap();
+        let tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
+            .unwrap();
         assert!(s.messages_for_thread(&tid).unwrap().is_empty());
-        let mid = s.record_message(&tid, "pk", "hello", 3, "inbound", "accepted", None).unwrap();
+        let mid = s
+            .record_message(&tid, "pk", "hello", 3, "inbound", "accepted", None)
+            .unwrap();
         let msgs = s.messages_for_thread(&tid).unwrap();
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].message_id, mid);
@@ -2820,19 +2874,29 @@ mod tests {
         };
         s.enqueue_mention(&row).unwrap();
         // Call twice — rows survive (non-destructive).
-        assert_eq!(s.undelivered_messages_for_session("sess-rm").unwrap().len(), 1);
-        assert_eq!(s.undelivered_messages_for_session("sess-rm").unwrap().len(), 1);
+        assert_eq!(
+            s.undelivered_messages_for_session("sess-rm").unwrap().len(),
+            1
+        );
+        assert_eq!(
+            s.undelivered_messages_for_session("sess-rm").unwrap().len(),
+            1
+        );
         // drain_inbox still works after peeking via the read-model method.
         let drained = s.drain_inbox("sess-rm").unwrap();
         assert_eq!(drained.len(), 1);
-        assert!(s.undelivered_messages_for_session("sess-rm").unwrap().is_empty());
+        assert!(s
+            .undelivered_messages_for_session("sess-rm")
+            .unwrap()
+            .is_empty());
     }
 
     /// materialize_profile round-trips through upsert_profile.
     #[test]
     fn phase2_materialize_profile() {
         let s = Store::open_memory().unwrap();
-        s.materialize_profile("pk-mp", "agent-mp", "host-mp", 100).unwrap();
+        s.materialize_profile("pk-mp", "agent-mp", "host-mp", 100)
+            .unwrap();
         let pk = s.resolve_agent_pubkey("agent-mp", None).unwrap();
         assert_eq!(pk.as_deref(), Some("pk-mp"));
     }
@@ -2841,7 +2905,10 @@ mod tests {
     #[test]
     fn phase2_materialize_presence() {
         let s = Store::open_memory().unwrap();
-        s.materialize_presence("sess-mp", "pk-mp", "agent-mp", "proj", "host", "subdir", 100).unwrap();
+        s.materialize_presence(
+            "sess-mp", "pk-mp", "agent-mp", "proj", "host", "subdir", 100,
+        )
+        .unwrap();
         let rows = s.list_presence_read_model(Some("proj"), 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].rel_cwd, "subdir");
@@ -2851,10 +2918,23 @@ mod tests {
     #[test]
     fn phase2_materialize_status() {
         let s = Store::open_memory().unwrap();
-        s.materialize_status("pk-ms", "proj", None, "reviewing", true, 100).unwrap();
+        s.materialize_status(
+            "pk-ms",
+            "proj",
+            None,
+            "reviewing",
+            "reading the diff",
+            true,
+            100,
+        )
+        .unwrap();
         assert_eq!(
             s.get_agent_status("pk-ms", "proj", None).unwrap(),
-            Some(("reviewing".to_string(), true))
+            Some((
+                "reviewing".to_string(),
+                "reading the diff".to_string(),
+                true
+            ))
         );
     }
 
@@ -2864,15 +2944,19 @@ mod tests {
     fn phase2_materialize_membership_snapshot_updates_both_tables() {
         let s = Store::open_memory().unwrap();
         // Seed a legacy stale member.
-        s.upsert_group_member("proj", "stale", "member", 50).unwrap();
+        s.upsert_group_member("proj", "stale", "member", 50)
+            .unwrap();
         // Seed canonical origin.
-        let pid = s.ensure_project_origin("kind1-nip29", "ri", "proj", "proj", 1).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", "ri", "proj", "proj", 1)
+            .unwrap();
 
         let members = vec![
             ("pk-a".to_string(), "member".to_string()),
             ("pk-b".to_string(), "admin".to_string()),
         ];
-        s.materialize_membership_snapshot("proj", &members, "ri", 200).unwrap();
+        s.materialize_membership_snapshot("proj", &members, "ri", 200)
+            .unwrap();
 
         // Legacy table: stale gone, new members present.
         assert!(!s.is_group_member("proj", "stale").unwrap());
@@ -2882,11 +2966,15 @@ mod tests {
         // Canonical membership mirrored.
         assert_eq!(
             s.is_member_at(&pid, "pk-a", 300).unwrap(),
-            MembershipDecision::Member { role: "member".into() }
+            MembershipDecision::Member {
+                role: "member".into()
+            }
         );
         assert_eq!(
             s.is_member_at(&pid, "pk-b", 300).unwrap(),
-            MembershipDecision::Member { role: "admin".into() }
+            MembershipDecision::Member {
+                role: "admin".into()
+            }
         );
     }
 
@@ -2896,7 +2984,8 @@ mod tests {
         let s = Store::open_memory().unwrap();
         let members = vec![("pk-x".to_string(), "member".to_string())];
         // No project_origins row → canonical mirror is a no-op, legacy still updates.
-        s.materialize_membership_snapshot("unknown-proj", &members, "ri", 200).unwrap();
+        s.materialize_membership_snapshot("unknown-proj", &members, "ri", 200)
+            .unwrap();
         assert!(s.is_group_member("unknown-proj", "pk-x").unwrap());
     }
 
@@ -2919,8 +3008,14 @@ mod tests {
             dirty: 0,
             host: String::new(),
         };
-        assert!(s.materialize_inbound_message(&row).unwrap(), "first insert → true");
-        assert!(!s.materialize_inbound_message(&row).unwrap(), "duplicate → false (idempotent)");
+        assert!(
+            s.materialize_inbound_message(&row).unwrap(),
+            "first insert → true"
+        );
+        assert!(
+            !s.materialize_inbound_message(&row).unwrap(),
+            "duplicate → false (idempotent)"
+        );
         assert_eq!(s.peek_inbox("sess-mat").unwrap().len(), 1);
     }
 
@@ -2929,39 +3024,65 @@ mod tests {
     #[test]
     fn phase2_materialize_outbound_lifecycle() {
         let s = Store::open_memory().unwrap();
-        let pid = s.ensure_project_origin("kind1-nip29", "ri", "p", "p", 1).unwrap();
-        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
+            .unwrap();
+        let tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
+            .unwrap();
 
-        let mid = s.materialize_outbound_message(&tid, "pk-author", "hey", 10, Some("nat-1")).unwrap();
+        let mid = s
+            .materialize_outbound_message(&tid, "pk-author", "hey", 10, Some("nat-1"))
+            .unwrap();
         // Initial state is "pending".
-        let state: String = s.conn
-            .query_row("SELECT sync_state FROM messages WHERE message_id=?1", params![mid], |r| r.get(0))
+        let state: String = s
+            .conn
+            .query_row(
+                "SELECT sync_state FROM messages WHERE message_id=?1",
+                params![mid],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(state, "pending");
 
         s.mark_outbound_accepted(&mid).unwrap();
-        let state: String = s.conn
-            .query_row("SELECT sync_state FROM messages WHERE message_id=?1", params![mid], |r| r.get(0))
+        let state: String = s
+            .conn
+            .query_row(
+                "SELECT sync_state FROM messages WHERE message_id=?1",
+                params![mid],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(state, "accepted");
 
         s.mark_outbound_echoed(&mid).unwrap();
-        let state: String = s.conn
-            .query_row("SELECT sync_state FROM messages WHERE message_id=?1", params![mid], |r| r.get(0))
+        let state: String = s
+            .conn
+            .query_row(
+                "SELECT sync_state FROM messages WHERE message_id=?1",
+                params![mid],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(state, "echoed");
 
         s.mark_outbound_failed(&mid, "relay rejected").unwrap();
-        let (st, err): (String, Option<String>) = s.conn
-            .query_row("SELECT sync_state, error FROM messages WHERE message_id=?1", params![mid], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+        let (st, err): (String, Option<String>) = s
+            .conn
+            .query_row(
+                "SELECT sync_state, error FROM messages WHERE message_id=?1",
+                params![mid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!(st, "failed");
         assert_eq!(err.as_deref(), Some("relay rejected"));
 
         // Idempotent dedup on native_event_id.
-        let mid2 = s.materialize_outbound_message(&tid, "pk-author", "hey (echo)", 10, Some("nat-1")).unwrap();
+        let mid2 = s
+            .materialize_outbound_message(&tid, "pk-author", "hey (echo)", 10, Some("nat-1"))
+            .unwrap();
         assert_eq!(mid, mid2, "same native_event_id → same message_id");
     }
 
@@ -2974,11 +3095,19 @@ mod tests {
     #[test]
     fn add_message_recipient_is_idempotent_for_null_target_session() {
         let s = Store::open_memory().unwrap();
-        let tid = s.ensure_thread_origin(
-            &s.ensure_project_origin("kind1-nip29", "pi", "p", "p", 1).unwrap(),
-            "kind1-nip29", "pi", "root", 1,
-        ).unwrap();
-        let mid = s.record_message(&tid, "auth", "b", 1, "inbound", "received", Some("evt")).unwrap();
+        let tid = s
+            .ensure_thread_origin(
+                &s.ensure_project_origin("kind1-nip29", "pi", "p", "p", 1)
+                    .unwrap(),
+                "kind1-nip29",
+                "pi",
+                "root",
+                1,
+            )
+            .unwrap();
+        let mid = s
+            .record_message(&tid, "auth", "b", 1, "inbound", "received", Some("evt"))
+            .unwrap();
         // Untargeted: many re-deliveries → still one row.
         for _ in 0..5 {
             s.add_message_recipient(&mid, "rcpt", None).unwrap();
@@ -2987,14 +3116,23 @@ mod tests {
             "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1 AND recipient_pubkey='rcpt' AND target_session IS NULL",
             params![mid], |r| r.get(0),
         ).unwrap();
-        assert_eq!(n, 1, "untargeted recipient must not duplicate across re-materialization");
+        assert_eq!(
+            n, 1,
+            "untargeted recipient must not duplicate across re-materialization"
+        );
         // Targeted dedup still works, and is a DISTINCT row from the untargeted one.
         for _ in 0..3 {
-            s.add_message_recipient(&mid, "rcpt", Some("sess-1")).unwrap();
+            s.add_message_recipient(&mid, "rcpt", Some("sess-1"))
+                .unwrap();
         }
-        let total: i64 = s.conn.query_row(
-            "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1", params![mid], |r| r.get(0),
-        ).unwrap();
+        let total: i64 = s
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
+                params![mid],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(total, 2, "one untargeted + one targeted recipient row");
     }
 
@@ -3016,9 +3154,18 @@ mod tests {
             .ensure_thread_origin(&project_id, "kind1-nip29", pi, eid, now)
             .unwrap();
         let message_id = s
-            .record_message(&thread_id, "pk-sender", "hello world", now, "outbound", "published", Some(eid))
+            .record_message(
+                &thread_id,
+                "pk-sender",
+                "hello world",
+                now,
+                "outbound",
+                "published",
+                Some(eid),
+            )
             .unwrap();
-        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1")).unwrap();
+        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1"))
+            .unwrap();
 
         // Verify the canonical message row.
         let (direction, sync_state, native_eid): (String, String, Option<String>) = s
@@ -3046,12 +3193,24 @@ mod tests {
 
         // Idempotency: same native_event_id → same message_id, no new row.
         let mid2 = s
-            .record_message(&thread_id, "pk-sender", "hello world (echo)", now, "outbound", "published", Some(eid))
+            .record_message(
+                &thread_id,
+                "pk-sender",
+                "hello world (echo)",
+                now,
+                "outbound",
+                "published",
+                Some(eid),
+            )
             .unwrap();
-        assert_eq!(message_id, mid2, "same native_event_id → same message_id (dedup)");
+        assert_eq!(
+            message_id, mid2,
+            "same native_event_id → same message_id (dedup)"
+        );
 
         // add_message_recipient is INSERT OR IGNORE → still only one row.
-        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1")).unwrap();
+        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1"))
+            .unwrap();
         let rcpt_count2: i64 = s
             .conn
             .query_row(
@@ -3100,7 +3259,10 @@ mod tests {
         let eid = event.id.to_hex();
 
         let mention = crate::domain::Mention {
-            from: crate::domain::AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
+            from: crate::domain::AgentRef::new(
+                sender_keys.public_key().to_hex(),
+                "sender".to_string(),
+            ),
             to_pubkey: pk_hex.clone(),
             project: "test-proj".into(),
             body: "hi from sender".into(),
@@ -3112,17 +3274,21 @@ mod tests {
         let now = 2000u64;
 
         // First materialization.
-        let (routed1, thread1) = Kind1Materializer::materialize_inbound_message(
-            &s, &pk_hex, &mention, &event, pi, now,
-        );
+        let (routed1, thread1) =
+            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
         assert!(routed1, "first delivery must route to session");
-        assert!(thread1.is_some(), "canonical write must report the thread id");
+        assert!(
+            thread1.is_some(),
+            "canonical write must report the thread id"
+        );
 
         // Second materialization (relay echo) — must be a no-op everywhere.
-        let (routed2, _) = Kind1Materializer::materialize_inbound_message(
-            &s, &pk_hex, &mention, &event, pi, now,
+        let (routed2, _) =
+            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
+        assert!(
+            !routed2,
+            "echo: inbox already has this (mention_event_id, target_session)"
         );
-        assert!(!routed2, "echo: inbox already has this (mention_event_id, target_session)");
 
         // Exactly one canonical message row.
         let msg_count: i64 = s
@@ -3173,15 +3339,41 @@ mod tests {
     fn phase7_read_model_enriched_data() {
         let s = Store::open_memory().unwrap();
         let pi = "test-pi-p7";
-        let pid = s.ensure_project_origin("kind1-nip29", pi, "myproj", "myproj", 100).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", pi, "myproj", "myproj", 100)
+            .unwrap();
 
         // Two threads; second thread has messages; first does not.
-        let tid1 = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t1", 100).unwrap();
-        let tid2 = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t2", 200).unwrap();
+        let tid1 = s
+            .ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t1", 100)
+            .unwrap();
+        let tid2 = s
+            .ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t2", 200)
+            .unwrap();
 
         // Add two messages to tid2.
-        let _m1 = s.record_message(&tid2, "pk-a", "first", 300, "inbound", "received", Some("eid-1")).unwrap();
-        let _m2 = s.record_message(&tid2, "pk-b", "second", 400, "outbound", "published", Some("eid-2")).unwrap();
+        let _m1 = s
+            .record_message(
+                &tid2,
+                "pk-a",
+                "first",
+                300,
+                "inbound",
+                "received",
+                Some("eid-1"),
+            )
+            .unwrap();
+        let _m2 = s
+            .record_message(
+                &tid2,
+                "pk-b",
+                "second",
+                400,
+                "outbound",
+                "published",
+                Some("eid-2"),
+            )
+            .unwrap();
 
         // list_threads — tid2 (last activity 400) should come first.
         let threads = s.list_threads(&pid).unwrap();
@@ -3217,15 +3409,21 @@ mod tests {
     fn phase7_thread_root_native_key() {
         let s = Store::open_memory().unwrap();
         let pi = "pi-rootkey";
-        let pid = s.ensure_project_origin("kind1-nip29", pi, "proj", "proj", 1).unwrap();
-        let tid = s.ensure_thread_origin(&pid, "kind1-nip29", pi, "root-event-abc", 2).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", pi, "proj", "proj", 1)
+            .unwrap();
+        let tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", pi, "root-event-abc", 2)
+            .unwrap();
 
         let key = s.thread_root_native_key(&tid, "kind1-nip29", pi);
         assert_eq!(key.as_deref(), Some("root-event-abc"));
 
         // Wrong fabric or provider_instance → None.
         assert!(s.thread_root_native_key(&tid, "other-fabric", pi).is_none());
-        assert!(s.thread_root_native_key(&tid, "kind1-nip29", "wrong-pi").is_none());
+        assert!(s
+            .thread_root_native_key(&tid, "kind1-nip29", "wrong-pi")
+            .is_none());
     }
 
     /// Reply grouping round-trip: a reply event carrying a root `e` tag pointing
@@ -3248,9 +3446,23 @@ mod tests {
         let e1_hex = "a".repeat(64);
 
         // Seed the outbound root: project origin → thread origin keyed on E1.
-        let pid = s.ensure_project_origin("kind1-nip29", pi, proj, proj, 100).unwrap();
-        let root_tid = s.ensure_thread_origin(&pid, "kind1-nip29", pi, &e1_hex, 100).unwrap();
-        let _root_mid = s.record_message(&root_tid, "pk-sender", "root message", 100, "outbound", "published", Some(&e1_hex)).unwrap();
+        let pid = s
+            .ensure_project_origin("kind1-nip29", pi, proj, proj, 100)
+            .unwrap();
+        let root_tid = s
+            .ensure_thread_origin(&pid, "kind1-nip29", pi, &e1_hex, 100)
+            .unwrap();
+        let _root_mid = s
+            .record_message(
+                &root_tid,
+                "pk-sender",
+                "root message",
+                100,
+                "outbound",
+                "published",
+                Some(&e1_hex),
+            )
+            .unwrap();
 
         // Build a signed inbound reply event carrying ["e", E1, "", "root"].
         let recipient_keys = Keys::generate();
@@ -3304,9 +3516,16 @@ mod tests {
         // The reply must land in the SAME thread as the root.
         let thread_count: i64 = s
             .conn
-            .query_row("SELECT COUNT(*) FROM threads WHERE project_id=?1", params![pid], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE project_id=?1",
+                params![pid],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(thread_count, 1, "reply must join the existing thread, not create a new one");
+        assert_eq!(
+            thread_count, 1,
+            "reply must join the existing thread, not create a new one"
+        );
 
         let msgs = s.messages_for_thread(&root_tid).unwrap();
         assert_eq!(msgs.len(), 2, "one root + one reply in the same thread");
@@ -3338,7 +3557,7 @@ mod tests {
             .record_message(
                 &thread_id,
                 &agent_pk,
-                "My Big Proposal",  // title is the body in the canonical row
+                "My Big Proposal", // title is the body in the canonical row
                 now,
                 "outbound",
                 "published",
@@ -3369,9 +3588,16 @@ mod tests {
                 Some(&event_id),
             )
             .unwrap();
-        assert_eq!(msg_id, mid2, "same native_event_id → same message_id (dedup)");
+        assert_eq!(
+            msg_id, mid2,
+            "same native_event_id → same message_id (dedup)"
+        );
         let msgs2 = s.messages_for_thread(&thread_id).unwrap();
-        assert_eq!(msgs2.len(), 1, "still one message row after idempotent write");
+        assert_eq!(
+            msgs2.len(),
+            1,
+            "still one message row after idempotent write"
+        );
     }
 
     /// Proposal attached to an existing thread: when --thread is given rpc_propose
@@ -3417,6 +3643,9 @@ mod tests {
         let msgs = s.messages_for_thread(&existing_thread_id).unwrap();
         assert_eq!(msgs.len(), 1, "one proposal message in the thread");
         assert_eq!(msgs[0].body, "Proposal Title");
-        assert_eq!(msgs[0].native_event_id.as_deref(), Some(proposal_event_id.as_str()));
+        assert_eq!(
+            msgs[0].native_event_id.as_deref(),
+            Some(proposal_event_id.as_str())
+        );
     }
 }

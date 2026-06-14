@@ -4,9 +4,9 @@ use super::*;
 #[derive(Debug, Clone)]
 pub struct SessionEndpoint {
     pub session_id: String,
-    pub kind: String,      // "tmux"
-    pub target: String,    // stable pane id, e.g. "%5"
-    pub meta: String,      // JSON: {"socket":"...", "pane_command":"claude"}
+    pub kind: String,   // "tmux"
+    pub target: String, // stable pane id, e.g. "%5"
+    pub meta: String,   // JSON: {"socket":"...", "pane_command":"claude"}
     pub registered_at: u64,
     pub last_verified: u64,
 }
@@ -33,7 +33,11 @@ impl Store {
         Ok(())
     }
 
-    pub fn get_session_endpoint(&self, session_id: &str, kind: &str) -> Result<Option<SessionEndpoint>> {
+    pub fn get_session_endpoint(
+        &self,
+        session_id: &str,
+        kind: &str,
+    ) -> Result<Option<SessionEndpoint>> {
         Ok(self
             .conn
             .query_row(
@@ -84,7 +88,12 @@ impl Store {
         Ok(())
     }
 
-    pub fn touch_session_endpoint_verified(&self, session_id: &str, kind: &str, now: u64) -> Result<()> {
+    pub fn touch_session_endpoint_verified(
+        &self,
+        session_id: &str,
+        kind: &str,
+        now: u64,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE session_endpoints SET last_verified=?3 WHERE session_id=?1 AND kind=?2",
             params![session_id, kind, now],

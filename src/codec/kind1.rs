@@ -6,7 +6,7 @@
 //! | Presence  | kind:30315 (NIP-38-style heartbeat), `["h", project]`, `["d", "tenex-edge-presence:<session>"]`, `["p", peer]…`, `["session-id", id]`, `["host", host]`, optional `["rel-cwd", rel]`, `["expiration", ts]` |
 //! | Activity   | kind:1,    `["h", project]` |
 //! | TurnReply  | kind:1,    `["h", project]`, `["e", root_id, "", "root"]`, `["e", reply_id, "", "reply"]` |
-//! | Status     | kind:30315 (NIP-38), `["h", project]`, `["d", project]`, optional `["session-id", id]`, optional `["rel-cwd", rel]`, `["active", "0"|"1"]`, `["expiration", ts]` |
+//! | Status     | kind:30315 (NIP-38), `["h", project]`, `["d", project]`, optional `["session-id", id]`, optional `["rel-cwd", rel]`, optional `["activity", now]`, `["active", "0"|"1"]`, `["expiration", ts]` |
 //! | Mention    | kind:1,    `["h", project]`, `["p", to]`, optional `["session-id", target]`, `["from-session", sender]`, `["subject", s]`, `["git-branch", b]`, `["git-commit", c]`, `["git-dirty", n]`, `["from-host", h]`, `["e", reply_to, "", "reply"]` |
 //!
 //! kind:1 disambiguation on decode (in priority order):
@@ -177,27 +177,26 @@ impl Codec for Kind1Codec {
                 agent: _agent,
                 project,
                 text,
-            }) => EventBuilder::new(kind(KIND_NOTE), text.clone()).tags([
-                project_tag(project)?,
-            ]),
+            }) => EventBuilder::new(kind(KIND_NOTE), text.clone()).tags([project_tag(project)?]),
             DomainEvent::Status(Status {
                 agent: _agent,
                 project,
                 session_id,
                 text,
+                activity,
                 active,
                 rel_cwd,
                 expires_at,
             }) => {
-                let mut tags = vec![
-                    project_tag(project)?,
-                    tag(&["d", project])?,
-                ];
+                let mut tags = vec![project_tag(project)?, tag(&["d", project])?];
                 if let Some(session_id) = session_id {
                     tags.push(tag(&["session-id", session_id.as_str()])?);
                 }
                 if !rel_cwd.is_empty() {
                     tags.push(tag(&["rel-cwd", rel_cwd])?);
+                }
+                if !activity.is_empty() {
+                    tags.push(tag(&["activity", activity])?);
                 }
                 tags.push(tag(&["active", if *active { "1" } else { "0" }])?);
                 if let Some(exp) = expires_at {
@@ -214,10 +213,7 @@ impl Codec for Kind1Codec {
                 from_session,
                 meta,
             }) => {
-                let mut tags = vec![
-                    project_tag(project)?,
-                    tag(&["p", to_pubkey])?,
-                ];
+                let mut tags = vec![project_tag(project)?, tag(&["p", to_pubkey])?];
                 if let Some(sess) = target_session {
                     tags.push(tag(&["session-id", sess.as_str()])?);
                 }
@@ -325,6 +321,7 @@ impl Codec for Kind1Codec {
                         project: project_from_tags(event)?,
                         session_id: first_tag(event, "session-id").map(SessionId::from),
                         text: event.content.clone(),
+                        activity: first_tag(event, "activity").unwrap_or_default().to_string(),
                         active: first_tag(event, "active") == Some("1"),
                         rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                         expires_at,
@@ -351,12 +348,18 @@ impl Codec for Kind1Codec {
                         from_session: first_tag(event, "from-session").map(SessionId::from),
                         meta: MentionMeta {
                             subject: first_tag(event, "subject").unwrap_or_default().to_string(),
-                            branch: first_tag(event, "git-branch").unwrap_or_default().to_string(),
-                            commit: first_tag(event, "git-commit").unwrap_or_default().to_string(),
+                            branch: first_tag(event, "git-branch")
+                                .unwrap_or_default()
+                                .to_string(),
+                            commit: first_tag(event, "git-commit")
+                                .unwrap_or_default()
+                                .to_string(),
                             dirty: first_tag(event, "git-dirty")
                                 .and_then(|s| s.parse().ok())
                                 .unwrap_or(0),
-                            host: first_tag(event, "from-host").unwrap_or_default().to_string(),
+                            host: first_tag(event, "from-host")
+                                .unwrap_or_default()
+                                .to_string(),
                             reply_to_event_id: e_tag_with_marker(event, "reply")
                                 .map(|s| s.to_string()),
                         },
@@ -396,7 +399,6 @@ impl Codec for Kind1Codec {
             _ => None,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -472,7 +474,11 @@ mod tests {
         // The relative dir survives encode→decode …
         assert_eq!(roundtrip(ev.clone(), &keys), ev);
         // … and lands as a `rel-cwd` tag on the wire.
-        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        let signed = Kind1Codec
+            .encode(&ev)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
         assert!(has_tag(&signed, "rel-cwd", "worktree1"));
         // … and the wire event has NO agent tag.
         assert!(!has_tag_name(&signed, "agent"));
@@ -491,7 +497,11 @@ mod tests {
             audience: vec![],
             expires_at: 1_900_000_000,
         });
-        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        let signed = Kind1Codec
+            .encode(&ev)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
         assert!(!has_tag_name(&signed, "rel-cwd"));
         match Kind1Codec.decode(&signed) {
             Some(DomainEvent::Presence(p)) => assert_eq!(p.rel_cwd, ""),
@@ -561,6 +571,7 @@ mod tests {
             project: "tenex-edge".into(),
             session_id: Some(SessionId::from("sess-status")),
             text: "reviewing PR".into(),
+            activity: "reading the diff".into(),
             active: true,
             rel_cwd: String::new(),
             expires_at: Some(1_900_000_000),
@@ -584,7 +595,11 @@ mod tests {
         });
         assert_eq!(roundtrip(ev.clone(), &keys), ev);
         // Wire event must have NO agent tag.
-        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        let signed = Kind1Codec
+            .encode(&ev)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
         assert!(!has_tag_name(&signed, "agent"));
     }
 
@@ -601,7 +616,11 @@ mod tests {
             from_session: Some("sender-9".into()),
             meta: MentionMeta::default(),
         });
-        let signed = Kind1Codec.encode(&ev).unwrap().sign_with_keys(&keys).unwrap();
+        let signed = Kind1Codec
+            .encode(&ev)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
         assert!(has_tag(&signed, "from-session", "sender-9"));
         // Wire event must have NO agent tag.
         assert!(!has_tag_name(&signed, "agent"));
@@ -720,9 +739,7 @@ mod tests {
         // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None.
         let keys = Keys::generate();
         let event = EventBuilder::new(Kind::from(KIND_NOTE), "old shape")
-            .tags([
-                tag(&["t", "tenex-edge"]).unwrap(),
-            ])
+            .tags([tag(&["t", "tenex-edge"]).unwrap()])
             .sign_with_keys(&keys)
             .unwrap();
         assert!(Kind1Codec.decode(&event).is_none());
@@ -809,5 +826,4 @@ mod tests {
         });
         assert!(matches!(roundtrip(ev, &keys), DomainEvent::Mention(_)));
     }
-
 }

@@ -116,7 +116,6 @@ fn threaded_conversation_between_claude_and_codex_e2e() {
     stop_daemon(&home);
 }
 
-
 #[test]
 fn freeze_send_message_dedup_exactly_one_inbox_row() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -382,24 +381,47 @@ fn freeze_untargeted_mention_reaches_all_sessions_of_recipient_agent_only() {
         let mut rcv2_got = false;
         for _ in 0..25 {
             if !rcv1_got {
-                let inbox1 = c.call("inbox", serde_json::json!({"session": "unt-rcv-1"})).await.unwrap();
-                rcv1_got = inbox1["rows"].as_array().unwrap().iter().any(|m| m["body"] == "broadcast-to-all");
+                let inbox1 = c
+                    .call("inbox", serde_json::json!({"session": "unt-rcv-1"}))
+                    .await
+                    .unwrap();
+                rcv1_got = inbox1["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|m| m["body"] == "broadcast-to-all");
             }
             if !rcv2_got {
-                let inbox2 = c.call("inbox", serde_json::json!({"session": "unt-rcv-2"})).await.unwrap();
-                rcv2_got = inbox2["rows"].as_array().unwrap().iter().any(|m| m["body"] == "broadcast-to-all");
+                let inbox2 = c
+                    .call("inbox", serde_json::json!({"session": "unt-rcv-2"}))
+                    .await
+                    .unwrap();
+                rcv2_got = inbox2["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|m| m["body"] == "broadcast-to-all");
             }
             if rcv1_got && rcv2_got {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        assert!(rcv1_got, "untargeted: receiver session 1 must get the message");
-        assert!(rcv2_got, "untargeted: receiver session 2 must get the message");
+        assert!(
+            rcv1_got,
+            "untargeted: receiver session 1 must get the message"
+        );
+        assert!(
+            rcv2_got,
+            "untargeted: receiver session 2 must get the message"
+        );
 
         // FREEZE: bystander inbox must be empty.
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let bys_inbox = c.call("inbox", serde_json::json!({"session": "unt-bys"})).await.unwrap();
+        let bys_inbox = c
+            .call("inbox", serde_json::json!({"session": "unt-bys"}))
+            .await
+            .unwrap();
         assert!(
             bys_inbox["rows"].as_array().unwrap().is_empty(),
             "bystander inbox must be empty after untargeted mention, got: {:?}",
@@ -451,7 +473,10 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // Record baseline membership state.
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session("freeze-grp-idem-1").unwrap().expect("session row");
+    let rec = store
+        .get_session("freeze-grp-idem-1")
+        .unwrap()
+        .expect("session row");
     let project = rec.project.clone();
 
     // FREEZE: group owned and member present after first start.
@@ -468,12 +493,14 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     // Store API (the daemon uses `replace_group_members` when it processes
     // kind:39002 from the relay — calling it twice is equivalent to receiving
     // the same event twice).
-    let members_snapshot = vec![
-        (rec.agent_pubkey.clone(), "member".to_string()),
-    ];
+    let members_snapshot = vec![(rec.agent_pubkey.clone(), "member".to_string())];
     let ts = 9_000_000u64;
-    store.replace_group_members(&project, &members_snapshot, ts).unwrap();
-    store.replace_group_members(&project, &members_snapshot, ts).unwrap();
+    store
+        .replace_group_members(&project, &members_snapshot, ts)
+        .unwrap();
+    store
+        .replace_group_members(&project, &members_snapshot, ts)
+        .unwrap();
 
     // FREEZE: membership is stable — no duplication, same set.
     assert!(
@@ -488,8 +515,12 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     );
 
     // FREEZE: project_meta upsert is idempotent (39000 handler).
-    store.upsert_project_meta(&project, "about text v1", ts).unwrap();
-    store.upsert_project_meta(&project, "about text v1", ts).unwrap();
+    store
+        .upsert_project_meta(&project, "about text v1", ts)
+        .unwrap();
+    store
+        .upsert_project_meta(&project, "about text v1", ts)
+        .unwrap();
     let meta = store.get_project_meta(&project).unwrap();
     assert_eq!(
         meta.as_deref(),
@@ -499,7 +530,9 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // Applying an updated 'about' must overwrite (not duplicate) — the upsert
     // is DO UPDATE SET.
-    store.upsert_project_meta(&project, "about text v2", ts + 1).unwrap();
+    store
+        .upsert_project_meta(&project, "about text v2", ts + 1)
+        .unwrap();
     let meta2 = store.get_project_meta(&project).unwrap();
     assert_eq!(
         meta2.as_deref(),
@@ -592,9 +625,12 @@ fn freeze_startup_mention_catchup_no_duplicate() {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         // End X's pre-session so it becomes dead — simulates X going offline.
-        c.call("session_end", serde_json::json!({"session": "catchup-x-pre"}))
-            .await
-            .expect("session_end");
+        c.call(
+            "session_end",
+            serde_json::json!({"session": "catchup-x-pre"}),
+        )
+        .await
+        .expect("session_end");
     });
 
     // Small pause to let session_end propagate.
@@ -615,7 +651,10 @@ fn freeze_startup_mention_catchup_no_duplicate() {
         // the relay and enqueues it.
         let mut caught_up = false;
         for _ in 0..25 {
-            let inbox = c.call("inbox", serde_json::json!({"session": "catchup-x-new"})).await.unwrap();
+            let inbox = c
+                .call("inbox", serde_json::json!({"session": "catchup-x-new"}))
+                .await
+                .unwrap();
             let rows = inbox["rows"].as_array().unwrap();
             if rows.iter().any(|m| m["body"] == "pre-start-mention") {
                 caught_up = true;
@@ -625,7 +664,10 @@ fn freeze_startup_mention_catchup_no_duplicate() {
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        assert!(caught_up, "new session must catch up the pre-start mention from relay");
+        assert!(
+            caught_up,
+            "new session must catch up the pre-start mention from relay"
+        );
 
         // Phase 5: call inbox again — no new rows (the mention was already
         // delivered and is deduped by INSERT OR IGNORE on the inbox PK AND by
@@ -645,4 +687,3 @@ fn freeze_startup_mention_catchup_no_duplicate() {
 
     stop_daemon(&home);
 }
-

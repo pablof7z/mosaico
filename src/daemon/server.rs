@@ -84,7 +84,10 @@ pub struct DaemonState {
     /// Bounded first-sight tracking of native event ids: the relay pool
     /// notifies once per matching subscription, so the same event arrives many
     /// times. Set + insertion-order queue, capped at SEEN_EVENTS_CAP.
-    seen_events: Mutex<(std::collections::HashSet<String>, std::collections::VecDeque<String>)>,
+    seen_events: Mutex<(
+        std::collections::HashSet<String>,
+        std::collections::VecDeque<String>,
+    )>,
     /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
     seen_profiles: Mutex<std::collections::HashSet<String>>,
     /// Last-seen (title, active) per (pubkey, project) for dedup. Tracking
@@ -102,7 +105,11 @@ impl DaemonState {
         self.hosted.lock().unwrap().keys().cloned().collect()
     }
     fn keys_for(&self, pubkey: &str) -> Option<Keys> {
-        self.hosted.lock().unwrap().get(pubkey).map(|h| h.keys.clone())
+        self.hosted
+            .lock()
+            .unwrap()
+            .get(pubkey)
+            .map(|h| h.keys.clone())
     }
     fn live_session_count(&self) -> usize {
         self.sessions.lock().unwrap().len()
@@ -156,7 +163,7 @@ pub async fn run() -> Result<()> {
         store.clone(),
         cfg.user_nsec.clone(),
         cfg.whitelisted_pubkeys.clone(),
-        &cfg.relays,  // provider_instance hashes main relays only, not indexer
+        &cfg.relays, // provider_instance hashes main relays only, not indexer
     ));
     let state = Arc::new(DaemonState {
         store,
@@ -174,7 +181,10 @@ pub async fn run() -> Result<()> {
         liveness_changed: Notify::new(),
         shutdown: Notify::new(),
         peer_sessions: Mutex::new(HashMap::new()),
-        seen_events: Mutex::new((std::collections::HashSet::new(), std::collections::VecDeque::new())),
+        seen_events: Mutex::new((
+            std::collections::HashSet::new(),
+            std::collections::VecDeque::new(),
+        )),
         seen_profiles: Mutex::new(std::collections::HashSet::new()),
         last_status: Mutex::new(HashMap::new()),
     });
@@ -354,7 +364,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params),
         "turn_end" => rpc_turn_end(state, &req.params).await,
-        "acl" => rpc_acl(state, &req.params).await,
         "doctor" => rpc_doctor(state).await,
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
@@ -410,8 +419,8 @@ fn resolve_session(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let project = crate::project::resolve(&cwd);
     if let Some(agent) = agent.filter(|a| !a.is_empty()) {
-        if let Some(rec) = state
-            .with_store(|s| s.latest_alive_session_for_agent_in_project(agent, &project))?
+        if let Some(rec) =
+            state.with_store(|s| s.latest_alive_session_for_agent_in_project(agent, &project))?
         {
             return Ok(rec);
         }
@@ -459,8 +468,9 @@ fn rpc_who(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde
     };
     let now = now_secs();
     let host = state.host.clone();
-    let snapshot = state
-        .with_store(|s| crate::cli::load_who_snapshot(s, current_project.as_deref(), p.all, now, &host))?;
+    let snapshot = state.with_store(|s| {
+        crate::cli::load_who_snapshot(s, current_project.as_deref(), p.all, now, &host)
+    })?;
     Ok(serde_json::to_value(snapshot)?)
 }
 
@@ -493,7 +503,6 @@ async fn rpc_session_start(
     let edge = config::edge_home();
     config::ensure_dir(&edge)?;
     let id = identity::load_or_create(&edge, &p.agent, now_secs())?;
-    let _ = crate::acl::allow(&id.pubkey_hex(), &p.agent); // own fleet auto-trusted
     let cwd = p
         .cwd
         .map(std::path::PathBuf::from)
@@ -543,7 +552,8 @@ async fn rpc_session_start(
         s.touch_session(&session_id, now_secs()).ok();
         // Record the absolute path for this project so the tmux spawn command
         // can cd to it.
-        s.upsert_project_path(&project, &cwd.to_string_lossy(), now_secs()).ok();
+        s.upsert_project_path(&project, &cwd.to_string_lossy(), now_secs())
+            .ok();
         // Register the tmux endpoint if the hook env supplied TMUX_PANE.
         if let Some(ref pane) = p.tmux_pane {
             if !pane.is_empty() {
@@ -552,7 +562,8 @@ async fn rpc_session_start(
                     "pane_command": p.agent,
                 })
                 .to_string();
-                s.upsert_session_endpoint(&session_id, "tmux", pane, &meta, now_secs()).ok();
+                s.upsert_session_endpoint(&session_id, "tmux", pane, &meta, now_secs())
+                    .ok();
             }
         }
     });
@@ -565,7 +576,10 @@ async fn rpc_session_start(
     // Make sure the project's NIP-29 group exists and this agent is a member
     // BEFORE the engine starts publishing, so its presence lands in a group it
     // already belongs to. Best-effort: never block a session from starting.
-    state.provider.open_project(&project, &id.pubkey_hex()).await;
+    state
+        .provider
+        .open_project(&project, &id.pubkey_hex())
+        .await;
     // Keep the relay-authored group state (39000/39001/39002) subscribed so the
     // membership cache stays current — "check which groups we own at all times".
     if let Err(e) = ensure_subscription(state, &project).await {
@@ -574,7 +588,15 @@ async fn rpc_session_start(
         }
     }
 
-    let ep = engine_params_for(&state.cfg, &id, &p.agent, &session_id, &project, &rel_cwd, p.watch_pid);
+    let ep = engine_params_for(
+        &state.cfg,
+        &id,
+        &p.agent,
+        &session_id,
+        &project,
+        &rel_cwd,
+        p.watch_pid,
+    );
     spawn_session(state, ep).await?;
 
     state.emit_tail(TailEvent::Sess {
@@ -641,13 +663,15 @@ async fn rpc_session_start(
     Ok(serde_json::json!({ "session_id": session_id }))
 }
 
-
 #[derive(serde::Deserialize)]
 struct SessionEndParams {
     session: String,
 }
 
-fn rpc_session_end(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+fn rpc_session_end(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let p: SessionEndParams =
         serde_json::from_value(params.clone()).context("parsing session_end params")?;
     let rec = state.with_store(|s| s.get_session(&p.session).ok().flatten());
@@ -769,7 +793,10 @@ async fn rpc_send_message(
     });
 
     // Emit Sync: local delivery = delivered; remote = accepted.
-    let is_local = state.hosted_pubkeys().iter().any(|h| h == &recipient.pubkey);
+    let is_local = state
+        .hosted_pubkeys()
+        .iter()
+        .any(|h| h == &recipient.pubkey);
     let sync_state = if is_local { "delivered" } else { "accepted" };
     state.emit_tail(TailEvent::Sync {
         ts: now_secs(),
@@ -833,10 +860,7 @@ async fn rpc_send_message(
             tokio::spawn(async move {
                 match crate::tmux::spawn_agent(&state2, &slug, &project2).await {
                     Ok(pane_id) => {
-                        crate::tmux::register_pending_spawn_with_mention(
-                            &pane_id,
-                            pending_mention,
-                        );
+                        crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
                     }
                     Err(e) => {
                         if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
@@ -848,7 +872,9 @@ async fn rpc_send_message(
         }
     }
 
-    Ok(serde_json::json!({ "to_pubkey": recipient.pubkey, "target_session": recipient.target_session }))
+    Ok(
+        serde_json::json!({ "to_pubkey": recipient.pubkey, "target_session": recipient.target_session }),
+    )
 }
 
 // ── propose ───────────────────────────────────────────────────────────────────
@@ -1027,15 +1053,13 @@ struct ResolvedRecipient {
     project: String,
 }
 
-fn resolve_recipient(
-    store: &Store,
-    my_project: &str,
-    target: &str,
-) -> Result<ResolvedRecipient> {
+fn resolve_recipient(store: &Store, my_project: &str, target: &str) -> Result<ResolvedRecipient> {
     if let Some((slug, proj)) = target.split_once('@') {
         let pk = store
             .resolve_agent_pubkey(slug, Some(proj))?
-            .with_context(|| format!("can't resolve {slug}@{proj} (no presence/profile seen yet)"))?;
+            .with_context(|| {
+                format!("can't resolve {slug}@{proj} (no presence/profile seen yet)")
+            })?;
         return Ok(ResolvedRecipient {
             pubkey: pk,
             target_session: None,
@@ -1138,9 +1162,18 @@ struct InboxParams {
     agent: Option<String>,
 }
 
-async fn rpc_inbox(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_inbox(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let p: InboxParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let rec = resolve_session(state, p.session.as_deref(), p.env_session.as_deref(), p.cwd.as_deref(), p.agent.as_deref())?;
+    let rec = resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+    )?;
     let _ = fetch_mentions_into_inbox(state, &rec).await;
 
     let rows = state.with_store(|s| {
@@ -1151,12 +1184,10 @@ async fn rpc_inbox(state: &Arc<DaemonState>, params: &serde_json::Value) -> Resu
         }
         rows
     });
-    let pending = state.with_store(|s| s.list_pending_agents().unwrap_or_default());
     let rows_json = rows_to_json(&rows, &state.host);
 
     Ok(serde_json::json!({
         "rows": rows_json,
-        "pending_agents": pending.iter().map(|p| serde_json::json!({"slug": p.slug, "pubkey": p.pubkey})).collect::<Vec<_>>(),
     }))
 }
 
@@ -1188,7 +1219,8 @@ async fn rpc_turn_start(
             // returns the previous turn's content.
             let baseline = crate::transcript::read_last_assistant_text(std::path::Path::new(path))
                 .unwrap_or_default();
-            s.set_last_assistant_text_at_turn_start(&p.session, &baseline).ok();
+            s.set_last_assistant_text_at_turn_start(&p.session, &baseline)
+                .ok();
         }
         prev
     });
@@ -1230,12 +1262,22 @@ struct TurnCheckParams {
     agent: Option<String>,
 }
 
-fn rpc_turn_check(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+fn rpc_turn_check(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let p: TurnCheckParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let rec = resolve_session(state, p.session.as_deref(), p.env_session.as_deref(), p.cwd.as_deref(), p.agent.as_deref())?;
-    let context = crate::cli::assemble_turn_check_context(&state.store, &rec.session_id, &state.host)
-        .map(serde_json::Value::String)
-        .unwrap_or(serde_json::Value::Null);
+    let rec = resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+    )?;
+    let context =
+        crate::cli::assemble_turn_check_context(&state.store, &rec.session_id, &state.host)
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context }))
 }
 
@@ -1244,17 +1286,20 @@ struct TurnEndParams {
     session: String,
 }
 
-async fn rpc_turn_end(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_turn_end(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let p: TurnEndParams =
         serde_json::from_value(params.clone()).context("parsing turn_end params")?;
     if !p.session.is_empty() {
         // Read turn_started_at BEFORE marking end, so we can compute elapsed.
         // Thread IDs are captured NOW so a concurrent user_prompt for the next
         // turn cannot overwrite last_prompt_event_id before we publish.
-        let (was_working, turn_started_at) = state
-            .with_store(|s| s.get_turn_state(&p.session).unwrap_or((false, 0)));
-        let (root_event_id, last_prompt_event_id, transcript_path, baseline_text) =
-            state.with_store(|s| {
+        let (was_working, turn_started_at) =
+            state.with_store(|s| s.get_turn_state(&p.session).unwrap_or((false, 0)));
+        let (root_event_id, last_prompt_event_id, transcript_path, baseline_text) = state
+            .with_store(|s| {
                 s.mark_turn_end(&p.session).ok();
                 let (root, prompt) = s.get_thread_event_ids(&p.session);
                 let transcript = s.get_session_transcript(&p.session).ok().flatten();
@@ -1329,100 +1374,6 @@ async fn rpc_turn_end(state: &Arc<DaemonState>, params: &serde_json::Value) -> R
     Ok(serde_json::json!({ "ok": true }))
 }
 
-// ── acl ────────────────────────────────────────────────────────────────────
-
-#[derive(serde::Deserialize, Default)]
-struct AclParams {
-    #[serde(default)]
-    action: Option<String>,
-    #[serde(default)]
-    target: Option<String>,
-}
-
-async fn rpc_acl(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
-    let p: AclParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    match p.action.as_deref() {
-        Some("allow") => {
-            let target = p.target.context("acl allow needs a target")?;
-            let (pk, slug) = state.with_store(|s| resolve_acl_target(s, &target))?;
-            let host = state.with_store(|s| {
-                s.list_pending_agents().ok()
-                    .and_then(|v| v.into_iter().find(|a| a.pubkey == pk))
-                    .map(|a| a.host)
-                    .unwrap_or_default()
-            });
-            crate::acl::allow(&pk, &slug)?;
-            state.with_store(|s| {
-                s.remove_pending_agent(&pk).ok();
-            });
-            // Newly-trusted author: refresh the union subscription.
-            resubscribe(state).await.ok();
-            state.emit_tail(TailEvent::Acl {
-                ts: now_secs(),
-                action: "admitted".into(),
-                agent: slug.clone(),
-                host,
-                pubkey: pk.clone(),
-                role: None,
-            });
-            Ok(serde_json::json!({ "slug": slug, "pubkey": pk }))
-        }
-        Some("block") => {
-            let target = p.target.context("acl block needs a target")?;
-            let (pk, slug) = state.with_store(|s| resolve_acl_target(s, &target))?;
-            let host = state.with_store(|s| {
-                s.list_pending_agents().ok()
-                    .and_then(|v| v.into_iter().find(|a| a.pubkey == pk))
-                    .map(|a| a.host)
-                    .unwrap_or_default()
-            });
-            crate::acl::block(&pk, &slug)?;
-            state.with_store(|s| {
-                s.remove_pending_agent(&pk).ok();
-            });
-            state.emit_tail(TailEvent::Acl {
-                ts: now_secs(),
-                action: "blocked".into(),
-                agent: slug.clone(),
-                host,
-                pubkey: pk.clone(),
-                role: None,
-            });
-            Ok(serde_json::json!({ "slug": slug, "pubkey": pk }))
-        }
-        _ => {
-            let pending = state.with_store(|s| s.list_pending_agents().unwrap_or_default());
-            let allowed = crate::acl::allowed().len();
-            let blocked = crate::acl::blocked().len();
-            Ok(serde_json::json!({
-                "pending": pending.iter().map(|p| serde_json::json!({"slug": p.slug, "pubkey": p.pubkey, "host": p.host})).collect::<Vec<_>>(),
-                "allowed": allowed,
-                "blocked": blocked,
-            }))
-        }
-    }
-}
-
-fn resolve_acl_target(store: &Store, target: &str) -> Result<(String, String)> {
-    if target.len() == 64 && target.chars().all(|c| c.is_ascii_hexdigit()) {
-        let slug = store
-            .list_pending_agents()?
-            .into_iter()
-            .find(|p| p.pubkey == target)
-            .map(|p| p.slug)
-            .unwrap_or_else(|| "agent".to_string());
-        return Ok((target.to_string(), slug));
-    }
-    let m = store
-        .list_pending_agents()?
-        .into_iter()
-        .find(|p| p.slug == target);
-    match m {
-        Some(p) => Ok((p.pubkey, p.slug)),
-        None => anyhow::bail!("no pending agent named {target:?}; use a pubkey or `tenex-edge acl list`"),
-    }
-}
-
 // ── doctor ───────────────────────────────────────────────────────────────────
 
 async fn rpc_doctor(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
@@ -1445,7 +1396,10 @@ async fn rpc_doctor(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
 /// Publish a kind:1 OP signed by the human user's nsec. The event records the
 /// user's prompt on the Nostr fabric as a root note (no `e` tag) in the NIP-29
 /// group, p-tagging the agent that will process it.
-async fn rpc_user_prompt(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_user_prompt(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     use nostr_sdk::prelude::Keys;
 
     #[derive(serde::Deserialize, Default)]
@@ -1469,7 +1423,13 @@ async fn rpc_user_prompt(state: &Arc<DaemonState>, params: &serde_json::Value) -
     };
     let user_keys = Keys::parse(&nsec).context("parsing userNsec")?;
 
-    let rec = resolve_session(state, p.session.as_deref(), p.env_session.as_deref(), p.cwd.as_deref(), p.agent.as_deref())?;
+    let rec = resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+    )?;
     let body = p.prompt.unwrap_or_default();
 
     // The user's prompt is a Mention from the owner to the agent — same domain
@@ -1529,7 +1489,10 @@ async fn rpc_project_list(state: &Arc<DaemonState>) -> Result<serde_json::Value>
         .map(|(slug, about)| serde_json::json!({ "slug": slug, "about": about }))
         .collect();
     projects.sort_by(|a, b| {
-        a["slug"].as_str().unwrap_or("").cmp(b["slug"].as_str().unwrap_or(""))
+        a["slug"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["slug"].as_str().unwrap_or(""))
     });
 
     Ok(serde_json::json!({ "projects": projects }))
@@ -1539,7 +1502,10 @@ async fn rpc_project_list(state: &Arc<DaemonState>) -> Result<serde_json::Value>
 
 /// Publish a NIP-29 kind:9002 (edit-metadata) event signed by the human user's
 /// nsec. The relay validates admin rights and updates its kind:39000 accordingly.
-async fn rpc_project_edit(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_project_edit(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
     use nostr_sdk::prelude::Keys;
 
     #[derive(serde::Deserialize)]
@@ -1559,10 +1525,7 @@ async fn rpc_project_edit(state: &Arc<DaemonState>, params: &serde_json::Value) 
     // NIP-29 edit-metadata: the wire shape lives in the nip29 lifecycle module.
     // The relay validates admin rights and re-publishes kind:39000.
     let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&p.project, &p.description)?;
-    let event_id = state
-        .transport
-        .publish_signed(builder, &user_keys)
-        .await?;
+    let event_id = state.transport.publish_signed(builder, &user_keys).await?;
 
     // Optimistically update local cache; the relay will also push kind:39000.
     let now = now_secs();
@@ -1624,14 +1587,11 @@ fn rpc_statusline(
             .get_agent_status(&rec.agent_pubkey, &rec.project, Some(&rec.session_id))
             .ok()
             .flatten()
-            .map(|(text, _active)| text)
+            .map(|(text, _activity, _active)| text)
             .unwrap_or_default();
         let pending = s.peek_inbox(&rec.session_id).unwrap_or_default();
         let recent = s
-            .list_recently_delivered(
-                &rec.session_id,
-                now.saturating_sub(STATUSLINE_RECENT_SECS),
-            )
+            .list_recently_delivered(&rec.session_id, now.saturating_sub(STATUSLINE_RECENT_SECS))
             .unwrap_or_default();
         Ok(serde_json::json!({
             "agent": rec.agent_slug,
@@ -1742,7 +1702,10 @@ async fn rpc_inbox_reply(
         thread: Some(thread_short.clone()),
         body: p.message.chars().take(200).collect(),
     });
-    let is_local = state.hosted_pubkeys().iter().any(|h| h == &original.from_pubkey);
+    let is_local = state
+        .hosted_pubkeys()
+        .iter()
+        .any(|h| h == &original.from_pubkey);
     state.emit_tail(TailEvent::Sync {
         ts: now_secs(),
         project: original.project.clone(),
@@ -1818,7 +1781,12 @@ fn git_snapshot(cwd: Option<&str>) -> (String, String, u32) {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let git = |args: &[&str]| -> Option<String> {
-        let out = Command::new("git").arg("-C").arg(&dir).args(args).output().ok()?;
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(args)
+            .output()
+            .ok()?;
         if !out.status.success() {
             return None;
         }
@@ -1939,10 +1907,7 @@ async fn rpc_list_threads(
 /// `messages`: return canonical messages for a thread.
 ///
 /// Params: `{ "thread_id": "<thread_id>" }`
-fn rpc_messages(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
+fn rpc_messages(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
     #[derive(serde::Deserialize)]
     struct P {
         thread_id: String,
@@ -1995,7 +1960,13 @@ async fn handle_wait_for_mention(state: &Arc<DaemonState>, req: &Request) -> Res
         300
     }
     let p: P = serde_json::from_value(req.params.clone()).unwrap_or_default();
-    let rec = match resolve_session(state, p.session.as_deref(), p.env_session.as_deref(), p.cwd.as_deref(), p.agent.as_deref()) {
+    let rec = match resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+    ) {
         Ok(r) => r,
         Err(e) => return Response::err(req.id, "rpc_error", format!("{e:#}")),
     };
@@ -2104,7 +2075,10 @@ async fn handle_tail<W: AsyncWriteExt + Unpin>(
     if backfill_n > 0 {
         let backfill_events = build_backfill(state, project.as_deref(), backfill_n, since);
         for ev in backfill_events {
-            if write_json(writer, &Response::item(id, serde_json::to_value(&ev)?)).await.is_err() {
+            if write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
+                .await
+                .is_err()
+            {
                 let _ = write_json(writer, &Response::end(id)).await;
                 return Ok(());
             }
@@ -2134,7 +2108,9 @@ async fn handle_tail<W: AsyncWriteExt + Unpin>(
 
 /// True when the event belongs to the requested project scope (or no filter).
 fn tail_event_matches_project(ev: &TailEvent, project: Option<&str>) -> bool {
-    let Some(pr) = project else { return true; };
+    let Some(pr) = project else {
+        return true;
+    };
     let ev_project = match ev {
         TailEvent::Msg { project, .. } => project.as_str(),
         TailEvent::Sync { project, .. } => project.as_str(),
@@ -2144,8 +2120,8 @@ fn tail_event_matches_project(ev: &TailEvent, project: Option<&str>) -> bool {
         TailEvent::Leave { project, .. } => project.as_str(),
         TailEvent::Sess { project, .. } => project.as_str(),
         TailEvent::Proj { project, .. } => project.as_str(),
-        // Acl and Profile are cross-project; always include.
-        TailEvent::Acl { .. } | TailEvent::Profile { .. } => return true,
+        // Profiles are cross-project; always include.
+        TailEvent::Profile { .. } => return true,
     };
     ev_project == pr
 }
@@ -2165,7 +2141,8 @@ fn build_backfill(
     // ── Recent messages from the canonical messages table ───────────────────
     let raw_msgs: Vec<(u64, String, String, String, String, Option<String>)> =
         state.with_store(|s| {
-            s.recent_messages_for_backfill(project, since, limit).unwrap_or_default()
+            s.recent_messages_for_backfill(project, since, limit)
+                .unwrap_or_default()
         });
 
     for (ts, body, author_pubkey, proj, thread_id, author_session) in raw_msgs {
@@ -2193,8 +2170,10 @@ fn build_backfill(
     let since_peer = now.saturating_sub(PRUNE_PEER_AFTER_SECS);
 
     // Peer sessions as synthetic Join events.
-    let peers = state
-        .with_store(|s| s.list_peer_sessions(project, since_peer).unwrap_or_default());
+    let peers = state.with_store(|s| {
+        s.list_peer_sessions(project, since_peer)
+            .unwrap_or_default()
+    });
     for p in peers {
         events.push(TailEvent::Join {
             ts: p.last_seen,
@@ -2205,11 +2184,10 @@ fn build_backfill(
             rel_cwd: p.rel_cwd.clone(),
         });
         // Add current status if known (session-scoped first, agent-level fallback).
-        if let Some((text, active)) = state.with_store(|s| {
+        if let Some((text, _activity, active)) = state.with_store(|s| {
             s.get_agent_status(&p.pubkey, &p.project, Some(&p.session_id))
                 .unwrap_or(None)
-        })
-        {
+        }) {
             events.push(TailEvent::Status {
                 ts: p.last_seen,
                 project: p.project,
@@ -2221,8 +2199,7 @@ fn build_backfill(
     }
 
     // Own sessions as synthetic Sess events.
-    let mine = state
-        .with_store(|s| s.list_alive_sessions().unwrap_or_default());
+    let mine = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
     for s in mine {
         if project.is_none() || project == Some(s.project.as_str()) {
             events.push(TailEvent::Sess {
@@ -2234,8 +2211,8 @@ fn build_backfill(
                 rel_cwd: s.rel_cwd.clone(),
             });
             // Add working/idle state from turn_state.
-            let (working, turn_started_at) = state
-                .with_store(|st| st.get_turn_state(&s.session_id).unwrap_or((false, 0)));
+            let (working, turn_started_at) =
+                state.with_store(|st| st.get_turn_state(&s.session_id).unwrap_or((false, 0)));
             if working {
                 events.push(TailEvent::Turn {
                     ts: turn_started_at,
@@ -2335,12 +2312,15 @@ fn derive_and_emit_tail_events(
             let is_new = {
                 let mut map = state.peer_sessions.lock().unwrap();
                 if !map.contains_key(&session_id) {
-                    map.insert(session_id.clone(), PeerTracked {
-                        first_seen: now,
-                        project: p.project.clone(),
-                        slug: p.agent.slug.clone(),
-                        host: p.host.clone(),
-                    });
+                    map.insert(
+                        session_id.clone(),
+                        PeerTracked {
+                            first_seen: now,
+                            project: p.project.clone(),
+                            slug: p.agent.slug.clone(),
+                            host: p.host.clone(),
+                        },
+                    );
                     true
                 } else {
                     false
@@ -2446,7 +2426,10 @@ fn derive_and_emit_tail_events(
 
 // ── startup fetch of stored mentions (offline delivery) ──────────────────────
 
-async fn fetch_mentions_into_inbox(state: &Arc<DaemonState>, rec: &crate::state::SessionRecord) -> Result<()> {
+async fn fetch_mentions_into_inbox(
+    state: &Arc<DaemonState>,
+    rec: &crate::state::SessionRecord,
+) -> Result<()> {
     let owners = state.owners.clone();
     let wake_count = state.provider.catch_up_mentions(rec, &owners).await?;
     if wake_count > 0 {
@@ -2559,11 +2542,12 @@ async fn spawn_session(state: &Arc<DaemonState>, params: EngineParams) -> Result
     ensure_subscription(state, &project).await?;
 
     let cancel = Arc::new(Notify::new());
-    state
-        .sessions
-        .lock()
-        .unwrap()
-        .insert(session_id.clone(), SessionHandle { cancel: cancel.clone() });
+    state.sessions.lock().unwrap().insert(
+        session_id.clone(),
+        SessionHandle {
+            cancel: cancel.clone(),
+        },
+    );
     state.liveness_changed.notify_waiters();
 
     let st = state.clone();
@@ -2590,7 +2574,11 @@ fn prune_hosted(state: &Arc<DaemonState>) {
         .into_iter()
         .map(|r| r.agent_pubkey)
         .collect();
-    state.hosted.lock().unwrap().retain(|pk, _| live.contains(pk));
+    state
+        .hosted
+        .lock()
+        .unwrap()
+        .retain(|pk, _| live.contains(pk));
 }
 
 fn cancel_session(state: &Arc<DaemonState>, session_id: &str) -> bool {
@@ -2614,8 +2602,7 @@ async fn ensure_subscription(state: &Arc<DaemonState>, project: &str) -> Result<
 
 /// Rebuild and apply the union subscription across all hosted agents/projects.
 async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
-    let mut authors: Vec<String> = crate::acl::allowed().into_iter().collect();
-    authors.extend(state.hosted_pubkeys());
+    let mut authors: Vec<String> = state.hosted_pubkeys();
     authors.sort();
     authors.dedup();
 
@@ -2669,13 +2656,27 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
         // Re-establish ownership/membership + the group-state subscription for
         // revived sessions. Idempotent: the owned_groups/group_members cache
         // persists across restarts, so already-owned groups skip republishing.
-        state.provider.open_project(&rec.project, &id.pubkey_hex()).await;
+        state
+            .provider
+            .open_project(&rec.project, &id.pubkey_hex())
+            .await;
         if let Err(e) = ensure_subscription(state, &rec.project).await {
             if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                eprintln!("[daemon] ensure_subscription({}) failed: {e:#}", rec.project);
+                eprintln!(
+                    "[daemon] ensure_subscription({}) failed: {e:#}",
+                    rec.project
+                );
             }
         }
-        let ep = engine_params_for(&state.cfg, &id, &rec.agent_slug, &rec.session_id, &rec.project, &rec.rel_cwd, rec.watch_pid);
+        let ep = engine_params_for(
+            &state.cfg,
+            &id,
+            &rec.agent_slug,
+            &rec.session_id,
+            &rec.project,
+            &rec.rel_cwd,
+            rec.watch_pid,
+        );
         let _ = spawn_session(state, ep).await;
     }
 }

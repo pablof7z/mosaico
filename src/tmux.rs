@@ -95,7 +95,10 @@ pub fn spawnable_agents() -> Vec<(String, String)> {
     }
     let edge_home = crate::config::edge_home();
     let agents = crate::identity::list_local_agents(&edge_home);
-    eprintln!("[tenex-edge] spawnable_agents: {} agents in store", agents.len());
+    eprintln!(
+        "[tenex-edge] spawnable_agents: {} agents in store",
+        agents.len()
+    );
     let result: Vec<(String, String)> = agents
         .into_iter()
         .filter_map(|(slug, file_cmd)| {
@@ -173,10 +176,13 @@ fn pending_spawns() -> &'static Mutex<HashMap<String, PendingSpawn>> {
 /// triggering mention).  Called by `spawn_agent` immediately after the window
 /// is created.
 pub fn register_pending_spawn(pane_id: String, prompt: String) {
-    pending_spawns()
-        .lock()
-        .unwrap()
-        .insert(pane_id, PendingSpawn { prompt, mention: None });
+    pending_spawns().lock().unwrap().insert(
+        pane_id,
+        PendingSpawn {
+            prompt,
+            mention: None,
+        },
+    );
 }
 
 /// Attach a triggering mention to a pane that was already registered via
@@ -185,10 +191,12 @@ pub fn register_pending_spawn(pane_id: String, prompt: String) {
 /// Called from `rpc_send_message` after `spawn_agent` returns the pane id.
 pub fn register_pending_spawn_with_mention(pane_id: &str, mention: PendingMention) {
     let mut m = pending_spawns().lock().unwrap();
-    let entry = m.entry(pane_id.to_string()).or_insert_with(|| PendingSpawn {
-        prompt: SPAWN_PROMPT_DEFAULT.to_string(),
-        mention: None,
-    });
+    let entry = m
+        .entry(pane_id.to_string())
+        .or_insert_with(|| PendingSpawn {
+            prompt: SPAWN_PROMPT_DEFAULT.to_string(),
+            mention: None,
+        });
     entry.mention = Some(mention);
 }
 
@@ -196,10 +204,7 @@ pub fn register_pending_spawn_with_mention(pane_id: &str, mention: PendingMentio
 /// was not created by `spawn_agent` (i.e. it is a normal harness start).
 /// Called by `rpc_session_start` when a pane registers its tmux endpoint.
 pub fn consume_pending_spawn(pane_id: &str) -> Option<PendingSpawn> {
-    pending_spawns()
-        .lock()
-        .unwrap()
-        .remove(pane_id)
+    pending_spawns().lock().unwrap().remove(pane_id)
 }
 
 /// Called by `handle_wait_for_mention` when it parks on `mention_notify`.
@@ -281,7 +286,11 @@ fn pane_alive(pane_id: &str) -> Option<String> {
         return None;
     }
     // Return just the command part.
-    let cmd = s.split_once(' ').map(|(_, rest)| rest).unwrap_or("").to_string();
+    let cmd = s
+        .split_once(' ')
+        .map(|(_, rest)| rest)
+        .unwrap_or("")
+        .to_string();
     Some(cmd)
 }
 
@@ -434,11 +443,7 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
 
 /// Spawn a new tmux window running `slug`'s harness in `project`'s directory.
 /// Returns the new pane id (e.g. "%7") or an error.
-pub async fn spawn_agent(
-    state: &Arc<DaemonState>,
-    slug: &str,
-    project: &str,
-) -> Result<String> {
+pub async fn spawn_agent(state: &Arc<DaemonState>, slug: &str, project: &str) -> Result<String> {
     if !tmux_available() {
         anyhow::bail!("tmux binary not found");
     }
@@ -468,7 +473,12 @@ pub async fn spawn_agent(
     let abs_path = state
         .with_store(|s| s.get_project_path(project))
         .unwrap_or(None)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().to_string_lossy().to_string());
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
 
     // Ensure a "tenex" session exists (detached); create if absent.
     // Use list-sessions + exact string match to avoid tmux's prefix-matching
@@ -491,6 +501,16 @@ pub async fn spawn_agent(
     }
 
     // Build the new-window command.
+    //
+    // The spawned agent's slug MUST travel into the pane's environment via tmux's
+    // `-e` flag, NOT via `.env()` on the tmux client below: tmux builds a new
+    // pane's environment from the server's environment plus `-e` overrides, so a
+    // var set only on the client process that issues `new-window` is dropped and
+    // never reaches the pane. The session-start hook prefers `TENEX_EDGE_AGENT`
+    // over the harness's own default slug (see cli/hooks.rs), so without this the
+    // spawn's known identity is lost and a `codex` (or any custom) agent registers
+    // under the harness default (e.g. `claude`) — the wrong name in `who`/`tmux`.
+    let agent_env = format!("TENEX_EDGE_AGENT={slug}");
     let mut cmd_args: Vec<&str> = vec![
         "new-window",
         "-d",
@@ -502,6 +522,8 @@ pub async fn spawn_agent(
         &abs_path,
         "-e",
         "TENEX_EDGE_SPAWNED=1",
+        "-e",
+        &agent_env,
         "-PF",
         "#{pane_id}",
         "--",
@@ -511,7 +533,6 @@ pub async fn spawn_agent(
 
     let out = tokio::process::Command::new("tmux")
         .args(&cmd_args)
-        .env("TENEX_EDGE_AGENT", slug)
         .output()
         .await
         .context("tmux new-window")?;
@@ -551,8 +572,8 @@ pub struct EndpointStatus {
 
 /// List all registered tmux endpoints with liveness.
 pub fn list_endpoint_statuses(state: &Arc<DaemonState>) -> Vec<EndpointStatus> {
-    let endpoints = state
-        .with_store(|s| s.list_session_endpoints_of_kind("tmux").unwrap_or_default());
+    let endpoints =
+        state.with_store(|s| s.list_session_endpoints_of_kind("tmux").unwrap_or_default());
 
     endpoints
         .into_iter()

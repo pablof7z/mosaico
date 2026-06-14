@@ -180,6 +180,9 @@ pub(super) async fn hook_run(host_name: String, hook_type: String) -> Result<()>
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(str::to_string);
+            // Reassert the session before the turn starts: if the daemon lost it
+            // (restart, version-skew kill, crash), this re-registers the live
+            // session instead of silently dropping awareness for the whole turn.
             if !sid.is_empty() {
                 let watch_pid = obj
                     .and_then(|o| o.get("pid").or_else(|| o.get("watch_pid")))

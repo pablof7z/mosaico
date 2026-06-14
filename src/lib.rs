@@ -8,7 +8,6 @@
 //!   cli -> runtime -> { domain, codec, transport, state, distill }
 //!   config / identity / project are leaf utilities.
 
-pub mod acl;
 pub mod config;
 pub mod domain;
 pub mod identity;
@@ -19,8 +18,8 @@ pub mod util;
 pub mod cli;
 pub mod codec;
 pub mod daemon;
-pub mod fabric;
 pub mod distill;
+pub mod fabric;
 pub mod runtime;
 pub mod state;
 pub mod tmux;

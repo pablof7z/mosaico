@@ -84,16 +84,6 @@ pub enum TailEvent {
         state: String,
         rel_cwd: String,
     },
-    /// ACL action.
-    Acl {
-        ts: u64,
-        /// "pending" | "admitted" | "revoked" | "blocked"
-        action: String,
-        agent: String,
-        host: String,
-        pubkey: String,
-        role: Option<String>,
-    },
     /// Project metadata (about) changed.
     Proj {
         ts: u64,
@@ -120,7 +110,6 @@ impl TailEvent {
             TailEvent::Join { ts, .. } => *ts,
             TailEvent::Leave { ts, .. } => *ts,
             TailEvent::Sess { ts, .. } => *ts,
-            TailEvent::Acl { ts, .. } => *ts,
             TailEvent::Proj { ts, .. } => *ts,
             TailEvent::Profile { ts, .. } => *ts,
         }
@@ -129,18 +118,15 @@ impl TailEvent {
     /// Return the severity tier for default display filtering.
     ///
     /// Tiers (high to low):
-    ///   3 = action  (acl pending)
-    ///   2 = signal  (msg, turn, join, leave, sync failed, acl admit/revoke)
+    ///   2 = signal  (msg, turn, join, leave, sync failed)
     ///   1 = ambient (status, sync delivered/accepted, sess, proj)
     ///   0 = noise   (profile, heartbeats — never emitted)
     pub fn tier(&self) -> u8 {
         match self {
-            TailEvent::Acl { action, .. } if action == "pending" => 3,
             TailEvent::Msg { .. } => 2,
             TailEvent::Turn { .. } => 2,
             TailEvent::Join { .. } => 2,
             TailEvent::Leave { .. } => 2,
-            TailEvent::Acl { .. } => 2, // admitted / revoked / blocked
             TailEvent::Sync { state, .. } if state == "failed" => 2,
             TailEvent::Status { .. } => 1,
             TailEvent::Sync { .. } => 1, // accepted / delivered
@@ -160,7 +146,6 @@ impl TailEvent {
             TailEvent::Join { .. } => "join",
             TailEvent::Leave { .. } => "leave",
             TailEvent::Sess { .. } => "sess",
-            TailEvent::Acl { .. } => "acl",
             TailEvent::Proj { .. } => "proj",
             TailEvent::Profile { .. } => "profile",
         }
@@ -173,14 +158,6 @@ mod tests {
 
     #[test]
     fn tier_ordering_is_correct() {
-        let acl_pending = TailEvent::Acl {
-            ts: 0,
-            action: "pending".into(),
-            agent: "a".into(),
-            host: "h".into(),
-            pubkey: "p".into(),
-            role: None,
-        };
         let msg = TailEvent::Msg {
             ts: 0,
             project: "proj".into(),
@@ -204,7 +181,6 @@ mod tests {
             host: "h".into(),
             pubkey: "p".into(),
         };
-        assert_eq!(acl_pending.tier(), 3);
         assert_eq!(msg.tier(), 2);
         assert_eq!(status.tier(), 1);
         assert_eq!(profile.tier(), 0);

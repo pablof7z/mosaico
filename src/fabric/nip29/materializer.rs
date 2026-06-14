@@ -41,9 +41,7 @@ impl Nip29Materializer {
                         s.get(1).map(|pk| {
                             (
                                 pk.clone(),
-                                s.get(2)
-                                    .cloned()
-                                    .unwrap_or_else(|| "member".to_string()),
+                                s.get(2).cloned().unwrap_or_else(|| "member".to_string()),
                             )
                         })
                     } else {

@@ -188,9 +188,7 @@ fn run_cli_proto(home: &Home, args: &[&str], proto: Option<&str>) -> std::proces
         .env("TENEX_EDGE_HOME", home.dir.path())
         .env("TENEX_CONFIG", home.dir.path().join("config.json"))
         .env("TENEX_EDGE_BIN", bin())
-        .env("TENEX_EDGE_DAEMON_GRACE_S", "30")
-        .env("TENEX_AGENTS_ALLOWLIST", home.dir.path().join("allow.txt"))
-        .env("TENEX_AGENTS_BLOCKLIST", home.dir.path().join("block.txt"));
+        .env("TENEX_EDGE_DAEMON_GRACE_S", "30");
     if let Some(p) = proto {
         cmd.env("TENEX_EDGE_PROTOCOL", p);
     }
