@@ -3,7 +3,7 @@
 > High-level architecture for the swap-seam. The load-bearing idea: **all data is
 > read from one unified local store; *how* it was hydrated is irrelevant to its
 > use.** A **Fabric Provider** (kind1 / nip29 / mls / a2a / …) is a write-side
-> materializer that owns all of how-and-who — wire shape, membership/ACL, lifecycle
+> materializer that owns all of how-and-who — wire shape, membership/admission, lifecycle
 > side-effects — and projects everything into canonical store rows. Readers query
 > the store; nothing in a read path ever names a kind, a tag, a group, or a relay.
 
@@ -16,10 +16,10 @@ The current `Codec` seam swaps *NIP layouts*, not *fabrics*. It traffics in
 
 - **wire mapping** (domain event ↔ envelope),
 - **subscription model** (`filters → Vec<Filter>`, relay-REQ-shaped),
-- **access control** (NIP-29 group create / lock / put-user, bolted into `kind1`).
+- **admission control** (NIP-29 group create / lock / put-user, bolted into `kind1`).
 
 That fusion is why "a new codec" can only ever be another nostr codec, and why
-NIP-29 — an *ACL strategy* — leaks into an *event codec*. The fix is to cut the
+NIP-29 — an *admission strategy* — leaks into an *event codec*. The fix is to cut the
 seam along **concerns**, not along **kinds**.
 
 Two observations drive the whole design:
@@ -32,20 +32,20 @@ Two observations drive the whole design:
    |--------|----------------|---------------|
    | nip29  | in the NIP-29 group | live `39002` members list (kept subscribed) |
    | mls    | in the MLS group | MLS group roster after invite/accept |
-   | kind1  | locally accepted | whitelist file of known/accepted pubkeys |
+   | kind1  | locally accepted | a future kind1-owned local trust file |
 
    The **shape** is uniform (`is_member(project, pubkey)` + a change stream); the
    **source** is the provider's secret. Add a member from another machine → the
    nip29 provider's live subscription reflects it; nothing above notices *how*.
 
-   The **enforcement locus** also differs — and this is what forces the ACL to be
+   The **enforcement locus** also differs — and this is what forces admission to be
    a domain-side gate rather than something we delegate to the fabric:
 
    | Fabric | membership enforced | by whom |
    |--------|---------------------|---------|
    | nip29  | server-side — relay rejects non-member writes (closed group) | the relay |
    | mls    | cryptographically — non-members cannot decrypt | the crypto |
-   | kind1  | client-side — we filter inbound against the local whitelist | us |
+   | kind1  | client-side — a future kind1 provider filters inbound locally | us |
 
    **Principle:** the domain `is_member` gate is *always* consulted client-side;
    server/crypto enforcement is defense-in-depth, never a replacement. kind1 has
@@ -80,7 +80,7 @@ flowchart TD
         direction LR
         PS["ProjectState plane<br/>roster · presence · status · project-meta"]
         CM["Communications plane<br/>send · inbox · threads · thread-meta"]
-        ACL["ACL / routing policy<br/>is_member? deliver? show?"]
+        ADMIT["Admission / routing policy<br/>is_member? deliver? show?"]
     end
 
     SEAM{{"Fabric Provider trait — THE SWAP SEAM<br/>speaks DomainEvent + Scope only"}}
@@ -100,7 +100,7 @@ flowchart TD
     HOST --> DOMAIN
     PS --> SEAM
     CM --> SEAM
-    ACL --> SEAM
+    ADMIT --> SEAM
     SEAM --> P1 & P2 & P3
     P1 --> R1
     P3 --> R1
@@ -118,7 +118,7 @@ are already genuinely transport-agnostic.
 
 **All consumption reads from one unified local store; *how* the data got there is
 invisible to the reader.** A provider is a **write-side materializer** — it
-subscribes to its fabric, decodes, ACL-admits, and **upserts canonical rows**.
+subscribes to its fabric, decodes, admits, and **upserts canonical rows**.
 Every consumer (CLI `who`/`inbox`/`list`, the channel adapter, hooks, context
 injection) reads only the store. No reader ever holds a `Provider`, names a kind,
 or touches the wire. This is CQRS, and it is exactly why the daemon can solely own
@@ -139,7 +139,7 @@ flowchart LR
         F3["mls"]
         F4["a2a / invented / future"]
     end
-    MAT["Provider = materializer<br/>decode · ACL-admit · derive · upsert"]
+    MAT["Provider = materializer<br/>decode · admit · derive · upsert"]
     STORE[("Unified read model — SQLite / state.db<br/>projects · agents+membership · threads<br/>messages · recipients")]
     subgraph READERS["Readers — never touch the wire"]
         R1["CLI: who / inbox / list"]
@@ -163,16 +163,16 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 | Entity | Today's table(s) | Holds | Within |
 |--------|------------------|-------|--------|
 | project + metadata | `project_meta` (`project`, `about`, `updated_at`) | slug, `about` text | — |
-| agents + identity | `profiles` (`pubkey`,`slug`,`host`), `pending_agents` | identity card (slug, host, owners) | — |
-| membership | *(implicit today: whitelist / `pending_agents`)* | which agents belong to a project | a project |
+| agents + identity | `profiles` (`pubkey`,`slug`,`host`) | identity card (slug, host, owners) | — |
+| membership | `group_members`, canonical `membership` | which agents belong to a project | a project |
 | presence / status | `peer_sessions`, `agent_status` | who's online, what they're doing | a project |
 | messages | `inbox` (`from_pubkey`, `from_session`, `body`, `created_at`, …) | body, author, **sender session (the reply address)**, created_at | a thread |
 | recipients | `inbox.target_session` (+ mention p-tag) | the addressee(s) | a thread / message |
 | **threads** | **— (new)** | thread id, subject/meta | a project |
 
-Most rows already exist; the materializer reframing mainly **promotes membership
-to an explicit table** (today it's smeared across the whitelist and
-`pending_agents`) and **adds `threads`** as the one genuinely new entity.
+Most rows already exist; the materializer reframing keeps membership explicit in
+the NIP-29 group/member tables and **adds `threads`** as the one genuinely new
+entity.
 
 **The message row must carry its own return envelope.** A reader that surfaces an
 inbound message has to know *who to reply to* — and that means the exact sender
@@ -247,7 +247,7 @@ flowchart LR
 - **Intents** are writes: open a project, send a message, beat a heartbeat. The
   provider encodes the intent to its wire shape and (optimistically, or on echo)
   the materializer reflects it back as a row.
-- **The ACL gate lives on the write face, then becomes a read.** `is_member` is
+- **The admission gate lives on the write face, then becomes a read.** `is_member` is
   consulted *twice*: once at materialization time as an **admission predicate**
   (decode an inbound event → is the sender authorized → upsert or drop), and again
   at read time as a **query** over the membership rows (who may I show / route
@@ -298,13 +298,13 @@ change-notify, never a fabric subscription).
 
 A `Provider` is **one cohesive object per fabric** that bundles four
 single-responsibility capabilities. Splitting them keeps each concern testable
-and prevents the current "codec also does ACL" fusion.
+and prevents the current "codec also does admission" fusion.
 
 ```mermaid
 flowchart TD
     PROVIDER["FabricProvider<br/>(Nip29 · Mls · Kind1)"]
     PROVIDER --> L["① Lifecycle reactor<br/>react(ProjectOpened, AgentJoined…)<br/>→ native side-effects"]
-    PROVIDER --> M["② Materializer<br/>composes ③+④ → ACL-admit · derive<br/>· upsert canonical rows into the store"]
+    PROVIDER --> M["② Materializer<br/>composes ③+④ → admit · derive<br/>· upsert canonical rows into the store"]
     PROVIDER --> W["③ Wire codec<br/>DomainEvent ⇄ raw envelope<br/>(bytes / event / MLS app-msg)"]
     PROVIDER --> D["④ Delivery<br/>publish(raw envelope) · subscribe(scope)→raw stream<br/>owns REQ-filters / gossip / MLS-stream"]
 ```
@@ -312,9 +312,9 @@ flowchart TD
 | # | Capability | Responsibility | Must **not** |
 |---|------------|----------------|--------------|
 | ① | **Lifecycle** | Turn a domain lifecycle event into provider-native setup (create group, invite, or no-op). | Decide *when* a project opens (that's the host/daemon). |
-| ② | **Materializer** | **Composes ③ and ④:** consume ④'s inbound stream, decode via ③, then own *only* admission (ACL), derivation (e.g. thread structure), and upsert of canonical rows — membership, project list & metadata, agents, threads, messages, recipients. The store is the read contract; this fills it. | Subscribe or decode *itself* (that's ④ and ③), or answer reads (readers query the store directly; the materializer never sits in a read path). |
+| ② | **Materializer** | **Composes ③ and ④:** consume ④'s inbound stream, decode via ③, then own *only* admission, derivation (e.g. thread structure), and upsert of canonical rows — membership, project list & metadata, agents, threads, messages, recipients. The store is the read contract; this fills it. | Subscribe or decode *itself* (that's ④ and ③), or answer reads (readers query the store directly; the materializer never sits in a read path). |
 | ③ | **Wire codec** | Pure, symmetric ser/de of the five+ `DomainEvent` nouns to its envelope. | Open subscriptions or manage groups. |
-| ④ | **Delivery** | Connect/auth, publish raw envelopes, and stream raw inbound envelopes for a `Scope`. Owns whatever fetch model the fabric uses. | Decode, derive, apply ACL, or know domain meaning. |
+| ④ | **Delivery** | Connect/auth, publish raw envelopes, and stream raw inbound envelopes for a `Scope`. Owns whatever fetch model the fabric uses. | Decode, derive, apply admission, or know domain meaning. |
 
 The runtime only ever talks to one active provider interface. Swapping fabric =
 swap the provider constructor (or a small enum of providers until a truly
@@ -344,7 +344,7 @@ sequenceDiagram
         P->>FAB: create group 9007 (h = dir slug)
         P->>FAB: edit-metadata 9002 (closed + public)
         P->>FAB: put-user 9000 (agent = member)
-        %% subscribe 39002 members keeps the ACL live
+        %% subscribe 39002 members keeps admission live
         P->>FAB: subscribe 39002 members
     else mls provider
         P->>FAB: create MLS group
@@ -410,7 +410,7 @@ legacy access once tests prove the projections are authoritative.
   own `rusqlite::Connection`.
 - Existing behavior is the regression oracle: same-machine local delivery,
   targeted session mentions, NIP-29 group create/lock/add, project metadata cache,
-  pending-agent ACL flow, and startup mention fetch must still work.
+  relay-authoritative membership routing, and startup mention fetch must still work.
 - Keep legacy tables during cutover. The plan below adds canonical tables and
   backfills/dual-writes before any old table is removed.
 
@@ -435,8 +435,8 @@ Coverage to pin:
 3. `handle_incoming` applies 39000 metadata and 39002 membership snapshots
    idempotently.
 4. `who` and turn-start context are rendered from store state only.
-5. Unknown-but-owner-related profiles enter `pending_agents`; allowed profiles
-   enter `profiles`; blocked profiles are ignored.
+5. Delivered profile events enter `profiles`; local allow/block state is not
+   part of the active NIP-29 path.
 6. `fetch_mentions_into_inbox` catches stored kind:1 mentions after startup.
 
 Done when: these tests fail if `handle_incoming`, `route_mention_into`, or
@@ -632,7 +632,7 @@ Extraction order:
 
 1. Move 39000 handling to `Nip29Materializer::materialize_group_metadata`.
 2. Move 39002 handling to `Nip29Materializer::materialize_membership_snapshot`.
-3. Move profile/pending-agent logic to `Kind1Materializer::materialize_profile`.
+3. Move profile materialization to `Kind1Materializer::materialize_profile`.
 4. Move presence/status upserts to `Kind1Materializer`.
 5. Move mention routing from `runtime::route_mention_into` into
    `materialize_inbound_message`, while leaving a thin compatibility wrapper for
@@ -640,7 +640,7 @@ Extraction order:
 6. Move startup mention fetch through the same materializer path; it should not
    have a separate decode/route implementation.
 
-ACL behavior:
+Admission behavior:
 
 - Nostr admission uses `event.pubkey` as the actor identity. The self-asserted
   `["agent", pk, slug]` wire tag has been removed from all events (Presence,
@@ -649,8 +649,8 @@ ACL behavior:
   signer pubkey + group membership only.
 - If membership for the project is known and sender is not admitted, quarantine
   or drop according to local policy.
-- If membership is not hydrated yet, quarantine. Replay on 39002 snapshot,
-  whitelist allow, or project-origin creation.
+- If membership is not hydrated yet, quarantine. Replay on 39002 snapshot or
+  project-origin creation.
 - Presence/status/current roster use current membership; admitted messages remain
   historical after revocation.
 

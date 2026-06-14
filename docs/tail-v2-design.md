@@ -24,7 +24,6 @@ change across all agents + message traffic. Read-only; never mutates inbox/seen.
 - **join/leave**: presence ONLINE/OFFLINE transitions only — raw periodic
   heartbeats NEVER emit a line (first heartbeat = join, expiry/end = leave).
 - **sess**: local own-session start/end.
-- **acl** (high salience, warn tier): pending-agent request / admitted / revoked.
 - **proj**: project metadata (about) changed; dedupe identical text.
 - **id/profile**: first-discovery only; default-hidden.
 
@@ -35,20 +34,20 @@ first-discovery, hidden; sync `published` → suppressed; activity → debounced
 ## 3. Noise control
 1. Heartbeat→transition conversion (removes ~90% of volume).
 2. Per-source debounce/dedupe keyed by (category, agent, project, thread?).
-3. Severity tiers: **action** (acl pending), **signal** (msg, turn, sync failed,
-   join, leave, acl admit/revoke), **ambient** (status, sync delivered/accepted,
-   sess, proj), **noise** (profile, raw beats).
+3. Severity tiers: **signal** (msg, turn, sync failed, join, leave),
+   **ambient** (status, sync delivered/accepted, sess, proj), **noise**
+   (profile, raw beats).
 4. Default-hidden categories (profile, heartbeats); `--include`/`--all` re-enable.
 
 ## 4. Format
 Line grammar: `<TS>  <cat>  <agent@project[sess]>  <verb/glyph> <detail>`
 - TS: wall-clock `HH:MM:SS` default; `--relative` for `12s ago`.
 - cat: fixed 5-char colored tag (msg=yellow, sync=cyan/red, turn=green,
-  stat=magenta, join=green, leave=dim, sess=blue, acl=bold yellow/red, proj=dim).
+  stat=magenta, join=green, leave=dim, sess=blue, proj=dim).
 - identity: `slug@project[sess]` (peers: `slug@host[sess]`); sess = 4-char
   hash short-code (reuse `session_short_code`/`short_id` from util.rs).
-- glyphs: `▶` started, `⏸` idle, `→` message, `✓` admitted, `⚠` pending,
-  `✗`/failed. ASCII fallback via `--no-emoji` (`>`,`||`,`->`,`[ok]`,`[!]`,`[x]`).
+- glyphs: `▶` started, `⏸` idle, `→` message, `✗`/failed.
+  ASCII fallback via `--no-emoji` (`>`,`||`,`->`,`[x]`).
 - thread id `#xxxx` (4-char short of thread/root id); same thread = same code.
 - body: straight quotes, truncate 72 cols + `…`, newlines→spaces; `-v` raises.
 - color only on TTY; respect NO_COLOR.
@@ -78,7 +77,7 @@ TailEvents), `--live` (TUI dashboard — follow-up).
 
 `--live` dashboard (follow-up): full-screen TUI grouped by project→agent, each
 agent row = slug@host, online dot, working/idle + live elapsed, current status,
-last-message-at; bottom pane = last ~10 msg/acl events. Same event stream.
+last-message-at; bottom pane = last ~10 msg/sync/turn events. Same event stream.
 
 ## 6. Implementation notes
 ### A. Pivot stream from pre-rendered strings to structured events
@@ -95,7 +94,6 @@ enum TailEvent {
     Join{ts,project,agent,host,session,rel_cwd},
     Leave{ts,project,agent,host,session,online_s},
     Sess{ts,project,agent,session,state,rel_cwd},
-    Acl{ts,action,agent,host,pubkey,role},
     Proj{ts,project,about},
     Profile{ts,agent,host,pubkey},
 }
@@ -109,9 +107,9 @@ locally (`render_tail_event(&TailEvent,&Opts)`); `--json` prints verbatim.
 ### B. Emit at mutation sites (don't diff the firehose)
 - RPC handlers: `rpc_turn_start/end`→Turn (elapsed from turn_state),
   `rpc_session_start/end`→Sess, `rpc_send_message`→Msg + Sync (use the
-  SendIntent thread_id), `rpc_acl`→Acl.
+  SendIntent thread_id).
 - `handle_incoming` / materializer: decoded Mention→Msg (inbound),
-  pending-agent→Acl{pending}, 39000→Proj on change, new Profile→Profile.
+  39000→Proj on change, new Profile→Profile.
 
 ### C. Derive join/leave
 join = first time a peer session_id is seen (first_seen); subsequent beats emit

@@ -2,7 +2,8 @@
 
 Status: proposed (human review checkpoint). Implements the architecture change
 from **per-session process** to **one per-machine daemon** that solely owns
-`state.db`, the relay connection, the ACL, the inbox, presence, and peer pruning.
+`state.db`, the relay connection, the inbox, presence, NIP-29 membership cache,
+and peer pruning.
 
 ## 1. Why
 
@@ -55,7 +56,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
               │                            │  • owns ONE relay Transport ─────┼──┼──▶ relay
               │                            │  • per-session async tasks       │  │  (NIP-42)
               │                            │  • inbox / presence / pruning    │  │
-              │                            │  • ACL allow/block               │  │
+              │                            │  • NIP-29 membership cache       │  │
               │                            └──────────────────────────────────┘  │
               └───────────────────────────────────────────────────────────────────┘
 ```
@@ -209,7 +210,6 @@ Walking each verb's true I/O shape:
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
 | `inbox`            | one-shot             | drain inbox                                          |
-| `acl`              | one-shot             | list / allow / block                                 |
 | `doctor`           | one-shot             | daemon does the relay round-trip, returns result     |
 | `wait-for-mention` | **long-poll**        | daemon holds the request open until a mention or T/O |
 | `tail`             | **stream**           | daemon pushes decoded fabric events until disconnect |
@@ -251,7 +251,9 @@ distills, routes mentions — today's `runtime::run_session`).
 params: {"agent": "coder", "session_id": "te-…"|null, "cwd": "/path", "watch_pid": 12345|null}
 result: {"session_id": "te-…"}   // printed verbatim to stdout, exactly as today
 ```
-Owner auto-allow of our own agent stays (writes the allowlist via `acl::allow`).
+The provider opens the project's NIP-29 group and adds the session agent as a
+relay member before the engine publishes presence. There is no local agent
+allow/block file in the NIP-29 path.
 
 ### `session_end`
 ```jsonc
@@ -286,12 +288,11 @@ re-issues `who` each refresh tick (no streaming).
 ### `inbox`
 ```jsonc
 params: {"session": "te-…"|null, "cwd": "/path", "env_session": "…"|null}
-result: {"rows": [ {from_slug, project, body, mention_event_id}, … ],
-         "pending_agents": [ {slug, pubkey}, … ]}
+result: {"rows": [ {from_slug, project, body, mention_event_id}, … ]}
 ```
 Daemon does the self-fetch-into-inbox + `drain_inbox` + `mark_mention_seen`
 (all the writes happen daemon-side, single writer). Client prints the exact
-`[mention from …@…] …` lines and the pending-agents notice as today.
+`[mention from …@…] …` lines as today.
 
 ### `turn_start`
 ```jsonc
@@ -299,7 +300,7 @@ params: {"session": "te-…", "transcript": "/path"|null, "json": bool, "cwd": "
 result: {"context": "…"|null}    // the assembled injection text, or null
 ```
 Daemon does everything `turn_start` does today (mark turn, set transcript,
-self-fetch, drain inbox, pending agents, full roster on first turn / deltas
+self-fetch, drain inbox, full roster on first turn / deltas
 after). Client emits via `emit_context` (plain or `{"systemMessage":…}`) to keep
 byte-identical output. Empty session id ⇒ no-op (returns `context: null`).
 
@@ -314,19 +315,6 @@ result: {"context": "…"|null}    // peek only; no inbox drain, no writes
 params: {"session": "te-…"}
 result: {"ok": true}
 ```
-
-### `acl`
-```jsonc
-params: {"action": "list"|"allow"|"block", "target": "…"|null}
-result(list):  {"pending": [{slug, pubkey, host}, …], "allowed": u64, "blocked": u64}
-result(allow): {"slug": "…", "pubkey": "hex"}
-result(block): {"slug": "…", "pubkey": "hex"}
-```
-Daemon owns the allowlist/blocklist files (single writer) and resolves targets.
-Client prints the exact authorized/blocked/pending text as today. After an
-allow/block the daemon also re-evaluates trusted authors and re-subscribes the
-shared relay (today the engine does this on its heartbeat; with one shared
-subscription it happens once, daemon-side).
 
 ### `doctor`
 ```jsonc
@@ -567,9 +555,9 @@ rendering stays client-side.
 - **Relay NIP-42 AUTH warm-up fetch** before any subscribe — `Transport::connect`
   already does the `kind:0 limit 1` warm-up; the daemon connects once and that
   warm-up runs once, before its union subscription.
-- **Own-fleet trust / owner-scoping / ACL allowlist** semantics — unchanged;
-  `acl::*` and the pending/allow/block flow move behind the `acl` RPC but keep
-  identical file format and logic.
+- **NIP-29 membership semantics** — group creation, owner admin backfill, and
+  agent member admission remain provider-owned and relay-authoritative. Local
+  allow/block files are not part of the active NIP-29 path.
 
 ## 10. Tests
 
