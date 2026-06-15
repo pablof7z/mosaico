@@ -19,6 +19,7 @@ pub(super) async fn tmux_run(action: TmuxAction) -> Result<()> {
         TmuxAction::Spawn { agent, project } => tmux_spawn(agent, project).await,
         TmuxAction::Attach { session } => tmux_attach(session).await,
         TmuxAction::Resume { session } => tmux_resume(session).await,
+        TmuxAction::Sidebar { session, project } => tmux_sidebar(session, project),
     }
 }
 
@@ -1328,6 +1329,9 @@ fn attach_pane_blocking(pane_id: &str) -> Result<()> {
     let Some(session) = session_of_pane(pane_id) else {
         anyhow::bail!("pane {pane_id} not found in any tmux session");
     };
+    // Ensure this session has a sidebar pane before we enter it.
+    ensure_sidebar(&session);
+    bind_sidebar_keys();
     std::process::Command::new("tmux")
         .args(["attach-session", "-t", &session])
         .env_remove("TMUX")
@@ -1344,6 +1348,9 @@ fn attach_pane(pane_id: &str) -> Result<()> {
         eprintln!("Pane {pane_id} not found in any tmux session.");
         return Ok(());
     };
+    // Ensure this session has a sidebar pane before we enter it.
+    ensure_sidebar(&session);
+    bind_sidebar_keys();
 
     let in_tmux = std::env::var("TMUX").map(|v| !v.is_empty()).unwrap_or(false);
     if in_tmux {
@@ -1362,4 +1369,308 @@ fn attach_pane(pane_id: &str) -> Result<()> {
         .args(["attach-session", "-t", &session])
         .exec(); // replaces this process; only returns on error
     anyhow::bail!("exec tmux attach-session: {err}");
+}
+
+// ── sidebar ───────────────────────────────────────────────────────────────────
+
+/// Idempotently inject a sidebar pane into `session` if one does not already
+/// exist. The sidebar is a narrow left pane (~32 cols) running
+/// `tenex-edge tmux sidebar --session <session>`. Focus stays on the agent pane.
+///
+/// Errors are swallowed (eprintln at most) — the caller is about to hand off
+/// the terminal and does not need sidebar injection to be fatal.
+fn ensure_sidebar(session: &str) {
+    // List all panes in the session and their start commands.
+    let out = std::process::Command::new("tmux")
+        .args([
+            "list-panes",
+            "-t",
+            session,
+            "-F",
+            "#{pane_id} #{pane_start_command}",
+        ])
+        .output();
+
+    match out {
+        Err(e) => {
+            eprintln!("ensure_sidebar: list-panes failed: {e}");
+            return;
+        }
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            // If any pane is already running our sidebar, do nothing.
+            if stdout.lines().any(|line| line.contains("tmux sidebar")) {
+                return;
+            }
+        }
+    }
+
+    // Split a 32-col pane on the LEFT (-b), keep the current pane focused (-d).
+    let sidebar_cmd = format!("tenex-edge tmux sidebar --session {session}");
+    let status = std::process::Command::new("tmux")
+        .args([
+            "split-window",
+            "-h",  // horizontal split (side-by-side)
+            "-b",  // new pane goes to the LEFT of the current pane
+            "-l",
+            "32",  // 32 columns wide
+            "-d",  // don't switch focus to the new pane
+            "-t",
+            session,
+            &sidebar_cmd,
+        ])
+        .status();
+
+    match status {
+        Ok(s) if !s.success() => {
+            eprintln!("ensure_sidebar: split-window exited non-zero for session {session}");
+        }
+        Err(e) => {
+            eprintln!("ensure_sidebar: split-window failed: {e}");
+        }
+        Ok(_) => {}
+    }
+}
+
+/// Bind Alt-s (focus sidebar/left) and Alt-a (focus agent/right) in the root
+/// key table. Re-binding is idempotent, so this is safe to call every attach.
+fn bind_sidebar_keys() {
+    let _ = std::process::Command::new("tmux")
+        .args(["bind-key", "-T", "root", "M-s", "select-pane", "-L"])
+        .status();
+    let _ = std::process::Command::new("tmux")
+        .args(["bind-key", "-T", "root", "M-a", "select-pane", "-R"])
+        .status();
+}
+
+/// Resolve the current tmux session name from within a running tmux client.
+/// Returns `None` if not inside tmux or the command fails.
+fn current_tmux_session() -> Option<String> {
+    let out = std::process::Command::new("tmux")
+        .args(["display-message", "-p", "#{client_session}"])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() { None } else { Some(s) }
+}
+
+/// The sidebar TUI: a long-running narrow-pane process that lists project
+/// sessions and lets the user switch between them with arrow keys + Enter.
+///
+/// This is the implementation of `tenex-edge tmux sidebar`.
+fn tmux_sidebar(session_arg: Option<String>, project_arg: Option<String>) -> Result<()> {
+    // Resolve the session this sidebar belongs to.
+    let my_session = session_arg
+        .or_else(current_tmux_session)
+        .unwrap_or_default();
+
+    let refresh = Duration::from_secs(2);
+    let mut selected: usize = 0;
+    let mut project_filter: Option<String> = project_arg;
+
+    // Fetch initial data — fail fast if daemon is down.
+    let mut data = fetch_tui_data()?;
+
+    // Derive project from our session if no --project was given.
+    if project_filter.is_none() {
+        if let Some(row) = data.live.iter().find(|r| {
+            r.session_id == my_session
+                || session_name_for_id(&r.session_id).as_deref() == Some(my_session.as_str())
+        }) {
+            project_filter = Some(row.project.clone());
+        }
+    }
+
+    // Pre-select our own session in the list.
+    let rows_for_project = |live: &[LiveRow], pf: &Option<String>| -> Vec<usize> {
+        live.iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                pf.as_deref()
+                    .map(|p| r.project == p)
+                    .unwrap_or(true)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+
+    {
+        let _terminal = TuiTerminal::enter()?;
+        let mut ratatui_term =
+            Terminal::new(CrosstermBackend::new(io::stdout())).context("init sidebar terminal")?;
+        let mut next_refresh = Instant::now() + refresh;
+
+        loop {
+            let indices = rows_for_project(&data.live, &project_filter);
+            let total = indices.len();
+
+            if total > 0 && selected >= total {
+                selected = total.saturating_sub(1);
+            }
+
+            // Render the sidebar.
+            let proj_snap = project_filter.clone().unwrap_or_default();
+            ratatui_term.draw(|f| {
+                sidebar_render(f, &data.live, &indices, selected, &my_session, &proj_snap)
+            })?;
+
+            let wait = next_refresh
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(100));
+
+            if event::poll(wait)? {
+                if let TermEvent::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char('c')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            break
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            selected = selected.saturating_sub(1);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if total > 0 && selected + 1 < total {
+                                selected += 1;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if let Some(&abs_idx) = indices.get(selected) {
+                                let target_row = &data.live[abs_idx];
+                                let target_sid = target_row.session_id.clone();
+
+                                // Don't switch if we're already here.
+                                let target_name =
+                                    session_name_for_id(&target_sid).unwrap_or_default();
+                                if target_name == my_session {
+                                    continue;
+                                }
+
+                                // Ensure the target session has its own sidebar.
+                                ensure_sidebar(&target_name);
+
+                                // Switch the tmux client to the target session.
+                                let _ = std::process::Command::new("tmux")
+                                    .args(["switch-client", "-t", &target_name])
+                                    .status();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Periodic refresh.
+            if Instant::now() >= next_refresh {
+                if let Ok(fresh) = fetch_tui_data() {
+                    data = fresh;
+                    // Re-derive project filter from updated data if still unset.
+                    if project_filter.is_none() {
+                        if let Some(row) = data.live.iter().find(|r| {
+                            session_name_for_id(&r.session_id).as_deref()
+                                == Some(my_session.as_str())
+                        }) {
+                            project_filter = Some(row.project.clone());
+                        }
+                    }
+                }
+                next_refresh = Instant::now() + refresh;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Render the sidebar contents into a narrow pane via ratatui.
+fn sidebar_render(
+    f: &mut Frame,
+    live: &[LiveRow],
+    indices: &[usize],
+    selected: usize,
+    my_session: &str,
+    project: &str,
+) {
+    let area = f.area();
+    let w = area.width as usize;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // title
+            Constraint::Length(1), // rule
+            Constraint::Min(1),    // session list
+            Constraint::Length(1), // help
+        ])
+        .split(area);
+
+    // ── title: "sessions" bold + project dim ──────────────────────────────
+    let mut title_spans = vec![Span::styled("sessions", style_bold())];
+    if !project.is_empty() {
+        title_spans.push(Span::styled(format!(" {project}"), style_dim()));
+    }
+    f.render_widget(Paragraph::new(Line::from(title_spans)), chunks[0]);
+
+    // ── rule ──────────────────────────────────────────────────────────────
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled("─".repeat(w), style_dim()))),
+        chunks[1],
+    );
+
+    // ── session list ──────────────────────────────────────────────────────
+    let mut lines: Vec<Line> = Vec::new();
+    if indices.is_empty() {
+        lines.push(Line::from(Span::styled("  (no sessions)", style_dim())));
+    } else {
+        for (sel_idx, &abs_idx) in indices.iter().enumerate() {
+            let row = &live[abs_idx];
+            let is_current = session_name_for_id(&row.session_id).as_deref() == Some(my_session)
+                || row.session_id == my_session;
+            let is_sel = sel_idx == selected;
+            let cursor = if is_sel { "►" } else { " " };
+
+            // Compact status badge (max 4 chars).
+            let status_badge = if row.status.trim().is_empty() {
+                "idle".to_string()
+            } else {
+                let s = row.status.trim();
+                s.chars().take(4).collect()
+            };
+
+            // Truncate slug to fit: cursor(1) + space + slug + space + badge.
+            let slug_max = w.saturating_sub(1 + 1 + status_badge.len() + 1);
+            let slug_display: String = row.slug.chars().take(slug_max.max(1)).collect();
+
+            let (cursor_style, slug_style) = match (is_current, is_sel) {
+                (true, true) => (style_cyan_bold(), style_cyan_bold()),
+                (true, false) => (Style::default(), style_cyan()),
+                (false, true) => (style_bold(), style_bold()),
+                (false, false) => (Style::default(), style_dim()),
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(cursor.to_string(), cursor_style),
+                Span::raw(" "),
+                Span::styled(slug_display, slug_style),
+                Span::raw(" "),
+                Span::styled(status_badge, style_dim()),
+            ]));
+        }
+    }
+    f.render_widget(Paragraph::new(lines), chunks[2]);
+
+    // ── help ──────────────────────────────────────────────────────────────
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled("↑↓ move  ↵ switch", style_dim()))),
+        chunks[3],
+    );
+}
+
+/// Look up the tmux session NAME for a given tenex-edge session_id by scanning
+/// all live sessions. Returns `None` if the id isn't registered in tmux.
+fn session_name_for_id(session_id: &str) -> Option<String> {
+    // Ask the daemon for the pane registered to this session_id.
+    let pane = pane_for_session(session_id)?;
+    session_of_pane(&pane)
 }

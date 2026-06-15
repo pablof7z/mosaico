@@ -281,6 +281,20 @@ enum TmuxAction {
         #[arg(long)]
         session: String,
     },
+    /// Long-running sidebar process: list project sessions in a narrow pane,
+    /// highlight the current session, and let the user switch between them.
+    /// Normally started automatically by `ensure_sidebar`; can also be run
+    /// manually with `tenex-edge tmux sidebar --session <id>`.
+    Sidebar {
+        /// The session this sidebar belongs to (highlighted as "current").
+        /// If omitted, resolved at runtime from the tmux client session name.
+        #[arg(long)]
+        session: Option<String>,
+        /// Project to filter by. If omitted, derived from the current session's
+        /// live row in the daemon data.
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
