@@ -204,6 +204,11 @@ enum Cmd {
     Tmux {
         #[command(subcommand)]
         action: Option<TmuxAction>,
+        /// Run the bare TUI in popup mode: selecting a session switches the
+        /// underlying tmux client and exits (closing the `display-popup`),
+        /// instead of attaching inline. Used by the `M-t` quick-switcher.
+        #[arg(long, hide = true)]
+        popup: bool,
     },
     /// Internal: the per-machine daemon. Spawned automatically; not for direct use.
     /// (Replaces the old detached per-session engine, which now runs as an async
@@ -419,9 +424,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Doctor => admin::doctor().await,
         Cmd::Hook { host, hook_type } => hooks::hook_run(host, hook_type).await,
-        Cmd::Tmux { action } => match action {
+        Cmd::Tmux { action, popup } => match action {
             Some(action) => tmux_cli::tmux_run(action).await,
-            None => tmux_cli::tmux_tui(),
+            None => tmux_cli::tmux_tui(popup),
         },
         Cmd::Daemon => crate::daemon::server::run().await,
     }

@@ -941,7 +941,12 @@ fn fetch_tui_data() -> Result<TuiData> {
 
 /// Interactive TUI for `tenex-edge tmux` (bare, no subcommand).
 /// Shows live sessions and spawnable agents; lets the user attach or spawn.
-pub(super) fn tmux_tui() -> Result<()> {
+///
+/// When `popup` is true the TUI is running inside a `display-popup` overlay:
+/// instead of attaching inline (which would trap the session inside the popup),
+/// selecting a session switches the underlying client and exits, closing the
+/// popup so the chosen session takes over the full client.
+pub(super) fn tmux_tui(popup: bool) -> Result<()> {
     let refresh = Duration::from_secs(2);
     let mut selected: usize = 0;
     let mut status_msg = String::new();
@@ -1147,8 +1152,16 @@ pub(super) fn tmux_tui() -> Result<()> {
                                             let si = selected.saturating_sub(fl.len());
                                             if selected >= fl.len() && si < data.spawnable.len() {
                                                 let slug = data.spawnable[si].slug.clone();
-                                                let project = crate::project::resolve(
-                                                    &std::env::current_dir().unwrap_or_default(),
+                                                // Spawn into the selected project tab's dir, not
+                                                // the TUI process's cwd. Fall back to cwd-resolution
+                                                // only on the "all projects" tab (no filter).
+                                                let project = pf.map(str::to_string).unwrap_or_else(
+                                                    || {
+                                                        crate::project::resolve(
+                                                            &std::env::current_dir()
+                                                                .unwrap_or_default(),
+                                                        )
+                                                    },
                                                 );
                                                 status_msg = format!("Spawning {slug}...");
                                                 // Render the status immediately before blocking.
@@ -1254,8 +1267,21 @@ pub(super) fn tmux_tui() -> Result<()> {
                 break;
             }
 
-            // Attach (blocking) then return to the TUI.
+            // Attach. In popup mode, switch the underlying client to the chosen
+            // session and exit so the `display-popup` closes and the session
+            // takes over the full client. Otherwise attach inline (blocking),
+            // then return to the TUI.
             if let Some(pane) = pending_attach {
+                if popup {
+                    if let Some(session) = session_of_pane(&pane) {
+                        ensure_sidebar(&session);
+                        bind_sidebar_keys();
+                        let _ = std::process::Command::new("tmux")
+                            .args(["switch-client", "-t", &session])
+                            .status();
+                    }
+                    break; // exit the TUI → display-popup -E closes
+                }
                 // Suspend ratatui/crossterm so the tmux client owns the tty.
                 TuiTerminal::suspend();
                 let res = attach_pane_blocking(&pane);
@@ -1373,9 +1399,15 @@ fn attach_pane(pane_id: &str) -> Result<()> {
 
 // ── sidebar ───────────────────────────────────────────────────────────────────
 
+/// Fixed sidebar width in columns. tmux rescales panes proportionally when the
+/// client resizes, so a one-time `-l` at split time isn't enough — we also pin
+/// it with a `client-resized` hook (see `ensure_sidebar`).
+const SIDEBAR_COLS: &str = "40";
+
 /// Idempotently inject a sidebar pane into `session` if one does not already
-/// exist. The sidebar is a narrow left pane (~32 cols) running
-/// `tenex-edge tmux sidebar --session <session>`. Focus stays on the agent pane.
+/// exist. The sidebar is a narrow left pane (a fixed `SIDEBAR_COLS` wide)
+/// running `tenex-edge tmux sidebar --session <session>`. Focus stays on the
+/// agent pane.
 ///
 /// Errors are swallowed (eprintln at most) — the caller is about to hand off
 /// the terminal and does not need sidebar injection to be fatal.
@@ -1405,41 +1437,75 @@ fn ensure_sidebar(session: &str) {
         }
     }
 
-    // Split a 32-col pane on the LEFT (-b), keep the current pane focused (-d).
+    // Split a fixed-width pane on the LEFT (-b), keep the current pane focused
+    // (-d). Capture the new pane id so we can pin its width on resize.
     let sidebar_cmd = format!("tenex-edge tmux sidebar --session {session}");
-    let status = std::process::Command::new("tmux")
+    let out = std::process::Command::new("tmux")
         .args([
             "split-window",
             "-h",  // horizontal split (side-by-side)
             "-b",  // new pane goes to the LEFT of the current pane
             "-l",
-            "32",  // 32 columns wide
+            SIDEBAR_COLS,
             "-d",  // don't switch focus to the new pane
+            "-P",  // print the new pane id
+            "-F",
+            "#{pane_id}",
             "-t",
             session,
             &sidebar_cmd,
         ])
-        .status();
+        .output();
 
-    match status {
-        Ok(s) if !s.success() => {
+    let pane_id = match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        Ok(_) => {
             eprintln!("ensure_sidebar: split-window exited non-zero for session {session}");
+            return;
         }
         Err(e) => {
             eprintln!("ensure_sidebar: split-window failed: {e}");
+            return;
         }
-        Ok(_) => {}
-    }
+    };
+
+    // Pin the sidebar width: when the client resizes, tmux would otherwise
+    // rescale this pane proportionally. A `client-resized` hook re-fixes it.
+    // (resize-pane fires `window-layout-changed`, not `client-resized`, so this
+    // does not recurse.) The hook is session-scoped and dies with the session.
+    let resize_cmd = format!("resize-pane -t {pane_id} -x {SIDEBAR_COLS}");
+    let _ = std::process::Command::new("tmux")
+        .args(["set-hook", "-t", session, "client-resized", &resize_cmd])
+        .status();
 }
 
-/// Bind Alt-s (focus sidebar/left) and Alt-a (focus agent/right) in the root
-/// key table. Re-binding is idempotent, so this is safe to call every attach.
+/// Bind Alt-s (focus sidebar/left), Alt-a (focus agent/right), and Alt-t (open
+/// the session-switcher popup) in the root key table. Re-binding is idempotent,
+/// so this is safe to call every attach.
 fn bind_sidebar_keys() {
     let _ = std::process::Command::new("tmux")
         .args(["bind-key", "-T", "root", "M-s", "select-pane", "-L"])
         .status();
     let _ = std::process::Command::new("tmux")
         .args(["bind-key", "-T", "root", "M-a", "select-pane", "-R"])
+        .status();
+    // Alt-t: full-screen quick-switcher in a popup. `--popup` makes the TUI
+    // switch the underlying client and exit on selection (instead of attaching
+    // inline inside the popup); `-E` closes the popup when it exits.
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key",
+            "-T",
+            "root",
+            "M-t",
+            "display-popup",
+            "-E",
+            "-w",
+            "80%",
+            "-h",
+            "80%",
+            "tenex-edge tmux --popup",
+        ])
         .status();
 }
 
