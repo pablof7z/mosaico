@@ -1,5 +1,14 @@
 use super::*;
 
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Paragraph},
+    Frame, Terminal,
+};
+
 // ── tmux_run ──────────────────────────────────────────────────────────────────
 
 /// Entry point for `tenex-edge tmux <action>`.
@@ -253,81 +262,466 @@ fn fuzzy_matches(pt: &ProjectTabs, query: &str) -> Vec<String> {
         .collect()
 }
 
-fn draw_search(
-    pt: &ProjectTabs,
-    query: &str,
-    sel: usize,
-    scroll: &mut usize,
-) -> Result<()> {
-    use owo_colors::OwoColorize as _;
+// ── ratatui styles ────────────────────────────────────────────────────────────
+
+fn style_bold() -> Style {
+    Style::default().add_modifier(Modifier::BOLD)
+}
+
+fn style_dim() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
+
+fn style_cyan() -> Style {
+    Style::default().fg(Color::Cyan)
+}
+
+fn style_cyan_bold() -> Style {
+    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+}
+
+fn style_yellow() -> Style {
+    Style::default().fg(Color::Yellow)
+}
+
+fn style_magenta() -> Style {
+    Style::default().fg(Color::Magenta)
+}
+
+fn style_magenta_bold() -> Style {
+    Style::default()
+        .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn style_selected_bg() -> Style {
+    Style::default()
+}
+
+// ── ratatui render functions ──────────────────────────────────────────────────
+
+/// Build a `Line` for a live-session row.
+fn live_row_line(row: &LiveRow, is_sel: bool, project_filter: Option<&str>) -> Line<'static> {
+    let cursor = if is_sel { "► " } else { "  " };
+    let label = if project_filter.is_none() {
+        format!("{}@{}", row.slug, row.project)
+    } else {
+        format!("{}@{}", row.slug, row.host)
+    };
+    let session_tag = format!(" [session {}]", row.session_short);
+    let status_str = if row.status.trim().is_empty() {
+        "idle".to_string()
+    } else {
+        row.status.trim().to_string()
+    };
+
+    if !row.attachable {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_dim()),
+            Span::styled(session_tag, style_dim()),
+            Span::styled(format!("  {}", status_str), style_dim()),
+        ])
+    } else if is_sel {
+        Line::from(vec![
+            Span::styled(cursor.to_string(), style_selected_bg()),
+            Span::styled(label, style_cyan_bold()),
+            Span::styled(session_tag, style_yellow()),
+            Span::raw(format!("  {}", status_str)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_cyan()),
+            Span::styled(session_tag, style_yellow()),
+            Span::styled(format!("  {}", status_str), style_dim()),
+        ])
+    }
+}
+
+/// Build a `Line` for a spawnable-agent row.
+fn spawn_row_line(row: &SpawnRow, is_sel: bool) -> Line<'static> {
+    let cursor = if is_sel { "► " } else { "  " };
+    let label = format!("{}@{}", row.slug, row.host);
+    let tag = format!("  [{}]", row.command);
+    if is_sel {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_bold()),
+            Span::styled(tag, style_dim()),
+        ])
+    } else {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_dim()),
+            Span::styled(tag, style_dim()),
+        ])
+    }
+}
+
+/// Build a `Line` for a resumable-session row.
+fn resume_row_line(row: &ResumeRow, is_sel: bool, project_filter: Option<&str>) -> Line<'static> {
+    let cursor = if is_sel { "► " } else { "  " };
+    let label = if project_filter.is_none() {
+        format!("{}@{}", row.slug, row.project)
+    } else {
+        row.slug.clone()
+    };
+    let session_tag = format!(" [session {}]", row.session_short);
+    let title = if row.title.trim().is_empty() {
+        String::new()
+    } else {
+        format!("  {}", row.title.trim())
+    };
+    if is_sel {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_magenta_bold()),
+            Span::styled(session_tag, style_yellow()),
+            Span::raw(title),
+        ])
+    } else {
+        Line::from(vec![
+            Span::raw(cursor.to_string()),
+            Span::styled(label, style_magenta()),
+            Span::styled(session_tag, style_dim()),
+            Span::styled(title, style_dim()),
+        ])
+    }
+}
+
+/// Render the main TUI into a ratatui `Frame`.
+fn render_main(
+    f: &mut Frame,
+    data: &TuiData,
+    selected: usize,
+    status: &str,
+    tabs: &[String],
+    tab_idx: usize,
+    exited_hours: Option<u64>,
+) {
+    let area = f.area();
+
+    let project_filter = tab_project(tabs, tab_idx);
+
+    // ── layout ────────────────────────────────────────────────────────────
+    // Fixed rows: title (1) + tab bar (1) + rule (1) + blank (1) = 4 top chrome
+    // help (1) + optional status (0 or 1) = 1–2 bottom chrome
+    let bottom_chrome = if status.is_empty() { 1u16 } else { 2u16 };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),             // title
+            Constraint::Length(1),             // tab bar
+            Constraint::Length(1),             // rule
+            Constraint::Length(1),             // blank
+            Constraint::Min(1),                // body (scrollable list)
+            Constraint::Length(1),             // blank before help
+            Constraint::Length(bottom_chrome), // help + optional status
+        ])
+        .split(area);
+
+    // ── title ─────────────────────────────────────────────────────────────
+    let title_line = Line::from(vec![Span::styled(
+        "tenex-edge tmux",
+        style_bold(),
+    )]);
+    f.render_widget(Paragraph::new(title_line), chunks[0]);
+
+    // ── tab bar ───────────────────────────────────────────────────────────
+    let mut tab_spans: Vec<Span> = vec![Span::raw("  ")];
+    if tab_idx == 0 {
+        tab_spans.push(Span::styled("[All]", style_bold()));
+    } else {
+        tab_spans.push(Span::styled("[All]", style_dim()));
+    }
+    for (i, tab) in tabs.iter().enumerate() {
+        tab_spans.push(Span::raw(" "));
+        let label = format!("[{tab}]");
+        if tab_idx == i + 1 {
+            tab_spans.push(Span::styled(label, style_bold()));
+        } else {
+            tab_spans.push(Span::styled(label, style_dim()));
+        }
+    }
+    f.render_widget(Paragraph::new(Line::from(tab_spans)), chunks[1]);
+
+    // ── rule ──────────────────────────────────────────────────────────────
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "─".repeat(area.width as usize),
+            style_dim(),
+        ))),
+        chunks[2],
+    );
+
+    // ── blank ─────────────────────────────────────────────────────────────
+    f.render_widget(Paragraph::new(""), chunks[3]);
+
+    // ── body — scrollable via Paragraph::scroll ───────────────────────────
+    render_scrolled_body(
+        f,
+        data,
+        selected,
+        project_filter,
+        exited_hours,
+        chunks[4],
+    );
+
+    // ── help line ─────────────────────────────────────────────────────────
+    let exited_hint = match exited_hours {
+        None => "[e] show exited".to_string(),
+        Some(h) => format!("[e] hide exited  [-/+] {h}h"),
+    };
+    let help_text = format!(
+        "[↑↓] move  [←→] tab  [/] search  [↵] attach/spawn  {exited_hint}  [q] quit"
+    );
+
+    let help_area = chunks[6];
+    if status.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(help_text, style_dim()),
+            ])),
+            help_area,
+        );
+    } else {
+        // Split help_area into help line + status line.
+        let help_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(help_area);
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(help_text, style_dim()),
+            ])),
+            help_chunks[0],
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::raw(status.to_string()),
+            ])),
+            help_chunks[1],
+        );
+    }
+}
+
+/// Render the scrollable body section into `area`. Builds all content lines,
+/// computes scroll offset to keep `selected` in view, then renders via
+/// `Paragraph::scroll()`.
+fn render_scrolled_body(
+    f: &mut Frame,
+    data: &TuiData,
+    selected: usize,
+    project_filter: Option<&str>,
+    exited_hours: Option<u64>,
+    area: Rect,
+) {
+    let fl = filter_live(data, project_filter);
+    let fr = filter_resumable(data, project_filter, exited_hours);
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut sel_line: Option<usize> = None;
+
+    // Section: Live sessions
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Live sessions", style_bold()),
+    ]));
+    if fl.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled("(none)", style_dim()),
+        ]));
+    } else {
+        for (i, row) in fl.iter().enumerate() {
+            let is_sel = i == selected;
+            if is_sel {
+                sel_line = Some(lines.len());
+            }
+            lines.push(live_row_line(row, is_sel, project_filter));
+        }
+    }
+
+    // Section: Agents (spawnable)
+    lines.push(Line::raw(""));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Agents", style_bold()),
+    ]));
+    if data.spawnable.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled("(none)", style_dim()),
+        ]));
+    } else {
+        for (i, row) in data.spawnable.iter().enumerate() {
+            let abs_idx = fl.len() + i;
+            let is_sel = abs_idx == selected;
+            if is_sel {
+                sel_line = Some(lines.len());
+            }
+            lines.push(spawn_row_line(row, is_sel));
+        }
+    }
+
+    // Section: Exited sessions
+    if let Some(hours) = exited_hours {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Exited sessions", style_bold()),
+            Span::styled(format!(" (past {hours}h)"), style_dim()),
+        ]));
+        if fr.is_empty() {
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled("(none)", style_dim()),
+            ]));
+        } else {
+            for (i, row) in fr.iter().enumerate() {
+                let abs_idx = fl.len() + data.spawnable.len() + i;
+                let is_sel = abs_idx == selected;
+                if is_sel {
+                    sel_line = Some(lines.len());
+                }
+                lines.push(resume_row_line(row, is_sel, project_filter));
+            }
+        }
+    }
+
+    // Compute scroll offset.
+    let viewport = area.height as usize;
+    let scroll = compute_scroll(sel_line, viewport, lines.len());
+
+    let para = Paragraph::new(lines)
+        .block(Block::default())
+        .scroll((scroll as u16, 0));
+    f.render_widget(para, area);
+}
+
+/// Render the fuzzy project search overlay into a ratatui `Frame`.
+fn render_search(f: &mut Frame, pt: &ProjectTabs, query: &str, sel: usize) {
+    let area = f.area();
 
     let matches = fuzzy_matches(pt, query);
 
-    let mut body: Vec<String> = Vec::new();
+    // Build match lines.
+    let mut body_lines: Vec<Line<'static>> = Vec::new();
     let mut sel_line: Option<usize> = None;
     for (i, proj) in matches.iter().enumerate() {
         let is_sel = i == sel;
         if is_sel {
-            sel_line = Some(body.len());
+            sel_line = Some(body_lines.len());
         }
-        let cursor = if is_sel { "►" } else { " " };
-        // Mark hidden projects dimmed
+        let cursor = if is_sel { "► " } else { "  " };
         let is_hidden = pt.hidden.contains(proj);
-        if is_sel {
-            body.push(format!("  {} {}", cursor, proj.bold()));
+        let line = if is_sel {
+            Line::from(vec![
+                Span::raw(cursor.to_string()),
+                Span::styled(proj.clone(), style_bold()),
+            ])
         } else if is_hidden {
-            body.push(format!("  {} {}", cursor, proj.dimmed()));
+            Line::from(vec![
+                Span::raw(cursor.to_string()),
+                Span::styled(proj.clone(), style_dim()),
+            ])
         } else {
-            body.push(format!("  {} {}", cursor, proj));
-        }
+            Line::from(vec![
+                Span::raw(cursor.to_string()),
+                Span::raw(proj.clone()),
+            ])
+        };
+        body_lines.push(line);
     }
     if matches.is_empty() {
-        body.push(format!("    {}", "(no matches)".dimmed()));
+        body_lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled("(no matches)", style_dim()),
+        ]));
     }
 
-    let (_, term_rows) = terminal::size().unwrap_or((80, 24));
-    // chrome: title + search input + sep + blank = 4 top; blank + help = 2 bottom
-    let top_chrome = 4usize;
-    let bottom_chrome = 2usize;
-    let viewport = (term_rows as usize)
-        .saturating_sub(top_chrome + bottom_chrome)
-        .max(1);
+    // Layout: title(1) + search_input(1) + rule(1) + blank(1) + body(min) + blank(1) + help(1)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // title
+            Constraint::Length(1), // search input
+            Constraint::Length(1), // rule
+            Constraint::Length(1), // blank
+            Constraint::Min(1),    // matches
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // help
+        ])
+        .split(area);
 
-    if let Some(s) = sel_line {
-        if s < *scroll {
-            *scroll = s;
-        } else if s >= *scroll + viewport {
-            *scroll = s + 1 - viewport;
-        }
-    }
-    let max_scroll = body.len().saturating_sub(viewport);
-    if *scroll > max_scroll {
-        *scroll = max_scroll;
-    }
-    let end = (*scroll + viewport).min(body.len());
-
-    let mut out = String::new();
-    let _ = writeln!(out, "{}", "tenex-edge tmux".bold());
-    let _ = writeln!(out, "  / {}_", query);
-    let _ = writeln!(out, "{}", "─".repeat(60).dimmed());
-    let _ = writeln!(out);
-    for line in &body[*scroll..end] {
-        let _ = writeln!(out, "{line}");
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "  {}",
-        "[↑↓] move  [↵] select  [esc] cancel".dimmed()
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "tenex-edge tmux",
+            style_bold(),
+        ))),
+        chunks[0],
     );
 
-    let mut stdout = io::stdout();
-    execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-    for line in out.lines() {
-        write!(stdout, "{line}\r\n")?;
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  / "),
+            Span::raw(query.to_string()),
+            Span::raw("_"),
+        ])),
+        chunks[1],
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "─".repeat(area.width as usize),
+            style_dim(),
+        ))),
+        chunks[2],
+    );
+
+    f.render_widget(Paragraph::new(""), chunks[3]);
+
+    // Scrollable match list.
+    let viewport = chunks[4].height as usize;
+    let scroll = compute_scroll(sel_line, viewport, body_lines.len());
+    f.render_widget(
+        Paragraph::new(body_lines)
+            .block(Block::default())
+            .scroll((scroll as u16, 0)),
+        chunks[4],
+    );
+
+    f.render_widget(Paragraph::new(""), chunks[5]);
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "[↑↓] move  [↵] select  [esc] cancel",
+                style_dim(),
+            ),
+        ])),
+        chunks[6],
+    );
+}
+
+/// Compute a vertical scroll offset to keep `sel_line` in view within a viewport
+/// of `viewport` rows out of `total` content lines.
+fn compute_scroll(sel_line: Option<usize>, viewport: usize, total: usize) -> usize {
+    let mut scroll: usize = 0;
+    if let Some(s) = sel_line {
+        if s < scroll {
+            scroll = s;
+        } else if s >= scroll + viewport {
+            scroll = s + 1 - viewport;
+        }
     }
-    stdout.flush()?;
-    Ok(())
+    let max_scroll = total.saturating_sub(viewport);
+    scroll.min(max_scroll)
 }
 
 /// TUI variant: resume `session`, returning the new pane id or an `Err(message)`
@@ -388,6 +782,8 @@ fn attach_session(session_id: &str) -> Result<()> {
 
 // ── TUI ───────────────────────────────────────────────────────────────────────
 
+/// RAII guard for raw mode + alternate screen. Used to suspend/resume when
+/// handing off the tty to a `tmux attach-session` child.
 struct TuiTerminal;
 
 impl TuiTerminal {
@@ -542,229 +938,6 @@ fn fetch_tui_data() -> Result<TuiData> {
     })
 }
 
-fn draw_tui(
-    data: &TuiData,
-    selected: usize,
-    status: &str,
-    scroll: &mut usize,
-    tabs: &[String],
-    tab_idx: usize,
-    exited_hours: Option<u64>,
-) -> Result<()> {
-    use owo_colors::OwoColorize as _;
-
-    let project_filter = tab_project(tabs, tab_idx);
-    let fl = filter_live(data, project_filter);
-    let fr = filter_resumable(data, project_filter, exited_hours);
-
-    // Build the scrollable body as a flat list of lines, recording which line
-    // holds the selected row so the viewport can keep it visible.
-    let mut body: Vec<String> = Vec::new();
-    let mut sel_line: Option<usize> = None;
-
-    // Live sessions section
-    body.push(format!("  {}", "Live sessions".bold()));
-    if fl.is_empty() {
-        body.push(format!("    {}", "(none)".dimmed()));
-    } else {
-        for (i, row) in fl.iter().enumerate() {
-            let is_sel = i == selected;
-            if is_sel {
-                sel_line = Some(body.len());
-            }
-            let cursor = if is_sel { "►" } else { " " };
-            // In All tab, show slug@project so project context is clear.
-            let label = if project_filter.is_none() {
-                format!("{}@{}", row.slug, row.project)
-            } else {
-                format!("{}@{}", row.slug, row.host)
-            };
-            let session_tag = format!("[session {}]", row.session_short);
-            let status_str = if row.status.trim().is_empty() {
-                "idle".to_string()
-            } else {
-                row.status.trim().to_string()
-            };
-            if is_sel {
-                body.push(format!(
-                    "  {} {}  {}  {}",
-                    cursor,
-                    label.cyan().bold(),
-                    session_tag.yellow(),
-                    status_str,
-                ));
-            } else {
-                body.push(format!(
-                    "  {} {}  {}  {}",
-                    cursor,
-                    label.cyan(),
-                    session_tag.yellow(),
-                    status_str.dimmed(),
-                ));
-            }
-        }
-    }
-
-    // Agents section (spawnable)
-    body.push(String::new());
-    body.push(format!("  {}", "Agents".bold()));
-    if data.spawnable.is_empty() {
-        body.push(format!("    {}", "(none)".dimmed()));
-    } else {
-        for (i, row) in data.spawnable.iter().enumerate() {
-            let abs_idx = fl.len() + i;
-            let is_sel = abs_idx == selected;
-            if is_sel {
-                sel_line = Some(body.len());
-            }
-            let cursor = if is_sel { "►" } else { " " };
-            let label = format!("{}@{}", row.slug, row.host);
-            let tag = format!("[{}]", row.command);
-            if is_sel {
-                body.push(format!("  {} {}  {}", cursor, label.bold(), tag.dimmed()));
-            } else {
-                body.push(format!("  {} {}  {}", cursor, label.dimmed(), tag.dimmed()));
-            }
-        }
-    }
-
-    // Exited sessions section (only when exited_hours is Some)
-    if let Some(hours) = exited_hours {
-        body.push(String::new());
-        body.push(format!(
-            "  {} {}",
-            "Exited sessions".bold(),
-            format!("(past {hours}h)").dimmed()
-        ));
-        if fr.is_empty() {
-            body.push(format!("    {}", "(none)".dimmed()));
-        } else {
-            for (i, row) in fr.iter().enumerate() {
-                let abs_idx = fl.len() + data.spawnable.len() + i;
-                let is_sel = abs_idx == selected;
-                if is_sel {
-                    sel_line = Some(body.len());
-                }
-                let cursor = if is_sel { "►" } else { " " };
-                let label = if project_filter.is_none() {
-                    format!("{}@{}", row.slug, row.project)
-                } else {
-                    row.slug.clone()
-                };
-                let session_tag = format!("[session {}]", row.session_short);
-                let title = if row.title.trim().is_empty() {
-                    String::new()
-                } else {
-                    row.title.trim().to_string()
-                };
-                if is_sel {
-                    body.push(format!(
-                        "  {} {}  {}  {}",
-                        cursor,
-                        label.magenta().bold(),
-                        session_tag.yellow(),
-                        title,
-                    ));
-                } else {
-                    body.push(format!(
-                        "  {} {}  {}  {}",
-                        cursor,
-                        label.magenta(),
-                        session_tag.dimmed(),
-                        title.dimmed(),
-                    ));
-                }
-            }
-        }
-    }
-
-    // Viewport math: fixed chrome is title+tabs+rule+blank (top, 4 lines) and
-    // blank+help+optional-status (bottom). The body scrolls within the rest.
-    let (_, term_rows) = terminal::size().unwrap_or((80, 24));
-    let top_chrome = 4usize;
-    let bottom_chrome = if status.is_empty() { 2 } else { 3 };
-    let viewport = (term_rows as usize)
-        .saturating_sub(top_chrome + bottom_chrome)
-        .max(1);
-
-    // Keep the selected line in view; clamp the offset to valid range.
-    if let Some(s) = sel_line {
-        if s < *scroll {
-            *scroll = s;
-        } else if s >= *scroll + viewport {
-            *scroll = s + 1 - viewport;
-        }
-    }
-    let max_scroll = body.len().saturating_sub(viewport);
-    if *scroll > max_scroll {
-        *scroll = max_scroll;
-    }
-    let end = (*scroll + viewport).min(body.len());
-
-    // Header line carries scroll affordances so the user knows there's more.
-    let above = *scroll;
-    let below = body.len().saturating_sub(end);
-    let mut more = String::new();
-    if above > 0 {
-        more.push_str(&format!("  ↑{above} more above"));
-    }
-    if below > 0 {
-        more.push_str(&format!("  ↓{below} more below"));
-    }
-
-    // Build tab bar: [All] [proj1] [proj2] ...
-    let tab_bar = {
-        let mut s = String::from("  ");
-        if tab_idx == 0 {
-            s.push_str(&"[All]".bold().to_string());
-        } else {
-            s.push_str(&"[All]".dimmed().to_string());
-        }
-        for (i, tab) in tabs.iter().enumerate() {
-            s.push(' ');
-            let label = format!("[{tab}]");
-            if tab_idx == i + 1 {
-                s.push_str(&label.bold().to_string());
-            } else {
-                s.push_str(&label.dimmed().to_string());
-            }
-        }
-        s
-    };
-
-    let exited_hint = match exited_hours {
-        None => "[e] show exited".to_string(),
-        Some(h) => format!("[e] hide exited  [-/+] {h}h"),
-    };
-
-    let mut out = String::new();
-    let _ = writeln!(out, "{}{}", "tenex-edge tmux".bold(), more.dimmed());
-    let _ = writeln!(out, "{tab_bar}");
-    let _ = writeln!(out, "{}", "─".repeat(60).dimmed());
-    let _ = writeln!(out);
-    for line in &body[*scroll..end] {
-        let _ = writeln!(out, "{line}");
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "  {}",
-        format!("[↑↓] move  [←→] tab  [/] search  [↵] attach/spawn  {exited_hint}  [q] quit")
-            .dimmed()
-    );
-    if !status.is_empty() {
-        let _ = writeln!(out, "  {status}");
-    }
-
-    let mut stdout = io::stdout();
-    execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-    for line in out.lines() {
-        write!(stdout, "{line}\r\n")?;
-    }
-    stdout.flush()?;
-    Ok(())
-}
-
 /// Interactive TUI for `tenex-edge tmux` (bare, no subcommand).
 /// Shows live sessions and spawnable agents; lets the user attach or spawn.
 pub(super) fn tmux_tui() -> Result<()> {
@@ -782,14 +955,20 @@ pub(super) fn tmux_tui() -> Result<()> {
 
     {
         let _terminal = TuiTerminal::enter()?;
+        // Create ratatui terminal on top of the crossterm alternate screen
+        // already enabled by TuiTerminal::enter().
+        let mut ratatui_term =
+            Terminal::new(CrosstermBackend::new(io::stdout()))?;
+
         let mut next_refresh = Instant::now() + refresh;
-        let mut scroll: usize = 0;
 
         loop {
             // ── draw ──────────────────────────────────────────────────────
             match &mode {
                 TuiMode::Search { query, sel } => {
-                    draw_search(&pt, query, *sel, &mut scroll)?;
+                    let q = query.clone();
+                    let s = *sel;
+                    ratatui_term.draw(|f| render_search(f, &pt, &q, s))?;
                 }
                 TuiMode::Normal => {
                     let exited_opt = if show_exited { Some(exited_hours) } else { None };
@@ -803,15 +982,19 @@ pub(super) fn tmux_tui() -> Result<()> {
                     if total > 0 && selected >= total {
                         selected = total - 1;
                     }
-                    draw_tui(
-                        &data,
-                        selected,
-                        &status_msg,
-                        &mut scroll,
-                        &pt.visible,
-                        tab_idx,
-                        exited_opt,
-                    )?;
+                    let tabs_snap = pt.visible.clone();
+                    let status_snap = status_msg.clone();
+                    ratatui_term.draw(|f| {
+                        render_main(
+                            f,
+                            &data,
+                            selected,
+                            &status_snap,
+                            &tabs_snap,
+                            tab_idx,
+                            exited_opt,
+                        )
+                    })?;
                 }
             }
 
@@ -830,7 +1013,6 @@ pub(super) fn tmux_tui() -> Result<()> {
                             match key.code {
                                 KeyCode::Esc => {
                                     mode = TuiMode::Normal;
-                                    scroll = 0;
                                 }
                                 KeyCode::Enter => {
                                     let matches = fuzzy_matches(&pt, query);
@@ -848,7 +1030,6 @@ pub(super) fn tmux_tui() -> Result<()> {
                                         selected = 0;
                                     }
                                     mode = TuiMode::Normal;
-                                    scroll = 0;
                                     status_msg.clear();
                                 }
                                 KeyCode::Up | KeyCode::Char('k') => {
@@ -913,7 +1094,6 @@ pub(super) fn tmux_tui() -> Result<()> {
                                         if tab_idx > 0 {
                                             tab_idx -= 1;
                                             selected = 0;
-                                            scroll = 0;
                                             status_msg.clear();
                                         }
                                     }
@@ -921,7 +1101,6 @@ pub(super) fn tmux_tui() -> Result<()> {
                                         if tab_idx < pt.visible.len() {
                                             tab_idx += 1;
                                             selected = 0;
-                                            scroll = 0;
                                             status_msg.clear();
                                         }
                                     }
@@ -931,7 +1110,6 @@ pub(super) fn tmux_tui() -> Result<()> {
                                             query: String::new(),
                                             sel: 0,
                                         };
-                                        scroll = 0;
                                     }
                                     // e: toggle exited sessions.
                                     KeyCode::Char('e') => {
@@ -972,15 +1150,20 @@ pub(super) fn tmux_tui() -> Result<()> {
                                                     &std::env::current_dir().unwrap_or_default(),
                                                 );
                                                 status_msg = format!("Spawning {slug}...");
-                                                draw_tui(
-                                                    &data,
-                                                    selected,
-                                                    &status_msg,
-                                                    &mut scroll,
-                                                    &pt.visible,
-                                                    tab_idx,
-                                                    exited_opt,
-                                                )?;
+                                                // Render the status immediately before blocking.
+                                                let tabs_snap = pt.visible.clone();
+                                                let status_snap = status_msg.clone();
+                                                let _ = ratatui_term.draw(|f| {
+                                                    render_main(
+                                                        f,
+                                                        &data,
+                                                        selected,
+                                                        &status_snap,
+                                                        &tabs_snap,
+                                                        tab_idx,
+                                                        exited_opt,
+                                                    )
+                                                });
                                                 match crate::daemon::blocking::call(
                                                     "tmux_spawn",
                                                     serde_json::json!({
@@ -1005,15 +1188,20 @@ pub(super) fn tmux_tui() -> Result<()> {
                                                 ) {
                                                     Some(sid) => {
                                                         status_msg = "Resuming...".to_string();
-                                                        draw_tui(
-                                                            &data,
-                                                            selected,
-                                                            &status_msg,
-                                                            &mut scroll,
-                                                            &pt.visible,
-                                                            tab_idx,
-                                                            exited_opt,
-                                                        )?;
+                                                        // Render the status immediately before blocking.
+                                                        let tabs_snap = pt.visible.clone();
+                                                        let status_snap = status_msg.clone();
+                                                        let _ = ratatui_term.draw(|f| {
+                                                            render_main(
+                                                                f,
+                                                                &data,
+                                                                selected,
+                                                                &status_snap,
+                                                                &tabs_snap,
+                                                                tab_idx,
+                                                                exited_opt,
+                                                            )
+                                                        });
                                                         match resume_in_tui(&sid) {
                                                             Ok(pane) => pending_attach = Some(pane),
                                                             Err(msg) => status_msg = msg,
@@ -1032,15 +1220,20 @@ pub(super) fn tmux_tui() -> Result<()> {
                                             selected,
                                         ) {
                                             status_msg = "Resuming...".to_string();
-                                            draw_tui(
-                                                &data,
-                                                selected,
-                                                &status_msg,
-                                                &mut scroll,
-                                                &pt.visible,
-                                                tab_idx,
-                                                exited_opt,
-                                            )?;
+                                            // Render the status immediately before blocking.
+                                            let tabs_snap = pt.visible.clone();
+                                            let status_snap = status_msg.clone();
+                                            let _ = ratatui_term.draw(|f| {
+                                                render_main(
+                                                    f,
+                                                    &data,
+                                                    selected,
+                                                    &status_snap,
+                                                    &tabs_snap,
+                                                    tab_idx,
+                                                    exited_opt,
+                                                )
+                                            });
                                             match resume_in_tui(&sid) {
                                                 Ok(pane) => pending_attach = Some(pane),
                                                 Err(msg) => status_msg = msg,
@@ -1062,9 +1255,12 @@ pub(super) fn tmux_tui() -> Result<()> {
 
             // Attach (blocking) then return to the TUI.
             if let Some(pane) = pending_attach {
+                // Suspend ratatui/crossterm so the tmux client owns the tty.
                 TuiTerminal::suspend();
                 let res = attach_pane_blocking(&pane);
                 TuiTerminal::resume();
+                // ratatui needs a full redraw after the terminal is restored.
+                ratatui_term.clear()?;
                 status_msg = match res {
                     Ok(()) => String::new(),
                     Err(e) => format!("Attach failed: {e:#}"),
