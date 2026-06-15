@@ -4,7 +4,7 @@ date: 2026-06-14
 session: 656e1e6b-2569-42da-8844-768a5e74788e
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/656e1e6b-2569-42da-8844-768a5e74788e.jsonl
 salience: product
-status: active
+status: superseded
 subjects:
   - tenex-edge
   - tmux-tui

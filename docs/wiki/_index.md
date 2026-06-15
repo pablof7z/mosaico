@@ -2,7 +2,7 @@
 
 > Derived cache — do not hand-edit. Rebuilt by proactive-context after each capture.
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## code-standards (1 guide)
 
@@ -16,11 +16,32 @@ Last updated: 2026-06-14
 |------|-------|---------|------|------------|----------|-------|
 | [tenex-edge-data-synchronization](tenex-edge-data-synchronization.md) | Tenex-Edge Data Synchronization | The Syncthing-synced directory must only synchronize markdown documents and exclude all other file types including git, code, and build artifacts | capture | warm | 2026-06-09 | data-synchronization |
 
-## general (1 guide)
+## disk-cleanup (1 guide)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
+| [disk-cleanup](disk-cleanup.md) | Disk Cleanup | Disk cleanup removes only pure build artifacts â compiled output that is regenerable by running the build again | capture | warm | 2026-06-15 | disk-cleanup |
+
+## general (10 guides)
+
+| Slug | Title | Summary | Tags | Volatility | Verified | Topic |
+|------|-------|---------|------|------------|----------|-------|
+| [the-and-keys-increase](the-and-keys-increase.md) | the and keys increase | The `[+]` and `[=]` keys increase the exited sessions hours filter in steps of +1h up to 12h, +6h up to 48h, and +24h beyond that. | capture | warm | 2026-06-14 | general |
+| [the-e-key-toggles-the-exited](the-e-key-toggles-the-exited.md) | the e key toggles the exited | The `[e]` key toggles the exited sessions panel on and off, defaulting to a 4-hour window on first enable. | capture | warm | 2026-06-14 | general |
+| [the-exited-sessions-section-header-displays](the-exited-sessions-section-header-displays.md) | the exited sessions section header displays | The exited sessions section header displays the active time window (e.g | capture | warm | 2026-06-14 | general |
+| [the-tenex-edge-tmux-tui-shows-past](the-tenex-edge-tmux-tui-shows-past.md) | the tenex edge tmux tui shows past | The tenex-edge tmux TUI shows past exited sessions from the past X hours, with the hours filter defaulting to 4 hours. | capture | warm | 2026-06-14 | general |
+| [when-the-exited-sessions-panel-is](when-the-exited-sessions-panel-is.md) | when the exited sessions panel is | When the exited sessions panel is visible, the help line shows `[e] hide exited  [-/+] 4h`; when hidden, it shows `[e] show exited`. | capture | warm | 2026-06-14 | general |
+| [the-complete-via-rig-distillation-call-must-be](the-complete-via-rig-distillation-call-must-be.md) | the complete via rig distillation call must be | The `complete_via_rig` distillation call runs asynchronously with a 20-second timeout so it does not block the engine loop. | capture | warm | 2026-06-14 | general |
+| [the-key-decreases-the-exited](the-key-decreases-the-exited.md) | the key decreases the exited | The `-` key decreases the exited-sessions hours filter in the reverse steps of the increase, with a minimum of 1h. | capture | warm | 2026-06-14 | general |
+| [the-last-distill-timestamp-must-only-be](the-last-distill-timestamp-must-only-be.md) | the last distill timestamp must only be | The `last_distill` timestamp is only updated on a successful distillation, not on failure | capture | warm | 2026-06-14 | general |
 | [the-sessionstarthookspecificoutputwire-struct-contains-two-f](the-sessionstarthookspecificoutputwire-struct-contains-two-f.md) | the sessionstarthookspecificoutputwire struct contains two f | The SessionStartHookSpecificOutputWire struct contains two fields: suppressOutput and systemMessage. | capture | warm | 2026-06-09 | general |
+| [the-tenex-edge-tmux-tui-allows-the](the-tenex-edge-tmux-tui-allows-the.md) | the tenex edge tmux tui allows the | The tenex-edge tmux TUI allows the user to adjust the exited-sessions hours filter using `+`/`-` keys. | capture | warm | 2026-06-14 | general |
+
+## loop-command (1 guide)
+
+| Slug | Title | Summary | Tags | Volatility | Verified | Topic |
+|------|-------|---------|------|------------|----------|-------|
+| [loop-command](loop-command.md) | Loop Command | The /loop command parses input as `[interval] <promptâ¦>` using three priority rules: (1) leading token matching `^\d+[smhd]$`, (2) trailing 'every' clause wit | capture | warm | 2026-06-15 | loop-command |
 
 ## session-resumption (1 guide)
 
@@ -67,7 +88,7 @@ Last updated: 2026-06-14
 | [tenex-edge-thread-storage](tenex-edge-thread-storage.md) | Tenex-Edge Thread Storage | The thread dual-write infrastructure (local SQLite read-model of relay conversations via `projects`, `threads`, `messages`, `message_recipients` tables) was rem | capture | warm | 2026-06-10 | tenex-edge |
 | [tenex-edge-tmux-adapter](tenex-edge-tmux-adapter.md) | Tenex-Edge TMUX Adapter | A Fable agent is used to plan the TMUX adapter product for tenex-edge | capture | warm | 2026-06-12 | tenex-edge |
 | [tenex-edge-transport-codec](tenex-edge-transport-codec.md) | Tenex-Edge Transport Codec | Envelope encoding and decoding is modularized as a codec set providing per-event encode, decode, and subscribe operations, decoupling envelope shapes from busin | capture | warm | 2026-06-08 | tenex-edge |
-| [tenex-edge-tui](tenex-edge-tui.md) | Tenex-Edge TUI | The TUI groups sessions by project, navigable via Left/Right arrow keys across project tabs | capture | warm | 2026-06-14 | tenex-edge |
+| [tenex-edge-tui](tenex-edge-tui.md) | Tenex-Edge TUI | The TUI is built with ratatui (version 0.30.1, default-features disabled, features crossterm_0_28 and macros enabled) using the crossterm 0.28 backend for doubl | capture | warm | 2026-06-14 | tenex-edge |
 | [tenex-edge-turn-context-injection](tenex-edge-turn-context-injection.md) | Tenex-Edge Turn Context Injection | The turn-start command itself emits the context the agent should see (inbox messages, peer presence/status changes since last update), rather than delegating th | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-user-prompt-submit](tenex-edge-user-prompt-submit.md) | Tenex-Edge User Prompt Submit | The UserPromptSubmit hook creates a kind:1 OP (root event with no e-tag) signed by the userNsec from ~/.tenex/config.json, published to the NIP-29 group via an | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-wait-for-mention](tenex-edge-wait-for-mention.md) | Tenex-Edge Wait-for-Mention | The `wait-for-mention` command polls the SQLite inbox every 500ms, performs the same relay self-fetch as `inbox` on startup to handle the engine warmup race, an | capture | warm | 2026-06-09 | tenex-edge |
@@ -85,7 +106,7 @@ Last updated: 2026-06-14
 |--------|------|---------|-------|
 | [2026-06-12-1-review-of-fabric-architecture-branch-verdict](research/2026-06-12-1-review-of-fabric-architecture-branch-verdict.md) | 2026-06-12 | Review of fabric-architecture branch: verdict is refactor is complete, working, and well-tested but no longer cleanly mergeable due to master divergence (~29 conflict hunks) | main |
 
-## Episode Cards (70 cards)
+## Episode Cards (93 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
@@ -145,18 +166,41 @@ Last updated: 2026-06-14
 | [2026-06-12-3-keyhog-secretscan-rejected-as-unsuitable-for](episodes/2026-06-12-3-keyhog-secretscan-rejected-as-unsuitable-for.md) | 2026-06-12 | Keyhog/secretscan rejected as unsuitable for in-flight redaction | root-cause | active |
 | [2026-06-12-4-membership-warning-false-positive-from-stale](episodes/2026-06-12-4-membership-warning-false-positive-from-stale.md) | 2026-06-12 | Membership warning false positive from stale local cache | root-cause | superseded |
 | [2026-06-14-1-combined-session-label-distillation-replaces-narrow](episodes/2026-06-14-1-combined-session-label-distillation-replaces-narrow.md) | 2026-06-14 | Combined session-label distillation replaces narrow title-only prompt | product | active |
-| [2026-06-14-1-exited-sessions-filter-changed-from-boolean](episodes/2026-06-14-1-exited-sessions-filter-changed-from-boolean.md) | 2026-06-14 | Exited-sessions filter changed from boolean toggle to adjustable time window | product | active |
+| [2026-06-14-1-exited-sessions-filter-changed-from-boolean](episodes/2026-06-14-1-exited-sessions-filter-changed-from-boolean.md) | 2026-06-14 | Exited-sessions filter changed from boolean toggle to adjustable time window | product | superseded |
 | [2026-06-14-1-resume-spawn-path-for-dead-agent](episodes/2026-06-14-1-resume-spawn-path-for-dead-agent.md) | 2026-06-14 | Resume-spawn path for dead agent sessions | product | superseded |
 | [2026-06-14-1-session-resume-any-local-session-resumable](episodes/2026-06-14-1-session-resume-any-local-session-resumable.md) | 2026-06-14 | Session resume: any local session resumable via harness-native token | product | superseded |
 | [2026-06-14-1-session-resume-for-any-local-harness](episodes/2026-06-14-1-session-resume-for-any-local-harness.md) | 2026-06-14 | Session resume for any local harness session | product | active |
 | [2026-06-14-1-session-resume-for-local-harness-sessions](episodes/2026-06-14-1-session-resume-for-local-harness-sessions.md) | 2026-06-14 | Session Resume for Local Harness Sessions | product | superseded |
 | [2026-06-14-1-session-resume-per-harness-resume-commands](episodes/2026-06-14-1-session-resume-per-harness-resume-commands.md) | 2026-06-14 | Session resume: per-harness resume commands and separate resume_id storage | architecture | superseded |
-| [2026-06-14-1-spawn-prompt-should-inject-actual-mention](episodes/2026-06-14-1-spawn-prompt-should-inject-actual-mention.md) | 2026-06-14 | Spawn prompt should inject actual mention content, not generic default | product | active |
-| [2026-06-14-1-tmux-tui-project-based-session-navigation](episodes/2026-06-14-1-tmux-tui-project-based-session-navigation.md) | 2026-06-14 | Tmux TUI project-based session navigation with tabs, filtering, and search | product | active |
+| [2026-06-14-1-spawn-prompt-should-inject-actual-mention](episodes/2026-06-14-1-spawn-prompt-should-inject-actual-mention.md) | 2026-06-14 | Spawn prompt should inject actual mention content, not generic default | product | superseded |
+| [2026-06-14-1-tmux-tui-exited-sessions-time-window](episodes/2026-06-14-1-tmux-tui-exited-sessions-time-window.md) | 2026-06-14 | Tmux TUI exited sessions time-window filter | product | superseded |
+| [2026-06-14-1-tmux-tui-project-based-session-navigation](episodes/2026-06-14-1-tmux-tui-project-based-session-navigation.md) | 2026-06-14 | Tmux TUI project-based session navigation with tabs, filtering, and search | product | superseded |
 | [2026-06-14-1-tmux-tui-redesign-project-tabs-hidden](episodes/2026-06-14-1-tmux-tui-redesign-project-tabs-hidden.md) | 2026-06-14 | Tmux TUI redesign: project tabs, hidden exited sessions, label renames | product | superseded |
+| [2026-06-14-1-tmux-tui-redesign-project-tabs-hide](episodes/2026-06-14-1-tmux-tui-redesign-project-tabs-hide.md) | 2026-06-14 | tmux TUI redesign: project tabs, hide exited, concise labels | product | active |
 | [2026-06-14-2-claude-code-session-id-env-leak](episodes/2026-06-14-2-claude-code-session-id-env-leak.md) | 2026-06-14 | CLAUDE_CODE_SESSION_ID env leak corrupts spawned session identity | root-cause | superseded |
 | [2026-06-14-2-claude-code-session-id-environment-leak](episodes/2026-06-14-2-claude-code-session-id-environment-leak.md) | 2026-06-14 | CLAUDE_CODE_SESSION_ID Environment Leak Corrupting All Spawns | root-cause | active |
 | [2026-06-14-2-exited-sessions-hidden-by-default-in](episodes/2026-06-14-2-exited-sessions-hidden-by-default-in.md) | 2026-06-14 | Exited sessions hidden by default in tmux TUI | product | superseded |
 | [2026-06-14-2-per-agent-independent-tmux-sessions-replace](episodes/2026-06-14-2-per-agent-independent-tmux-sessions-replace.md) | 2026-06-14 | Per-agent independent tmux sessions replace shared window model | architecture | active |
+| [2026-06-14-2-title-distillation-engine-stalls-on-slow](episodes/2026-06-14-2-title-distillation-engine-stalls-on-slow.md) | 2026-06-14 | Title distillation engine stalls on slow/failing API calls | root-cause | superseded |
 | [2026-06-14-3-tui-attach-view-session-reaping-race](episodes/2026-06-14-3-tui-attach-view-session-reaping-race.md) | 2026-06-14 | TUI Attach View Session Reaping Race | root-cause | active |
+| [2026-06-15-1-manual-tui-spawns-start-clean-no](episodes/2026-06-15-1-manual-tui-spawns-start-clean-no.md) | 2026-06-15 | Manual TUI spawns start clean — no inbox injection | product | active |
+| [2026-06-15-1-narrowed-cleanup-policy-from-aggressive-broad](episodes/2026-06-15-1-narrowed-cleanup-policy-from-aggressive-broad.md) | 2026-06-15 | Narrowed cleanup policy from aggressive broad sweeps to worktree-target-only after near-data-loss | reversal | active |
+| [2026-06-15-1-remove-no-tmux-tag-from-tui](episodes/2026-06-15-1-remove-no-tmux-tag-from-tui.md) | 2026-06-15 | Remove [no tmux] tag from TUI session list | product | active |
+| [2026-06-15-1-session-title-distillation-async-immediate-fallback](episodes/2026-06-15-1-session-title-distillation-async-immediate-fallback.md) | 2026-06-15 | Session title distillation: async + immediate fallback + retry-on-failure | root-cause | superseded |
+| [2026-06-15-1-tenex-edge-tui-migrates-from-manual](episodes/2026-06-15-1-tenex-edge-tui-migrates-from-manual.md) | 2026-06-15 | tenex-edge TUI migrates from manual crossterm redraw to ratatui | architecture | superseded |
+| [2026-06-15-1-tmux-tui-exited-sessions-time-window](episodes/2026-06-15-1-tmux-tui-exited-sessions-time-window.md) | 2026-06-15 | Tmux TUI exited-sessions time-window filter replaces boolean toggle | product | active |
+| [2026-06-15-1-tmux-tui-spawn-resolves-project-from](episodes/2026-06-15-1-tmux-tui-spawn-resolves-project-from.md) | 2026-06-15 | tmux TUI spawn resolves project from selected tab, not cwd | root-cause | superseded |
+| [2026-06-15-1-tui-rendering-migrated-from-crossterm-full](episodes/2026-06-15-1-tui-rendering-migrated-from-crossterm-full.md) | 2026-06-15 | TUI rendering migrated from crossterm full-clear to ratatui | architecture | active |
+| [2026-06-15-1-tui-rendering-migrated-from-manual-crossterm](episodes/2026-06-15-1-tui-rendering-migrated-from-manual-crossterm.md) | 2026-06-15 | TUI rendering migrated from manual crossterm redraw to ratatui | architecture | superseded |
+| [2026-06-15-1-tui-spawn-respects-selected-project-tab](episodes/2026-06-15-1-tui-spawn-respects-selected-project-tab.md) | 2026-06-15 | TUI spawn respects selected project tab instead of cwd | product | active |
+| [2026-06-15-2-always-visible-session-switcher-sidebar-adopted](episodes/2026-06-15-2-always-visible-session-switcher-sidebar-adopted.md) | 2026-06-15 | Always-visible session-switcher sidebar adopted over popup approach | product | superseded |
+| [2026-06-15-2-distillation-engine-async-with-timeout-immediate](episodes/2026-06-15-2-distillation-engine-async-with-timeout-immediate.md) | 2026-06-15 | Distillation engine: async with timeout, immediate prompt-seeded title, retry on failure | architecture | active |
+| [2026-06-15-2-popup-quick-switcher-uses-switch-client](episodes/2026-06-15-2-popup-quick-switcher-uses-switch-client.md) | 2026-06-15 | Popup quick-switcher uses switch-client not inline attach | product | active |
+| [2026-06-15-2-replace-n-spawn-key-with-enter](episodes/2026-06-15-2-replace-n-spawn-key-with-enter.md) | 2026-06-15 | Replace [n] spawn key with Enter in TUI | product | superseded |
+| [2026-06-15-2-session-switching-ux-adopts-phased-approach](episodes/2026-06-15-2-session-switching-ux-adopts-phased-approach.md) | 2026-06-15 | Session-switching UX adopts phased approach: popup prototype then persistent sidebar | product | superseded |
+| [2026-06-15-2-session-switching-ux-popup-approach-built](episodes/2026-06-15-2-session-switching-ux-popup-approach-built.md) | 2026-06-15 | Session-switching UX: popup approach built as interim toward persistent sidebar | product | superseded |
+| [2026-06-15-2-session-switching-ux-popup-prototype-built](episodes/2026-06-15-2-session-switching-ux-popup-prototype-built.md) | 2026-06-15 | Session switching UX: popup prototype built, sidebar planned | product | superseded |
+| [2026-06-15-2-tui-spawn-key-unified-to-enter](episodes/2026-06-15-2-tui-spawn-key-unified-to-enter.md) | 2026-06-15 | TUI spawn key unified to Enter, [no tmux] tag removed | product | active |
+| [2026-06-15-3-eliminate-inbox-prompt-injection-on-manual](episodes/2026-06-15-3-eliminate-inbox-prompt-injection-on-manual.md) | 2026-06-15 | Eliminate inbox prompt injection on manual TUI spawns | architecture | superseded |
+| [2026-06-15-3-sidebar-fixed-width-pane-per-session](episodes/2026-06-15-3-sidebar-fixed-width-pane-per-session.md) | 2026-06-15 | Sidebar: fixed-width pane-per-session with resize hook | product | active |
 

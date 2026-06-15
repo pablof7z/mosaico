@@ -4,7 +4,7 @@ date: 2026-06-14
 session: 215d979a-a054-4e2b-b349-851e0d874d6d
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/215d979a-a054-4e2b-b349-851e0d874d6d.jsonl
 salience: product
-status: active
+status: superseded
 subjects:
   - tmux-tui-exited-sessions-filter
 supersedes:

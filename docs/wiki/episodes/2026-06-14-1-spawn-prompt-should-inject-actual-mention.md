@@ -4,7 +4,7 @@ date: 2026-06-14
 session: 0afc3cf4-3465-4b37-a7ec-63b798d78621
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/0afc3cf4-3465-4b37-a7ec-63b798d78621.jsonl
 salience: product
-status: active
+status: superseded
 subjects:
   - tmux-spawn-prompt
   - pending-spawn-default
