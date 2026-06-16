@@ -89,13 +89,13 @@ pub struct OutboundReceipt {
 ///
 /// Phase 5 implements the concrete methods directly on `Kind1Nip29Provider`
 /// (inherent) rather than via `impl FabricProvider`, to avoid async-fn-in-trait
-/// machinery. `send` and `set_status` are Phase 6; stubs listed here only.
+/// machinery. `send` and `set_status` are implemented as inherent methods.
 #[allow(dead_code)]
 pub trait FabricProvider {
     fn name(&self) -> &'static str;
     // async fn open_project(&self, project: &str, agent_pubkey: &str);
-    // async fn send(&self, intent: SendIntent) -> Result<OutboundReceipt>;       // Phase 6
-    // async fn set_status(&self, intent: StatusIntent) -> Result<OutboundReceipt>; // Phase 6
+    // async fn send(&self, intent: SendIntent) -> Result<OutboundReceipt>;
+    // async fn set_status(&self, status: &Status, keys: &Keys) -> Result<EventId>;
     // async fn subscribe_project(&self, scope: crate::fabric::Scope) -> Result<()>;
     // async fn catch_up_mentions(&self, rec: &SessionRecord) -> Result<usize>;
     // fn materialize(&self, env: RawEnvelope, hosted: &[String], owners: &[String], now: u64, store: &Store) -> MaterializationOutcome;
@@ -449,6 +449,28 @@ impl Kind1Nip29Provider {
     /// Called by `ensure_subscription` / `resubscribe` in the daemon.
     pub async fn subscribe(&self, scope: crate::fabric::Scope) -> Result<()> {
         self.delivery.subscribe(scope).await
+    }
+
+    // ── set_status ─────────────────────────────────────────────────────────────
+
+    /// Publish ONE kind:30315 status for a session. The single wire-publish entry
+    /// for session status: the daemon's status-outbox drainer and the per-heartbeat
+    /// liveness re-arm both build a `Status` (with `expires_at = now +
+    /// STATUS_TTL_SECS`) and call this; nothing else encodes a status event.
+    ///
+    /// The codec turns `status.expires_at` into a NIP-40 `["expiration", ts]` tag,
+    /// so liveness IS the freshness of the published event. Uses the optimistic
+    /// `publish_signed` (write-side ack) since status is re-armed every heartbeat —
+    /// a single dropped publish self-heals on the next beat.
+    pub async fn set_status(
+        &self,
+        status: &crate::domain::Status,
+        keys: &nostr_sdk::prelude::Keys,
+    ) -> Result<nostr_sdk::prelude::EventId> {
+        let builder = self
+            .wire
+            .encode(&DomainEvent::Status(status.clone()))?;
+        self.transport.publish_signed(builder, keys).await
     }
 
     // ── send ──────────────────────────────────────────────────────────────────

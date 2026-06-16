@@ -13,6 +13,7 @@ pub mod domain;
 pub mod identity;
 pub mod llmconfig;
 pub mod project;
+pub mod session;
 pub mod util;
 
 pub mod cli;

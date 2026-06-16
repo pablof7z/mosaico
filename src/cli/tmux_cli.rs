@@ -19,6 +19,11 @@ pub(super) async fn tmux_run(action: TmuxAction) -> Result<()> {
         TmuxAction::Spawn { agent, project } => tmux_spawn(agent, project).await,
         TmuxAction::Attach { session } => tmux_attach(session).await,
         TmuxAction::Resume { session } => tmux_resume(session).await,
+        // The narrow long-running "sidebar" reuses the interactive session
+        // switcher (lists project sessions, lets the user switch). It runs in
+        // popup-style switch-and-exit mode so selecting a session hands the
+        // tmux client over to it.
+        TmuxAction::Sidebar { .. } => tmux_tui(true),
     }
 }
 
@@ -950,7 +955,7 @@ fn fetch_tui_data() -> Result<TuiData> {
 
 /// Interactive TUI for `tenex-edge tmux` (bare, no subcommand).
 /// Shows live sessions and spawnable agents; lets the user attach or spawn.
-pub(super) fn tmux_tui() -> Result<()> {
+pub(super) fn tmux_tui(popup: bool) -> Result<()> {
     let refresh = Duration::from_secs(2);
     let mut selected: usize = 0;
     let mut status_msg = String::new();
@@ -1312,6 +1317,17 @@ pub(super) fn tmux_tui() -> Result<()> {
             // Attach inline (blocking). When the user detaches (Ctrl-b d)
             // they return to this TUI.
             if let Some(pa) = pending_attach.take() {
+                // Popup mode: switch the underlying tmux client to the selected
+                // session and exit (closing the `display-popup`) rather than
+                // nesting an attach inside the popup.
+                if popup {
+                    if let Some(session) = session_of_pane(&pa.pane) {
+                        let _ = std::process::Command::new("tmux")
+                            .args(["switch-client", "-t", &session])
+                            .status();
+                    }
+                    break;
+                }
                 // Suspend ratatui/crossterm so the tmux client owns the tty.
                 TuiTerminal::suspend();
                 let mut res = attach_pane_blocking(&pa.pane);

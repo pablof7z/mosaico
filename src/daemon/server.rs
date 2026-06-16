@@ -20,6 +20,7 @@ use crate::domain::{ChatMessage, DomainEvent, Mention};
 use crate::fabric::provider::Kind1Nip29Provider;
 use crate::identity::{self, AgentIdentity};
 use crate::runtime::{self, route_mention_into_with_id, EngineParams};
+use crate::session::{derive_status, Harness, SessionObservation, SessionSnapshot};
 use crate::state::{ChatInboxRow, ChatLogRow, InboxRow, Store};
 use crate::transport::Transport;
 use crate::util::{now_secs, pubkey_short, session_short_code, SessionId};
@@ -90,10 +91,14 @@ pub struct DaemonState {
     )>,
     /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
     seen_profiles: Mutex<std::collections::HashSet<String>>,
-    /// Last-seen (title, active) per (pubkey, project) for dedup. Tracking
-    /// `active` too means an active→idle flip emits a tail event even though the
-    /// persistent title text is unchanged.
-    last_status: Mutex<HashMap<(String, String), (String, bool)>>,
+    /// Last-seen (title, active) keyed by the SESSION id (canonical for locals,
+    /// native for peers) for tail dedup. Keying by session — not (pubkey,project)
+    /// — is the multi-session fix: sibling sessions of one agent each emit their
+    /// own status transitions. Tracking `active` too means an active→idle flip
+    /// emits a tail event even though the persistent title text is unchanged.
+    last_status: Mutex<HashMap<String, (String, bool)>>,
+    /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
+    status_outbox_notify: Notify,
 }
 
 impl DaemonState {
@@ -187,6 +192,7 @@ pub async fn run() -> Result<()> {
         )),
         seen_profiles: Mutex::new(std::collections::HashSet::new()),
         last_status: Mutex::new(HashMap::new()),
+        status_outbox_notify: Notify::new(),
     });
 
     // Idempotent read-model backfill: populate canonical `projects` + `membership`
@@ -203,6 +209,7 @@ pub async fn run() -> Result<()> {
     spawn_demux(state.clone());
     spawn_pruner(state.clone());
     spawn_idle_watcher(state.clone());
+    spawn_status_outbox_drainer(state.clone());
 
     let accept_state = state.clone();
     let accept = tokio::spawn(async move {
@@ -486,7 +493,10 @@ fn rpc_who(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde
 #[derive(serde::Deserialize, Default)]
 struct SessionStartParams {
     agent: String,
-    #[serde(default)]
+    /// The harness-native external session id. Hooks send it as
+    /// `harness_session_id`; the legacy/CLI path sends `session_id`. Either is
+    /// accepted — it is ONLY a locator for `session_aliases`, never the identity.
+    #[serde(default, alias = "harness_session_id")]
     session_id: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
@@ -504,6 +514,10 @@ struct SessionStartParams {
     /// absent — their adopted `session_id` IS the resume token (see below).
     #[serde(default)]
     resume_id: Option<String>,
+    /// Which harness produced this hook (`claude-code`|`codex`|`opencode`). When
+    /// absent, it is inferred from the id/resume shape for alias namespacing.
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 async fn rpc_session_start(
@@ -521,41 +535,100 @@ async fn rpc_session_start(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let project = crate::project::resolve(&cwd);
     let rel_cwd = crate::project::rel_cwd(&cwd);
-    // A harness-supplied id IS the resume token (claude-code/codex adopt their
-    // own native id). A generated id (opencode) is our synthetic identity, NOT a
-    // resume token — those hosts forward their real one in `resume_id`.
-    let harness_supplied_id = p.session_id.is_some();
-    let session_id = p.session_id.unwrap_or_else(gen_session_id);
-    let resume_token: Option<String> = p
-        .resume_id
-        .clone()
-        .filter(|s| !s.is_empty())
-        .or_else(|| harness_supplied_id.then(|| session_id.clone()));
+    let now = now_secs();
 
-    // A new session arriving on the SAME watched pid (same agent/project/host)
-    // means the harness restarted/cleared without a session-end: kill the stale
-    // sibling so `who` doesn't show ghosts.
-    if let Some(watch_pid) = p.watch_pid {
-        let stale_ids: Vec<String> = state
-            .with_store(|s| s.list_alive_sessions().unwrap_or_default())
-            .into_iter()
-            .filter(|rec| {
-                rec.session_id != session_id
-                    && rec.agent_slug == p.agent
-                    && rec.project == project
-                    && rec.host == state.host
-                    && rec.watch_pid == Some(watch_pid)
-            })
-            .map(|rec| rec.session_id)
-            .collect();
+    // Normalize the hook's identity inputs. claude-code/codex adopt their native
+    // `session_id` (it doubles as the resume token); opencode supplies no
+    // `session_id` and forwards its `ses_*` resume token instead. The harness
+    // label is explicit when sent, else inferred from that shape (alias namespace
+    // only — identity is the daemon-minted canonical id, never the harness id).
+    let harness_session_id = p.session_id.clone().filter(|s| !s.is_empty());
+    let resume_id = p.resume_id.clone().filter(|s| !s.is_empty());
+    let harness = p
+        .harness
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(Harness::from_str)
+        .unwrap_or_else(|| {
+            if resume_id.is_some() {
+                Harness::Opencode
+            } else if harness_session_id.is_some() {
+                Harness::ClaudeCode
+            } else {
+                Harness::Unknown
+            }
+        });
+    let tmux_pane = p.tmux_pane.clone().filter(|s| !s.is_empty());
+
+    let obs = SessionObservation {
+        agent_slug: p.agent.clone(),
+        agent_pubkey: id.pubkey_hex(),
+        project: project.clone(),
+        host: state.host.clone(),
+        rel_cwd: rel_cwd.clone(),
+        harness,
+        harness_session_id: harness_session_id.clone(),
+        resume_id: resume_id.clone(),
+        tmux_pane: tmux_pane.clone(),
+        watch_pid: p.watch_pid,
+        observed_at: now,
+    };
+    // Canonical identity: the daemon MINTS a stable session id; the harness id /
+    // resume token / pane / pid become rows in `session_aliases`. A reused
+    // pane/pid slot occupied by a *different* logical session supersedes the old
+    // one inside the registry (session_state lifecycle). NEVER adopt the raw
+    // harness id as the identity.
+    let snapshot = state.with_store(|s| s.register_or_reassert_session(&obs))?;
+    let session_id = snapshot.session_id.as_str().to_owned();
+    // The registration enqueued a kind:30315 publish — nudge the drainer.
+    state.status_outbox_notify.notify_waiters();
+
+    // The resume token survives the session going dead so a later `tmux resume`
+    // can reconstitute the harness: opencode's `ses_*`, else claude/codex native id.
+    let resume_token: Option<String> = resume_id.clone().or_else(|| harness_session_id.clone());
+
+    // A new logical session arriving on the SAME watched pid OR tmux pane (same
+    // agent/project/host) means the harness restarted without a session-end. The
+    // registry already superseded the stale `session_state` row; here we cancel
+    // its engine task and mark its kept `sessions` runtime row dead so `who`
+    // doesn't show ghosts.
+    {
+        let alive = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
+        let mut stale_ids: Vec<String> = Vec::new();
+        for rec in &alive {
+            if rec.session_id == session_id
+                || rec.agent_slug != p.agent
+                || rec.project != project
+                || rec.host != state.host
+            {
+                continue;
+            }
+            let same_pid = p.watch_pid.is_some() && rec.watch_pid == p.watch_pid;
+            let same_pane = tmux_pane.as_deref().is_some_and(|pane| {
+                state
+                    .with_store(|s| s.get_session_endpoint(&rec.session_id, "tmux"))
+                    .ok()
+                    .flatten()
+                    .map(|e| e.target)
+                    .as_deref()
+                    == Some(pane)
+            });
+            if same_pid || same_pane {
+                stale_ids.push(rec.session_id.clone());
+            }
+        }
         for old_id in stale_ids {
             cancel_session(state, &old_id);
             state.with_store(|s| {
+                s.end_session(&old_id, now).ok();
                 s.mark_session_dead(&old_id).ok();
             });
         }
     }
 
+    // Atomic spawn reservation in the kept `sessions` runtime table, keyed by the
+    // canonical id. This row carries the runtime-only detail (watch_pid, endpoints)
+    // that `session_state` does not, and gates the idempotent re-start check below.
     state.with_store(|s| {
         s.upsert_session(&crate::state::SessionRecord {
             session_id: session_id.clone(),
@@ -565,32 +638,29 @@ async fn rpc_session_start(
             host: state.host.clone(),
             child_pid: None,
             watch_pid: p.watch_pid,
-            created_at: now_secs(),
+            created_at: now,
             alive: true,
             rel_cwd: rel_cwd.clone(),
         })
         .ok();
-        s.touch_session(&session_id, now_secs()).ok();
-        // Persist the resume token (no-op when None/empty). Survives the session
-        // going dead, so a later `tmux resume` can reconstitute the harness.
+        s.touch_session(&session_id, now).ok();
+        // Persist the resume token (no-op when None/empty).
         if let Some(ref rt) = resume_token {
             s.set_session_resume_id(&session_id, rt).ok();
         }
         // Record the absolute path for this project so the tmux spawn command
         // can cd to it.
-        s.upsert_project_path(&project, &cwd.to_string_lossy(), now_secs())
+        s.upsert_project_path(&project, &cwd.to_string_lossy(), now)
             .ok();
         // Register the tmux endpoint if the hook env supplied TMUX_PANE.
-        if let Some(ref pane) = p.tmux_pane {
-            if !pane.is_empty() {
-                let meta = serde_json::json!({
-                    "socket": p.tmux_socket.as_deref().unwrap_or(""),
-                    "pane_command": p.agent,
-                })
-                .to_string();
-                s.upsert_session_endpoint(&session_id, "tmux", pane, &meta, now_secs())
-                    .ok();
-            }
+        if let Some(ref pane) = tmux_pane {
+            let meta = serde_json::json!({
+                "socket": p.tmux_socket.as_deref().unwrap_or(""),
+                "pane_command": p.agent,
+            })
+            .to_string();
+            s.upsert_session_endpoint(&session_id, "tmux", pane, &meta, now)
+                .ok();
         }
     });
 
@@ -729,8 +799,13 @@ fn rpc_session_end(
     if let Some(ref rec) = rec {
         cancel_session(state, &p.session);
         state.with_store(|s| {
+            // Finish the canonical aggregate (lifecycle=ended; title retained) so
+            // the session surfaces as a 'gone' delta, AND mark the kept runtime row
+            // dead. The final publish carries a fresh expiration and ages off.
+            s.end_session(&p.session, now_secs()).ok();
             s.mark_session_dead(&p.session).ok();
         });
+        state.status_outbox_notify.notify_waiters();
         state.emit_tail(TailEvent::Sess {
             ts: now_secs(),
             project: rec.project.clone(),
@@ -741,14 +816,6 @@ fn rpc_session_end(
         });
     }
     Ok(serde_json::json!({ "ended": existed }))
-}
-
-fn gen_session_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("te-{nanos:x}-{}", std::process::id())
 }
 
 // ── send_message ─────────────────────────────────────────────────────────────
@@ -1260,6 +1327,16 @@ fn resolve_recipient(store: &Store, my_project: &str, target: &str) -> Result<Re
             project: my_project.to_string(),
         });
     }
+    // Exact session id, or a harness external id (claude/codex native id,
+    // opencode resume token, tmux pane, watch pid) resolvable to canonical via
+    // `session_aliases`. Checked before prefix matching so a full id always wins.
+    if let Some(s) = store.get_session(target)? {
+        return Ok(ResolvedRecipient {
+            pubkey: s.agent_pubkey,
+            target_session: Some(s.session_id),
+            project: s.project,
+        });
+    }
     if target.len() >= 6 {
         if let Some(ps) = store.find_peer_session_by_prefix(target)? {
             return Ok(ResolvedRecipient {
@@ -1397,7 +1474,9 @@ async fn rpc_turn_start(
 
     let prev_started = state.with_store(|s| {
         let (_, prev) = s.get_turn_state(&p.session).unwrap_or((false, 0));
-        s.mark_turn_start(&p.session, now_secs()).ok();
+        // Canonical transition: busy=1, turn_id+1, activity cleared, version bump +
+        // status_outbox enqueue. Also writes turn_state so turn_check_due() works.
+        s.start_turn(&p.session, now_secs()).ok();
         if let Some(path) = p.transcript.as_deref().filter(|x| !x.is_empty()) {
             s.set_session_transcript(&p.session, path).ok();
             // Snapshot the last assistant text so rpc_turn_end can poll until a
@@ -1411,6 +1490,7 @@ async fn rpc_turn_start(
         }
         prev
     });
+    state.status_outbox_notify.notify_waiters();
 
     let rec = match state.with_store(|s| s.get_session(&p.session).ok().flatten()) {
         Some(r) => r,
@@ -1493,12 +1573,15 @@ async fn rpc_turn_end(
             state.with_store(|s| s.get_turn_state(&p.session).unwrap_or((false, 0)));
         let (root_event_id, last_prompt_event_id, transcript_path, baseline_text) = state
             .with_store(|s| {
-                s.mark_turn_end(&p.session).ok();
+                // Canonical transition: busy=0, activity cleared, TITLE retained,
+                // version bump + status_outbox enqueue. Also clears turn_state.
+                s.end_turn(&p.session, now_secs()).ok();
                 let (root, prompt) = s.get_thread_event_ids(&p.session);
                 let transcript = s.get_session_transcript(&p.session).ok().flatten();
                 let baseline = s.get_last_assistant_text_at_turn_start(&p.session);
                 (root, prompt, transcript, baseline)
             });
+        state.status_outbox_notify.notify_waiters();
 
         // Publish the NIP-10 TurnReply when we have full threading context.
         if !root_event_id.is_empty() && !last_prompt_event_id.is_empty() {
@@ -1775,13 +1858,18 @@ fn rpc_statusline(
         let is_member = s
             .is_group_member(&rec.project, &rec.agent_pubkey)
             .unwrap_or(true);
-        let (working, _) = s.get_turn_state(&rec.session_id).unwrap_or((false, 0));
-        let status = s
-            .get_agent_status(&rec.agent_pubkey, &rec.project, Some(&rec.session_id))
+        // Read busy + title from the canonical aggregate via the SHARED projection
+        // (derive_status), so the statusline agrees with `who`/turn-deltas. Pure
+        // read: no drains, no touches.
+        let (working, status) = s
+            .local_session_snapshot(&rec.session_id)
             .ok()
             .flatten()
-            .map(|(text, _activity, _active)| text)
-            .unwrap_or_default();
+            .map(|snap| {
+                let d = derive_status(&snap, now);
+                (d.busy, d.title)
+            })
+            .unwrap_or((false, String::new()));
         let pending = s.peek_inbox(&rec.session_id).unwrap_or_default();
         let recent = s
             .list_recently_delivered(&rec.session_id, now.saturating_sub(STATUSLINE_RECENT_SECS))
@@ -2476,60 +2564,53 @@ fn build_backfill(
     let now = now_secs();
     let since_peer = now.saturating_sub(PRUNE_PEER_AFTER_SECS);
 
-    // Peer sessions as synthetic Join events.
+    // Peer sessions as synthetic Join events, status via the SHARED projection.
     let peers = state.with_store(|s| {
-        s.list_peer_sessions(project, since_peer)
+        s.peer_session_snapshots(project, since_peer)
             .unwrap_or_default()
     });
-    for p in peers {
+    for snap in peers {
+        let d = derive_status(&snap, now);
         events.push(TailEvent::Join {
-            ts: p.last_seen,
-            project: p.project.clone(),
-            agent: p.slug.clone(),
-            host: p.host.clone(),
-            session: p.session_id.clone(),
-            rel_cwd: p.rel_cwd.clone(),
+            ts: snap.last_seen,
+            project: snap.project.clone(),
+            agent: snap.agent_slug.clone(),
+            host: snap.host.clone(),
+            session: snap.session_id.as_str().to_owned(),
+            rel_cwd: snap.rel_cwd.clone(),
         });
-        // Add current status if known (session-scoped first, agent-level fallback).
-        if let Some((text, _activity, active)) = state.with_store(|s| {
-            s.get_agent_status(&p.pubkey, &p.project, Some(&p.session_id))
-                .unwrap_or(None)
-        }) {
+        if !d.title.is_empty() || d.busy {
             events.push(TailEvent::Status {
-                ts: p.last_seen,
-                project: p.project,
-                agent: p.slug,
-                text,
-                active,
+                ts: snap.last_seen,
+                project: snap.project.clone(),
+                agent: snap.agent_slug.clone(),
+                text: d.title.clone(),
+                active: d.busy,
             });
         }
     }
 
-    // Own sessions as synthetic Sess events.
-    let mine = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
-    for s in mine {
-        if project.is_none() || project == Some(s.project.as_str()) {
-            events.push(TailEvent::Sess {
-                ts: s.created_at,
-                project: s.project.clone(),
-                agent: s.agent_slug.clone(),
-                session: s.session_id.clone(),
-                state: "start".into(),
-                rel_cwd: s.rel_cwd.clone(),
+    // Own live sessions as synthetic Sess events, busy via the SHARED projection.
+    let mine = state.with_store(|s| s.live_session_snapshots(project, 0).unwrap_or_default());
+    for snap in mine {
+        let d = derive_status(&snap, now);
+        events.push(TailEvent::Sess {
+            ts: snap.first_seen,
+            project: snap.project.clone(),
+            agent: snap.agent_slug.clone(),
+            session: snap.session_id.as_str().to_owned(),
+            state: "start".into(),
+            rel_cwd: snap.rel_cwd.clone(),
+        });
+        if d.busy {
+            events.push(TailEvent::Turn {
+                ts: snap.turn_started_at,
+                project: snap.project.clone(),
+                agent: snap.agent_slug.clone(),
+                session: snap.session_id.as_str().to_owned(),
+                state: "working".into(),
+                elapsed_s: None,
             });
-            // Add working/idle state from turn_state.
-            let (working, turn_started_at) =
-                state.with_store(|st| st.get_turn_state(&s.session_id).unwrap_or((false, 0)));
-            if working {
-                events.push(TailEvent::Turn {
-                    ts: turn_started_at,
-                    project: s.project.clone(),
-                    agent: s.agent_slug.clone(),
-                    session: s.session_id.clone(),
-                    state: "working".into(),
-                    elapsed_s: None,
-                });
-            }
         }
     }
 
@@ -2646,7 +2727,9 @@ fn derive_and_emit_tail_events(
                 });
             }
 
-            let key = (s.agent.pubkey.clone(), s.project.clone());
+            // Dedup per SESSION (not per agent/project): sibling sessions of one
+            // agent each track their own (title, busy) transition.
+            let key = s.session_id.as_str().to_owned();
             let cur = (s.title.clone(), s.busy);
             let should_emit = {
                 let mut map = state.last_status.lock().unwrap();
@@ -2859,6 +2942,102 @@ fn is_idle(state: &Arc<DaemonState>) -> bool {
     *state.open_clients.lock().unwrap() == 0 && state.live_session_count() == 0
 }
 
+// ── status-outbox drainer ──────────────────────────────────────────────────────
+
+/// Build the wire `Status` for one snapshot, re-arming the NIP-40 expiration to
+/// `now + STATUS_TTL_SECS`. Runs the SHARED `derive_status` projection so an idle
+/// session publishes a blanked activity (only the persistent title survives).
+fn status_from_snapshot(snap: &SessionSnapshot, now: u64) -> crate::domain::Status {
+    let d = derive_status(snap, now);
+    crate::domain::Status {
+        agent: crate::domain::AgentRef::new(snap.agent_pubkey.clone(), snap.agent_slug.clone()),
+        project: snap.project.clone(),
+        session_id: snap.session_id.clone(),
+        host: snap.host.clone(),
+        title: snap.title.clone(),
+        activity: d.activity,
+        busy: d.busy,
+        rel_cwd: snap.rel_cwd.clone(),
+        expires_at: Some(now + crate::domain::STATUS_TTL_SECS),
+    }
+}
+
+/// Drain the `status_outbox`: publish each pending kind:30315 via the provider's
+/// `set_status`, recording the native event id (or a retryable failure). Woken
+/// instantly by `status_outbox_notify` on every transition, and polled every 2s
+/// as a fallback for transitions enqueued by the runtime (distill/seed/heartbeat).
+fn spawn_status_outbox_drainer(state: Arc<DaemonState>) {
+    tokio::spawn(async move {
+        loop {
+            // Drain the backlog while we keep making progress (so a startup burst
+            // clears fast); stop if a whole batch failed to avoid a tight spin.
+            loop {
+                let items = state.with_store(|s| s.pending_status_outbox(32).unwrap_or_default());
+                if items.is_empty() {
+                    break;
+                }
+                let mut progressed = false;
+                for item in items {
+                    let now = now_secs();
+                    // Only locally-hosted agents have signing keys; a row for an
+                    // unhosted agent can never publish — record and skip it.
+                    let keys = match state.keys_for(&item.snapshot.agent_pubkey) {
+                        Some(k) => k,
+                        None => {
+                            state.with_store(|s| {
+                                s.mark_status_failed(
+                                    &item.session_id,
+                                    item.state_version,
+                                    "no signing keys for agent",
+                                )
+                                .ok();
+                            });
+                            continue;
+                        }
+                    };
+                    let status = status_from_snapshot(&item.snapshot, now);
+                    match state.provider.set_status(&status, &keys).await {
+                        Ok(eid) => {
+                            state.with_store(|s| {
+                                s.mark_status_published(
+                                    &item.session_id,
+                                    item.state_version,
+                                    &eid.to_hex(),
+                                )
+                                .ok();
+                            });
+                            progressed = true;
+                        }
+                        Err(e) => {
+                            if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                                eprintln!(
+                                    "[daemon] status publish failed for {}: {e:#}",
+                                    item.session_id
+                                );
+                            }
+                            state.with_store(|s| {
+                                s.mark_status_failed(
+                                    &item.session_id,
+                                    item.state_version,
+                                    &format!("{e:#}"),
+                                )
+                                .ok();
+                            });
+                        }
+                    }
+                }
+                if !progressed {
+                    break;
+                }
+            }
+            tokio::select! {
+                _ = state.status_outbox_notify.notified() => {}
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            }
+        }
+    });
+}
+
 // ── session lifecycle ─────────────────────────────────────────────────────────
 
 async fn spawn_session(state: &Arc<DaemonState>, params: EngineParams) -> Result<()> {
@@ -2969,20 +3148,29 @@ async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
     Ok(())
 }
 
-/// Revive sessions a previous daemon left alive (skew re-exec / crash). For each
-/// `alive=1` row: respawn the engine task if its `watch_pid` is still alive,
-/// else mark it dead (so `who`/presence don't lie after a restart).
+/// Revive sessions a previous daemon left behind (skew re-exec / crash),
+/// rebuilding from the canonical `session_state` aggregate. For each ACTIVE
+/// session: respawn the engine task if its watched pid is still alive, else end
+/// the canonical session AND mark the runtime row dead (so `who`/presence don't
+/// lie after a restart). `watch_pid` lives in the kept `sessions` runtime table
+/// (session_state carries no pid), so it is joined per session.
 async fn reconcile_sessions(state: &Arc<DaemonState>) {
-    let alive = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
-    for rec in alive {
-        let pid_ok = rec.watch_pid.map(pid_alive).unwrap_or(false);
+    let now = now_secs();
+    let snaps = state.with_store(|s| s.live_session_snapshots(None, 0).unwrap_or_default());
+    for snap in snaps {
+        let session_id = snap.session_id.as_str().to_owned();
+        let watch_pid = state
+            .with_store(|s| s.get_session(&session_id).ok().flatten())
+            .and_then(|r| r.watch_pid);
+        let pid_ok = watch_pid.map(pid_alive).unwrap_or(false);
         if !pid_ok {
             state.with_store(|s| {
-                s.mark_session_dead(&rec.session_id).ok();
+                s.end_session(&session_id, now).ok();
+                s.mark_session_dead(&session_id).ok();
             });
             continue;
         }
-        let id = match identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs()) {
+        let id = match identity::load_or_create(&config::edge_home(), &snap.agent_slug, now) {
             Ok(i) => i,
             Err(_) => continue,
         };
@@ -2991,27 +3179,29 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
         // persists across restarts, so already-owned groups skip republishing.
         state
             .provider
-            .open_project(&rec.project, &id.pubkey_hex())
+            .open_project(&snap.project, &id.pubkey_hex())
             .await;
-        if let Err(e) = ensure_subscription(state, &rec.project).await {
+        if let Err(e) = ensure_subscription(state, &snap.project).await {
             if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
                 eprintln!(
                     "[daemon] ensure_subscription({}) failed: {e:#}",
-                    rec.project
+                    snap.project
                 );
             }
         }
         let ep = engine_params_for(
             &state.cfg,
             &id,
-            &rec.agent_slug,
-            &rec.session_id,
-            &rec.project,
-            &rec.rel_cwd,
-            rec.watch_pid,
+            &snap.agent_slug,
+            &session_id,
+            &snap.project,
+            &snap.rel_cwd,
+            watch_pid,
         );
         let _ = spawn_session(state, ep).await;
     }
+    // Any registration/end transitions above enqueued publishes.
+    state.status_outbox_notify.notify_waiters();
 }
 
 fn engine_params_for(

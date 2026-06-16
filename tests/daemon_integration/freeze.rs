@@ -40,7 +40,7 @@ fn threaded_conversation_between_claude_and_codex_e2e() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r["session_id"] == "sess-claude")
+            .find(|r| r["slug"] == "claude")
             .and_then(|r| r["project"].as_str())
             .expect("claude session project")
             .to_string();
@@ -129,14 +129,15 @@ fn freeze_send_message_dedup_exactly_one_inbox_row() {
         )
         .await
         .unwrap();
-        c.call(
+        let recv = c.call(
             "session_start",
             serde_json::json!({"agent": "receiver-a", "session_id": "freeze-dedup-recv", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
+        let recv_canon = recv["session_id"].as_str().unwrap().to_string();
 
-        // Send a message from sender to receiver.
+        // Send a message from sender to receiver (addressed by harness alias).
         let r = c
             .call(
                 "send_message",
@@ -148,7 +149,7 @@ fn freeze_send_message_dedup_exactly_one_inbox_row() {
             )
             .await
             .expect("send_message");
-        assert_eq!(r["target_session"], "freeze-dedup-recv", "target mismatch: {r}");
+        assert_eq!(r["target_session"], recv_canon.as_str(), "target mismatch: {r}");
 
         // Wait until the local-delivery path inserts the row (it is synchronous,
         // but poll briefly to absorb any scheduling jitter).
@@ -157,7 +158,7 @@ fn freeze_send_message_dedup_exactly_one_inbox_row() {
             // Open a SEPARATE store handle (read-only observer) to count without
             // consuming. peek_inbox returns delivered=0 rows only.
             let store = Store::open(&home.store_path()).unwrap();
-            let pending = store.peek_inbox("freeze-dedup-recv").unwrap();
+            let pending = store.peek_inbox(&recv_canon).unwrap();
             if !pending.is_empty() {
                 delivered = true;
                 // FREEZE: exactly one pending row; assert the count before any drain.
@@ -190,7 +191,7 @@ fn freeze_send_message_dedup_exactly_one_inbox_row() {
 
         // After the drain, peek should now be empty.
         let store_after = Store::open(&home.store_path()).unwrap();
-        let still_pending = store_after.peek_inbox("freeze-dedup-recv").unwrap();
+        let still_pending = store_after.peek_inbox(&recv_canon).unwrap();
         assert!(
             still_pending.is_empty(),
             "after turn_start drain, peek_inbox should be empty, got: {:?}",
@@ -235,21 +236,22 @@ fn freeze_targeted_mention_reaches_only_target_session() {
         .await
         .unwrap();
         // Two sibling sessions (same agent slug → same pubkey).
-        c.call(
+        let a = c.call(
             "session_start",
             serde_json::json!({"agent": "freeze-rcvr", "session_id": "freeze-tgt-a", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
-        c.call(
+        let a_canon = a["session_id"].as_str().unwrap().to_string();
+        let b = c.call(
             "session_start",
             serde_json::json!({"agent": "freeze-rcvr", "session_id": "freeze-tgt-b", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
+        let b_canon = b["session_id"].as_str().unwrap().to_string();
 
-        // Target ONLY session B. Use session-id prefix which resolves directly
-        // without needing presence/profile in the store (local session lookup).
+        // Target ONLY session B by its harness alias (resolved to canonical).
         let r = c
             .call(
                 "send_message",
@@ -261,7 +263,7 @@ fn freeze_targeted_mention_reaches_only_target_session() {
             )
             .await
             .expect("send_message");
-        assert_eq!(r["target_session"], "freeze-tgt-b", "target_session field: {r}");
+        assert_eq!(r["target_session"], b_canon.as_str(), "target_session field: {r}");
 
         // Wait until B receives it.
         let mut b_got = false;
@@ -279,7 +281,7 @@ fn freeze_targeted_mention_reaches_only_target_session() {
         // Allow a brief window for any spurious delivery before asserting.
         tokio::time::sleep(Duration::from_millis(400)).await;
         let store = Store::open(&home.store_path()).unwrap();
-        let a_pending = store.peek_inbox("freeze-tgt-a").unwrap();
+        let a_pending = store.peek_inbox(&a_canon).unwrap();
         assert!(
             a_pending.is_empty(),
             "sibling session A must NOT receive a message targeted at B, got: {:?}",

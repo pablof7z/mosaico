@@ -63,7 +63,7 @@ async fn publishes_and_decodes_all_event_types() {
             activity: "reading the diff".into(),
             busy: true,
             rel_cwd: String::new(),
-            expires_at: 1_900_000_000,
+            expires_at: Some(1_900_000_000),
         }),
         DomainEvent::Activity(Activity {
             agent: aref.clone(),

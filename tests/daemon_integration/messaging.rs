@@ -19,18 +19,22 @@ fn session_start_runs_engine_and_records_alive_session() {
             .expect("session_start");
         v["session_id"].as_str().unwrap().to_string()
     });
-    assert_eq!(session_id, "sess-int-1");
+    // The daemon MINTS a canonical id; the harness id "sess-int-1" becomes an
+    // alias, never the identity.
+    assert_ne!(session_id, "sess-int-1", "daemon must mint a canonical id");
 
-    // The daemon (single writer) wrote an alive session row.
+    // The daemon (single writer) wrote an alive session row, resolvable BOTH by
+    // the canonical id and (via session_aliases) by the harness id.
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store
         .get_session("sess-int-1")
         .unwrap()
-        .expect("session row");
+        .expect("session row resolvable by harness alias");
+    assert_eq!(rec.session_id, session_id, "alias resolves to canonical");
     assert!(rec.alive);
     assert_eq!(rec.agent_slug, "coder");
 
-    // `who` should surface it as a local row.
+    // `who` should surface it as a local row keyed by the canonical id.
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
@@ -43,7 +47,7 @@ fn session_start_runs_engine_and_records_alive_session() {
         let rows = v["rows"].as_array().unwrap();
         assert!(
             rows.iter()
-                .any(|r| r["session_id"] == "sess-int-1" && r["source"] == "Local"),
+                .any(|r| r["session_id"] == session_id.as_str() && r["source"] == "Local"),
             "who rows: {rows:?}"
         );
     });
@@ -57,30 +61,36 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
     let home = Home::new();
     let pid = std::process::id() as i32;
 
-    rt().block_on(async {
+    let (old_canon, new_canon) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "session_start",
-            serde_json::json!({
-                "agent": "claude",
-                "session_id": "old-session",
-                "cwd": "/tmp",
-                "watch_pid": pid
-            }),
+        let v1 = c
+            .call(
+                "session_start",
+                serde_json::json!({
+                    "agent": "claude",
+                    "session_id": "old-session",
+                    "cwd": "/tmp",
+                    "watch_pid": pid
+                }),
+            )
+            .await
+            .expect("first session_start");
+        let v2 = c
+            .call(
+                "session_start",
+                serde_json::json!({
+                    "agent": "claude",
+                    "session_id": "new-session",
+                    "cwd": "/tmp",
+                    "watch_pid": pid
+                }),
+            )
+            .await
+            .expect("second session_start");
+        (
+            v1["session_id"].as_str().unwrap().to_string(),
+            v2["session_id"].as_str().unwrap().to_string(),
         )
-        .await
-        .expect("first session_start");
-        c.call(
-            "session_start",
-            serde_json::json!({
-                "agent": "claude",
-                "session_id": "new-session",
-                "cwd": "/tmp",
-                "watch_pid": pid
-            }),
-        )
-        .await
-        .expect("second session_start");
     });
 
     let store = Store::open(&home.store_path()).unwrap();
@@ -104,11 +114,11 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .unwrap();
         let rows = v["rows"].as_array().unwrap();
         assert!(
-            !rows.iter().any(|r| r["session_id"] == "old-session"),
+            !rows.iter().any(|r| r["session_id"] == old_canon.as_str()),
             "old session leaked into who rows: {rows:?}"
         );
         assert!(
-            rows.iter().any(|r| r["session_id"] == "new-session"),
+            rows.iter().any(|r| r["session_id"] == new_canon.as_str()),
             "new session missing from who rows: {rows:?}"
         );
     });
@@ -127,11 +137,13 @@ fn send_message_then_inbox_roundtrip_same_machine() {
         c.call("session_start", serde_json::json!({"agent": "coder", "session_id": "sess-coder", "cwd": "/tmp"}))
             .await
             .unwrap();
-        c.call("session_start", serde_json::json!({"agent": "reviewer", "session_id": "sess-rev", "cwd": "/tmp"}))
+        let rev = c.call("session_start", serde_json::json!({"agent": "reviewer", "session_id": "sess-rev", "cwd": "/tmp"}))
             .await
             .unwrap();
+        let rev_canon = rev["session_id"].as_str().unwrap().to_string();
 
-        // coder messages reviewer's session.
+        // coder messages reviewer's session, addressed by the harness alias —
+        // the daemon resolves it to the canonical target session.
         let r = c
             .call(
                 "send_message",
@@ -139,7 +151,7 @@ fn send_message_then_inbox_roundtrip_same_machine() {
             )
             .await
             .expect("send_message");
-        assert!(r["target_session"] == "sess-rev", "got {r}");
+        assert_eq!(r["target_session"], rev_canon.as_str(), "got {r}");
 
         // Give the relay round-trip + demux a moment, then reviewer drains inbox.
         for _ in 0..20 {
@@ -164,20 +176,24 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
 
-    rt().block_on(async {
+    let (sender_canon, receiver_canon) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
+        let s = c.call(
             "session_start",
             serde_json::json!({"agent": "chat-sender", "session_id": "chat-sender-session", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
-        c.call(
+        let r = c.call(
             "session_start",
             serde_json::json!({"agent": "chat-receiver", "session_id": "chat-receiver-session", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
+        (
+            s["session_id"].as_str().unwrap().to_string(),
+            r["session_id"].as_str().unwrap().to_string(),
+        )
     });
 
     let out = run_cli_stdin(
@@ -214,13 +230,13 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     let mut received = false;
     for _ in 0..12 {
         let store = Store::open(&home.store_path()).unwrap();
-        let rows = store.peek_chat("chat-receiver-session").unwrap();
+        let rows = store.peek_chat(&receiver_canon).unwrap();
         if let Some(row) = rows
             .iter()
             .find(|row| row.body == "hello from redirected stdin")
         {
-            assert_eq!(row.mentioned_session, "chat-receiver-session");
-            assert_eq!(row.from_session, "chat-sender-session");
+            assert_eq!(row.mentioned_session, receiver_canon);
+            assert_eq!(row.from_session, sender_canon);
             received = true;
             break;
         }
@@ -230,7 +246,7 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
 
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
-        store.peek_chat("chat-sender-session").unwrap().is_empty(),
+        store.peek_chat(&sender_canon).unwrap().is_empty(),
         "sender should not receive its own chat row"
     );
 
@@ -301,11 +317,13 @@ fn sibling_session_mention_lands_in_target_via_local_delivery() {
         c.call("session_start", serde_json::json!({"agent": "claude", "session_id": "sibling-aaaaaa", "cwd": "/tmp"}))
             .await
             .unwrap();
-        c.call("session_start", serde_json::json!({"agent": "claude", "session_id": "sibling-bbbbbb", "cwd": "/tmp"}))
+        let b = c.call("session_start", serde_json::json!({"agent": "claude", "session_id": "sibling-bbbbbb", "cwd": "/tmp"}))
             .await
             .unwrap();
+        let b_canon = b["session_id"].as_str().unwrap().to_string();
 
-        // Session A messages sibling session B specifically (by session-id prefix).
+        // Session A messages sibling session B specifically (by harness alias,
+        // resolved to canonical by the daemon).
         let r = c
             .call(
                 "send_message",
@@ -313,7 +331,7 @@ fn sibling_session_mention_lands_in_target_via_local_delivery() {
             )
             .await
             .expect("send_message");
-        assert_eq!(r["target_session"], "sibling-bbbbbb", "got {r}");
+        assert_eq!(r["target_session"], b_canon.as_str(), "got {r}");
 
         // Local delivery is synchronous — B should have it immediately (poll a few
         // times to absorb any scheduling jitter, but no relay round-trip needed).

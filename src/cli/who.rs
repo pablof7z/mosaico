@@ -1,4 +1,5 @@
 use super::*;
+use crate::session::{derive_status, DeltaKind, SessionSnapshot};
 
 mod render;
 
@@ -150,22 +151,26 @@ pub fn load_who_snapshot(
         now.saturating_sub(PEER_FRESH_SECS)
     };
 
-    // Route through Phase 2 read-model methods so Phase 8 can swap the source
-    // without touching this function.
-    let mine = store.list_agents_read_model(None, since)?;
-    let my_ids: std::collections::HashSet<String> =
-        mine.iter().map(|s| s.session_id.clone()).collect();
+    // Single source of truth: the session-state read facade. Local rows project
+    // `session_state`, peer rows project `peer_session_state`, and BOTH run through
+    // the one `derive_status` projection — there is no local-vs-peer busy fork.
+    let mine = store.live_session_snapshots(None, since)?;
+    let my_ids: std::collections::HashSet<String> = mine
+        .iter()
+        .map(|s| s.session_id.as_str().to_string())
+        .collect();
     let local_agent_pubkeys: std::collections::HashSet<String> = store
         .list_local_agent_pubkeys()
         .unwrap_or_default()
         .into_iter()
         .collect();
-    let all_peers: Vec<_> = store
-        .list_presence_read_model(None, since)?
+    let all_peers: Vec<SessionSnapshot> = store
+        .peer_session_snapshots(None, since)?
         .into_iter()
-        .filter(|p| !my_ids.contains(&p.session_id))
+        .filter(|p| !my_ids.contains(p.session_id.as_str()))
         .filter(|p| {
-            !(slugify_host(&p.host) == local_host && local_agent_pubkeys.contains(&p.pubkey))
+            !(slugify_host(&p.host) == local_host
+                && local_agent_pubkeys.contains(&p.agent_pubkey))
         })
         .collect();
 
@@ -182,36 +187,26 @@ pub fn load_who_snapshot(
         std::collections::BTreeMap::new();
 
     for s in &mine {
-        let age_secs = store
-            .session_last_seen(&s.session_id)
-            .ok()
-            .flatten()
-            .map(|ls| now.saturating_sub(ls));
+        let sid = s.session_id.as_str();
         if current_project.map(|p| p == s.project).unwrap_or(true) {
-            let (title, activity, st_active) =
-                status_for(store, &s.agent_pubkey, &s.project, Some(&s.session_id));
-            // Local rows: prefer the live turn state so the idle marker is instant.
-            let active = store
-                .get_turn_state(&s.session_id)
-                .map(|(w, _)| w)
-                .unwrap_or(st_active);
-            let unread = store
-                .count_unread_inbox(&s.session_id)
-                .unwrap_or(0);
+            // Derived projection: busy/liveness/title/activity all come from the
+            // one `derive_status` so idle/freshness can never diverge per source.
+            let d = derive_status(s, now);
+            let unread = store.count_unread_inbox(sid).unwrap_or(0);
             rows.push(WhoRow {
                 source: WhoSource::Local,
-                fresh: age_secs.map(|a| a <= PEER_FRESH_SECS).unwrap_or(true),
+                fresh: d.liveness.is_live(),
                 slug: s.agent_slug.clone(),
                 project: s.project.clone(),
-                status: title,
-                activity,
-                active,
+                status: d.title,
+                activity: d.activity,
+                active: d.busy,
                 host: s.host.clone(),
-                session_id: s.session_id.clone(),
-                age_secs,
+                session_id: sid.to_string(),
+                age_secs: Some(d.age_secs),
                 rel_cwd: s.rel_cwd.clone(),
                 remote: false,
-                attachable: tmux_sessions.contains(&s.session_id),
+                attachable: tmux_sessions.contains(sid),
                 unread,
             });
         } else {
@@ -223,22 +218,21 @@ pub fn load_who_snapshot(
     }
 
     for p in &all_peers {
-        let age = now.saturating_sub(p.last_seen);
+        let sid = p.session_id.as_str();
         if current_project.map(|cp| cp == p.project).unwrap_or(true) {
-            // Peer rows: the active flag arrives over the wire and is persisted.
-            let (title, activity, active) =
-                status_for(store, &p.pubkey, &p.project, Some(&p.session_id));
+            // Identical derivation path as local rows — the fork is gone.
+            let d = derive_status(p, now);
             rows.push(WhoRow {
                 source: WhoSource::Peer,
-                fresh: age <= PEER_FRESH_SECS,
-                slug: p.slug.clone(),
+                fresh: d.liveness.is_live(),
+                slug: p.agent_slug.clone(),
                 project: p.project.clone(),
-                status: title,
-                activity,
-                active,
+                status: d.title,
+                activity: d.activity,
+                active: d.busy,
                 host: p.host.clone(),
-                session_id: p.session_id.clone(),
-                age_secs: Some(age),
+                session_id: sid.to_string(),
+                age_secs: Some(d.age_secs),
                 rel_cwd: p.rel_cwd.clone(),
                 remote: slugify_host(&p.host) != local_host,
                 attachable: false,
@@ -248,7 +242,7 @@ pub fn load_who_snapshot(
             other_agents
                 .entry(p.project.clone())
                 .or_default()
-                .insert(p.slug.clone());
+                .insert(p.agent_slug.clone());
         }
     }
 
@@ -293,22 +287,6 @@ impl WhoSnapshot {
     }
 }
 
-/// Current (title, activity, active) for a row. The title persists across idle
-/// turns; `activity` is the live "doing now" line (empty when idle/unknown);
-/// `active` drives the idle marker. Defaults to ("", "", false) when unknown.
-fn status_for(
-    store: &Store,
-    pubkey: &str,
-    project: &str,
-    session_id: Option<&str>,
-) -> (String, String, bool) {
-    store
-        .get_agent_status(pubkey, project, session_id)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-}
-
 /// Append the turn-start "tenex-edge fabric" block(s): the full roster on the
 /// first turn, or "changes since your last turn" afterward. This is the single
 /// source of truth — both the CLI `turn_start` and the daemon's `turn_start` RPC
@@ -345,12 +323,18 @@ pub(super) fn push_turn_fabric_block(
     }
 }
 
-/// Build the "changes since X" delta lines — newly-joined peer sessions plus
-/// session/agent status changes — scoped to `project` and updated at or after
-/// `since`. When `exclude_session` is set, that session's own rows are skipped
-/// (so a viewer never sees its own title/activity echoed back). Shared by the
-/// turn-start delta (subsequent turns) and the mid-turn PostToolUse check, so
-/// both render identically.
+/// Build the "changes since X" delta lines from the single shared delta query.
+/// Every in-scope session (local AND peer) is classified by `status_delta_since`
+/// into exactly one of appeared / changed / gone since `since`, project-scoped,
+/// with `exclude_session` (the viewer's own session) filtered out at the source.
+/// Shared by the turn-start delta (subsequent turns) and the mid-turn PostToolUse
+/// check, so both render identically.
+///
+/// - Appeared: a session that joined since the cursor (`● … joined`).
+/// - Changed:  a versioned content change — the agent finished (busy→idle) or a
+///   new title landed (`↻ … — <status>`).
+/// - Gone:     the session ended/was superseded, or its liveness expired in the
+///   window (`✗ … left`). A dropped-off session stays reportable as gone.
 pub(super) fn build_status_delta(
     store: &Store,
     since: u64,
@@ -358,40 +342,35 @@ pub(super) fn build_status_delta(
     now: u64,
     exclude_session: Option<&str>,
 ) -> Vec<String> {
-    let fresh_since = now.saturating_sub(PEER_FRESH_SECS);
-    let new_peers = store
-        .list_new_peer_sessions(since, fresh_since, Some(project))
-        .unwrap_or_default();
-    let status_changes = store
-        .list_status_changes_since(since, Some(project))
+    let items = store
+        .status_delta_since(project, since, now, exclude_session)
         .unwrap_or_default();
 
     let mut delta: Vec<String> = Vec::new();
-    for p in &new_peers {
-        if exclude_session == Some(p.session_id.as_str()) {
-            continue;
-        }
-        let age = now.saturating_sub(p.last_seen);
-        delta.push(format!(
-            "  ● {}@{} joined  {}  session {}  ({age}s ago)",
-            p.slug,
-            slugify_host(&p.host),
-            p.project,
-            session_short_code(&p.session_id),
-        ));
-    }
-    for (slug, proj, text, activity, session_id, active) in &status_changes {
-        if let Some(sid) = session_id {
-            if exclude_session == Some(sid.as_str()) {
-                continue;
+    for item in &items {
+        let snap = &item.snapshot;
+        let d = &item.derived;
+        let slug = snap.agent_slug.as_str();
+        let proj = snap.project.as_str();
+        let code = session_short_code(snap.session_id.as_str());
+        match item.kind {
+            DeltaKind::Appeared => {
+                delta.push(format!(
+                    "  ● {}@{} joined  {}  session {}  ({}s ago)",
+                    slug,
+                    slugify_host(&snap.host),
+                    proj,
+                    code,
+                    d.age_secs,
+                ));
             }
-        }
-        let label = render::status_plain(text, activity, *active);
-        if let Some(sid) = session_id {
-            let code = session_short_code(sid);
-            delta.push(format!("  ↻ {slug}@{proj} [session {code}] — {label}"));
-        } else {
-            delta.push(format!("  ↻ {slug}@{proj} — {label}"));
+            DeltaKind::Changed => {
+                let label = render::status_plain(&d.title, &d.activity, d.busy);
+                delta.push(format!("  ↻ {slug}@{proj} [session {code}] — {label}"));
+            }
+            DeltaKind::Gone => {
+                delta.push(format!("  ✗ {slug}@{proj} [session {code}] — left"));
+            }
         }
     }
     delta

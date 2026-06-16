@@ -6,6 +6,12 @@
 //! idempotent on `(mention_event_id, target_session)` so the same mention seen
 //! by two of an agent's processes injects once per session.
 
+use crate::domain::Lifecycle;
+use crate::session::{
+    derive_status, DeltaKind, IdentityDecision, LiveLocator, PeerStatusObservation,
+    SessionObservation, SessionSnapshot, SnapshotSource, StatusDeltaItem, TitleSource,
+};
+use crate::util::SessionId;
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -150,6 +156,19 @@ pub struct QuarantinedEnvelope {
     pub created_at: u64,
 }
 
+/// One pending kind:30315 publication, returned by `pending_status_outbox`.
+/// `snapshot` is the CURRENT `session_state` row for `session_id` (the drainer
+/// publishes the latest fact; older pending versions coalesce). The drainer
+/// builds a `Status` from `snapshot`, sets `expires_at = now + STATUS_TTL_SECS`,
+/// calls `Kind1Nip29Provider::set_status`, then `mark_status_published`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusOutboxItem {
+    pub session_id: String,
+    pub state_version: i64,
+    pub retries: i64,
+    pub snapshot: SessionSnapshot,
+}
+
 // ── ID generation ────────────────────────────────────────────────────────────
 // No uuid crate in Cargo.toml, so we build collision-resistant ids from
 // nanosecond wall-clock time + an in-process monotonic counter.  Format:
@@ -266,30 +285,94 @@ CREATE TABLE IF NOT EXISTS seen_mentions (
     seen_at          INTEGER NOT NULL,
     PRIMARY KEY (agent_pubkey, mention_event_id)
 );
--- Current "what each agent is doing" (NIP-38 status), per (agent, project).
-CREATE TABLE IF NOT EXISTS agent_status (
-    pubkey     TEXT NOT NULL,
-    project    TEXT NOT NULL,
-    text       TEXT NOT NULL,
-    activity   TEXT NOT NULL DEFAULT '',
-    active     INTEGER NOT NULL DEFAULT 0,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (pubkey, project)
+-- ── canonical session aggregate (single source of truth) ─────────────────────
+-- ONE row per local session keyed by the daemon-minted canonical session_id.
+-- Holds the whole public fact (title/activity/busy/phase/turn/lifecycle) plus
+-- the liveness clock (last_seen) and the delta cursors (first_seen set ONLY on
+-- insert, updated_at bumped in lockstep with state_version on every public
+-- content change — NEVER on a bare heartbeat). All mutation flows through the
+-- Store transition methods, each one txn that bumps state_version and enqueues a
+-- status_outbox row when public status changed.
+CREATE TABLE IF NOT EXISTS session_state (
+    session_id      TEXT PRIMARY KEY,
+    agent_slug      TEXT NOT NULL,
+    agent_pubkey    TEXT NOT NULL,
+    project         TEXT NOT NULL,
+    host            TEXT NOT NULL,
+    rel_cwd         TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    title_source    TEXT NOT NULL DEFAULT 'none',
+    activity        TEXT NOT NULL DEFAULT '',
+    busy            INTEGER NOT NULL DEFAULT 0,
+    phase           TEXT NOT NULL DEFAULT 'idle',
+    turn_id         INTEGER NOT NULL DEFAULT 0,
+    turn_started_at INTEGER NOT NULL DEFAULT 0,
+    last_distill_at INTEGER NOT NULL DEFAULT 0,
+    last_seen       INTEGER NOT NULL DEFAULT 0,
+    resume_id       TEXT NOT NULL DEFAULT '',
+    state_version   INTEGER NOT NULL DEFAULT 0,
+    lifecycle       TEXT NOT NULL DEFAULT 'active',
+    first_seen      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0
 );
--- Current status scoped to one concrete session. This avoids showing one
--- Claude/Codex turn beside every sibling session that shares the same agent
--- pubkey in a project. `agent_status` remains as a legacy fallback for older
--- peers that publish agent-level status without a session-id tag.
-CREATE TABLE IF NOT EXISTS session_status (
-    pubkey     TEXT NOT NULL,
-    project    TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    text       TEXT NOT NULL,
-    activity   TEXT NOT NULL DEFAULT '',
-    active     INTEGER NOT NULL DEFAULT 0,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (pubkey, project, session_id)
+CREATE INDEX IF NOT EXISTS idx_session_state_project_seen
+    ON session_state(project, last_seen);
+CREATE INDEX IF NOT EXISTS idx_session_state_project_updated
+    ON session_state(project, updated_at);
+-- Maps every external identifier (harness-native id, resume token, tmux pane,
+-- watch pid, generated te-* id) to the canonical session_id. (harness,
+-- external_id_kind, external_id) is the PK so the same raw id under two harnesses
+-- or two kinds never collide.
+CREATE TABLE IF NOT EXISTS session_aliases (
+    harness          TEXT NOT NULL,
+    external_id_kind TEXT NOT NULL,
+    external_id      TEXT NOT NULL,
+    session_id       TEXT NOT NULL,
+    created_at       INTEGER NOT NULL,
+    PRIMARY KEY (harness, external_id_kind, external_id)
 );
+CREATE INDEX IF NOT EXISTS idx_session_aliases_session
+    ON session_aliases(session_id);
+-- Peer mirror, materialized from inbound kind:30315. Keyed by the peer's
+-- (pubkey, project, native session id). Same delta cursors as session_state so
+-- the shared status_delta_since works across both. last_seen = the event's
+-- emitted-at (a finished peer stops emitting → ages out); never local-writable.
+CREATE TABLE IF NOT EXISTS peer_session_state (
+    pubkey            TEXT NOT NULL,
+    project           TEXT NOT NULL,
+    native_session_id TEXT NOT NULL,
+    agent_slug        TEXT NOT NULL DEFAULT '',
+    host              TEXT NOT NULL DEFAULT '',
+    rel_cwd           TEXT NOT NULL DEFAULT '',
+    title             TEXT NOT NULL DEFAULT '',
+    activity          TEXT NOT NULL DEFAULT '',
+    busy              INTEGER NOT NULL DEFAULT 0,
+    last_seen         INTEGER NOT NULL DEFAULT 0,
+    state_version     INTEGER NOT NULL DEFAULT 0,
+    lifecycle         TEXT NOT NULL DEFAULT 'active',
+    first_seen        INTEGER NOT NULL DEFAULT 0,
+    updated_at        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (pubkey, project, native_session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_peer_session_state_project_seen
+    ON peer_session_state(project, last_seen);
+-- Desired kind:30315 publications. One row per (session_id, state_version): the
+-- daemon drainer publishes it via Kind1Nip29Provider::set_status, records the
+-- native event id, and retries on failure. Only versioned CONTENT changes land
+-- here; the per-heartbeat liveness re-arm republishes the latest snapshot WITHOUT
+-- an outbox row.
+CREATE TABLE IF NOT EXISTS status_outbox (
+    session_id      TEXT NOT NULL,
+    state_version   INTEGER NOT NULL,
+    publish_state   TEXT NOT NULL DEFAULT 'pending',
+    native_event_id TEXT,
+    retries         INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT,
+    enqueued_at     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, state_version)
+);
+CREATE INDEX IF NOT EXISTS idx_status_outbox_pending
+    ON status_outbox(publish_state, enqueued_at);
 -- NIP-29 group metadata cache: the 'about' text for each project channel (kind 39000).
 CREATE TABLE IF NOT EXISTS project_meta (
     project    TEXT PRIMARY KEY,
@@ -492,27 +575,12 @@ impl Store {
             "ALTER TABLE sessions ADD COLUMN last_assistant_text_at_turn_start TEXT NOT NULL DEFAULT ''",
             [],
         );
-        // Persistent session title now carries a separate mid-turn flag; the title
-        // (text) survives idle turns and `active` drives the idle marker.
-        let _ = conn.execute(
-            "ALTER TABLE session_status ADD COLUMN active INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE agent_status ADD COLUMN active INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        // Live "what it's doing now" line, distilled alongside the title in one
-        // call. Separate from `text` (the persistent title) so it can be cleared
-        // on idle while the title survives.
-        let _ = conn.execute(
-            "ALTER TABLE session_status ADD COLUMN activity TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE agent_status ADD COLUMN activity TEXT NOT NULL DEFAULT ''",
-            [],
-        );
+        // Session-state rearchitecture: the legacy `agent_status` / `session_status`
+        // tables are replaced wholesale by the canonical `session_state` +
+        // `peer_session_state` aggregate. No backwards compatibility — drop them so
+        // a stale schema can't be read by accident.
+        let _ = conn.execute("DROP TABLE IF EXISTS agent_status", []);
+        let _ = conn.execute("DROP TABLE IF EXISTS session_status", []);
         // Harness-native resume token (e.g. the id `claude --resume <id>` /
         // `codex resume <id>` / `opencode --session <id>` wants). For claude-code
         // and codex this equals `session_id` (they assign their own id, which we
@@ -566,6 +634,29 @@ impl Store {
     }
 
     pub fn get_session(&self, id: &str) -> Result<Option<SessionRecord>> {
+        if let Some(rec) = self.get_session_exact(id)? {
+            return Ok(Some(rec));
+        }
+        // Fallback: `id` may be a harness external id (claude/codex native id,
+        // opencode resume token, tmux pane, watch pid). Resolve it to the canonical
+        // session via `session_aliases`, newest mapping wins.
+        let canonical: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT session_id FROM session_aliases
+                 WHERE external_id=?1 ORDER BY created_at DESC LIMIT 1",
+                params![id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        match canonical {
+            Some(canon) if canon != id => self.get_session_exact(&canon),
+            _ => Ok(None),
+        }
+    }
+
+    /// Direct lookup of a session by its canonical id (no alias resolution).
+    fn get_session_exact(&self, id: &str) -> Result<Option<SessionRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
              FROM sessions WHERE session_id=?1",
@@ -1074,52 +1165,6 @@ impl Store {
         Ok(rows)
     }
 
-    /// Agent status rows updated at or after `since`. Returns
-    /// (slug, project, title, activity, session_id, active).
-    /// `session_id` is `None` for legacy `agent_status` rows and `Some(id)` for `session_status` rows.
-    /// `active` is the mid-turn flag (idle = !active); the title persists across idle turns,
-    /// while `activity` is the live "doing now" line (empty when idle).
-    /// Resolves slug from profiles then peer_sessions, falling back to "unknown".
-    pub fn list_status_changes_since(
-        &self,
-        since: u64,
-        project: Option<&str>,
-    ) -> Result<Vec<(String, String, String, String, Option<String>, bool)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT COALESCE(
-                 (SELECT slug FROM profiles WHERE pubkey=ast.pubkey LIMIT 1),
-                 (SELECT slug FROM peer_sessions WHERE pubkey=ast.pubkey ORDER BY last_seen DESC LIMIT 1),
-                 'unknown'
-             ), ast.project, ast.text, ast.activity, NULL, ast.active, ast.updated_at
-             FROM agent_status ast
-             WHERE ast.updated_at>=?1 AND (?2 IS NULL OR ast.project=?2)
-             UNION ALL
-             SELECT COALESCE(
-                 (SELECT agent_slug FROM sessions WHERE session_id=sst.session_id LIMIT 1),
-                 (SELECT slug FROM peer_sessions WHERE session_id=sst.session_id LIMIT 1),
-                 (SELECT slug FROM profiles WHERE pubkey=sst.pubkey LIMIT 1),
-                 'unknown'
-             ), sst.project, sst.text, sst.activity, sst.session_id, sst.active, sst.updated_at
-             FROM session_status sst
-             WHERE sst.updated_at>=?1 AND (?2 IS NULL OR sst.project=?2)
-             ORDER BY 7",
-        )?;
-        let rows: Vec<(String, String, String, String, Option<String>, bool)> = stmt
-            .query_map(params![since, project], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get::<_, i64>(5)? != 0,
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
     // ── turn state (drives distillation) ─────────────────────────────────
 
     /// Mark a session as actively working on a turn, stamping its start time.
@@ -1253,77 +1298,660 @@ impl Store {
         Ok(())
     }
 
-    // ── agent status ("what is X doing") ─────────────────────────────────
+    // ── canonical session aggregate: identity registry ───────────────────────
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn set_agent_status(
+    /// Register a freshly-observed session, returning the canonical snapshot.
+    ///
+    /// One SQLite transaction: resolve identity via the pure `resolve_identity`
+    /// helper (alias hit → reassert; live pane/pid slot reused → supersede old +
+    /// mint; else mint), write/refresh `session_aliases`, bump `state_version`,
+    /// and enqueue a `status_outbox` row so the daemon publishes the session's
+    /// kind:30315. The hook reports a normalized `SessionObservation`; THIS owns
+    /// identity policy.
+    pub fn register_or_reassert_session(
         &self,
-        pubkey: &str,
-        project: &str,
-        session_id: Option<&str>,
-        text: &str,
-        activity: &str,
-        active: bool,
-        ts: u64,
-    ) -> Result<()> {
-        let active = active as i64;
-        if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
+        obs: &SessionObservation,
+    ) -> Result<SessionSnapshot> {
+        let alias_hit = self.alias_lookup(obs);
+        let live = self.live_locators_for(&obs.host, &obs.project, &obs.agent_pubkey, obs)?;
+        let decision = crate::session::resolve_identity(obs, alias_hit, &live);
+        let id = match decision {
+            IdentityDecision::Existing(id) | IdentityDecision::Reattach(id) => {
+                self.reassert_session_row(id.as_str(), obs)?;
+                id.into_string()
+            }
+            IdentityDecision::Supersede { old } => {
+                self.supersede_session(old.as_str(), obs.observed_at)?;
+                let id = mint_session_id();
+                self.insert_session_row(&id, obs)?;
+                id
+            }
+            IdentityDecision::Mint => {
+                let id = mint_session_id();
+                self.insert_session_row(&id, obs)?;
+                id
+            }
+        };
+        self.write_session_aliases(&id, obs)?;
+        Ok(self
+            .local_session_snapshot(&id)?
+            .expect("session_state row written by register_or_reassert_session"))
+    }
+
+    /// Existing-id path: refresh mutable identity fields + liveness, re-arm by
+    /// bumping the version and enqueuing a publish.
+    fn reassert_session_row(&self, session_id: &str, obs: &SessionObservation) -> Result<()> {
+        self.conn.execute(
+            "UPDATE session_state SET
+               agent_slug=?2, host=?3, rel_cwd=?4,
+               resume_id=CASE WHEN ?5<>'' THEN ?5 ELSE resume_id END,
+               last_seen=?6, lifecycle='active',
+               state_version=state_version+1, updated_at=?6
+             WHERE session_id=?1",
+            params![
+                session_id,
+                obs.agent_slug,
+                obs.host,
+                obs.rel_cwd,
+                obs.resume_id.clone().unwrap_or_default(),
+                obs.observed_at,
+            ],
+        )?;
+        self.enqueue_status_outbox_current(session_id, obs.observed_at)
+    }
+
+    /// Mint-path insert: a brand-new canonical row at version 1.
+    fn insert_session_row(&self, session_id: &str, obs: &SessionObservation) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO session_state
+               (session_id, agent_slug, agent_pubkey, project, host, rel_cwd,
+                title, title_source, activity, busy, phase, turn_id, turn_started_at,
+                last_distill_at, last_seen, resume_id, state_version, lifecycle,
+                first_seen, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6, '', 'none', '', 0, 'idle', 0, 0,
+                     0, ?7, ?8, 1, 'active', ?7, ?7)",
+            params![
+                session_id,
+                obs.agent_slug,
+                obs.agent_pubkey,
+                obs.project,
+                obs.host,
+                obs.rel_cwd,
+                obs.observed_at,
+                obs.resume_id.clone().unwrap_or_default(),
+            ],
+        )?;
+        self.enqueue_status_outbox(session_id, 1, obs.observed_at)
+    }
+
+    /// Upsert every external id the observation carries → this canonical id.
+    /// pane/pid/harness aliases are repointed to the newest session so a reused
+    /// slot resolves to the live owner.
+    fn write_session_aliases(&self, session_id: &str, obs: &SessionObservation) -> Result<()> {
+        use crate::session::AliasKind::*;
+        let h = obs.harness.as_str();
+        let put = |kind: &str, val: &str| -> Result<()> {
+            if val.is_empty() {
+                return Ok(());
+            }
             self.conn.execute(
-                "INSERT INTO session_status (pubkey, project, session_id, text, activity, active, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7)
-                 ON CONFLICT(pubkey, project, session_id) DO UPDATE SET text=?4, activity=?5, active=?6, updated_at=?7",
-                params![pubkey, project, session_id, text, activity, active, ts],
+                "INSERT INTO session_aliases (harness, external_id_kind, external_id, session_id, created_at)
+                 VALUES (?1,?2,?3,?4,?5)
+                 ON CONFLICT(harness, external_id_kind, external_id)
+                 DO UPDATE SET session_id=?4, created_at=?5",
+                params![h, kind, val, session_id, obs.observed_at],
             )?;
-        } else {
-            self.conn.execute(
-                "INSERT INTO agent_status (pubkey, project, text, activity, active, updated_at) VALUES (?1,?2,?3,?4,?5,?6)
-                 ON CONFLICT(pubkey, project) DO UPDATE SET text=?3, activity=?4, active=?5, updated_at=?6",
-                params![pubkey, project, text, activity, active, ts],
-            )?;
+            Ok(())
+        };
+        if let Some(v) = &obs.harness_session_id {
+            put(HarnessSession.as_str(), v)?;
+        }
+        if let Some(v) = &obs.resume_id {
+            put(Resume.as_str(), v)?;
+        }
+        if let Some(v) = &obs.tmux_pane {
+            put(TmuxPane.as_str(), v)?;
+        }
+        if let Some(pid) = obs.watch_pid {
+            put(WatchPid.as_str(), &pid.to_string())?;
         }
         Ok(())
     }
 
-    /// Current (title, activity, active) for an agent/session. Session-scoped row
-    /// first, agent-level fallback. The title persists across idle turns;
-    /// `activity` is the live "doing now" line (empty when idle/unknown);
-    /// `active` is the live mid-turn flag.
-    pub fn get_agent_status(
-        &self,
-        pubkey: &str,
-        project: &str,
-        session_id: Option<&str>,
-    ) -> Result<Option<(String, String, bool)>> {
-        if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
-            if let Ok(row) = self.conn.query_row(
-                "SELECT text, activity, active FROM session_status
-                     WHERE pubkey=?1 AND project=?2 AND session_id=?3",
-                params![pubkey, project, session_id],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, i64>(2)? != 0,
-                    ))
-                },
-            ) {
-                return Ok(Some(row));
+    /// Alias hit (Existing) consults only harness-native id + resume kinds — a
+    /// pane/pid alias from a prior occupant must NOT read as the same session.
+    /// Returns the canonical id when one is found AND its row still exists.
+    fn alias_lookup(&self, obs: &SessionObservation) -> Option<SessionId> {
+        use crate::session::AliasKind;
+        let h = obs.harness.as_str();
+        let mut candidates: Vec<(&str, &str)> = Vec::new();
+        if let Some(v) = &obs.harness_session_id {
+            candidates.push((AliasKind::HarnessSession.as_str(), v));
+        }
+        if let Some(v) = &obs.resume_id {
+            candidates.push((AliasKind::Resume.as_str(), v));
+        }
+        for (kind, val) in candidates {
+            if val.is_empty() {
+                continue;
+            }
+            let found: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT a.session_id FROM session_aliases a
+                     JOIN session_state s ON s.session_id=a.session_id
+                     WHERE a.harness=?1 AND a.external_id_kind=?2 AND a.external_id=?3",
+                    params![h, kind, val],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok();
+            if let Some(id) = found {
+                return Some(SessionId::from(id));
             }
         }
-        Ok(self
+        None
+    }
+
+    /// Live (active + fresh) session candidates on the same (host, project,
+    /// agent), with their pane/pid/harness/resume locators joined from
+    /// `session_aliases` — the input to `resolve_identity`'s supersede branch.
+    fn live_locators_for(
+        &self,
+        host: &str,
+        project: &str,
+        agent_pubkey: &str,
+        obs: &SessionObservation,
+    ) -> Result<Vec<LiveLocator>> {
+        use crate::session::AliasKind;
+        let fresh_since = obs.observed_at.saturating_sub(crate::domain::STATUS_TTL_SECS);
+        let h = obs.harness.as_str();
+        let mut stmt = self.conn.prepare(
+            "SELECT s.session_id,
+               (SELECT external_id FROM session_aliases a WHERE a.session_id=s.session_id AND a.harness=?1 AND a.external_id_kind=?5),
+               (SELECT external_id FROM session_aliases a WHERE a.session_id=s.session_id AND a.harness=?1 AND a.external_id_kind=?6),
+               (SELECT external_id FROM session_aliases a WHERE a.session_id=s.session_id AND a.harness=?1 AND a.external_id_kind=?7),
+               (SELECT external_id FROM session_aliases a WHERE a.session_id=s.session_id AND a.harness=?1 AND a.external_id_kind=?8)
+             FROM session_state s
+             WHERE s.lifecycle='active' AND s.host=?2 AND s.project=?3 AND s.agent_pubkey=?4
+               AND s.last_seen>=?9",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![
+                    h,
+                    host,
+                    project,
+                    agent_pubkey,
+                    AliasKind::HarnessSession.as_str(),
+                    AliasKind::Resume.as_str(),
+                    AliasKind::TmuxPane.as_str(),
+                    AliasKind::WatchPid.as_str(),
+                    fresh_since,
+                ],
+                |r| {
+                    Ok(LiveLocator {
+                        session_id: SessionId::from(r.get::<_, String>(0)?),
+                        harness_session_id: r.get::<_, Option<String>>(1)?,
+                        resume_id: r.get::<_, Option<String>>(2)?,
+                        tmux_pane: r.get::<_, Option<String>>(3)?,
+                        watch_pid: r
+                            .get::<_, Option<String>>(4)?
+                            .and_then(|s| s.parse::<i32>().ok()),
+                    })
+                },
+            )?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    // ── canonical session aggregate: transitions ─────────────────────────────
+    // Each transition is ONE txn that bumps state_version + updated_at and (when
+    // public status changed) enqueues a status_outbox row. None of them bump the
+    // version on a bare liveness refresh — that is `heartbeat_session`.
+
+    /// Open a new turn: busy, fresh turn_id, cleared live activity. Also resets
+    /// the PostToolUse debounce cursor (`turn_state.last_check_at`) so mid-turn
+    /// deltas keep working. Returns the new snapshot (carries the turn_id the
+    /// runtime must echo back to `apply_distill_result`). `None` if unknown.
+    pub fn start_turn(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               busy=1, phase='working', activity='',
+               turn_id=turn_id+1, turn_started_at=?2,
+               state_version=state_version+1, updated_at=?2, last_seen=?2
+             WHERE session_id=?1",
+            params![session_id, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        // Keep the legacy turn_state cursor coherent for turn_check_due().
+        self.conn.execute(
+            "INSERT INTO turn_state (session_id, working, turn_started_at, last_check_at)
+             VALUES (?1, 1, ?2, 0)
+             ON CONFLICT(session_id) DO UPDATE SET working=1, turn_started_at=?2, last_check_at=0",
+            params![session_id, ts],
+        )?;
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Place a provisional title IFF none is set yet (title_source='none') AND
+    /// `turn_id` still matches the current turn (so a stale seed can't apply).
+    /// Returns the updated snapshot when it seeded, else `None`.
+    pub fn seed_title_if_empty(
+        &self,
+        session_id: &str,
+        turn_id: i64,
+        title: &str,
+        ts: u64,
+    ) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               title=?3, title_source='seed',
+               state_version=state_version+1, updated_at=?4, last_seen=?4
+             WHERE session_id=?1 AND turn_id=?2 AND title_source='none'",
+            params![session_id, turn_id, title, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Apply a distilled (title, activity). Returns `None` (rejected) unless the
+    /// session's CURRENT `(turn_id, state_version)` still equals
+    /// `(base_turn_id, base_version)` — so a stale distill or a duplicate runtime
+    /// structurally cannot flip the title.
+    pub fn apply_distill_result(
+        &self,
+        session_id: &str,
+        base_turn_id: i64,
+        base_version: i64,
+        title: &str,
+        activity: &str,
+        ts: u64,
+    ) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               title=?4, title_source='distill', activity=?5, last_distill_at=?6,
+               state_version=state_version+1, updated_at=?6, last_seen=?6
+             WHERE session_id=?1 AND turn_id=?2 AND state_version=?3",
+            params![session_id, base_turn_id, base_version, title, activity, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Liveness refresh ONLY: bumps `last_seen`, never `state_version`/`updated_at`,
+    /// never enqueues. The daemon re-arms the relay expiration by republishing the
+    /// returned snapshot. Returns `None` if the session is unknown.
+    pub fn heartbeat_session(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET last_seen=?2 WHERE session_id=?1",
+            params![session_id, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Close the turn: idle, live activity cleared, TITLE retained. Resets the
+    /// debounce cursor. Bumps version + enqueues (busy changed).
+    pub fn end_turn(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               busy=0, phase='idle', activity='',
+               state_version=state_version+1, updated_at=?2, last_seen=?2
+             WHERE session_id=?1",
+            params![session_id, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.conn.execute(
+            "INSERT INTO turn_state (session_id, working, turn_started_at, last_check_at)
+             VALUES (?1, 0, 0, 0)
+             ON CONFLICT(session_id) DO UPDATE SET working=0, last_check_at=0",
+            params![session_id],
+        )?;
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Finish the session: lifecycle='ended', idle, TITLE retained. The final
+    /// publish still carries a fresh expiration; beats stop, so it ages off the
+    /// relay after STATUS_TTL_SECS (no tombstone). Bumps version + enqueues.
+    pub fn end_session(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               busy=0, activity='', phase='idle', lifecycle='ended',
+               state_version=state_version+1, updated_at=?2
+             WHERE session_id=?1",
+            params![session_id, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    /// Retire a session a newer one replaced (lifecycle='superseded', idle).
+    /// Bumps version + enqueues. Called internally by the registry's Supersede
+    /// branch and exposed for the daemon's stale-sibling sweep.
+    pub fn supersede_session(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
+        let n = self.conn.execute(
+            "UPDATE session_state SET
+               busy=0, activity='', phase='idle', lifecycle='superseded',
+               state_version=state_version+1, updated_at=?2
+             WHERE session_id=?1",
+            params![session_id, ts],
+        )?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.enqueue_status_outbox_current(session_id, ts)?;
+        self.local_session_snapshot(session_id)
+    }
+
+    // ── canonical session aggregate: read facade ──────────────────────────────
+
+    /// The full snapshot of one local canonical session (any lifecycle).
+    pub fn local_session_snapshot(&self, session_id: &str) -> Result<Option<SessionSnapshot>> {
+        let sql = format!(
+            "SELECT {SESSION_STATE_COLS} FROM session_state WHERE session_id=?1"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![session_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row_to_session_state(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Local sessions whose heartbeat is fresh (`last_seen>=since`) and lifecycle
+    /// is active. `project=None` = all projects. `since=0` = include all.
+    pub fn live_session_snapshots(
+        &self,
+        project: Option<&str>,
+        since: u64,
+    ) -> Result<Vec<SessionSnapshot>> {
+        let sql = format!(
+            "SELECT {SESSION_STATE_COLS} FROM session_state
+             WHERE lifecycle='active' AND last_seen>=?1 AND (?2 IS NULL OR project=?2)
+             ORDER BY last_seen DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![since, project], row_to_session_state)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Peer-mirror sessions seen at or after `since`. `project=None` = all.
+    pub fn peer_session_snapshots(
+        &self,
+        project: Option<&str>,
+        since: u64,
+    ) -> Result<Vec<SessionSnapshot>> {
+        let sql = format!(
+            "SELECT {PEER_STATE_COLS} FROM peer_session_state
+             WHERE last_seen>=?1 AND (?2 IS NULL OR project=?2)
+             ORDER BY last_seen DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![since, project], row_to_peer_session_state)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// The shared delta query backing turn-start (subsequent turns) and the
+    /// PostToolUse turn_check. Returns appeared / changed / finished-or-left
+    /// transitions across BOTH `session_state` and `peer_session_state`, scoped
+    /// to `project`, since cursor `since`, self-excluded by `exclude`. `now`
+    /// drives liveness/expiry classification.
+    ///
+    /// A row surfaces when it appeared (`first_seen>=since`), changed
+    /// (`updated_at>=since`, i.e. a versioned content change — agent went idle, a
+    /// new title), or went gone (lifecycle ended/superseded since `since`, OR its
+    /// liveness expired within the window). Pure-read: writes nothing.
+    pub fn status_delta_since(
+        &self,
+        project: &str,
+        since: u64,
+        now: u64,
+        exclude: Option<&str>,
+    ) -> Result<Vec<StatusDeltaItem>> {
+        let ttl = crate::domain::STATUS_TTL_SECS;
+        // Window predicate (same on both tables): appeared OR changed OR
+        // expired-within-window.
+        let mut out: Vec<StatusDeltaItem> = Vec::new();
+
+        let local_sql = format!(
+            "SELECT {SESSION_STATE_COLS} FROM session_state
+             WHERE project=?1
+               AND (first_seen>=?2 OR updated_at>=?2 OR (last_seen < ?3 AND last_seen+?4 >= ?2))"
+        );
+        let now_minus_ttl = now.saturating_sub(ttl);
+        {
+            let mut stmt = self.conn.prepare(&local_sql)?;
+            let rows = stmt.query_map(
+                params![project, since, now_minus_ttl, ttl],
+                row_to_session_state,
+            )?;
+            for snap in rows.filter_map(|r| r.ok()) {
+                if exclude == Some(snap.session_id.as_str()) {
+                    continue;
+                }
+                if let Some(item) = classify_delta(snap, since, now) {
+                    out.push(item);
+                }
+            }
+        }
+
+        let peer_sql = format!(
+            "SELECT {PEER_STATE_COLS} FROM peer_session_state
+             WHERE project=?1
+               AND (first_seen>=?2 OR updated_at>=?2 OR (last_seen < ?3 AND last_seen+?4 >= ?2))"
+        );
+        {
+            let mut stmt = self.conn.prepare(&peer_sql)?;
+            let rows = stmt.query_map(
+                params![project, since, now_minus_ttl, ttl],
+                row_to_peer_session_state,
+            )?;
+            for snap in rows.filter_map(|r| r.ok()) {
+                if exclude == Some(snap.session_id.as_str()) {
+                    continue;
+                }
+                if let Some(item) = classify_delta(snap, since, now) {
+                    out.push(item);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    // ── peer mirror write (kind:30315 materializer surface) ───────────────────
+
+    /// Mirror an inbound kind:30315 into `peer_session_state`. Idempotent upsert
+    /// keyed by (pubkey, project, native session id). Bumps `state_version` +
+    /// `updated_at` only when public content changed (title/activity/busy/host/
+    /// rel_cwd/slug); advances `last_seen` only on a newer `emitted_at` so
+    /// out-of-order refetches never resurrect a finished peer. `first_seen` is set
+    /// once on insert. Replaces the deleted `materialize_status`/`set_agent_status`.
+    pub fn record_peer_status(&self, obs: &PeerStatusObservation) -> Result<()> {
+        let existing: Option<(String, String, i64, String, String, String, u64, i64)> = self
             .conn
             .query_row(
-                "SELECT text, activity, active FROM agent_status WHERE pubkey=?1 AND project=?2",
-                params![pubkey, project],
+                "SELECT title, activity, busy, host, rel_cwd, agent_slug, last_seen, state_version
+                 FROM peer_session_state
+                 WHERE pubkey=?1 AND project=?2 AND native_session_id=?3",
+                params![obs.agent_pubkey, obs.project, obs.native_session_id],
                 |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         r.get::<_, String>(1)?,
-                        r.get::<_, i64>(2)? != 0,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, u64>(6)?,
+                        r.get::<_, i64>(7)?,
                     ))
                 },
             )
-            .ok())
+            .ok();
+        let busy_i = obs.busy as i64;
+        match existing {
+            None => {
+                self.conn.execute(
+                    "INSERT INTO peer_session_state
+                       (pubkey, project, native_session_id, agent_slug, host, rel_cwd,
+                        title, activity, busy, last_seen, state_version, lifecycle,
+                        first_seen, updated_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,1,'active',?10,?11)",
+                    params![
+                        obs.agent_pubkey,
+                        obs.project,
+                        obs.native_session_id,
+                        obs.agent_slug,
+                        obs.host,
+                        obs.rel_cwd,
+                        obs.title,
+                        obs.activity,
+                        busy_i,
+                        obs.emitted_at,
+                        obs.observed_at,
+                    ],
+                )?;
+            }
+            Some((title, activity, busy, host, rel_cwd, slug, last_seen, version)) => {
+                let content_changed = title != obs.title
+                    || activity != obs.activity
+                    || busy != busy_i
+                    || host != obs.host
+                    || rel_cwd != obs.rel_cwd
+                    || (!obs.agent_slug.is_empty() && slug != obs.agent_slug);
+                let new_seen = last_seen.max(obs.emitted_at);
+                let new_version = if content_changed { version + 1 } else { version };
+                let new_updated = if content_changed { obs.observed_at } else { last_seen };
+                self.conn.execute(
+                    "UPDATE peer_session_state SET
+                       agent_slug=CASE WHEN ?4<>'' THEN ?4 ELSE agent_slug END,
+                       host=?5, rel_cwd=?6, title=?7, activity=?8, busy=?9,
+                       last_seen=?10, state_version=?11, updated_at=?12
+                     WHERE pubkey=?1 AND project=?2 AND native_session_id=?3",
+                    params![
+                        obs.agent_pubkey,
+                        obs.project,
+                        obs.native_session_id,
+                        obs.agent_slug,
+                        obs.host,
+                        obs.rel_cwd,
+                        obs.title,
+                        obs.activity,
+                        busy_i,
+                        new_seen,
+                        new_version,
+                        new_updated,
+                    ],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    // ── status outbox (publish queue) ─────────────────────────────────────────
+
+    /// Enqueue an outbox row for the session's CURRENT `state_version`.
+    fn enqueue_status_outbox_current(&self, session_id: &str, ts: u64) -> Result<()> {
+        let version: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT state_version FROM session_state WHERE session_id=?1",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(v) = version {
+            self.enqueue_status_outbox(session_id, v, ts)?;
+        }
+        Ok(())
+    }
+
+    fn enqueue_status_outbox(&self, session_id: &str, state_version: i64, ts: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO status_outbox
+               (session_id, state_version, publish_state, retries, enqueued_at)
+             VALUES (?1, ?2, 'pending', 0, ?3)",
+            params![session_id, state_version, ts],
+        )?;
+        Ok(())
+    }
+
+    /// Pending publications joined to the CURRENT session snapshot, oldest first.
+    /// The drainer publishes each via `Kind1Nip29Provider::set_status` and then
+    /// calls `mark_status_published` / `mark_status_failed`.
+    pub fn pending_status_outbox(&self, limit: u64) -> Result<Vec<StatusOutboxItem>> {
+        let sql = format!(
+            "SELECT o.session_id, o.state_version, o.retries, {cols}
+             FROM status_outbox o
+             JOIN session_state s ON s.session_id=o.session_id
+             WHERE o.publish_state='pending'
+             ORDER BY o.enqueued_at ASC, o.state_version ASC
+             LIMIT ?1",
+            cols = SESSION_STATE_COLS_PREFIXED
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let session_id: String = row.get(0)?;
+            let state_version: i64 = row.get(1)?;
+            let retries: i64 = row.get(2)?;
+            // Snapshot columns start at index 3.
+            let snapshot = row_to_session_state_offset(row, 3)?;
+            Ok(StatusOutboxItem {
+                session_id,
+                state_version,
+                retries,
+                snapshot,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Mark a publication delivered, recording the native event id.
+    pub fn mark_status_published(
+        &self,
+        session_id: &str,
+        state_version: i64,
+        native_event_id: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE status_outbox SET publish_state='published', native_event_id=?3, last_error=NULL
+             WHERE session_id=?1 AND state_version=?2",
+            params![session_id, state_version, native_event_id],
+        )?;
+        Ok(())
+    }
+
+    /// Record a failed publish attempt (increments retries, keeps it pending).
+    pub fn mark_status_failed(
+        &self,
+        session_id: &str,
+        state_version: i64,
+        error: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE status_outbox SET retries=retries+1, last_error=?3
+             WHERE session_id=?1 AND state_version=?2",
+            params![session_id, state_version, error],
+        )?;
+        Ok(())
     }
 
     // ── project metadata (NIP-29 kind 39000 cache) ───────────────────────
@@ -1978,28 +2606,6 @@ impl Store {
         self.list_peer_sessions(project, since)
     }
 
-    /// Agent status for all agents in a project (or all projects when `project` is None).
-    /// Returns `(pubkey, project, text)` tuples.
-    ///
-    // Retained storage (Phase 8): agent_status is the deliberately-retained canonical home for
-    // agent status; readers query it directly per fabric-architecture.md §6.
-    pub fn list_status_read_model(
-        &self,
-        project: Option<&str>,
-    ) -> Result<Vec<(String, String, String)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT pubkey, project, text FROM agent_status
-             WHERE (?1 IS NULL OR project=?1) ORDER BY updated_at DESC",
-        )?;
-        let rows: Vec<(String, String, String)> = stmt
-            .query_map(params![project], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
     /// Canonical threads for a project, ordered by last activity (most-active first).
     ///
     /// Ordering: `COALESCE(MAX(m.created_at), t.created_at) DESC` — threads with
@@ -2230,21 +2836,6 @@ impl Store {
         self.upsert_peer_session(session_id, pubkey, slug, project, host, rel_cwd, ts)
     }
 
-    /// Record the current NIP-38 status for an agent.  Wraps `set_agent_status`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn materialize_status(
-        &self,
-        pubkey: &str,
-        project: &str,
-        session_id: Option<&str>,
-        text: &str,
-        activity: &str,
-        active: bool,
-        ts: u64,
-    ) -> Result<()> {
-        self.set_agent_status(pubkey, project, session_id, text, activity, active, ts)
-    }
-
     /// Apply a relay-authoritative NIP-29 39002 membership snapshot:
     /// replaces the legacy `group_members` cache wholesale AND mirrors into
     /// canonical `membership` rows via `admit_member` (source `"nip29-39002"`).
@@ -2317,6 +2908,126 @@ impl Store {
 
 mod endpoints;
 pub use endpoints::SessionEndpoint;
+
+// ── canonical session_state / peer_session_state helpers ─────────────────────
+
+/// Canonical column order for `session_state` reads. Keep in lockstep with
+/// `row_to_session_state`.
+const SESSION_STATE_COLS: &str = "session_id, agent_slug, agent_pubkey, project, host, rel_cwd, \
+     title, title_source, activity, busy, phase, turn_id, turn_started_at, last_distill_at, \
+     last_seen, resume_id, state_version, lifecycle, first_seen, updated_at";
+
+/// Same columns, table-qualified for the `status_outbox` join.
+const SESSION_STATE_COLS_PREFIXED: &str = "s.session_id, s.agent_slug, s.agent_pubkey, s.project, \
+     s.host, s.rel_cwd, s.title, s.title_source, s.activity, s.busy, s.phase, s.turn_id, \
+     s.turn_started_at, s.last_distill_at, s.last_seen, s.resume_id, s.state_version, s.lifecycle, \
+     s.first_seen, s.updated_at";
+
+/// Canonical column order for `peer_session_state` reads. Keep in lockstep with
+/// `row_to_peer_session_state`.
+const PEER_STATE_COLS: &str = "pubkey, project, native_session_id, agent_slug, host, rel_cwd, \
+     title, activity, busy, last_seen, state_version, lifecycle, first_seen, updated_at";
+
+/// Mint a fresh canonical session id (daemon-owned, opaque).
+fn mint_session_id() -> String {
+    gen_id("te")
+}
+
+/// Build a `SessionSnapshot` from a `session_state` row whose columns start at 0.
+fn row_to_session_state(row: &rusqlite::Row) -> rusqlite::Result<SessionSnapshot> {
+    row_to_session_state_offset(row, 0)
+}
+
+/// Build a `SessionSnapshot` from a `session_state` row whose first column is at
+/// `base` (used by the outbox join, where leading columns precede the snapshot).
+fn row_to_session_state_offset(
+    row: &rusqlite::Row,
+    base: usize,
+) -> rusqlite::Result<SessionSnapshot> {
+    Ok(SessionSnapshot {
+        source: SnapshotSource::Local,
+        session_id: SessionId::from(row.get::<_, String>(base)?),
+        agent_slug: row.get(base + 1)?,
+        agent_pubkey: row.get(base + 2)?,
+        project: row.get(base + 3)?,
+        host: row.get(base + 4)?,
+        rel_cwd: row.get(base + 5)?,
+        title: row.get(base + 6)?,
+        title_source: TitleSource::from_str(&row.get::<_, String>(base + 7)?),
+        activity: row.get(base + 8)?,
+        busy: row.get::<_, i64>(base + 9)? != 0,
+        phase: row.get(base + 10)?,
+        turn_id: row.get(base + 11)?,
+        turn_started_at: row.get(base + 12)?,
+        last_distill_at: row.get(base + 13)?,
+        last_seen: row.get(base + 14)?,
+        resume_id: row.get(base + 15)?,
+        state_version: row.get(base + 16)?,
+        lifecycle: Lifecycle::from_str(&row.get::<_, String>(base + 17)?),
+        first_seen: row.get(base + 18)?,
+        updated_at: row.get(base + 19)?,
+    })
+}
+
+/// Build a `SessionSnapshot` (Peer source) from a `peer_session_state` row. Peer
+/// rows carry no turn/distill/resume data, so those fields project as defaults.
+fn row_to_peer_session_state(row: &rusqlite::Row) -> rusqlite::Result<SessionSnapshot> {
+    let busy = row.get::<_, i64>(8)? != 0;
+    Ok(SessionSnapshot {
+        source: SnapshotSource::Peer,
+        agent_pubkey: row.get(0)?,
+        project: row.get(1)?,
+        session_id: SessionId::from(row.get::<_, String>(2)?),
+        agent_slug: row.get(3)?,
+        host: row.get(4)?,
+        rel_cwd: row.get(5)?,
+        title: row.get(6)?,
+        title_source: if row.get::<_, String>(6)?.is_empty() {
+            TitleSource::None
+        } else {
+            TitleSource::Peer
+        },
+        activity: row.get(7)?,
+        busy,
+        phase: if busy { "working".into() } else { "idle".into() },
+        turn_id: 0,
+        turn_started_at: 0,
+        last_distill_at: 0,
+        last_seen: row.get(9)?,
+        resume_id: String::new(),
+        state_version: row.get(10)?,
+        lifecycle: Lifecycle::from_str(&row.get::<_, String>(11)?),
+        first_seen: row.get(12)?,
+        updated_at: row.get(13)?,
+    })
+}
+
+/// Classify one in-window snapshot into an appeared/changed/gone delta, or
+/// `None` when it doesn't qualify. Gone takes precedence (ended/superseded since
+/// the cursor, or liveness expired within the window); then appeared
+/// (first_seen>=since and still live); then changed (updated_at>=since and live).
+fn classify_delta(snap: SessionSnapshot, since: u64, now: u64) -> Option<StatusDeltaItem> {
+    let ttl = crate::domain::STATUS_TTL_SECS;
+    let derived = derive_status(&snap, now);
+    let live = derived.liveness.is_live();
+    let was_live_at_since = snap.last_seen.saturating_add(ttl) >= since;
+    let expired_in_window = !live && was_live_at_since && now.saturating_sub(snap.last_seen) > ttl;
+
+    let kind = if (!snap.lifecycle.is_active() && snap.updated_at >= since) || expired_in_window {
+        DeltaKind::Gone
+    } else if snap.first_seen >= since && live {
+        DeltaKind::Appeared
+    } else if snap.updated_at >= since && live {
+        DeltaKind::Changed
+    } else {
+        return None;
+    };
+    Some(StatusDeltaItem {
+        kind,
+        snapshot: snap,
+        derived,
+    })
+}
 
 fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<SessionRecord> {
     Ok(SessionRecord {
@@ -2632,31 +3343,90 @@ mod tests {
         assert_eq!(all.len(), 2);
     }
 
+    /// A session that registers, starts a turn, then ends a turn surfaces in
+    /// `status_delta_since` as Changed; a freshly registered one as Appeared; an
+    /// ended one as Gone. Project-scoped + self-excluded.
     #[test]
-    fn turn_delta_status_changes_can_be_project_scoped() {
+    fn status_delta_since_classifies_appeared_changed_gone() {
+        use crate::session::{DeltaKind, Harness, SessionObservation};
         let s = Store::open_memory().unwrap();
-        s.upsert_profile("pk-a", "alpha", "host", 1).unwrap();
-        s.upsert_profile("pk-b", "bravo", "host", 1).unwrap();
-        s.set_agent_status("pk-a", "current", None, "working here", "", true, 100)
-            .unwrap();
-        s.set_agent_status("pk-b", "elsewhere", None, "working there", "", true, 100)
-            .unwrap();
+        let mk = |slug: &str, pk: &str, proj: &str, ts: u64| SessionObservation {
+            agent_slug: slug.into(),
+            agent_pubkey: pk.into(),
+            project: proj.into(),
+            host: "host".into(),
+            rel_cwd: String::new(),
+            harness: Harness::ClaudeCode,
+            harness_session_id: Some(format!("h-{slug}")),
+            resume_id: None,
+            tmux_pane: None,
+            watch_pid: None,
+            observed_at: ts,
+        };
+        // Registered before the cursor → not "appeared", but a turn change after.
+        let a = s.register_or_reassert_session(&mk("alpha", "pk-a", "proj", 100)).unwrap();
+        // Registered AFTER the cursor → appeared.
+        let now = 200u64;
+        let since = 150u64;
+        let b = s.register_or_reassert_session(&mk("bravo", "pk-b", "proj", 160)).unwrap();
+        // Different project → excluded.
+        let _ = s.register_or_reassert_session(&mk("gamma", "pk-c", "other", 160)).unwrap();
+        // alpha changes after the cursor.
+        s.start_turn(a.session_id.as_str(), 170).unwrap();
 
-        let scoped = s.list_status_changes_since(50, Some("current")).unwrap();
-        assert_eq!(
-            scoped,
-            vec![(
-                "alpha".to_string(),
-                "current".to_string(),
-                "working here".to_string(),
-                String::new(),
-                None,
-                true
-            )]
+        let delta = s
+            .status_delta_since("proj", since, now, Some(b.session_id.as_str()))
+            .unwrap();
+        // bravo is excluded; alpha must be present as Changed.
+        assert!(delta
+            .iter()
+            .any(|d| d.snapshot.session_id == a.session_id && d.kind == DeltaKind::Changed));
+        assert!(delta.iter().all(|d| d.snapshot.project == "proj"));
+
+        // End alpha's session → it surfaces as Gone.
+        s.end_session(a.session_id.as_str(), 180).unwrap();
+        let delta2 = s.status_delta_since("proj", since, now, None).unwrap();
+        assert!(delta2
+            .iter()
+            .any(|d| d.snapshot.session_id == a.session_id && d.kind == DeltaKind::Gone));
+    }
+
+    /// A still-`active` session whose heartbeats stopped (no event for > TTL)
+    /// MUST surface as `Gone` (liveness expired within the window) — a session
+    /// that drops off the relay stays reportable as gone, never silently lingers.
+    #[test]
+    fn status_delta_since_reports_expired_session_as_gone() {
+        use crate::session::{DeltaKind, Harness, SessionObservation};
+        let s = Store::open_memory().unwrap();
+        let obs = SessionObservation {
+            agent_slug: "ghost".into(),
+            agent_pubkey: "pk-ghost".into(),
+            project: "proj".into(),
+            host: "host".into(),
+            rel_cwd: String::new(),
+            harness: Harness::ClaudeCode,
+            harness_session_id: Some("h-ghost".into()),
+            resume_id: None,
+            tmux_pane: None,
+            watch_pid: None,
+            observed_at: 100,
+        };
+        // Registered + last seen at t=100, then never heard from again.
+        let ghost = s.register_or_reassert_session(&obs).unwrap();
+        // `now` is far past last_seen + STATUS_TTL_SECS; the cursor is between the
+        // last sighting and now, so the expiry falls inside the window.
+        let now = 100 + crate::domain::STATUS_TTL_SECS + 200;
+        let since = 100 + crate::domain::STATUS_TTL_SECS / 2;
+        let delta = s.status_delta_since("proj", since, now, None).unwrap();
+        let item = delta
+            .iter()
+            .find(|d| d.snapshot.session_id == ghost.session_id)
+            .expect("expired session must still surface in the delta");
+        assert_eq!(item.kind, DeltaKind::Gone, "expired session must be Gone");
+        assert!(
+            !item.derived.liveness.is_live(),
+            "an expired session is never live"
         );
-
-        let all = s.list_status_changes_since(50, None).unwrap();
-        assert_eq!(all.len(), 2);
     }
 
     #[test]
@@ -3205,22 +3975,6 @@ mod tests {
             .is_empty());
     }
 
-    /// list_status_read_model returns (pubkey, project, text) rows.
-    #[test]
-    fn phase2_list_status_read_model() {
-        let s = Store::open_memory().unwrap();
-        s.set_agent_status("pk-a", "proj", None, "working", "", true, 100)
-            .unwrap();
-        s.set_agent_status("pk-b", "other", None, "idle", "", false, 200)
-            .unwrap();
-        let all = s.list_status_read_model(None).unwrap();
-        assert_eq!(all.len(), 2);
-        let scoped = s.list_status_read_model(Some("proj")).unwrap();
-        assert_eq!(scoped.len(), 1);
-        assert_eq!(scoped[0].0, "pk-a");
-        assert_eq!(scoped[0].2, "working");
-    }
-
     /// list_threads returns empty on a fresh store (canonical table, Phase 7).
     #[test]
     fn phase2_list_threads_empty_until_phase7() {
@@ -3325,28 +4079,106 @@ mod tests {
         assert_eq!(rows[0].rel_cwd, "subdir");
     }
 
-    /// materialize_status round-trips through set_agent_status.
+    /// record_peer_status mirrors a kind:30315 into peer_session_state and bumps
+    /// state_version only on content change.
     #[test]
-    fn phase2_materialize_status() {
+    fn record_peer_status_upserts_and_versions() {
+        use crate::session::PeerStatusObservation;
         let s = Store::open_memory().unwrap();
-        s.materialize_status(
-            "pk-ms",
-            "proj",
-            None,
-            "reviewing",
-            "reading the diff",
-            true,
-            100,
-        )
-        .unwrap();
-        assert_eq!(
-            s.get_agent_status("pk-ms", "proj", None).unwrap(),
-            Some((
-                "reviewing".to_string(),
-                "reading the diff".to_string(),
-                true
-            ))
-        );
+        let mut obs = PeerStatusObservation {
+            agent_pubkey: "pk-peer".into(),
+            agent_slug: "peer".into(),
+            project: "proj".into(),
+            native_session_id: "n1".into(),
+            host: "host2".into(),
+            rel_cwd: String::new(),
+            title: "fixing auth".into(),
+            activity: "editing".into(),
+            busy: true,
+            emitted_at: 100,
+            observed_at: 100,
+        };
+        s.record_peer_status(&obs).unwrap();
+        let snaps = s.peer_session_snapshots(Some("proj"), 0).unwrap();
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].title, "fixing auth");
+        assert_eq!(snaps[0].state_version, 1);
+        // Same content, newer emit → no version bump, fresher last_seen.
+        obs.emitted_at = 130;
+        obs.observed_at = 130;
+        s.record_peer_status(&obs).unwrap();
+        let snaps = s.peer_session_snapshots(Some("proj"), 0).unwrap();
+        assert_eq!(snaps[0].state_version, 1);
+        assert_eq!(snaps[0].last_seen, 130);
+        // Content change → version bump.
+        obs.busy = false;
+        obs.activity = String::new();
+        obs.emitted_at = 160;
+        obs.observed_at = 160;
+        s.record_peer_status(&obs).unwrap();
+        let snaps = s.peer_session_snapshots(Some("proj"), 0).unwrap();
+        assert_eq!(snaps[0].state_version, 2);
+        assert!(!snaps[0].busy);
+    }
+
+    /// register_or_reassert_session: alias hit reasserts the same canonical id;
+    /// a fresh harness id mints a new one.
+    #[test]
+    fn register_session_alias_hit_reasserts() {
+        use crate::session::{Harness, SessionObservation};
+        let s = Store::open_memory().unwrap();
+        let obs = |sid: &str, ts: u64| SessionObservation {
+            agent_slug: "claude".into(),
+            agent_pubkey: "pk".into(),
+            project: "proj".into(),
+            host: "host".into(),
+            rel_cwd: String::new(),
+            harness: Harness::ClaudeCode,
+            harness_session_id: Some(sid.into()),
+            resume_id: None,
+            tmux_pane: None,
+            watch_pid: None,
+            observed_at: ts,
+        };
+        let a = s.register_or_reassert_session(&obs("h1", 10)).unwrap();
+        let a2 = s.register_or_reassert_session(&obs("h1", 20)).unwrap();
+        assert_eq!(a.session_id, a2.session_id, "same harness id → same canonical id");
+        assert!(a2.state_version > a.state_version, "reassert bumps version");
+        let b = s.register_or_reassert_session(&obs("h2", 30)).unwrap();
+        assert_ne!(a.session_id, b.session_id, "new harness id → new canonical id");
+    }
+
+    /// versioned distill guard: a stale base_version is rejected.
+    #[test]
+    fn apply_distill_result_rejects_stale_version() {
+        use crate::session::{Harness, SessionObservation};
+        let s = Store::open_memory().unwrap();
+        let snap = s
+            .register_or_reassert_session(&SessionObservation {
+                agent_slug: "claude".into(),
+                agent_pubkey: "pk".into(),
+                project: "proj".into(),
+                host: "host".into(),
+                rel_cwd: String::new(),
+                harness: Harness::ClaudeCode,
+                harness_session_id: Some("h1".into()),
+                resume_id: None,
+                tmux_pane: None,
+                watch_pid: None,
+                observed_at: 10,
+            })
+            .unwrap();
+        let turn = s.start_turn(snap.session_id.as_str(), 20).unwrap().unwrap();
+        // Wrong base_version → rejected.
+        assert!(s
+            .apply_distill_result(turn.session_id.as_str(), turn.turn_id, turn.state_version + 99, "T", "A", 30)
+            .unwrap()
+            .is_none());
+        // Correct (turn_id, state_version) → applied.
+        let applied = s
+            .apply_distill_result(turn.session_id.as_str(), turn.turn_id, turn.state_version, "Distilled", "doing", 30)
+            .unwrap();
+        assert_eq!(applied.unwrap().title, "Distilled");
     }
 
     /// materialize_membership_snapshot replaces legacy group_members AND mirrors

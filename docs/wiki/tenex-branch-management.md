@@ -8,12 +8,13 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-13
-updated: 2026-06-14
+updated: 2026-06-16
 verified: 2026-06-13
 compiled-from: conversation
 sources:
   - session:c55d561a-ccf5-4160-ab1d-d5946e9e400f
   - session:rollout-2026-06-14T13-19-49-019ec5a5-1119-76f0-a7e3-36bc985a31bd
+  - session:1b868736-ed6b-4f88-84d9-26bb320accfd
 ---
 
 # Branch Management
@@ -31,3 +32,5 @@ When a rebased commit's changes are already captured by structural refactoring o
 Stale git worktrees and fully-merged local branches are removed during queue cleanup. <!-- [^rollo-35] -->
 
 A nested worktree-agent branch is not resurrected wholesale when it has no unique committed work relative to master. <!-- [^rollo-36] -->
+
+The work proceeds on a single git branch with a single PR, with no backwards compatibility maintained. <!-- [^1b868-47] -->

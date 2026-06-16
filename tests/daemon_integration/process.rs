@@ -80,7 +80,14 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
         "session-start failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let sid = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // The opencode session-start hook echoes the daemon-minted canonical id as
+    // JSON ({"session_id":"te-...","short_code":"..."}); the plugin parses it.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let trimmed = stdout.trim();
+    let sid = serde_json::from_str::<serde_json::Value>(trimmed)
+        .ok()
+        .and_then(|v| v["session_id"].as_str().map(str::to_string))
+        .unwrap_or_else(|| trimmed.to_string());
     assert!(
         !sid.is_empty(),
         "session-start printed no generated session id"

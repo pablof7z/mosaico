@@ -6,6 +6,53 @@
 
 use crate::util::SessionId;
 
+/// Liveness TTL: a status is "live" while its heartbeat is fresher than this.
+/// The daemon re-arms the kind:30315 NIP-40 `expiration` to `now + STATUS_TTL_SECS`
+/// on every heartbeat, so a stopped session's event expires off the relay ~this
+/// long after its last beat. 90s matches the `who` peer-freshness window so local
+/// and peer liveness use one number.
+pub const STATUS_TTL_SECS: u64 = 90;
+
+/// Heartbeat cadence. 3x re-arm margin under `STATUS_TTL_SECS` (no flicker).
+pub const HEARTBEAT_SECS: u64 = 30;
+
+/// The lifecycle of a session aggregate. PURE marker (never on the wire — there
+/// are no tombstone events): a stopped session is detected by its status event
+/// expiring, not by an `ended`/`superseded` signal. Stored on `session_state` so
+/// readers and `derive_status` can suppress a finished session locally before its
+/// relay event ages out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Lifecycle {
+    /// Running or idle-but-resumable; the normal state.
+    #[default]
+    Active,
+    /// The session finished (clean exit / session-end). Title retained.
+    Ended,
+    /// A newer logical session took this one's pane/pid slot.
+    Superseded,
+}
+
+impl Lifecycle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Lifecycle::Active => "active",
+            Lifecycle::Ended => "ended",
+            Lifecycle::Superseded => "superseded",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "ended" => Lifecycle::Ended,
+            "superseded" => Lifecycle::Superseded,
+            _ => Lifecycle::Active,
+        }
+    }
+    /// Whether this session may still be reported live (only `Active`).
+    pub fn is_active(&self) -> bool {
+        matches!(self, Lifecycle::Active)
+    }
+}
+
 /// A reference to an agent: its sovereign pubkey and the slug it goes by.
 /// Identity is `(agent, machine)` — the same tool on another machine is a
 /// different agent with a different pubkey (M1 §4).
@@ -90,10 +137,33 @@ pub struct Proposal {
 /// session, so each session keeps its own title even while idle — and after it
 /// exits.
 ///
-/// This replaces the former separate `Presence` heartbeat: liveness is tracked
-/// by the daemon's store (`last_seen`), not a relay expiration — so the event
-/// (and its title) is NEVER expired off the relay. A finished session keeps its
-/// title on the fabric.
+/// Liveness = freshness of THIS event. The daemon re-arms `expires_at` to
+/// `now + STATUS_TTL_SECS` on every heartbeat; the codec turns `Some(ts)` into a
+/// NIP-40 `["expiration", ts]` tag. Beats stop → event expires → reads as dead.
+/// `expires_at == None` publishes without an expiration (used only in tests /
+/// non-heartbeat contexts).
+///
+/// PROVIDER STATUS API (implemented by the daemon's provider, NOT in this pure
+/// module — specified here so the codec/provider/drainer agents bind to it):
+///
+/// ```ignore
+/// impl crate::fabric::provider::Kind1Nip29Provider {
+///     /// Encode `status` to kind:30315 (NIP-40 expiration when `expires_at` is
+///     /// Some), sign with `keys`, publish. Returns the native event id.
+///     pub async fn set_status(
+///         &self,
+///         status: &crate::domain::Status,
+///         keys: &nostr_sdk::prelude::Keys,
+///     ) -> anyhow::Result<nostr_sdk::prelude::EventId>;
+/// }
+/// ```
+///
+/// The daemon's status-outbox drainer builds a `Status` from each pending
+/// `SessionSnapshot` (setting `expires_at = now + STATUS_TTL_SECS`), calls
+/// `set_status`, then marks the `status_outbox` row published with the returned
+/// id. The per-heartbeat liveness re-arm re-publishes the latest snapshot the
+/// same way (it does NOT enqueue an outbox row). Nothing above the provider
+/// builds a kind:30315 event directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub agent: AgentRef,
@@ -119,6 +189,10 @@ pub struct Status {
     /// PUBLIC kind → never the absolute `$HOME/...` path (privacy). Lets a `who`
     /// reflect where the agent is working.
     pub rel_cwd: String,
+    /// NIP-40 expiration (unix secs). `Some(now + STATUS_TTL_SECS)` on every
+    /// heartbeat re-arm; `None` publishes without an expiration tag. Liveness IS
+    /// the freshness of this event.
+    pub expires_at: Option<u64>,
 }
 
 impl Status {
@@ -216,6 +290,7 @@ mod tests {
             activity: String::new(),
             busy: false,
             rel_cwd: String::new(),
+            expires_at: None,
         };
         let busy = Status {
             agent,
@@ -226,6 +301,7 @@ mod tests {
             activity: String::new(),
             busy: true,
             rel_cwd: String::new(),
+            expires_at: None,
         };
         assert!(idle.is_idle());
         assert!(!busy.is_idle());

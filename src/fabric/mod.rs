@@ -123,9 +123,12 @@ pub fn materialize(
     let is_self = hosted.contains(&event.pubkey.to_hex());
 
     match de {
-        // is_self guard: skip store writes for own identity/status.
-        // Activity has no positive handler either (catch-all).
-        DomainEvent::Profile(_) | DomainEvent::Activity(_) | DomainEvent::Status(_) if is_self => {}
+        // is_self guard: skip materializing our OWN kind:0 profile echo (local
+        // identity is authoritative). The guard is no longer needed for Status:
+        // `materialize_status` writes ONLY to `peer_session_state`, never the
+        // authoritative `session_state`, so a self-status echo cannot corrupt
+        // local truth. Activity has no positive handler either way (catch-all).
+        DomainEvent::Profile(_) if is_self => {}
 
         DomainEvent::Profile(ref pf) => {
             Kind1Materializer::materialize_profile(store, pf, now);

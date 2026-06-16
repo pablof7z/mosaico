@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-08
-updated: 2026-06-15
+updated: 2026-06-16
 verified: 2026-06-08
 compiled-from: conversation
 sources:
@@ -29,6 +29,7 @@ sources:
   - session:622711fa-5176-4580-b311-d66446c2924b
   - session:215d979a-a054-4e2b-b349-851e0d874d6d
   - session:rollout-2026-06-14T13-19-49-019ec5a5-1119-76f0-a7e3-36bc985a31bd
+  - session:1b868736-ed6b-4f88-84d9-26bb320accfd
 ---
 
 # Tenex-Edge Session Management
@@ -79,3 +80,11 @@ Q1 collision logging (agent, path, timestamp) starts on day one as passive loggi
 A 'resume' action distinct from 'attach' is needed: attach reattaches to a still-living pane, while resume spawns a new process that reconstitutes the conversation from the native id. Each harness defines a resume spec on `SpawnDef` with a shape (`append-flag` vs `subcommand`) and a token (`--resume`, `--session`, `resume`), so the resume command is constructed by transforming the base launch command. The resume spawn path reuses the existing `spawn_agent` `new-window` flow with the transformed argv. The TUI/CLI offers 'resume' for local sessions whose tmux pane is dead, while offering 'attach' for sessions whose pane is still alive, using the `session_endpoints` table to determine pane liveness. Sessions store a `resume_id` field distinct from the identity `session_id`, because the `te-*` synthetic ID cannot be repurposed as opencode's resume token. For claude and codex, `resume_id` equals `session_id` (the adopted native UUID); for opencode, `resume_id` holds the forwarded `ses_*` native ID. The opencode plugin forwards its native `ses_*` session ID (read from `lastUser.info.sessionID`) to tenex-edge via the hook payload, enabling round-trip resumption. Sessions that were never spawned by tenex-edge tmux (e.g. started by hand in a terminal) are still resumable, because tenex-edge captures the native session ID via the SessionStart hook for harnesses that adopt the native ID.
 
 <!-- citations: [^9f7f2-3] [^9f7f2-5] -->
+
+## Session State Architecture
+
+Session identity is a daemon-minted stable session_key (resolved from agent+project+host+watch_pid), not a harness-provided session_id; harness-native IDs become rows in a session_aliases table. One session_state row (keyed by session_key) is the single source of truth for title, activity, phase, turn_started_at, last_distill_at, and last_seen; all mutation flows through explicit transition methods (start_turn, seed_title, apply_distill, heartbeat, end, supersede). The runtime task becomes a stateless SessionDriver that reads from and writes through session_state via transition methods, losing cur_title/cur_activity as scattered mutable locals. Local state uses session_state (keyed by session_key) and peer state uses peer_session_state (keyed by pubkey/project/native_id), so the materializer cannot write local state and the is_self guard becomes unnecessary. Legacy agent_status and session_status tables are deleted outright with no backwards compatibility. <!-- [^1b868-51] -->
+
+## Migration Strategy
+
+Phase 0 of the session-state migration writes FREEZE invariants as failing-first test oracles (one d per logical session across id rotation, title stable across restart, stale distill ignored, expired status not live) before any code moves. <!-- [^1b868-52] -->

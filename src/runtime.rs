@@ -1,20 +1,26 @@
 //! The per-session engine (M1 §5, §7).
 //!
-//! Runs in the detached background process forked by `session-start`. It:
+//! Runs as a daemon-hosted task. It is a STATELESS driver over the canonical
+//! `session_state` aggregate (the single source of truth): it holds no cached
+//! title/activity and never builds a `Status`. It:
 //!   - publishes the agent's `kind:0` profile once,
-//!   - heartbeats the single per-session Status on an interval (its freshness IS
-//!     the session's liveness — there is no separate presence event),
-//!   - drains observed tool activity, distills it, publishes Activity + Status,
-//!   - subscribes to the project + mentions-to-me, updating the peer directory
-//!     and routing mentions into the per-session inbox,
-//!   - watches the host PID and stops cleanly (idle status) when it dies or on
-//!     SIGTERM (the `session-end` path).
+//!   - refreshes liveness each heartbeat (`heartbeat_session` bumps `last_seen`,
+//!     whose freshness the kind:30315 NIP-40 expiration encodes) — no version
+//!     bump, no outbox; the relay re-arm is the drainer/heartbeat-publisher's job,
+//!   - drives turn transitions (`start_turn`/`seed_title_if_empty`/`end_turn`) on
+//!     the rising/falling edges of `turn_state`, and schedules background
+//!     distillation that applies via `apply_distill_result` under a versioned
+//!     guard (a stale distill structurally no-ops),
+//!   - broadcasts a social Activity note when a distill changes the title,
+//!   - watches the host PID and finishes the session (`end_session`, title
+//!     retained) when it dies or on `cancel` (the `session-end` path). Status
+//!     publication is entirely the outbox drainer's responsibility.
 
 use crate::distill;
-use crate::domain::{Activity, AgentRef, DomainEvent, Mention, Profile, Status};
+use crate::domain::{Activity, AgentRef, DomainEvent, Mention, Profile};
 use crate::fabric::provider::Kind1Nip29Provider;
 use crate::state::{InboxRow, Store};
-use crate::util::{now_secs, SessionId};
+use crate::util::now_secs;
 use anyhow::Result;
 use nostr_sdk::prelude::Event;
 use std::path::PathBuf;
@@ -106,23 +112,9 @@ pub async fn run_session_in_daemon(
             let _ = provider.publish(&ev, &keys).await;
         }
     };
-    // The single self-contained per-session signal. The event is never expired
-    // (no NIP-40 expiration), so a finished session keeps its title on the relay;
-    // liveness is tracked by the store's `last_seen`, refreshed each heartbeat.
-    let status_de = |title: &str, activity: &str, busy: bool| {
-        DomainEvent::Status(Status {
-            agent: aref.clone(),
-            project: p.project.clone(),
-            session_id: SessionId::from(p.session_id.clone()),
-            host: p.host.clone(),
-            title: title.to_string(),
-            activity: activity.to_string(),
-            busy,
-            rel_cwd: p.rel_cwd.clone(),
-        })
-    };
 
-    // Identity card.
+    // Identity card (the one publish the engine still owns; status publication is
+    // the outbox drainer's job).
     publish_de(DomainEvent::Profile(Profile {
         agent: aref.clone(),
         host: p.host.clone(),
@@ -130,46 +122,32 @@ pub async fn run_session_in_daemon(
     }))
     .await;
 
-    // The session TITLE persists across idle turns and feeds back into the
-    // distiller. On a daemon restart for an existing session, recover the prior
-    // title from the store so re-distillation nudges-to-keep it.
+    // This loop is a STATELESS driver: it holds NO cur_title/cur_activity and
+    // never builds a `Status` nor writes any status table. The canonical
+    // `session_state` row is the single source of truth; the engine only applies
+    // transitions (start_turn/seed_title_if_empty/apply_distill_result/end_turn/
+    // end_session) and refreshes liveness (heartbeat_session). Publication of the
+    // resulting kind:30315 is the outbox drainer's responsibility.
     let turn_first = p.turn_first.as_secs();
     let turn_repeat = p.turn_repeat.as_secs();
-    let mut cur_turn_start: u64 = 0;
-    let mut last_distill: u64 = 0; // when we last SUCCEEDED at distilling
-    let mut last_distill_attempt: u64 = 0; // when we last STARTED a distill task
-    let mut prev_working = false;
-    // Background distillation: the task runs outside the select! so it cannot
-    // block heartbeats or presence. distill_task_turn is the cur_turn_start value
-    // when the task was spawned; a result arriving for a stale turn is discarded.
-    let mut distill_task: Option<tokio::task::JoinHandle<Option<distill::SessionLabels>>> = None;
-    let mut distill_task_turn: u64 = 0;
-    let mut cur_title: Option<String> = st!(|s: &Store| {
-        s.get_agent_status(&me, &p.project, Some(&p.session_id))
-            .ok()
-            .flatten()
-            .map(|(t, _a, _)| t)
-    })
-    .filter(|t| !t.trim().is_empty());
-    // Live "doing now" line. Ephemeral: NOT recovered across a daemon restart
-    // (it describes the current step, which is stale by then) and cleared on idle.
-    let mut cur_activity: Option<String> = None;
 
-    // Publish initial status (also our immediate liveness): retain any recovered
-    // title, but go idle (no live activity) until a turn starts.
-    let init_title = cur_title.clone().unwrap_or_default();
-    publish_de(status_de(&init_title, "", false)).await;
+    // The ONLY locals are scheduling bookkeeping (not session status):
+    //   - the in-flight distill task + the (turn_id, state_version) it was based on
+    //     so its result is applied with the versioned guard (stale → store no-ops),
+    //   - last_distill_attempt: wall-clock retry gate (success time lives in the
+    //     store's last_distill_at),
+    //   - cur_turn_started / prev_working: edge detection against turn_state.
+    let mut distill_task: Option<tokio::task::JoinHandle<Option<distill::SessionLabels>>> = None;
+    let mut distill_task_turn_id: i64 = 0;
+    let mut distill_task_base_version: i64 = 0;
+    let mut last_distill_attempt: u64 = 0;
+    let mut cur_turn_started: u64 = 0;
+    let mut prev_working = false;
+
+    // Assert liveness immediately (refreshes session_state.last_seen + the legacy
+    // `sessions` registry used by mention routing). No version bump, no outbox.
     st!(|s: &Store| {
-        s.set_agent_status(
-            &me,
-            &p.project,
-            Some(&p.session_id),
-            &init_title,
-            "",
-            false,
-            now_secs(),
-        )
-        .ok();
+        s.heartbeat_session(&p.session_id, now_secs()).ok();
         s.touch_session(&p.session_id, now_secs()).ok();
     });
 
@@ -182,119 +160,141 @@ pub async fn run_session_in_daemon(
                 if let Some(pid) = p.watch_pid {
                     if !pid_alive(pid) { break; }
                 }
-                st!(|s: &Store| { s.touch_session(&p.session_id, now_secs()).ok(); });
-                // The unified per-session status IS the heartbeat: it refreshes the
-                // store's `last_seen` (which tracks liveness) and republishes the
-                // current title. The relay event itself never expires.
-                // Carry the current title (if any) with the live busy flag; the live
-                // activity is only meaningful mid-turn, so clear it when idle.
-                let title = cur_title.clone().unwrap_or_default();
-                let (working, _) = st!(|s: &Store| s.get_turn_state(&p.session_id).unwrap_or((false, 0)));
-                let activity = if working { cur_activity.clone().unwrap_or_default() } else { String::new() };
-                publish_de(status_de(&title, &activity, working)).await;
-                st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, &activity, working, now_secs()).ok(); });
+                // Liveness re-arm ONLY: bump last_seen in the canonical row (the
+                // freshness that the kind:30315 NIP-40 expiration encodes) and the
+                // legacy `sessions` registry. The relay re-publish that re-arms the
+                // expiration is the drainer/heartbeat-publisher's job — the engine
+                // never builds a Status. No version bump, no outbox.
+                st!(|s: &Store| {
+                    s.heartbeat_session(&p.session_id, now_secs()).ok();
+                    s.touch_session(&p.session_id, now_secs()).ok();
+                });
             }
             _ = obs.tick() => {
+                let now = now_secs();
+
                 // ── collect a finished background distillation ────────────
+                // apply_distill_result is the versioned gate: it no-ops (returns
+                // None) unless the session's current (turn_id, state_version) still
+                // equals the base the task captured, so a stale distill or a
+                // duplicate runtime cannot flip the title.
                 if distill_task.as_ref().is_some_and(|h| h.is_finished()) {
                     let result = distill_task.take().unwrap().await.ok().flatten();
-                    // Only apply if still in the same turn the task was spawned for.
-                    if distill_task_turn == cur_turn_start {
-                        if let Some(labels) = result {
-                            let now = now_secs();
-                            let changed = cur_title.as_deref() != Some(labels.title.as_str());
-                            cur_title = Some(labels.title.clone());
-                            cur_activity = (!labels.activity.is_empty()).then(|| labels.activity.clone());
-                            if changed {
+                    if let Some(labels) = result {
+                        // Capture the pre-apply title to decide whether to broadcast
+                        // a new Activity note (a social kind:1, separate from status).
+                        let prev_title = st!(|s: &Store| s.local_session_snapshot(&p.session_id))
+                            .ok().flatten().map(|snap| snap.title).unwrap_or_default();
+                        let applied = st!(|s: &Store| s.apply_distill_result(
+                            &p.session_id,
+                            distill_task_turn_id,
+                            distill_task_base_version,
+                            &labels.title,
+                            &labels.activity,
+                            now,
+                        )).ok().flatten();
+                        if let Some(snap) = applied {
+                            if !snap.title.is_empty() && snap.title != prev_title {
                                 publish_de(DomainEvent::Activity(Activity {
                                     agent: aref.clone(),
                                     project: p.project.clone(),
-                                    text: format!("{} #{}", labels.title, p.project),
+                                    text: format!("{} #{}", snap.title, p.project),
                                 })).await;
                             }
-                            publish_de(status_de(&labels.title, &labels.activity, true)).await;
-                            st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &labels.title, &labels.activity, true, now).ok(); });
-                            last_distill = now; // success: gate subsequent turn_repeat checks
                         }
-                        // On None (timeout / model error): last_distill stays 0 → retry allowed
+                        // On a rejected apply (stale base) nothing changes; the next
+                        // due-check re-reads the fresh base and reschedules.
                     }
                 }
 
                 let (working, turn_started_at) = st!(|s: &Store| s.get_turn_state(&p.session_id).unwrap_or((false, 0)));
-                let now = now_secs();
                 if working {
                     // ── rising edge / new user message ────────────────────
-                    if turn_started_at != cur_turn_start {
-                        cur_turn_start = turn_started_at;
-                        last_distill = 0;
-                        last_distill_attempt = 0;
-                        distill_task = None; // drop stale task (result discarded)
-                        distill_task_turn = 0;
-                        cur_activity = None;
-
-                        // Immediately publish active with whatever title we have.
-                        let title = cur_title.clone().unwrap_or_default();
-                        publish_de(status_de(&title, "", true)).await;
-                        st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, "", true, now).ok(); });
-
-                        // If no title yet, seed one from the user's message right now
-                        // so the TUI shows something before the LLM distiller fires.
-                        if cur_title.is_none() {
-                            let quick = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
-                                .and_then(|path| crate::transcript::read_last_user_prompt(std::path::Path::new(&path)))
-                                .and_then(|prompt| {
-                                    let t = titleize_prompt(&prompt);
-                                    if t.is_empty() { None } else { Some(t) }
-                                });
-                            if let Some(qt) = quick {
-                                cur_title = Some(qt.clone());
-                                publish_de(status_de(&qt, "", true)).await;
-                                st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &qt, "", true, now).ok(); });
+                    if turn_started_at != cur_turn_started {
+                        // Open the turn in the canonical aggregate (busy=1, turn_id+1,
+                        // activity cleared, version bumped + outbox enqueued). This
+                        // also re-arms turn_state's turn_started_at to `now`, so we
+                        // record THAT (snap.turn_started_at) as the value we've acted
+                        // on to avoid re-triggering on the next tick.
+                        let snap = st!(|s: &Store| s.start_turn(&p.session_id, now)).ok().flatten();
+                        if let Some(snap) = snap {
+                            cur_turn_started = snap.turn_started_at;
+                            let turn_id = snap.turn_id;
+                            // Seed a provisional title from the user's prompt so the
+                            // TUI shows something before the LLM distiller fires.
+                            // seed_title_if_empty self-guards (only when title_source
+                            // is 'none' and turn_id still matches), so this is safe to
+                            // attempt unconditionally when the title is empty.
+                            if snap.title.trim().is_empty() {
+                                let quick = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
+                                    .and_then(|path| crate::transcript::read_last_user_prompt(std::path::Path::new(&path)))
+                                    .and_then(|prompt| {
+                                        let t = titleize_prompt(&prompt);
+                                        if t.is_empty() { None } else { Some(t) }
+                                    });
+                                if let Some(qt) = quick {
+                                    st!(|s: &Store| s.seed_title_if_empty(&p.session_id, turn_id, &qt, now)).ok();
+                                }
                             }
+                        } else {
+                            // No canonical row (shouldn't happen mid-session); record
+                            // the raw cursor so we don't spin on it.
+                            cur_turn_started = turn_started_at;
                         }
+                        // Fresh turn → reset distill scheduling.
+                        last_distill_attempt = 0;
+                        distill_task = None;
+                        distill_task_turn_id = 0;
+                        distill_task_base_version = 0;
                     }
 
                     // ── schedule background distillation ──────────────────
-                    // due = no task running AND (first attempt window OR retry after
-                    // failure OR turn_repeat refresh after success).
-                    let due = distill_task.is_none() && if last_distill_attempt == 0 {
-                        now.saturating_sub(cur_turn_start) >= turn_first
-                    } else if last_distill > 0 {
-                        turn_repeat > 0 && now.saturating_sub(last_distill) >= turn_repeat
-                    } else {
-                        // Last attempt failed/timed out: retry after another turn_first window.
-                        now.saturating_sub(last_distill_attempt) >= turn_first
-                    };
-                    if due {
-                        let ctx = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
-                            .and_then(|path| crate::transcript::read_recent(std::path::Path::new(&path), 14, 2500));
-                        if let Some(ctx) = ctx {
-                            let current = cur_title.clone();
-                            last_distill_attempt = now;
-                            distill_task_turn = cur_turn_start;
-                            distill_task = Some(tokio::spawn(async move {
-                                tokio::time::timeout(
-                                    Duration::from_secs(20),
-                                    distill::distill_session(&ctx, current.as_deref()),
-                                )
-                                .await
-                                .ok()
-                                .flatten()
-                            }));
+                    // Timing is derived from the canonical row (turn_started_at /
+                    // last_distill_at), not cached locally. due = no task running AND
+                    // (first-attempt window OR retry-after-failure OR turn_repeat
+                    // refresh after a success this turn).
+                    if distill_task.is_none() {
+                        if let Some(snap) = st!(|s: &Store| s.local_session_snapshot(&p.session_id)).ok().flatten() {
+                            let succeeded_this_turn =
+                                snap.turn_started_at > 0 && snap.last_distill_at >= snap.turn_started_at;
+                            let due = if last_distill_attempt == 0 {
+                                now.saturating_sub(snap.turn_started_at) >= turn_first
+                            } else if succeeded_this_turn {
+                                turn_repeat > 0 && now.saturating_sub(snap.last_distill_at) >= turn_repeat
+                            } else {
+                                // Last attempt failed/timed out: retry after another window.
+                                now.saturating_sub(last_distill_attempt) >= turn_first
+                            };
+                            if due {
+                                let ctx = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten())
+                                    .and_then(|path| crate::transcript::read_recent(std::path::Path::new(&path), 14, 2500));
+                                if let Some(ctx) = ctx {
+                                    let current = (!snap.title.trim().is_empty()).then(|| snap.title.clone());
+                                    last_distill_attempt = now;
+                                    distill_task_turn_id = snap.turn_id;
+                                    distill_task_base_version = snap.state_version;
+                                    distill_task = Some(tokio::spawn(async move {
+                                        tokio::time::timeout(
+                                            Duration::from_secs(20),
+                                            distill::distill_session(&ctx, current.as_deref()),
+                                        )
+                                        .await
+                                        .ok()
+                                        .flatten()
+                                    }));
+                                }
+                            }
                         }
                     }
                 } else if prev_working {
-                    // Falling edge: turn ended → go idle but KEEP the title; the
-                    // live activity is dropped (only the persistent title survives).
-                    cur_activity = None;
-                    let title = cur_title.clone().unwrap_or_default();
-                    publish_de(status_de(&title, "", false)).await;
-                    st!(|s: &Store| { s.set_agent_status(&me, &p.project, Some(&p.session_id), &title, "", false, now).ok(); });
-                    cur_turn_start = 0;
-                    last_distill = 0;
+                    // Falling edge: close the turn (busy=0, activity cleared, TITLE
+                    // retained; version bumped + outbox enqueued by end_turn).
+                    st!(|s: &Store| s.end_turn(&p.session_id, now)).ok();
+                    cur_turn_started = 0;
                     last_distill_attempt = 0;
                     distill_task = None;
-                    distill_task_turn = 0;
+                    distill_task_turn_id = 0;
+                    distill_task_base_version = 0;
                 }
                 prev_working = working;
             }
@@ -302,24 +302,13 @@ pub async fn run_session_in_daemon(
         }
     }
 
-    // Clean exit: publish a final IDLE status that RETAINS the title (a finished
-    // session keeps its title on the fabric — the title is NEVER cleared) and
-    // drops only the live activity. Liveness is tracked by the store: mark the
-    // session dead there (drops it from `who`), while the relay keeps the titled
-    // event (it never expires).
-    let final_title = cur_title.clone().unwrap_or_default();
-    publish_de(status_de(&final_title, "", false)).await;
+    // Clean exit: finish the session in the canonical aggregate (lifecycle='ended',
+    // TITLE retained; the final status — with a fresh expiration — is enqueued to
+    // the outbox and published by the drainer, then ages off the relay as beats
+    // stop). Also mark the legacy `sessions` row dead so mention routing
+    // (list_alive_sessions) drops it. The engine itself publishes no Status.
     st!(|s: &Store| {
-        s.set_agent_status(
-            &me,
-            &p.project,
-            Some(&p.session_id),
-            &final_title,
-            "",
-            false,
-            now_secs(),
-        )
-        .ok();
+        s.end_session(&p.session_id, now_secs()).ok();
         s.mark_session_dead(&p.session_id).ok();
     });
     Ok(())

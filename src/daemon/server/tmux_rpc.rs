@@ -226,12 +226,8 @@ pub(super) fn rpc_tmux_resumable(state: &Arc<DaemonState>) -> Result<serde_json:
                 return None;
             }
             let title = state
-                .with_store(|s| {
-                    s.get_agent_status(&rec.agent_pubkey, &rec.project, Some(&rec.session_id))
-                })
-                .ok()
-                .flatten()
-                .map(|(t, _activity, _active)| t)
+                .with_store(|s| s.local_session_snapshot(&rec.session_id).ok().flatten())
+                .map(|snap| snap.title)
                 .unwrap_or_default();
             Some(serde_json::json!({
                 "session_id": rec.session_id,

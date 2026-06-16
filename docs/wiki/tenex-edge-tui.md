@@ -2,13 +2,13 @@
 title: Tenex-Edge TUI
 slug: tenex-edge-tui
 topic: tenex-edge
-summary: The TUI is built with ratatui (version 0.30.1, default-features disabled, features crossterm_0_28 and macros enabled) using the crossterm 0.28 backend for doubl
+summary: The TUI renders immediately from last-known state in SQLite on startup without waiting for relay connection
 tags:
   - capture
 volatility: warm
 confidence: medium
 created: 2026-06-14
-updated: 2026-06-15
+updated: 2026-06-16
 verified: 2026-06-14
 compiled-from: conversation
 sources:
@@ -17,15 +17,16 @@ sources:
   - session:622711fa-5176-4580-b311-d66446c2924b
   - session:9bab94a2-f76f-4eda-ae41-8a6ec29ce7cf
   - session:9c78b46a-3169-42eb-84c1-228a6c2f6589
+  - session:412e32c5-05f9-4e2a-86c6-e1c21e464553
 ---
 
 # Tenex-Edge TUI
 
 ## Scrolling Behavior
 
-The TUI is built with ratatui (version 0.30.1, default-features disabled, features crossterm_0_28 and macros enabled) using the crossterm 0.28 backend for double-buffered rendering with dirty-cell tracking instead of manual full-clear redraws. The ratatui migration replaces draw_tui() with render_main() and render_scrolled_body(), and replaces draw_search() with render_search(), while keeping all non-drawing logic (tab computation, fuzzy search, key handling, attach/spawn/resume flows, daemon RPC calls, TuiTerminal guard) unchanged. After returning from a tmux attach, ratatui_term.clear() is called to invalidate the double-buffer and force a full redraw. It groups sessions by project in tabs, navigable via Left/Right arrow keys, with an [All] default tab showing all sessions. In the [All] tab, session labels display in slug@project format so the project of each session is identifiable. The list scrolls — render_scrolled_body renders only lines that fit the terminal height, keeps the selected row in view, and shows ↑N more above / ↓N more below indicators. Exited sessions are hidden by default and toggled visible by pressing 'e'; when they are visible, the help line updates to show [e] hide exited. The 'Spawnable (no session)' label is renamed to 'Agents'. The '[spawnable via claude]' label is renamed to '[claude]'. Agents appear in all project tabs since they are cross-project. The "[no tmux]" indicator is not displayed; all live sessions render with the same colorized styling. Pressing Enter on a spawnable agent spawns it, replacing the previous [n] key binding, and the hint bar displays "[↵] attach/spawn". When spawning a new tmux session from a project tab, the session is created within the selected project's directory, not the TUI process's current working directory; when spawning from the [All] tab (where no project filter is active), the session directory falls back to the current working directory.
+The TUI renders immediately from last-known state in SQLite on startup without waiting for relay connection. The who and tmux_* RPCs only read from SQLite and never touch transport or provider, so they return instantly on cold start. It is built with ratatui (version 0.30.1, default-features disabled, features crossterm_0_28 and macros enabled) using the crossterm 0.28 backend for double-buffered rendering with dirty-cell tracking instead of manual full-clear redraws. The ratatui migration replaces draw_tui() with render_main() and render_scrolled_body(), and replaces draw_search() with render_search(), while keeping all non-drawing logic (tab computation, fuzzy search, key handling, attach/spawn/resume flows, daemon RPC calls, TuiTerminal guard) unchanged. After returning from a tmux attach, ratatui_term.clear() is called to invalidate the double-buffer and force a full redraw. It groups sessions by project in tabs, navigable via Left/Right arrow keys, with an [All] default tab showing all sessions. In the [All] tab, session labels display in slug@project format so the project of each session is identifiable. The list scrolls — render_scrolled_body renders only lines that fit the terminal height, keeps the selected row in view, and shows ↑N more above / ↓N more below indicators. Exited sessions are hidden by default and toggled visible by pressing 'e'; when they are visible, the help line updates to show [e] hide exited. The 'Spawnable (no session)' label is renamed to 'Agents'. The '[spawnable via claude]' label is renamed to '[claude]'. Agents appear in all project tabs since they are cross-project. The "[no tmux]" indicator is not displayed; all live sessions render with the same colorized styling. Pressing Enter on a spawnable agent spawns it, replacing the previous [n] key binding, and the hint bar displays "[↵] attach/spawn". When spawning a new tmux session from a project tab, the session is created within the selected project's directory, not the TUI process's current working directory; when spawning from the [All] tab (where no project filter is active), the session directory falls back to the current working directory.
 
-<!-- citations: [^9f7f2-15] [^9f7f2-21] [^9f7f2-25] [^656e1-2] [^656e1-5] [^62271-2] [^9bab9-1] [^9bab9-4] [^9c78b-1] -->
+<!-- citations: [^9f7f2-15] [^9f7f2-21] [^9f7f2-25] [^656e1-2] [^656e1-5] [^62271-2] [^9bab9-1] [^9bab9-4] [^9c78b-1] [^412e3-4] -->
 ## Project Tab Priority and Visibility
 
 Project tabs are sorted by live session count descending (most active first) with alphabetical tiebreaker. Projects with no live sessions and no activity in the past 12 hours are hidden by default. (Previously: the inactivity threshold was seven days.) Selecting a hidden project via fuzzy search temporarily injects it into the visible tabs; it re-hides on the next periodic refresh unless activity resumes.

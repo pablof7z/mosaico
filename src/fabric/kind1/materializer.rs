@@ -6,6 +6,7 @@
 
 use crate::domain::{Mention, Profile, Status};
 use crate::fabric::provider::FABRIC;
+use crate::session::PeerStatusObservation;
 use crate::state::Store;
 use nostr_sdk::Event;
 
@@ -21,54 +22,55 @@ impl Kind1Materializer {
         store.upsert_profile(pk, &pf.agent.slug, &pf.host, now).ok();
     }
 
-    /// Apply a decoded `Status` to the store.
+    /// Apply a decoded peer `Status` (kind:30315) to `peer_session_state`.
     ///
-    /// `Status` is the single self-contained per-session signal, so it feeds BOTH
-    /// read models: the peer-session liveness row (host/rel-cwd/last-seen — what
-    /// the former presence heartbeat fed) AND the agent status (title/activity/
-    /// busy).
+    /// `Status` is the single self-contained per-session signal, so one
+    /// `record_peer_status` write mirrors the whole peer session: host/rel-cwd,
+    /// title/activity/busy, and the liveness clock. The materializer ONLY ever
+    /// touches `peer_session_state` — local sessions live in `session_state`,
+    /// written exclusively by the daemon's transition methods.
     ///
-    /// The status event NEVER expires (a finished session keeps its title), so
-    /// liveness is derived from WHEN the status was emitted (`seen_at`, the event
-    /// `created_at`) — a live session heartbeats recent timestamps; a finished one
-    /// stops, so its peer row ages out of `who` while the title persists on the
-    /// relay. `now` (ingest time) stamps only the durable agent-status row.
+    /// Liveness IS the freshness of the event: `emitted_at = seen_at` (the event
+    /// `created_at`) drives `last_seen`, so re-fetching a persistent
+    /// finished-session event does not resurrect it. `now` (local ingest) stamps
+    /// `updated_at`/`first_seen`.
+    ///
+    /// Expired events are ignored for liveness: a status carrying a NIP-40
+    /// expiration already past `now` describes a session that has aged off the
+    /// fabric, so it must not refresh the peer mirror.
     ///
     /// The slug is NOT on the wire; it is resolved from the `profiles` table
-    /// (populated by kind:0 events). Peer/status rows are NEVER seeded with a
+    /// (populated by kind:0 events). Peer rows are NEVER seeded with a
     /// self-asserted slug — only kind:0 Profile events are authoritative.
     pub fn materialize_status(store: &Store, st: &Status, seen_at: u64, now: u64) {
+        // Ignore expired events for liveness (NIP-40 expiration already past).
+        if let Some(exp) = st.expires_at {
+            if exp <= now {
+                return;
+            }
+        }
         // Resolve slug from kind:0 profile (authoritative); fall back to empty.
         let slug = store
             .resolve_slug_for_pubkey(&st.agent.pubkey)
             .ok()
             .flatten()
             .unwrap_or_default();
-        // Liveness: when the status was EMITTED (event created_at), not ingest
-        // time — so re-fetching a persistent finished-session event does not
-        // resurrect it in `who`.
         store
-            .upsert_peer_session(
-                st.session_id.as_str(),
-                &st.agent.pubkey,
-                &slug,
-                &st.project,
-                &st.host,
-                &st.rel_cwd,
-                seen_at,
-            )
-            .ok();
-        // Title / activity / busy state.
-        store
-            .set_agent_status(
-                &st.agent.pubkey,
-                &st.project,
-                Some(st.session_id.as_str()),
-                &st.title,
-                &st.activity,
-                st.busy,
-                now,
-            )
+            .record_peer_status(&PeerStatusObservation {
+                agent_pubkey: st.agent.pubkey.clone(),
+                agent_slug: slug,
+                project: st.project.clone(),
+                native_session_id: st.session_id.as_str().to_string(),
+                host: st.host.clone(),
+                rel_cwd: st.rel_cwd.clone(),
+                title: st.title.clone(),
+                activity: st.activity.clone(),
+                busy: st.busy,
+                // Liveness clock: when the peer emitted this status.
+                emitted_at: seen_at,
+                // Local ingest time.
+                observed_at: now,
+            })
             .ok();
     }
 

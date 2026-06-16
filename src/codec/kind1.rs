@@ -5,7 +5,7 @@
 //! | Profile   | kind:0,    content `{"name": slug}`, `["host", host]` |
 //! | Activity   | kind:1,    `["h", project]` |
 //! | TurnReply  | kind:1,    `["h", project]`, `["e", root_id, "", "root"]`, `["e", reply_id, "", "reply"]` |
-//! | Status     | kind:30315, content = live activity (may be empty when idle), `["d", "<project>:<session>"]`, `["h", project]`, `["session-id", id]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]` |
+//! | Status     | kind:30315, content = live activity (may be empty when idle), `["d", "<project>:<session>"]`, `["h", project]`, `["session-id", id]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | Mention    | kind:1,    `["h", project]`, `["p", to]`, optional `["session-id", target]`, `["from-session", sender]`, `["subject", s]`, `["git-branch", b]`, `["git-commit", c]`, `["git-dirty", n]`, `["from-host", h]`, `["e", reply_to, "", "reply"]` |
 //! | Chat       | kind:9,    `["h", project]`, optional `["from-session", sender]`, optional `["p", mentioned_pubkey]`, optional `["session-id", mentioned_session]` |
 //!
@@ -13,10 +13,11 @@
 //! carries the whole live state of a session (busy/idle, the live activity in
 //! the content, the persistent title, host, rel-cwd). It is replaceable PER
 //! SESSION via `d = "<project>:<session>"`, so each session keeps its own title
-//! even when idle. The event is NEVER expired (no NIP-40 `expiration`), so a
-//! finished session keeps its title on the relay; liveness is tracked by the
-//! daemon's store (`last_seen`), not relay expiration. There is no separate
-//! presence heartbeat.
+//! even when idle. Liveness IS the freshness of this event: the daemon re-arms a
+//! NIP-40 `["expiration", now + STATUS_TTL_SECS]` tag on every heartbeat, so a
+//! stopped session's event ages off the relay shortly after its last beat. A
+//! `Status` with `expires_at == None` publishes no expiration (tests /
+//! non-heartbeat contexts). There is no separate presence heartbeat.
 //!
 //! kind:1 disambiguation on decode (in priority order):
 //!   1. Has `["p", ...]` tag                    → Mention
@@ -177,12 +178,16 @@ impl Codec for Kind1Codec {
                 activity,
                 busy,
                 rel_cwd,
+                expires_at,
             }) => {
                 // The single self-contained per-session signal. Content is the
                 // live activity (empty when idle); the title always rides as a
-                // tag so it persists across idle turns AND after exit. No
-                // `expiration` tag: the event (and its title) is never expired
-                // off the relay — liveness lives in the daemon store.
+                // tag so it persists across idle turns AND after exit. Liveness
+                // IS the freshness of this event: when `expires_at` is Some, a
+                // NIP-40 `["expiration", ts]` tag rides the wire, so a stopped
+                // session's event ages off the relay ~STATUS_TTL_SECS after its
+                // last heartbeat re-arm. `None` publishes no expiration (tests /
+                // non-heartbeat contexts).
                 let d = status_d(project, session_id.as_str());
                 let mut tags = vec![
                     tag(&["d", &d])?,
@@ -194,6 +199,9 @@ impl Codec for Kind1Codec {
                 ];
                 if !rel_cwd.is_empty() {
                     tags.push(tag(&["rel-cwd", rel_cwd])?);
+                }
+                if let Some(exp) = expires_at {
+                    tags.push(tag(&["expiration", &exp.to_string()])?);
                 }
                 EventBuilder::new(kind(KIND_STATUS), activity.clone()).tags(tags)
             }
@@ -331,6 +339,8 @@ impl Codec for Kind1Codec {
                     activity: event.content.clone(),
                     busy: first_tag(event, "status") == Some("busy"),
                     rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
+                    // NIP-40 expiration → liveness clock. Absent → None.
+                    expires_at: first_tag(event, "expiration").and_then(|s| s.parse().ok()),
                 }))
             }
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {
@@ -471,6 +481,9 @@ mod tests {
             },
             busy,
             rel_cwd: rel_cwd.into(),
+            // Default helper builds a non-expiring status; the expiration
+            // roundtrip is covered by `status_expiration_roundtrips_and_emits_tag`.
+            expires_at: None,
         })
     }
 
@@ -533,7 +546,7 @@ mod tests {
         assert!(has_tag(&signed, "status", "busy"));
         assert!(has_tag(&signed, "host", "laptop"));
         assert!(has_tag(&signed, "rel-cwd", "worktree1"));
-        // Never expired: no NIP-40 expiration tag, so the title survives forever.
+        // A None `expires_at` publishes no NIP-40 expiration tag.
         assert!(!has_tag_name(&signed, "expiration"));
         // The live activity is the content, not a tag.
         assert_eq!(signed.content, "reading the diff");
@@ -561,6 +574,28 @@ mod tests {
                 assert_eq!(s.title, "fixing the auth bug");
                 assert_eq!(s.activity, "");
             }
+            other => panic!("expected status, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_expiration_roundtrips_and_emits_tag() {
+        // A Some(expires_at) rides the wire as a NIP-40 `["expiration", ts]` tag
+        // and decodes back to the same value — liveness IS this event's freshness.
+        let keys = Keys::generate();
+        let mut ev = status(&keys, true, "");
+        if let DomainEvent::Status(s) = &mut ev {
+            s.expires_at = Some(1_900_000_000);
+        }
+        assert_eq!(roundtrip(ev.clone(), &keys), ev);
+        let signed = Kind1Codec
+            .encode(&ev)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(has_tag(&signed, "expiration", "1900000000"));
+        match Kind1Codec.decode(&signed) {
+            Some(DomainEvent::Status(s)) => assert_eq!(s.expires_at, Some(1_900_000_000)),
             other => panic!("expected status, got {other:?}"),
         }
     }

@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-09
-updated: 2026-06-14
+updated: 2026-06-16
 verified: 2026-06-09
 compiled-from: conversation
 sources:
@@ -23,6 +23,8 @@ sources:
   - session:rollout-2026-06-09T15-01-20-019eac42-32f0-7ff0-bda2-da2de3b78ed7
   - session:1562957b-67e8-4ac1-a48b-84e8ec1696bb
   - session:rollout-2026-06-14T13-19-49-019ec5a5-1119-76f0-a7e3-36bc985a31bd
+  - session:412e32c5-05f9-4e2a-86c6-e1c21e464553
+  - session:1b868736-ed6b-4f88-84d9-26bb320accfd
 ---
 
 # Tenex-Edge Daemon
@@ -35,11 +37,9 @@ The process model is per-session (not a shared daemon). (Previously: the directi
 
 ## IPC Protocol
 
-The IPC protocol is JSON-RPC over the Unix domain socket, with CLI verbs (who, inbox, send-message, turn-start/end) becoming RPCs. CLI calls daemon_call_async(method, params) via UDS JSON-RPC, dispatch() matches the method name, and a handler function processes it.
+The IPC protocol is JSON-RPC over the Unix domain socket, with CLI verbs (who, inbox, send-message, turn-start/end) becoming RPCs. CLI calls daemon_call_async(method, params) via UDS JSON-RPC, dispatch() matches the method name, and a handler function processes it. spawn_session must atomically check-and-reserve a session_id under one lock before any .await point, so two concurrent session_start RPCs for the same session_id cannot both spawn a runtime. The daemon accept loop starts immediately after socket binding, before relay connections are established; relay connection and warmup happens in a background task while the accept loop is already serving RPCs. DaemonState holds transport and provider as Mutex<Option<Arc<...>>> so they can be populated once the background relay connection completes. A relay_ready Notify fires once when the relay connects, waking any handlers that called state.transport().await or state.provider().await. Relay-dependent operations (publish, subscribe, session start) wait via async transport()/provider() methods that wake as soon as set_relay() is called. The daemon opens one REQ subscription per hosted-agent × project combination. handle_incoming deduplicates events by event ID to prevent the same event from being processed multiple times due to multiple matching subscriptions; DaemonState contains a 512-slot ring buffer named seen_events for tracking seen event IDs, and duplicate events are short-circuited at the top of handle_incoming.
 
-The daemon opens one REQ subscription per hosted-agent × project combination. handle_incoming deduplicates events by event ID to prevent the same event from being processed multiple times due to multiple matching subscriptions; DaemonState contains a 512-slot ring buffer named seen_events for tracking seen event IDs, and duplicate events are short-circuited at the top of handle_incoming. <!-- [^56f9f-1] -->
-
-<!-- citations: [^162f9-5] [^98f99-26] -->
+<!-- citations: [^56f9f-1] [^162f9-5] [^98f99-26] [^412e3-3] [^1b868-49] -->
 ## Database
 
 WAL mode is enabled immediately (with busy_timeout and synchronous=NORMAL) as a stopgap while the daemon architecture is built, but the real fix is a single per-machine daemon that owns the database. state.db must always reside on a local disk (under ~/.tenex), satisfying WAL's same-machine requirement and the daemon's UDS assumption.

@@ -502,43 +502,6 @@ const PEER_FRESH_SECS: u64 = 90;
 // store live INSIDE the daemon now (it is the sole writer). The CLI verbs below
 // are thin clients that forward to it over the UDS.
 
-// ── session-start ────────────────────────────────────────────────────────────
-
-/// Core session-start logic. Returns the resolved session id.
-/// Callers decide what to do with it (print for CLI, discard for hooks).
-///
-/// Thin client: asks the per-machine daemon to spawn an in-process session task
-/// (the relocated engine). The daemon is the sole writer of state.db and owns
-/// the single relay connection — no more per-session fork.
-pub(super) fn session_start_inner(
-    agent: String,
-    session_id: Option<String>,
-    cwd: Option<PathBuf>,
-    watch_pid: Option<i32>,
-    resume_id: Option<String>,
-) -> Result<String> {
-    let cwd = cwd.unwrap_or(std::env::current_dir()?);
-    // Capture TMUX_PANE / TMUX from the hook env so the daemon can register a
-    // tmux endpoint for this session. Both are optional; absent means no tmux.
-    let tmux_pane = std::env::var("TMUX_PANE").ok().filter(|s| !s.is_empty());
-    let tmux_socket = std::env::var("TMUX").ok().filter(|s| !s.is_empty());
-    let params = serde_json::json!({
-        "agent": agent,
-        "session_id": session_id,
-        "cwd": cwd.to_string_lossy(),
-        "watch_pid": watch_pid,
-        "tmux_pane": tmux_pane,
-        "tmux_socket": tmux_socket,
-        "resume_id": resume_id,
-    });
-    let v = crate::daemon::blocking::call("session_start", params)?;
-    let sid = v["session_id"]
-        .as_str()
-        .context("daemon returned no session_id")?
-        .to_string();
-    Ok(sid)
-}
-
 // ── session-end ──────────────────────────────────────────────────────────────
 
 pub(super) fn session_end(session: String) -> Result<()> {
@@ -566,8 +529,77 @@ pub(super) async fn daemon_call_async(
 #[cfg(test)]
 mod turn_context_tests {
     use super::*;
+    use crate::session::{Harness, SessionObservation};
     use crate::state::{InboxRow, SessionRecord, Store};
     use std::sync::Mutex;
+
+    /// Register a local session into `session_state` (daemon mints the canonical
+    /// id) and return it.
+    fn register_local(store: &Store, slug: &str, pubkey: &str, harness_sid: &str, ts: u64) -> String {
+        let obs = SessionObservation {
+            agent_slug: slug.to_string(),
+            agent_pubkey: pubkey.to_string(),
+            project: "proj".to_string(),
+            host: "laptop".to_string(),
+            rel_cwd: String::new(),
+            harness: Harness::ClaudeCode,
+            harness_session_id: Some(harness_sid.to_string()),
+            resume_id: None,
+            tmux_pane: None,
+            watch_pid: None,
+            observed_at: ts,
+        };
+        store
+            .register_or_reassert_session(&obs)
+            .unwrap()
+            .session_id
+            .as_str()
+            .to_string()
+    }
+
+    /// Register a busy local session carrying a distilled title + activity line.
+    /// Appears at `reg_ts` (so a cursor after it sees a *change*, not an appear)
+    /// and the distill lands at `change_ts`.
+    fn register_busy(
+        store: &Store,
+        slug: &str,
+        pubkey: &str,
+        harness_sid: &str,
+        title: &str,
+        activity: &str,
+        reg_ts: u64,
+        change_ts: u64,
+    ) -> String {
+        let id = register_local(store, slug, pubkey, harness_sid, reg_ts);
+        let snap = store.start_turn(&id, change_ts).unwrap().unwrap();
+        store
+            .apply_distill_result(&id, snap.turn_id, snap.state_version, title, activity, change_ts)
+            .unwrap()
+            .unwrap();
+        id
+    }
+
+    /// Register a local session that opened and then finished a turn, so it is
+    /// idle but retains its title. Appears at `reg_ts`; the busy→idle change
+    /// lands at `change_ts`.
+    fn register_idle(
+        store: &Store,
+        slug: &str,
+        pubkey: &str,
+        harness_sid: &str,
+        title: &str,
+        reg_ts: u64,
+        change_ts: u64,
+    ) -> String {
+        let id = register_local(store, slug, pubkey, harness_sid, reg_ts);
+        let snap = store.start_turn(&id, change_ts).unwrap().unwrap();
+        store
+            .seed_title_if_empty(&id, snap.turn_id, title, change_ts)
+            .unwrap()
+            .unwrap();
+        store.end_turn(&id, change_ts).unwrap().unwrap();
+        id
+    }
 
     /// Build a minimal alive SessionRecord (not first-turn when prev != 0, no peers
     /// seeded, so the only context block the function can emit is inbox mentions).
@@ -725,38 +757,32 @@ mod turn_context_tests {
     fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
         let store = Store::open_memory().unwrap();
         store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
-        // Sibling working, with a live activity line.
-        store
-            .set_agent_status(
-                "pk-sib",
-                "proj",
-                Some("sess-sib"),
-                "Refactor tmux",
-                "editing hooks.rs",
-                true,
-                100,
-            )
-            .unwrap();
+        // Sibling registered before the cursor (10), then changed after it (180)
+        // and is still live at now=200 → surfaces as a Changed delta.
+        let sib_id = register_busy(
+            &store,
+            "sib",
+            "pk-sib",
+            "sess-sib",
+            "Refactor tmux",
+            "editing hooks.rs",
+            10,
+            180,
+        );
         // The viewer's own session also changed — must NOT echo back.
-        store
-            .set_agent_status(
-                "pk-coder",
-                "proj",
-                Some("sess-me"),
-                "My own work",
-                "typing",
-                true,
-                100,
-            )
-            .unwrap();
+        let me_id = register_busy(
+            &store, "coder", "pk-coder", "sess-me", "My own work", "typing", 10, 180,
+        );
         let m = Mutex::new(store);
 
-        let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
-            .expect("delta block expected when a sibling changed");
+        let text =
+            assemble_turn_check_context(&m, &test_session(&me_id), "laptop", Some(50), 200)
+                .expect("delta block expected when a sibling changed");
         assert!(
             text.contains("changes since your last check"),
             "delta header expected; got: {text:?}"
         );
+        // Changed renders `↻ sib@proj [session <code>] — Refactor tmux — editing hooks.rs`.
         assert!(
             text.contains("sib@proj") && text.contains("Refactor tmux — editing hooks.rs"),
             "sibling title+activity expected; got: {text:?}"
@@ -768,11 +794,11 @@ mod turn_context_tests {
         // The session must render as the targetable short code (matching `who`),
         // never the raw id — otherwise it can't be copied into `send --to`.
         assert!(
-            text.contains(&crate::util::session_short_code("sess-sib")),
+            text.contains(&crate::util::session_short_code(&sib_id)),
             "session must render as short code; got: {text:?}"
         );
         assert!(
-            !text.contains("sess-sib"),
+            !text.contains(sib_id.as_str()),
             "raw session id must not leak; got: {text:?}"
         );
     }
@@ -783,9 +809,9 @@ mod turn_context_tests {
     fn turn_check_delta_shows_idle_transition() {
         let store = Store::open_memory().unwrap();
         store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
-        store
-            .set_agent_status("pk-sib", "proj", Some("sess-sib"), "Refactor tmux", "", false, 100)
-            .unwrap();
+        // Sibling appeared before the cursor (10), then opened+finished a turn at
+        // 180 → idle, title retained, still live at now=200 → Changed delta.
+        register_idle(&store, "sib", "pk-sib", "sess-sib", "Refactor tmux", 10, 180);
         let m = Mutex::new(store);
 
         let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
@@ -802,9 +828,7 @@ mod turn_context_tests {
     fn turn_check_delta_suppressed_when_not_due() {
         let store = Store::open_memory().unwrap();
         store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
-        store
-            .set_agent_status("pk-sib", "proj", Some("sess-sib"), "Refactor tmux", "", true, 100)
-            .unwrap();
+        register_busy(&store, "sib", "pk-sib", "sess-sib", "Refactor tmux", "", 10, 180);
         let m = Mutex::new(store);
 
         let ctx = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", None, 200);

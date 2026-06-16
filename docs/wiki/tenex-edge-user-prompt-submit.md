@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-09
-updated: 2026-06-10
+updated: 2026-06-16
 verified: 2026-06-09
 compiled-from: conversation
 sources:
@@ -16,15 +16,16 @@ sources:
   - session:4d8b9567-a1dc-4836-86d9-20904df30c26
   - session:40a4d401-2520-4781-b747-b0ef19594bed
   - session:2cee1bc6-0f1a-4746-9de6-68ca1a7e2737
+  - session:1b868736-ed6b-4f88-84d9-26bb320accfd
 ---
 
 # Tenex-Edge User Prompt Submit
 
 ## User Prompt Submit Hook
 
-The UserPromptSubmit hook creates a kind:1 OP (root event with no e-tag) signed by the userNsec from ~/.tenex/config.json, published to the NIP-29 group via an h tag with the project slug, and p-tagging the agent pubkey that will process the message. The hook fails open — if userNsec is absent, nsec is invalid, session is not found, or relay publish fails, the hook prints an error via eprintln and returns Ok(()) rather than blocking the editor. The cli.rs user-prompt-submit hook arm extracts the prompt field from stdin JSON, clones the session id so it can be passed to both turn_start and the user_prompt RPC, then calls user_prompt failing open. Claude Code's UserPromptSubmit hook stdout is plain text (no JSON wrapping required).
+The UserPromptSubmit hook creates a kind:1 OP (root event with no e-tag) signed by the userNsec from ~/.tenex/config.json, published to the NIP-29 group via an h tag with the project slug, and p-tagging the agent pubkey that will process the message. The prompt text must be threaded into turn_start and persisted so the runtime seeds cur_title from the captured prompt directly, rather than reading the transcript file (which lags one turn behind because Claude has not flushed it yet). The hook fails open — if userNsec is absent, nsec is invalid, session is not found, or relay publish fails, the hook prints an error via eprintln and returns Ok(()) rather than blocking the editor. The cli.rs user-prompt-submit hook arm extracts the prompt field from stdin JSON, clones the session id so it can be passed to both turn_start and the user_prompt RPC, then calls user_prompt failing open. Claude Code's UserPromptSubmit hook stdout is plain text (no JSON wrapping required).
 
-<!-- citations: [^98f99-7] [^98f99-18] [^98f99-23] [^2cee1-20] [^98f99-33] -->
+<!-- citations: [^98f99-7] [^98f99-18] [^98f99-23] [^2cee1-20] [^98f99-33] [^1b868-53] -->
 ## Config Structure
 
 The Config struct includes user_nsec: Option<String>, deserialized from the JSON key "userNsec" in ~/.tenex/config.json.

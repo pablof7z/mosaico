@@ -33,14 +33,16 @@ struct HostDef {
     /// Walk process tree for an ancestor whose command contains this string.
     /// None = no watch-pid. Used by harnesses (e.g. Codex) that omit their PID.
     pid_search: Option<&'static str>,
-    /// When true, a session-start payload with no session id makes the daemon
-    /// GENERATE one and the hook prints it to stdout — for programmatic hosts
-    /// (e.g. opencode) that have no harness-assigned id and capture it back.
-    /// When false (Claude Code, Codex), an empty session id is a fail-open
-    /// no-op: those harnesses always supply their own id, so a missing one means
-    /// a malformed payload, and generating would spawn an orphan session that
-    /// later turn-start/stop calls could never match.
-    generates_sid: bool,
+    /// When true, the hook echoes the daemon-minted canonical session id back on
+    /// stdout so a programmatic host (e.g. opencode) can adopt it for subsequent
+    /// hooks. Such hosts own NO harness-assigned id — the daemon decides identity
+    /// from their resume token / tmux pane / watched pid (registered as aliases),
+    /// so a missing harness id at session-start is normal, not malformed.
+    /// When false (Claude Code, Codex), an empty harness id is a fail-open no-op:
+    /// those harnesses always supply their own id, so a missing one means a
+    /// malformed payload, and reporting an anchorless observation would mint an
+    /// orphan session that later turn-start/stop calls could never match.
+    echo_session_id: bool,
 }
 
 static HOOK_HOSTS: &[HostDef] = &[
@@ -51,7 +53,7 @@ static HOOK_HOSTS: &[HostDef] = &[
         transcript_field: Some("transcript_path"),
         output_format: HookOutputFormat::PlainText,
         pid_search: Some("claude"),
-        generates_sid: false,
+        echo_session_id: false,
     },
     HostDef {
         name: "codex",
@@ -67,20 +69,23 @@ static HOOK_HOSTS: &[HostDef] = &[
         transcript_field: Some("transcript_path"),
         output_format: HookOutputFormat::JsonSystemMessage,
         pid_search: Some("codex"),
-        generates_sid: false,
+        echo_session_id: false,
     },
     HostDef {
         // opencode is a programmatic TS plugin, not a stdin-JSON harness in the
         // usual sense: it pipes a small JSON payload to `hook` and reads stdout.
-        // It has no harness-assigned session id, so session-start generates one
-        // and returns it; it passes its own PID in the payload (no pid_search).
+        // It owns no harness-assigned session id, so it no longer mints a
+        // competing identity each start: it reports its resume token / pane / PID
+        // as locators and the daemon resolves (and reattaches to) the canonical
+        // id, which the hook echoes back on stdout. It passes its own PID in the
+        // payload (no pid_search).
         name: "opencode",
         agent_slug: "opencode",
         session_id_fields: &["session_id"],
         transcript_field: Some("transcript_path"),
         output_format: HookOutputFormat::PlainText,
         pid_search: None,
-        generates_sid: true,
+        echo_session_id: true,
     },
 ];
 
@@ -199,35 +204,49 @@ async fn hook_dispatch(
                 .map(|n| n as i32)
                 .or_else(|| host.pid_search.and_then(find_ancestor_pid));
 
-            if sid.is_empty() {
-                if !host.generates_sid {
-                    // Fail open: a harness that assigns its own id but dropped it
-                    // here sent a malformed payload — don't spawn an orphan.
-                    call_log.note(
-                        "missing-session-id",
-                        serde_json::json!({
-                            "host": host.name,
-                            "hook_type": hook_type,
-                            "fields_tried": host.session_id_fields,
-                        }),
-                    );
-                    return Ok(());
-                }
-                // Programmatic host with no id of its own: generate one and hand
-                // it back on stdout so the caller can adopt it. Return JSON with
-                // both session_id and short_code so the caller can display the
-                // short code (matching `who` output).
-                let new_sid =
-                    session_start_inner(agent_slug, None, Some(cwd), watch_pid, resume_id)?;
-                let short_code = crate::util::session_short_code(&new_sid);
+            // The raw hook id is NOT canonical identity — it is the harness's
+            // external session id, one locator among several (resume token, tmux
+            // pane, watched pid). We REPORT what we observed; the daemon owns
+            // identity and decides whether to mint, reattach, or supersede.
+            let harness_session_id = if sid.is_empty() { None } else { Some(sid.clone()) };
+
+            if harness_session_id.is_none() && !host.echo_session_id {
+                // Fail open: a harness that owns its id but dropped it here sent a
+                // malformed payload — reporting an anchorless observation would
+                // mint an orphan session later hooks could never match.
+                call_log.note(
+                    "missing-session-id",
+                    serde_json::json!({
+                        "host": host.name,
+                        "hook_type": hook_type,
+                        "fields_tried": host.session_id_fields,
+                    }),
+                );
+                return Ok(());
+            }
+
+            let canonical = report_observation(
+                host,
+                &agent_slug,
+                &cwd,
+                harness_session_id,
+                resume_id,
+                watch_pid,
+            )
+            .await?;
+
+            if host.echo_session_id {
+                // Programmatic host with no id of its own: hand the daemon-minted
+                // canonical id back on stdout so the caller can adopt it for
+                // subsequent hooks. Return JSON with both session_id and
+                // short_code so the caller can display the short code (matching
+                // `who` output).
+                let short_code = crate::util::session_short_code(&canonical);
                 let json = serde_json::json!({
-                    "session_id": new_sid,
+                    "session_id": canonical,
                     "short_code": short_code,
                 });
                 println!("{json}");
-            } else {
-                // Harness supplied its own id — adopt it, discard the echo.
-                session_start_inner(agent_slug, Some(sid), Some(cwd), watch_pid, resume_id)?;
             }
         }
         "session-end" => {
@@ -250,13 +269,19 @@ async fn hook_dispatch(
                     .and_then(|v| v.as_i64())
                     .map(|n| n as i32)
                     .or_else(|| host.pid_search.and_then(find_ancestor_pid));
-                if let Err(e) = session_start_inner(
-                    agent_slug.clone(),
+                // Re-report the observation (not a fresh identity): the daemon
+                // resolves the incoming id back to the canonical session via its
+                // aliases and re-registers the live session if it was lost.
+                if let Err(e) = report_observation(
+                    host,
+                    &agent_slug,
+                    &cwd,
                     Some(sid.clone()),
-                    Some(cwd.clone()),
-                    watch_pid,
                     resume_id.clone(),
-                ) {
+                    watch_pid,
+                )
+                .await
+                {
                     eprintln!("[tenex-edge] session reassert skipped: {e:#}");
                 }
             }
@@ -292,6 +317,52 @@ async fn hook_dispatch(
         }
     }
     Ok(())
+}
+
+// ── normalized observation reporting ────────────────────────────────────────
+
+/// Report a NORMALIZED session observation to the daemon and return the
+/// canonical session id the daemon resolved for it.
+///
+/// Hooks no longer decide identity: they describe what they observed (harness,
+/// the harness-owned external id if any, the resume token, tmux pane, watched
+/// pid, cwd) and the daemon resolves the canonical id — minting a new one,
+/// reattaching to an existing one via an alias, or superseding a stale one.
+///
+/// `harness_session_id` is `Some` only for harnesses that own an id of their own
+/// (claude-code, codex); it is `None` for programmatic hosts (opencode) whose
+/// only stable anchors are the resume token / tmux pane / watched pid. Each
+/// present locator becomes a session alias the registry uses to reattach future
+/// starts to the same canonical id.
+///
+/// `tmux_pane` / `tmux_socket` are read from the hook's environment so the daemon
+/// can register a tmux endpoint and (via the pane) reattach a resumed session.
+async fn report_observation(
+    host: &HostDef,
+    agent_slug: &str,
+    cwd: &std::path::Path,
+    harness_session_id: Option<String>,
+    resume_id: Option<String>,
+    watch_pid: Option<i32>,
+) -> Result<String> {
+    let tmux_pane = std::env::var("TMUX_PANE").ok().filter(|s| !s.is_empty());
+    let tmux_socket = std::env::var("TMUX").ok().filter(|s| !s.is_empty());
+    let params = serde_json::json!({
+        "agent": agent_slug,
+        "harness": host.name,
+        "harness_session_id": harness_session_id,
+        "resume_id": resume_id,
+        "cwd": cwd.to_string_lossy(),
+        "watch_pid": watch_pid,
+        "tmux_pane": tmux_pane,
+        "tmux_socket": tmux_socket,
+    });
+    let v = daemon_call_async("session_start", params).await?;
+    let sid = v["session_id"]
+        .as_str()
+        .context("daemon returned no session_id")?
+        .to_string();
+    Ok(sid)
 }
 
 // ── process-tree PID search (for harnesses like Codex that omit their PID) ───

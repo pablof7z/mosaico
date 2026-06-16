@@ -2,7 +2,7 @@
 
 > Derived cache — do not hand-edit. Rebuilt by proactive-context after each capture.
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 ## code-standards (1 guide)
 
@@ -49,13 +49,14 @@ Last updated: 2026-06-15
 |------|-------|---------|------|------------|----------|-------|
 | [tenex-edge-session-resumption](tenex-edge-session-resumption.md) | Tenex-Edge Session Resumption | Session resume is local-only â a session can only be resumed on the same machine where it ran, not on a remote machine | capture | warm | 2026-06-14 | session-resumption |
 
-## tenex-edge (40 guides)
+## tenex-edge (41 guides)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
 | [opencode-configuration](opencode-configuration.md) | OpenCode Configuration | The @opencode-ai/plugin dependency version must match the opencode binary version (1.16.2) in both ~/.config/opencode/package.json and ~/.opencode/package.json | capture | warm | 2026-06-08 | tenex-edge |
 | [tenex-edge](tenex-edge.md) | Tenex-Edge | tenex-edge is an inversion of TENEX: instead of hosting agents, it grafts a shared coordination fabric onto agents that stay in their native hosts (Claude Code, | capture | warm | 2026-06-07 | tenex-edge |
 | [tenex-edge-activity-distillation](tenex-edge-activity-distillation.md) | Tenex-Edge Activity Distillation | Activity distillation is driven by the conversation transcript, not by tool-use events | capture | warm | 2026-06-08 | tenex-edge |
+| [tenex-edge-architecture-plan](tenex-edge-architecture-plan.md) | Tenex-Edge Architecture Plan | There is one architecture plan document at `docs/architecture-plan.md`; the brief and the two source research documents have been deleted. | capture | warm | 2026-06-16 | tenex-edge |
 | [tenex-edge-awareness](tenex-edge-awareness.md) | Tenex-Edge Awareness | Tenex-edge provides awareness of shared active work, goals, and access to resources | capture | warm | 2026-06-08 | tenex-edge |
 | [tenex-edge-channels](tenex-edge-channels.md) | Tenex-Edge Channels | The channel server must be a thin stream-consumer that never independently writes state.db, avoiding re-introduction of multi-writer corruption. | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-configuration](tenex-edge-configuration.md) | Tenex-Edge Configuration | The project slug defaults to the current directory's git repository name (to unify worktrees), or the basename of $PWD if no git repo exists; it can be overridd | capture | warm | 2026-06-08 | tenex-edge |
@@ -88,7 +89,7 @@ Last updated: 2026-06-15
 | [tenex-edge-thread-storage](tenex-edge-thread-storage.md) | Tenex-Edge Thread Storage | The thread dual-write infrastructure (local SQLite read-model of relay conversations via `projects`, `threads`, `messages`, `message_recipients` tables) was rem | capture | warm | 2026-06-10 | tenex-edge |
 | [tenex-edge-tmux-adapter](tenex-edge-tmux-adapter.md) | Tenex-Edge TMUX Adapter | A Fable agent is used to plan the TMUX adapter product for tenex-edge | capture | warm | 2026-06-12 | tenex-edge |
 | [tenex-edge-transport-codec](tenex-edge-transport-codec.md) | Tenex-Edge Transport Codec | Envelope encoding and decoding is modularized as a codec set providing per-event encode, decode, and subscribe operations, decoupling envelope shapes from busin | capture | warm | 2026-06-08 | tenex-edge |
-| [tenex-edge-tui](tenex-edge-tui.md) | Tenex-Edge TUI | The TUI is built with ratatui (version 0.30.1, default-features disabled, features crossterm_0_28 and macros enabled) using the crossterm 0.28 backend for doubl | capture | warm | 2026-06-14 | tenex-edge |
+| [tenex-edge-tui](tenex-edge-tui.md) | Tenex-Edge TUI | The TUI renders immediately from last-known state in SQLite on startup without waiting for relay connection | capture | warm | 2026-06-14 | tenex-edge |
 | [tenex-edge-turn-context-injection](tenex-edge-turn-context-injection.md) | Tenex-Edge Turn Context Injection | The turn-start command itself emits the context the agent should see (inbox messages, peer presence/status changes since last update), rather than delegating th | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-user-prompt-submit](tenex-edge-user-prompt-submit.md) | Tenex-Edge User Prompt Submit | The UserPromptSubmit hook creates a kind:1 OP (root event with no e-tag) signed by the userNsec from ~/.tenex/config.json, published to the NIP-29 group via an | capture | warm | 2026-06-09 | tenex-edge |
 | [tenex-edge-wait-for-mention](tenex-edge-wait-for-mention.md) | Tenex-Edge Wait-for-Mention | The `wait-for-mention` command polls the SQLite inbox every 500ms, performs the same relay self-fetch as `inbox` on startup to handle the engine warmup race, an | capture | warm | 2026-06-09 | tenex-edge |
@@ -106,7 +107,7 @@ Last updated: 2026-06-15
 |--------|------|---------|-------|
 | [2026-06-12-1-review-of-fabric-architecture-branch-verdict](research/2026-06-12-1-review-of-fabric-architecture-branch-verdict.md) | 2026-06-12 | Review of fabric-architecture branch: verdict is refactor is complete, working, and well-tested but no longer cleanly mergeable due to master divergence (~29 conflict hunks) | main |
 
-## Episode Cards (96 cards)
+## Episode Cards (118 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
@@ -206,4 +207,26 @@ Last updated: 2026-06-15
 | [2026-06-15-2-tui-spawn-key-unified-to-enter](episodes/2026-06-15-2-tui-spawn-key-unified-to-enter.md) | 2026-06-15 | TUI spawn key unified to Enter, [no tmux] tag removed | product | active |
 | [2026-06-15-3-eliminate-inbox-prompt-injection-on-manual](episodes/2026-06-15-3-eliminate-inbox-prompt-injection-on-manual.md) | 2026-06-15 | Eliminate inbox prompt injection on manual TUI spawns | architecture | superseded |
 | [2026-06-15-3-sidebar-fixed-width-pane-per-session](episodes/2026-06-15-3-sidebar-fixed-width-pane-per-session.md) | 2026-06-15 | Sidebar: fixed-width pane-per-session with resize hook | product | active |
+| [2026-06-16-1-daemon-cold-start-now-lazy-loads](episodes/2026-06-16-1-daemon-cold-start-now-lazy-loads.md) | 2026-06-16 | Daemon cold-start now lazy-loads relay; accept loop starts immediately | root-cause | active |
+| [2026-06-16-1-opencode-plugin-becomes-dumb-pipe-context](episodes/2026-06-16-1-opencode-plugin-becomes-dumb-pipe-context.md) | 2026-06-16 | opencode plugin becomes dumb pipe — context injection unified to Rust hook stdout | architecture | active |
+| [2026-06-16-1-session-state-rearchitected-as-single-owner](episodes/2026-06-16-1-session-state-rearchitected-as-single-owner.md) | 2026-06-16 | Session state rearchitected as single-owner aggregate | architecture | superseded |
+| [2026-06-16-1-session-state-rebuilt-as-single-owner](episodes/2026-06-16-1-session-state-rebuilt-as-single-owner.md) | 2026-06-16 | Session state rebuilt as single-owner aggregate with daemon-minted identity | architecture | superseded |
+| [2026-06-16-1-session-state-redesign-single-owner-aggregate](episodes/2026-06-16-1-session-state-redesign-single-owner-aggregate.md) | 2026-06-16 | Session state redesign: single-owner aggregate with minted identity | architecture | active |
+| [2026-06-16-1-session-state-single-owner-aggregate-replaces](episodes/2026-06-16-1-session-state-single-owner-aggregate-replaces.md) | 2026-06-16 | Session state: single-owner aggregate replaces scattered multi-store writes | architecture | superseded |
+| [2026-06-16-1-session-title-one-turn-behind-seed](episodes/2026-06-16-1-session-title-one-turn-behind-seed.md) | 2026-06-16 | Session title one-turn-behind seed fix | root-cause | superseded |
+| [2026-06-16-1-three-session-state-bugs-diagnosed-and](episodes/2026-06-16-1-three-session-state-bugs-diagnosed-and.md) | 2026-06-16 | Three session-state bugs diagnosed and patched (interim) | root-cause | superseded |
+| [2026-06-16-1-title-one-turn-behind-seed-must](episodes/2026-06-16-1-title-one-turn-behind-seed-must.md) | 2026-06-16 | Title one-turn-behind: seed must capture prompt verbatim, not read transcript | root-cause | active |
+| [2026-06-16-1-tmux-attach-falls-back-to-resume](episodes/2026-06-16-1-tmux-attach-falls-back-to-resume.md) | 2026-06-16 | tmux attach falls back to resume on stale pane | product | active |
+| [2026-06-16-2-distill-never-fires-turn-first-30s](episodes/2026-06-16-2-distill-never-fires-turn-first-30s.md) | 2026-06-16 | Distill never fires: turn_first=30s exceeds most turn durations | root-cause | active |
+| [2026-06-16-2-distill-timing-bug-title-never-generated](episodes/2026-06-16-2-distill-timing-bug-title-never-generated.md) | 2026-06-16 | Distill-timing bug — title never generated | root-cause | superseded |
+| [2026-06-16-2-full-session-aggregate-architecture-adopted](episodes/2026-06-16-2-full-session-aggregate-architecture-adopted.md) | 2026-06-16 | Full session aggregate architecture adopted | architecture | superseded |
+| [2026-06-16-2-nip-40-expiration-on-heartbeat-replaces](episodes/2026-06-16-2-nip-40-expiration-on-heartbeat-replaces.md) | 2026-06-16 | NIP-40 expiration on heartbeat replaces never-expire design | reversal | superseded |
+| [2026-06-16-2-nip-40-expiration-on-status-heartbeat](episodes/2026-06-16-2-nip-40-expiration-on-status-heartbeat.md) | 2026-06-16 | NIP-40 expiration on status heartbeat reverses never-expire policy | reversal | superseded |
+| [2026-06-16-2-status-heartbeat-events-get-nip-40](episodes/2026-06-16-2-status-heartbeat-events-get-nip-40.md) | 2026-06-16 | Status heartbeat events get NIP-40 expiration, reversing never-expire policy | reversal | superseded |
+| [2026-06-16-2-status-heartbeat-events-now-expire-nip](episodes/2026-06-16-2-status-heartbeat-events-now-expire-nip.md) | 2026-06-16 | Status heartbeat events now expire (NIP-40), reversing never-expire policy | reversal | superseded |
+| [2026-06-16-2-status-heartbeat-nip-40-expiration-replaces](episodes/2026-06-16-2-status-heartbeat-nip-40-expiration-replaces.md) | 2026-06-16 | Status heartbeat: NIP-40 expiration replaces never-expire policy | reversal | active |
+| [2026-06-16-3-full-session-state-aggregate-architecture-adopted](episodes/2026-06-16-3-full-session-state-aggregate-architecture-adopted.md) | 2026-06-16 | Full session-state aggregate architecture adopted | architecture | superseded |
+| [2026-06-16-3-nip-40-expiration-on-status-heartbeat](episodes/2026-06-16-3-nip-40-expiration-on-status-heartbeat.md) | 2026-06-16 | NIP-40 expiration on status heartbeat reverses 'never expire' policy | reversal | superseded |
+| [2026-06-16-3-session-state-as-single-owner-aggregate](episodes/2026-06-16-3-session-state-as-single-owner-aggregate.md) | 2026-06-16 | Session state as single-owner aggregate with minted identity | architecture | superseded |
+| [2026-06-16-4-nip-40-expiration-on-status-heartbeat](episodes/2026-06-16-4-nip-40-expiration-on-status-heartbeat.md) | 2026-06-16 | NIP-40 expiration on status heartbeat — reverses 'never expire' | reversal | superseded |
 
