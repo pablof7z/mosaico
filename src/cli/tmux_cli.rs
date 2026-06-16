@@ -828,6 +828,17 @@ struct SpawnRow {
     command: String,
 }
 
+/// A pane to attach to once the event loop yields, plus the session to fall back
+/// to if attaching fails because the pane is stale/gone. Attaching is best-effort:
+/// the daemon's view of a live pane can be out of date, so a pane-not-found error
+/// should never surface to the user — we just resume the session instead.
+struct PendingAttach {
+    pane: String,
+    /// Session id to resume if attaching to `pane` fails. `None` for freshly
+    /// spawned panes (nothing to resume — the spawn itself is the live session).
+    resume_sid: Option<String>,
+}
+
 struct ResumeRow {
     slug: String,
     project: String,
@@ -1013,7 +1024,7 @@ pub(super) fn tmux_tui() -> Result<()> {
                 .min(Duration::from_millis(100));
 
             let mut should_break = false;
-            let mut pending_attach: Option<String> = None;
+            let mut pending_attach: Option<PendingAttach> = None;
 
             if event::poll(wait)? {
                 if let TermEvent::Key(key) = event::read()? {
@@ -1152,12 +1163,26 @@ pub(super) fn tmux_tui() -> Result<()> {
                                     }
                                     KeyCode::Enter | KeyCode::Char('a') => {
                                         if selected < fl.len() && fl[selected].attachable {
-                                            match pane_for_session(&fl[selected].session_id) {
-                                                Some(p) => pending_attach = Some(p),
-                                                None => {
-                                                    status_msg =
-                                                        "Session pane not found.".to_string()
+                                            let sid = fl[selected].session_id.clone();
+                                            match pane_for_session(&sid) {
+                                                Some(p) => {
+                                                    pending_attach = Some(PendingAttach {
+                                                        pane: p,
+                                                        resume_sid: Some(sid),
+                                                    })
                                                 }
+                                                // The daemon reported the session as
+                                                // attachable but has no live pane — resume
+                                                // it as if it were never in tmux.
+                                                None => match resume_in_tui(&sid) {
+                                                    Ok(pane) => {
+                                                        pending_attach = Some(PendingAttach {
+                                                            pane,
+                                                            resume_sid: Some(sid),
+                                                        })
+                                                    }
+                                                    Err(msg) => status_msg = msg,
+                                                },
                                             }
                                         } else {
                                             let si = selected.saturating_sub(fl.len());
@@ -1189,7 +1214,12 @@ pub(super) fn tmux_tui() -> Result<()> {
                                                 ) {
                                                     Ok(v) => {
                                                         pending_attach =
-                                                            v["pane_id"].as_str().map(str::to_string);
+                                                            v["pane_id"].as_str().map(|p| {
+                                                                PendingAttach {
+                                                                    pane: p.to_string(),
+                                                                    resume_sid: None,
+                                                                }
+                                                            });
                                                     }
                                                     Err(e) => {
                                                         status_msg = format!("Spawn failed: {e}")
@@ -1219,7 +1249,12 @@ pub(super) fn tmux_tui() -> Result<()> {
                                                             )
                                                         });
                                                         match resume_in_tui(&sid) {
-                                                            Ok(pane) => pending_attach = Some(pane),
+                                                            Ok(pane) => {
+                                                                pending_attach = Some(PendingAttach {
+                                                                    pane,
+                                                                    resume_sid: Some(sid.clone()),
+                                                                })
+                                                            }
                                                             Err(msg) => status_msg = msg,
                                                         }
                                                     }
@@ -1251,7 +1286,12 @@ pub(super) fn tmux_tui() -> Result<()> {
                                                 )
                                             });
                                             match resume_in_tui(&sid) {
-                                                Ok(pane) => pending_attach = Some(pane),
+                                                Ok(pane) => {
+                                                    pending_attach = Some(PendingAttach {
+                                                        pane,
+                                                        resume_sid: Some(sid.clone()),
+                                                    })
+                                                }
                                                 Err(msg) => status_msg = msg,
                                             }
                                         }
@@ -1271,10 +1311,21 @@ pub(super) fn tmux_tui() -> Result<()> {
 
             // Attach inline (blocking). When the user detaches (Ctrl-b d)
             // they return to this TUI.
-            if let Some(pane) = pending_attach {
+            if let Some(pa) = pending_attach.take() {
                 // Suspend ratatui/crossterm so the tmux client owns the tty.
                 TuiTerminal::suspend();
-                let res = attach_pane_blocking(&pane);
+                let mut res = attach_pane_blocking(&pa.pane);
+                // The daemon's view of a live pane can be stale (the pane vanished
+                // out from under it). A pane-not-found error must never reach the
+                // user: transparently resume the session and attach to the fresh
+                // pane, exactly as if it had never been in tmux.
+                if res.is_err() {
+                    if let Some(sid) = &pa.resume_sid {
+                        if let Ok(pane) = resume_in_tui(sid) {
+                            res = attach_pane_blocking(&pane);
+                        }
+                    }
+                }
                 TuiTerminal::resume();
                 // ratatui needs a full redraw after the terminal is restored.
                 ratatui_term.clear()?;
