@@ -655,6 +655,49 @@ impl Store {
         }
     }
 
+    /// Resolve a possibly-aliased harness/external session id (or an already-
+    /// canonical id) to the canonical `session_state` id. Hooks speak harness
+    /// ids; every canonical transition (start_turn/end_turn/end_session/…) must
+    /// be keyed by the minted canonical id or it silently updates zero rows.
+    /// Returns the input unchanged when it is already canonical or has no alias
+    /// mapping (so a brand-new id still flows through to registration).
+    pub fn canonical_session_id(&self, id: &str) -> String {
+        let is_canonical: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM session_state WHERE session_id=?1)",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if is_canonical {
+            return id.to_string();
+        }
+        self.conn
+            .query_row(
+                "SELECT session_id FROM session_aliases
+                 WHERE external_id=?1 ORDER BY created_at DESC LIMIT 1",
+                params![id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    /// All locally-owned live sessions whose liveness is still fresh
+    /// (`last_seen >= fresh_since`). Drives the daemon's heartbeat re-arm: every
+    /// cadence these are re-published so the kind:30315 NIP-40 expiration is
+    /// pushed forward and a live-but-idle session never ages off the relay.
+    pub fn all_live_local_snapshots(&self, fresh_since: u64) -> Result<Vec<SessionSnapshot>> {
+        let sql = format!(
+            "SELECT {SESSION_STATE_COLS} FROM session_state
+             WHERE lifecycle='active' AND last_seen>=?1"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![fresh_since], row_to_session_state)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Direct lookup of a session by its canonical id (no alias resolution).
     fn get_session_exact(&self, id: &str) -> Result<Option<SessionRecord>> {
         let mut stmt = self.conn.prepare(

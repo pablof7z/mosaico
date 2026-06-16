@@ -143,8 +143,7 @@ fn compute_project_tabs(data: &TuiData) -> ProjectTabs {
         .as_secs();
 
     // Count live sessions per project.
-    let mut live_count: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut live_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for row in &data.live {
         if !row.project.is_empty() {
             *live_count.entry(row.project.clone()).or_insert(0) += 1;
@@ -153,8 +152,7 @@ fn compute_project_tabs(data: &TuiData) -> ProjectTabs {
     let live_projects: std::collections::HashSet<String> = live_count.keys().cloned().collect();
 
     // Track latest created_at per project from resumable sessions.
-    let mut last_active: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
+    let mut last_active: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     for row in &data.resumable {
         if !row.project.is_empty() {
             let e = last_active.entry(row.project.clone()).or_insert(0);
@@ -271,7 +269,9 @@ fn style_cyan() -> Style {
 }
 
 fn style_cyan_bold() -> Style {
-    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn style_yellow() -> Style {
@@ -427,10 +427,7 @@ fn render_main(
         .split(area);
 
     // ── title ─────────────────────────────────────────────────────────────
-    let title_line = Line::from(vec![Span::styled(
-        "tenex-edge tmux",
-        style_bold(),
-    )]);
+    let title_line = Line::from(vec![Span::styled("tenex-edge tmux", style_bold())]);
     f.render_widget(Paragraph::new(title_line), chunks[0]);
 
     // ── tab bar ───────────────────────────────────────────────────────────
@@ -461,23 +458,15 @@ fn render_main(
     f.render_widget(Paragraph::new(""), chunks[3]);
 
     // ── body — scrollable via Paragraph::scroll ───────────────────────────
-    render_scrolled_body(
-        f,
-        data,
-        selected,
-        project_filter,
-        exited_hours,
-        chunks[4],
-    );
+    render_scrolled_body(f, data, selected, project_filter, exited_hours, chunks[4]);
 
     // ── help line ─────────────────────────────────────────────────────────
     let exited_hint = match exited_hours {
         None => "[e] show exited".to_string(),
         Some(h) => format!("[e] hide exited  [-/+] {h}h"),
     };
-    let help_text = format!(
-        "[↑↓] move  [←→] tab  [/] search  [↵] attach/spawn  {exited_hint}  [q] quit"
-    );
+    let help_text =
+        format!("[↑↓] move  [←→] tab  [/] search  [↵] attach/spawn  {exited_hint}  [q] quit");
 
     let help_area = chunks[6];
     if status.is_empty() {
@@ -632,10 +621,7 @@ fn render_search(f: &mut Frame, pt: &ProjectTabs, query: &str, sel: usize) {
                 Span::styled(proj.clone(), style_dim()),
             ])
         } else {
-            Line::from(vec![
-                Span::raw(cursor.to_string()),
-                Span::raw(proj.clone()),
-            ])
+            Line::from(vec![Span::raw(cursor.to_string()), Span::raw(proj.clone())])
         };
         body_lines.push(line);
     }
@@ -661,10 +647,7 @@ fn render_search(f: &mut Frame, pt: &ProjectTabs, query: &str, sel: usize) {
         .split(area);
 
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            "tenex-edge tmux",
-            style_bold(),
-        ))),
+        Paragraph::new(Line::from(Span::styled("tenex-edge tmux", style_bold()))),
         chunks[0],
     );
 
@@ -702,10 +685,7 @@ fn render_search(f: &mut Frame, pt: &ProjectTabs, query: &str, sel: usize) {
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                "[↑↓] move  [↵] select  [esc] cancel",
-                style_dim(),
-            ),
+            Span::styled("[↑↓] move  [↵] select  [esc] cancel", style_dim()),
         ])),
         chunks[6],
     );
@@ -743,9 +723,8 @@ fn resume_in_tui(session: &str) -> std::result::Result<String, String> {
 /// Ask the daemon to resume `session`, returning the new pane id (or `None`,
 /// after printing the error). Shared by the CLI verb and the TUI.
 fn resume_to_pane(session: &str) -> Result<Option<String>> {
-    let v =
-        crate::daemon::blocking::call("tmux_resume", serde_json::json!({ "session": session }))
-            .context("tmux_resume RPC")?;
+    let v = crate::daemon::blocking::call("tmux_resume", serde_json::json!({ "session": session }))
+        .context("tmux_resume RPC")?;
     match v["pane_id"].as_str() {
         Some(p) => Ok(Some(p.to_string())),
         None => {
@@ -760,8 +739,9 @@ fn resume_to_pane(session: &str) -> Result<Option<String>> {
 
 /// Resolve a session id to its live tmux pane id via the daemon, or `None`.
 fn pane_for_session(session_id: &str) -> Option<String> {
-    let v = crate::daemon::blocking::call("tmux_attach", serde_json::json!({ "session": session_id }))
-        .ok()?;
+    let v =
+        crate::daemon::blocking::call("tmux_attach", serde_json::json!({ "session": session_id }))
+            .ok()?;
     v["pane_id"].as_str().map(str::to_string)
 }
 
@@ -980,8 +960,7 @@ pub(super) fn tmux_tui(popup: bool) -> Result<()> {
         let _terminal = TuiTerminal::enter()?;
         // Create ratatui terminal on top of the crossterm alternate screen
         // already enabled by TuiTerminal::enter().
-        let mut ratatui_term =
-            Terminal::new(CrosstermBackend::new(io::stdout()))?;
+        let mut ratatui_term = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
         let mut next_refresh = Instant::now() + refresh;
 
@@ -994,14 +973,20 @@ pub(super) fn tmux_tui(popup: bool) -> Result<()> {
                     ratatui_term.draw(|f| render_search(f, &pt, &q, s))?;
                 }
                 TuiMode::Normal => {
-                    let exited_opt = if show_exited { Some(exited_hours) } else { None };
+                    let exited_opt = if show_exited {
+                        Some(exited_hours)
+                    } else {
+                        None
+                    };
                     // Compute filtered totals (borrows released at end of block).
                     let total = {
                         let pf = tab_project(&pt.visible, tab_idx);
                         match pf {
-                            Some(p) => filter_live(&data, p).len()
-                                + data.spawnable.len()
-                                + filter_resumable(&data, p, exited_opt).len(),
+                            Some(p) => {
+                                filter_live(&data, p).len()
+                                    + data.spawnable.len()
+                                    + filter_resumable(&data, p, exited_opt).len()
+                            }
                             None => 0,
                         }
                     };
@@ -1082,15 +1067,21 @@ pub(super) fn tmux_tui(popup: bool) -> Result<()> {
                         }
                         // ── normal mode ───────────────────────────────────
                         TuiMode::Normal => {
-                            let exited_opt = if show_exited { Some(exited_hours) } else { None };
+                            let exited_opt = if show_exited {
+                                Some(exited_hours)
+                            } else {
+                                None
+                            };
                             // We need filtered views. Use a block so borrows of
                             // `data` are released before any `data = fresh` below.
                             let total = {
                                 let pf = tab_project(&pt.visible, tab_idx);
                                 match pf {
-                                    Some(p) => filter_live(&data, p).len()
-                                        + data.spawnable.len()
-                                        + filter_resumable(&data, p, exited_opt).len(),
+                                    Some(p) => {
+                                        filter_live(&data, p).len()
+                                            + data.spawnable.len()
+                                            + filter_resumable(&data, p, exited_opt).len()
+                                    }
                                     None => 0,
                                 }
                             };
@@ -1255,10 +1246,13 @@ pub(super) fn tmux_tui(popup: bool) -> Result<()> {
                                                         });
                                                         match resume_in_tui(&sid) {
                                                             Ok(pane) => {
-                                                                pending_attach = Some(PendingAttach {
-                                                                    pane,
-                                                                    resume_sid: Some(sid.clone()),
-                                                                })
+                                                                pending_attach =
+                                                                    Some(PendingAttach {
+                                                                        pane,
+                                                                        resume_sid: Some(
+                                                                            sid.clone(),
+                                                                        ),
+                                                                    })
                                                             }
                                                             Err(msg) => status_msg = msg,
                                                         }
@@ -1429,7 +1423,9 @@ fn attach_pane(pane_id: &str) -> Result<()> {
         return Ok(());
     };
 
-    let in_tmux = std::env::var("TMUX").map(|v| !v.is_empty()).unwrap_or(false);
+    let in_tmux = std::env::var("TMUX")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
     if in_tmux {
         let status = std::process::Command::new("tmux")
             .args(["switch-client", "-t", &session])
@@ -1447,5 +1443,3 @@ fn attach_pane(pane_id: &str) -> Result<()> {
         .exec(); // replaces this process; only returns on error
     anyhow::bail!("exec tmux attach-session: {err}");
 }
-
-

@@ -210,6 +210,7 @@ pub async fn run() -> Result<()> {
     spawn_pruner(state.clone());
     spawn_idle_watcher(state.clone());
     spawn_status_outbox_drainer(state.clone());
+    spawn_status_heartbeat_publisher(state.clone());
 
     let accept_state = state.clone();
     let accept = tokio::spawn(async move {
@@ -797,13 +798,16 @@ fn rpc_session_end(
     let rec = state.with_store(|s| s.get_session(&p.session).ok().flatten());
     let existed = rec.is_some();
     if let Some(ref rec) = rec {
-        cancel_session(state, &p.session);
+        // Use the canonical id (rec.session_id), NOT the raw harness id p.session:
+        // the runtime handle, the session_state row, and the registry are all keyed
+        // by canonical — ending by alias would cancel/end nothing.
+        cancel_session(state, &rec.session_id);
         state.with_store(|s| {
             // Finish the canonical aggregate (lifecycle=ended; title retained) so
             // the session surfaces as a 'gone' delta, AND mark the kept runtime row
             // dead. The final publish carries a fresh expiration and ages off.
-            s.end_session(&p.session, now_secs()).ok();
-            s.mark_session_dead(&p.session).ok();
+            s.end_session(&rec.session_id, now_secs()).ok();
+            s.mark_session_dead(&rec.session_id).ok();
         });
         state.status_outbox_notify.notify_waiters();
         state.emit_tail(TailEvent::Sess {
@@ -1471,28 +1475,33 @@ async fn rpc_turn_start(
     if p.session.is_empty() {
         return Ok(serde_json::json!({ "context": serde_json::Value::Null }));
     }
+    // Hooks speak the harness id; resolve to the canonical session_state id or the
+    // transition below updates ZERO rows (harness id is only an alias). This is the
+    // single owner of the turn-start transition — the runtime engine only OBSERVES
+    // turn_state and never opens/closes the turn itself.
+    let session = state.with_store(|s| s.canonical_session_id(&p.session));
 
     let prev_started = state.with_store(|s| {
-        let (_, prev) = s.get_turn_state(&p.session).unwrap_or((false, 0));
+        let (_, prev) = s.get_turn_state(&session).unwrap_or((false, 0));
         // Canonical transition: busy=1, turn_id+1, activity cleared, version bump +
         // status_outbox enqueue. Also writes turn_state so turn_check_due() works.
-        s.start_turn(&p.session, now_secs()).ok();
+        s.start_turn(&session, now_secs()).ok();
         if let Some(path) = p.transcript.as_deref().filter(|x| !x.is_empty()) {
-            s.set_session_transcript(&p.session, path).ok();
+            s.set_session_transcript(&session, path).ok();
             // Snapshot the last assistant text so rpc_turn_end can poll until a
             // *new* (different) response appears — Claude Code writes the
             // transcript after the stop hook fires, so reading at stop time often
             // returns the previous turn's content.
             let baseline = crate::transcript::read_last_assistant_text(std::path::Path::new(path))
                 .unwrap_or_default();
-            s.set_last_assistant_text_at_turn_start(&p.session, &baseline)
+            s.set_last_assistant_text_at_turn_start(&session, &baseline)
                 .ok();
         }
         prev
     });
     state.status_outbox_notify.notify_waiters();
 
-    let rec = match state.with_store(|s| s.get_session(&p.session).ok().flatten()) {
+    let rec = match state.with_store(|s| s.get_session(&session).ok().flatten()) {
         Some(r) => r,
         None => return Ok(serde_json::json!({ "context": serde_json::Value::Null })),
     };
@@ -1566,26 +1575,29 @@ async fn rpc_turn_end(
     let p: TurnEndParams =
         serde_json::from_value(params.clone()).context("parsing turn_end params")?;
     if !p.session.is_empty() {
+        // Hooks speak the harness id; resolve to canonical or end_turn no-ops.
+        // Single owner of the turn-end transition (runtime only observes).
+        let session = state.with_store(|s| s.canonical_session_id(&p.session));
         // Read turn_started_at BEFORE marking end, so we can compute elapsed.
         // Thread IDs are captured NOW so a concurrent user_prompt for the next
         // turn cannot overwrite last_prompt_event_id before we publish.
         let (was_working, turn_started_at) =
-            state.with_store(|s| s.get_turn_state(&p.session).unwrap_or((false, 0)));
+            state.with_store(|s| s.get_turn_state(&session).unwrap_or((false, 0)));
         let (root_event_id, last_prompt_event_id, transcript_path, baseline_text) = state
             .with_store(|s| {
                 // Canonical transition: busy=0, activity cleared, TITLE retained,
                 // version bump + status_outbox enqueue. Also clears turn_state.
-                s.end_turn(&p.session, now_secs()).ok();
-                let (root, prompt) = s.get_thread_event_ids(&p.session);
-                let transcript = s.get_session_transcript(&p.session).ok().flatten();
-                let baseline = s.get_last_assistant_text_at_turn_start(&p.session);
+                s.end_turn(&session, now_secs()).ok();
+                let (root, prompt) = s.get_thread_event_ids(&session);
+                let transcript = s.get_session_transcript(&session).ok().flatten();
+                let baseline = s.get_last_assistant_text_at_turn_start(&session);
                 (root, prompt, transcript, baseline)
             });
         state.status_outbox_notify.notify_waiters();
 
         // Publish the NIP-10 TurnReply when we have full threading context.
         if !root_event_id.is_empty() && !last_prompt_event_id.is_empty() {
-            if let Some(rec) = state.with_store(|s| s.get_session(&p.session).ok().flatten()) {
+            if let Some(rec) = state.with_store(|s| s.get_session(&session).ok().flatten()) {
                 // Claude Code writes the transcript *after* the stop hook fires, so
                 // the response may not be on disk yet. Poll (up to ~2 s) until the
                 // last assistant text differs from what we snapshotted at turn_start.
@@ -1635,7 +1647,7 @@ async fn rpc_turn_end(
             } else {
                 None
             };
-            if let Some(rec) = state.with_store(|s| s.get_session(&p.session).ok().flatten()) {
+            if let Some(rec) = state.with_store(|s| s.get_session(&session).ok().flatten()) {
                 state.emit_tail(TailEvent::Turn {
                     ts: now,
                     project: rec.project.clone(),
@@ -2971,6 +2983,34 @@ fn status_from_snapshot(snap: &SessionSnapshot, now: u64) -> crate::domain::Stat
         rel_cwd: snap.rel_cwd.clone(),
         expires_at: Some(now + crate::domain::STATUS_TTL_SECS),
     }
+}
+
+/// Heartbeat re-arm: every `HEARTBEAT_SECS`, re-publish the current kind:30315 for
+/// every live locally-hosted session so its NIP-40 `expiration` is pushed forward
+/// to `now + STATUS_TTL_SECS`. The outbox only fires on state CHANGES; a live-but-
+/// idle session produces none, so without this its relay event would expire after
+/// `STATUS_TTL_SECS` and read as gone despite the runtime heartbeating `last_seen`
+/// locally. This is the piece that turns store-side freshness into relay liveness.
+fn spawn_status_heartbeat_publisher(state: Arc<DaemonState>) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(crate::domain::HEARTBEAT_SECS));
+        loop {
+            tick.tick().await;
+            let now = now_secs();
+            let fresh_since = now.saturating_sub(crate::domain::STATUS_TTL_SECS);
+            let snaps =
+                state.with_store(|s| s.all_live_local_snapshots(fresh_since).unwrap_or_default());
+            for snap in snaps {
+                // Only locally-hosted agents have signing keys.
+                let keys = match state.keys_for(&snap.agent_pubkey) {
+                    Some(k) => k,
+                    None => continue,
+                };
+                let status = status_from_snapshot(&snap, now);
+                let _ = state.provider.set_status(&status, &keys).await;
+            }
+        }
+    });
 }
 
 /// Drain the `status_outbox`: publish each pending kind:30315 via the provider's

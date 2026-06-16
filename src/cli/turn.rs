@@ -132,6 +132,7 @@ pub fn assemble_turn_start_context(
         &rec.project,
         now_secs(),
         &rec.host,
+        &rec.session_id,
     );
 
     if blocks.is_empty() {

@@ -208,7 +208,11 @@ async fn hook_dispatch(
             // external session id, one locator among several (resume token, tmux
             // pane, watched pid). We REPORT what we observed; the daemon owns
             // identity and decides whether to mint, reattach, or supersede.
-            let harness_session_id = if sid.is_empty() { None } else { Some(sid.clone()) };
+            let harness_session_id = if sid.is_empty() {
+                None
+            } else {
+                Some(sid.clone())
+            };
 
             if harness_session_id.is_none() && !host.echo_session_id {
                 // Fail open: a harness that owns its id but dropped it here sent a

@@ -169,8 +169,7 @@ pub fn load_who_snapshot(
         .into_iter()
         .filter(|p| !my_ids.contains(p.session_id.as_str()))
         .filter(|p| {
-            !(slugify_host(&p.host) == local_host
-                && local_agent_pubkeys.contains(&p.agent_pubkey))
+            !(slugify_host(&p.host) == local_host && local_agent_pubkeys.contains(&p.agent_pubkey))
         })
         .collect();
 
@@ -299,6 +298,7 @@ pub(super) fn push_turn_fabric_block(
     project: &str,
     now: u64,
     daemon_host: &str,
+    self_session: &str,
 ) {
     let store = store.lock().expect("store mutex poisoned");
     if first_turn {
@@ -313,7 +313,11 @@ pub(super) fn push_turn_fabric_block(
             }
         }
     } else {
-        let delta = build_status_delta(&store, prev_turn_started_at, project, now, None);
+        // Self-exclude the viewer's own session: rpc_turn_start opens this turn
+        // (busy transition) BEFORE context assembly, so without this the session
+        // would see its own just-started change echoed back as a delta.
+        let delta =
+            build_status_delta(&store, prev_turn_started_at, project, now, Some(self_session));
         if !delta.is_empty() {
             blocks.push(format!(
                 "tenex-edge fabric — changes since your last turn:\n{}",

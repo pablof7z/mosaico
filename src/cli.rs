@@ -537,7 +537,13 @@ mod turn_context_tests {
 
     /// Register a local session into `session_state` (daemon mints the canonical
     /// id) and return it.
-    fn register_local(store: &Store, slug: &str, pubkey: &str, harness_sid: &str, ts: u64) -> String {
+    fn register_local(
+        store: &Store,
+        slug: &str,
+        pubkey: &str,
+        harness_sid: &str,
+        ts: u64,
+    ) -> String {
         let obs = SessionObservation {
             agent_slug: slug.to_string(),
             agent_pubkey: pubkey.to_string(),
@@ -575,7 +581,14 @@ mod turn_context_tests {
         let id = register_local(store, slug, pubkey, harness_sid, reg_ts);
         let snap = store.start_turn(&id, change_ts).unwrap().unwrap();
         store
-            .apply_distill_result(&id, snap.turn_id, snap.state_version, title, activity, change_ts)
+            .apply_distill_result(
+                &id,
+                snap.turn_id,
+                snap.state_version,
+                title,
+                activity,
+                change_ts,
+            )
             .unwrap()
             .unwrap();
         id
@@ -773,13 +786,19 @@ mod turn_context_tests {
         );
         // The viewer's own session also changed — must NOT echo back.
         let me_id = register_busy(
-            &store, "coder", "pk-coder", "sess-me", "My own work", "typing", 10, 180,
+            &store,
+            "coder",
+            "pk-coder",
+            "sess-me",
+            "My own work",
+            "typing",
+            10,
+            180,
         );
         let m = Mutex::new(store);
 
-        let text =
-            assemble_turn_check_context(&m, &test_session(&me_id), "laptop", Some(50), 200)
-                .expect("delta block expected when a sibling changed");
+        let text = assemble_turn_check_context(&m, &test_session(&me_id), "laptop", Some(50), 200)
+            .expect("delta block expected when a sibling changed");
         assert!(
             text.contains("changes since your last check"),
             "delta header expected; got: {text:?}"
@@ -813,11 +832,20 @@ mod turn_context_tests {
         store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
         // Sibling appeared before the cursor (10), then opened+finished a turn at
         // 180 → idle, title retained, still live at now=200 → Changed delta.
-        register_idle(&store, "sib", "pk-sib", "sess-sib", "Refactor tmux", 10, 180);
+        register_idle(
+            &store,
+            "sib",
+            "pk-sib",
+            "sess-sib",
+            "Refactor tmux",
+            10,
+            180,
+        );
         let m = Mutex::new(store);
 
-        let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
-            .expect("delta block expected for idle transition");
+        let text =
+            assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
+                .expect("delta block expected for idle transition");
         assert!(
             text.contains("Refactor tmux · idle"),
             "idle marker expected; got: {text:?}"
@@ -830,7 +858,16 @@ mod turn_context_tests {
     fn turn_check_delta_suppressed_when_not_due() {
         let store = Store::open_memory().unwrap();
         store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
-        register_busy(&store, "sib", "pk-sib", "sess-sib", "Refactor tmux", "", 10, 180);
+        register_busy(
+            &store,
+            "sib",
+            "pk-sib",
+            "sess-sib",
+            "Refactor tmux",
+            "",
+            10,
+            180,
+        );
         let m = Mutex::new(store);
 
         let ctx = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", None, 200);

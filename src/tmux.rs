@@ -809,13 +809,22 @@ mod resume_command_tests {
         let got = build_resume_command(&base, ResumeShape::AppendFlag("--resume"), "abc-123");
         assert_eq!(
             got,
-            cmd(&["claude", "--dangerously-skip-permissions", "--resume", "abc-123"])
+            cmd(&[
+                "claude",
+                "--dangerously-skip-permissions",
+                "--resume",
+                "abc-123"
+            ])
         );
     }
 
     #[test]
     fn append_flag_bare_command() {
-        let got = build_resume_command(&cmd(&["opencode"]), ResumeShape::AppendFlag("--session"), "ses_x");
+        let got = build_resume_command(
+            &cmd(&["opencode"]),
+            ResumeShape::AppendFlag("--session"),
+            "ses_x",
+        );
         assert_eq!(got, cmd(&["opencode", "--session", "ses_x"]));
     }
 
@@ -826,13 +835,22 @@ mod resume_command_tests {
         let got = build_resume_command(&base, ResumeShape::Subcommand("resume"), "uuid-9");
         assert_eq!(
             got,
-            cmd(&["codex", "resume", "uuid-9", "--dangerously-bypass-approvals-and-sandbox"])
+            cmd(&[
+                "codex",
+                "resume",
+                "uuid-9",
+                "--dangerously-bypass-approvals-and-sandbox"
+            ])
         );
     }
 
     #[test]
     fn subcommand_bare_command() {
-        let got = build_resume_command(&cmd(&["codex"]), ResumeShape::Subcommand("resume"), "uuid-9");
+        let got = build_resume_command(
+            &cmd(&["codex"]),
+            ResumeShape::Subcommand("resume"),
+            "uuid-9",
+        );
         assert_eq!(got, cmd(&["codex", "resume", "uuid-9"]));
     }
 

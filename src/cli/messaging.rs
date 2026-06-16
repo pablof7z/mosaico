@@ -81,9 +81,8 @@ pub(super) async fn chat_read(
 ) -> Result<()> {
     use std::io::IsTerminal as _;
 
-    let project = project.unwrap_or_else(|| {
-        crate::project::resolve(&std::env::current_dir().unwrap_or_default())
-    });
+    let project = project
+        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
     let since_ts = since.as_deref().map(super::admin::parse_since);
     let effective_tail = tail || since.is_none();
     let effective_limit = limit.or_else(|| {
@@ -118,7 +117,10 @@ fn render_chat_read_row(item: &serde_json::Value, use_color: bool) -> String {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| pubkey_short(pubkey));
-    let host = item["host"].as_str().filter(|s| !s.is_empty()).unwrap_or("?");
+    let host = item["host"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("?");
     let sender = format!("<{slug}@{host}>");
     let sender = color_by_pubkey(&sender, pubkey, use_color);
     let body = item["body"].as_str().unwrap_or_default().trim_end();
@@ -130,11 +132,9 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
     if !use_color || pubkey.is_empty() {
         return text.to_string();
     }
-    let hash = pubkey
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325_u64, |acc, b| {
-            acc.wrapping_mul(0x0000_0100_0000_01b3) ^ u64::from(b)
-        });
+    let hash = pubkey.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |acc, b| {
+        acc.wrapping_mul(0x0000_0100_0000_01b3) ^ u64::from(b)
+    });
     match hash % 6 {
         0 => text.cyan().to_string(),
         1 => text.green().to_string(),

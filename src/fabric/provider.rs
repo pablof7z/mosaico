@@ -467,9 +467,7 @@ impl Kind1Nip29Provider {
         status: &crate::domain::Status,
         keys: &nostr_sdk::prelude::Keys,
     ) -> Result<nostr_sdk::prelude::EventId> {
-        let builder = self
-            .wire
-            .encode(&DomainEvent::Status(status.clone()))?;
+        let builder = self.wire.encode(&DomainEvent::Status(status.clone()))?;
         self.transport.publish_signed(builder, keys).await
     }
 

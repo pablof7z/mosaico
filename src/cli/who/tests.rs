@@ -115,7 +115,14 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     let store = Store::open_memory().unwrap();
     // Local coder lives in session_state (the single source of truth).
     let coder_id = register_local(
-        &store, "coder", "pk-coder", "proj", "laptop", "", "sid-coder", 1_000,
+        &store,
+        "coder",
+        "pk-coder",
+        "proj",
+        "laptop",
+        "",
+        "sid-coder",
+        1_000,
     );
     // A peer echo of our own local session (same minted id) must be deduped.
     record_peer(
@@ -179,10 +186,24 @@ fn who_snapshot_uses_session_scoped_status_for_sibling_sessions() {
     let store = Store::open_memory().unwrap();
     // Two sibling sessions for the same agent, each with its own canonical id.
     let id_a = register_local(
-        &store, "claude", "pk-claude", "proj", "laptop", "", "sid-a", 1_000,
+        &store,
+        "claude",
+        "pk-claude",
+        "proj",
+        "laptop",
+        "",
+        "sid-a",
+        1_000,
     );
     let id_b = register_local(
-        &store, "claude", "pk-claude", "proj", "laptop", "", "sid-b", 1_000,
+        &store,
+        "claude",
+        "pk-claude",
+        "proj",
+        "laptop",
+        "",
+        "sid-b",
+        1_000,
     );
     // Each gets its own per-session title — proving status is session-scoped.
     seed_busy_title(&store, &id_a, "reading files", 1_000);
@@ -215,7 +236,16 @@ fn who_snapshot_ignores_same_host_peer_echo_for_known_local_agent() {
     store.upsert_session(&old).unwrap();
     // The same identity arrives over the wire as a same-host peer echo.
     record_peer(
-        &store, "pk-claude", "claude", "proj", "old-local", "laptop", "", "", false, 1_000,
+        &store,
+        "pk-claude",
+        "claude",
+        "proj",
+        "old-local",
+        "laptop",
+        "",
+        "",
+        false,
+        1_000,
     );
 
     let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
@@ -231,7 +261,16 @@ fn same_host_peer_is_not_remote() {
     // it must NOT be tagged remote (the bug being fixed).
     let store = Store::open_memory().unwrap();
     record_peer(
-        &store, "pk-codex", "codex", "proj", "sib", "laptop", "worktree1", "", false, 1_000,
+        &store,
+        "pk-codex",
+        "codex",
+        "proj",
+        "sib",
+        "laptop",
+        "worktree1",
+        "",
+        false,
+        1_000,
     );
     let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
     let sib = snap

@@ -211,12 +211,12 @@ pub async fn run_session_in_daemon(
                 if working {
                     // ── rising edge / new user message ────────────────────
                     if turn_started_at != cur_turn_started {
-                        // Open the turn in the canonical aggregate (busy=1, turn_id+1,
-                        // activity cleared, version bumped + outbox enqueued). This
-                        // also re-arms turn_state's turn_started_at to `now`, so we
-                        // record THAT (snap.turn_started_at) as the value we've acted
-                        // on to avoid re-triggering on the next tick.
-                        let snap = st!(|s: &Store| s.start_turn(&p.session_id, now)).ok().flatten();
+                        // The turn was OPENED by rpc_turn_start (the single owner of
+                        // the start_turn transition). The engine only OBSERVES it:
+                        // read the post-start snapshot for turn_id/title, seed a
+                        // provisional title, and (re)schedule distillation. Calling
+                        // start_turn here too would double-bump turn_id/version.
+                        let snap = st!(|s: &Store| s.local_session_snapshot(&p.session_id)).ok().flatten();
                         if let Some(snap) = snap {
                             cur_turn_started = snap.turn_started_at;
                             let turn_id = snap.turn_id;
@@ -287,9 +287,10 @@ pub async fn run_session_in_daemon(
                         }
                     }
                 } else if prev_working {
-                    // Falling edge: close the turn (busy=0, activity cleared, TITLE
-                    // retained; version bumped + outbox enqueued by end_turn).
-                    st!(|s: &Store| s.end_turn(&p.session_id, now)).ok();
+                    // Falling edge: the turn was CLOSED by rpc_turn_end (single owner
+                    // of end_turn). The engine only resets its local distill
+                    // scheduling bookkeeping — calling end_turn here would
+                    // double-bump version and re-enqueue the outbox.
                     cur_turn_started = 0;
                     last_distill_attempt = 0;
                     distill_task = None;

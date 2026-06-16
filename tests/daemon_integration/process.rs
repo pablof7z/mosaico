@@ -205,6 +205,89 @@ fn version_skew_client_detects_and_respawns() {
     stop_daemon(&home);
 }
 
+/// Regression for the identity-normalization bug: hooks send the HARNESS id, but
+/// the daemon mints a CANONICAL id and stores the harness id as an alias. The turn
+/// transitions must resolve harness→canonical or they silently update zero rows
+/// (the canonical aggregate would stay idle/untitled forever for claude/codex).
+/// Drive the real RPC path with the harness id and assert the CANONICAL row moved.
+#[test]
+fn turn_lifecycle_by_harness_alias_drives_canonical_row() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+
+    let canonical = rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        // claude-style: harness supplies its own session id.
+        let resp = c
+            .call(
+                "session_start",
+                serde_json::json!({"agent":"coder","session_id":"harness-xyz","cwd":"/tmp"}),
+            )
+            .await
+            .unwrap();
+        let canonical = resp["session_id"].as_str().unwrap().to_string();
+
+        // The hook drives turns by the HARNESS id, never the canonical id.
+        c.call("turn_start", serde_json::json!({"session":"harness-xyz"}))
+            .await
+            .expect("turn_start");
+        canonical
+    });
+
+    let store = Store::open(&home.store_path()).unwrap();
+
+    // The daemon must mint a canonical id distinct from the harness id...
+    assert_ne!(
+        canonical, "harness-xyz",
+        "daemon must MINT a canonical id; the harness id is only an alias"
+    );
+    // ...and the harness id must NOT be its own canonical session_state row.
+    assert!(
+        store
+            .local_session_snapshot("harness-xyz")
+            .unwrap()
+            .is_none(),
+        "harness id must be an alias, not a second canonical row"
+    );
+
+    // turn_start via the harness alias must have moved the CANONICAL row: busy,
+    // turn_id advanced from 0 to 1. (The pre-fix bug left it idle at turn_id 0.)
+    let started = store
+        .local_session_snapshot(&canonical)
+        .unwrap()
+        .expect("canonical session_state row");
+    assert!(
+        started.busy,
+        "turn_start via harness alias must set the CANONICAL row busy"
+    );
+    assert_eq!(
+        started.turn_id, 1,
+        "turn_id must advance exactly once (single owner: rpc_turn_start)"
+    );
+
+    // turn_end via the harness alias must close the CANONICAL turn.
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call("turn_end", serde_json::json!({"session":"harness-xyz"}))
+            .await
+            .expect("turn_end");
+    });
+    let ended = store
+        .local_session_snapshot(&canonical)
+        .unwrap()
+        .expect("canonical session_state row");
+    assert!(
+        !ended.busy,
+        "turn_end via harness alias must clear busy on the CANONICAL row"
+    );
+    assert_eq!(
+        ended.turn_id, 1,
+        "turn_id must not double-advance (no duplicate transition owner)"
+    );
+
+    stop_daemon(&home);
+}
+
 fn run_cli_proto(home: &Home, args: &[&str], proto: Option<&str>) -> std::process::Output {
     let mut cmd = std::process::Command::new(bin());
     cmd.args(args)

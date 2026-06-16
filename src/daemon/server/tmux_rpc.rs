@@ -162,7 +162,11 @@ pub(super) async fn rpc_tmux_resume(
 
     // Resolve including dead sessions: exact id (get_session) first, then a
     // session-id prefix — resolve_session only matches alive rows by cwd/agent.
-    let rec = match state.with_store(|s| s.get_session(&p.session)).ok().flatten() {
+    let rec = match state
+        .with_store(|s| s.get_session(&p.session))
+        .ok()
+        .flatten()
+    {
         Some(r) => r,
         None => state
             .with_store(|s| s.find_session_by_prefix(&p.session))
