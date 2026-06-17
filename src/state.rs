@@ -1408,26 +1408,52 @@ impl Store {
             .expect("session_state row written by register_or_reassert_session"))
     }
 
-    /// Existing-id path: refresh mutable identity fields + liveness, re-arm by
-    /// bumping the version and enqueuing a publish.
+    /// Existing-id path: refresh mutable identity fields + liveness. Only bump
+    /// the version / `updated_at` when the public status actually changed.
     fn reassert_session_row(&self, session_id: &str, obs: &SessionObservation) -> Result<()> {
-        self.conn.execute(
-            "UPDATE session_state SET
-               agent_slug=?2, host=?3, rel_cwd=?4,
-               resume_id=CASE WHEN ?5<>'' THEN ?5 ELSE resume_id END,
-               last_seen=?6, lifecycle='active',
-               state_version=state_version+1, updated_at=?6
-             WHERE session_id=?1",
-            params![
-                session_id,
-                obs.agent_slug,
-                obs.host,
-                obs.rel_cwd,
-                obs.resume_id.clone().unwrap_or_default(),
-                obs.observed_at,
-            ],
-        )?;
-        self.enqueue_status_outbox_current(session_id, obs.observed_at)
+        let before = self.local_session_snapshot(session_id)?;
+        let public_changed = before
+            .as_ref()
+            .map(|s| {
+                s.agent_slug != obs.agent_slug
+                    || s.host != obs.host
+                    || s.rel_cwd != obs.rel_cwd
+                    || !s.lifecycle.is_active()
+            })
+            .unwrap_or(true);
+
+        if public_changed {
+            self.conn.execute(
+                "UPDATE session_state SET
+                   agent_slug=?2, host=?3, rel_cwd=?4,
+                   resume_id=CASE WHEN ?5<>'' THEN ?5 ELSE resume_id END,
+                   last_seen=?6, lifecycle='active',
+                   state_version=state_version+1, updated_at=?6
+                 WHERE session_id=?1",
+                params![
+                    session_id,
+                    obs.agent_slug,
+                    obs.host,
+                    obs.rel_cwd,
+                    obs.resume_id.clone().unwrap_or_default(),
+                    obs.observed_at,
+                ],
+            )?;
+            self.enqueue_status_outbox_current(session_id, obs.observed_at)
+        } else {
+            self.conn.execute(
+                "UPDATE session_state SET
+                   resume_id=CASE WHEN ?2<>'' THEN ?2 ELSE resume_id END,
+                   last_seen=?3, lifecycle='active'
+                 WHERE session_id=?1",
+                params![
+                    session_id,
+                    obs.resume_id.clone().unwrap_or_default(),
+                    obs.observed_at,
+                ],
+            )?;
+            Ok(())
+        }
     }
 
     /// Mint-path insert: a brand-new canonical row at version 1.
@@ -1675,15 +1701,24 @@ impl Store {
     /// Close the turn: idle, live activity cleared, TITLE retained. Resets the
     /// debounce cursor. Bumps version + enqueues (busy changed).
     pub fn end_turn(&self, session_id: &str, ts: u64) -> Result<Option<SessionSnapshot>> {
-        let n = self.conn.execute(
-            "UPDATE session_state SET
-               busy=0, phase='idle', activity='',
-               state_version=state_version+1, updated_at=?2, last_seen=?2
-             WHERE session_id=?1",
-            params![session_id, ts],
-        )?;
-        if n == 0 {
+        let Some(before) = self.local_session_snapshot(session_id)? else {
             return Ok(None);
+        };
+
+        if before.busy || !before.activity.is_empty() || before.phase != "idle" {
+            self.conn.execute(
+                "UPDATE session_state SET
+                   busy=0, phase='idle', activity='',
+                   state_version=state_version+1, updated_at=?2, last_seen=?2
+                 WHERE session_id=?1",
+                params![session_id, ts],
+            )?;
+            self.enqueue_status_outbox_current(session_id, ts)?;
+        } else {
+            self.conn.execute(
+                "UPDATE session_state SET last_seen=?2 WHERE session_id=?1",
+                params![session_id, ts],
+            )?;
         }
         self.conn.execute(
             "INSERT INTO turn_state (session_id, working, turn_started_at, last_check_at)
@@ -1691,7 +1726,6 @@ impl Store {
              ON CONFLICT(session_id) DO UPDATE SET working=0, last_check_at=0",
             params![session_id],
         )?;
-        self.enqueue_status_outbox_current(session_id, ts)?;
         self.local_session_snapshot(session_id)
     }
 
@@ -4320,10 +4354,20 @@ mod tests {
         };
         let a = s.register_or_reassert_session(&obs("h1", 10)).unwrap();
         let a2 = s.register_or_reassert_session(&obs("h1", 20)).unwrap();
-        assert_eq!(a.session_id, a2.session_id, "same harness id → same canonical id");
-        assert!(a2.state_version > a.state_version, "reassert bumps version");
+        assert_eq!(
+            a.session_id, a2.session_id,
+            "same harness id → same canonical id"
+        );
+        assert_eq!(
+            a2.state_version, a.state_version,
+            "identical reassert refreshes liveness without a public version bump"
+        );
+        assert_eq!(a2.last_seen, 20, "reassert refreshes liveness");
         let b = s.register_or_reassert_session(&obs("h2", 30)).unwrap();
-        assert_ne!(a.session_id, b.session_id, "new harness id → new canonical id");
+        assert_ne!(
+            a.session_id, b.session_id,
+            "new harness id → new canonical id"
+        );
     }
 
     /// all_live_local_snapshots feeds the heartbeat expiration re-arm: it must

@@ -237,6 +237,14 @@ enum Cmd {
         #[arg(long, hide = true)]
         popup: bool,
     },
+    /// Launch an agent harness in a new tmux session, with tmux chrome hidden.
+    Launch {
+        /// Agent slug: "claude", "codex", "opencode", or a local custom agent.
+        slug: String,
+        /// Project slug; defaults to project resolved from current directory.
+        #[arg(long)]
+        project: Option<String>,
+    },
     /// Internal: the per-machine daemon. Spawned automatically; not for direct use.
     /// (Replaces the old detached per-session engine, which now runs as an async
     /// task inside this one daemon — the sole writer of state.db.)
@@ -545,6 +553,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             Some(action) => tmux_cli::tmux_run(action).await,
             None => tmux_cli::tmux_tui(popup),
         },
+        Cmd::Launch { slug, project } => tmux_cli::launch(slug, project).await,
         Cmd::Daemon => crate::daemon::server::run().await,
     }
 }
@@ -901,6 +910,42 @@ mod turn_context_tests {
         assert!(
             text.contains("Refactor tmux · idle"),
             "idle marker expected; got: {text:?}"
+        );
+    }
+
+    /// Repeated idle/end observations are liveness refreshes, not user-visible
+    /// status changes. They must not re-emit the same `title · idle` line.
+    #[test]
+    fn turn_check_delta_suppresses_repeated_idle_noop() {
+        let store = Store::open_memory().unwrap();
+        store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
+        let sib_id = register_idle(&store, "sib", "pk-sib", "sess-sib", "Refactor tmux", 10, 20);
+        store.end_turn(&sib_id, 180).unwrap().unwrap();
+        let m = Mutex::new(store);
+
+        let text =
+            assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200);
+        assert!(
+            text.is_none(),
+            "unchanged idle session must not be emitted again; got: {text:?}"
+        );
+    }
+
+    /// Repeated session-start/reassert observations refresh liveness and tmux
+    /// endpoint aliases, but identical public state is not a status delta.
+    #[test]
+    fn turn_check_delta_suppresses_identical_session_reassert() {
+        let store = Store::open_memory().unwrap();
+        store.upsert_profile("pk-sib", "sib", "laptop", 1).unwrap();
+        register_local(&store, "sib", "pk-sib", "sess-sib", 10);
+        register_local(&store, "sib", "pk-sib", "sess-sib", 180);
+        let m = Mutex::new(store);
+
+        let text =
+            assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200);
+        assert!(
+            text.is_none(),
+            "identical session reassert must not be emitted as a change; got: {text:?}"
         );
     }
 

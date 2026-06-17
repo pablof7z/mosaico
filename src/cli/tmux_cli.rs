@@ -96,6 +96,33 @@ async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
     Ok(())
 }
 
+// ── launch ───────────────────────────────────────────────────────────────────
+
+/// Launch a fresh harness session and hand the current terminal to it.
+///
+/// This intentionally reuses the daemon's `tmux_spawn` path so the harness sees
+/// the same TENEX_EDGE_AGENT/TMUX_PANE environment and registers the usual tmux
+/// endpoint through its session-start hook. The only launch-specific behavior is
+/// hiding tmux's status line before attach so the harness appears to own the
+/// terminal directly.
+pub(super) async fn launch(agent: String, project: Option<String>) -> Result<()> {
+    let project = project
+        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
+    let v = crate::daemon::blocking::call(
+        "tmux_spawn",
+        serde_json::json!({ "agent": agent, "project": project }),
+    )
+    .context("tmux_spawn RPC")?;
+
+    let pane_id = v["pane_id"]
+        .as_str()
+        .context("tmux_spawn response did not include pane_id")?;
+    let session = session_of_pane(pane_id)
+        .with_context(|| format!("pane {pane_id} was not found after launch"))?;
+    hide_session_chrome(&session)?;
+    attach_pane(pane_id)
+}
+
 // ── attach ────────────────────────────────────────────────────────────────────
 
 async fn tmux_attach(session: String) -> Result<()> {
@@ -1394,6 +1421,17 @@ fn resolve_pane_location(pane_id: &str) -> Option<(String, String)> {
 /// if the pane is gone.
 fn session_of_pane(pane_id: &str) -> Option<String> {
     resolve_pane_location(pane_id).map(|(session, _window)| session)
+}
+
+fn hide_session_chrome(session: &str) -> Result<()> {
+    let status = std::process::Command::new("tmux")
+        .args(["set-option", "-t", session, "status", "off"])
+        .status()
+        .context("tmux set-option status off")?;
+    if !status.success() {
+        anyhow::bail!("tmux set-option status off failed for session {session}");
+    }
+    Ok(())
 }
 
 /// Attach to the session owning `pane_id` as a BLOCKING child, returning when the

@@ -364,12 +364,14 @@ pub(super) fn build_status_delta(
         let code = session_short_code(snap.session_id.as_str());
         match item.kind {
             DeltaKind::Appeared => {
+                let label = render::status_plain(&d.title, &d.activity, d.busy);
                 delta.push(format!(
-                    "  ● {}@{} joined  {}  session {}  ({}s ago)",
+                    "  ● {}@{} joined  {}  session {}  — {}  ({}s ago)",
                     slug,
                     slugify_host(&snap.host),
                     proj,
                     code,
+                    label,
                     d.age_secs,
                 ));
             }

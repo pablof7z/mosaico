@@ -491,8 +491,8 @@ fn build_status_delta_reports_appeared_changed_and_excludes_self() {
         "rev-1",
         "tower",
         "",
-        "reviewing",
-        true,
+        "Review PR",
+        false,
         1_000,
     );
     // The viewer's own local session — must be excluded from its own delta.
@@ -507,6 +507,10 @@ fn build_status_delta_reports_appeared_changed_and_excludes_self() {
     assert!(
         joined.contains("reviewer") && joined.contains("joined"),
         "peer appearance must surface: {joined}"
+    );
+    assert!(
+        joined.contains("Review PR · idle"),
+        "appeared sessions must include their title/status: {joined}"
     );
     assert!(
         !joined.contains(&session_short_code(&me_id)),
