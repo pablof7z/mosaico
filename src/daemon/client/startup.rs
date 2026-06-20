@@ -1,6 +1,7 @@
 use super::*;
 
-const SPAWN_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const SPAWN_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const HANDSHAKE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 // ── spawn-if-absent (race-safe via flock) ────────────────────────────────────
 
@@ -8,38 +9,76 @@ const SPAWN_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// reclaim a stale one, then spawn a detached daemon and poll-connect.
 pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
     config::ensure_dir(&config::edge_home())?;
-    // Acquire the exclusive startup lock (blocks until other spawners finish).
-    let lock = StartupLock::acquire()?;
 
-    // Someone may have bound the socket while we waited for the lock.
-    if probe_connect().await {
-        return Ok(());
-    }
-    // Stale socket: file present but nobody answering → reclaim under the lock.
-    let sock = socket_path();
-    if sock.exists() {
-        let _ = std::fs::remove_file(&sock);
-    }
-
-    spawn_detached_daemon()?;
-    // Lock is released when `lock` drops (after spawn returns); the daemon
-    // re-acquires it on its own startup.
-    drop(lock);
-
-    // Poll-connect until the daemon binds.
-    let deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
-    while Instant::now() < deadline {
-        if probe_connect().await {
+    let mut noted_wait = false;
+    let wait_deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
+    while Instant::now() < wait_deadline {
+        if probe_handshake().await {
             return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Some(lock) = StartupLock::try_acquire()? {
+            eprintln!("[tenex-edge] starting daemon...");
+            let sock = socket_path();
+            if sock.exists() {
+                let _ = std::fs::remove_file(&sock);
+            }
+            spawn_detached_daemon()?;
+            // Lock is released when `lock` drops (after spawn returns); the daemon
+            // re-acquires it on its own startup.
+            drop(lock);
+            break;
+        }
+        if !noted_wait {
+            eprintln!("[tenex-edge] waiting for daemon to finish startup...");
+            noted_wait = true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    bail!("daemon did not come up within {SPAWN_CONNECT_TIMEOUT:?}")
+
+    // Poll until the daemon accepts and answers handshakes.
+    let mut noted_ready = false;
+    let deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
+    while Instant::now() < deadline {
+        if probe_handshake().await {
+            return Ok(());
+        }
+        if !noted_ready {
+            eprintln!("[tenex-edge] waiting for daemon to answer RPCs...");
+            noted_ready = true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    bail!("daemon did not answer handshakes within {SPAWN_CONNECT_TIMEOUT:?}")
 }
 
-/// Cheap liveness probe: can we open the socket at all?
-async fn probe_connect() -> bool {
-    UnixStream::connect(socket_path()).await.is_ok()
+/// Liveness probe: can we complete the daemon hello/welcome handshake?
+async fn probe_handshake() -> bool {
+    let Ok(Ok(stream)) =
+        tokio::time::timeout(HANDSHAKE_PROBE_TIMEOUT, UnixStream::connect(socket_path())).await
+    else {
+        return false;
+    };
+    let (rh, wh) = stream.into_split();
+    let mut reader = BufReader::new(rh);
+    let mut writer = wh;
+    if write_line(
+        &mut writer,
+        &Hello {
+            protocol: protocol_version(),
+            client_version: env!("CARGO_PKG_VERSION").to_string(),
+        },
+    )
+    .await
+    .is_err()
+    {
+        return false;
+    }
+    let Ok(Ok(Some(_welcome))) =
+        tokio::time::timeout(HANDSHAKE_PROBE_TIMEOUT, read_line::<Welcome>(&mut reader)).await
+    else {
+        return false;
+    };
+    true
 }
 
 /// Fork a detached `tenex-edge __daemon`: own session (`setsid` via

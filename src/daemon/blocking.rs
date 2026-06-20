@@ -57,6 +57,8 @@ enum Outcome {
 
 fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
     let stream = UnixStream::connect(socket_path()).context("connecting to daemon socket")?;
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
 
@@ -116,25 +118,50 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
 /// socket and spawn a detached daemon, then poll-connect.
 fn spawn_if_absent() -> Result<()> {
     config::ensure_dir(&config::edge_home())?;
-    let lock = super::client::StartupLock::acquire()?;
-    if UnixStream::connect(socket_path()).is_ok() {
-        return Ok(());
-    }
-    let sock = socket_path();
-    if sock.exists() {
-        let _ = std::fs::remove_file(&sock);
-    }
-    spawn_detached_daemon()?;
-    drop(lock);
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if UnixStream::connect(socket_path()).is_ok() {
+    let mut noted_wait = false;
+    let wait_deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < wait_deadline {
+        if daemon_answers_ping() {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(50));
+        if let Some(lock) = super::client::StartupLock::try_acquire()? {
+            eprintln!("[tenex-edge] starting daemon...");
+            let sock = socket_path();
+            if sock.exists() {
+                let _ = std::fs::remove_file(&sock);
+            }
+            spawn_detached_daemon()?;
+            drop(lock);
+            break;
+        }
+        if !noted_wait {
+            eprintln!("[tenex-edge] waiting for daemon to finish startup...");
+            noted_wait = true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
-    bail!("daemon did not come up");
+
+    let mut noted_ready = false;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if daemon_answers_ping() {
+            return Ok(());
+        }
+        if !noted_ready {
+            eprintln!("[tenex-edge] waiting for daemon to answer RPCs...");
+            noted_ready = true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    bail!("daemon socket exists but did not answer the handshake within 30s");
+}
+
+fn daemon_answers_ping() -> bool {
+    matches!(
+        try_call("ping", &serde_json::json!({})),
+        Ok(Outcome::Ok(_))
+    )
 }
 
 fn spawn_detached_daemon() -> Result<()> {
