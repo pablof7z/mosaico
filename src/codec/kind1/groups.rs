@@ -3,6 +3,7 @@ use super::*;
 // NIP-29 group management (operator/userNsec-signed) + relay-authored state.
 pub const KIND_GROUP_CREATE: u16 = 9007;
 pub const KIND_GROUP_PUT_USER: u16 = 9000;
+pub const KIND_GROUP_REMOVE_USER: u16 = 9001;
 pub const KIND_GROUP_EDIT_METADATA: u16 = 9002;
 pub const KIND_GROUP_METADATA: u16 = 39000;
 pub const KIND_GROUP_ADMINS: u16 = 39001;
@@ -38,4 +39,10 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
         .tags([project_tag(project)?, tag(&["p", pubkey, "member"])?]))
+}
+
+/// kind:9001 remove-user removing `pubkey` from the group.
+pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_REMOVE_USER), "")
+        .tags([project_tag(project)?, tag(&["p", pubkey])?]))
 }

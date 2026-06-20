@@ -137,7 +137,9 @@ pub async fn run_session_in_daemon(
     //   - last_distill_attempt: wall-clock retry gate (success time lives in the
     //     store's last_distill_at),
     //   - cur_turn_started / prev_working: edge detection against turn_state.
-    let mut distill_task: Option<tokio::task::JoinHandle<(Option<distill::SessionLabels>, Option<String>)>> = None;
+    let mut distill_task: Option<
+        tokio::task::JoinHandle<(Option<distill::SessionLabels>, Option<String>)>,
+    > = None;
     let mut distill_task_turn_id: i64 = 0;
     let mut distill_task_base_version: i64 = 0;
     let mut last_distill_attempt: u64 = 0;
@@ -210,7 +212,7 @@ pub async fn run_session_in_daemon(
                         let log_dir = crate::config::edge_home().join("logs");
                         if crate::config::ensure_dir(&log_dir).is_ok() {
                             use std::io::Write as _;
-                            let short = crate::util::session_short_code(&p.session_id);
+                            let short = crate::util::session_codename(&p.session_id);
                             let log_path = log_dir.join(format!("{short}.log"));
                             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
                                 let _ = writeln!(f, "{} [distill] ERROR: {}", crate::util::format_local_datetime(now), err_msg);
@@ -333,7 +335,7 @@ pub async fn run_session_in_daemon(
 
 /// Route a mention addressed to agent `me` into the per-session inbox(es) of
 /// `me`'s alive sessions, deduped per-agent across sessions. Returns true if any
-/// row was newly enqueued (so the daemon can wake `wait-for-mention` waiters).
+/// row was newly enqueued (so the daemon can wake any live delivery surfaces).
 ///
 /// Multi-agent and multi-project safe: only sessions whose `agent_pubkey == me`
 /// and `project == m.project` are considered, so a mention to agent A never

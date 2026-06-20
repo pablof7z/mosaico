@@ -61,14 +61,28 @@ pub fn dirty_label(n: u32) -> String {
 
 /// A short, human-targetable prefix of a PUBKEY (its first 8 hex chars).
 /// Only meaningful for pubkeys — never use it to display a session id (use the
-/// `SessionId` newtype, whose `Display` routes through `session_short_code`).
+/// `SessionId` newtype, whose `Display` routes through `session_codename`).
 pub fn pubkey_short(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
-/// Hash a session ID to a unique, stable 6-character code.
-/// Deterministic hash ensures the same session_id always gets the same code.
-pub fn session_short_code(session_id: &str) -> String {
+/// The NATO phonetic alphabet — the word stems of a session codename.
+const CODENAME_WORDS: [&str; 26] = [
+    "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet",
+    "kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo", "sierra", "tango",
+    "uniform", "victor", "whiskey", "xray", "yankee", "zulu",
+];
+
+/// Derive a stable, human-friendly **codename** for a session ID: a NATO
+/// phonetic word plus a four-digit number, e.g. `bravo4217` or `echo0163`.
+/// Replaces the old 6-char hex hash — a codename is just as stable (same id →
+/// same codename) but easy to say aloud and remember.
+///
+/// The space is 26×10000 = 260000 codenames. That is plenty for the sessions a
+/// fabric ever holds, but it is NOT collision-free at scale; it is a
+/// display/addressing convenience, never an identity (the canonical session id
+/// remains the source of truth).
+pub fn session_codename(session_id: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -76,15 +90,16 @@ pub fn session_short_code(session_id: &str) -> String {
     session_id.hash(&mut hasher);
     let hash = hasher.finish();
 
-    // Format as 6-char hex for visual distinction and stable output
-    format!("{:06x}", hash % 0x1_000_000)
+    let word = CODENAME_WORDS[(hash % CODENAME_WORDS.len() as u64) as usize];
+    let num = (hash / CODENAME_WORDS.len() as u64) % 10_000;
+    format!("{word}{num:04}")
 }
 
 /// A session identifier. Wraps the raw id (a UUID-shaped string stored verbatim
 /// in SQLite and carried on the wire) but its `Display` deliberately renders the
-/// stable 6-char `session_short_code`, NOT the raw id. This makes it structurally
-/// impossible to print a session id through `pubkey_short` (the wrong formatter):
-/// any `{session_id}` in a format string yields the short code.
+/// stable `session_codename` (e.g. `bravo4217`), NOT the raw id. This makes it
+/// structurally impossible to print a session id through `pubkey_short` (the
+/// wrong formatter): any `{session_id}` in a format string yields the codename.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct SessionId(String);
@@ -106,7 +121,7 @@ impl SessionId {
 
 impl std::fmt::Display for SessionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&session_short_code(&self.0))
+        f.write_str(&session_codename(&self.0))
     }
 }
 
@@ -172,10 +187,22 @@ mod tests {
     }
 
     #[test]
-    fn session_id_display_uses_short_code() {
+    fn session_id_display_uses_codename() {
         let sid = SessionId::from("local-session");
-        assert_eq!(sid.to_string(), session_short_code("local-session"));
+        assert_eq!(sid.to_string(), session_codename("local-session"));
         assert_eq!(sid.as_str(), "local-session");
+    }
+
+    #[test]
+    fn session_codename_is_word_plus_four_digits() {
+        let code = session_codename("some-session-uuid");
+        // Stable across calls.
+        assert_eq!(code, session_codename("some-session-uuid"));
+        // Shape: a phonetic word stem followed by exactly four digits.
+        let digits: String = code.chars().rev().take(4).collect();
+        assert!(digits.chars().all(|c| c.is_ascii_digit()), "got {code}");
+        let word: String = code[..code.len() - 4].to_string();
+        assert!(CODENAME_WORDS.contains(&word.as_str()), "got {code}");
     }
 
     #[test]

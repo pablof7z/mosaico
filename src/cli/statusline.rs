@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn renders_identity_counts_and_activity() {
         let s = render_statusline(&view(), false);
-        let sid = session_short_code("some-long-uuid");
+        let sid = session_codename("some-long-uuid");
         assert_eq!(
             s,
             format!("claude@kubrick-s-mac [{sid}] ⬡4 ◉9 ✎ refactoring inbox envelope")

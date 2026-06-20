@@ -5,7 +5,9 @@
 //! `tests/nip29_probe.rs` against nip29.f7z.io. Recipe for an owned closed group:
 //!   group_create -> group_lock_closed -> group_put_user (per agent).
 
-use crate::codec::kind1::{kind, KIND_GROUP_CREATE, KIND_GROUP_EDIT_METADATA, KIND_GROUP_PUT_USER};
+use crate::codec::kind1::{
+    kind, KIND_GROUP_CREATE, KIND_GROUP_EDIT_METADATA, KIND_GROUP_PUT_USER, KIND_GROUP_REMOVE_USER,
+};
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 
@@ -40,6 +42,12 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
         .tags([project_tag(project)?, tag(&["p", pubkey, "member"])?]))
+}
+
+/// kind:9001 remove-user removing `pubkey` from the group.
+pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_REMOVE_USER), "")
+        .tags([project_tag(project)?, tag(&["p", pubkey])?]))
 }
 
 /// kind:9000 put-user adding `pubkey` with the `admin` role, granting it admin
@@ -112,6 +120,21 @@ mod tests {
             s.first().map(String::as_str) == Some("p")
                 && s.get(1).map(String::as_str) == Some(member.as_str())
                 && s.get(2).map(String::as_str) == Some("member")
+        }));
+    }
+
+    #[test]
+    fn group_remove_user_tags_member_without_role() {
+        let member = Keys::generate().public_key().to_hex();
+        let b = group_remove_user("tenex-edge", &member).unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_REMOVE_USER);
+        assert!(has_tag(&ev, "h", "tenex-edge"));
+        assert!(ev.tags.iter().any(|t| {
+            let s = t.as_slice();
+            s.first().map(String::as_str) == Some("p")
+                && s.get(1).map(String::as_str) == Some(member.as_str())
+                && s.get(2).is_none()
         }));
     }
 

@@ -243,12 +243,12 @@ async fn hook_dispatch(
                 // Programmatic host with no id of its own: hand the daemon-minted
                 // canonical id back on stdout so the caller can adopt it for
                 // subsequent hooks. Return JSON with both session_id and
-                // short_code so the caller can display the short code (matching
+                // codename so the caller can display the codename (matching
                 // `who` output).
-                let short_code = crate::util::session_short_code(&canonical);
+                let codename = crate::util::session_codename(&canonical);
                 let json = serde_json::json!({
                     "session_id": canonical,
-                    "short_code": short_code,
+                    "codename": codename,
                 });
                 println!("{json}");
             }
@@ -383,12 +383,41 @@ async fn report_observation(
         "tmux_pane": tmux_pane,
         "tmux_socket": tmux_socket,
     });
-    let v = daemon_call_async("session_start", params).await?;
+    let v = super::daemon_call_async_with_items("session_start", params, |item| {
+        render_init_progress(&item);
+    })
+    .await?;
     let sid = v["session_id"]
         .as_str()
         .context("daemon returned no session_id")?
         .to_string();
     Ok(sid)
+}
+
+fn render_init_progress(item: &serde_json::Value) {
+    if std::env::var("TENEX_EDGE_INIT_PROGRESS")
+        .ok()
+        .as_deref()
+        == Some("0")
+    {
+        return;
+    }
+    if item.get("kind").and_then(|v| v.as_str()) != Some("init_progress") {
+        return;
+    }
+    let elapsed = item
+        .get("elapsed_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_default();
+    let phase = item
+        .get("phase")
+        .and_then(|v| v.as_str())
+        .unwrap_or("init");
+    let message = item
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    eprintln!("[tenex-edge init +{elapsed}ms] {phase}: {message}");
 }
 
 // ── process-tree PID search (for harnesses like Codex that omit their PID) ───

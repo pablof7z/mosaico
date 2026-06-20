@@ -57,7 +57,7 @@ pub struct MaterializationOutcome {
     /// routed mentions this is the ENRICHED event (sender slug resolved from
     /// the store), so tail consumers never see an empty slug.
     pub tail: Option<crate::domain::DomainEvent>,
-    /// True when a mention was actually routed and waiters should be woken.
+    /// True when a mention was routed and live delivery surfaces should be notified.
     pub wake_mentions: bool,
     /// Canonical thread id an inbound message was filed under, when known.
     /// Tail consumers use this for exact thread attribution.

@@ -23,12 +23,12 @@ use crate::runtime::{self, route_mention_into_with_id, EngineParams};
 use crate::session::{derive_status, Harness, SessionObservation, SessionSnapshot};
 use crate::state::{ChatInboxRow, ChatLogRow, InboxRow, Store};
 use crate::transport::Transport;
-use crate::util::{now_secs, pubkey_short, session_short_code, SessionId};
+use crate::util::{now_secs, pubkey_short, session_codename, SessionId};
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::{Event, Keys, RelayMessage, RelayPoolNotification};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
@@ -73,7 +73,6 @@ pub struct DaemonState {
     hosted: Mutex<HashMap<String, HostedAgent>>,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     subscribed_projects: Mutex<Vec<String>>,
-    mention_notify: Notify,
     /// Structured tail event broadcast replacing the old DomainEvent bus.
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
     open_clients: Mutex<u64>,
@@ -180,7 +179,6 @@ pub async fn run() -> Result<()> {
         hosted: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
         subscribed_projects: Mutex::new(Vec::new()),
-        mention_notify: Notify::new(),
         tail_tx: tokio::sync::broadcast::channel(512).0,
         open_clients: Mutex::new(0),
         liveness_changed: Notify::new(),
@@ -205,7 +203,6 @@ pub async fn run() -> Result<()> {
         });
     }
 
-    reconcile_sessions(&state).await;
     spawn_demux(state.clone());
     spawn_pruner(state.clone());
     spawn_idle_watcher(state.clone());
@@ -232,6 +229,11 @@ pub async fn run() -> Result<()> {
                 }
             }
         }
+    });
+
+    let reconcile_state = state.clone();
+    tokio::spawn(async move {
+        reconcile_sessions(&reconcile_state).await;
     });
 
     let mut sigterm =
@@ -332,9 +334,8 @@ async fn serve_connection(state: Arc<DaemonState>, stream: UnixStream) -> Result
                 handle_chat_read(&state, req.id, &req.params, &mut writer).await?;
                 break; // chat_read may own the connection for --live
             }
-            "wait_for_mention" => {
-                let resp = handle_wait_for_mention(&state, &req).await;
-                write_json(&mut writer, &resp).await?;
+            "session_start" => {
+                handle_session_start(&state, req.id, &req.params, &mut writer).await?;
             }
             _ => {
                 let resp = dispatch(&state, &req).await;
@@ -362,13 +363,68 @@ async fn write_json<T: serde::Serialize, W: AsyncWriteExt + Unpin>(w: &mut W, v:
     Ok(())
 }
 
+#[derive(Clone)]
+struct InitProgress {
+    started: Instant,
+    tx: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+}
+
+impl InitProgress {
+    fn new(tx: tokio::sync::mpsc::UnboundedSender<serde_json::Value>) -> Self {
+        Self {
+            started: Instant::now(),
+            tx,
+        }
+    }
+
+    fn emit(&self, phase: &str, message: impl Into<String>) {
+        let _ = self.tx.send(serde_json::json!({
+            "kind": "init_progress",
+            "phase": phase,
+            "message": message.into(),
+            "elapsed_ms": self.started.elapsed().as_millis() as u64,
+        }));
+    }
+}
+
+async fn handle_session_start<W: AsyncWriteExt + Unpin>(
+    state: &Arc<DaemonState>,
+    id: u64,
+    params: &serde_json::Value,
+    writer: &mut W,
+) -> Result<()> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = InitProgress::new(tx);
+    let fut = rpc_session_start(state, params, Some(progress));
+    tokio::pin!(fut);
+
+    let result = loop {
+        tokio::select! {
+            Some(item) = rx.recv() => {
+                write_json(writer, &Response::item(id, item)).await?;
+            }
+            result = &mut fut => break result,
+        }
+    };
+
+    while let Ok(item) = rx.try_recv() {
+        write_json(writer, &Response::item(id, item)).await?;
+    }
+
+    let resp = match result {
+        Ok(v) => Response::ok(id, v),
+        Err(e) => Response::err(id, "rpc_error", format!("{e:#}")),
+    };
+    write_json(writer, &resp).await
+}
+
 // ── dispatch (one-shot verbs) ────────────────────────────────────────────────
 
 async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
         "who" => rpc_who(state, &req.params),
-        "session_start" => rpc_session_start(state, &req.params).await,
+        "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params),
         "send_message" => rpc_send_message(state, &req.params).await,
         "chat_write" => rpc_chat_write(state, &req.params).await,
@@ -381,9 +437,13 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
         "project_edit" => rpc_project_edit(state, &req.params).await,
+        "project_members" => rpc_project_members(state, &req.params).await,
         "project_add" => rpc_project_add(state, &req.params).await,
+        "project_remove" => rpc_project_remove(state, &req.params).await,
+        "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "inbox_reply" => rpc_inbox_reply(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
+        "whoami" => rpc_whoami(state, &req.params),
         "list_threads" => rpc_list_threads(state, &req.params).await,
         "messages" => rpc_messages(state, &req.params),
         "thread_meta" => rpc_thread_meta(state, &req.params),
@@ -418,6 +478,23 @@ fn resolve_session(
     cwd: Option<&str>,
     agent: Option<&str>,
 ) -> Result<crate::state::SessionRecord> {
+    resolve_session_inner(state, explicit, env_session, cwd, agent, true)
+}
+
+/// Resolve the caller's session. `allow_project_fallback` controls the LAST
+/// resort: when the caller carries no session/agent signal at all, `true` picks
+/// the project's latest-alive session (fine for host-facing commands run from a
+/// repo), while `false` errors instead — used by `whoami`, which is only
+/// meaningful when actually run *as* an agent and must not silently bind to some
+/// arbitrary sibling session when run from a bare terminal.
+fn resolve_session_inner(
+    state: &Arc<DaemonState>,
+    explicit: Option<&str>,
+    env_session: Option<&str>,
+    cwd: Option<&str>,
+    agent: Option<&str>,
+    allow_project_fallback: bool,
+) -> Result<crate::state::SessionRecord> {
     if let Some(id) = explicit.filter(|s| !s.is_empty()) {
         return state
             .with_store(|s| s.get_session(id))
@@ -441,6 +518,11 @@ fn resolve_session(
         }
         anyhow::bail!(
             "no active tenex-edge session for agent {agent:?} in project {project:?} (run session-start, or pass --session)"
+        );
+    }
+    if !allow_project_fallback {
+        anyhow::bail!(
+            "not running as a tenex-edge agent: no --session, TENEX_EDGE_SESSION, or TENEX_EDGE_AGENT in scope"
         );
     }
     state
@@ -524,11 +606,21 @@ struct SessionStartParams {
 async fn rpc_session_start(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
+    progress: Option<InitProgress>,
 ) -> Result<serde_json::Value> {
+    if let Some(prog) = &progress {
+        prog.emit("session_start", "parsing hook payload");
+    }
     let p: SessionStartParams =
         serde_json::from_value(params.clone()).context("parsing session_start params")?;
     let edge = config::edge_home();
     config::ensure_dir(&edge)?;
+    if let Some(prog) = &progress {
+        prog.emit(
+            "identity",
+            format!("loading local key for agent {}", p.agent),
+        );
+    }
     let id = identity::load_or_create(&edge, &p.agent, now_secs())?;
     let cwd = p
         .cwd
@@ -537,6 +629,12 @@ async fn rpc_session_start(
     let project = crate::project::resolve(&cwd);
     let rel_cwd = crate::project::rel_cwd(&cwd);
     let now = now_secs();
+    if let Some(prog) = &progress {
+        prog.emit(
+            "project",
+            format!("resolved project {project} from {}", cwd.display()),
+        );
+    }
 
     // Normalize the hook's identity inputs. claude-code/codex adopt their native
     // `session_id` (it doubles as the resume token); opencode supplies no
@@ -574,6 +672,9 @@ async fn rpc_session_start(
         watch_pid: p.watch_pid,
         observed_at: now,
     };
+    if let Some(prog) = &progress {
+        prog.emit("session_registry", "registering or reasserting session");
+    }
     // Canonical identity: the daemon MINTS a stable session id; the harness id /
     // resume token / pane / pid become rows in `session_aliases`. A reused
     // pane/pid slot occupied by a *different* logical session supersedes the old
@@ -581,6 +682,15 @@ async fn rpc_session_start(
     // harness id as the identity.
     let snapshot = state.with_store(|s| s.register_or_reassert_session(&obs))?;
     let session_id = snapshot.session_id.as_str().to_owned();
+    if let Some(prog) = &progress {
+        prog.emit(
+            "session_registry",
+            format!(
+                "session {} registered",
+                crate::util::session_codename(&session_id)
+            ),
+        );
+    }
     // The registration enqueued a kind:30315 publish — nudge the drainer.
     state.status_outbox_notify.notify_waiters();
 
@@ -665,27 +775,67 @@ async fn rpc_session_start(
         }
     });
 
+    // A session may acquire or refresh its tmux endpoint after unread rows were
+    // already stored. Ring from the daemon on endpoint registration too, not
+    // only from inbox write paths, so delivery does not depend on the tmux TUI
+    // running or on a later mention event.
+    if tmux_pane.is_some() {
+        crate::tmux::ring_doorbells(state.clone());
+    }
+
     // Idempotent re-start (session reassert): the engine task already runs.
     if state.sessions.lock().unwrap().contains_key(&session_id) {
+        if let Some(prog) = &progress {
+            prog.emit("session_start", "existing engine is already running");
+        }
         return Ok(serde_json::json!({
             "session_id": session_id,
-            "short_code": crate::util::session_short_code(&session_id),
+            "codename": crate::util::session_codename(&session_id),
         }));
     }
 
     // Make sure the project's NIP-29 group exists and this agent is a member
     // BEFORE the engine starts publishing, so its presence lands in a group it
     // already belongs to. Best-effort: never block a session from starting.
-    state
-        .provider
-        .open_project(&project, &id.pubkey_hex())
-        .await;
+    if let Some(prog) = &progress {
+        prog.emit(
+            "nip29",
+            "checking NIP-29 group state and membership on the relay",
+        );
+    }
+    if let Some(init_progress) = progress.clone() {
+        state
+            .provider
+            .open_project_with_progress(&project, &id.pubkey_hex(), move |message| {
+                init_progress.emit("nip29", message);
+            })
+            .await;
+    } else {
+        state
+            .provider
+            .open_project(&project, &id.pubkey_hex())
+            .await;
+    }
     // Keep the relay-authored group state (39000/39001/39002) subscribed so the
     // membership cache stays current — "check which groups we own at all times".
+    if let Some(prog) = &progress {
+        prog.emit(
+            "subscription",
+            "opening or refreshing project subscriptions",
+        );
+    }
     if let Err(e) = ensure_subscription(state, &project).await {
         if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
             eprintln!("[daemon] ensure_subscription({project}) failed: {e:#}");
         }
+        if let Some(prog) = &progress {
+            prog.emit(
+                "subscription",
+                format!("subscription setup failed but session will continue: {e:#}"),
+            );
+        }
+    } else if let Some(prog) = &progress {
+        prog.emit("subscription", "project subscription is active");
     }
 
     let ep = engine_params_for(
@@ -697,7 +847,13 @@ async fn rpc_session_start(
         &rel_cwd,
         p.watch_pid,
     );
+    if let Some(prog) = &progress {
+        prog.emit("engine", "starting session engine and initial publishers");
+    }
     spawn_session(state, ep).await?;
+    if let Some(prog) = &progress {
+        prog.emit("engine", "session engine started");
+    }
 
     state.emit_tail(TailEvent::Sess {
         ts: now_secs(),
@@ -780,7 +936,7 @@ async fn rpc_session_start(
 
     Ok(serde_json::json!({
         "session_id": session_id,
-        "short_code": crate::util::session_short_code(&session_id),
+        "codename": crate::util::session_codename(&session_id),
     }))
 }
 
@@ -827,6 +983,14 @@ fn rpc_session_end(
 #[derive(serde::Deserialize, Default)]
 struct SendMessageParams {
     recipient: String,
+    /// Addressing mode: `"new_session"` (recipient is an agent slug to spawn) or
+    /// `"session"` (recipient is an existing session id/codename). Defaults to
+    /// `"session"` for back-compat with any caller that omits it.
+    #[serde(default = "default_send_mode")]
+    mode: String,
+    /// Project for `new_session` mode; defaults to the sender's project.
+    #[serde(default)]
+    project: Option<String>,
     message: String,
     #[serde(default)]
     subject: Option<String>,
@@ -846,6 +1010,10 @@ struct SendMessageParams {
     thread_id: Option<String>,
 }
 
+fn default_send_mode() -> String {
+    "session".to_string()
+}
+
 async fn rpc_send_message(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -863,7 +1031,36 @@ async fn rpc_send_message(
     )?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
 
-    let recipient = state.with_store(|s| resolve_recipient(s, &rec.project, &p.recipient))?;
+    // Resolve the recipient and decide whether this send spawns a fresh session.
+    // Two explicit modes (from the `--to-new-session` / `--to-session` flags):
+    //   • new_session: `recipient` is an agent slug. Mint that agent's stable
+    //     identity (works even if it has never run here), target NO existing
+    //     session, and spawn a new harness window — the message is pre-loaded
+    //     into the new session's inbox via the pending-spawn mention.
+    //   • session: `recipient` is an existing session id/codename. Require that
+    //     it resolves to a live session; never spawn.
+    let (recipient, spawn_new): (ResolvedRecipient, Option<(String, String)>) =
+        if p.mode == "new_session" {
+            let agent_slug = p.recipient.clone();
+            let project = p.project.clone().unwrap_or_else(|| rec.project.clone());
+            let target_id =
+                identity::load_or_create(&config::edge_home(), &agent_slug, now_secs())
+                    .with_context(|| format!("no such agent {agent_slug:?}"))?;
+            let resolved = ResolvedRecipient {
+                pubkey: target_id.pubkey_hex(),
+                target_session: None,
+                project: project.clone(),
+            };
+            (resolved, Some((agent_slug, project)))
+        } else {
+            // `session` mode (the default): resolve the recipient as-is. The CLI
+            // only ever passes a session id/codename here (`--to-session`), but the
+            // RPC stays flexible — a raw pubkey/`slug@project` still resolves
+            // untargeted, which is the path remote inbound mentions exercise. Never
+            // spawns.
+            let resolved = state.with_store(|s| resolve_recipient(s, &rec.project, &p.recipient))?;
+            (resolved, None)
+        };
 
     // Keep the message body accessible after the intent is built.
     let body = p.message.clone();
@@ -929,7 +1126,10 @@ async fn rpc_send_message(
         detail: None,
     });
 
-    if is_local {
+    // Skip same-machine fan-out for new-session sends: the message belongs to the
+    // session we are about to spawn (delivered via the pending-spawn mention),
+    // not to the agent's other live sessions.
+    if is_local && spawn_new.is_none() {
         // Reconstruct the Mention for the legacy local-delivery path. Fields
         // must be byte-identical to what provider.send encoded and published.
         let mention = Mention {
@@ -951,46 +1151,28 @@ async fn rpc_send_message(
             )
         });
         if routed {
-            state.mention_notify.notify_waiters();
             crate::tmux::ring_doorbells(state.clone());
         }
     }
 
-    // SPAWN-ON-SEND: when the recipient is addressed as `slug@project` (no
-    // specific target session), and the recipient is one of OUR locally-owned
-    // agents, spawn a fresh tmux window for it so the message is actually seen.
-    // Gated on `get_local_agent_slug_by_pubkey` (the "is locally owned?"
-    // predicate) so we never try to spawn a remote agent.
-    if recipient.target_session.is_none() {
-        let to_pk = recipient.pubkey.clone();
-        let project2 = recipient.project.clone();
-        let slug_opt = state.with_store(|s| s.get_local_agent_slug_by_pubkey(&to_pk));
-        if let Some(slug) = slug_opt {
-            let state2 = Arc::clone(state);
-            // Capture the triggering mention so the spawned session's inbox is
-            // pre-loaded before the harness receives its first prompt.
-            let pending_mention = crate::tmux::PendingMention {
-                event_id: receipt.native_event_id.clone(),
-                from_pubkey: id.pubkey_hex(),
-                from_slug: rec.agent_slug.clone(),
-                from_session: rec.session_id.clone(),
-                project: recipient.project.clone(),
-                body: body.clone(),
-                created_at: now_secs(),
-            };
-            tokio::spawn(async move {
-                match crate::tmux::spawn_agent(&state2, &slug, &project2).await {
-                    Ok(pane_id) => {
-                        crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
-                    }
-                    Err(e) => {
-                        if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                            eprintln!("[tmux] spawn failed for {slug}@{project2}: {e:#}");
-                        }
-                    }
-                }
-            });
-        }
+    // NEW-SESSION SPAWN: `--to-new-session <agent>` spawns a fresh harness window
+    // and pre-loads the triggering mention into the new session's inbox (consumed
+    // when the harness fires `session-start`). Awaited (not detached) so a spawn
+    // failure — e.g. an unknown/unspawnable agent — surfaces to the caller.
+    if let Some((slug, project2)) = spawn_new {
+        let pending_mention = crate::tmux::PendingMention {
+            event_id: receipt.native_event_id.clone(),
+            from_pubkey: id.pubkey_hex(),
+            from_slug: rec.agent_slug.clone(),
+            from_session: rec.session_id.clone(),
+            project: recipient.project.clone(),
+            body: body.clone(),
+            created_at: now_secs(),
+        };
+        let pane_id = crate::tmux::spawn_agent(state, &slug, &project2, Vec::new())
+            .await
+            .with_context(|| format!("spawning new session for {slug}@{project2}"))?;
+        crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
     }
 
     Ok(
@@ -1109,7 +1291,6 @@ async fn rpc_chat_write(
         routed
     });
     if routed {
-        state.mention_notify.notify_waiters();
         crate::tmux::ring_doorbells(state.clone());
     }
 
@@ -1356,9 +1537,9 @@ fn resolve_recipient(store: &Store, my_project: &str, target: &str) -> Result<Re
                 project: s.project,
             });
         }
-        // Try matching against hash-based session short codes (from `who` display).
-        // This is a fallback for when users copy session codes from `who` output.
-        if let Some(found) = find_session_by_hash(store, target)? {
+        // Try matching against session codenames (from `who` display). This is a
+        // fallback for when users copy a session codename from `who` output.
+        if let Some(found) = find_session_by_codename(store, target)? {
             return Ok(ResolvedRecipient {
                 pubkey: found.pubkey,
                 target_session: Some(found.session_id),
@@ -1382,15 +1563,15 @@ struct SessionMatch {
     project: String,
 }
 
-/// Try to find a session (peer or own) matching the given hash code.
-/// Hash codes are what `who` displays for sessions (6-char hex strings).
-fn find_session_by_hash(store: &Store, hash_code: &str) -> Result<Option<SessionMatch>> {
-    let target_code = hash_code.to_lowercase();
+/// Try to find a session (peer or own) matching the given codename.
+/// Codenames are what `who` displays for sessions (e.g. `bravo4217`).
+fn find_session_by_codename(store: &Store, codename: &str) -> Result<Option<SessionMatch>> {
+    let target_code = codename.to_lowercase();
 
     // Search peer sessions
     if let Ok(peers) = store.list_peer_sessions(None, 0) {
         for peer in peers {
-            if session_short_code(&peer.session_id).to_lowercase() == target_code {
+            if session_codename(&peer.session_id).to_lowercase() == target_code {
                 return Ok(Some(SessionMatch {
                     pubkey: peer.pubkey,
                     session_id: peer.session_id,
@@ -1403,7 +1584,7 @@ fn find_session_by_hash(store: &Store, hash_code: &str) -> Result<Option<Session
     // Search own sessions
     if let Ok(sessions) = store.list_my_live_sessions(0) {
         for session in sessions {
-            if session_short_code(&session.session_id).to_lowercase() == target_code {
+            if session_codename(&session.session_id).to_lowercase() == target_code {
                 return Ok(Some(SessionMatch {
                     pubkey: session.agent_pubkey,
                     session_id: session.session_id,
@@ -1827,6 +2008,67 @@ async fn rpc_project_edit(
     }))
 }
 
+// ── project_members ──────────────────────────────────────────────────────────
+
+/// Return the cached NIP-29 membership roster for a project. Before reading the
+/// cache, try to refresh kind:39002 from the relay so interactive project edits
+/// start from the relay's current roster rather than only local optimistic state.
+async fn rpc_project_members(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        project: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("project_members params")?;
+    refresh_project_members_cache(state, &p.project).await;
+
+    let members = state
+        .with_store(|s| s.list_group_members(&p.project))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(pubkey, role)| serde_json::json!({ "pubkey": pubkey, "role": role }))
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "project": p.project,
+        "members": members,
+    }))
+}
+
+async fn refresh_project_members_cache(state: &Arc<DaemonState>, project: &str) {
+    use crate::codec::kind1::{kind, KIND_GROUP_MEMBERS};
+    use nostr_sdk::prelude::Filter;
+
+    let filter = Filter::new()
+        .kind(kind(KIND_GROUP_MEMBERS))
+        .identifier(project)
+        .limit(5);
+    let Ok(events) = state.transport.fetch(filter, Duration::from_secs(5)).await else {
+        return;
+    };
+    let Some(ev) = events.iter().max_by_key(|e| e.created_at.as_secs()) else {
+        return;
+    };
+    let members = ev
+        .tags
+        .iter()
+        .filter_map(|t| {
+            let s = t.as_slice();
+            if s.first().map(String::as_str) != Some("p") {
+                return None;
+            }
+            let pubkey = s.get(1)?.clone();
+            let role = s.get(2).cloned().unwrap_or_else(|| "member".to_string());
+            Some((pubkey, role))
+        })
+        .collect::<Vec<_>>();
+    state.with_store(|s| {
+        s.replace_group_members(project, &members, now_secs()).ok();
+    });
+}
+
 // ── statusline ───────────────────────────────────────────────────────────────
 
 /// How long a drained mention keeps showing on the statusline as "recently
@@ -1916,6 +2158,69 @@ fn rpc_statusline(
             "pending": pending_json,
             "recent": recent_json,
             "distill_error": distill_error,
+        }))
+    })
+}
+
+// ── whoami (this session's own identity) ──────────────────────────────────────
+
+/// `whoami`: the calling session's own identity card. Resolves the current
+/// session the same way `statusline`/`inbox` do (explicit → env → cwd/agent),
+/// then returns who it is on the fabric: agent slug, the targetable session
+/// codename, the canonical session id, project, host, pubkey (hex + npub), and
+/// its current working/title status. Pure read — no writes, like `statusline`.
+fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
+    let p: StatuslineParams = serde_json::from_value(params.clone()).unwrap_or_default();
+    // Strict: no bare-project fallback. `whoami` answers "which agent am I", so
+    // when run outside an agent (no session/agent signal) it must error, not
+    // silently report some unrelated sibling session in the cwd's project.
+    let rec = resolve_session_inner(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+        false,
+    )?;
+    let now = now_secs();
+    let host = state.host.clone();
+    let npub = {
+        use nostr_sdk::prelude::ToBech32;
+        nostr_sdk::PublicKey::from_hex(&rec.agent_pubkey)
+            .ok()
+            .and_then(|pk| pk.to_bech32().ok())
+    };
+    state.with_store(|s| {
+        let is_member = s
+            .is_group_member(&rec.project, &rec.agent_pubkey)
+            .unwrap_or(true);
+        let (working, status) = s
+            .local_session_snapshot(&rec.session_id)
+            .ok()
+            .flatten()
+            .map(|snap| {
+                let d = derive_status(&snap, now);
+                (d.busy, d.title)
+            })
+            .unwrap_or((false, String::new()));
+        let pending = s.peek_inbox(&rec.session_id).unwrap_or_default().len()
+            + s.peek_chat_mentions(&rec.session_id)
+                .unwrap_or_default()
+                .len();
+        Ok(serde_json::json!({
+            "agent": rec.agent_slug,
+            "session_id": rec.session_id,
+            "codename": crate::util::session_codename(&rec.session_id),
+            "project": rec.project,
+            "host": host,
+            "rel_cwd": rec.rel_cwd,
+            "pubkey": rec.agent_pubkey,
+            "npub": npub,
+            "is_member": is_member,
+            "working": working,
+            "status": status,
+            "pending": pending,
+            "created_at": rec.created_at,
         }))
     })
 }
@@ -2050,7 +2355,6 @@ async fn rpc_inbox_reply(
             )
         });
         if routed {
-            state.mention_notify.notify_waiters();
             crate::tmux::ring_doorbells(state.clone());
         }
     }
@@ -2154,6 +2458,85 @@ async fn rpc_project_add(
     }))
 }
 
+// ── project_remove ───────────────────────────────────────────────────────────
+
+/// Publish a NIP-29 kind:9001 (remove-user) event to remove a pubkey from the
+/// group. Accepts hex, npub (bech32), or a NIP-05 address (user@domain.com).
+async fn rpc_project_remove(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use nostr_sdk::prelude::Keys;
+
+    #[derive(serde::Deserialize)]
+    struct P {
+        project: String,
+        pubkey: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("project_remove params")?;
+
+    let nsec = state
+        .cfg
+        .user_nsec
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
+    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+
+    let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
+
+    let builder = crate::fabric::nip29::lifecycle::group_remove_user(&p.project, &pubkey_hex)?;
+    state
+        .transport
+        .publish_signed_checked(builder, &user_keys)
+        .await?;
+
+    state.with_store(|s| {
+        let ts = now_secs();
+        s.remove_group_member(&p.project, &pubkey_hex).ok();
+        s.revoke_member(&p.project, &pubkey_hex, ts).ok();
+    });
+
+    Ok(serde_json::json!({
+        "project": p.project,
+        "pubkey": pubkey_hex,
+    }))
+}
+
+// ── publish_profile ───────────────────────────────────────────────────────────
+
+/// Publish an agent's kind:0 identity card (Profile) immediately, signed by the
+/// agent's OWN keys (loaded from the local keystore by slug). Used by
+/// `tenex-edge agent add` so a freshly-minted agent is discoverable on the
+/// indexer relay without waiting for its first session — identical in shape to
+/// the Profile the session engine publishes on session start (runtime.rs).
+async fn rpc_publish_profile(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        slug: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("publish_profile params")?;
+
+    let edge_home = crate::config::edge_home();
+    let id = crate::identity::load_or_create(&edge_home, &p.slug, now_secs())
+        .with_context(|| format!("loading agent {}", p.slug))?;
+
+    let ev = DomainEvent::Profile(crate::domain::Profile {
+        agent: crate::domain::AgentRef::new(id.pubkey_hex(), p.slug.clone()),
+        host: state.host.clone(),
+        owners: state.owners.clone(),
+    });
+    let event_id = state.provider.publish(&ev, &id.keys).await?;
+
+    Ok(serde_json::json!({
+        "slug": p.slug,
+        "pubkey": id.pubkey_hex(),
+        "event_id": event_id.to_hex(),
+    }))
+}
+
 async fn resolve_pubkey_hex(input: &str) -> Result<String> {
     use nostr_sdk::prelude::PublicKey;
 
@@ -2251,97 +2634,6 @@ fn rpc_thread_meta(
     }
 }
 
-// ── wait_for_mention (long-poll) ─────────────────────────────────────────────
-
-async fn handle_wait_for_mention(state: &Arc<DaemonState>, req: &Request) -> Response {
-    #[derive(serde::Deserialize, Default)]
-    struct P {
-        #[serde(default)]
-        session: Option<String>,
-        #[serde(default)]
-        env_session: Option<String>,
-        #[serde(default)]
-        cwd: Option<String>,
-        #[serde(default = "default_timeout")]
-        timeout: u64,
-        #[serde(default)]
-        agent: Option<String>,
-    }
-    fn default_timeout() -> u64 {
-        300
-    }
-    let p: P = serde_json::from_value(req.params.clone()).unwrap_or_default();
-    let rec = match resolve_session(
-        state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-    ) {
-        Ok(r) => r,
-        Err(e) => return Response::err(req.id, "rpc_error", format!("{e:#}")),
-    };
-
-    // Arm the waiter so the tmux doorbell dispatcher skips this session while it
-    // is actively blocked here — the agent is already listening, so there is no
-    // need to type a nudge into its pane. The guard disarms on every return path.
-    crate::tmux::arm_waiter(&rec.session_id);
-    struct WaiterGuard(String);
-    impl Drop for WaiterGuard {
-        fn drop(&mut self) {
-            crate::tmux::disarm_waiter(&self.0);
-        }
-    }
-    let _waiter_guard = WaiterGuard(rec.session_id.clone());
-
-    let _ = fetch_mentions_into_inbox(state, &rec).await;
-
-    let deadline = if p.timeout > 0 {
-        Some(tokio::time::Instant::now() + Duration::from_secs(p.timeout))
-    } else {
-        None
-    };
-
-    loop {
-        let rows = state.with_store(|s| {
-            let rows = s.drain_inbox(&rec.session_id).unwrap_or_default();
-            for r in &rows {
-                s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
-                    .ok();
-            }
-            rows
-        });
-        if !rows.is_empty() {
-            let rows_json = rows_to_json(&rows, &state.host);
-            return Response::ok(req.id, serde_json::json!({ "rows": rows_json }));
-        }
-        // Park until a mention is routed or a short timeout for re-check.
-        let wait = state.mention_notify.notified();
-        let timed_out = match deadline {
-            Some(d) => {
-                let now = tokio::time::Instant::now();
-                if now >= d {
-                    true
-                } else {
-                    tokio::select! {
-                        _ = wait => false,
-                        _ = tokio::time::sleep_until(d.min(now + Duration::from_millis(500))) => {
-                            tokio::time::Instant::now() >= d
-                        }
-                    }
-                }
-            }
-            None => {
-                wait.await;
-                false
-            }
-        };
-        if timed_out {
-            return Response::ok(req.id, serde_json::json!({ "rows": [] }));
-        }
-    }
-}
-
 // ── chat read (backfill + optional live stream) ───────────────────────────────
 
 #[derive(serde::Deserialize, Default)]
@@ -2367,9 +2659,9 @@ async fn handle_chat_read<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
 ) -> Result<()> {
     let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let project = p.project.unwrap_or_else(|| {
-        crate::project::resolve(&std::env::current_dir().unwrap_or_default())
-    });
+    let project = p
+        .project
+        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
     let since = p.since.unwrap_or(0);
     let offset = p.offset.unwrap_or(0);
 
@@ -2695,7 +2987,6 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         }
     }
     if outcome.wake_mentions {
-        state.mention_notify.notify_waiters();
         crate::tmux::ring_doorbells(state.clone());
     }
 }
@@ -2879,7 +3170,6 @@ async fn fetch_mentions_into_inbox(
     let owners = state.owners.clone();
     let wake_count = state.provider.catch_up_mentions(rec, &owners).await?;
     if wake_count > 0 {
-        state.mention_notify.notify_waiters();
         crate::tmux::ring_doorbells(state.clone());
     }
     Ok(())
@@ -2977,7 +3267,11 @@ fn is_idle(state: &Arc<DaemonState>) -> bool {
 /// Build the wire `Status` for one snapshot, re-arming the NIP-40 expiration to
 /// `now + STATUS_TTL_SECS`. Runs the SHARED `derive_status` projection so an idle
 /// session publishes a blanked activity (only the persistent title survives).
-fn status_from_snapshot(snap: &SessionSnapshot, now: u64) -> crate::domain::Status {
+fn status_from_snapshot(
+    snap: &SessionSnapshot,
+    now: u64,
+    thread_root_id: Option<String>,
+) -> crate::domain::Status {
     let d = derive_status(snap, now);
     crate::domain::Status {
         agent: crate::domain::AgentRef::new(snap.agent_pubkey.clone(), snap.agent_slug.clone()),
@@ -2989,7 +3283,17 @@ fn status_from_snapshot(snap: &SessionSnapshot, now: u64) -> crate::domain::Stat
         busy: d.busy,
         rel_cwd: snap.rel_cwd.clone(),
         expires_at: Some(now + crate::domain::STATUS_TTL_SECS),
+        thread_root_id,
     }
+}
+
+/// Look up a session's conversation thread root for the kind:30315 link, or
+/// `None` before the first prompt has been recorded.
+fn thread_root_for(state: &Arc<DaemonState>, session_id: &str) -> Option<String> {
+    state.with_store(|s| {
+        let (root, _) = s.get_thread_event_ids(session_id);
+        (!root.is_empty()).then_some(root)
+    })
 }
 
 /// Heartbeat re-arm: every `HEARTBEAT_SECS`, re-publish the current kind:30315 for
@@ -3013,7 +3317,8 @@ fn spawn_status_heartbeat_publisher(state: Arc<DaemonState>) {
                     Some(k) => k,
                     None => continue,
                 };
-                let status = status_from_snapshot(&snap, now);
+                let root = thread_root_for(&state, snap.session_id.as_str());
+                let status = status_from_snapshot(&snap, now, root);
                 let _ = state.provider.set_status(&status, &keys).await;
             }
         }
@@ -3053,7 +3358,8 @@ fn spawn_status_outbox_drainer(state: Arc<DaemonState>) {
                             continue;
                         }
                     };
-                    let status = status_from_snapshot(&item.snapshot, now);
+                    let root = thread_root_for(&state, item.snapshot.session_id.as_str());
+                    let status = status_from_snapshot(&item.snapshot, now, root);
                     match state.provider.set_status(&status, &keys).await {
                         Ok(eid) => {
                             state.with_store(|s| {

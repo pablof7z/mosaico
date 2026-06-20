@@ -85,6 +85,8 @@ pub(super) async fn rpc_tmux_send(
 struct TmuxSpawnParams {
     agent: String,
     project: String,
+    #[serde(default)]
+    command: Vec<String>,
 }
 
 pub(super) async fn rpc_tmux_spawn(
@@ -93,7 +95,7 @@ pub(super) async fn rpc_tmux_spawn(
 ) -> Result<serde_json::Value> {
     let p: TmuxSpawnParams =
         serde_json::from_value(params.clone()).context("parsing tmux_spawn params")?;
-    let pane_id = crate::tmux::spawn_agent(state, &p.agent, &p.project).await?;
+    let pane_id = crate::tmux::spawn_agent(state, &p.agent, &p.project, p.command).await?;
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))
 }
 
@@ -161,7 +163,8 @@ pub(super) async fn rpc_tmux_resume(
         serde_json::from_value(params.clone()).context("parsing tmux_resume params")?;
 
     // Resolve including dead sessions: exact id (get_session) first, then a
-    // session-id prefix — resolve_session only matches alive rows by cwd/agent.
+    // session-id prefix, then the codename the TUI displays (e.g. `bravo4217`) —
+    // resolve_session only matches alive rows by cwd/agent.
     let rec = match state
         .with_store(|s| s.get_session(&p.session))
         .ok()
@@ -172,6 +175,7 @@ pub(super) async fn rpc_tmux_resume(
             .with_store(|s| s.find_session_by_prefix(&p.session))
             .ok()
             .flatten()
+            .or_else(|| resume_by_codename(state, &p.session))
             .with_context(|| format!("no session matching {:?}", p.session))?,
     };
 
@@ -200,6 +204,21 @@ pub(super) async fn rpc_tmux_resume(
         })),
         Err(e) => Ok(serde_json::json!({ "error": format!("{e:#}") })),
     }
+}
+
+/// Resolve a session by the codename the TUI displays (e.g. `bravo4217`), scanning
+/// recent local sessions (including dead rows) so a user can copy `[session
+/// bravo4217]` straight into `tmux resume`. Case-insensitive; first match wins.
+fn resume_by_codename(state: &Arc<DaemonState>, target: &str) -> Option<crate::state::SessionRecord> {
+    let want = target.to_lowercase();
+    let host = state.host.clone();
+    state.with_store(|s| {
+        s.list_resumable_sessions(&host, 200)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(rec, _)| rec)
+            .find(|rec| crate::util::session_codename(&rec.session_id).to_lowercase() == want)
+    })
 }
 
 // ── tmux_resumable ────────────────────────────────────────────────────────────

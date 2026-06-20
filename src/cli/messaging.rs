@@ -2,15 +2,37 @@ use super::*;
 
 // ── send-message ─────────────────────────────────────────────────────────────
 
+/// Where an `inbox send` should go. Mirrors the two mutually-exclusive
+/// addressing flags on the CLI (`--to-new-session` / `--to-session`).
+pub(super) enum SendTarget {
+    /// Spawn a fresh session of `agent` (in `project`, else the cwd's project)
+    /// and deliver the message to it.
+    NewSession {
+        agent: String,
+        project: Option<String>,
+    },
+    /// Deliver to an existing session, addressed by id or codename.
+    Session(String),
+}
+
 pub(super) async fn inbox_send(
-    recipient: String,
+    target: SendTarget,
     subject: Option<String>,
     message: String,
     session: Option<String>,
     thread_id: Option<String>,
 ) -> Result<()> {
+    // `recipient` carries the agent slug or session handle; `mode` tells the
+    // daemon which one and whether to spawn. `project` only applies to
+    // new-session sends.
+    let (recipient, mode, project) = match target {
+        SendTarget::NewSession { agent, project } => (agent, "new_session", project),
+        SendTarget::Session(sess) => (sess, "session", None),
+    };
     let params = serde_json::json!({
         "recipient": recipient,
+        "mode": mode,
+        "project": project,
         "subject": subject,
         "message": message,
         "session": session,
@@ -305,7 +327,7 @@ fn strip_single_trailing_newline(mut s: String) -> String {
     s
 }
 
-// ── mention rendering (one place; reused by inbox / wait / turn injection) ────
+// ── mention rendering (one place; reused by inbox / turn injection) ───────────
 
 /// The fully-qualified `--recipient` handle the receiver should reply to. Prefer
 /// the sender's exact session id — so a reply reaches the precise sibling session
@@ -332,7 +354,7 @@ pub(crate) fn row_envelope(r: &crate::state::InboxRow, self_host: &str, now: u64
     })
 }
 
-// ── envelope rendering (one place; reused by inbox / wait / turn injection) ───
+// ── envelope rendering (one place; reused by inbox / turn injection) ─────────
 
 /// The short `ID` shown on an envelope — the first 8 hex chars of the mention's
 /// event id. The receiver passes it to `tenex-edge inbox reply --id <ID>`, which
@@ -343,11 +365,11 @@ pub fn mention_short_id(event_id: &str) -> String {
 
 /// Everything needed to render one inbound message as an email-like envelope.
 /// Built either daemon-side from an `InboxRow` (turn injection) or client-side
-/// from the daemon's JSON (the `inbox` / `wait-for-mention` commands).
+/// from the daemon's JSON (the `inbox` command).
 pub struct EnvelopeView<'a> {
     pub from_slug: &'a str,
     pub project: &'a str,
-    /// Sender's session id (raw; rendered as a stable short code). Empty → omitted.
+    /// Sender's session id (raw; rendered as a stable codename). Empty → omitted.
     pub from_session: &'a str,
     /// Sender's host label. Empty, or equal to `self_host`, → no remote annotation.
     pub host: &'a str,
@@ -382,7 +404,7 @@ pub struct EnvelopeView<'a> {
 pub fn format_envelope(e: &EnvelopeView) -> String {
     let mut from = format!("{}@{}", e.from_slug, e.project);
     if !e.from_session.is_empty() {
-        let _ = write!(from, " [session {}]", session_short_code(e.from_session));
+        let _ = write!(from, " [session {}]", session_codename(e.from_session));
     }
     if !e.host.is_empty() && slugify_host(e.host) != slugify_host(e.self_host) {
         let _ = write!(from, " [remote: {}]", e.host);
@@ -419,7 +441,7 @@ pub fn format_envelope(e: &EnvelopeView) -> String {
 }
 
 /// Render a `serde_json` row (as produced by the daemon's `rows_to_json`) into an
-/// envelope. Used by the `inbox` and `wait-for-mention` CLI commands.
+/// envelope. Used by the `inbox` CLI command.
 fn format_envelope_json(r: &serde_json::Value, now: u64) -> String {
     format_envelope(&EnvelopeView {
         from_slug: r["from_slug"].as_str().unwrap_or(""),
@@ -456,34 +478,6 @@ pub(super) async fn inbox(session: Option<String>) -> Result<()> {
             }
             println!("{}", format_envelope_json(r, now));
         }
-    }
-    Ok(())
-}
-
-// ── wait-for-mention ─────────────────────────────────────────────────────────
-
-pub(super) async fn wait_for_mention(session: Option<String>, timeout: u64) -> Result<()> {
-    // The daemon long-polls: it holds the request open until a mention for this
-    // session arrives or the timeout fires, then returns the rows.
-    let params = serde_json::json!({
-        "session": session,
-        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
-        "agent": agent_env_slug(),
-        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-        "timeout": timeout,
-    });
-    let v = daemon_call_async("wait_for_mention", params).await?;
-    if let Some(rows) = v["rows"].as_array().filter(|r| !r.is_empty()) {
-        let now = now_secs();
-        for (i, r) in rows.iter().enumerate() {
-            if i > 0 {
-                println!();
-            }
-            println!("{}", format_envelope_json(r, now));
-        }
-        println!(
-            "\n[tenex-edge] Run `tenex-edge wait-for-mention` with run_in_background=true to receive the next mention."
-        );
     }
     Ok(())
 }

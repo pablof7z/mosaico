@@ -54,12 +54,96 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
         let _ = writeln!(out);
         for row in &snapshot.spawnable {
             let label = format!("{}@{}", row.slug, row.host);
+            let byline = match row.byline.as_deref().map(str::trim) {
+                Some(b) if !b.is_empty() => format!(" — {b}"),
+                _ => String::new(),
+            };
             let tag = format!("[spawnable via {}]", row.command);
-            let _ = writeln!(out, "{}  {}", label.dimmed(), tag.dimmed());
+            let _ = writeln!(out, "{}{}  {}", label.dimmed(), byline, tag.dimmed());
         }
     }
 
     out
+}
+
+/// Render the `whoami` identity card from the daemon's JSON. Auto-detects a TTY:
+/// terminal → a compact colorized block; piped/captured (the agent-facing case)
+/// → a plain markdown table so it parses cleanly when injected into context.
+pub(super) fn render_whoami(v: &serde_json::Value) -> String {
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let agent = s("agent");
+    let codename = s("codename");
+    let session_id = s("session_id");
+    let project = s("project");
+    let host = s("host");
+    let rel_cwd = s("rel_cwd");
+    let npub = s("npub");
+    let pubkey = s("pubkey");
+    let working = v.get("working").and_then(|x| x.as_bool()).unwrap_or(false);
+    let title = s("status");
+    let is_member = v.get("is_member").and_then(|x| x.as_bool()).unwrap_or(true);
+    let pending = v.get("pending").and_then(|x| x.as_u64()).unwrap_or(0);
+
+    let status = status_plain(&title, "", working);
+    let key = if npub.is_empty() { pubkey } else { npub };
+    let dir = if rel_cwd.trim().is_empty() || rel_cwd == "." {
+        host.clone()
+    } else {
+        format!("{host} [{rel_cwd}]")
+    };
+
+    if io::stdout().is_terminal() {
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "You are {} [session {}] on {}.",
+            agent.cyan().bold(),
+            codename.yellow(),
+            host
+        );
+        let _ = writeln!(out);
+        let row = |k: &str, val: &str| format!("  {:<10} {}\n", format!("{k}:").dimmed(), val);
+        let _ = write!(out, "{}", row("agent", &agent));
+        let _ = write!(out, "{}", row("session", &codename));
+        let _ = write!(out, "{}", row("id", &session_id));
+        let _ = write!(out, "{}", row("project", &project));
+        let _ = write!(out, "{}", row("host", &dir));
+        let _ = write!(out, "{}", row("pubkey", &key));
+        let _ = write!(out, "{}", row("status", &status));
+        let _ = write!(
+            out,
+            "{}",
+            row("member", if is_member { "yes" } else { "no" })
+        );
+        if pending > 0 {
+            let _ = write!(out, "{}", row("inbox", &format!("{pending} pending")));
+        }
+        out
+    } else {
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "You are **{agent}** [session {codename}] on the tenex-edge fabric. \
+             Others address you with `--to-session {codename}`."
+        );
+        let _ = writeln!(out);
+        let _ = writeln!(out, "| Field | Value |");
+        let _ = writeln!(out, "|---|---|");
+        let _ = writeln!(out, "| Agent | {} |", md_cell(&agent));
+        let _ = writeln!(out, "| Session | {} |", md_cell(&codename));
+        let _ = writeln!(out, "| Session ID | {} |", md_cell(&session_id));
+        let _ = writeln!(out, "| Project | {} |", md_cell(&project));
+        let _ = writeln!(out, "| Host | {} |", md_cell(&dir));
+        let _ = writeln!(out, "| Pubkey | {} |", md_cell(&key));
+        let _ = writeln!(out, "| Status | {} |", md_cell(&status));
+        let _ = writeln!(
+            out,
+            "| Project member | {} |",
+            if is_member { "yes" } else { "no" }
+        );
+        let _ = writeln!(out, "| Inbox | {} pending |", pending);
+        out
+    }
 }
 
 pub(super) fn render_who_for_stdout(snapshot: &WhoSnapshot) -> String {
@@ -86,7 +170,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Sessions");
     let _ = writeln!(
         out,
-        "Message active sessions with `tenex-edge inbox send --to <agent@project|session-id> --subject \"...\" --message \"...\"`."
+        "Message an active session with `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`."
     );
     let _ = writeln!(out);
     if snapshot.rows.is_empty() {
@@ -100,8 +184,9 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
             }
         );
     } else {
-        let _ = writeln!(out, "| Agent | Session | Host | Title | Status |");
-        let _ = writeln!(out, "|---|---:|---|---|---|");
+        for line in SESSION_TABLE_HEADER {
+            let _ = writeln!(out, "{line}");
+        }
         for row in &snapshot.rows {
             render_who_markdown_row(&mut out, row, snapshot.project == "*");
         }
@@ -111,21 +196,22 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Agents (for new sessions)");
     let _ = writeln!(
         out,
-        "Start a new session with `tenex-edge inbox new-session --agent <slug>`."
+        "Start a new session with `tenex-edge inbox send --to-new-session <slug> --subject \"...\" --message \"...\"`."
     );
     let _ = writeln!(out);
     if snapshot.spawnable.is_empty() {
         let _ = writeln!(out, "_No local spawnable agents configured._");
     } else {
-        let _ = writeln!(out, "| Agent | Host | Command |");
+        let _ = writeln!(out, "| Agent | Host | When to use |");
         let _ = writeln!(out, "|---|---|---|");
         for row in &snapshot.spawnable {
+            let byline = row.byline.as_deref().map(md_cell).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "| {} | {} | `{}` |",
+                "| {} | {} | {} |",
                 md_cell(&row.slug),
                 md_cell(&row.host),
-                md_cell(&row.command)
+                byline
             );
         }
     }
@@ -185,13 +271,40 @@ fn render_who_markdown_row(out: &mut String, row: &WhoRow, include_project: bool
 
     let _ = writeln!(
         out,
-        "| {} | `{}` | {} | {} | {} |",
-        md_cell(&agent),
-        session_short_code(&row.session_id),
-        md_cell(&host),
-        md_cell(&title),
-        md_cell(&status)
+        "{}",
+        session_table_row(
+            &agent,
+            &session_codename(&row.session_id),
+            &host,
+            &title,
+            &status,
+        )
     );
+}
+
+/// The header + alignment rows for the agent-facing session table. Shared by the
+/// first-turn roster (`render_who_plain`) and the "changes since…" delta so both
+/// render with an identical table shape.
+pub(super) const SESSION_TABLE_HEADER: [&str; 2] =
+    ["| Agent | Session | Host | Title | Status |", "|---|---:|---|---|---|"];
+
+/// One markdown row for the agent-facing session table. The session codename is
+/// backtick-wrapped; every other cell is escaped via [`md_cell`].
+pub(super) fn session_table_row(
+    agent: &str,
+    session_code: &str,
+    host: &str,
+    title: &str,
+    status: &str,
+) -> String {
+    format!(
+        "| {} | `{}` | {} | {} | {} |",
+        md_cell(agent),
+        session_code,
+        md_cell(host),
+        md_cell(title),
+        md_cell(status),
+    )
 }
 
 fn md_cell(input: &str) -> String {
@@ -237,7 +350,7 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
         out,
         "{} [session {}]{}{}{}{} - {}",
         name,
-        session_short_code(&row.session_id).yellow(),
+        session_codename(&row.session_id).yellow(),
         dir,
         host,
         stale,

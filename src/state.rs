@@ -1559,7 +1559,9 @@ impl Store {
         obs: &SessionObservation,
     ) -> Result<Vec<LiveLocator>> {
         use crate::session::AliasKind;
-        let fresh_since = obs.observed_at.saturating_sub(crate::domain::STATUS_TTL_SECS);
+        let fresh_since = obs
+            .observed_at
+            .saturating_sub(crate::domain::STATUS_TTL_SECS);
         let h = obs.harness.as_str();
         let mut stmt = self.conn.prepare(
             "SELECT s.session_id,
@@ -1769,9 +1771,7 @@ impl Store {
 
     /// The full snapshot of one local canonical session (any lifecycle).
     pub fn local_session_snapshot(&self, session_id: &str) -> Result<Option<SessionSnapshot>> {
-        let sql = format!(
-            "SELECT {SESSION_STATE_COLS} FROM session_state WHERE session_id=?1"
-        );
+        let sql = format!("SELECT {SESSION_STATE_COLS} FROM session_state WHERE session_id=?1");
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params![session_id])?;
         match rows.next()? {
@@ -1841,6 +1841,11 @@ impl Store {
                AND (first_seen>=?2 OR updated_at>=?2 OR (last_seen < ?3 AND last_seen+?4 >= ?2))"
         );
         let now_minus_ttl = now.saturating_sub(ttl);
+        // Track which canonical sessions the local table already emitted, so a peer
+        // echo of one of our own sessions (our kind:30315 round-tripping back from
+        // the relay into peer_session_state) is not surfaced a second time. Mirrors
+        // the dedup `load_who_snapshot` does for the full roster.
+        let mut local_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         {
             let mut stmt = self.conn.prepare(&local_sql)?;
             let rows = stmt.query_map(
@@ -1851,6 +1856,7 @@ impl Store {
                 if exclude == Some(snap.session_id.as_str()) {
                     continue;
                 }
+                local_ids.insert(snap.session_id.as_str().to_string());
                 if let Some(item) = classify_delta(snap, since, now) {
                     out.push(item);
                 }
@@ -1870,6 +1876,9 @@ impl Store {
             )?;
             for snap in rows.filter_map(|r| r.ok()) {
                 if exclude == Some(snap.session_id.as_str()) {
+                    continue;
+                }
+                if local_ids.contains(snap.session_id.as_str()) {
                     continue;
                 }
                 if let Some(item) = classify_delta(snap, since, now) {
@@ -1942,8 +1951,16 @@ impl Store {
                     || rel_cwd != obs.rel_cwd
                     || (!obs.agent_slug.is_empty() && slug != obs.agent_slug);
                 let new_seen = last_seen.max(obs.emitted_at);
-                let new_version = if content_changed { version + 1 } else { version };
-                let new_updated = if content_changed { obs.observed_at } else { last_seen };
+                let new_version = if content_changed {
+                    version + 1
+                } else {
+                    version
+                };
+                let new_updated = if content_changed {
+                    obs.observed_at
+                } else {
+                    last_seen
+                };
                 self.conn.execute(
                     "UPDATE peer_session_state SET
                        agent_slug=CASE WHEN ?4<>'' THEN ?4 ELSE agent_slug END,
@@ -2144,6 +2161,26 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(n > 0)
+    }
+
+    pub fn list_group_members(&self, project: &str) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT pubkey, role FROM group_members WHERE project=?1 ORDER BY pubkey")?;
+        let rows = stmt.query_map(params![project], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn remove_group_member(&self, project: &str, pubkey: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM group_members WHERE project=?1 AND pubkey=?2",
+            params![project, pubkey],
+        )?;
+        Ok(())
     }
 
     /// Apply a relay-authoritative 39002 members snapshot for one group: replace
@@ -3169,7 +3206,11 @@ fn row_to_peer_session_state(row: &rusqlite::Row) -> rusqlite::Result<SessionSna
         },
         activity: row.get(7)?,
         busy,
-        phase: if busy { "working".into() } else { "idle".into() },
+        phase: if busy {
+            "working".into()
+        } else {
+            "idle".into()
+        },
         turn_id: 0,
         turn_started_at: 0,
         last_distill_at: 0,
@@ -3576,13 +3617,19 @@ mod tests {
             observed_at: ts,
         };
         // Registered before the cursor → not "appeared", but a turn change after.
-        let a = s.register_or_reassert_session(&mk("alpha", "pk-a", "proj", 100)).unwrap();
+        let a = s
+            .register_or_reassert_session(&mk("alpha", "pk-a", "proj", 100))
+            .unwrap();
         // Registered AFTER the cursor → appeared.
         let now = 200u64;
         let since = 150u64;
-        let b = s.register_or_reassert_session(&mk("bravo", "pk-b", "proj", 160)).unwrap();
+        let b = s
+            .register_or_reassert_session(&mk("bravo", "pk-b", "proj", 160))
+            .unwrap();
         // Different project → excluded.
-        let _ = s.register_or_reassert_session(&mk("gamma", "pk-c", "other", 160)).unwrap();
+        let _ = s
+            .register_or_reassert_session(&mk("gamma", "pk-c", "other", 160))
+            .unwrap();
         // alpha changes after the cursor.
         s.start_turn(a.session_id.as_str(), 170).unwrap();
 
@@ -3601,6 +3648,100 @@ mod tests {
         assert!(delta2
             .iter()
             .any(|d| d.snapshot.session_id == a.session_id && d.kind == DeltaKind::Gone));
+    }
+
+    /// A local session whose own kind:30315 round-trips back from the relay into
+    /// `peer_session_state` MUST surface in the delta exactly ONCE. Before the
+    /// dedup, the local row and its peer echo were both emitted, producing the
+    /// duplicated (mirrored) lines in the turn-start fabric block.
+    #[test]
+    fn status_delta_since_dedups_local_session_peer_echo() {
+        use crate::session::{Harness, PeerStatusObservation, SessionObservation};
+        let s = Store::open_memory().unwrap();
+        let local = s
+            .register_or_reassert_session(&SessionObservation {
+                agent_slug: "alpha".into(),
+                agent_pubkey: "pk-a".into(),
+                project: "proj".into(),
+                host: "host".into(),
+                rel_cwd: String::new(),
+                harness: Harness::ClaudeCode,
+                harness_session_id: Some("h-alpha".into()),
+                resume_id: None,
+                tmux_pane: None,
+                watch_pid: None,
+                observed_at: 160,
+            })
+            .unwrap();
+        // The same session's status, observed back off the relay as a peer echo
+        // keyed by the SAME session id.
+        s.record_peer_status(&PeerStatusObservation {
+            agent_pubkey: "pk-a".into(),
+            agent_slug: "alpha".into(),
+            project: "proj".into(),
+            native_session_id: local.session_id.as_str().into(),
+            host: "host".into(),
+            rel_cwd: String::new(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            emitted_at: 165,
+            observed_at: 165,
+        })
+        .unwrap();
+
+        let delta = s.status_delta_since("proj", 150, 200, None).unwrap();
+        let hits = delta
+            .iter()
+            .filter(|d| d.snapshot.session_id == local.session_id)
+            .count();
+        assert_eq!(hits, 1, "local session + its own peer echo must dedup to one");
+    }
+
+    /// A session is never told about its own status: even when its own kind:30315
+    /// has round-tripped into `peer_session_state`, passing the session as
+    /// `exclude` drops BOTH the local row and the peer echo.
+    #[test]
+    fn status_delta_since_excludes_self_even_with_peer_echo() {
+        use crate::session::{Harness, PeerStatusObservation, SessionObservation};
+        let s = Store::open_memory().unwrap();
+        let me = s
+            .register_or_reassert_session(&SessionObservation {
+                agent_slug: "me".into(),
+                agent_pubkey: "pk-me".into(),
+                project: "proj".into(),
+                host: "host".into(),
+                rel_cwd: String::new(),
+                harness: Harness::ClaudeCode,
+                harness_session_id: Some("h-me".into()),
+                resume_id: None,
+                tmux_pane: None,
+                watch_pid: None,
+                observed_at: 160,
+            })
+            .unwrap();
+        s.record_peer_status(&PeerStatusObservation {
+            agent_pubkey: "pk-me".into(),
+            agent_slug: "me".into(),
+            project: "proj".into(),
+            native_session_id: me.session_id.as_str().into(),
+            host: "host".into(),
+            rel_cwd: String::new(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            emitted_at: 165,
+            observed_at: 165,
+        })
+        .unwrap();
+
+        let delta = s
+            .status_delta_since("proj", 150, 200, Some(me.session_id.as_str()))
+            .unwrap();
+        assert!(
+            delta.iter().all(|d| d.snapshot.session_id != me.session_id),
+            "a session must never see its own status (local row or peer echo)"
+        );
     }
 
     /// A still-`active` session whose heartbeats stopped (no event for > TTL)
@@ -4394,8 +4535,15 @@ mod tests {
         s.heartbeat_session(snap.session_id.as_str(), 1000).ok();
 
         // Fresh window includes it; a window past its last_seen excludes it.
-        assert_eq!(s.all_live_local_snapshots(910).unwrap().len(), 1, "fresh → included");
-        assert!(s.all_live_local_snapshots(1001).unwrap().is_empty(), "stale → excluded");
+        assert_eq!(
+            s.all_live_local_snapshots(910).unwrap().len(),
+            1,
+            "fresh → included"
+        );
+        assert!(
+            s.all_live_local_snapshots(1001).unwrap().is_empty(),
+            "stale → excluded"
+        );
 
         // Ending the session drops it from the live set (lifecycle != active).
         s.end_session(snap.session_id.as_str(), 1000).ok();
@@ -4428,12 +4576,26 @@ mod tests {
         let turn = s.start_turn(snap.session_id.as_str(), 20).unwrap().unwrap();
         // Wrong base_version → rejected.
         assert!(s
-            .apply_distill_result(turn.session_id.as_str(), turn.turn_id, turn.state_version + 99, "T", "A", 30)
+            .apply_distill_result(
+                turn.session_id.as_str(),
+                turn.turn_id,
+                turn.state_version + 99,
+                "T",
+                "A",
+                30
+            )
             .unwrap()
             .is_none());
         // Correct (turn_id, state_version) → applied.
         let applied = s
-            .apply_distill_result(turn.session_id.as_str(), turn.turn_id, turn.state_version, "Distilled", "doing", 30)
+            .apply_distill_result(
+                turn.session_id.as_str(),
+                turn.turn_id,
+                turn.state_version,
+                "Distilled",
+                "doing",
+                30,
+            )
             .unwrap();
         assert_eq!(applied.unwrap().title, "Distilled");
     }

@@ -1,7 +1,7 @@
-use super::render::{render_who_once, render_who_plain};
+use super::render::{render_who_once, render_who_plain, render_whoami};
 use super::*;
 use crate::session::{Harness, PeerStatusObservation, SessionObservation};
-use crate::util::session_short_code;
+use crate::util::session_codename;
 
 fn strip_ansi(input: &str) -> String {
     let mut out = String::new();
@@ -174,7 +174,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     // freshly-registered coder is idle (no turn opened yet).
     assert!(once.contains(&format!(
         "coder [session {}] (laptop) - idle",
-        session_short_code(&coder_id)
+        session_codename(&coder_id)
     )));
     assert!(once.contains("coder"));
     // The genuine remote is flagged `, remote` next to its hostname.
@@ -357,7 +357,7 @@ fn who_renderer_summarizes_other_projects() {
 
     assert!(once.contains(&format!(
         "a [session {}] (laptop) - idle",
-        session_short_code("s1")
+        session_codename("s1")
     )));
     assert!(once.contains("1 other agent(s) in other projects:"));
     assert!(once.contains("  * other - Other work"));
@@ -393,7 +393,7 @@ fn who_all_projects_includes_project_in_agent_names() {
     assert!(once.starts_with("all projects\n\n"));
     assert!(once.contains(&format!(
         "reviewer@other [session {}] (tower) - idle",
-        session_short_code("remote-session")
+        session_codename("remote-session")
     )));
 }
 
@@ -429,6 +429,7 @@ fn agent_renderer_uses_markdown_sections_and_session_table() {
             host: "laptop".to_string(),
             slug: "codex".to_string(),
             command: "codex".to_string(),
+            byline: Some("Use for autonomous coding tasks".to_string()),
         }],
     };
 
@@ -437,10 +438,13 @@ fn agent_renderer_uses_markdown_sections_and_session_table() {
     assert!(out.contains("| Agent | Session | Host | Title | Status |"));
     assert!(out.contains(&format!(
         "| reviewer | `{}` | tower, remote [worktree] | Review plan | checking patch \\| tests |",
-        session_short_code("remote-session")
+        session_codename("remote-session")
     )));
     assert!(out.contains("## Agents (for new sessions)"));
-    assert!(out.contains("| codex | laptop | `codex` |"));
+    // Agent table carries the byline ("When to use"), not the launch command.
+    assert!(out.contains("| Agent | Host | When to use |"));
+    assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
+    assert!(!out.contains("| codex | laptop | `codex` |"));
     assert!(out.contains("## Other projects\n\n- other"));
 }
 
@@ -503,17 +507,60 @@ fn build_status_delta_reports_appeared_changed_and_excludes_self() {
 
     let lines = build_status_delta(&store, 500, "proj", 1_000, Some(&me_id));
     let joined = lines.join("\n");
-    // The peer surfaces (it appeared after the cursor); the self session does not.
+    // The delta renders with the SAME table shape as the first-turn roster.
     assert!(
-        joined.contains("reviewer") && joined.contains("joined"),
-        "peer appearance must surface: {joined}"
+        joined.contains("| Agent | Session | Host | Title | Status |"),
+        "delta must use the roster's markdown table header: {joined}"
+    );
+    // The peer surfaces (it appeared after the cursor) as a table row carrying
+    // its title in the Title column and `joined` folded into the Status cell.
+    // (The session-codename cell is minted, so we assert the stable cells.)
+    assert!(
+        joined.contains("| reviewer | `"),
+        "peer appearance must surface as a `reviewer` row: {joined}"
     );
     assert!(
-        joined.contains("Review PR · idle"),
-        "appeared sessions must include their title/status: {joined}"
+        joined.contains("| tower | Review PR | joined · idle |"),
+        "appeared row must carry host, title, and joined status: {joined}"
     );
     assert!(
-        !joined.contains(&session_short_code(&me_id)),
+        !joined.contains(&session_codename(&me_id)),
         "viewer's own session must be excluded: {joined}"
     );
+}
+
+/// `whoami`'s agent-facing (non-TTY) render is a markdown identity card that
+/// names the session's own codename and the `--to-session` form others use.
+#[test]
+fn render_whoami_card_names_self_and_addressing() {
+    let card = serde_json::json!({
+        "agent": "developer",
+        "session_id": "sess-abc",
+        "codename": session_codename("sess-abc"),
+        "project": "tenex-edge",
+        "host": "laptop",
+        "rel_cwd": "worktree1",
+        "pubkey": "deadbeef",
+        "npub": "npub1xyz",
+        "is_member": true,
+        "working": true,
+        "status": "Add whoami",
+        "pending": 2,
+        "created_at": 1_700_000_000u64,
+    });
+    let out = render_whoami(&card);
+    let code = session_codename("sess-abc");
+    assert!(
+        out.contains(&format!("You are **developer** [session {code}]")),
+        "card must name the agent + codename: {out}"
+    );
+    assert!(
+        out.contains(&format!("`--to-session {code}`")),
+        "card must show how others address this session: {out}"
+    );
+    assert!(out.contains("| Session ID | sess-abc |"), "raw id: {out}");
+    assert!(out.contains("| Host | laptop [worktree1] |"), "host+cwd: {out}");
+    assert!(out.contains("| Pubkey | npub1xyz |"), "npub preferred: {out}");
+    assert!(out.contains("| Status | Add whoami |"), "status title: {out}");
+    assert!(out.contains("| Inbox | 2 pending |"), "pending count: {out}");
 }

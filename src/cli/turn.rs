@@ -52,18 +52,20 @@ pub fn assemble_turn_start_context(
     let mut blocks: Vec<String> = Vec::new();
 
     if first_turn {
-        let short_code = crate::util::session_short_code(&rec.session_id);
+        let codename = crate::util::session_codename(&rec.session_id);
         blocks.push(format!(
-            "[tenex-edge] You are {slug} [session {short_code}] on the tenex-edge fabric. \
-             You can run `tenex-edge who`, `tenex-edge inbox`, and \
-             `tenex-edge inbox send --to <agent@project|session-id> --subject \"...\" --message \"...\"`. \
+            "[tenex-edge] You are {slug} [session {codename}] on the tenex-edge fabric. \
+             You can run `tenex-edge whoami` (your own identity), `tenex-edge who`, \
+             `tenex-edge inbox`, and `tenex-edge inbox send`. \
+             To message an existing session: \
+             `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`. \
+             To start a fresh agent session: \
+             `tenex-edge inbox send --to-new-session <agent> --subject \"...\" --message \"...\"`. \
              Reply to a message you received with `tenex-edge inbox reply --id <ID> \"...\"`. \
              If the user asks you to message/contact/tell another agent, run `tenex-edge inbox send`; \
-             do not say you cannot send messages from here. Run `tenex-edge wait-for-mention` \
-             with run_in_background=true so you are woken when a mention arrives. \
-             Re-run it each time one is received.",
+             do not say you cannot send messages from here.",
             slug = rec.agent_slug,
-            short_code = short_code,
+            codename = codename,
         ));
 
         // Warn if this agent couldn't be added to the NIP-29 group (e.g. the
@@ -239,7 +241,7 @@ pub(crate) fn render_chat_block(
         let session = if row.from_session.is_empty() {
             String::new()
         } else {
-            format!(" [session {}]", session_short_code(&row.from_session))
+            format!(" [session {}]", session_codename(&row.from_session))
         };
         let mention = if row.mentioned_session == self_session {
             " mentioned you"

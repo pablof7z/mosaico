@@ -60,6 +60,26 @@ pub(super) fn who_live(
     Ok(())
 }
 
+/// `whoami`: print this session's own identity card. Resolves the current
+/// session daemon-side (explicit `--session` → `TENEX_EDGE_SESSION` env → the
+/// cwd's project), then renders who you are on the fabric so an agent can pick
+/// its own row out of `who` and knows the codename others address it by.
+pub(super) async fn whoami(session: Option<String>, json: bool) -> Result<()> {
+    let params = serde_json::json!({
+        "session": session,
+        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
+        "agent": crate::cli::agent_env_slug(),
+        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+    });
+    let v = super::daemon_call_async("whoami", params).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        print!("{}", render::render_whoami(&v));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OtherProjectSummary {
     project: String,
@@ -89,6 +109,9 @@ struct SpawnableRow {
     host: String,
     slug: String,
     command: String,
+    /// Optional one-line "when to use this agent" note from the agent file.
+    #[serde(default)]
+    byline: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -262,10 +285,11 @@ pub fn load_who_snapshot(
 
     let spawnable: Vec<SpawnableRow> = crate::tmux::spawnable_agents()
         .into_iter()
-        .map(|(slug, command)| SpawnableRow {
+        .map(|(slug, command, byline)| SpawnableRow {
             host: local_host.clone(),
             slug,
             command,
+            byline,
         })
         .collect();
 
@@ -306,8 +330,9 @@ pub(super) fn push_turn_fabric_block(
             if !snapshot.rows.is_empty() {
                 let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
-                "tenex-edge fabric — agents you can message. To send, run \
-                 `tenex-edge inbox send --to <agent@project|session-id> --subject \"...\" --message \"...\"`:\n{}",
+                "tenex-edge fabric — agents you can message. Message an existing session with \
+                 `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`, \
+                 or start a fresh one with `tenex-edge inbox send --to-new-session <agent> ...`:\n{}",
                 who_text.trim_end()
             ));
             }
@@ -354,35 +379,35 @@ pub(super) fn build_status_delta(
     let items = store
         .status_delta_since(project, since, now, exclude_session)
         .unwrap_or_default();
+    if items.is_empty() {
+        return Vec::new();
+    }
 
-    let mut delta: Vec<String> = Vec::new();
+    // Render the delta with the SAME markdown table shape as the first-turn
+    // roster (`render_who_plain`) so both surfaces look identical. The change
+    // kind (joined / changed / left) is folded into the Status cell.
+    let mut delta: Vec<String> = render::SESSION_TABLE_HEADER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for item in &items {
         let snap = &item.snapshot;
         let d = &item.derived;
         let slug = snap.agent_slug.as_str();
-        let proj = snap.project.as_str();
-        let code = session_short_code(snap.session_id.as_str());
-        match item.kind {
-            DeltaKind::Appeared => {
-                let label = render::status_plain(&d.title, &d.activity, d.busy);
-                delta.push(format!(
-                    "  ● {}@{} joined  {}  session {}  — {}  ({}s ago)",
-                    slug,
-                    slugify_host(&snap.host),
-                    proj,
-                    code,
-                    label,
-                    d.age_secs,
-                ));
-            }
-            DeltaKind::Changed => {
-                let label = render::status_plain(&d.title, &d.activity, d.busy);
-                delta.push(format!("  ↻ {slug}@{proj} [session {code}] — {label}"));
-            }
-            DeltaKind::Gone => {
-                delta.push(format!("  ✗ {slug}@{proj} [session {code}] — left"));
-            }
-        }
+        let code = session_codename(snap.session_id.as_str());
+        let title = if d.title.trim().is_empty() {
+            "—".to_string()
+        } else {
+            d.title.trim().to_string()
+        };
+        // Live activity / idle word, without the title (that's its own column).
+        let activity = render::status_plain("", &d.activity, d.busy);
+        let status = match item.kind {
+            DeltaKind::Appeared => format!("joined · {activity}"),
+            DeltaKind::Changed => activity,
+            DeltaKind::Gone => "left".to_string(),
+        };
+        delta.push(render::session_table_row(slug, &code, &snap.host, &title, &status));
     }
     delta
 }

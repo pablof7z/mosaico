@@ -81,7 +81,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
         String::from_utf8_lossy(&out.stderr)
     );
     // The opencode session-start hook echoes the daemon-minted canonical id as
-    // JSON ({"session_id":"te-...","short_code":"..."}); the plugin parses it.
+    // JSON ({"session_id":"te-...","codename":"..."}); the plugin parses it.
     let stdout = String::from_utf8_lossy(&out.stdout);
     let trimmed = stdout.trim();
     let sid = serde_json::from_str::<serde_json::Value>(trimmed)

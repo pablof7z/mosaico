@@ -2,11 +2,12 @@
 //!
 //! Two public surfaces:
 //!
-//!   • `ring_doorbells(state)` — called after every `mention_notify.notify_waiters()`.
-//!     Finds sessions that have unread inbox rows + a live tmux endpoint + no armed
-//!     waiter, then injects the rendered pending messages into the pane.
+//!   • `ring_doorbells(state)` — called after inbox/chat delivery events.
+//!     Finds sessions that have unread inbox rows + a live tmux endpoint, then
+//!     injects the rendered pending messages into the pane.
 //!
-//!   • `spawn_agent(state, slug, project)` — spawns a new tmux window running the
+//!   • `spawn_agent(state, slug, project, launch_args)` — spawns a new tmux window
+//!     running the
 //!     appropriate harness command. When the spawn was triggered by an inbound
 //!     mention (spawn-on-send), the caller tags the new pane with that mention via
 //!     `register_pending_spawn_with_mention`; when the harness fires its
@@ -130,11 +131,12 @@ fn build_resume_command(base: &[String], shape: ResumeShape, resume_id: &str) ->
 
 // ── spawnable-agents query ─────────────────────────────────────────────────
 
-/// Returns `(slug, display_command)` pairs for agents tenex-edge has an
-/// identity for. The harness command comes from the agent file; SPAWN_DEFS is
-/// the fallback for agents that predate the `command` field. Agents with
-/// neither are omitted. Returns an empty vec when tmux is absent.
-pub fn spawnable_agents() -> Vec<(String, String)> {
+/// Returns `(slug, display_command, byline)` tuples for agents tenex-edge has
+/// an identity for. The harness command comes from the agent file; SPAWN_DEFS
+/// is the fallback for agents that predate the `command` field. Agents with
+/// neither are omitted. `byline` is the agent's optional "when to use" note.
+/// Returns an empty vec when tmux is absent.
+pub fn spawnable_agents() -> Vec<(String, String, Option<String>)> {
     if !tmux_available() {
         eprintln!("[tenex-edge] spawnable_agents: tmux not available");
         return Vec::new();
@@ -145,16 +147,16 @@ pub fn spawnable_agents() -> Vec<(String, String)> {
         "[tenex-edge] spawnable_agents: {} agents in store",
         agents.len()
     );
-    let result: Vec<(String, String)> = agents
+    let result: Vec<(String, String, Option<String>)> = agents
         .into_iter()
-        .filter_map(|(slug, file_cmd)| {
+        .filter_map(|(slug, file_cmd, _agent_def, byline)| {
             let display = file_cmd
                 .as_ref()
                 .filter(|c| !c.is_empty())
                 .map(|c| c.join(" "))
                 .or_else(|| find_spawn_def(&slug).map(|d| d.command.join(" ")));
             eprintln!("[tenex-edge] spawnable_agents: slug={slug:?} display={display:?}");
-            Some((slug, display?))
+            Some((slug, display?, byline))
         })
         .collect();
     eprintln!("[tenex-edge] spawnable_agents: result={result:?}");
@@ -171,14 +173,8 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 static DEBOUNCE: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
-static ARMED_WAITERS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
-
 fn debounce() -> &'static Mutex<HashMap<String, u64>> {
     DEBOUNCE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn armed() -> &'static Mutex<HashMap<String, usize>> {
-    ARMED_WAITERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // ── pending-spawn tracking ────────────────────────────────────────────────────
@@ -233,32 +229,6 @@ pub fn register_pending_spawn_with_mention(pane_id: &str, mention: PendingMentio
 /// start). Called by `rpc_session_start` when a pane registers its tmux endpoint.
 pub fn consume_pending_spawn(pane_id: &str) -> Option<PendingSpawn> {
     pending_spawns().lock().unwrap().remove(pane_id)
-}
-
-/// Called by `handle_wait_for_mention` when it parks on `mention_notify`.
-/// Prevents tmux prompt injection while a waiter is parked.
-pub fn arm_waiter(session_id: &str) {
-    *armed()
-        .lock()
-        .unwrap()
-        .entry(session_id.to_string())
-        .or_insert(0) += 1;
-}
-
-/// Called by `handle_wait_for_mention` when it returns (mention delivered or
-/// timed out).
-pub fn disarm_waiter(session_id: &str) {
-    let mut m = armed().lock().unwrap();
-    if let Some(n) = m.get_mut(session_id) {
-        *n = n.saturating_sub(1);
-        if *n == 0 {
-            m.remove(session_id);
-        }
-    }
-}
-
-fn is_armed(session_id: &str) -> bool {
-    *armed().lock().unwrap().get(session_id).unwrap_or(&0) > 0
 }
 
 fn is_debounced(session_id: &str) -> bool {
@@ -508,9 +478,8 @@ pub async fn inject_pending_messages_pub(
 
 // ── public API ────────────────────────────────────────────────────────────────
 
-/// Called after every `mention_notify.notify_waiters()`.
 /// Scans for sessions with unread inbox rows that have a live tmux endpoint,
-/// no armed waiter, and have not been injected recently.
+/// and have not been injected recently.
 /// Spawns a background task so the dispatcher never blocks the RPC path.
 pub fn ring_doorbells(state: Arc<DaemonState>) {
     tokio::spawn(async move {
@@ -544,7 +513,7 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
 
     for rec in sessions_with_inbox {
         let sid = rec.session_id.clone();
-        if is_armed(&sid) || is_debounced(&sid) {
+        if is_debounced(&sid) {
             continue;
         }
 
@@ -592,20 +561,46 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
 
 // ── spawn ─────────────────────────────────────────────────────────────────────
 
-/// Resolve the harness launch command for `slug`: the agent file's `command`
-/// field takes priority, with SPAWN_DEFS as the fallback for agents that predate
-/// it. Errors when neither is available.
-fn resolve_agent_command(slug: &str) -> Result<Vec<String>> {
+/// Resolve the base harness command and inline agent definition for `slug`.
+/// The agent file's `command` field takes priority, with SPAWN_DEFS as fallback.
+fn resolve_spawn_entry(slug: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
     let edge_home = crate::config::edge_home();
-    let file_cmd = crate::identity::list_local_agents(&edge_home)
+    let entry = crate::identity::list_local_agents(&edge_home)
         .into_iter()
-        .find(|(s, _)| s == slug)
-        .and_then(|(_, cmd)| cmd.filter(|c| !c.is_empty()));
-    file_cmd
-        .or_else(|| {
-            find_spawn_def(slug).map(|d| d.command.iter().map(|s| s.to_string()).collect())
-        })
-        .with_context(|| format!("no harness command for agent {slug:?}: add a \"command\" field to ~/.tenex/edge/agents/{slug}.json"))
+        .find(|(s, _, _, _)| s == slug);
+    let (file_cmd, agent_def) = entry
+        .map(|(_, cmd, def, _)| (cmd.filter(|c| !c.is_empty()), def))
+        .unwrap_or((None, None));
+    let base = file_cmd
+        .or_else(|| find_spawn_def(slug).map(|d| d.command.iter().map(|s| s.to_string()).collect()))
+        .with_context(|| format!("no harness command for agent {slug:?}: add a \"command\" field to ~/.tenex/edge/agents/{slug}.json"))?;
+    Ok((base, agent_def))
+}
+
+/// Append harness-specific args for the inline agent definition.
+/// For `claude`: wraps the def as `{"<slug>": <def>}` and appends
+/// `--agents '<json>' --agent <slug>`.
+fn apply_agent_def_args(
+    mut cmd: Vec<String>,
+    slug: &str,
+    agent_def: Option<serde_json::Value>,
+) -> Vec<String> {
+    let Some(def) = agent_def else { return cmd };
+    let bin = cmd.first().map(String::as_str).unwrap_or("");
+    match bin {
+        "claude" => {
+            let mut wrapper = serde_json::Map::new();
+            wrapper.insert(slug.to_string(), def);
+            if let Ok(json) = serde_json::to_string(&serde_json::Value::Object(wrapper)) {
+                cmd.push("--agents".to_string());
+                cmd.push(json);
+                cmd.push("--agent".to_string());
+                cmd.push(slug.to_string());
+            }
+        }
+        _ => {}
+    }
+    cmd
 }
 
 /// The absolute working directory for `project`, falling back to the daemon's cwd.
@@ -726,12 +721,21 @@ async fn open_agent_session(
 
 /// Spawn a new tmux window running `slug`'s harness in `project`'s directory.
 /// Returns the new pane id (e.g. "%7") or an error.
-pub async fn spawn_agent(state: &Arc<DaemonState>, slug: &str, project: &str) -> Result<String> {
+pub async fn spawn_agent(
+    state: &Arc<DaemonState>,
+    slug: &str,
+    project: &str,
+    launch_args: Vec<String>,
+) -> Result<String> {
     if !tmux_available() {
         anyhow::bail!("tmux binary not found");
     }
 
-    let agent_command = resolve_agent_command(slug)?;
+    let (base_command, agent_def) = resolve_spawn_entry(slug)?;
+    let mut agent_command = apply_agent_def_args(base_command, slug, agent_def);
+    if !launch_args.is_empty() {
+        agent_command.extend(launch_args);
+    }
     let def = find_spawn_def(slug); // optional, for the window_name default
     let window_name_owned: String;
     let window_name: &str = match def {
@@ -772,7 +776,7 @@ pub async fn resume_agent(
         anyhow::bail!("session has no resume token (not resumable)");
     }
 
-    let base = resolve_agent_command(slug)?;
+    let (base, _agent_def) = resolve_spawn_entry(slug)?;
     let bin = base.first().map(String::as_str).unwrap_or("");
     let shape = resume_shape_for_bin(bin).with_context(|| {
         format!("don't know how to resume harness binary {bin:?} (agent {slug:?})")

@@ -23,7 +23,7 @@ use nostr_sdk::EventBuilder;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // Fabric identifier used in all canonical origin rows.
 pub const FABRIC: &str = "kind1-nip29";
@@ -279,10 +279,24 @@ impl Kind1Nip29Provider {
     /// `ensure_subscription` call remains at the call site (rpc_session_start /
     /// reconcile_sessions) to preserve the existing double-subscribe behavior.
     pub async fn open_project(&self, project: &str, agent_pubkey: &str) {
+        self.open_project_with_progress(project, agent_pubkey, |_| {})
+            .await;
+    }
+
+    pub async fn open_project_with_progress<F>(
+        &self,
+        project: &str,
+        agent_pubkey: &str,
+        mut progress: F,
+    ) where
+        F: FnMut(String),
+    {
         use nostr_sdk::prelude::{Filter, Keys};
+        progress(format!("using project group {project}"));
         let nsec = match &self.user_nsec {
             Some(n) => n.clone(),
             None => {
+                progress("userNsec unset; skipping group management".to_string());
                 if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
                     eprintln!(
                         "[daemon] userNsec unset; skipping NIP-29 group management for {project}"
@@ -294,31 +308,9 @@ impl Kind1Nip29Provider {
         let user_keys = match Keys::parse(&nsec) {
             Ok(k) => k,
             Err(e) => {
+                progress("userNsec parse failed; skipping group management".to_string());
                 eprintln!("[daemon] userNsec parse failed; skipping group management: {e}");
                 return;
-            }
-        };
-
-        // Publish a group-management event, returning whether the relay accepted it.
-        let publish = |builder, label: &'static str| {
-            let transport = self.transport.clone();
-            let keys = user_keys.clone();
-            async move {
-                match transport.publish_signed_checked(builder, &keys).await {
-                    Ok(_) => true,
-                    Err(e) => {
-                        let benign = {
-                            let s = e.to_string();
-                            s.contains("already exists") || s.contains("duplicate")
-                        };
-                        if !benign && std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                            eprintln!(
-                                "[daemon] NIP-29 {label} publish failed (will retry next session): {e:#}"
-                            );
-                        }
-                        benign
-                    }
-                }
             }
         };
 
@@ -335,11 +327,18 @@ impl Kind1Nip29Provider {
                 crate::codec::kind1::kind(KIND_GROUP_MEMBERS),
             ])
             .identifier(project);
+        progress("fetching relay group metadata/admins/members".to_string());
+        let fetch_started = Instant::now();
         let state_evs = self
             .transport
             .fetch(filter, Duration::from_secs(5))
             .await
             .unwrap_or_default();
+        progress(format!(
+            "relay group fetch returned {} event(s) in {}ms",
+            state_evs.len(),
+            fetch_started.elapsed().as_millis()
+        ));
 
         // Newest event per kind (addressable replaceables; pick max created_at).
         let newest = |k: u16| {
@@ -382,23 +381,45 @@ impl Kind1Nip29Provider {
 
         // 1. Create + lock the group if the relay has no record of it.
         if !group_exists {
+            progress("group not found; publishing kind:9007 create-group".to_string());
             let created = match crate::fabric::nip29::lifecycle::group_create(project) {
-                Ok(b) => publish(b, "9007 create-group").await,
+                Ok(b) => {
+                    self.publish_group_management(b, &user_keys, "9007 create-group")
+                        .await
+                }
                 Err(_) => false,
             };
+            progress(if created {
+                "create-group accepted or already existed".to_string()
+            } else {
+                "create-group was not accepted; will retry on next session".to_string()
+            });
             let locked = if created {
+                progress("publishing kind:9002 closed/public group lock".to_string());
                 match crate::fabric::nip29::lifecycle::group_lock_closed(project) {
-                    Ok(b) => publish(b, "9002 lock-closed").await,
+                    Ok(b) => {
+                        self.publish_group_management(b, &user_keys, "9002 lock-closed")
+                            .await
+                    }
                     Err(_) => false,
                 }
             } else {
                 false
             };
+            if created {
+                progress(if locked {
+                    "group lock accepted or already existed".to_string()
+                } else {
+                    "group lock was not accepted; will retry on next session".to_string()
+                });
+            }
             if created && locked {
                 self.with_store(|s| {
                     s.mark_group_owned(project, now_secs()).ok();
                 });
             }
+        } else {
+            progress("group already exists on relay".to_string());
         }
 
         // 2. Backfill admins: every whitelisted human pubkey MUST hold the admin
@@ -408,15 +429,30 @@ impl Kind1Nip29Provider {
             if roles.get(pk).map(String::as_str) == Some("admin") {
                 continue;
             }
+            progress(format!(
+                "granting admin to owner {}",
+                crate::util::pubkey_short(pk)
+            ));
             let granted = match crate::fabric::nip29::lifecycle::group_put_admin(project, pk) {
-                Ok(b) => publish(b, "9000 put-user (admin)").await,
+                Ok(b) => {
+                    self.publish_group_management(b, &user_keys, "9000 put-user (admin)")
+                        .await
+                }
                 Err(_) => false,
             };
             if granted {
+                progress(format!(
+                    "admin grant accepted for {}",
+                    crate::util::pubkey_short(pk)
+                ));
                 self.with_store(|s| {
                     s.upsert_group_member(project, pk, "admin", now_secs()).ok();
                 });
             } else {
+                progress(format!(
+                    "admin grant rejected for {}",
+                    crate::util::pubkey_short(pk)
+                ));
                 // The admin backfill is otherwise invisible; surface a rejection
                 // unconditionally so a bad role/permission can't masquerade as
                 // success (an empty/unauthorized result would silently no-op).
@@ -429,16 +465,60 @@ impl Kind1Nip29Provider {
 
         // 3. Add this agent as a member if the relay's live roster lacks it.
         if !members.contains(agent_pubkey) && !roles.contains_key(agent_pubkey) {
+            progress(format!(
+                "adding agent {} as group member",
+                crate::util::pubkey_short(agent_pubkey)
+            ));
             let added = match crate::fabric::nip29::lifecycle::group_put_user(project, agent_pubkey)
             {
-                Ok(b) => publish(b, "9000 put-user").await,
+                Ok(b) => {
+                    self.publish_group_management(b, &user_keys, "9000 put-user")
+                        .await
+                }
                 Err(_) => false,
             };
             if added {
+                progress(format!(
+                    "agent membership accepted for {}",
+                    crate::util::pubkey_short(agent_pubkey)
+                ));
                 self.with_store(|s| {
                     s.upsert_group_member(project, agent_pubkey, "member", now_secs())
                         .ok();
                 });
+            } else {
+                progress(format!(
+                    "agent membership rejected for {}; will retry on next session",
+                    crate::util::pubkey_short(agent_pubkey)
+                ));
+            }
+        } else {
+            progress(format!(
+                "agent {} is already in the relay roster",
+                crate::util::pubkey_short(agent_pubkey)
+            ));
+        }
+    }
+
+    async fn publish_group_management(
+        &self,
+        builder: EventBuilder,
+        keys: &nostr_sdk::prelude::Keys,
+        label: &str,
+    ) -> bool {
+        match self.transport.publish_signed_checked(builder, keys).await {
+            Ok(_) => true,
+            Err(e) => {
+                let benign = {
+                    let s = e.to_string();
+                    s.contains("already exists") || s.contains("duplicate")
+                };
+                if !benign && std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                    eprintln!(
+                        "[daemon] NIP-29 {label} publish failed (will retry next session): {e:#}"
+                    );
+                }
+                benign
             }
         }
     }
@@ -614,7 +694,7 @@ impl Kind1Nip29Provider {
     /// IMPORTANT: uses a single-element `hosted = [rec.agent_pubkey]` slice —
     /// intentionally NOT the daemon's full hosted set — so the Mention guard
     /// (`m.to_pubkey == me`) works exactly (relay filter already restricts).
-    /// The caller fires `mention_notify.notify_waiters()` if the count > 0.
+    /// The caller triggers any live delivery surfaces if the count > 0.
     pub async fn catch_up_mentions(&self, rec: &SessionRecord, owners: &[String]) -> Result<usize> {
         use nostr_sdk::prelude::{Filter, Kind, PublicKey};
         let me = rec.agent_pubkey.clone();

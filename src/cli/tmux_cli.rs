@@ -105,12 +105,12 @@ async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
 /// endpoint through its session-start hook. The only launch-specific behavior is
 /// hiding tmux's status line before attach so the harness appears to own the
 /// terminal directly.
-pub(super) async fn launch(agent: String, project: Option<String>) -> Result<()> {
+pub(super) async fn launch(agent: String, project: Option<String>, command: Vec<String>) -> Result<()> {
     let project = project
         .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
     let v = crate::daemon::blocking::call(
         "tmux_spawn",
-        serde_json::json!({ "agent": agent, "project": project }),
+        serde_json::json!({ "agent": agent, "project": project, "command": command }),
     )
     .context("tmux_spawn RPC")?;
 
@@ -325,7 +325,7 @@ fn style_selected_bg() -> Style {
 fn live_row_line(row: &LiveRow, is_sel: bool) -> Line<'static> {
     let cursor = if is_sel { "► " } else { "  " };
     let label = format!("{}@{}", row.slug, row.host);
-    let session_tag = format!(" [session {}]", row.session_short);
+    let session_tag = format!(" [session {}]", row.session_codename);
     let status_str = if row.status.trim().is_empty() {
         "idle".to_string()
     } else {
@@ -388,7 +388,7 @@ fn spawn_row_line(row: &SpawnRow, is_sel: bool) -> Line<'static> {
 fn resume_row_line(row: &ResumeRow, is_sel: bool) -> Line<'static> {
     let cursor = if is_sel { "► " } else { "  " };
     let label = row.slug.clone();
-    let session_tag = format!(" [session {}]", row.session_short);
+    let session_tag = format!(" [session {}]", row.session_codename);
     let title = if row.title.trim().is_empty() {
         String::new()
     } else {
@@ -828,7 +828,7 @@ struct LiveRow {
     host: String,
     project: String,
     session_id: String,    // full raw id for RPC calls
-    session_short: String, // short display code (6 chars)
+    session_codename: String, // stable display codename (e.g. bravo4217)
     status: String,
     attachable: bool, // has a live tmux endpoint
     unread: usize,    // unread inbox mentions
@@ -855,7 +855,7 @@ struct ResumeRow {
     slug: String,
     project: String,
     session_id: String,    // full raw id for RPC calls
-    session_short: String, // short display code (6 chars)
+    session_codename: String, // stable display codename (e.g. bravo4217)
     title: String,
     created_at: u64,
 }
@@ -906,13 +906,13 @@ fn fetch_tui_data() -> Result<TuiData> {
         .filter(|r| !r["remote"].as_bool().unwrap_or(false))
         .map(|r| {
             let raw_id = r["session_id"].as_str().unwrap_or("").to_string();
-            let session_short = SessionId::from(raw_id.as_str()).to_string();
+            let session_codename = SessionId::from(raw_id.as_str()).to_string();
             LiveRow {
                 slug: r["slug"].as_str().unwrap_or("").to_string(),
                 host: r["host"].as_str().unwrap_or("").to_string(),
                 project: r["project"].as_str().unwrap_or("").to_string(),
                 session_id: raw_id,
-                session_short,
+                session_codename,
                 status: r["status"].as_str().unwrap_or("").to_string(),
                 attachable: r["attachable"].as_bool().unwrap_or(false),
                 unread: r["unread"].as_u64().unwrap_or(0) as usize,
@@ -941,12 +941,12 @@ fn fetch_tui_data() -> Result<TuiData> {
         .iter()
         .map(|r| {
             let raw_id = r["session_id"].as_str().unwrap_or("").to_string();
-            let session_short = SessionId::from(raw_id.as_str()).to_string();
+            let session_codename = SessionId::from(raw_id.as_str()).to_string();
             ResumeRow {
                 slug: r["slug"].as_str().unwrap_or("").to_string(),
                 project: r["project"].as_str().unwrap_or("").to_string(),
                 session_id: raw_id,
-                session_short,
+                session_codename,
                 title: r["title"].as_str().unwrap_or("").to_string(),
                 created_at: r["created_at"].as_u64().unwrap_or(0),
             }
@@ -971,8 +971,17 @@ pub(super) fn tmux_tui(popup: bool) -> Result<()> {
     let mut exited_hours: u64 = 4;
     let mut mode = TuiMode::Normal;
 
+    eprintln!("[tenex-edge tmux] loading sessions from daemon...");
+    let _ = io::stderr().flush();
     // Initial fetch before entering raw mode: fail fast if daemon is down.
     let mut data = fetch_tui_data()?;
+    eprintln!(
+        "[tenex-edge tmux] loaded {} live, {} spawnable, {} resumable sessions; opening UI",
+        data.live.len(),
+        data.spawnable.len(),
+        data.resumable.len()
+    );
+    let _ = io::stderr().flush();
     let mut pt = compute_project_tabs(&data);
 
     // Default to the project matching the current directory.

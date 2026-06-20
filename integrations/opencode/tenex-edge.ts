@@ -123,9 +123,9 @@ export const TenexEdge: Plugin = async ({ client, directory }) => {
   runHook("session-start", { cwd: directory, pid: process.pid })
     .then((out) => {
       const trimmed = out.trim()
-      // The daemon returns JSON: {"session_id":"te-...","short_code":"abc123"}
+      // The daemon returns JSON: {"session_id":"te-...","codename":"bravo42"}
       // Legacy/CLI path returns a bare session_id string. Handle both. We only
-      // need the session id — the self-identity line (slug + short code) is
+      // need the session id — the self-identity line (slug + codename) is
       // assembled by the hook itself and arrives in the turn-start context.
       try {
         SID = JSON.parse(trimmed).session_id ?? trimmed

@@ -3,7 +3,7 @@
 use crate::domain::DomainEvent;
 use crate::state::Store;
 use crate::util::{
-    dirty_label, format_local_datetime, now_secs, pubkey_short, relative_time, session_short_code,
+    dirty_label, format_local_datetime, now_secs, pubkey_short, relative_time, session_codename,
     slugify_host, SessionId,
 };
 use anyhow::{bail, Context, Result};
@@ -25,6 +25,7 @@ pub mod command_forensics;
 mod debug;
 mod hooks;
 mod messaging;
+mod project_agents;
 mod statusline;
 mod tmux_cli;
 mod turn;
@@ -96,6 +97,16 @@ enum Cmd {
         #[arg(long, default_value = "1000")]
         refresh_ms: u64,
     },
+    /// Show your own identity on the fabric: agent slug, session codename,
+    /// canonical session id, project, host, pubkey, and current status.
+    Whoami {
+        /// Session id; if omitted, resolved from env / the current directory.
+        #[arg(long)]
+        session: Option<String>,
+        /// Emit the raw identity JSON instead of the rendered card.
+        #[arg(long)]
+        json: bool,
+    },
     /// Stream all fabric activity as structured events, colorized.
     Tail {
         /// Filter to a single project (default: all projects).
@@ -164,20 +175,18 @@ enum Cmd {
         #[command(subcommand)]
         action: ChatAction,
     },
-    /// Block until a mention arrives for this session, then print it and exit.
-    /// Run with run_in_background=true; the agent is woken when this exits.
-    WaitForMention {
-        /// Session id; if omitted, resolved from the current directory.
-        #[arg(long)]
-        session: Option<String>,
-        /// Exit after this many seconds even if no mention arrives (0 = infinite).
-        #[arg(long, default_value = "300")]
-        timeout: u64,
-    },
     /// Manage NIP-29 project groups (list, set description).
     Project {
         #[command(subcommand)]
         action: ProjectAction,
+    },
+    /// Manage the local agent keystore: agents that have a private key on THIS
+    /// machine under `<edge_home>/agents/<slug>.json`. These are the identities
+    /// you can spawn locally; project membership is governed separately by the
+    /// codec (e.g. the NIP-29 group's member list), not here.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
     },
     /// Render the one-line fabric statusline for a host's status bar.
     /// Reads the harness's statusline JSON payload on stdin (for `session_id`),
@@ -244,6 +253,10 @@ enum Cmd {
         /// Project slug; defaults to project resolved from current directory.
         #[arg(long)]
         project: Option<String>,
+        /// Extra args passed after `--`; appended to the launch command.
+        /// Example: `tenex-edge launch codex -- --yolo`
+        #[arg(last = true, value_name = "COMMAND")]
+        command: Vec<String>,
     },
     /// Internal: the per-machine daemon. Spawned automatically; not for direct use.
     /// (Replaces the old detached per-session engine, which now runs as an async
@@ -254,11 +267,22 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum InboxAction {
-    /// Send a message to another agent or a specific session.
+    /// Send a message: either spawn a NEW session of an agent (`--to-new-session`)
+    /// or message an EXISTING session (`--to-session`). Exactly one is required.
+    /// To reply to a message you received, use `inbox reply` instead.
+    #[command(group(clap::ArgGroup::new("send_to").required(true).args(["to_new_session", "to_session"])))]
     Send {
-        /// Recipient: session-id (or prefix), agent slug, slug@project, or hex pubkey.
-        #[arg(long = "to", value_name = "RECIPIENT")]
-        to: String,
+        /// Spawn a NEW session of this agent and send the message to it.
+        /// Value is an agent slug (e.g. `codex`); see `who` for spawnable agents.
+        #[arg(long = "to-new-session", value_name = "AGENT")]
+        to_new_session: Option<String>,
+        /// Message an EXISTING session, addressed by its session id or codename
+        /// (e.g. `bravo4217`, as shown in `who`).
+        #[arg(long = "to-session", value_name = "SESSION")]
+        to_session: Option<String>,
+        /// Project for `--to-new-session` (defaults to the current dir's project).
+        #[arg(long)]
+        project: Option<String>,
         /// One-line subject ("what this is about").
         #[arg(long)]
         subject: Option<String>,
@@ -356,7 +380,7 @@ enum TmuxAction {
     /// Resume a (typically dead) session: replay its harness in a new tmux
     /// window using the captured native resume token, then attach to it.
     Resume {
-        /// Session id (or prefix) to resume.
+        /// Session id (prefix, or codename like `bravo4217`) to resume.
         #[arg(long)]
         session: String,
     },
@@ -377,6 +401,48 @@ enum TmuxAction {
 }
 
 #[derive(Subcommand)]
+enum AgentAction {
+    /// List the agents in this machine's local keystore (slug, pubkey, command).
+    List,
+    /// Add a local agent: mint + persist its keypair if the slug is new. Pass a
+    /// harness launch command after `--` to set how it spawns (e.g.
+    /// `tenex-edge agent add reviewer -- claude --dangerously-skip-permissions`);
+    /// re-running with a new command overwrites it. With no command, spawning
+    /// falls back to the built-in defaults for claude/codex/opencode.
+    ///
+    /// Repeat `--project <p>` to also assign the agent to one or more projects
+    /// in the same step (adds its pubkey to each NIP-29 group).
+    Add {
+        /// Agent slug ([A-Za-z0-9._-]).
+        slug: String,
+        /// Assign to this project (repeatable). Adds the agent's pubkey to the
+        /// project's NIP-29 group.
+        #[arg(long = "project", value_name = "PROJECT")]
+        projects: Vec<String>,
+        /// Harness launch command (everything after `--`). Optional.
+        #[arg(last = true, value_name = "COMMAND")]
+        command: Vec<String>,
+    },
+    /// Assign an existing local agent to one or more projects: add its pubkey to
+    /// each project's NIP-29 group. Repeat `--project <p>` for multiple projects.
+    /// Requires your operator key to be a group admin on the relay.
+    Assign {
+        /// Agent slug (must already exist in the local keystore).
+        slug: String,
+        /// Project to assign to (repeatable; at least one required).
+        #[arg(long = "project", value_name = "PROJECT", required = true)]
+        projects: Vec<String>,
+    },
+    /// Remove a local agent. Its key file is parked at `<slug>.json.removed`
+    /// (not deleted) so a mistake is recoverable; the agent stops being spawnable
+    /// and stops being auto-trusted on next read.
+    Remove {
+        /// Agent slug to remove.
+        slug: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum ProjectAction {
     /// List all NIP-29 project groups on the relay.
     List,
@@ -389,14 +455,14 @@ enum ProjectAction {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Add a pubkey to a project's NIP-29 group (kind:9000 put-user).
-    /// Accepts hex pubkey, npub (bech32), or a NIP-05 address (user@domain.com).
+    /// Edit the current project's local-agent membership, or add one pubkey.
     Add {
-        /// Project slug.
-        project: String,
-        /// Hex pubkey, npub, or NIP-05 address.
+        /// Project slug. Omit to use the project resolved from the current directory.
+        project: Option<String>,
+        /// Hex pubkey, npub, or NIP-05 address. When omitted, opens a picker of
+        /// local agents and publishes the needed put-user/remove-user events.
         #[arg(value_name = "PUBKEY")]
-        pubkey: String,
+        pubkey: Option<String>,
     },
 }
 
@@ -404,10 +470,10 @@ enum ProjectAction {
 enum DebugAction {
     /// Live TUI for hook injections and tenex-edge command invocations.
     HookTail {
-        /// Filter panes/events to a project.
-        #[arg(long)]
-        project: Option<String>,
-        /// Filter panes/events to a session id or short code.
+        /// Filter panes/events to one or more projects (repeatable).
+        #[arg(long = "project")]
+        projects: Vec<String>,
+        /// Filter panes/events to a session id or codename.
         #[arg(long)]
         session: Option<String>,
         /// Maximum panes in the grid.
@@ -450,6 +516,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 who::who(project, all, all_projects)
             }
         }
+        Cmd::Whoami { session, json } => who::whoami(session, json).await,
         Cmd::Tail {
             project,
             agent,
@@ -491,14 +558,22 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Inbox { action, session } => match action {
             None => messaging::inbox(session).await,
             Some(InboxAction::Send {
-                to,
+                to_new_session,
+                to_session,
+                project,
                 subject,
                 message,
                 message_flag,
                 thread_id,
             }) => {
                 let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-                messaging::inbox_send(to, subject, message, session, thread_id).await
+                // clap's ArgGroup guarantees exactly one of these is Some.
+                let target = match (to_new_session, to_session) {
+                    (Some(agent), None) => messaging::SendTarget::NewSession { agent, project },
+                    (None, Some(sess)) => messaging::SendTarget::Session(sess),
+                    _ => unreachable!("clap ArgGroup enforces exactly one addressing flag"),
+                };
+                messaging::inbox_send(target, subject, message, session, thread_id).await
             }
             Some(InboxAction::Reply {
                 id,
@@ -529,20 +604,18 @@ pub async fn run(cli: Cli) -> Result<()> {
                 project,
             } => messaging::chat_read(since, limit, offset, tail, live, project).await,
         },
-        Cmd::WaitForMention { session, timeout } => {
-            messaging::wait_for_mention(session, timeout).await
-        }
         Cmd::Statusline { session } => statusline::statusline(session),
         Cmd::Project { action } => admin::project(action).await,
+        Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Doctor => admin::doctor().await,
         Cmd::Debug { action } => match action {
             DebugAction::HookTail {
-                project,
+                projects,
                 session,
                 panes,
                 refresh_ms,
             } => debug::hook_tail(debug::HookTailOpts {
-                project,
+                projects,
                 session,
                 panes,
                 refresh: Duration::from_millis(refresh_ms.max(100)),
@@ -553,7 +626,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             Some(action) => tmux_cli::tmux_run(action).await,
             None => tmux_cli::tmux_tui(popup),
         },
-        Cmd::Launch { slug, project } => tmux_cli::launch(slug, project).await,
+        Cmd::Launch {
+            slug,
+            project,
+            command,
+        } => tmux_cli::launch(slug, project, command).await,
         Cmd::Daemon => crate::daemon::server::run().await,
     }
 }
@@ -585,6 +662,18 @@ pub(super) async fn daemon_call_async(
 ) -> Result<serde_json::Value> {
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     client.call(method, params).await
+}
+
+pub(super) async fn daemon_call_async_with_items<F>(
+    method: &str,
+    params: serde_json::Value,
+    on_item: F,
+) -> Result<serde_json::Value>
+where
+    F: FnMut(serde_json::Value),
+{
+    let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
+    client.call_with_items(method, params, on_item).await
 }
 
 // ── freeze tests — turn-start / turn-check context assembly ─────────────────
@@ -864,20 +953,25 @@ mod turn_context_tests {
             text.contains("changes since your last check"),
             "delta header expected; got: {text:?}"
         );
-        // Changed renders `↻ sib@proj [session <code>] — Refactor tmux — editing hooks.rs`.
+        // Changed renders as a roster-shaped table row: title in its own column,
+        // the live activity in the Status column.
         assert!(
-            text.contains("sib@proj") && text.contains("Refactor tmux — editing hooks.rs"),
-            "sibling title+activity expected; got: {text:?}"
+            text.contains("| Agent | Session | Host | Title | Status |"),
+            "delta must use the roster table header; got: {text:?}"
+        );
+        assert!(
+            text.contains("| sib | `") && text.contains("| laptop | Refactor tmux | editing hooks.rs |"),
+            "sibling title+activity expected as a table row; got: {text:?}"
         );
         assert!(
             !text.contains("My own work"),
             "viewer's own status must be excluded; got: {text:?}"
         );
-        // The session must render as the targetable short code (matching `who`),
-        // never the raw id — otherwise it can't be copied into `send --to`.
+        // The session must render as the targetable codename (matching `who`),
+        // never the raw id — otherwise it can't be copied into `send --to-session`.
         assert!(
-            text.contains(&crate::util::session_short_code(&sib_id)),
-            "session must render as short code; got: {text:?}"
+            text.contains(&crate::util::session_codename(&sib_id)),
+            "session must render as codename; got: {text:?}"
         );
         assert!(
             !text.contains(sib_id.as_str()),
@@ -908,8 +1002,8 @@ mod turn_context_tests {
             assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
                 .expect("delta block expected for idle transition");
         assert!(
-            text.contains("Refactor tmux · idle"),
-            "idle marker expected; got: {text:?}"
+            text.contains("| Refactor tmux | idle |"),
+            "idle marker expected in the Status cell; got: {text:?}"
         );
     }
 
@@ -1000,7 +1094,7 @@ mod turn_context_tests {
             lines[0],
             format!(
                 "From: codex@tenex-edge [session {}]",
-                session_short_code("sender-session-id")
+                session_codename("sender-session-id")
             )
         );
         assert!(lines[1].starts_with("Date: ") && lines[1].ends_with("(3 min ago)"));
