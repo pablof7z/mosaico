@@ -287,6 +287,113 @@ pub fn remove_local_agent(edge_home: &Path, slug: &str) -> Result<Option<PathBuf
     Ok(Some(parked))
 }
 
+// ---------------------------------------------------------------------------
+// Session-key derivation (Stage 1 / Issue #2)
+// ---------------------------------------------------------------------------
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// HKDF-SHA256: Extract then Expand to produce exactly 32 bytes of keying
+/// material.  We only ever need one output block (L = 32 = HashLen), so the
+/// Expand step is a single HMAC invocation.
+///
+/// - Extract:  PRK = HMAC-SHA256(salt, IKM)
+/// - Expand:   OKM = HMAC-SHA256(PRK, info || 0x01)   [T(1), L ≤ 32]
+fn hkdf_sha256_32(ikm: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
+    // Extract
+    let mut mac = HmacSha256::new_from_slice(salt).expect("HMAC accepts any key length");
+    mac.update(ikm);
+    let prk: [u8; 32] = mac.finalize().into_bytes().into();
+
+    // Expand – single block (counter byte 0x01 is the HKDF block index)
+    let mut mac = HmacSha256::new_from_slice(&prk).expect("PRK is always 32 bytes");
+    mac.update(info);
+    mac.update(&[0x01u8]);
+    mac.finalize().into_bytes().into()
+}
+
+/// Deterministically derive a per-session keypair.  Same inputs → same key,
+/// so a resumed harness session reproduces its pubkey.  The session key is a
+/// live routable actor only; the tenex key stays NIP-29 admin.
+///
+/// # Info encoding
+///
+/// `info` is built as NUL-delimited (0x00) fields:
+///
+/// ```text
+/// project_slug '\0' agent_slug '\0' harness_kind '\0' anchor '\0' counter
+/// ```
+///
+/// NUL delimiters prevent cross-field collisions: `("a", "bc")` produces
+/// `a\0bc\0…` while `("ab", "c")` produces `ab\0c\0…` — these differ at the
+/// first NUL position so the two are always distinct.
+///
+/// The final byte is a rejection-sampling counter (starts at 0x00).  On the
+/// negligible chance that the raw HKDF output is an invalid secp256k1 scalar,
+/// the counter is incremented and HKDF-Expand is re-run against the same PRK
+/// with the mutated info, avoiding any ad-hoc fallback.
+///
+/// # Inputs
+///
+/// - `tenex_secret` — the configured operator private key (IKM, 32 bytes).
+/// - `project_slug` — logical project identifier.
+/// - `agent_slug`   — agent role within the project.
+/// - `harness_kind` — harness type string, e.g. `"claude"`, `"codex"`,
+///                    `"opencode"`.
+/// - `anchor`       — native harness session id (claude/codex) or canonical
+///                    daemon SessionId (opencode).  Stage 1 is anchor-agnostic;
+///                    the caller decides which value to pass.
+pub fn derive_session_keys(
+    tenex_secret: &SecretKey,
+    project_slug: &str,
+    agent_slug: &str,
+    harness_kind: &str,
+    anchor: &str,
+) -> Keys {
+    const SALT: &[u8] = b"tenex-edge/session-key/v1";
+    let ikm = tenex_secret.as_secret_bytes();
+
+    // Build the NUL-delimited info buffer.  The last byte is reserved for the
+    // rejection-sampling counter; we mutate it in place on retry.
+    let mut info: Vec<u8> = Vec::with_capacity(
+        project_slug.len() + 1 + agent_slug.len() + 1 + harness_kind.len() + 1 + anchor.len() + 1 + 1,
+    );
+    info.extend_from_slice(project_slug.as_bytes());
+    info.push(0x00);
+    info.extend_from_slice(agent_slug.as_bytes());
+    info.push(0x00);
+    info.extend_from_slice(harness_kind.as_bytes());
+    info.push(0x00);
+    info.extend_from_slice(anchor.as_bytes());
+    info.push(0x00);
+    info.push(0x00); // counter starts at 0
+
+    let counter_idx = info.len() - 1;
+
+    loop {
+        let okm = hkdf_sha256_32(ikm, SALT, &info);
+        match SecretKey::from_slice(&okm) {
+            Ok(sk) => return Keys::new(sk),
+            Err(_) => {
+                // The probability that a random 32-byte value is not a valid
+                // secp256k1 scalar is ~2^-128.  Guard the counter anyway so
+                // the loop is provably finite.
+                let counter = info[counter_idx];
+                assert!(
+                    counter < 255,
+                    "derive_session_keys: exhausted rejection counter (astronomically improbable)"
+                );
+                info[counter_idx] = counter + 1;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Write via a temp file + rename so a crash never leaves a half-written key.
 fn atomic_write(path: &Path, body: &str) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
@@ -425,6 +532,103 @@ mod tests {
         );
         assert!(agents[0].2.is_none());
         assert!(agents[0].3.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // derive_session_keys tests
+    // -----------------------------------------------------------------------
+
+    /// Fixed tenex secret used across all derivation tests.
+    fn test_tenex_secret() -> SecretKey {
+        // 0x01 repeated 32 times — valid, non-trivial, easy to reproduce.
+        SecretKey::from_slice(&[0x01u8; 32]).unwrap()
+    }
+
+    #[test]
+    fn session_key_determinism() {
+        // Same inputs → identical keypair on every call (resume property).
+        let sk = test_tenex_secret();
+        let a = derive_session_keys(&sk, "my-project", "coder", "claude", "sess-abc");
+        let b = derive_session_keys(&sk, "my-project", "coder", "claude", "sess-abc");
+        assert_eq!(
+            a.public_key().to_hex(),
+            b.public_key().to_hex(),
+            "derive_session_keys must be deterministic"
+        );
+        assert_eq!(
+            a.secret_key().to_secret_hex(),
+            b.secret_key().to_secret_hex(),
+        );
+    }
+
+    #[test]
+    fn session_key_different_anchors_differ() {
+        // Two different anchors (same project/agent/harness) → different pubkeys.
+        let sk = test_tenex_secret();
+        let a = derive_session_keys(&sk, "proj", "coder", "claude", "session-1");
+        let b = derive_session_keys(&sk, "proj", "coder", "claude", "session-2");
+        assert_ne!(
+            a.public_key().to_hex(),
+            b.public_key().to_hex(),
+            "different anchors must yield different session pubkeys"
+        );
+    }
+
+    #[test]
+    fn session_key_different_projects_differ() {
+        // Different project_slug → different pubkey (cross-project isolation).
+        let sk = test_tenex_secret();
+        let a = derive_session_keys(&sk, "project-alpha", "coder", "claude", "anchor-x");
+        let b = derive_session_keys(&sk, "project-beta", "coder", "claude", "anchor-x");
+        assert_ne!(
+            a.public_key().to_hex(),
+            b.public_key().to_hex(),
+            "different project slugs must yield different session pubkeys"
+        );
+    }
+
+    #[test]
+    fn session_key_different_agent_slugs_differ() {
+        // Different agent_slug → different pubkey.
+        let sk = test_tenex_secret();
+        let a = derive_session_keys(&sk, "proj", "coder", "claude", "anchor");
+        let b = derive_session_keys(&sk, "proj", "reviewer", "claude", "anchor");
+        assert_ne!(
+            a.public_key().to_hex(),
+            b.public_key().to_hex(),
+            "different agent slugs must yield different session pubkeys"
+        );
+    }
+
+    #[test]
+    fn session_key_field_boundary_non_collision() {
+        // ("a", "bc") must differ from ("ab", "c") — NUL-delimiter property.
+        // Without proper encoding these can collide if fields are naively concatenated.
+        let sk = test_tenex_secret();
+        let a = derive_session_keys(&sk, "a", "bc", "claude", "anchor");
+        let b = derive_session_keys(&sk, "ab", "c", "claude", "anchor");
+        assert_ne!(
+            a.public_key().to_hex(),
+            b.public_key().to_hex(),
+            "field-boundary collision: (project='a', agent='bc') must differ from (project='ab', agent='c')"
+        );
+    }
+
+    #[test]
+    fn session_key_known_answer() {
+        // Pinned known-answer: hardcoded inputs → hardcoded pubkey hex.
+        // If derivation logic changes, this test catches the regression.
+        // Computed by running the first passing test suite; do not change
+        // unless the derivation spec itself changes (and bump the salt version).
+        let sk = test_tenex_secret();
+        let keys = derive_session_keys(&sk, "my-project", "coder", "claude", "sess-abc");
+        // Pin: computed from HKDF-SHA256(ikm=[0x01;32], salt="tenex-edge/session-key/v1",
+        //      info="my-project\0coder\0claude\0sess-abc\0\x00")
+        assert_eq!(
+            keys.public_key().to_hex(),
+            "9aa6883eee2f1ce43053a1eec2c1c8b1c712cbb3c77ec346d9f091982a50b461",
+            "known-answer test: pinned pubkey changed — was the derivation spec modified?"
+        );
     }
 
     #[test]

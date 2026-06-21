@@ -2884,6 +2884,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm 0.28.1",
+ "hmac",
  "libc",
  "nix",
  "nostr-sdk",
@@ -2896,6 +2897,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]
