@@ -97,7 +97,7 @@ only the wiring differs per host's extension model.
 
 - **Claude Code** — [`integrations/claude-code/`](integrations/claude-code/):
   hook dispatcher `te-hook.py` + settings (SessionStart/SessionEnd/
-  UserPromptSubmit/Stop) + the `tenex-send-message` skill. Receive is automatic
+  UserPromptSubmit/Stop) + the `tenex-edge` skill. Receive is automatic
   (UserPromptSubmit injects your inbox).
 - **Codex** — [`integrations/codex/`](integrations/codex/): Codex hook
   dispatcher `te-hook.py` + `[[hooks.*]]` config, trusted via `/hooks`.
