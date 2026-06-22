@@ -618,53 +618,53 @@ impl Kind1Nip29Provider {
     ///
     /// The legacy inbox path is NOT touched here — local delivery is the
     /// caller's responsibility (rpc_send_message keeps route_mention_into_with_id).
-    pub async fn send(
+    /// Sign a [`SendIntent`] and return the pre-signed Nostr event WITHOUT
+    /// submitting it to the relay.  Callers that need to perform local inbox
+    /// delivery and `mark_mention_seen` between signing and publishing (to
+    /// prevent the relay echo from racing ahead) call this first, act on the
+    /// `event.id`, then call [`publish_intent`].
+    pub async fn sign_intent(
         &self,
-        intent: SendIntent,
+        intent: &SendIntent,
         agent_keys: &nostr_sdk::Keys,
-    ) -> Result<OutboundReceipt> {
+    ) -> Result<nostr_sdk::Event> {
         use nostr_sdk::Tag;
-
-        // Step 1: Resolve root native key for replies (store read, no await).
-        // Two separate with_store calls ensure the guard is never held across await.
         let root_native_key: Option<String> = intent.thread_id.as_deref().and_then(|tid| {
             self.with_store(|s| s.thread_root_native_key(tid, FABRIC, &self.provider_instance))
         });
-
-        // Step 2: Encode the intent's Mention.
         let mention = intent.to_mention();
         let mut builder = self.wire.encode(&DomainEvent::Mention(mention))?;
-
-        // Append root e-tag if this is a reply into an existing thread.
         if let Some(ref root_key) = root_native_key {
             match Tag::parse(["e", root_key, "", "root"]) {
-                Ok(tag) => {
-                    builder = builder.tags([tag]);
-                }
+                Ok(tag) => { builder = builder.tags([tag]); }
                 Err(e) => {
                     if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                        eprintln!("[provider] could not build root e-tag: {e:#}; sending without reply threading");
+                        eprintln!("[provider] could not build root e-tag: {e:#}");
                     }
                 }
             }
         }
+        self.transport.sign(builder, agent_keys).await
+    }
 
-        // Step 3: Publish. On error, propagate immediately — no canonical row written.
-        let event_id = self.transport.publish_signed(builder, agent_keys).await?;
-        let eid_hex = event_id.to_hex();
-
-        // Step 4: Dual-write canonical rows (single lock, no await inside).
+    /// Publish a pre-signed event and write canonical dual-write rows.
+    /// Counterpart to [`sign_intent`].  On relay error, propagates immediately
+    /// (no canonical row written).
+    pub async fn publish_intent(
+        &self,
+        intent: SendIntent,
+        signed: nostr_sdk::Event,
+    ) -> Result<OutboundReceipt> {
+        let eid_hex = signed.id.to_hex();
+        self.transport.publish_event(&signed).await?;
         let now = now_secs();
         let pi = self.provider_instance.clone();
         let (message_id, thread_id) = self.with_store(|s| -> Result<(String, String)> {
             let project_id =
                 s.ensure_project_origin(FABRIC, &pi, &intent.project, &intent.project, now)?;
             let thread_id = if let Some(tid) = intent.thread_id.as_deref() {
-                // Replying into an existing thread: use the existing thread_id.
-                // Ensure the thread_origins row exists (it should, but be safe).
                 tid.to_string()
             } else {
-                // New root message: each outbound root is its own thread.
                 s.ensure_thread_origin(&project_id, FABRIC, &pi, &eid_hex, now)?
             };
             let message_id = s.record_message(
@@ -676,20 +676,28 @@ impl Kind1Nip29Provider {
                 "published",
                 Some(&eid_hex),
             )?;
-            s.add_message_recipient(
-                &message_id,
-                &intent.to_pubkey,
-                None,
-            )?;
+            s.add_message_recipient(&message_id, &intent.to_pubkey, None)?;
             Ok((message_id, thread_id))
         })?;
-
         Ok(OutboundReceipt {
             native_event_id: eid_hex,
             message_id,
             sync_state: "published".into(),
             thread_id,
         })
+    }
+
+    /// Convenience wrapper: sign + publish in one call.  Equivalent to
+    /// `sign_intent` followed immediately by `publish_intent` with no
+    /// caller action between the two.  Used by callers that have no local
+    /// inbox delivery to perform (e.g. `rpc_inbox_reply`).
+    pub async fn send(
+        &self,
+        intent: SendIntent,
+        agent_keys: &nostr_sdk::Keys,
+    ) -> Result<OutboundReceipt> {
+        let signed = self.sign_intent(&intent, agent_keys).await?;
+        self.publish_intent(intent, signed).await
     }
 
     // ── refresh_project_list ──────────────────────────────────────────────────

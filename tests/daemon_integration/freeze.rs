@@ -689,3 +689,79 @@ fn freeze_startup_mention_catchup_no_duplicate() {
 
     stop_daemon(&home);
 }
+
+/// AC6: Ending a session (gracefully OR via crash-reconciliation) removes its
+/// derived session pubkey from the DB so it is never presented as a live
+/// routable address again.
+///
+/// This test exercises the GRACEFUL path (`session_end` RPC →
+/// `remove_session_pubkeys_for_session`). Crash-reconciliation exercises the
+/// same store method via `reconcile_sessions` on daemon restart; the graceful
+/// path is tested here because it runs in-process without a daemon kill.
+///
+/// Requires `userNsec` so the daemon can derive the session keypair. Without
+/// it `keys_for_session` returns None and no pubkey row is ever written.
+#[test]
+fn ac6_session_end_clears_session_pubkey_from_db() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    // userNsec is required for the daemon to derive (and therefore clear) the
+    // per-session keypair.
+    rewrite_config_with_user_nsec(&home);
+
+    let canon = rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        let v = c
+            .call(
+                "session_start",
+                serde_json::json!({"agent": "coder", "session_id": "ac6-test-sess", "cwd": "/tmp"}),
+            )
+            .await
+            .expect("session_start");
+        v["session_id"].as_str().unwrap().to_string()
+    });
+
+    // Give the daemon a moment to write the session pubkey row to the DB
+    // (upsert_session_pubkey is synchronous inside the RPC handler, but allow
+    // a small margin for any scheduling jitter).
+    std::thread::sleep(Duration::from_millis(300));
+
+    // GUARD: confirm the session pubkey was registered before we end the session.
+    {
+        let store = Store::open(&home.store_path()).unwrap();
+        let pk_before = store.session_pubkey_for_session(&canon);
+        assert!(
+            pk_before.is_some(),
+            "AC6 guard: session pubkey must be registered in DB after session_start with userNsec; \
+             if None, userNsec derivation is not running (check config)"
+        );
+    }
+
+    // End the session gracefully — rpc_session_end calls
+    // remove_session_pubkeys_for_session synchronously.
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "session_end",
+            serde_json::json!({"session": "ac6-test-sess"}),
+        )
+        .await
+        .expect("session_end");
+    });
+
+    // Allow a brief pause for the async NIP-29 remove task to complete
+    // (the DB clear is synchronous; the relay remove is fire-and-forget).
+    std::thread::sleep(Duration::from_millis(200));
+
+    // FREEZE: the session pubkey row must be gone from the DB.
+    let store = Store::open(&home.store_path()).unwrap();
+    let pk_after = store.session_pubkey_for_session(&canon);
+    assert!(
+        pk_after.is_none(),
+        "AC6: session pubkey must be removed from DB after session_end; \
+         still present: {:?}",
+        pk_after
+    );
+
+    stop_daemon(&home);
+}

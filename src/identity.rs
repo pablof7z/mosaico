@@ -631,6 +631,70 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // Issue #2 acceptance-criteria tests (AC1, AC2, AC3).
+    // These complement the generic determinism/isolation tests above with
+    // assertions framed exactly as the acceptance criteria state them.
+    // -----------------------------------------------------------------------
+
+    /// AC1: A resumed harness session MUST derive the SAME session pubkey as the
+    /// original run. The session's Nostr wire identity is stable across restarts
+    /// as long as the same anchor inputs are used (same operator key + project +
+    /// agent + harness kind + harness-native session id).
+    #[test]
+    fn ac1_resumed_session_derives_same_pubkey() {
+        let sk = test_tenex_secret();
+        let harness_id = "claude-native-xKz8-resume-test";
+
+        let original = derive_session_keys(&sk, "my-project", "coder", "claude", harness_id);
+        let resumed  = derive_session_keys(&sk, "my-project", "coder", "claude", harness_id);
+
+        assert_eq!(
+            original.public_key().to_hex(),
+            resumed.public_key().to_hex(),
+            "AC1: a resumed harness session must reproduce the exact same session pubkey"
+        );
+        assert_eq!(
+            original.secret_key().to_secret_hex(),
+            resumed.secret_key().to_secret_hex(),
+            "AC1: and the exact same secret key (full keypair is deterministic)"
+        );
+    }
+
+    /// AC2: Two DIFFERENT harness sessions for the SAME durable agent must
+    /// produce different session pubkeys, ensuring each session has its own
+    /// routable wire identity.
+    #[test]
+    fn ac2_two_sessions_same_agent_different_pubkeys() {
+        let sk = test_tenex_secret();
+
+        let session_a = derive_session_keys(&sk, "proj", "coder", "claude", "native-id-aaaa");
+        let session_b = derive_session_keys(&sk, "proj", "coder", "claude", "native-id-bbbb");
+
+        assert_ne!(
+            session_a.public_key().to_hex(),
+            session_b.public_key().to_hex(),
+            "AC2: two distinct harness sessions for the same agent must have different pubkeys"
+        );
+    }
+
+    /// AC3: Two projects must NOT share a derived session identity for the same
+    /// harness id, preventing cross-project routing leakage.
+    #[test]
+    fn ac3_same_harness_id_different_projects_isolate() {
+        let sk = test_tenex_secret();
+        let anchor = "same-harness-id-across-projects";
+
+        let proj_alpha = derive_session_keys(&sk, "project-alpha", "coder", "claude", anchor);
+        let proj_beta  = derive_session_keys(&sk, "project-beta",  "coder", "claude", anchor);
+
+        assert_ne!(
+            proj_alpha.public_key().to_hex(),
+            proj_beta.public_key().to_hex(),
+            "AC3: same harness id must yield different session pubkeys in different projects"
+        );
+    }
+
     #[test]
     fn byline_reads_field_alias_and_falls_back_to_agent_description() {
         let dir = tempfile::tempdir().unwrap();

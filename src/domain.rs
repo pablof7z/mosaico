@@ -250,13 +250,21 @@ pub struct MentionMeta {
 /// A NIP-29 project chat line. On the wire this is a NIP-C7 `kind:9` event
 /// scoped to the project group by its `h` tag. It is ambient project context,
 /// not a durable direct inbox item; live sessions see it going forward only.
-/// Stage 4: `from_session` and `mentioned_session` removed — derived from the
-/// store via `session_pubkey_info` in the materializer.
+///
+/// Mention (kind:1) routing cut over to the session pubkey, but chat fans out to
+/// every alive project session — `from_session`/`mentioned_session` are display
+/// metadata (who sent / who was @-mentioned), not the routing mechanism, so they
+/// stay on the wire. They are also the only way to recover this in unmanaged
+/// (no-userNsec) mode, where no per-session keys exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,
     pub project: String,
     pub body: String,
+    /// Canonical session id of the sender, carried as a `from-session` tag.
+    pub from_session: Option<String>,
+    /// Canonical session id of the @-mentioned session, carried as a `session-id` tag.
+    pub mentioned_session: Option<String>,
     /// Optional pubkey for the mentioned session, carried as a Nostr `p` tag.
     pub mentioned_pubkey: Option<String>,
 }

@@ -1215,20 +1215,87 @@ async fn rpc_send_message(
     let signing_keys = state
         .keys_for_session(&rec.session_id)
         .unwrap_or_else(|| id.keys.clone());
-    // Publish + canonical dual-write. On error the error propagates unchanged.
-    let receipt = state.provider.send(intent, &signing_keys).await?;
 
-    // LOCAL DELIVERY (the same-machine fix). When the recipient is an agent this
-    // daemon hosts (e.g. a SIBLING claude session sharing the sender's pubkey),
-    // delivery must NOT depend on the relay echoing our own published event back
-    // to us — relays generally do not re-deliver an event to the connection that
-    // published it. Route the mention into the recipient's session inbox(es) here,
-    // keyed by the SAME EventId we just published. `route_mention_into` →
-    // `enqueue_mention` is idempotent on `(mention_event_id, target_session)`, so
-    // if the relay does echo it later, no duplicate is created. `compute_targets`
-    // delivers only to the TARGET session (or all of the recipient agent's
-    // sessions when untargeted) — never back to the authoring session.
-    // Emit Msg event for the outbound send.
+    // Determine locality BEFORE provider.send() so we can pass prereserve_for.
+    // `is_local` is true when recipient.pubkey is a durable agent pubkey hosted
+    // on this daemon (stage 3/4: session pubkeys are NOT in hosted_pubkeys, so
+    // session-pubkey-addressed sends have is_local=false and rely on the relay).
+    let is_local = state
+        .hosted_pubkeys()
+        .iter()
+        .any(|h| h == &recipient.pubkey);
+
+    // ── Two-phase send: sign → local-deliver → mark_seen → publish ───────────
+    //
+    // The relay echo races the local delivery path: the relay can echo our
+    // published event back to our subscription before `rpc_send_message` has a
+    // chance to restrict fan-out via `target_session_filter`.  We solve this by
+    // signing the event first (without submitting it), performing local inbox
+    // delivery and `mark_mention_seen` synchronously, and THEN publishing.  By
+    // the time the relay receives the event and sends back the echo, the dedup
+    // gate in `route_mention_into_with_id` already sees `is_mention_seen=true`
+    // and blocks the fan-out.
+
+    // Phase A: sign only — no relay contact, no canonical rows yet.
+    let signed_event = state
+        .provider
+        .sign_intent(&intent, &signing_keys)
+        .await?;
+    let pre_event_id = signed_event.id.to_hex();
+
+    // Phase B: LOCAL DELIVERY (before publish so mark_seen has no race).
+    // When the recipient is a locally-hosted agent, route into session inbox(es)
+    // NOW using the pre-computed event id.  Idempotency: `enqueue_mention` is
+    // INSERT OR IGNORE on `(event_id, target_session)`, so any relay echo that
+    // arrives later is a no-op for already-delivered sessions.
+    if is_local && spawn_new.is_none() {
+        let mention = Mention {
+            from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
+            to_pubkey: recipient.pubkey.clone(),
+            project: recipient.project.clone(),
+            body: body.clone(),
+            meta,
+        };
+        let routed = state.with_store(|s| {
+            route_mention_into_with_id(
+                s,
+                &recipient.pubkey,
+                &mention,
+                &pre_event_id,
+                now_secs(),
+                // When recipient.pubkey is a shared agent pubkey (no session
+                // pubkeys configured / userNsec absent), restrict delivery to
+                // the specific target session rather than fanning out to all
+                // alive sessions of that agent.
+                recipient.target_session.as_deref(),
+            )
+        });
+        if routed {
+            crate::tmux::ring_doorbells(state.clone());
+            // Mark the event seen BEFORE publishing to prevent the relay echo
+            // from fanning out to sibling sessions.  This only applies for
+            // targeted sends (target_session is Some); untargeted fan-out
+            // already landed in all sessions, and the relay echo is idempotent
+            // via inbox PK dedup.
+            if recipient.target_session.is_some() {
+                state.with_store(|s| {
+                    let _ = s.mark_mention_seen(
+                        &recipient.pubkey,
+                        &pre_event_id,
+                        now_secs(),
+                    );
+                });
+            }
+        }
+    }
+
+    // Phase C: Publish to relay + canonical dual-write.
+    let receipt = state
+        .provider
+        .publish_intent(intent, signed_event)
+        .await?;
+
+    // Emit Msg / Sync tail events.
     let thread_short = pubkey_short(&receipt.thread_id);
     let to_slug = state
         .with_store(|s| s.resolve_slug_for_pubkey(&recipient.pubkey))
@@ -1246,11 +1313,6 @@ async fn rpc_send_message(
         body: body.chars().take(200).collect(),
     });
 
-    // Emit Sync: local delivery = delivered; remote = accepted.
-    let is_local = state
-        .hosted_pubkeys()
-        .iter()
-        .any(|h| h == &recipient.pubkey);
     let sync_state = if is_local { "delivered" } else { "accepted" };
     state.emit_tail(TailEvent::Sync {
         ts: now_secs(),
@@ -1261,33 +1323,6 @@ async fn rpc_send_message(
         state: sync_state.into(),
         detail: None,
     });
-
-    // Skip same-machine fan-out for new-session sends: the message belongs to the
-    // session we are about to spawn (delivered via the pending-spawn mention),
-    // not to the agent's other live sessions.
-    if is_local && spawn_new.is_none() {
-        // Reconstruct the Mention for the legacy local-delivery path. Fields
-        // must be byte-identical to what provider.send encoded and published.
-        let mention = Mention {
-            from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
-            to_pubkey: recipient.pubkey.clone(),
-            project: recipient.project.clone(),
-            body: body.clone(),
-            meta,
-        };
-        let routed = state.with_store(|s| {
-            route_mention_into_with_id(
-                s,
-                &recipient.pubkey,
-                &mention,
-                &receipt.native_event_id,
-                now_secs(),
-            )
-        });
-        if routed {
-            crate::tmux::ring_doorbells(state.clone());
-        }
-    }
 
     // NEW-SESSION SPAWN: `--to-new-session <agent>` spawns a fresh harness window
     // and pre-loads the triggering mention into the new session's inbox (consumed
@@ -1309,7 +1344,15 @@ async fn rpc_send_message(
         crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
     }
 
-    Ok(serde_json::json!({ "to_pubkey": recipient.pubkey }))
+    Ok(serde_json::json!({
+        "to_pubkey": recipient.pubkey,
+        // target_session is the canonical session id when the recipient was
+        // addressed by session id/codename (Some), or null for raw pubkey /
+        // slug@project sends (untargeted). Tests assert this field to confirm
+        // routing intent; the actual wire address is always to_pubkey (the
+        // resolved session pubkey).
+        "target_session": recipient.target_session,
+    }))
 }
 
 // ── chat_write ───────────────────────────────────────────────────────────────
@@ -1368,6 +1411,8 @@ async fn rpc_chat_write(
         from: crate::domain::AgentRef::new(from_pubkey.clone(), rec.agent_slug.clone()),
         project: rec.project.clone(),
         body: p.message.clone(),
+        from_session: Some(rec.session_id.clone()),
+        mentioned_session: mentioned_session.clone(),
         mentioned_pubkey: mentioned_pubkey.clone(),
     };
     // Stage 3: sign chat events with the session key.
@@ -2508,6 +2553,9 @@ async fn rpc_inbox_reply(
                 &mention,
                 &receipt.native_event_id,
                 now_secs(),
+                // inbox_reply targets the original sender's pubkey; no
+                // specific session restriction — fan out to all their sessions.
+                None,
             )
         });
         if routed {

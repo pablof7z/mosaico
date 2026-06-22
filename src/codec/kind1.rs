@@ -251,11 +251,19 @@ impl Codec for Kind1Codec {
                 from: _from,
                 project,
                 body,
+                from_session,
+                mentioned_session,
                 mentioned_pubkey,
             }) => {
                 let mut tags = vec![project_tag(project)?];
+                if let Some(s) = from_session {
+                    tags.push(tag(&["from-session", s])?);
+                }
                 if let Some(pk) = mentioned_pubkey {
                     tags.push(tag(&["p", pk])?);
+                }
+                if let Some(s) = mentioned_session {
+                    tags.push(tag(&["session-id", s])?);
                 }
                 EventBuilder::new(kind(KIND_CHAT), body.clone())
                     .tags(tags)
@@ -343,6 +351,8 @@ impl Codec for Kind1Codec {
                 from: AgentRef::new(pubkey, String::new()),
                 project: project_from_tags(event)?,
                 body: event.content.clone(),
+                from_session: first_tag(event, "from-session").map(str::to_string),
+                mentioned_session: first_tag(event, "session-id").map(str::to_string),
                 mentioned_pubkey: first_tag(event, "p").map(str::to_string),
             })),
             KIND_NOTE => {
@@ -904,6 +914,8 @@ mod tests {
             from: agent(&keys, "codex"),
             project: "myproject".into(),
             body: "status: tests are green".into(),
+            from_session: Some("sender-sess".into()),
+            mentioned_session: Some("target-sess".into()),
             mentioned_pubkey: Some(mentioned_pk.clone()),
         });
         let codec = Kind1Codec;
@@ -912,15 +924,18 @@ mod tests {
 
         assert_eq!(signed.kind.as_u16(), KIND_CHAT);
         assert!(has_tag(&signed, "h", "myproject"));
-        // Stage 4: from-session and session-id tags no longer emitted on chat wire.
-        assert!(!has_tag_name(&signed, "from-session"));
-        assert!(!has_tag_name(&signed, "session-id"));
+        // Chat (kind:9) keeps from-session/session-id as display metadata even
+        // though mention (kind:1) routing cut over to the session pubkey.
+        assert!(has_tag(&signed, "from-session", "sender-sess"));
+        assert!(has_tag(&signed, "session-id", "target-sess"));
         assert!(has_tag(&signed, "p", &mentioned_pk));
 
         match codec.decode(&signed) {
             Some(DomainEvent::ChatMessage(chat)) => {
                 assert_eq!(chat.project, "myproject");
                 assert_eq!(chat.body, "status: tests are green");
+                assert_eq!(chat.from_session, Some("sender-sess".into()));
+                assert_eq!(chat.mentioned_session, Some("target-sess".into()));
                 assert_eq!(chat.mentioned_pubkey, Some(mentioned_pk));
             }
             other => panic!("expected ChatMessage, got {other:?}"),

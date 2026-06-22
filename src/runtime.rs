@@ -356,7 +356,7 @@ pub async fn run_session_in_daemon(
 pub fn route_mention_into(store: &Store, me: &str, m: &Mention, event: &Event) -> bool {
     // Use the event's own timestamp as the send time so the envelope Date reflects
     // when the sender published, not when we fetched/routed it.
-    route_mention_into_with_id(store, me, m, &event.id.to_hex(), event.created_at.as_secs())
+    route_mention_into_with_id(store, me, m, &event.id.to_hex(), event.created_at.as_secs(), None)
 }
 
 /// Like [`route_mention_into`], but takes the mention's event id directly instead
@@ -372,6 +372,11 @@ pub fn route_mention_into_with_id(
     m: &Mention,
     eid: &str,
     sent_at: u64,
+    // When the caller resolved a specific target_session but `me` is a shared
+    // agent pubkey (no session pubkeys in use / userNsec absent), restrict the
+    // alive-session fan-out to only that session.  None means "no restriction"
+    // (untargeted mention → all matching sessions, or session-pubkey route).
+    target_session_filter: Option<&str>,
 ) -> bool {
     // Already delivered to this agent in some session? Don't re-enqueue it in a
     // new session (mentions persist on the relay as stored kind:1 events).
@@ -395,6 +400,12 @@ pub fn route_mention_into_with_id(
         .unwrap_or_default()
         .into_iter()
         .filter(|s| s.agent_pubkey == me && s.project == m.project)
+        // If the caller knows the exact target session (but resolved the agent
+        // pubkey because no session pubkeys are configured), restrict delivery
+        // to that session only rather than fanning out to all agent sessions.
+        .filter(|s| {
+            target_session_filter.map_or(true, |t| s.session_id == t)
+        })
         .map(|s| s.session_id)
         .collect();
 
@@ -617,10 +628,10 @@ mod tests {
         let eid = event.id.to_hex();
 
         // Local delivery (send_message path).
-        assert!(route_mention_into_with_id(&s, &sess_b_pk, &m, &eid, 12345));
+        assert!(route_mention_into_with_id(&s, &sess_b_pk, &m, &eid, 12345, None));
         // A later relay echo of the SAME event id (handle_incoming path).
         assert!(
-            !route_mention_into_with_id(&s, &sess_b_pk, &m, &eid, 12345),
+            !route_mention_into_with_id(&s, &sess_b_pk, &m, &eid, 12345, None),
             "echo must not double-deliver"
         );
 
@@ -657,7 +668,8 @@ mod tests {
             &pubkey,
             &m,
             "event-project-current",
-            12345
+            12345,
+            None
         ));
         assert_eq!(s.drain_inbox("sess-current").unwrap().len(), 1);
         assert!(s.drain_inbox("sess-other").unwrap().is_empty());
@@ -776,12 +788,12 @@ mod tests {
         let eid = event.id.to_hex();
 
         // First route: both sessions get the mention.
-        let first = route_mention_into_with_id(&s, &pk, &m, &eid, 12345);
+        let first = route_mention_into_with_id(&s, &pk, &m, &eid, 12345, None);
         assert!(first, "FREEZE: first route must be newly enqueued");
 
         // Second route (same eid, same sessions, no mark_mention_seen in between):
         // inbox PK (eid, sess-1) and (eid, sess-2) already exist → INSERT OR IGNORE.
-        let second = route_mention_into_with_id(&s, &pk, &m, &eid, 12345);
+        let second = route_mention_into_with_id(&s, &pk, &m, &eid, 12345, None);
         assert!(
             !second,
             "FREEZE: second route of same eid must be idempotent (no new rows)"
@@ -811,7 +823,7 @@ mod tests {
         // An unknown pubkey not registered in session_pubkeys and not an agent pubkey.
         let unknown_pk = "b".repeat(64);
         let (m, _event) = signed_mention(&keys, &unknown_pk);
-        let routed = route_mention_into_with_id(&s, &unknown_pk, &m, "eid-unknown", 12345);
+        let routed = route_mention_into_with_id(&s, &unknown_pk, &m, "eid-unknown", 12345, None);
 
         assert!(
             !routed,

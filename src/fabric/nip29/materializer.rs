@@ -72,17 +72,25 @@ impl Nip29Materializer {
         } else {
             chat.from.slug.clone()
         };
-        // Stage 4: from_session and mentioned_session are no longer on the
-        // ChatMessage domain struct; derive them from the session_pubkeys table.
-        let from_session = store
-            .session_pubkey_info(&from_pubkey)
-            .map(|(sid, _, _)| sid)
-            .unwrap_or_default();
-        let mentioned_session = chat
-            .mentioned_pubkey
-            .as_deref()
-            .and_then(|pk| store.session_pubkey_info(pk).map(|(sid, _, _)| sid))
-            .unwrap_or_default();
+        // Chat (kind:9) carries from_session / mentioned_session as display
+        // metadata tags. Mention (kind:1) routing fully cut over to the session
+        // pubkey, but chat fans out to all alive project sessions, so these tags
+        // remain the source of truth for "who sent / who was @-mentioned" — and
+        // they're the only way to recover that in unmanaged (no-userNsec) mode
+        // where no session keys exist. Fall back to the session_pubkeys mapping
+        // when a tag is absent (older publishers / managed-mode enrichment).
+        let from_session = chat.from_session.clone().unwrap_or_else(|| {
+            store
+                .session_pubkey_info(&from_pubkey)
+                .map(|(sid, _, _)| sid)
+                .unwrap_or_default()
+        });
+        let mentioned_session = chat.mentioned_session.clone().unwrap_or_else(|| {
+            chat.mentioned_pubkey
+                .as_deref()
+                .and_then(|pk| store.session_pubkey_info(pk).map(|(sid, _, _)| sid))
+                .unwrap_or_default()
+        });
         let host = store
             .resolve_chat_host(
                 &from_pubkey,
