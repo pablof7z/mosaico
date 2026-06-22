@@ -16,12 +16,12 @@ use super::protocol::{
 use super::tail_event::TailEvent;
 use super::{lock_path, socket_path, store_path};
 use crate::config::{self, Config};
-use crate::domain::{ChatMessage, DomainEvent, Mention};
+use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::provider::Kind1Nip29Provider;
 use crate::identity::{self, AgentIdentity};
-use crate::runtime::{self, route_mention_into_with_id, EngineParams};
+use crate::runtime::{self, EngineParams};
 use crate::session::{derive_status, Harness, SessionObservation, SessionSnapshot};
-use crate::state::{ChatInboxRow, ChatLogRow, InboxRow, Store};
+use crate::state::{ChatInboxRow, ChatLogRow, Store};
 use crate::transport::Transport;
 use crate::util::{now_secs, pubkey_short, session_codename};
 use anyhow::{Context, Result};
@@ -484,15 +484,12 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "who" => rpc_who(state, &req.params),
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params),
-        "send_message" => rpc_send_message(state, &req.params).await,
         "chat_write" => rpc_chat_write(state, &req.params).await,
         "propose" => rpc_propose(state, &req.params).await,
-        "inbox" => rpc_inbox(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params),
         "turn_end" => rpc_turn_end(state, &req.params).await,
         "doctor" => rpc_doctor(state).await,
-        "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "project_list" => rpc_project_list(state).await,
         "project_edit" => rpc_project_edit(state, &req.params).await,
         "project_members" => rpc_project_members(state, &req.params).await,
@@ -501,7 +498,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "groups_create" => rpc_groups_create(state, &req.params).await,
         "groups_list" => rpc_groups_list(state, &req.params),
         "publish_profile" => rpc_publish_profile(state, &req.params).await,
-        "inbox_reply" => rpc_inbox_reply(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
         "whoami" => rpc_whoami(state, &req.params),
         "list_threads" => rpc_list_threads(state, &req.params).await,
@@ -1032,64 +1028,8 @@ async fn rpc_session_start(
         .filter(|pane| !pane.is_empty())
         .and_then(crate::tmux::consume_pending_spawn);
 
-    if let (Some(ps), Some(pane)) = (pending_spawn, p.tmux_pane.clone()) {
-        let m = ps.mention;
-
-        // Persist the mention as already-delivered: the row lets `inbox reply
-        // --id` resolve the original we're about to show, but marking it
-        // delivered keeps the turn-start drain from re-injecting it as
-        // duplicate context (we are typing it in directly).
-        state.with_store(|s| {
-            s.enqueue_mention_delivered(
-                &crate::state::InboxRow {
-                    mention_event_id: m.event_id.clone(),
-                    target_session: session_id.clone(),
-                    from_pubkey: m.from_pubkey.clone(),
-                    from_slug: m.from_slug.clone(),
-                    project: m.project.clone(),
-                    body: m.body.clone(),
-                    created_at: m.created_at,
-                    from_session: m.from_session.clone(),
-                    subject: String::new(),
-                    branch: String::new(),
-                    commit: String::new(),
-                    dirty: 0,
-                    host: String::new(),
-                },
-                now_secs(),
-            )
-            .ok()
-        });
-
-        // Render the received message exactly as the inbox would (provenance,
-        // reply ID, body) and type it into the pane as the first prompt.
-        let now = now_secs();
-        let prompt = crate::cli::format_envelope(&crate::cli::EnvelopeView {
-            from_slug: &m.from_slug,
-            project: &m.project,
-            from_session: &m.from_session,
-            host: "",
-            self_host: "",
-            subject: "",
-            branch: "",
-            commit: "",
-            dirty: 0,
-            id: &crate::cli::mention_short_id(&m.event_id),
-            sent_at: m.created_at,
-            now,
-            body: &m.body,
-        });
-
-        tokio::spawn(async move {
-            if let Err(e) = crate::tmux::inject_spawn_message(&pane, &prompt).await {
-                if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                    eprintln!("[tmux] spawn message inject failed for pane {pane}: {e:#}");
-                }
-            } else if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                eprintln!("[tmux] spawn message injected into pane {pane}");
-            }
-        });
-    }
+    // pending_spawn is kept for future non-inbox spawn-on-send extensions.
+    let _ = (pending_spawn, &p.tmux_pane);
 
     Ok(serde_json::json!({
         "session_id": session_id,
@@ -1175,258 +1115,6 @@ fn rpc_session_end(
     Ok(serde_json::json!({ "ended": existed }))
 }
 
-// ── send_message ─────────────────────────────────────────────────────────────
-
-#[derive(serde::Deserialize, Default)]
-struct SendMessageParams {
-    recipient: String,
-    /// Addressing mode: `"new_session"` (recipient is an agent slug to spawn) or
-    /// `"session"` (recipient is an existing session id/codename). Defaults to
-    /// `"session"` for back-compat with any caller that omits it.
-    #[serde(default = "default_send_mode")]
-    mode: String,
-    /// Project for `new_session` mode; defaults to the sender's project.
-    #[serde(default)]
-    project: Option<String>,
-    message: String,
-    #[serde(default)]
-    subject: Option<String>,
-    #[serde(default)]
-    session: Option<String>,
-    #[serde(default)]
-    env_session: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    agent: Option<String>,
-    /// Optional canonical thread id to reply into.  When Some, the provider
-    /// encodes a NIP-10 root `e` tag pointing at the thread's relay-native key
-    /// so the recipient materializer groups the reply into the same thread.
-    /// Default: None → new thread root (Phase 6 behavior preserved).
-    #[serde(default)]
-    thread_id: Option<String>,
-}
-
-fn default_send_mode() -> String {
-    "session".to_string()
-}
-
-async fn rpc_send_message(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    use crate::fabric::provider::SendIntent;
-
-    let p: SendMessageParams =
-        serde_json::from_value(params.clone()).context("parsing send_message params")?;
-    let rec = resolve_session(
-        state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
-    )?;
-    let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
-
-    // Resolve the recipient and decide whether this send spawns a fresh session.
-    // Two explicit modes (from the `--to-new-session` / `--to-session` flags):
-    //   • new_session: `recipient` is an agent slug. Mint that agent's stable
-    //     identity (works even if it has never run here), target NO existing
-    //     session, and spawn a new harness window — the message is pre-loaded
-    //     into the new session's inbox via the pending-spawn mention.
-    //   • session: `recipient` is an existing session id/codename. Require that
-    //     it resolves to a live session; never spawn.
-    let (recipient, spawn_new): (ResolvedRecipient, Option<(String, String)>) =
-        if p.mode == "new_session" {
-            let agent_slug = p.recipient.clone();
-            let project = p.project.clone().unwrap_or_else(|| rec.project.clone());
-            let target_id =
-                identity::load_or_create(&config::edge_home(), &agent_slug, now_secs())
-                    .with_context(|| format!("no such agent {agent_slug:?}"))?;
-            let resolved = ResolvedRecipient {
-                pubkey: target_id.pubkey_hex(),
-                target_session: None,
-                project: project.clone(),
-            };
-            (resolved, Some((agent_slug, project)))
-        } else {
-            // `session` mode (the default): resolve the recipient as-is. The CLI
-            // only ever passes a session id/codename here (`--to-session`), but the
-            // RPC stays flexible — a raw pubkey/`slug@project` still resolves
-            // untargeted, which is the path remote inbound mentions exercise. Never
-            // spawns.
-            let resolved = state.with_store(|s| resolve_recipient(s, &rec.project, &p.recipient))?;
-            (resolved, None)
-        };
-
-    // Keep the message body accessible after the intent is built.
-    let body = p.message.clone();
-
-    // Build the intent. project comes from the resolved recipient (matching the
-    // Mention field today), not from rec.project.
-    let meta = workspace_meta(state, p.cwd.as_deref(), p.subject.unwrap_or_default(), None);
-    let intent = SendIntent {
-        from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
-        to_pubkey: recipient.pubkey.clone(),
-        project: recipient.project.clone(),
-        body: p.message,
-        thread_id: p.thread_id.clone(),
-        meta: meta.clone(),
-    };
-
-    // Stage 3: sign with the session key so the wire event carries the session
-    // pubkey as the author. Falls back to the durable key when no session key
-    // was derived (operator nsec absent).
-    let signing_keys = state
-        .keys_for_session(&rec.session_id)
-        .unwrap_or_else(|| id.keys.clone());
-
-    // Determine locality BEFORE provider.send() so we can pass prereserve_for.
-    // `is_local` is true when recipient.pubkey is hosted on this daemon — either
-    // a durable agent pubkey OR a live per-session pubkey. Both must count: the
-    // relay does not echo our own published event back to the connection that
-    // sent it, so without local delivery a same-daemon session->session send
-    // (managed mode, where the recipient resolves to a session pubkey) would be
-    // silently dropped. Mirrors the same check in rpc_inbox_reply.
-    let is_local = state
-        .hosted_pubkeys()
-        .iter()
-        .any(|h| h == &recipient.pubkey)
-        || state
-            .live_session_pubkeys()
-            .iter()
-            .any(|h| h == &recipient.pubkey);
-
-    // ── Two-phase send: sign → local-deliver → mark_seen → publish ───────────
-    //
-    // The relay echo races the local delivery path: the relay can echo our
-    // published event back to our subscription before `rpc_send_message` has a
-    // chance to restrict fan-out via `target_session_filter`.  We solve this by
-    // signing the event first (without submitting it), performing local inbox
-    // delivery and `mark_mention_seen` synchronously, and THEN publishing.  By
-    // the time the relay receives the event and sends back the echo, the dedup
-    // gate in `route_mention_into_with_id` already sees `is_mention_seen=true`
-    // and blocks the fan-out.
-
-    // Phase A: sign only — no relay contact, no canonical rows yet.
-    let signed_event = state
-        .provider
-        .sign_intent(&intent, &signing_keys)
-        .await?;
-    let pre_event_id = signed_event.id.to_hex();
-
-    // Phase B: LOCAL DELIVERY (before publish so mark_seen has no race).
-    // When the recipient is a locally-hosted agent, route into session inbox(es)
-    // NOW using the pre-computed event id.  Idempotency: `enqueue_mention` is
-    // INSERT OR IGNORE on `(event_id, target_session)`, so any relay echo that
-    // arrives later is a no-op for already-delivered sessions.
-    if is_local && spawn_new.is_none() {
-        let mention = Mention {
-            from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
-            to_pubkey: recipient.pubkey.clone(),
-            project: recipient.project.clone(),
-            body: body.clone(),
-            meta,
-        };
-        let routed = state.with_store(|s| {
-            route_mention_into_with_id(
-                s,
-                &recipient.pubkey,
-                &mention,
-                &pre_event_id,
-                now_secs(),
-                // When recipient.pubkey is a shared agent pubkey (no session
-                // pubkeys configured / userNsec absent), restrict delivery to
-                // the specific target session rather than fanning out to all
-                // alive sessions of that agent.
-                recipient.target_session.as_deref(),
-            )
-        });
-        if routed {
-            crate::tmux::ring_doorbells(state.clone());
-            // Mark the event seen BEFORE publishing to prevent the relay echo
-            // from fanning out to sibling sessions.  This only applies for
-            // targeted sends (target_session is Some); untargeted fan-out
-            // already landed in all sessions, and the relay echo is idempotent
-            // via inbox PK dedup.
-            if recipient.target_session.is_some() {
-                state.with_store(|s| {
-                    let _ = s.mark_mention_seen(
-                        &recipient.pubkey,
-                        &pre_event_id,
-                        now_secs(),
-                    );
-                });
-            }
-        }
-    }
-
-    // Phase C: Publish to relay + canonical dual-write.
-    let receipt = state
-        .provider
-        .publish_intent(intent, signed_event)
-        .await?;
-
-    // Emit Msg / Sync tail events.
-    let thread_short = pubkey_short(&receipt.thread_id);
-    let to_slug = state
-        .with_store(|s| s.resolve_slug_for_pubkey(&recipient.pubkey))
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| pubkey_short(&recipient.pubkey));
-    state.emit_tail(TailEvent::Msg {
-        ts: now_secs(),
-        project: recipient.project.clone(),
-        from: rec.agent_slug.clone(),
-        from_session: Some(rec.session_id.clone()),
-        to: to_slug,
-        to_session: None,
-        thread: Some(thread_short.clone()),
-        body: body.chars().take(200).collect(),
-    });
-
-    let sync_state = if is_local { "delivered" } else { "accepted" };
-    state.emit_tail(TailEvent::Sync {
-        ts: now_secs(),
-        project: recipient.project.clone(),
-        from: rec.agent_slug.clone(),
-        to: pubkey_short(&recipient.pubkey),
-        thread: Some(thread_short),
-        state: sync_state.into(),
-        detail: None,
-    });
-
-    // NEW-SESSION SPAWN: `--to-new-session <agent>` spawns a fresh harness window
-    // and pre-loads the triggering mention into the new session's inbox (consumed
-    // when the harness fires `session-start`). Awaited (not detached) so a spawn
-    // failure — e.g. an unknown/unspawnable agent — surfaces to the caller.
-    if let Some((slug, project2)) = spawn_new {
-        let pending_mention = crate::tmux::PendingMention {
-            event_id: receipt.native_event_id.clone(),
-            from_pubkey: id.pubkey_hex(),
-            from_slug: rec.agent_slug.clone(),
-            from_session: rec.session_id.clone(),
-            project: recipient.project.clone(),
-            body: body.clone(),
-            created_at: now_secs(),
-        };
-        let pane_id = crate::tmux::spawn_agent(state, &slug, &project2, Vec::new(), None)
-            .await
-            .with_context(|| format!("spawning new session for {slug}@{project2}"))?;
-        crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
-    }
-
-    Ok(serde_json::json!({
-        "to_pubkey": recipient.pubkey,
-        // target_session is the canonical session id when the recipient was
-        // addressed by session id/codename (Some), or null for raw pubkey /
-        // slug@project sends (untargeted). Tests assert this field to confirm
-        // routing intent; the actual wire address is always to_pubkey (the
-        // resolved session pubkey).
-        "target_session": recipient.target_session,
-    }))
-}
 
 // ── chat_write ───────────────────────────────────────────────────────────────
 
@@ -1880,49 +1568,7 @@ fn find_session_by_codename(store: &Store, codename: &str) -> Result<Option<Sess
     Ok(None)
 }
 
-// ── inbox / turn_start / turn_check / turn_end ───────────────────────────────
-
-#[derive(serde::Deserialize, Default)]
-struct InboxParams {
-    #[serde(default)]
-    session: Option<String>,
-    #[serde(default)]
-    env_session: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    agent: Option<String>,
-}
-
-async fn rpc_inbox(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    let p: InboxParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let rec = resolve_session(
-        state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
-    )?;
-    let _ = fetch_mentions_into_inbox(state, &rec).await;
-
-    let rows = state.with_store(|s| {
-        let rows = s.drain_inbox(&rec.session_id).unwrap_or_default();
-        for r in &rows {
-            s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
-                .ok();
-        }
-        rows
-    });
-    let rows_json = rows_to_json(&rows, &state.host);
-
-    Ok(serde_json::json!({
-        "rows": rows_json,
-    }))
-}
+// ── turn_start / turn_check / turn_end ───────────────────────────────────────
 
 #[derive(serde::Deserialize, Default)]
 struct TurnStartParams {
@@ -1981,10 +1627,8 @@ async fn rpc_turn_start(
         elapsed_s: None,
     });
 
-    // Self-fetch stored mentions (relay), then assemble via the SHARED cli.rs
-    // function so the injected text is byte-identical to the pre-daemon CLI and
-    // cannot drift.
-    let _ = fetch_mentions_into_inbox(state, &rec).await;
+    // Assemble via the SHARED cli.rs function so the injected text is byte-identical
+    // to the pre-daemon CLI and cannot drift.
     let context = crate::cli::assemble_turn_start_context(&state.store, &rec, prev_started)
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
@@ -2049,67 +1693,12 @@ async fn rpc_turn_end(
         // turn cannot overwrite last_prompt_event_id before we publish.
         let (was_working, turn_started_at) =
             state.with_store(|s| s.get_turn_state(&session).unwrap_or((false, 0)));
-        let (root_event_id, last_prompt_event_id, transcript_path, baseline_text) = state
-            .with_store(|s| {
-                // Canonical transition: busy=0, activity cleared, TITLE retained,
-                // version bump + status_outbox enqueue. Also clears turn_state.
-                s.end_turn(&session, now_secs()).ok();
-                let (root, prompt) = s.get_thread_event_ids(&session);
-                let transcript = s.get_session_transcript(&session).ok().flatten();
-                let baseline = s.get_last_assistant_text_at_turn_start(&session);
-                (root, prompt, transcript, baseline)
-            });
+        state.with_store(|s| {
+            // Canonical transition: busy=0, activity cleared, TITLE retained,
+            // version bump + status_outbox enqueue. Also clears turn_state.
+            s.end_turn(&session, now_secs()).ok();
+        });
         state.status_outbox_notify.notify_waiters();
-
-        // Publish the NIP-10 TurnReply when we have full threading context.
-        if !root_event_id.is_empty() && !last_prompt_event_id.is_empty() {
-            if let Some(rec) = state.with_store(|s| s.get_session(&session).ok().flatten()) {
-                // Claude Code writes the transcript *after* the stop hook fires, so
-                // the response may not be on disk yet. Poll (up to ~2 s) until the
-                // last assistant text differs from what we snapshotted at turn_start.
-                let body = if let Some(path) = transcript_path.as_deref() {
-                    let mut result = String::new();
-                    for _ in 0..20u8 {
-                        if let Some(text) =
-                            crate::transcript::read_last_assistant_text(std::path::Path::new(path))
-                        {
-                            if !text.is_empty() && text != baseline_text {
-                                result = text;
-                                break;
-                            }
-                        }
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                    result
-                } else {
-                    String::new()
-                };
-
-                if !body.is_empty() {
-                    let ev = DomainEvent::TurnReply(crate::domain::TurnReply {
-                        agent: crate::domain::AgentRef::new(
-                            rec.agent_pubkey.clone(),
-                            rec.agent_slug.clone(),
-                        ),
-                        project: rec.project.clone(),
-                        body,
-                        root_event_id,
-                        reply_event_id: last_prompt_event_id,
-                    });
-                    let edge = crate::config::edge_home();
-                    if let Ok(id) =
-                        crate::identity::load_or_create(&edge, &rec.agent_slug, now_secs())
-                    {
-                        // Stage 3: sign TurnReply with the session key so the
-                        // wire event carries the session pubkey as its author.
-                        let turn_signing_keys = state
-                            .keys_for_session(&session)
-                            .unwrap_or_else(|| id.keys.clone());
-                        state.provider.publish(&ev, &turn_signing_keys).await.ok();
-                    }
-                }
-            }
-        }
 
         if was_working {
             let now = now_secs();
@@ -2148,84 +1737,6 @@ async fn rpc_doctor(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
         "publish": publish,
         "readback": readback,
     }))
-}
-
-// ── user_prompt ──────────────────────────────────────────────────────────────
-
-/// Publish a kind:1 OP signed by the human user's nsec. The event records the
-/// user's prompt on the Nostr fabric as a root note (no `e` tag) in the NIP-29
-/// group, p-tagging the agent that will process it.
-async fn rpc_user_prompt(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    use nostr_sdk::prelude::Keys;
-
-    #[derive(serde::Deserialize, Default)]
-    struct P {
-        #[serde(default)]
-        session: Option<String>,
-        #[serde(default)]
-        env_session: Option<String>,
-        #[serde(default)]
-        cwd: Option<String>,
-        #[serde(default)]
-        prompt: Option<String>,
-        #[serde(default)]
-        agent: Option<String>,
-    }
-    let p: P = serde_json::from_value(params.clone()).unwrap_or_default();
-
-    let nsec = match state.cfg.management_nsec() {
-        Some(n) => n.clone(),
-        None => anyhow::bail!("no signing key (userNsec/tenexPrivateKey) set in ~/.tenex/config.json"),
-    };
-    let user_keys = Keys::parse(&nsec).context("parsing signing key")?;
-
-    let rec = resolve_session(
-        state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
-    )?;
-    let body = p.prompt.unwrap_or_default();
-
-    // The user's prompt is a Mention from the owner to the agent — same domain
-    // event, same codec; only the signing key differs.
-    let ev = DomainEvent::Mention(Mention {
-        from: crate::domain::AgentRef::new(user_keys.public_key().to_hex(), String::new()),
-        to_pubkey: rec.agent_pubkey.clone(),
-        project: rec.project.clone(),
-        body,
-        meta: crate::domain::MentionMeta::default(),
-    });
-    // Suppress the relay echo of our own prompt: this RPC is only ever invoked
-    // by the LOCAL harness's user-prompt-submit hook, so the agent already has
-    // the prompt in front of it. Routing the echoed kind:1 back into this same
-    // agent's inbox would create a phantom unread mention — and because the tmux
-    // doorbell auto-submits its nudge text as a prompt, that echo perpetually
-    // re-arms the doorbell (an infinite "you have new mentions" loop). Publishing
-    // via `publish_seen_by` records the event as seen BEFORE the wire send, so
-    // `route_mention_into` drops the untargeted echo even though it arrives on a
-    // separate task. Remote prompts never pass through this RPC, so they're safe.
-    let event_id = state
-        .provider
-        .publish_seen_by(&ev, &user_keys, &rec.agent_pubkey)
-        .await?;
-
-    // NIP-10 thread tracking: first prompt becomes the root; every prompt is
-    // the "last trigger" the next TurnReply will reply to.
-    let eid = event_id.to_hex();
-    let sid = rec.session_id.clone();
-    state.with_store(|s| {
-        let (root, _) = s.get_thread_event_ids(&sid);
-        let new_root = if root.is_empty() { eid.clone() } else { root };
-        s.set_thread_event_ids(&sid, &new_root, &eid).ok();
-    });
-
-    Ok(serde_json::json!({ "event_id": eid }))
 }
 
 // ── project_list ─────────────────────────────────────────────────────────────
@@ -2415,20 +1926,14 @@ fn rpc_statusline(
                 (d.busy, d.title)
             })
             .unwrap_or((false, String::new()));
-        let pending = s.peek_inbox(&rec.session_id).unwrap_or_default();
         let pending_chat = s.peek_chat_mentions(&rec.session_id).unwrap_or_default();
         let recent_since = now.saturating_sub(STATUSLINE_RECENT_SECS);
-        let recent = s
-            .list_recently_delivered(&rec.session_id, recent_since)
-            .unwrap_or_default();
         let recent_chat = s
             .list_recently_delivered_chat_mentions(&rec.session_id, recent_since)
             .unwrap_or_default();
-        let mut pending_json = rows_to_json(&pending, &host);
-        pending_json.extend(chat_rows_to_json(&pending_chat));
+        let mut pending_json = chat_rows_to_json(&pending_chat);
         sort_message_json(&mut pending_json);
-        let mut recent_json = rows_to_json(&recent, &host);
-        recent_json.extend(chat_rows_to_json(&recent_chat));
+        let mut recent_json = chat_rows_to_json(&recent_chat);
         sort_message_json(&mut recent_json);
         let distill_error = s
             .get_recent_session_error(&rec.session_id, now.saturating_sub(DISTILL_ERROR_TTL_SECS))
@@ -2493,10 +1998,9 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
                 (d.busy, d.title)
             })
             .unwrap_or((false, String::new()));
-        let pending = s.peek_inbox(&rec.session_id).unwrap_or_default().len()
-            + s.peek_chat_mentions(&rec.session_id)
-                .unwrap_or_default()
-                .len();
+        let pending = s.peek_chat_mentions(&rec.session_id)
+            .unwrap_or_default()
+            .len();
         let session_pubkey = s.session_pubkey_for_session(&rec.session_id);
         Ok(serde_json::json!({
             "agent": rec.agent_slug,
@@ -2517,169 +2021,6 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
     })
 }
 
-// ── inbox reply (reply by mention ID) ─────────────────────────────────────────
-
-#[derive(serde::Deserialize, Default)]
-struct InboxReplyParams {
-    /// Short `ID` from an envelope (prefix of the original mention's event id).
-    id: String,
-    message: String,
-    #[serde(default)]
-    subject: Option<String>,
-    #[serde(default)]
-    session: Option<String>,
-    #[serde(default)]
-    env_session: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    agent: Option<String>,
-}
-
-/// Reply to a mention by its short `ID`. Looks up the original inbox row, then
-/// sends through the provider a Mention that `p`-tags the original sender and
-/// `e`-tags (NIP-10 reply) the original event — threading the reply back to
-/// exactly the sender session that wrote it. The reply is filed into the
-/// original's canonical thread, so both sides' read models agree. Subject
-/// defaults to `Re: <original subject>`.
-async fn rpc_inbox_reply(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    use crate::fabric::provider::SendIntent;
-
-    let p: InboxReplyParams =
-        serde_json::from_value(params.clone()).context("parsing inbox_reply params")?;
-    if p.id.is_empty() {
-        anyhow::bail!("missing --id (the ID shown on the message you're replying to)");
-    }
-    let rec = resolve_session(
-        state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
-    )?;
-    let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
-
-    let original = state
-        .with_store(|s| s.find_inbox_by_event_prefix(&p.id))?
-        .with_context(|| format!("no message in this inbox with ID {:?}", p.id))?;
-
-    // Default the subject to `Re: <original>` (don't double-prefix on a reply chain).
-    let subject = match p.subject {
-        Some(s) if !s.is_empty() => s,
-        _ if original.subject.is_empty() => String::new(),
-        _ if original.subject.to_lowercase().starts_with("re:") => original.subject.clone(),
-        _ => format!("Re: {}", original.subject),
-    };
-
-    let mut meta = workspace_meta(state, p.cwd.as_deref(), subject, None);
-    meta.reply_to_event_id = Some(original.mention_event_id.clone());
-
-    // File the reply into the original's canonical thread when we know it.
-    let thread_id = state.with_store(|s| s.thread_for_native_event(&original.mention_event_id));
-
-    let intent = SendIntent {
-        from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
-        to_pubkey: original.from_pubkey.clone(),
-        project: original.project.clone(),
-        body: p.message.clone(),
-        thread_id,
-        meta: meta.clone(),
-    };
-    // Stage 3: sign inbox replies with the session key.
-    let reply_signing_keys = state
-        .keys_for_session(&rec.session_id)
-        .unwrap_or_else(|| id.keys.clone());
-    let receipt = state.provider.send(intent, &reply_signing_keys).await?;
-
-    // Tail: outbound msg + sync, mirroring rpc_send_message.
-    let thread_short = pubkey_short(&receipt.thread_id);
-    let to_slug = state
-        .with_store(|s| s.resolve_slug_for_pubkey(&original.from_pubkey))
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| pubkey_short(&original.from_pubkey));
-    state.emit_tail(TailEvent::Msg {
-        ts: now_secs(),
-        project: original.project.clone(),
-        from: rec.agent_slug.clone(),
-        from_session: Some(rec.session_id.clone()),
-        to: to_slug,
-        to_session: Some(original.from_session.clone()).filter(|s| !s.is_empty()),
-        thread: Some(thread_short.clone()),
-        body: p.message.chars().take(200).collect(),
-    });
-    // Stage 3: `original.from_pubkey` may be a session pubkey when the original
-    // message was session-signed. Check both durable and session pubkeys.
-    let is_local = state.hosted_pubkeys().iter().any(|h| h == &original.from_pubkey)
-        || state
-            .live_session_pubkeys()
-            .iter()
-            .any(|h| h == &original.from_pubkey);
-    state.emit_tail(TailEvent::Sync {
-        ts: now_secs(),
-        project: original.project.clone(),
-        from: rec.agent_slug.clone(),
-        to: pubkey_short(&original.from_pubkey),
-        thread: Some(thread_short),
-        state: (if is_local { "delivered" } else { "accepted" }).into(),
-        detail: None,
-    });
-
-    // Local delivery to a same-machine sibling session (see rpc_send_message).
-    if is_local {
-        let mention = Mention {
-            from: crate::domain::AgentRef::new(id.pubkey_hex(), rec.agent_slug.clone()),
-            to_pubkey: original.from_pubkey.clone(),
-            project: original.project.clone(),
-            body: p.message,
-            meta,
-        };
-        let routed = state.with_store(|s| {
-            route_mention_into_with_id(
-                s,
-                &original.from_pubkey,
-                &mention,
-                &receipt.native_event_id,
-                now_secs(),
-                // inbox_reply targets the original sender's pubkey; no
-                // specific session restriction — fan out to all their sessions.
-                None,
-            )
-        });
-        if routed {
-            crate::tmux::ring_doorbells(state.clone());
-        }
-    }
-
-    Ok(serde_json::json!({
-        "to_pubkey": original.from_pubkey,
-        "in_reply_to": original.mention_event_id,
-    }))
-}
-
-/// Capture the sender's envelope metadata: `subject` plus a snapshot of the git
-/// workspace at `cwd` (branch, short commit, dirty-file count) and this daemon's
-/// host. `reply_to` is left `None` here; callers set it for replies.
-fn workspace_meta(
-    state: &Arc<DaemonState>,
-    cwd: Option<&str>,
-    subject: String,
-    reply_to: Option<String>,
-) -> crate::domain::MentionMeta {
-    let (branch, commit, dirty) = git_snapshot(cwd);
-    crate::domain::MentionMeta {
-        subject,
-        branch,
-        commit,
-        dirty,
-        host: state.host.clone(),
-        reply_to_event_id: reply_to,
-    }
-}
 
 /// `(branch, short_commit, dirty_count)` for the git repo at `cwd` (or the
 /// daemon's cwd when `None`). All-empty / zero when `cwd` isn't a git repo.
@@ -2840,10 +2181,11 @@ async fn rpc_groups_create(
         .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
     let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
 
-    // Resolve each backend token to a hex pubkey (explicit pubkey/npub/NIP-05).
+    // Resolve each backend token to a hex pubkey. Accepts explicit
+    // pubkey/npub/NIP-05 *and* host slugs as shown by `tenex-edge who`.
     let mut adds: Vec<AddTarget> = Vec::with_capacity(p.agents.len());
     for a in &p.agents {
-        let backend_pubkey = resolve_pubkey_hex(&a.backend)
+        let backend_pubkey = resolve_backend_pubkey(state, &a.backend)
             .await
             .with_context(|| format!("resolving backend {:?}", a.backend))?;
         adds.push(AddTarget {
@@ -3119,6 +2461,35 @@ async fn rpc_publish_profile(
         "pubkey": id.pubkey_hex(),
         "event_id": event_id.to_hex(),
     }))
+}
+
+/// Resolve a backend token (from `slug@<token>`) to a hex pubkey.
+/// Accepts: explicit hex pubkey / npub / NIP-05 (via `resolve_pubkey_hex`),
+/// OR a host slug as shown by `who` (e.g. `laptop`).  The host-slug path
+/// checks the local machine first, then the state store for remote peers.
+async fn resolve_backend_pubkey(state: &Arc<DaemonState>, token: &str) -> Result<String> {
+    // Fast path: explicit pubkey / npub / NIP-05.
+    if let Ok(pk) = resolve_pubkey_hex(token).await {
+        return Ok(pk);
+    }
+
+    // Host-slug path: `who` renders backends as `slugify_host(backendName)`.
+    let local_slug = crate::util::slugify_host(&state.host);
+    if token == local_slug {
+        return state
+            .backend_pubkey
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("backend token {token:?} matches local host but no signing key is configured"));
+    }
+
+    // Remote peer: scan profiles / peer_sessions.
+    if let Some(pk) = state.with_store(|s| s.pubkey_for_host_slug(token)) {
+        return Ok(pk);
+    }
+
+    anyhow::bail!(
+        "cannot resolve backend {token:?}: not a pubkey/npub/NIP-05 and no known peer with that host slug"
+    )
 }
 
 async fn resolve_pubkey_hex(input: &str) -> Result<String> {
@@ -3769,12 +3140,6 @@ fn derive_and_emit_tail_events(
             // records them as canonical messages); no tail line is derived from
             // the raw inbound event.
         }
-        DomainEvent::TurnReply(_) => {
-            // A peer's completed turn response (NIP-10 threaded kind:1). Not
-            // surfaced on the tail: local turn state is emitted by the RPC
-            // lifecycle (Turn working/idle), and peer replies carry no
-            // session/turn state we can attribute reliably.
-        }
         DomainEvent::Status(s) => {
             // Skip own status — local turn/status is tracked by Turn RPC events.
             if hosted.contains(&s.agent.pubkey) {
@@ -3850,43 +3215,6 @@ fn derive_and_emit_tail_events(
             }
         }
 
-        DomainEvent::Mention(m) => {
-            // Only emit for inbound messages (to hosted agents); outbound is
-            // handled by rpc_send_message. hosted check ensures we only emit
-            // for messages addressed to us.
-            if !hosted.contains(&m.to_pubkey) {
-                return;
-            }
-            // Self-authored events never derive a tail line: the publishing RPC
-            // already emitted the (slug-resolved) outbound line, and the relay
-            // may or may not echo our own events back — suppressing here is the
-            // only deterministic way to avoid double-counting.
-            if hosted.contains(&m.from.pubkey) {
-                return;
-            }
-            // Exact thread attribution: the materializer reports the canonical
-            // thread it filed this message under.
-            let thread_short = thread_id.map(pubkey_short);
-            // The materializer enriches the slug from the store; if it could
-            // not (unknown sender), fall back to the pubkey short code rather
-            // than an empty name.
-            let from_slug = if m.from.slug.is_empty() {
-                pubkey_short(&m.from.pubkey)
-            } else {
-                m.from.slug.clone()
-            };
-            state.emit_tail(TailEvent::Msg {
-                ts: now,
-                project: m.project.clone(),
-                from: from_slug,
-                from_session: None,
-                to: pubkey_short(&m.to_pubkey),
-                to_session: None,
-                thread: thread_short,
-                body: m.body.chars().take(200).collect(),
-            });
-        }
-
         DomainEvent::ChatMessage(chat) => {
             // Local publishes emit their own outbound tail line in rpc_chat_write.
             if hosted.contains(&chat.from.pubkey) {
@@ -3919,20 +3247,6 @@ fn derive_and_emit_tail_events(
             // narrative, not real-time transitions).
         }
     }
-}
-
-// ── startup fetch of stored mentions (offline delivery) ──────────────────────
-
-async fn fetch_mentions_into_inbox(
-    state: &Arc<DaemonState>,
-    rec: &crate::state::SessionRecord,
-) -> Result<()> {
-    let owners = state.owners.clone();
-    let wake_count = state.provider.catch_up_mentions(rec, &owners).await?;
-    if wake_count > 0 {
-        crate::tmux::ring_doorbells(state.clone());
-    }
-    Ok(())
 }
 
 // ── pruner ───────────────────────────────────────────────────────────────────
@@ -4531,32 +3845,6 @@ impl DaemonState {
     fn emit_tail(&self, ev: TailEvent) {
         let _ = self.tail_tx.send(ev);
     }
-}
-
-/// Serialize inbox rows for the CLI, which renders the email-like envelope via
-/// `cli::format_envelope`. `self_host` is the daemon's own host, so the client
-/// can decide whether the sender is `[remote: …]` without re-deriving it. `id`
-/// is the short prefix the receiver passes to `inbox reply --id`.
-fn rows_to_json(rows: &[InboxRow], self_host: &str) -> Vec<serde_json::Value> {
-    rows.iter()
-        .map(|r| {
-            serde_json::json!({
-                "from_slug": r.from_slug,
-                "project": r.project,
-                "from_session": r.from_session,
-                "host": r.host,
-                "self_host": self_host,
-                "subject": r.subject,
-                "branch": r.branch,
-                "commit": r.commit,
-                "dirty": r.dirty,
-                "created_at": r.created_at,
-                "id": crate::cli::mention_short_id(&r.mention_event_id),
-                "mention_event_id": r.mention_event_id,
-                "body": r.body,
-            })
-        })
-        .collect()
 }
 
 fn chat_rows_to_json(rows: &[ChatInboxRow]) -> Vec<serde_json::Value> {

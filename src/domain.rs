@@ -83,31 +83,12 @@ pub struct Profile {
 }
 
 /// A durable, append-only line of narrative: what the agent is doing / did.
+/// Used for social Activity notes (kind:1 without p tag).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Activity {
     pub agent: AgentRef,
     pub project: String,
     pub text: String,
-}
-
-/// The agent's completed reply to a conversation turn, published at stop-hook
-/// time as a NIP-10 threaded kind:1. Carries the response text and two e-tags
-/// so any Nostr client can reconstruct the conversation thread:
-///   ["e", root_event_id,  "", "root"]  — the first message in the session thread
-///   ["e", reply_event_id, "", "reply"] — the user prompt that triggered this turn
-///
-/// For published artifacts (e.g. kind:30023 long-form articles) generated during
-/// a session, the same `root_event_id` should be e-tagged so the artifact can be
-/// traced back to the conversation that produced it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TurnReply {
-    pub agent: AgentRef,
-    pub project: String,
-    pub body: String,
-    /// Event ID of the first message in this session's conversation thread.
-    pub root_event_id: String,
-    /// Event ID of the user prompt that triggered this turn.
-    pub reply_event_id: String,
 }
 
 /// A long-form proposal authored by an agent (rendered as an article by any
@@ -210,52 +191,13 @@ impl Status {
     }
 }
 
-/// A directed message from one agent to another, addressed by session pubkey
-/// (M1 §7 routing). Stage 4: `target_session` and `from_session` removed from
-/// the domain — session resolution is now done entirely at the wire/routing
-/// layer using session pubkeys.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mention {
-    pub from: AgentRef,
-    pub to_pubkey: String,
-    pub project: String,
-    pub body: String,
-    /// Envelope metadata: subject + the sender's workspace snapshot at send time,
-    /// plus the event this is a reply to. Rendered as an email-like header on the
-    /// receiving side (see `cli::messaging::format_envelope`).
-    pub meta: MentionMeta,
-}
-
-/// The email-like envelope a `Mention` carries beyond its body: a subject and a
-/// snapshot of the sender's workspace (git branch/commit/dirty, host) captured at
-/// send time, plus the original event id when this mention is a reply. All fields
-/// default to empty/none for old peers that don't populate them.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MentionMeta {
-    /// One-line subject ("what this is about"). Empty when unset.
-    pub subject: String,
-    /// Sender's current git branch (e.g. `features/oauth`). Empty outside a repo.
-    pub branch: String,
-    /// Sender's short commit hash (e.g. `a1b2c3d`). Empty outside a repo.
-    pub commit: String,
-    /// Count of dirty, non-gitignored files in the sender's working tree.
-    pub dirty: u32,
-    /// Sender's host label. The receiver compares it to its own host to decide
-    /// whether to annotate the sender as `[remote: <host>]`.
-    pub host: String,
-    /// When `Some`, the event id this mention replies to (NIP-10 `e` reply tag).
-    pub reply_to_event_id: Option<String>,
-}
-
 /// A NIP-29 project chat line. On the wire this is a NIP-C7 `kind:9` event
-/// scoped to the project group by its `h` tag. It is ambient project context,
-/// not a durable direct inbox item; live sessions see it going forward only.
-///
-/// Mention (kind:1) routing cut over to the session pubkey, but chat fans out to
-/// every alive project session — `from_session`/`mentioned_session` are display
-/// metadata (who sent / who was @-mentioned), not the routing mechanism, so they
-/// stay on the wire. They are also the only way to recover this in unmanaged
-/// (no-userNsec) mode, where no per-session keys exist.
+/// scoped to the project group by its `h` tag. It is ambient project context;
+/// live sessions see it going forward only. Chat fans out to every alive project
+/// session — `from_session`/`mentioned_session` are display metadata (who sent /
+/// who was @-mentioned), not the routing mechanism, so they stay on the wire.
+/// They are also the only way to recover this in unmanaged (no-userNsec) mode,
+/// where no per-session keys exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,
@@ -276,9 +218,7 @@ pub enum DomainEvent {
     Profile(Profile),
     Activity(Activity),
     Status(Status),
-    Mention(Mention),
     ChatMessage(ChatMessage),
-    TurnReply(TurnReply),
     Proposal(Proposal),
 }
 

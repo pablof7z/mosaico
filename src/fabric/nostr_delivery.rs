@@ -5,7 +5,7 @@
 
 use crate::codec::kind1::{
     h_filter, kind, KIND_CHAT, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
-    KIND_NOTE, KIND_PROFILE, KIND_STATUS,
+    KIND_PROFILE, KIND_STATUS,
 };
 use crate::fabric::{Delivery, Scope};
 use crate::transport::Transport;
@@ -66,19 +66,12 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
     // membership for groups this daemon owns (created closed via userNsec).
     filters.push(presence_status);
 
-    // Notes (kind:1) + chat (kind:9) — activity, mentions, and NIP-29 group chat.
-    let mut notes = Filter::new().kinds([kind(KIND_NOTE), kind(KIND_CHAT)]);
+    // Chat (kind:9) — NIP-29 group chat (the sole agent-to-agent channel).
+    let mut chat = Filter::new().kind(kind(KIND_CHAT));
     if let Some(p) = &scope.project {
-        notes = h_filter(notes, p);
+        chat = h_filter(chat, p);
     }
-    filters.push(notes);
-
-    // Mentions addressed to me (may arrive without a project group match).
-    if let Some(me) = &scope.mentions_to {
-        if let Ok(pk) = PublicKey::from_hex(me) {
-            filters.push(Filter::new().kind(kind(KIND_NOTE)).pubkey(pk));
-        }
-    }
+    filters.push(chat);
 
     // NIP-29 relay-authored group state (metadata/admins/members) for the
     // scoped group. Keeping this live is "check which groups we own at all
@@ -115,9 +108,9 @@ mod tests {
             thread: None,
         };
         let filters = scope_filters(&scope);
-        // profiles, presence/status, notes, mentions-to-me, and NIP-29
+        // profiles, presence/status, chat (kind:9), and NIP-29
         // group-state (39000/39001/39002 by #d).
-        assert_eq!(filters.len(), 5);
+        assert_eq!(filters.len(), 4);
         let json = serde_json::to_string(&filters).unwrap();
         assert!(json.contains("\"#h\""));
         assert!(!json.contains("\"#t\""));

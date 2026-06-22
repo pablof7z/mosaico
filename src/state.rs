@@ -1042,6 +1042,51 @@ impl Store {
             .ok())
     }
 
+    /// Resolve a backend pubkey from a host slug (the `slugify_host` form shown
+    /// by `who`). Queries peer_sessions then profiles for any row whose host,
+    /// when slugified, equals `host_slug`. Returns the most-recently-seen pubkey,
+    /// or `None` if no peer is known under that host name.
+    pub fn pubkey_for_host_slug(&self, host_slug: &str) -> Option<String> {
+        use crate::util::slugify_host;
+        // peer_sessions: prefer the most-recently active backend on that host.
+        {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT pubkey, host FROM peer_sessions ORDER BY last_seen DESC",
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .ok()?;
+            for row in rows.flatten() {
+                if slugify_host(&row.1) == host_slug {
+                    return Some(row.0);
+                }
+            }
+        }
+        // profiles: fall back to kind:0 identity cards.
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT pubkey, host FROM profiles ORDER BY updated_at DESC")
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .ok()?;
+            for row in rows.flatten() {
+                if slugify_host(&row.1) == host_slug {
+                    return Some(row.0);
+                }
+            }
+        }
+        None
+    }
+
     /// Reverse-lookup: given a pubkey, return the slug this agent is known by
     /// (from own sessions, peer_sessions, or profiles). Returns None if completely unknown.
     /// Look up the agent slug for a locally-owned pubkey from the `sessions`
@@ -5189,114 +5234,6 @@ mod tests {
         assert_eq!(rcpt_count2, 1, "add_message_recipient is idempotent");
     }
 
-    /// Phase 6 inbound dual-write: materializing the same inbound event twice
-    /// (simulating relay echo) yields exactly one canonical message row, one
-    /// recipient row, and exactly one legacy inbox row.
-    #[test]
-    fn phase6_inbound_canonical_dual_write_and_dedup() {
-        use crate::fabric::kind1::materializer::Kind1Materializer;
-        use nostr_sdk::prelude::{EventBuilder, Keys, Kind};
-
-        let s = Store::open_memory().unwrap();
-        let keys = Keys::generate();
-        let pk_hex = keys.public_key().to_hex();
-
-        // Create a recipient session so the legacy inbox path has somewhere to deliver.
-        let rec = SessionRecord {
-            session_id: "sess-inbound-1".into(),
-            agent_slug: "agent".into(),
-            agent_pubkey: pk_hex.clone(),
-            project: "test-proj".into(),
-            host: "host".into(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        };
-        s.upsert_session(&rec).unwrap();
-
-        // Build a signed Event (kind:1) that looks like a mention.
-        // We use a minimal event — the codec is not involved here;
-        // we test the materialize_inbound_message store writes directly.
-        let sender_keys = Keys::generate();
-        let event = EventBuilder::new(Kind::from(1u16), "hi from sender")
-            .sign_with_keys(&sender_keys)
-            .unwrap();
-        let eid = event.id.to_hex();
-
-        let mention = crate::domain::Mention {
-            from: crate::domain::AgentRef::new(
-                sender_keys.public_key().to_hex(),
-                "sender".to_string(),
-            ),
-            to_pubkey: pk_hex.clone(),
-            project: "test-proj".into(),
-            body: "hi from sender".into(),
-            meta: crate::domain::MentionMeta::default(),
-        };
-        let pi = "test-pi-inbound";
-        let now = 2000u64;
-
-        // First materialization.
-        let (routed1, thread1) =
-            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
-        assert!(routed1, "first delivery must route to session");
-        assert!(
-            thread1.is_some(),
-            "canonical write must report the thread id"
-        );
-
-        // Second materialization (relay echo) — must be a no-op everywhere.
-        let (routed2, _) =
-            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
-        assert!(
-            !routed2,
-            "echo: inbox already has this (mention_event_id, target_session)"
-        );
-
-        // Exactly one canonical message row.
-        let msg_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE native_event_id=?1",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(msg_count, 1, "exactly one canonical message after echo");
-
-        // Exactly one recipient row.
-        let mid: String = s
-            .conn
-            .query_row(
-                "SELECT message_id FROM messages WHERE native_event_id=?1",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        let rcpt_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(rcpt_count, 1, "exactly one recipient row after echo");
-
-        // Exactly one legacy inbox row (the dedup the legacy path enforces).
-        let inbox_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM inbox WHERE mention_event_id=?1 AND target_session='sess-inbound-1'",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(inbox_count, 1, "exactly one legacy inbox row after echo");
-    }
-
     // ── Phase 7 tests ─────────────────────────────────────────────────────────
 
     /// list_threads/messages_for_thread/thread_meta return correct enriched data.
@@ -5389,112 +5326,6 @@ mod tests {
         assert!(s
             .thread_root_native_key(&tid, "kind1-nip29", "wrong-pi")
             .is_none());
-    }
-
-    /// Reply grouping round-trip: a reply event carrying a root `e` tag pointing
-    /// at an existing outbound thread's native key lands in the SAME thread.
-    ///
-    /// The Phase 6 inbound materializer reads `["e", ..., "root"]` to determine
-    /// `native_thread_key`.  This test proves the end-to-end grouping works.
-    #[test]
-    fn phase7_reply_groups_into_same_thread() {
-        use crate::domain::{AgentRef, Mention};
-        use crate::fabric::kind1::materializer::Kind1Materializer;
-        use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
-
-        let s = Store::open_memory().unwrap();
-        let pi = "pi-rg";
-        let proj = "reply-proj";
-
-        // Use a fixed 64-char hex as the "root event id" (E1).
-        // In production this comes from the published Nostr event id.
-        let e1_hex = "a".repeat(64);
-
-        // Seed the outbound root: project origin → thread origin keyed on E1.
-        let pid = s
-            .ensure_project_origin("kind1-nip29", pi, proj, proj, 100)
-            .unwrap();
-        let root_tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", pi, &e1_hex, 100)
-            .unwrap();
-        let _root_mid = s
-            .record_message(
-                &root_tid,
-                "pk-sender",
-                "root message",
-                100,
-                "outbound",
-                "published",
-                Some(&e1_hex),
-            )
-            .unwrap();
-
-        // Build a signed inbound reply event carrying ["e", E1, "", "root"].
-        let recipient_keys = Keys::generate();
-        let recipient_pk = recipient_keys.public_key().to_hex();
-
-        // Create a recipient session so the legacy inbox path has somewhere to deliver.
-        let rec = SessionRecord {
-            session_id: "sess-reply-rg".into(),
-            agent_slug: "agent".into(),
-            agent_pubkey: recipient_pk.clone(),
-            project: proj.into(),
-            host: "host".into(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        };
-        s.upsert_session(&rec).unwrap();
-
-        let sender_keys = Keys::generate();
-        // Build a reply event with a NIP-10 root e-tag pointing at E1.
-        let reply_event = EventBuilder::new(Kind::from(1u16), "reply body")
-            .tags([
-                Tag::parse(["h", proj]).unwrap(),
-                Tag::parse(["p", &recipient_pk]).unwrap(),
-                Tag::parse(["e", &e1_hex, "", "root"]).unwrap(),
-            ])
-            .sign_with_keys(&sender_keys)
-            .unwrap();
-
-        let mention = Mention {
-            from: AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
-            to_pubkey: recipient_pk.clone(),
-            project: proj.into(),
-            body: "reply body".into(),
-            meta: crate::domain::MentionMeta::default(),
-        };
-
-        Kind1Materializer::materialize_inbound_message(
-            &s,
-            &recipient_pk,
-            &mention,
-            &reply_event,
-            pi,
-            200,
-        );
-
-        // The reply must land in the SAME thread as the root.
-        let thread_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM threads WHERE project_id=?1",
-                params![pid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            thread_count, 1,
-            "reply must join the existing thread, not create a new one"
-        );
-
-        let msgs = s.messages_for_thread(&root_tid).unwrap();
-        assert_eq!(msgs.len(), 2, "one root + one reply in the same thread");
-        assert_eq!(msgs[0].direction, "outbound");
-        assert_eq!(msgs[1].direction, "inbound");
-        assert_eq!(msgs[1].body, "reply body");
     }
 
     /// Proposal dual-write: record_message + thread origin produce a canonical

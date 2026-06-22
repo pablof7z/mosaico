@@ -18,8 +18,13 @@ const STATUS_MAX_CHARS: usize = 48;
 /// Cap for the inbox message preview.
 const MESSAGE_MAX_CHARS: usize = 60;
 
-pub(super) fn statusline(session: Option<String>) -> Result<()> {
-    // Harness payload on stdin (absent when invoked by hand from a terminal).
+pub(super) fn statusline(
+    session: Option<String>,
+    agent_arg: Option<String>,
+    cwd_arg: Option<String>,
+) -> Result<()> {
+    // Harness payload on stdin (absent when invoked by hand from a terminal or
+    // from the tmux status-format #(...) invocation).
     let raw: serde_json::Value = if io::stdin().is_terminal() {
         serde_json::Value::Null
     } else {
@@ -31,22 +36,29 @@ pub(super) fn statusline(session: Option<String>) -> Result<()> {
         .get("session_id")
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let cwd = raw
-        .pointer("/workspace/current_dir")
-        .or_else(|| raw.get("cwd"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
+    // Explicit --cwd wins, then stdin payload, then process cwd.
+    let cwd = cwd_arg
+        .or_else(|| {
+            raw.pointer("/workspace/current_dir")
+                .or_else(|| raw.get("cwd"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
         .or_else(|| {
             std::env::current_dir()
                 .ok()
                 .map(|p| p.to_string_lossy().to_string())
         });
+    // Explicit --agent wins over the env-var slug (the tmux status-format
+    // invocation passes --agent because TENEX_EDGE_AGENT is a pane env var
+    // not available in the tmux server's #(...) execution context).
+    let agent = agent_arg.or_else(agent_env_slug);
 
     let params = serde_json::json!({
         "session": session,
         "env_session": env_session,
         "cwd": cwd,
-        "agent": agent_env_slug(),
+        "agent": agent,
         "group": crate::cli::group_env(),
     });
     // Fail open on ANY failure (no daemon, no session yet, protocol skew): a

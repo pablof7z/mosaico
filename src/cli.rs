@@ -213,6 +213,15 @@ enum Cmd {
         /// Session id; if omitted, taken from the stdin payload or resolved from cwd.
         #[arg(long)]
         session: Option<String>,
+        /// Agent slug to resolve when no session id is available (used by the
+        /// tmux status-format invocation, which has no stdin payload).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Working directory override for project resolution (used by the tmux
+        /// status-format invocation, which runs in the server's cwd, not the
+        /// pane's project directory).
+        #[arg(long)]
+        cwd: Option<String>,
     },
     /// Connectivity check: publish a test note to the configured relays and read it back.
     Doctor,
@@ -677,7 +686,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 project,
             } => messaging::chat_read(since, limit, offset, tail, live, project).await,
         },
-        Cmd::Statusline { session } => statusline::statusline(session),
+        Cmd::Statusline { session, agent, cwd } => statusline::statusline(session, agent, cwd),
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Groups { action } => admin::groups(action).await,
         Cmd::Agent { action } => admin::agent(action).await,

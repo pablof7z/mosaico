@@ -759,7 +759,7 @@ async fn open_agent_session(
     let tenex_bin = std::env::var("TENEX_EDGE_BIN")
         .ok()
         .filter(|s| !s.is_empty());
-    make_session_transparent(&session_name, tenex_bin.as_deref())?;
+    make_session_transparent(&session_name, tenex_bin.as_deref(), slug, abs_path)?;
 
     Ok(pane_id)
 }
@@ -772,7 +772,12 @@ async fn open_agent_session(
 /// `tenex-edge statusline` invocation, when known (`TENEX_EDGE_BIN`). When
 /// unknown, the bare `tenex-edge` is used and must be on the tmux server's
 /// PATH.
-fn make_session_transparent(session: &str, tenex_bin: Option<&str>) -> Result<()> {
+fn make_session_transparent(
+    session: &str,
+    tenex_bin: Option<&str>,
+    slug: &str,
+    abs_path: &str,
+) -> Result<()> {
     // Each `(option, value)` pair is applied with `set-option -t <session>`.
     // `-g` is NOT used: we only want to affect this one session, not the global
     // tmux environment (the user may have their own tmux sessions that should
@@ -784,11 +789,26 @@ fn make_session_transparent(session: &str, tenex_bin: Option<&str>) -> Result<()
     // pure display surface that gives every harness (claude, codex, opencode,
     // …) the same fabric awareness floor that ccstatusline currently gives only
     // claude. Refresh at 3s matches ccstatusline's cadence.
-    let statusline_cmd = match tenex_bin {
-        Some(p) => format!("#({p} statusline)"),
-        None => "#(tenex-edge statusline)".to_string(),
-    };
+    //
+    // The `#(...)` status-format command runs in the tmux SERVER's environment,
+    // not the pane's — TENEX_EDGE_AGENT and the project cwd are not available
+    // there. We store them as tmux user options (@te_agent, @te_cwd) and pass
+    // them explicitly via --agent and --cwd so session resolution works.
+    // #{q:@te_cwd} applies shell quoting so paths with spaces are handled safely.
+    let bin = tenex_bin.unwrap_or("tenex-edge");
+    // #{@te_agent} and #{q:@te_cwd} are tmux format variables expanded by tmux
+    // before the shell runs the command. #{q:...} adds shell quoting so paths
+    // with spaces are safe. In Rust format strings, {{ and }} produce literal
+    // { and } respectively.
+    let statusline_cmd = format!(
+        "#({bin} statusline --agent #{{@te_agent}} --cwd #{{q:@te_cwd}})"
+    );
     let OPTIONS: Vec<(&str, String)> = vec![
+        // Session identity for the status bar: stored as user options so the
+        // #(...) status-format command can read them via #{@te_agent} /
+        // #{q:@te_cwd} without needing the pane's process environment.
+        ("@te_agent", slug.to_string()),
+        ("@te_cwd", abs_path.to_string()),
         // Status bar ON — driven by `tenex-edge statusline`, fail-open.
         ("status", "on".to_string()),
         ("status-interval", "3".to_string()),
