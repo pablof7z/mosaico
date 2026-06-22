@@ -3481,21 +3481,24 @@ async fn handle_orchestration(
     use crate::fabric::nip29::orchestration::{adds_for_backend, is_authorized};
 
     let event_id = event.id.to_hex();
-    if state.with_store(|s| s.is_orchestration_processed(&event_id)) {
-        return;
-    }
 
-    // Only roles addressed to THIS backend's identity concern us.
+    // Only roles addressed to THIS backend's identity concern us. (Checked BEFORE
+    // claiming so a foreign event never burns this backend's idempotency slot.)
     let Some(backend_pk) = state.backend_pubkey().map(|s| s.to_string()) else {
         return;
     };
-    let mine = adds_for_backend(&op.adds, &backend_pk);
+    let mine: Vec<_> = adds_for_backend(&op.adds, &backend_pk)
+        .into_iter()
+        .cloned()
+        .collect();
     if mine.is_empty() {
         return;
     }
 
     // Authorize: the signer must be an admin of the parent (where authority
     // lives) or of the child. Fail closed on fetch error (treat as unauthorized).
+    // Done BEFORE the claim so a transient fetch failure doesn't permanently mark
+    // the event processed.
     let signer = event.pubkey.to_hex();
     let parent_roles = state.provider.fetch_group_roles(&op.parent).await;
     let authorized = is_authorized(&parent_roles, &signer) || {
@@ -3530,6 +3533,14 @@ async fn handle_orchestration(
         }
     }
 
+    // Atomically CLAIM the event now that all pre-checks passed. Only the first
+    // of the relay's duplicate deliveries wins; the rest return here. Placed
+    // AFTER auth/parent checks (transient-safe) but BEFORE any mutating work, so
+    // concurrent tasks never race on identity minting or member-adds.
+    if !state.with_store(|s| s.try_claim_orchestration(&event_id, now_secs())) {
+        return;
+    }
+
     // Subscribe + own the child so we receive its state and can manage it.
     state.with_store(|s| {
         s.mark_group_owned(&op.child_h, now_secs()).ok();
@@ -3537,13 +3548,14 @@ async fn handle_orchestration(
     let _ = ensure_subscription(state, &op.child_h).await;
 
     let edge = config::edge_home();
-    for target in mine {
+    for target in &mine {
         let role = &target.role_slug;
         let id = match crate::identity::load_or_create(&edge, role, now_secs()) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("[daemon] orchestration: minting role {role:?} failed: {e:#}");
-                continue;
+                state.with_store(|s| s.unclaim_orchestration(&event_id));
+                return;
             }
         };
         let role_pk = id.pubkey_hex();
@@ -3556,17 +3568,31 @@ async fn handle_orchestration(
         });
         let _ = state.provider.publish(&profile, &id.keys).await;
 
-        // Add the durable role pubkey as a MEMBER (never admin) of the child.
-        // Gate the spawn on a confirmed member-add: a live harness whose events
-        // the relay rejects is worse than no harness — let a retry handle it.
-        let added = state.provider.nip29_add_member(&op.child_h, &role_pk).await;
-        if !added {
+        // Add the durable role pubkey as a MEMBER (never admin) of the child, and
+        // CONFIRM it landed in the relay's roster. The relay acks a put-user on
+        // receipt but only APPLIES the membership if the author is an admin at
+        // apply-time — and this backend's own admin grant (published moments
+        // earlier by the orchestrator) may still be propagating. So trust-but-
+        // verify: re-issue + read back the 39002 roster a few times before giving
+        // up. Gate the spawn on a CONFIRMED member-add (a live harness whose
+        // events the relay rejects is worse than no harness).
+        let mut confirmed = false;
+        for attempt in 0..6u32 {
+            let _ = state.provider.nip29_add_member(&op.child_h, &role_pk).await;
+            let (_, _, members) = state.provider.fetch_group_state(&op.child_h).await;
+            if members.contains(&role_pk) {
+                confirmed = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt as u64 + 1))).await;
+        }
+        if !confirmed {
             eprintln!(
-                "[daemon] orchestration: relay rejected member-add for role {role:?} in {}; \
-                 skipping spawn (will retry on re-delivery)",
+                "[daemon] orchestration: member-add for role {role:?} in {} not confirmed on the \
+                 relay after retries; skipping spawn (will retry on re-delivery)",
                 op.child_h
             );
-            // Do NOT mark processed: we want a re-delivery to retry.
+            state.with_store(|s| s.unclaim_orchestration(&event_id));
             return;
         }
         state.with_store(|s| {
@@ -3592,10 +3618,7 @@ async fn handle_orchestration(
             }
         }
     }
-
-    state.with_store(|s| {
-        s.mark_orchestration_processed(&event_id, now_secs()).ok();
-    });
+    // The claim taken above is the durable "processed" marker; nothing more to do.
 }
 
 /// Convert a decoded `DomainEvent` into zero or more `TailEvent`s and emit them.

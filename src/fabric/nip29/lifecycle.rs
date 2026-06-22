@@ -38,12 +38,15 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 }
 
 /// kind:9007 create-group for a CHILD (sub-)group, using `child_h` as the
-/// client-chosen group id. Same wire shape as [`group_create`] — a subgroup is a
-/// plain group at creation time; the parent relationship is set later by
-/// [`group_lock_closed_with_parent`]. The signer becomes the subgroup admin and,
-/// as with any fresh group, it is OPEN until locked.
-pub fn group_create_subgroup(child_h: &str) -> Result<EventBuilder> {
-    group_create(child_h)
+/// client-chosen group id and declaring its `parent_h` relationship at creation.
+/// The `["parent", parent_h]` tag rides on the 9007 itself: NIP-29 subgroup
+/// relays (per nostr-protocol/nips#2319, e.g. croissant) validate the parent at
+/// create time (parent must exist; signer must be a parent admin; no cycles) and
+/// re-emit the tag on the relay-authored kind:39000. The signer becomes the
+/// subgroup admin and, as with any fresh group, it is OPEN until locked.
+pub fn group_create_subgroup(child_h: &str, parent_h: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_CREATE), "")
+        .tags([project_tag(child_h)?, tag(&["parent", parent_h])?]))
 }
 
 /// kind:9002 edit-metadata that locks a CHILD group `closed` (only members may
@@ -138,11 +141,14 @@ mod tests {
     }
 
     #[test]
-    fn group_create_subgroup_has_h_tag() {
-        let b = group_create_subgroup("subgroup-support-a1b2c3d4").unwrap();
+    fn group_create_subgroup_has_h_and_parent_tags() {
+        let b = group_create_subgroup("subgroup-support-a1b2c3d4", "tenex-edge").unwrap();
         let ev = b.sign_with_keys(&Keys::generate()).unwrap();
         assert_eq!(ev.kind.as_u16(), KIND_GROUP_CREATE);
         assert!(has_tag(&ev, "h", "subgroup-support-a1b2c3d4"));
+        // The parent relationship must ride on the 9007 create (NIP #2319 relays
+        // validate + re-emit it on 39000 from the create event).
+        assert!(has_tag(&ev, "parent", "tenex-edge"));
     }
 
     #[test]

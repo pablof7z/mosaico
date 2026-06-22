@@ -633,7 +633,8 @@ impl Kind1Nip29Provider {
         let Some(user_keys) = self.parse_user_keys() else {
             return false;
         };
-        let created = match crate::fabric::nip29::lifecycle::group_create_subgroup(child_h) {
+        let created = match crate::fabric::nip29::lifecycle::group_create_subgroup(child_h, parent_h)
+        {
             Ok(b) => {
                 self.publish_group_management(b, &user_keys, "9007 create-subgroup")
                     .await

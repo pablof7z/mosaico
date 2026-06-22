@@ -2187,25 +2187,30 @@ impl Store {
     /// True if this add-agents orchestration event id was already processed
     /// (durable dedup; see `processed_orchestration`). Errors are swallowed to
     /// `false` so a transient DB hiccup re-processes rather than silently drops.
-    pub fn is_orchestration_processed(&self, event_id: &str) -> bool {
+    /// Atomically CLAIM an orchestration event for processing. Returns `true`
+    /// iff THIS call inserted the row — i.e. no concurrent/earlier delivery had
+    /// already claimed it. The relay fans the same kind:9 out across every
+    /// matching subscription, so the handler body must run AT MOST ONCE; the
+    /// single-writer store + `INSERT OR IGNORE` serialize that race. Survives
+    /// restarts, so a replayed event never re-provisions.
+    pub fn try_claim_orchestration(&self, event_id: &str, ts: u64) -> bool {
         self.conn
-            .query_row(
-                "SELECT COUNT(*) FROM processed_orchestration WHERE event_id=?1",
-                params![event_id],
-                |r| r.get::<_, i64>(0),
+            .execute(
+                "INSERT OR IGNORE INTO processed_orchestration (event_id, processed_at)
+                 VALUES (?1, ?2)",
+                params![event_id, ts],
             )
-            .map(|n| n > 0)
+            .map(|n| n == 1)
             .unwrap_or(false)
     }
 
-    /// Record that an add-agents orchestration event was fully handled.
-    pub fn mark_orchestration_processed(&self, event_id: &str, ts: u64) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO processed_orchestration (event_id, processed_at) VALUES (?1, ?2)
-             ON CONFLICT(event_id) DO NOTHING",
-            params![event_id, ts],
-        )?;
-        Ok(())
+    /// Release a claim so a later redelivery can retry — used when provisioning
+    /// fails in a way that may succeed next time (e.g. a transient relay reject).
+    pub fn unclaim_orchestration(&self, event_id: &str) {
+        let _ = self.conn.execute(
+            "DELETE FROM processed_orchestration WHERE event_id=?1",
+            params![event_id],
+        );
     }
 
     /// Cached NIP-29 roster size for a project (0 when membership is unknown,
