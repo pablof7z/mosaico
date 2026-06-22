@@ -54,6 +54,17 @@ pub(crate) fn agent_env_slug() -> Option<String> {
     )
 }
 
+/// The NIP-29 subgroup id (`h`) this pane was spawned into, exported as
+/// `TENEX_EDGE_GROUP`. Present only for sessions launched into a subgroup task
+/// room; absent for ordinary project sessions. Threaded into session-resolving
+/// RPCs so the daemon binds to the subgroup session (stored under this `h`)
+/// rather than a sibling parent-project session in the same working directory.
+pub(crate) fn group_env() -> Option<String> {
+    std::env::var("TENEX_EDGE_GROUP")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
 #[derive(Parser)]
 #[command(
     name = "tenex-edge",
@@ -486,6 +497,24 @@ enum ProjectAction {
         /// local agents and publishes the needed put-user/remove-user events.
         #[arg(value_name = "PUBKEY")]
         pubkey: Option<String>,
+    },
+    /// Create a NIP-29 subgroup task room under a parent group and publish one
+    /// kind:9 orchestration event asking the named backends to add their agents.
+    CreateGroup {
+        /// Parent project slug (the group this room hangs under).
+        #[arg(long)]
+        parent: String,
+        /// Human-readable room name, e.g. "subgroup support". The child group id
+        /// becomes "<slugified-name>-<random8>".
+        #[arg(long)]
+        name: String,
+        /// Repeatable `role@backend`, where `backend` is a hex pubkey or npub of
+        /// the target backend (the pubkey of its tenexPrivateKey).
+        #[arg(long = "agent", value_name = "ROLE@BACKEND")]
+        agents: Vec<String>,
+        /// Path to a markdown brief; its contents become the kind:9 prose body.
+        #[arg(long = "message", value_name = "PATH")]
+        message: Option<PathBuf>,
     },
 }
 

@@ -36,7 +36,7 @@ pub(super) async fn rpc_tmux_send(
         serde_json::from_value(params.clone()).context("parsing tmux_send params")?;
 
     // Resolve the session (supports prefix matching via resolve_session fallback).
-    let rec = resolve_session(state, Some(&p.session), None, None, None)
+    let rec = resolve_session(state, Some(&p.session), None, None, None, None)
         .with_context(|| format!("no session matching {:?}", p.session))?;
 
     let ep = state
@@ -95,7 +95,7 @@ pub(super) async fn rpc_tmux_spawn(
 ) -> Result<serde_json::Value> {
     let p: TmuxSpawnParams =
         serde_json::from_value(params.clone()).context("parsing tmux_spawn params")?;
-    let pane_id = crate::tmux::spawn_agent(state, &p.agent, &p.project, p.command).await?;
+    let pane_id = crate::tmux::spawn_agent(state, &p.agent, &p.project, p.command, None).await?;
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))
 }
 
@@ -112,7 +112,7 @@ pub(super) fn rpc_tmux_attach(
 ) -> Result<serde_json::Value> {
     let p: TmuxAttachParams =
         serde_json::from_value(params.clone()).context("parsing tmux_attach params")?;
-    let rec = resolve_session(state, Some(&p.session), None, None, None)
+    let rec = resolve_session(state, Some(&p.session), None, None, None, None)
         .with_context(|| format!("no session matching {:?}", p.session))?;
     let ep = state
         .with_store(|s| s.get_session_endpoint(&rec.session_id, "tmux"))

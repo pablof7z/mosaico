@@ -105,9 +105,18 @@ pub struct DaemonState {
     /// persistence is NOT required, but the key must be resident for the
     /// session lifetime so Stage 3 can sign with it.
     session_keys: Mutex<HashMap<String, Keys>>,
+    /// Hex pubkey of this backend's identity (pubkey of `tenexPrivateKey`,
+    /// falling back to `userNsec`). Added as an admin to every group we create
+    /// and the address the subgroup orchestration listener matches `add` tags
+    /// against. `None` only when no signing key is configured at all.
+    backend_pubkey: Option<String>,
 }
 
 impl DaemonState {
+    /// Hex pubkey of this backend's identity key, if configured.
+    fn backend_pubkey(&self) -> Option<&str> {
+        self.backend_pubkey.as_deref()
+    }
     pub(crate) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {
         let g = self.store.lock().expect("store mutex poisoned");
         f(&g)
@@ -192,10 +201,18 @@ pub async fn run() -> Result<()> {
     let provider = Arc::new(Kind1Nip29Provider::new(
         transport.clone(),
         store.clone(),
-        cfg.user_nsec.clone(),
+        cfg.management_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
         &cfg.relays, // provider_instance hashes main relays only, not indexer
     ));
+    // Backend identity: pubkey of tenexPrivateKey (falling back to userNsec).
+    // Used as a copied admin on every group we create and as the orchestration
+    // listener's `add`-tag matcher.
+    let backend_pubkey: Option<String> = cfg
+        .backend_nsec()
+        .and_then(|n| Keys::parse(n).ok())
+        .map(|k| k.public_key().to_hex());
+
     let state = Arc::new(DaemonState {
         store,
         transport,
@@ -219,6 +236,7 @@ pub async fn run() -> Result<()> {
         last_status: Mutex::new(HashMap::new()),
         status_outbox_notify: Notify::new(),
         session_keys: Mutex::new(HashMap::new()),
+        backend_pubkey,
     });
 
     // Idempotent read-model backfill: populate canonical `projects` + `membership`
@@ -236,6 +254,18 @@ pub async fn run() -> Result<()> {
     spawn_idle_watcher(state.clone());
     spawn_status_outbox_drainer(state.clone());
     spawn_status_heartbeat_publisher(state.clone());
+
+    // Establish the standalone backend orchestration subscription ONCE at startup
+    // (kind:9 p-tagged to this backend's identity), independent of any project —
+    // so a backend with no live sessions still receives subgroup add-agents
+    // requests addressed to it (issue #3, cross-device auto-start).
+    if let Some(bp) = state.backend_pubkey() {
+        if let Err(e) = state.provider.subscribe_backend_orchestration(bp).await {
+            if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                eprintln!("[daemon] backend orchestration subscription failed: {e:#}");
+            }
+        }
+    }
 
     let accept_state = state.clone();
     let accept = tokio::spawn(async move {
@@ -468,6 +498,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_members" => rpc_project_members(state, &req.params).await,
         "project_add" => rpc_project_add(state, &req.params).await,
         "project_remove" => rpc_project_remove(state, &req.params).await,
+        "project_create_group" => rpc_project_create_group(state, &req.params).await,
         "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "inbox_reply" => rpc_inbox_reply(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
@@ -505,8 +536,9 @@ fn resolve_session(
     env_session: Option<&str>,
     cwd: Option<&str>,
     agent: Option<&str>,
+    group: Option<&str>,
 ) -> Result<crate::state::SessionRecord> {
-    resolve_session_inner(state, explicit, env_session, cwd, agent, true)
+    resolve_session_inner(state, explicit, env_session, cwd, agent, group, true)
 }
 
 /// Resolve the caller's session. `allow_project_fallback` controls the LAST
@@ -521,6 +553,7 @@ fn resolve_session_inner(
     env_session: Option<&str>,
     cwd: Option<&str>,
     agent: Option<&str>,
+    group: Option<&str>,
     allow_project_fallback: bool,
 ) -> Result<crate::state::SessionRecord> {
     if let Some(id) = explicit.filter(|s| !s.is_empty()) {
@@ -537,7 +570,15 @@ fn resolve_session_inner(
     let cwd = cwd
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let project = crate::project::resolve(&cwd);
+    // A subgroup session is stored under its child group id (`h`), not the
+    // working-directory project. When the caller is inside such a session its
+    // pane exports `TENEX_EDGE_GROUP`; prefer it over the cwd-derived project so
+    // the (agent, project) lookup finds the subgroup session rather than a
+    // sibling parent-project session.
+    let project = group
+        .filter(|g| !g.is_empty())
+        .map(|g| g.to_string())
+        .unwrap_or_else(|| crate::project::resolve(&cwd));
     if let Some(agent) = agent.filter(|a| !a.is_empty()) {
         if let Some(rec) =
             state.with_store(|s| s.latest_alive_session_for_agent_in_project(agent, &project))?
@@ -629,6 +670,13 @@ struct SessionStartParams {
     /// absent, it is inferred from the id/resume shape for alias namespacing.
     #[serde(default)]
     harness: Option<String>,
+    /// NIP-29 subgroup id (`h`) this pane was spawned into (from
+    /// `TENEX_EDGE_GROUP`). When present, the session is scoped to this group
+    /// instead of the working-directory project: all group publishing
+    /// (presence/status/chat/mentions/membership) keys on it. The working
+    /// directory remains the parent repo. Absent for ordinary project sessions.
+    #[serde(default)]
+    group: Option<String>,
 }
 
 async fn rpc_session_start(
@@ -654,7 +702,17 @@ async fn rpc_session_start(
         .cwd
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let project = crate::project::resolve(&cwd);
+    // The working-directory project (the repo this harness runs in).
+    let work_root = crate::project::resolve(&cwd);
+    // The NIP-29 group this session belongs to. For a subgroup task room this is
+    // the child `h` supplied via TENEX_EDGE_GROUP; otherwise it equals the
+    // working-directory project (continuity: existing sessions are unchanged).
+    // Everything below keys group membership + fabric publishing on `project`.
+    let project = p
+        .group
+        .clone()
+        .filter(|g| !g.is_empty())
+        .unwrap_or_else(|| work_root.clone());
     let rel_cwd = crate::project::rel_cwd(&cwd);
     let now = now_secs();
     if let Some(prog) = &progress {
@@ -732,8 +790,8 @@ async fn rpc_session_start(
     // (opencode / unknown). IKM is the operator nsec; skip derivation if unset
     // (matches open_project's best-effort pattern). HKDF is deterministic so
     // re-entering this path (idempotent re-start) overwrites with the same key.
-    if let Some(ref nsec) = state.cfg.user_nsec.clone() {
-        if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
+    if let Some(nsec) = state.cfg.session_ikm_nsec().cloned() {
+        if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(&nsec) {
             let anchor: &str = harness_session_id.as_deref().unwrap_or(&session_id);
             let session_key = identity::derive_session_keys(
                 op_keys.secret_key(),
@@ -1166,6 +1224,7 @@ async fn rpc_send_message(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
 
@@ -1351,7 +1410,7 @@ async fn rpc_send_message(
             body: body.clone(),
             created_at: now_secs(),
         };
-        let pane_id = crate::tmux::spawn_agent(state, &slug, &project2, Vec::new())
+        let pane_id = crate::tmux::spawn_agent(state, &slug, &project2, Vec::new(), None)
             .await
             .with_context(|| format!("spawning new session for {slug}@{project2}"))?;
         crate::tmux::register_pending_spawn_with_mention(&pane_id, pending_mention);
@@ -1397,6 +1456,7 @@ async fn rpc_chat_write(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
     let from_pubkey = id.pubkey_hex();
@@ -1564,6 +1624,7 @@ async fn rpc_propose(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )
     .ok();
     let cwd = p
@@ -1843,6 +1904,7 @@ async fn rpc_inbox(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let _ = fetch_mentions_into_inbox(state, &rec).await;
 
@@ -1951,6 +2013,7 @@ fn rpc_turn_check(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let now = now_secs();
     // Rate-limit the sibling-session delta to at most once per 60s per session
@@ -2112,11 +2175,11 @@ async fn rpc_user_prompt(
     }
     let p: P = serde_json::from_value(params.clone()).unwrap_or_default();
 
-    let nsec = match &state.cfg.user_nsec {
+    let nsec = match state.cfg.management_nsec() {
         Some(n) => n.clone(),
-        None => anyhow::bail!("userNsec not set in ~/.tenex/config.json"),
+        None => anyhow::bail!("no signing key (userNsec/tenexPrivateKey) set in ~/.tenex/config.json"),
     };
-    let user_keys = Keys::parse(&nsec).context("parsing userNsec")?;
+    let user_keys = Keys::parse(&nsec).context("parsing signing key")?;
 
     let rec = resolve_session(
         state,
@@ -2124,6 +2187,7 @@ async fn rpc_user_prompt(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let body = p.prompt.unwrap_or_default();
 
@@ -2210,10 +2274,9 @@ async fn rpc_project_edit(
 
     let nsec = state
         .cfg
-        .user_nsec
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
-    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+        .management_nsec()
+        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+    let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     // NIP-29 edit-metadata: the wire shape lives in the nip29 lifecycle module.
     // The relay validates admin rights and re-publishes kind:39000.
@@ -2327,6 +2390,7 @@ fn rpc_statusline(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let now = now_secs();
     let host = state.host.clone();
@@ -2404,6 +2468,7 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
         false,
     )?;
     let now = now_secs();
@@ -2493,6 +2558,7 @@ async fn rpc_inbox_reply(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
+        params.get("group").and_then(|v| v.as_str()),
     )?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
 
@@ -2662,10 +2728,9 @@ async fn rpc_project_add(
 
     let nsec = state
         .cfg
-        .user_nsec
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
-    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+        .management_nsec()
+        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+    let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
 
@@ -2705,10 +2770,9 @@ async fn rpc_project_remove(
 
     let nsec = state
         .cfg
-        .user_nsec
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("userNsec not set in ~/.tenex/config.json"))?;
-    let user_keys = Keys::parse(nsec).context("parsing userNsec")?;
+        .management_nsec()
+        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+    let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
 
@@ -2728,6 +2792,167 @@ async fn rpc_project_remove(
         "project": p.project,
         "pubkey": pubkey_hex,
     }))
+}
+
+// ── project create-group (NIP-29 subgroup task rooms, issue #3) ───────────────
+
+/// Create a NIP-29 SUBGROUP under `parent`, copy the parent's trusted admin set
+/// down, and publish ONE kind:9 orchestration event asking the named backends to
+/// add their agent roles. Provision-only: this command does not spawn harnesses.
+/// Each backend (including this one) reacts to the orchestration event via the
+/// `handle_orchestration` listener, which is what makes cross-device auto-start
+/// work; we invoke it locally here too since relays don't reliably echo to the
+/// publishing connection.
+async fn rpc_project_create_group(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use crate::fabric::nip29::orchestration::{build_add_agents_event, AddTarget};
+    use nostr_sdk::prelude::Keys;
+
+    #[derive(serde::Deserialize)]
+    struct AgentSpec {
+        role: String,
+        backend: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct P {
+        parent: String,
+        name: String,
+        #[serde(default)]
+        agents: Vec<AgentSpec>,
+        #[serde(default)]
+        brief: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("project_create_group params")?;
+    if p.agents.is_empty() {
+        anyhow::bail!("at least one agent (role@backend) is required");
+    }
+
+    // Relay subgroup-support verification is handled by a separate workstream;
+    // call its gate here when it lands. For now we proceed and fail loudly below
+    // if the relay rejects the subgroup create/lock.
+
+    let nsec = state
+        .cfg
+        .management_nsec()
+        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+    let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+
+    // Resolve each backend token to a hex pubkey (explicit pubkey/npub/NIP-05).
+    let mut adds: Vec<AddTarget> = Vec::with_capacity(p.agents.len());
+    for a in &p.agents {
+        let backend_pubkey = resolve_pubkey_hex(&a.backend)
+            .await
+            .with_context(|| format!("resolving backend {:?}", a.backend))?;
+        adds.push(AddTarget {
+            backend_pubkey,
+            role_slug: a.role.clone(),
+        });
+    }
+
+    // Short child id; hierarchy lives in metadata, not the id.
+    let child_h = crate::util::child_group_id(&p.name);
+
+    // Create + lock the child with its parent relationship. Fail loudly: a
+    // create-group that didn't actually create a group must not look successful.
+    let created = state
+        .provider
+        .nip29_create_subgroup(&child_h, &p.name, &p.parent)
+        .await;
+    if !created {
+        anyhow::bail!(
+            "relay did not accept subgroup create/lock for {child_h} (parent {}); \
+             does the relay support NIP-29 subgroups and is the signing key an admin?",
+            p.parent
+        );
+    }
+
+    // Admin set for the child: copy ALL parent admins (our invariant is that
+    // agents/sessions are NEVER admins, so the parent admin set is exactly the
+    // trusted human/backend/operator/friend pubkeys), plus this daemon's own
+    // identity, the operator pubkey, and the configured whitelist — so the local
+    // backend can manage the child and authority carries downward.
+    let mut admin_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let parent_roles = state.provider.fetch_group_roles(&p.parent).await;
+    for (pk, role) in &parent_roles {
+        if role == "admin" {
+            admin_set.insert(pk.clone());
+        }
+    }
+    for pk in &state.cfg.whitelisted_pubkeys {
+        admin_set.insert(pk.clone());
+    }
+    if let Some(op) = state.cfg.user_nsec.as_ref().and_then(|n| Keys::parse(n).ok()) {
+        admin_set.insert(op.public_key().to_hex());
+    }
+    if let Some(bp) = state.backend_pubkey() {
+        admin_set.insert(bp.to_string());
+    }
+    let mut granted: Vec<String> = Vec::new();
+    for pk in &admin_set {
+        if state.provider.nip29_add_admin(&child_h, pk).await {
+            state.with_store(|s| {
+                s.upsert_group_member(&child_h, pk, "admin", now_secs()).ok();
+            });
+            granted.push(pk.clone());
+        }
+    }
+
+    // Own + subscribe to the child so we receive its relay-authored state.
+    state.with_store(|s| {
+        s.mark_group_owned(&child_h, now_secs()).ok();
+    });
+    let _ = ensure_subscription(state, &child_h).await;
+
+    // Build + publish ONE kind:9 orchestration event into the parent (the
+    // coordination group). The child id rides in an `h-target` tag.
+    let prose = if p.brief.trim().is_empty() {
+        generate_orchestration_prose(&adds)
+    } else {
+        p.brief.clone()
+    };
+    let builder = build_add_agents_event(&p.parent, &child_h, &adds, &prose)?;
+    let signed = state.transport.sign(builder, &mgmt_keys).await?;
+    let orchestration_event_id = signed.id.to_hex();
+    state.transport.publish_event(&signed).await?;
+
+    // Local fast-path: relays don't reliably echo to the publishing connection,
+    // so drive the same listener directly for roles targeted at THIS backend.
+    // Idempotency is enforced inside handle_orchestration via processed_orchestration.
+    if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
+        handle_orchestration(state, &signed, op).await;
+    }
+
+    Ok(serde_json::json!({
+        "child_h": child_h,
+        "display_path": format!("{} > {}", p.parent, p.name),
+        "admins": granted,
+        "orchestration_event_id": orchestration_event_id,
+    }))
+}
+
+/// Human-readable summary of the add-agents request, grouped per backend, e.g.
+/// "@<edge1>: add research-lead. @<edge2>: add implementation-lead and test1."
+/// Advisory only — receivers act on the structured tags, never this prose.
+fn generate_orchestration_prose(adds: &[crate::fabric::nip29::orchestration::AddTarget]) -> String {
+    use std::collections::BTreeMap;
+    let mut by_backend: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for a in adds {
+        by_backend
+            .entry(a.backend_pubkey.as_str())
+            .or_default()
+            .push(a.role_slug.as_str());
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for (backend, roles) in by_backend {
+        parts.push(format!(
+            "@{}: add {}.",
+            crate::util::pubkey_short(backend),
+            roles.join(" and ")
+        ));
+    }
+    parts.join(" ")
 }
 
 // ── publish_profile ───────────────────────────────────────────────────────────
@@ -3227,6 +3452,150 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     if outcome.wake_mentions {
         crate::tmux::ring_doorbells(state.clone());
     }
+
+    // Subgroup orchestration (issue #3): a kind:9 carrying the add-agents op tag
+    // asks backends to provision agent roles into a child group. Parse tags ONLY
+    // (prose is ignored); dispatch the async handler off the demux loop. Durable
+    // idempotency lives inside the handler, not `first_sight` (which is in-memory
+    // and would respawn agents after a daemon restart).
+    if event.kind.as_u16() == crate::codec::kind1::KIND_CHAT {
+        if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(event) {
+            let st = state.clone();
+            let ev = event.clone();
+            tokio::spawn(async move {
+                handle_orchestration(&st, &ev, op).await;
+            });
+        }
+    }
+}
+
+/// React to a subgroup add-agents orchestration event: authorize the signer,
+/// provision the agent roles addressed to THIS backend (mint identity, publish
+/// kind:0, add as member), and spawn each role's harness into the child group.
+/// Best-effort and idempotent (durable `processed_orchestration` guard).
+async fn handle_orchestration(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    op: crate::fabric::nip29::orchestration::AddAgentsOp,
+) {
+    use crate::fabric::nip29::orchestration::{adds_for_backend, is_authorized};
+
+    let event_id = event.id.to_hex();
+    if state.with_store(|s| s.is_orchestration_processed(&event_id)) {
+        return;
+    }
+
+    // Only roles addressed to THIS backend's identity concern us.
+    let Some(backend_pk) = state.backend_pubkey().map(|s| s.to_string()) else {
+        return;
+    };
+    let mine = adds_for_backend(&op.adds, &backend_pk);
+    if mine.is_empty() {
+        return;
+    }
+
+    // Authorize: the signer must be an admin of the parent (where authority
+    // lives) or of the child. Fail closed on fetch error (treat as unauthorized).
+    let signer = event.pubkey.to_hex();
+    let parent_roles = state.provider.fetch_group_roles(&op.parent).await;
+    let authorized = is_authorized(&parent_roles, &signer) || {
+        let child_roles = state.provider.fetch_group_roles(&op.child_h).await;
+        is_authorized(&child_roles, &signer)
+    };
+    if !authorized {
+        if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+            eprintln!(
+                "[daemon] orchestration {} from {} ignored: signer is not an admin of {} or {}",
+                &event_id[..event_id.len().min(8)],
+                crate::util::pubkey_short(&signer),
+                op.parent,
+                op.child_h
+            );
+        }
+        return;
+    }
+
+    // Guard against a parent-admin directing spawns into an UNRELATED group: if
+    // the child's relay metadata already declares a parent, it must match. A
+    // brand-new child whose 39000 hasn't echoed yet (None) is allowed through.
+    if let Some(declared) = state.provider.fetch_group_parent(&op.child_h).await {
+        if declared != op.parent {
+            eprintln!(
+                "[daemon] orchestration {}: child {} declares parent {declared:?}, not {:?}; refusing",
+                &event_id[..event_id.len().min(8)],
+                op.child_h,
+                op.parent
+            );
+            return;
+        }
+    }
+
+    // Subscribe + own the child so we receive its state and can manage it.
+    state.with_store(|s| {
+        s.mark_group_owned(&op.child_h, now_secs()).ok();
+    });
+    let _ = ensure_subscription(state, &op.child_h).await;
+
+    let edge = config::edge_home();
+    for target in mine {
+        let role = &target.role_slug;
+        let id = match crate::identity::load_or_create(&edge, role, now_secs()) {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("[daemon] orchestration: minting role {role:?} failed: {e:#}");
+                continue;
+            }
+        };
+        let role_pk = id.pubkey_hex();
+
+        // Publish the durable role's kind:0 identity card.
+        let profile = DomainEvent::Profile(crate::domain::Profile {
+            agent: crate::domain::AgentRef::new(role_pk.clone(), role.clone()),
+            host: state.host.clone(),
+            owners: state.owners.clone(),
+        });
+        let _ = state.provider.publish(&profile, &id.keys).await;
+
+        // Add the durable role pubkey as a MEMBER (never admin) of the child.
+        // Gate the spawn on a confirmed member-add: a live harness whose events
+        // the relay rejects is worse than no harness — let a retry handle it.
+        let added = state.provider.nip29_add_member(&op.child_h, &role_pk).await;
+        if !added {
+            eprintln!(
+                "[daemon] orchestration: relay rejected member-add for role {role:?} in {}; \
+                 skipping spawn (will retry on re-delivery)",
+                op.child_h
+            );
+            // Do NOT mark processed: we want a re-delivery to retry.
+            return;
+        }
+        state.with_store(|s| {
+            s.upsert_group_member(&op.child_h, &role_pk, "member", now_secs())
+                .ok();
+        });
+
+        // Spawn the harness in the PARENT project's working directory but scoped
+        // to the child group (TENEX_EDGE_GROUP). The spawned session's
+        // session-start path adds its derived session pubkey to the child group.
+        match crate::tmux::spawn_agent(state, role, &op.parent, Vec::new(), Some(&op.child_h)).await
+        {
+            Ok(pane) => {
+                if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                    eprintln!(
+                        "[daemon] orchestration: spawned role {role:?} into {} (pane {pane})",
+                        op.child_h
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("[daemon] orchestration: spawn role {role:?} failed: {e:#}");
+            }
+        }
+    }
+
+    state.with_store(|s| {
+        s.mark_orchestration_processed(&event_id, now_secs()).ok();
+    });
 }
 
 /// Convert a decoded `DomainEvent` into zero or more `TailEvent`s and emit them.
@@ -3786,6 +4155,7 @@ async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
             }
         }
     }
+
     Ok(())
 }
 
@@ -3820,8 +4190,8 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
                 s.remove_session_pubkeys_for_session(&session_id).ok();
             });
             // Stage 2 / crash-GC: remove the session pubkey from the NIP-29 group.
-            if let Some(ref nsec) = state.cfg.user_nsec.clone() {
-                if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
+            if let Some(nsec) = state.cfg.session_ikm_nsec().cloned() {
+                if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(&nsec) {
                     let session_pubkey = stored_pubkey.unwrap_or_else(|| {
                         // Fallback: re-derive. Anchor recovered from session_aliases:
                         //   claude-code / codex → (harness, native_id)
@@ -3871,8 +4241,8 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
         // Stage 2 / revived sessions: re-derive and store the session key so
         // that the spawn_session cleanup task (engine self-exit) can find it to
         // publish group_remove_user when the engine finishes.
-        if let Some(ref nsec) = state.cfg.user_nsec.clone() {
-            if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
+        if let Some(nsec) = state.cfg.session_ikm_nsec().cloned() {
+            if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(&nsec) {
                 let (harness_kind, anchor) = state
                     .with_store(|s| s.get_session_derivation_anchor(&session_id));
                 let session_key = identity::derive_session_keys(

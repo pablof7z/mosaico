@@ -393,6 +393,14 @@ CREATE TABLE IF NOT EXISTS group_members (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (project, pubkey)
 );
+-- Durable dedup for subgroup add-agents orchestration events (issue #3). The
+-- relay redelivers the same kind:9 on every matching subscription, and a daemon
+-- restart replays history; this table makes provisioning fire AT MOST ONCE per
+-- event id, surviving restarts (unlike the in-memory first_sight cache).
+CREATE TABLE IF NOT EXISTS processed_orchestration (
+    event_id     TEXT PRIMARY KEY,
+    processed_at INTEGER NOT NULL
+);
 
 -- ── Phase 1: canonical read-model tables ──────────────────────────────────────
 -- Durable project identities with surrogate ids; origin tables map fabric
@@ -2174,6 +2182,30 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(n > 0)
+    }
+
+    /// True if this add-agents orchestration event id was already processed
+    /// (durable dedup; see `processed_orchestration`). Errors are swallowed to
+    /// `false` so a transient DB hiccup re-processes rather than silently drops.
+    pub fn is_orchestration_processed(&self, event_id: &str) -> bool {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM processed_orchestration WHERE event_id=?1",
+                params![event_id],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+            .unwrap_or(false)
+    }
+
+    /// Record that an add-agents orchestration event was fully handled.
+    pub fn mark_orchestration_processed(&self, event_id: &str, ts: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO processed_orchestration (event_id, processed_at) VALUES (?1, ?2)
+             ON CONFLICT(event_id) DO NOTHING",
+            params![event_id, ts],
+        )?;
+        Ok(())
     }
 
     /// Cached NIP-29 roster size for a project (0 when membership is unknown,

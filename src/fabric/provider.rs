@@ -23,7 +23,7 @@ use nostr_sdk::EventBuilder;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // Fabric identifier used in all canonical origin rows.
 pub const FABRIC: &str = "kind1-nip29";
@@ -259,79 +259,35 @@ impl Kind1Nip29Provider {
         (publish, readback)
     }
 
-    // ── open_project ─────────────────────────────────────────────────────────
+    // ── group state ────────────────────────────────────────────────────────────
 
-    /// Ensure a closed NIP-29 group exists for `project`, that every whitelisted
-    /// human pubkey holds the `admin` role, and that `agent_pubkey` is a member.
-    /// Best-effort: never blocks session start.
-    ///
-    /// Decisions are driven by the relay's LIVE group state (kinds 39000/39001/
-    /// 39002 fetched by `#d == project`), not the local cache — so a re-run
-    /// auto-detects a missing group or a whitelisted pubkey that isn't yet an
-    /// admin and repairs it (the "backfill" property). The trailing
-    /// `ensure_subscription` call remains at the call site (rpc_session_start /
-    /// reconcile_sessions) to preserve the existing double-subscribe behavior.
-    pub async fn open_project(&self, project: &str, agent_pubkey: &str) {
-        self.open_project_with_progress(project, agent_pubkey, |_| {})
-            .await;
-    }
-
-    pub async fn open_project_with_progress<F>(
+    /// Fetch the relay's LIVE state for `group`: `(exists, roles, members)`.
+    /// `roles` maps pubkey → role from kind:39001 p-tags `["p", pk, role]`;
+    /// `members` is the kind:39002 p-tag set. Keyed by `#d == group`. On fetch
+    /// failure returns `(false, empty, empty)` so callers fail toward
+    /// attempt-create rather than skip-assuming-it-exists.
+    pub async fn fetch_group_state(
         &self,
-        project: &str,
-        agent_pubkey: &str,
-        mut progress: F,
-    ) where
-        F: FnMut(String),
-    {
-        use nostr_sdk::prelude::{Filter, Keys};
-        progress(format!("using project group {project}"));
-        let nsec = match &self.user_nsec {
-            Some(n) => n.clone(),
-            None => {
-                progress("userNsec unset; skipping group management".to_string());
-                if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                    eprintln!(
-                        "[daemon] userNsec unset; skipping NIP-29 group management for {project}"
-                    );
-                }
-                return;
-            }
-        };
-        let user_keys = match Keys::parse(&nsec) {
-            Ok(k) => k,
-            Err(e) => {
-                progress("userNsec parse failed; skipping group management".to_string());
-                eprintln!("[daemon] userNsec parse failed; skipping group management: {e}");
-                return;
-            }
-        };
-
-        // Query the RELAY (not the local cache) for the group's live state:
-        // 39000 metadata, 39001 admins+roles, 39002 members — all keyed by
-        // `#d == project`. Bounded fetch; on failure we fall through with empty
-        // state and rely on the relay treating "already exists" as benign, so we
-        // fail toward attempt-create rather than skip-assuming-it-exists.
+        group: &str,
+    ) -> (
+        bool,
+        std::collections::HashMap<String, String>,
+        std::collections::HashSet<String>,
+    ) {
         use crate::codec::kind1::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
+        use nostr_sdk::prelude::Filter;
         let filter = Filter::new()
             .kinds([
                 crate::codec::kind1::kind(KIND_GROUP_METADATA),
                 crate::codec::kind1::kind(KIND_GROUP_ADMINS),
                 crate::codec::kind1::kind(KIND_GROUP_MEMBERS),
             ])
-            .identifier(project);
-        progress("fetching relay group metadata/admins/members".to_string());
-        let fetch_started = Instant::now();
+            .identifier(group);
         let state_evs = self
             .transport
             .fetch(filter, Duration::from_secs(5))
             .await
             .unwrap_or_default();
-        progress(format!(
-            "relay group fetch returned {} event(s) in {}ms",
-            state_evs.len(),
-            fetch_started.elapsed().as_millis()
-        ));
 
         // Newest event per kind (addressable replaceables; pick max created_at).
         let newest = |k: u16| {
@@ -371,6 +327,114 @@ impl Kind1Nip29Provider {
                 }
             }
         }
+        (group_exists, roles, members)
+    }
+
+    /// Convenience: just the role map (kind:39001) for `group`.
+    pub async fn fetch_group_roles(
+        &self,
+        group: &str,
+    ) -> std::collections::HashMap<String, String> {
+        self.fetch_group_state(group).await.1
+    }
+
+    /// Subscribe to subgroup orchestration (kind:9) events p-tagged to this
+    /// backend's identity, independent of any project. Narrow single-filter
+    /// subscription (NOT the full project scope) so we don't pull a kind:9/kind:1
+    /// firehose — only events addressed to `backend_pubkey` arrive.
+    pub async fn subscribe_backend_orchestration(&self, backend_pubkey: &str) -> Result<()> {
+        use nostr_sdk::prelude::{Filter, PublicKey};
+        if let Ok(pk) = PublicKey::from_hex(backend_pubkey) {
+            let f = Filter::new()
+                .kind(crate::codec::kind1::kind(crate::codec::kind1::KIND_CHAT))
+                .pubkey(pk);
+            self.transport.subscribe(vec![f]).await?;
+        }
+        Ok(())
+    }
+
+    /// The `parent` group id declared in `group`'s relay-authored kind:39000
+    /// metadata, if any. `None` when the group has no metadata yet (brand-new,
+    /// not echoed) or carries no `parent` tag. Used to verify a subgroup actually
+    /// belongs to its claimed parent before provisioning into it.
+    pub async fn fetch_group_parent(&self, group: &str) -> Option<String> {
+        use crate::codec::kind1::KIND_GROUP_METADATA;
+        use nostr_sdk::prelude::Filter;
+        let filter = Filter::new()
+            .kind(crate::codec::kind1::kind(KIND_GROUP_METADATA))
+            .identifier(group);
+        let evs = self
+            .transport
+            .fetch(filter, Duration::from_secs(5))
+            .await
+            .unwrap_or_default();
+        let newest = evs.iter().max_by_key(|e| e.created_at.as_secs())?;
+        newest.tags.iter().find_map(|t| {
+            let s = t.as_slice();
+            if s.first().map(String::as_str) == Some("parent") {
+                s.get(1).cloned()
+            } else {
+                None
+            }
+        })
+    }
+
+    // ── open_project ─────────────────────────────────────────────────────────
+
+    /// Ensure a closed NIP-29 group exists for `project`, that every whitelisted
+    /// human pubkey holds the `admin` role, and that `agent_pubkey` is a member.
+    /// Best-effort: never blocks session start.
+    ///
+    /// Decisions are driven by the relay's LIVE group state (kinds 39000/39001/
+    /// 39002 fetched by `#d == project`), not the local cache — so a re-run
+    /// auto-detects a missing group or a whitelisted pubkey that isn't yet an
+    /// admin and repairs it (the "backfill" property). The trailing
+    /// `ensure_subscription` call remains at the call site (rpc_session_start /
+    /// reconcile_sessions) to preserve the existing double-subscribe behavior.
+    pub async fn open_project(&self, project: &str, agent_pubkey: &str) {
+        self.open_project_with_progress(project, agent_pubkey, |_| {})
+            .await;
+    }
+
+    pub async fn open_project_with_progress<F>(
+        &self,
+        project: &str,
+        agent_pubkey: &str,
+        mut progress: F,
+    ) where
+        F: FnMut(String),
+    {
+        use nostr_sdk::prelude::Keys;
+        progress(format!("using project group {project}"));
+        let nsec = match &self.user_nsec {
+            Some(n) => n.clone(),
+            None => {
+                progress("userNsec unset; skipping group management".to_string());
+                if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                    eprintln!(
+                        "[daemon] userNsec unset; skipping NIP-29 group management for {project}"
+                    );
+                }
+                return;
+            }
+        };
+        let user_keys = match Keys::parse(&nsec) {
+            Ok(k) => k,
+            Err(e) => {
+                progress("userNsec parse failed; skipping group management".to_string());
+                eprintln!("[daemon] userNsec parse failed; skipping group management: {e}");
+                return;
+            }
+        };
+
+        // Query the RELAY (not the local cache) for the group's live state.
+        progress("fetching relay group metadata/admins/members".to_string());
+        let (group_exists, roles, members) = self.fetch_group_state(project).await;
+        progress(format!(
+            "relay group state: exists={group_exists}, {} role(s), {} member(s)",
+            roles.len(),
+            members.len()
+        ));
 
         // 1. Create + lock the group if the relay has no record of it.
         if !group_exists {
@@ -539,6 +603,50 @@ impl Kind1Nip29Provider {
         match crate::fabric::nip29::lifecycle::group_put_user(project, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management(b, &user_keys, "9000 put-user (session)")
+                    .await
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Admin-add `pubkey_hex` to `project` with the `admin` role. Best-effort,
+    /// same accept/benign-duplicate semantics as [`nip29_add_member`].
+    pub async fn nip29_add_admin(&self, project: &str, pubkey_hex: &str) -> bool {
+        let Some(user_keys) = self.parse_user_keys() else {
+            return false;
+        };
+        match crate::fabric::nip29::lifecycle::group_put_admin(project, pubkey_hex) {
+            Ok(b) => {
+                self.publish_group_management(b, &user_keys, "9000 put-user (admin)")
+                    .await
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Create + lock a NIP-29 SUBGROUP: publish kind:9007 create-group for
+    /// `child_h`, then kind:9002 edit-metadata locking it closed+public, naming
+    /// it `name`, and recording the `parent_h` relationship. Returns `true` when
+    /// both events were accepted (or benign-duplicate). Best-effort; signed with
+    /// the management key.
+    pub async fn nip29_create_subgroup(&self, child_h: &str, name: &str, parent_h: &str) -> bool {
+        let Some(user_keys) = self.parse_user_keys() else {
+            return false;
+        };
+        let created = match crate::fabric::nip29::lifecycle::group_create_subgroup(child_h) {
+            Ok(b) => {
+                self.publish_group_management(b, &user_keys, "9007 create-subgroup")
+                    .await
+            }
+            Err(_) => false,
+        };
+        if !created {
+            return false;
+        }
+        match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(child_h, name, parent_h)
+        {
+            Ok(b) => {
+                self.publish_group_management(b, &user_keys, "9002 lock-with-parent")
                     .await
             }
             Err(_) => false,

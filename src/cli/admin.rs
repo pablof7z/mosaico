@@ -69,6 +69,51 @@ pub(super) async fn project(action: ProjectAction) -> Result<()> {
                 super::project_agents::edit_membership(project).await?;
             }
         },
+        ProjectAction::CreateGroup {
+            parent,
+            name,
+            agents,
+            message,
+        } => {
+            if agents.is_empty() {
+                bail!("at least one --agent role@backend is required");
+            }
+            // Parse each `role@backend` on the LAST `@` (roles never contain `@`,
+            // and an npub/hex backend won't either, but split_last is robust).
+            let mut parsed: Vec<serde_json::Value> = Vec::with_capacity(agents.len());
+            for a in &agents {
+                let (role, backend) = a
+                    .rsplit_once('@')
+                    .filter(|(r, b)| !r.is_empty() && !b.is_empty())
+                    .with_context(|| format!("malformed --agent {a:?}: expected role@backend"))?;
+                parsed.push(serde_json::json!({ "role": role, "backend": backend }));
+            }
+            let brief = match &message {
+                Some(path) => std::fs::read_to_string(path)
+                    .with_context(|| format!("reading --message {}", path.display()))?,
+                None => String::new(),
+            };
+            let v = daemon_call_async(
+                "project_create_group",
+                serde_json::json!({
+                    "parent": parent,
+                    "name": name,
+                    "agents": parsed,
+                    "brief": brief,
+                }),
+            )
+            .await?;
+            let child = v["child_h"].as_str().unwrap_or("?");
+            let path = v["display_path"].as_str().unwrap_or("");
+            let oid = v["orchestration_event_id"].as_str().unwrap_or("");
+            println!("created subgroup {} ({})", child.bold(), path);
+            if let Some(admins) = v["admins"].as_array() {
+                println!("  admins copied: {}", admins.len());
+            }
+            if !oid.is_empty() {
+                println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
+            }
+        }
     }
     Ok(())
 }

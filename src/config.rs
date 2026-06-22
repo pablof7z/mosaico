@@ -21,9 +21,40 @@ pub struct Config {
     pub indexer_relay: String,
     /// Host label published on the agent's profile (M1 §3 `host` tag).
     pub host: String,
-    /// Human user's Nostr secret key (bech32 nsec or hex). Used to publish
+    /// Human operator's Nostr secret key (bech32 nsec or hex). Used to publish
     /// user-prompt events on behalf of the human, not the agent.
     pub user_nsec: Option<String>,
+    /// This backend/daemon's own Nostr secret key (bech32 nsec or hex). Distinct
+    /// from `user_nsec`: it is the local backend IDENTITY — its pubkey is added as
+    /// an admin to every group we create and is the address the orchestration
+    /// listener matches `add` tags against.
+    pub tenex_private_key: Option<String>,
+}
+
+impl Config {
+    /// Key used as the HKDF IKM for per-session key derivation. MUST exactly
+    /// reproduce the value the old collapsed `user_nsec` field held
+    /// (`userNsec` preferred, `tenexPrivateKey` fallback) — changing it would
+    /// rotate every derived session pubkey and strand live group members.
+    pub fn session_ikm_nsec(&self) -> Option<&String> {
+        self.user_nsec.as_ref().or(self.tenex_private_key.as_ref())
+    }
+
+    /// Signer for NIP-29 group-management events (create/lock/put-user/
+    /// put-admin/remove-user/edit-metadata). Operator-first to preserve
+    /// continuity with groups historically created by the operator key; the
+    /// backend key is added as admin to every group we create, so either signer
+    /// is accepted by the relay.
+    pub fn management_nsec(&self) -> Option<&String> {
+        self.user_nsec.as_ref().or(self.tenex_private_key.as_ref())
+    }
+
+    /// This backend's own identity key. Backend-first (the daemon signs its own
+    /// presence/role events with it), falling back to the operator key when no
+    /// dedicated backend key is configured.
+    pub fn backend_nsec(&self) -> Option<&String> {
+        self.tenex_private_key.as_ref().or(self.user_nsec.as_ref())
+    }
 }
 
 /// Mirror of the relevant fields in `~/.tenex/config.json`. Unknown fields are
@@ -68,7 +99,8 @@ impl Config {
             relays,
             indexer_relay,
             host,
-            user_nsec: raw.user_nsec.or(raw.tenex_private_key),
+            user_nsec: raw.user_nsec,
+            tenex_private_key: raw.tenex_private_key,
         })
     }
 
@@ -143,6 +175,27 @@ mod tests {
         assert_eq!(c.host, "pablos' laptop");
         assert_eq!(c.relays, vec![DEFAULT_RELAY]); // defaulted
         assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY); // defaulted
+        // Back-compat: with only tenexPrivateKey set, all three accessors resolve
+        // to it (the old collapsed field's behavior).
+        assert_eq!(c.tenex_private_key.as_deref(), Some("deadbeef"));
+        assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("deadbeef"));
+        assert_eq!(c.management_nsec().map(String::as_str), Some("deadbeef"));
+        assert_eq!(c.backend_nsec().map(String::as_str), Some("deadbeef"));
+    }
+
+    #[test]
+    fn key_accessors_split_when_both_present() {
+        let json = r#"{
+            "whitelistedPubkeys": [],
+            "userNsec": "operatorkey",
+            "tenexPrivateKey": "backendkey"
+        }"#;
+        let c = Config::from_json_str(json, "host").unwrap();
+        // session derivation + management stay operator-first (continuity).
+        assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("operatorkey"));
+        assert_eq!(c.management_nsec().map(String::as_str), Some("operatorkey"));
+        // backend identity prefers the dedicated backend key.
+        assert_eq!(c.backend_nsec().map(String::as_str), Some("backendkey"));
     }
 
     #[test]

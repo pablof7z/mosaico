@@ -308,6 +308,7 @@ async fn hook_dispatch(
                 let params = serde_json::json!({
                     "env_session": sid,
                     "agent": agent_env_slug(),
+                    "group": crate::cli::group_env(),
                     "cwd": cwd.to_string_lossy(),
                     "prompt": prompt_text,
                 });
@@ -382,6 +383,10 @@ async fn report_observation(
         "watch_pid": watch_pid,
         "tmux_pane": tmux_pane,
         "tmux_socket": tmux_socket,
+        // NIP-29 subgroup id this pane was spawned into (TENEX_EDGE_GROUP), when
+        // present. The daemon stores the session under this `h` instead of the
+        // cwd-derived project so its presence/chat publish into the subgroup.
+        "group": crate::cli::group_env(),
     });
     let v = super::daemon_call_async_with_items("session_start", params, |item| {
         render_init_progress(&item);
