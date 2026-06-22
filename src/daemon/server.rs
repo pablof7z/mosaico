@@ -719,10 +719,13 @@ async fn rpc_session_start(
             ),
         );
     }
-    // The registration enqueued a kind:30315 publish — nudge the drainer.
-    state.status_outbox_notify.notify_waiters();
 
-    // Derive the per-session keypair (Stage 2 / Issue #2).
+    // Derive the per-session keypair (Stage 2 / Issue #2) BEFORE nudging the
+    // status drainer below. The registration enqueued the session's first
+    // kind:30315 row; if we notified the drainer before the session key was
+    // resident, that first presence beat would sign with the durable agent key
+    // (the keys_for_session fallback), producing an orphan replaceable event
+    // under the wrong author that lingers until its NIP-40 TTL.
     //
     // Anchor selection (locked decision): harness_session_id when the harness
     // supplied one (claude-code / codex); canonical session_id otherwise
@@ -759,6 +762,9 @@ async fn rpc_session_start(
                 .insert(session_id.clone(), session_key);
         }
     }
+    // Now that the session key is resident, nudge the drainer so the first
+    // kind:30315 publish signs with the session key.
+    state.status_outbox_notify.notify_waiters();
 
     // The resume token survives the session going dead so a later `tmux resume`
     // can reconstitute the harness: opencode's `ses_*`, else claude/codex native id.
@@ -1217,13 +1223,20 @@ async fn rpc_send_message(
         .unwrap_or_else(|| id.keys.clone());
 
     // Determine locality BEFORE provider.send() so we can pass prereserve_for.
-    // `is_local` is true when recipient.pubkey is a durable agent pubkey hosted
-    // on this daemon (stage 3/4: session pubkeys are NOT in hosted_pubkeys, so
-    // session-pubkey-addressed sends have is_local=false and rely on the relay).
+    // `is_local` is true when recipient.pubkey is hosted on this daemon — either
+    // a durable agent pubkey OR a live per-session pubkey. Both must count: the
+    // relay does not echo our own published event back to the connection that
+    // sent it, so without local delivery a same-daemon session->session send
+    // (managed mode, where the recipient resolves to a session pubkey) would be
+    // silently dropped. Mirrors the same check in rpc_inbox_reply.
     let is_local = state
         .hosted_pubkeys()
         .iter()
-        .any(|h| h == &recipient.pubkey);
+        .any(|h| h == &recipient.pubkey)
+        || state
+            .live_session_pubkeys()
+            .iter()
+            .any(|h| h == &recipient.pubkey);
 
     // ── Two-phase send: sign → local-deliver → mark_seen → publish ───────────
     //
@@ -1711,10 +1724,18 @@ fn resolve_recipient(store: &Store, my_project: &str, target: &str) -> Result<Re
         });
     }
     if target.len() >= 6 {
-        if let Some(ps) = store.find_peer_session_by_prefix(target)? {
+        // Peer presence lives in peer_session_state (peer_sessions is test-only);
+        // scan the snapshots for a raw-session-id prefix. agent_pubkey is the
+        // peer's session pubkey (session-signed status) = the wire address.
+        if let Some(ps) = store
+            .peer_session_snapshots(None, 0)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|ps| ps.session_id.as_str().starts_with(target))
+        {
             return Ok(ResolvedRecipient {
-                pubkey: ps.pubkey,
-                target_session: Some(ps.session_id),
+                pubkey: ps.agent_pubkey,
+                target_session: Some(ps.session_id.as_str().to_string()),
                 project: ps.project,
             });
         }
@@ -1764,13 +1785,17 @@ struct SessionMatch {
 fn find_session_by_codename(store: &Store, codename: &str) -> Result<Option<SessionMatch>> {
     let target_code = codename.to_lowercase();
 
-    // Search peer sessions
-    if let Ok(peers) = store.list_peer_sessions(None, 0) {
+    // Search peer sessions. Production peer presence lives in `peer_session_state`
+    // (written by `record_peer_status`), surfaced via `peer_session_snapshots`;
+    // the `peer_sessions` table is only populated by tests. The snapshot's
+    // `agent_pubkey` is the peer's SESSION pubkey (peer status is session-signed),
+    // which is exactly the wire address we want to p-tag.
+    if let Ok(peers) = store.peer_session_snapshots(None, 0) {
         for peer in peers {
-            if session_codename(&peer.session_id).to_lowercase() == target_code {
+            if session_codename(peer.session_id.as_str()).to_lowercase() == target_code {
                 return Ok(Some(SessionMatch {
-                    pubkey: peer.pubkey,
-                    session_id: peer.session_id,
+                    pubkey: peer.agent_pubkey,
+                    session_id: peer.session_id.as_str().to_string(),
                     project: peer.project,
                 }));
             }
@@ -3780,6 +3805,14 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
             .and_then(|r| r.watch_pid);
         let pid_ok = watch_pid.map(pid_alive).unwrap_or(false);
         if !pid_ok {
+            // Read the persisted session pubkey BEFORE deleting its row — it is
+            // the authoritative value. Re-deriving from session_aliases is only a
+            // fallback for rows written before this column existed; preferring the
+            // stored pubkey avoids any chance of removing the wrong key (and thus
+            // stranding the real one as a live member) if the recovered anchor
+            // ever diverges from what session_start used.
+            let stored_pubkey =
+                state.with_store(|s| s.session_pubkey_for_session(&session_id));
             state.with_store(|s| {
                 s.end_session(&session_id, now).ok();
                 s.mark_session_dead(&session_id).ok();
@@ -3787,25 +3820,25 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
                 s.remove_session_pubkeys_for_session(&session_id).ok();
             });
             // Stage 2 / crash-GC: remove the session pubkey from the NIP-29 group.
-            //
-            // The in-memory session_keys map is empty at daemon restart, so we must
-            // re-derive the key. The anchor is recovered from session_aliases:
-            //   - claude-code / codex: harness alias row gives (harness, native_id)
-            //   - opencode: only a resume alias row exists → anchor = session_id
-            //   - unknown / no alias rows: ("unknown", session_id) — re-derivation
-            //     yields the correct key as long as session_start used the same path.
             if let Some(ref nsec) = state.cfg.user_nsec.clone() {
                 if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
-                    let (harness_kind, anchor) = state
-                        .with_store(|s| s.get_session_derivation_anchor(&session_id));
-                    let session_key = identity::derive_session_keys(
-                        op_keys.secret_key(),
-                        &snap.project,
-                        &snap.agent_slug,
-                        &harness_kind,
-                        &anchor,
-                    );
-                    let session_pubkey = session_key.public_key().to_hex();
+                    let session_pubkey = stored_pubkey.unwrap_or_else(|| {
+                        // Fallback: re-derive. Anchor recovered from session_aliases:
+                        //   claude-code / codex → (harness, native_id)
+                        //   opencode → anchor = session_id (resume alias only)
+                        //   unknown / no rows → ("unknown", session_id)
+                        let (harness_kind, anchor) = state
+                            .with_store(|s| s.get_session_derivation_anchor(&session_id));
+                        identity::derive_session_keys(
+                            op_keys.secret_key(),
+                            &snap.project,
+                            &snap.agent_slug,
+                            &harness_kind,
+                            &anchor,
+                        )
+                        .public_key()
+                        .to_hex()
+                    });
                     let provider = state.provider.clone();
                     let store = state.store.clone();
                     let project = snap.project.clone();

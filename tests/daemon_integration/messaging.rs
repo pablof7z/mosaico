@@ -396,3 +396,88 @@ fn sibling_session_mention_lands_in_target_via_local_delivery() {
 
     stop_daemon(&home);
 }
+
+/// Managed-mode (userNsec present) end-to-end: a send addressed to a recipient
+/// that resolves to a per-session PUBKEY (not the durable agent pubkey) reaches
+/// the target session, and `to_pubkey` is that session pubkey.
+///
+/// NOTE: this is a positive-path guard, not a strict guard for the `is_local`
+/// session-pubkey fix. The shared test relay echoes our own published event back
+/// to us, so B can also receive it via the relay round-trip even if local
+/// delivery were skipped. Against a non-echoing production relay (relay29, the
+/// reason this codebase delivers locally at all — see the sibling-drop history),
+/// the `is_local` session-pubkey branch in rpc_send_message is what prevents a
+/// silent drop. That drop is not reproducible against this echoing test relay.
+#[test]
+fn managed_mode_send_to_session_pubkey_delivers_locally() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    // Managed mode: configure an operator nsec so session keys get derived and
+    // the recipient resolves to a session pubkey. Written before daemon spawn.
+    {
+        let cfg = home.dir.path().join("config.json");
+        let body = serde_json::json!({
+            "whitelistedPubkeys": [],
+            "backendName": "test-host",
+            "relays": [shared_relay_url()],
+            "userNsec": "nsec1eulru7a67wt9ndqxv424kmgvd6uyd8defdxh7y9peut28f2p2vhs35m5h4",
+        });
+        std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
+    }
+
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call("session_start", serde_json::json!({"agent": "claude", "session_id": "managed-aaaaaa", "cwd": "/tmp"}))
+            .await
+            .unwrap();
+        let b = c.call("session_start", serde_json::json!({"agent": "claude", "session_id": "managed-bbbbbb", "cwd": "/tmp"}))
+            .await
+            .unwrap();
+        let b_canon = b["session_id"].as_str().unwrap().to_string();
+
+        // The recipient must resolve to B's SESSION pubkey, proving we exercise
+        // the session-pubkey path (not the legacy agent-pubkey fallback).
+        let b_session_pubkey = {
+            let store = Store::open(&home.store_path()).unwrap();
+            store
+                .session_pubkey_for_session(&b_canon)
+                .expect("managed mode should register a session pubkey for B")
+        };
+
+        let r = c
+            .call(
+                "send_message",
+                serde_json::json!({"recipient": "managed-bbbbbb", "message": "managed hello", "session": "managed-aaaaaa", "agent": "claude"}),
+            )
+            .await
+            .expect("send_message");
+        assert_eq!(r["target_session"], b_canon.as_str(), "got {r}");
+        assert_eq!(
+            r["to_pubkey"].as_str().unwrap(),
+            b_session_pubkey,
+            "recipient must be addressed by B's session pubkey, got {r}"
+        );
+
+        // Local delivery is synchronous; with the blocker present B would receive
+        // nothing (no local delivery + no relay self-echo).
+        let mut b_got = false;
+        for _ in 0..8 {
+            let inbox = c.call("inbox", serde_json::json!({"session": "managed-bbbbbb"})).await.unwrap();
+            if inbox["rows"].as_array().unwrap().iter().any(|m| m["body"] == "managed hello") {
+                b_got = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(b_got, "session B should receive the session-pubkey-addressed mention via local delivery");
+
+        let a_inbox = c.call("inbox", serde_json::json!({"session": "managed-aaaaaa"})).await.unwrap();
+        assert!(
+            a_inbox["rows"].as_array().unwrap().is_empty(),
+            "sender session A inbox should be empty, got {:?}",
+            a_inbox["rows"]
+        );
+    });
+
+    stop_daemon(&home);
+}
