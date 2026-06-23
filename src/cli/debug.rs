@@ -64,6 +64,7 @@ struct HookTailState {
     session_filter: Option<String>,
     pane_limit: usize,
     focused: usize,
+    focused_session: Option<String>, // session ID of the focused pane; stable across snapshot re-sorts
     focus_mode: bool,
     line_cursor: usize,
     detail_open: bool, // full-screen detail overlay for the selected line
@@ -94,6 +95,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
         session_filter: opts.session,
         pane_limit: opts.panes.clamp(1, 24),
         focused: 0,
+        focused_session: None,
         focus_mode: false,
         line_cursor: usize::MAX,
         detail_open: false,
@@ -117,8 +119,15 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
             loading = false;
         }
 
+        // Re-anchor focused index to the same session after a snapshot re-sort.
+        if let Some(ref sess) = state.focused_session {
+            if let Some(idx) = snapshot.panes.iter().position(|p| &p.session == sess) {
+                state.focused = idx;
+            }
+        }
         if state.focused >= snapshot.panes.len().max(1) {
             state.focused = snapshot.panes.len().saturating_sub(1);
+            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
         }
 
         terminal.draw(|f| render_hook_tail(f, &snapshot, &state))?;
@@ -202,6 +211,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                         KeyCode::Tab | KeyCode::Right => {
                             let n = snapshot.panes.len().min(state.pane_limit).max(1);
                             state.focused = (state.focused + 1) % n;
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                             state.line_cursor = usize::MAX;
                         }
                         KeyCode::BackTab | KeyCode::Left => {
@@ -211,6 +221,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                             } else {
                                 state.focused - 1
                             };
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                             state.line_cursor = usize::MAX;
                         }
                         _ => {}
@@ -224,10 +235,12 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                         KeyCode::Char('-') => {
                             state.pane_limit = state.pane_limit.saturating_sub(1).max(1);
                             state.focused = state.focused.min(state.pane_limit.saturating_sub(1));
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                         }
                         KeyCode::Tab | KeyCode::Right => {
                             let n = snapshot.panes.len().min(state.pane_limit).max(1);
                             state.focused = (state.focused + 1) % n;
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                         }
                         KeyCode::BackTab | KeyCode::Left => {
                             let n = snapshot.panes.len().min(state.pane_limit).max(1);
@@ -236,8 +249,10 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                             } else {
                                 state.focused - 1
                             };
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                         }
                         KeyCode::Enter | KeyCode::Char('f') => {
+                            state.focused_session = snapshot.panes.get(state.focused).map(|p| p.session.clone());
                             state.focus_mode = true;
                             state.line_cursor = usize::MAX;
                         }
@@ -558,15 +573,17 @@ fn parse_hook_log(
     }
 }
 
-/// Read a per-session command log (whole file, no tail limit).
+/// Read a per-session command log. `_unscoped` accumulates across all sessions
+/// and can grow to gigabytes; tail-limit it the same way the legacy global file is.
 fn read_session_command_log(
     path: &std::path::Path,
     panes: &mut BTreeMap<String, SessionPane>,
     session_hint: Option<&str>,
 ) -> Vec<DebugLine> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
+    let raw = tail_read(path, 2_000_000);
+    if raw.is_empty() {
         return Vec::new();
-    };
+    }
     parse_command_log(&raw, panes, session_hint)
 }
 
