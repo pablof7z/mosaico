@@ -373,7 +373,13 @@ async fn hook_dispatch(
         }
         "stop" => {
             if !sid.is_empty() {
-                turn_end(sid)?;
+                // The agent's turn output (last assistant text) is published as
+                // kind:9 chat into the session's room by the daemon. Read it
+                // from the transcript; absent/unreadable → no reply mirrored.
+                let reply = transcript.as_deref().and_then(|p| {
+                    crate::transcript::read_last_assistant_text(std::path::Path::new(p))
+                });
+                turn_end(sid, reply)?;
             }
         }
         other => {

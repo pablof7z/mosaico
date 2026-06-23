@@ -2050,6 +2050,23 @@ impl Store {
         Ok(rows)
     }
 
+    /// The parent group id of `group`, or `None` when it is a top-level project
+    /// group (empty parent) or unknown. A non-empty parent means `group` is a
+    /// subgroup (a per-session room or a task room).
+    pub fn group_parent(&self, group: &str) -> Result<Option<String>> {
+        let parent: rusqlite::Result<String> = self.conn.query_row(
+            "SELECT parent FROM project_meta WHERE project=?1",
+            params![group],
+            |r| r.get::<_, String>(0),
+        );
+        match parent {
+            Ok(p) if !p.is_empty() => Ok(Some(p)),
+            Ok(_) => Ok(None),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub fn list_project_meta(&self) -> Result<Vec<(String, String)>> {
         let mut stmt = self
             .conn

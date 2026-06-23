@@ -1123,6 +1123,52 @@ struct ChatWriteParams {
     agent: Option<String>,
 }
 
+/// Publish the agent's completed-turn output as kind:9 chat into the session's
+/// room (issue #6). Signed by the agent via `keys_for_session`, which falls
+/// back to the durable agent key (#5). Mirrors `rpc_chat_write`'s publish +
+/// local record, minus mention handling.
+async fn publish_agent_reply(
+    state: &Arc<DaemonState>,
+    rec: &crate::state::SessionRecord,
+    reply: &str,
+) -> Result<()> {
+    let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
+    let from_pubkey = id.pubkey_hex();
+    let signing = state
+        .keys_for_session(&rec.session_id)
+        .unwrap_or_else(|| id.keys.clone());
+
+    let chat = ChatMessage {
+        from: crate::domain::AgentRef::new(from_pubkey.clone(), rec.agent_slug.clone()),
+        project: rec.project.clone(),
+        body: reply.to_string(),
+        from_session: Some(rec.session_id.clone()),
+        mentioned_session: None,
+        mentioned_pubkey: None,
+    };
+    let event_id = state
+        .provider
+        .publish_checked(&DomainEvent::ChatMessage(chat), &signing)
+        .await?
+        .to_hex();
+    let created_at = now_secs();
+
+    state.with_store(|s| {
+        let _ = s.record_chat(&ChatLogRow {
+            chat_event_id: event_id.clone(),
+            from_pubkey: from_pubkey.clone(),
+            from_slug: rec.agent_slug.clone(),
+            host: state.host.clone(),
+            project: rec.project.clone(),
+            body: reply.to_string(),
+            created_at,
+            from_session: rec.session_id.clone(),
+            mentioned_session: String::new(),
+        });
+    });
+    Ok(())
+}
+
 /// Publish a user's prompt as kind:9 chat into the session's room (issue #6).
 ///
 /// The human is speaking, so the event is signed by the OPERATOR key (which is
@@ -1727,6 +1773,10 @@ fn rpc_turn_check(
 #[derive(serde::Deserialize)]
 struct TurnEndParams {
     session: String,
+    /// The agent's turn output (last assistant text), read from the transcript
+    /// by the stop hook. Published as kind:9 chat into the session's room.
+    #[serde(default)]
+    reply: Option<String>,
 }
 
 async fn rpc_turn_end(
@@ -1749,6 +1799,30 @@ async fn rpc_turn_end(
         });
         state.status_outbox_notify.notify_waiters();
 
+        let rec = state.with_store(|s| s.get_session(&session).ok().flatten());
+
+        // Publish the agent's turn output as kind:9 chat into the session's
+        // room (issue #6). Gated to sessions that live in a subgroup (a
+        // per-session room or task room — i.e. the group has a parent), so we
+        // never spam the bare top-level project group. Signed by the agent via
+        // keys_for_session, which falls back to the durable agent key (#5).
+        // Best-effort: a relay/parse hiccup must not fail turn-end.
+        if let (Some(rec), Some(reply)) = (rec.as_ref(), p.reply.as_deref()) {
+            let reply = reply.trim();
+            let is_room = state
+                .with_store(|s| s.group_parent(&rec.project))
+                .ok()
+                .flatten()
+                .is_some();
+            if !reply.is_empty() && is_room {
+                if let Err(e) = publish_agent_reply(state, rec, reply).await {
+                    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                        eprintln!("[daemon] agent reply publish skipped: {e:#}");
+                    }
+                }
+            }
+        }
+
         if was_working {
             let now = now_secs();
             let elapsed_s = if turn_started_at > 0 {
@@ -1756,7 +1830,7 @@ async fn rpc_turn_end(
             } else {
                 None
             };
-            if let Some(rec) = state.with_store(|s| s.get_session(&session).ok().flatten()) {
+            if let Some(rec) = rec.as_ref() {
                 state.emit_tail(TailEvent::Turn {
                     ts: now,
                     project: rec.project.clone(),
@@ -2217,9 +2291,14 @@ async fn ensure_session_room(
         .await;
     }
 
-    // Own + subscribe so we receive the room's relay-authored state.
+    // Own + subscribe so we receive the room's relay-authored state. Also
+    // persist the room's hierarchy (name + parent) into the local read-model
+    // eagerly, rather than waiting for the relay to echo the kind:39000 back —
+    // so downstream logic (e.g. "is this session in a subgroup room?") and
+    // `groups list` see the room immediately.
     state.with_store(|s| {
         s.mark_group_owned(room_h, now_secs()).ok();
+        s.upsert_group_metadata(room_h, name, parent, now_secs()).ok();
     });
     let _ = ensure_subscription(state, room_h).await;
 

@@ -256,10 +256,13 @@ fn emit_context(content: &str, emit: EmitFormat) {
     }
 }
 
-pub(super) fn turn_end(session: String) -> Result<()> {
+pub(super) fn turn_end(session: String, reply: Option<String>) -> Result<()> {
     if session.is_empty() {
         return Ok(());
     }
-    crate::daemon::blocking::call("turn_end", serde_json::json!({"session": session}))?;
+    crate::daemon::blocking::call(
+        "turn_end",
+        serde_json::json!({"session": session, "reply": reply}),
+    )?;
     Ok(())
 }
