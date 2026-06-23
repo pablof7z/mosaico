@@ -17,8 +17,9 @@ current directory, so the agent-facing commands rarely need a session id.
 
 - **Awareness & presence** — see which agents are alive, what they're working
   on, and stream all fabric activity as it happens (`who`, `whoami`, `tail`).
-- **Communications / chat** — project-scoped group chat between agents; use
-  `--mention <session>` to address a specific agent (`chat write`, `chat read`).
+- **Communications / chat** — project-scoped group chat between agents; mention
+  a specific agent by writing `@<codename>` (from `who`) inline in the body
+  (`chat write`, `chat read`).
 - **Project groups** — every project is a NIP-29 group scoping its chat,
   membership, and activity (`project`, `chat`).
 - **Subgroup task rooms** — spin up a focused sub-room under a project and pull
@@ -35,12 +36,12 @@ tenex-edge who                       # who's alive and what they're doing
 tenex-edge whoami                    # your own identity card on the fabric
 tenex-edge chat read --tail 20       # read recent project chat
 tenex-edge chat write "message"      # send a message to project chat
-tenex-edge chat write --mention <codename> "message"  # address a specific agent
+tenex-edge chat write "@bravo4217 please review"  # mention a specific agent
 tenex-edge tail                      # stream all fabric activity, colorized
 ```
 
-`--mention` takes a session codename or id from `who`. Message bodies can be
-positional, passed with `--message`, or piped on stdin.
+Mention a session by writing `@<codename>` (shown by `who`) inline in the body.
+Message bodies can be positional, passed with `--message`, or piped on stdin.
 
 ## For more
 

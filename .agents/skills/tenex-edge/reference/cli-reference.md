@@ -44,8 +44,9 @@ tenex-edge tail --only msg,turn --relative
 | `threads` | List threads (and messages) for a project. |
 | `propose` | Publish a long-form proposal (kind:30023) from your session. |
 
-**`chat write`** — `--mention <codename>` (highlight a session), `--message <m>`,
-`--session <id>`. Body positional, `--message`, or stdin.
+**`chat write`** — `--message <m>`, `--session <id>`. Body positional,
+`--message`, or stdin. Mention a session inline by writing `@<codename>` in the
+body.
 
 **`chat read`** — `--since <ts|dur>`, `--limit <n>`, `--offset <n>`, `--tail`
 (page from newest, output stays chronological), `--live`.
@@ -58,7 +59,7 @@ publish a revision), `--session <id>`.
 
 ```bash
 tenex-edge chat write "deploying now"
-tenex-edge chat write --mention bravo4217 "please review PR #12"
+tenex-edge chat write "please review PR #12 @bravo4217"
 tenex-edge chat read --tail --limit 20
 cat brief.md | tenex-edge propose --title "Subgroup rooms design"
 ```

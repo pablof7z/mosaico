@@ -178,7 +178,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Sessions");
     let _ = writeln!(
         out,
-        "Message an active session with `tenex-edge chat write --mention <codename> --message \"...\"`."
+        "Message a session by writing `@<codename>` inline in a `chat write` body."
     );
     let _ = writeln!(out);
     if snapshot.rows.is_empty() {

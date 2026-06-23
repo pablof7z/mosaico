@@ -82,15 +82,6 @@ enum Cmd {
     // corresponding private fn (session_start_inner / session_end / turn_start /
     // turn_check / turn_end). There is no host-facing way — or need — to invoke
     // them by hand.
-    /// List threads and messages for a project (Phase 7 Communications plane).
-    Threads {
-        /// Project slug (defaults to the project resolved from the current directory).
-        #[arg(long)]
-        project: Option<String>,
-        /// Show messages for a specific thread id.
-        #[arg(long)]
-        thread: Option<String>,
-    },
     /// List peers currently visible (with session-id prefixes for targeting).
     Who {
         #[arg(long)]
@@ -236,9 +227,6 @@ enum Cmd {
         /// Proposal body (Markdown). Use "-" or omit to read from stdin.
         #[arg(long = "message", value_name = "BODY")]
         message: Option<String>,
-        /// Optional canonical thread id to attach this proposal to.
-        #[arg(long = "thread", value_name = "THREAD_ID")]
-        thread_id: Option<String>,
         /// Stable addressable identifier (the kind:30023 `d` tag). Reuse the same
         /// value to publish a REVISION that supersedes a prior proposal at the
         /// same address. Omit to mint a fresh id (a new proposal).
@@ -303,10 +291,8 @@ enum Cmd {
 #[derive(Subcommand)]
 enum ChatAction {
     /// Publish a project chat line. Reads body from arg, --message, or stdin.
+    /// Mention a session inline by writing `@<codename>` in the body.
     Write {
-        /// Highlight a session in the project chat.
-        #[arg(long)]
-        mention: Option<String>,
         /// Message body. Positional, or via --message, or piped on stdin.
         #[arg(value_name = "MESSAGE")]
         message: Option<String>,
@@ -511,14 +497,12 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Publish {
             title,
             message,
-            thread_id,
             d,
             session,
         } => {
             let body = messaging::resolve_send_message_body(message)?;
-            messaging::publish(title, body, thread_id, d, session).await
+            messaging::publish(title, body, d, session).await
         }
-        Cmd::Threads { project, thread } => messaging::threads(project, thread).await,
         Cmd::Who {
             project,
             all,
@@ -578,13 +562,12 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Chat { action } => match action {
             ChatAction::Write {
-                mention,
                 message,
                 message_flag,
                 session,
             } => {
                 let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-                messaging::chat_write(message, mention, session).await
+                messaging::chat_write(message, session).await
             }
             ChatAction::Read {
                 since,
@@ -595,7 +578,11 @@ pub async fn run(cli: Cli) -> Result<()> {
                 project,
             } => messaging::chat_read(since, limit, offset, tail, live, project).await,
         },
-        Cmd::Statusline { session, agent, cwd } => statusline::statusline(session, agent, cwd),
+        Cmd::Statusline {
+            session,
+            agent,
+            cwd,
+        } => statusline::statusline(session, agent, cwd),
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Groups { action } => admin::groups(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
@@ -962,11 +949,14 @@ mod turn_context_tests {
     fn turn_check_chat_shown_once_not_per_tool_call() {
         let store = Store::open_memory().unwrap();
         // Arrived at 120, after the cursor (50) → surfaces on this check.
-        store.enqueue_chat(&chat_row("sess-me", "chat-new", 120)).unwrap();
+        store
+            .enqueue_chat(&chat_row("sess-me", "chat-new", 120))
+            .unwrap();
         let m = Mutex::new(store);
 
-        let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
-            .expect("fresh chat past the cursor must surface");
+        let text =
+            assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
+                .expect("fresh chat past the cursor must surface");
         assert!(
             text.contains("[tenex-edge] Project chat while you were working:"),
             "chat block expected; got: {text:?}"
@@ -991,7 +981,9 @@ mod turn_context_tests {
     #[test]
     fn turn_check_chat_suppressed_when_not_due() {
         let store = Store::open_memory().unwrap();
-        store.enqueue_chat(&chat_row("sess-me", "chat-x", 120)).unwrap();
+        store
+            .enqueue_chat(&chat_row("sess-me", "chat-x", 120))
+            .unwrap();
         let m = Mutex::new(store);
 
         let ctx = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", None, 200);
@@ -1117,7 +1109,6 @@ mod tail_render_tests {
             from_session: Some("te-abc-111".into()),
             to: "codex".into(),
             to_session: None,
-            thread: Some("b8e2".into()),
             body: "can you review the codec?".into(),
         };
         let line = render_tail_event(&ev, false, false, false, false);
@@ -1126,7 +1117,6 @@ mod tail_render_tests {
         assert!(line.contains("claude@proj"), "should contain agent@project");
         assert!(line.contains("->"), "ASCII arrow when no_emoji");
         assert!(line.contains("codex"), "should contain recipient");
-        assert!(line.contains("#b8e2"), "should contain thread");
         assert!(line.contains("review the codec"), "should contain body");
     }
 
@@ -1139,7 +1129,6 @@ mod tail_render_tests {
             from_session: None,
             to: "codex".into(),
             to_session: None,
-            thread: None,
             body: "hello".into(),
         };
         let line = render_tail_event(&ev, false, true, false, false);

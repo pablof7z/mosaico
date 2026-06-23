@@ -18,16 +18,13 @@ pub enum RawEnvelope {
 }
 
 /// Subscription scope that Delivery implementations convert into wire-level
-/// filters. Transport-agnostic; will grow (e.g. `thread`) without touching
-/// the legacy codec layer.
+/// filters. Transport-agnostic.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
     pub authors: Vec<String>,
     pub project: Option<String>,
     pub mentions_to: Option<String>,
     pub owners: Vec<String>,
-    /// Forward-looking: thread/conversation scope (unused this phase).
-    pub thread: Option<String>,
 }
 
 /// Encode/decode between `DomainEvent` and `RawEnvelope`. Transport-agnostic.
@@ -57,9 +54,6 @@ pub struct MaterializationOutcome {
     pub tail: Option<crate::domain::DomainEvent>,
     /// True when a mention was routed and live delivery surfaces should be notified.
     pub wake_mentions: bool,
-    /// Canonical thread id an inbound message was filed under, when known.
-    /// Tail consumers use this for exact thread attribution.
-    pub thread_id: Option<String>,
 }
 
 // ── Top-level dispatcher ──────────────────────────────────────────────────────
@@ -105,7 +99,6 @@ pub fn materialize(
     let mut outcome = MaterializationOutcome {
         tail: Some(de.clone()),
         wake_mentions: false,
-        thread_id: None,
     };
 
     let is_self = hosted.contains(&event.pubkey.to_hex());
@@ -231,7 +224,13 @@ mod tests {
             .upsert_session_pubkey(&sender_sess_pk, "sender-sess", &sender_pk, "sender", 1)
             .unwrap();
         store
-            .upsert_session_pubkey(&receiver_sess_pk, "receiver-sess", &receiver_pk, "receiver", 1)
+            .upsert_session_pubkey(
+                &receiver_sess_pk,
+                "receiver-sess",
+                &receiver_pk,
+                "receiver",
+                1,
+            )
             .unwrap();
 
         let hosted = vec![sender_pk, receiver_pk, future_pk];
@@ -252,5 +251,4 @@ mod tests {
             "sessions created after the event must not receive chat backfill"
         );
     }
-
 }

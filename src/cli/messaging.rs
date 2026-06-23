@@ -1,13 +1,8 @@
 use super::*;
 
-pub(super) async fn chat_write(
-    message: String,
-    mention: Option<String>,
-    session: Option<String>,
-) -> Result<()> {
+pub(super) async fn chat_write(message: String, session: Option<String>) -> Result<()> {
     let params = serde_json::json!({
         "message": message,
-        "mention": mention,
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
@@ -107,7 +102,6 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
 pub(super) async fn publish(
     title: String,
     body: String,
-    thread_id: Option<String>,
     d: Option<String>,
     session: Option<String>,
 ) -> Result<()> {
@@ -119,7 +113,6 @@ pub(super) async fn publish(
         "agent": agent_env_slug(),
         "group": crate::cli::group_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-        "thread_id": thread_id,
         "d": d,
     });
     let v = daemon_call_async("publish", params).await?;
@@ -139,71 +132,6 @@ pub(super) async fn publish(
             d_tag,
             &eid[..eid.len().min(8)],
         );
-    }
-    Ok(())
-}
-
-// ── threads ───────────────────────────────────────────────────────────────────
-
-/// `threads`: list threads for a project, or messages for a specific thread.
-///
-/// Routes to the daemon via `list_threads`, `messages`, or `thread_meta` RPCs
-/// and prints a human-readable summary.
-pub(super) async fn threads(project: Option<String>, thread: Option<String>) -> Result<()> {
-    if let Some(tid) = thread {
-        // Show messages for a specific thread.
-        let v = daemon_call_async("messages", serde_json::json!({ "thread_id": tid })).await?;
-        let meta_v =
-            daemon_call_async("thread_meta", serde_json::json!({ "thread_id": tid })).await?;
-
-        if let Some(subject) = meta_v.get("subject").and_then(|v| v.as_str()) {
-            println!("Thread: {}", subject);
-        } else {
-            println!("Thread: {}", pubkey_short(&tid));
-        }
-        if let Some(msgs) = v.as_array() {
-            for msg in msgs {
-                let dir = msg["direction"].as_str().unwrap_or("?");
-                let author = msg["author_pubkey"].as_str().unwrap_or("?");
-                let body = msg["body"].as_str().unwrap_or("");
-                let ts = msg["created_at"].as_u64().unwrap_or(0);
-                let arrow = if dir == "outbound" { "->" } else { "<-" };
-                println!(
-                    "[{}] {} {} {}: {}",
-                    ts,
-                    pubkey_short(author),
-                    arrow,
-                    dir,
-                    body
-                );
-            }
-        }
-        return Ok(());
-    }
-
-    // List threads for a project.
-    let proj = project
-        .unwrap_or_else(|| crate::project::resolve(&std::env::current_dir().unwrap_or_default()));
-    let v = daemon_call_async("list_threads", serde_json::json!({ "project": proj })).await?;
-    if let Some(threads) = v.as_array() {
-        if threads.is_empty() {
-            println!("No threads in project {:?}", proj);
-            return Ok(());
-        }
-        println!("Threads in {}:", proj);
-        for t in threads {
-            let tid = t["thread_id"].as_str().unwrap_or("?");
-            let count = t["message_count"].as_u64().unwrap_or(0);
-            let last = t["last_message_at"].as_u64();
-            let subject = t["subject"].as_str();
-            let label = subject.unwrap_or("no subject");
-            match last {
-                // Print the FULL thread id — it is the argument the user passes
-                // back to `threads --thread <id>`; a pubkey_short() would be unusable.
-                Some(ts) => println!("  {} ({} msg, last at {}) - {}", tid, count, ts, label),
-                None => println!("  {} (no messages) - {}", tid, label),
-            }
-        }
     }
     Ok(())
 }
@@ -335,4 +263,3 @@ pub fn format_envelope(e: &EnvelopeView) -> String {
     let _ = write!(s, "\n--\n{}", e.body);
     s
 }
-

@@ -106,8 +106,6 @@ pub struct Proposal {
     pub session_id: Option<SessionId>,
     /// Owner pubkeys the proposal is surfaced to.
     pub audience: Vec<String>,
-    /// Native key of the conversation thread root this proposal belongs to.
-    pub thread_root_key: Option<String>,
 }
 
 /// The agent's complete live state for ONE session — the single self-contained
@@ -174,13 +172,6 @@ pub struct Status {
     /// heartbeat re-arm; `None` publishes without an expiration tag. Liveness IS
     /// the freshness of this event.
     pub expires_at: Option<u64>,
-    /// The session's conversation thread root: the event id of the FIRST user
-    /// prompt that opened this session (stored locally as
-    /// `session_state.thread_root_event_id`). Published as a NIP-10
-    /// `["e", root, "", "root"]` tag so a reader can map this session to its
-    /// conversation — the kind:1 prompts/replies share no other key with the
-    /// kind:30315. `None` until the first prompt arrives.
-    pub thread_root_id: Option<String>,
 }
 
 impl Status {
@@ -240,7 +231,6 @@ mod tests {
             busy: false,
             rel_cwd: String::new(),
             expires_at: None,
-            thread_root_id: None,
         };
         let busy = Status {
             agent,
@@ -252,7 +242,6 @@ mod tests {
             busy: true,
             rel_cwd: String::new(),
             expires_at: None,
-            thread_root_id: None,
         };
         assert!(idle.is_idle());
         assert!(!busy.is_idle());

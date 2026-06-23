@@ -18,7 +18,8 @@
 //! non-heartbeat contexts). There is no separate presence heartbeat.
 //!
 //! Chat (kind:9) is the sole agent-to-agent messaging mechanism. Direct messaging
-//! uses `--mention <session-id>` which adds `p` + `session-id` tags to the chat event.
+//! uses an inline `@<codename>` in the chat body, which adds `p` + `session-id`
+//! tags to the chat event for the first codename found.
 //!
 //! Slug is NOT carried on the wire; it is resolved downstream from the signer's
 //! kind:0 profile (authoritative) or the local `profiles` table. Authorization
@@ -26,9 +27,7 @@
 //! and are never written or read.
 
 use crate::codec::Codec;
-use crate::domain::{
-    Activity, AgentRef, ChatMessage, DomainEvent, Profile, Proposal, Status,
-};
+use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Profile, Proposal, Status};
 use crate::util::SessionId;
 use anyhow::Result;
 use nostr_sdk::prelude::*;
@@ -112,21 +111,6 @@ fn project_from_tags(event: &Event) -> Option<String> {
     first_tag(event, "h").map(String::from)
 }
 
-/// Value (`slice[1]`) of the first `["e", id, relay, marker]` tag whose marker
-/// (`slice[3]`) matches. Used to extract NIP-10 root/reply references.
-fn e_tag_with_marker<'a>(event: &'a Event, marker: &str) -> Option<&'a str> {
-    event.tags.iter().find_map(|t| {
-        let s = t.as_slice();
-        if s.first().map(String::as_str) == Some("e")
-            && s.get(3).map(String::as_str) == Some(marker)
-        {
-            s.get(1).map(String::as_str)
-        } else {
-            None
-        }
-    })
-}
-
 fn name_from_metadata(content: &str) -> String {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
@@ -176,7 +160,6 @@ impl Codec for Kind1Codec {
                 busy,
                 rel_cwd,
                 expires_at,
-                thread_root_id,
             }) => {
                 // The single self-contained per-session signal. Content is the
                 // live activity (empty when idle); the title always rides as a
@@ -207,12 +190,6 @@ impl Codec for Kind1Codec {
                 }
                 if let Some(exp) = expires_at {
                     tags.push(tag(&["expiration", &exp.to_string()])?);
-                }
-                if let Some(root) = thread_root_id {
-                    // NIP-10 root marker → maps this session to its conversation
-                    // thread. kind:30315 is decoded by kind number, so this `e`
-                    // tag never trips the kind:1 Mention/TurnReply disambiguation.
-                    tags.push(tag(&["e", root, "", "root"])?);
                 }
                 EventBuilder::new(kind(KIND_STATUS), activity.clone()).tags(tags)
             }
@@ -246,7 +223,6 @@ impl Codec for Kind1Codec {
                 d,
                 session_id,
                 audience,
-                thread_root_key,
             }) => {
                 let mut tags = vec![
                     tag(&["d", d])?,
@@ -261,10 +237,6 @@ impl Codec for Kind1Codec {
                 // p-tag each owner so the proposal surfaces to the human.
                 for owner in audience {
                     tags.push(tag(&["p", owner])?);
-                }
-                // Thread root e-tag (NIP-10 root marker) — links to the conversation.
-                if let Some(root) = thread_root_key {
-                    tags.push(tag(&["e", root, "", "root"])?);
                 }
                 EventBuilder::new(kind(KIND_LONGFORM), body.clone()).tags(tags)
             }
@@ -304,9 +276,6 @@ impl Codec for Kind1Codec {
                     rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                     // NIP-40 expiration → liveness clock. Absent → None.
                     expires_at: first_tag(event, "expiration").and_then(|s| s.parse().ok()),
-                    // NIP-10 root marker → the conversation thread this session
-                    // opened. Absent on legacy emitters / pre-first-prompt → None.
-                    thread_root_id: e_tag_with_marker(event, "root").map(str::to_string),
                 }))
             }
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {
@@ -336,7 +305,6 @@ impl Codec for Kind1Codec {
                 d: first_tag(event, "d").unwrap_or_default().to_string(),
                 session_id: first_tag(event, "session-id").map(SessionId::from),
                 audience: all_tag_values(event, "p"),
-                thread_root_key: e_tag_with_marker(event, "root").map(str::to_string),
             })),
             _ => None,
         }
@@ -402,8 +370,6 @@ mod tests {
             // Default helper builds a non-expiring status; the expiration
             // roundtrip is covered by `status_expiration_roundtrips_and_emits_tag`.
             expires_at: None,
-            // Root-link roundtrip is covered by a dedicated test below.
-            thread_root_id: None,
         })
     }
 
@@ -516,37 +482,6 @@ mod tests {
         assert!(has_tag(&signed, "expiration", "1900000000"));
         match Kind1Codec.decode(&signed) {
             Some(DomainEvent::Status(s)) => assert_eq!(s.expires_at, Some(1_900_000_000)),
-            other => panic!("expected status, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn status_thread_root_roundtrips_as_nip10_root_e_tag() {
-        // The conversation thread root rides the wire as a NIP-10
-        // `["e", root, "", "root"]` tag so a reader can map this session to its
-        // kind:1 prompt/reply timeline; it decodes back to the same id.
-        let keys = Keys::generate();
-        let mut ev = status(&keys, true, "");
-        let root = "ab".repeat(32);
-        if let DomainEvent::Status(s) = &mut ev {
-            s.thread_root_id = Some(root.clone());
-        }
-        assert_eq!(roundtrip(ev.clone(), &keys), ev);
-        let signed = Kind1Codec
-            .encode(&ev)
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        assert!(has_tag(&signed, "e", &root));
-        // Absent on a status with no recorded root → None.
-        let bare = Kind1Codec
-            .encode(&status(&keys, true, ""))
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        assert!(!has_tag_name(&bare, "e"));
-        match Kind1Codec.decode(&bare) {
-            Some(DomainEvent::Status(s)) => assert_eq!(s.thread_root_id, None),
             other => panic!("expected status, got {other:?}"),
         }
     }

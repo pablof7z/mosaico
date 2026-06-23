@@ -141,8 +141,8 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
         GroupsAction::List { project } => {
             use owo_colors::Stream::Stdout;
             let parent = resolve_project(project);
-            let v = daemon_call_async("groups_list", serde_json::json!({ "project": parent }))
-                .await?;
+            let v =
+                daemon_call_async("groups_list", serde_json::json!({ "project": parent })).await?;
             let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
             // Root of the tree is the project itself. Colorize ONLY when stdout is a
             // real terminal: piped/captured output (the e2e harness, shell
@@ -561,7 +561,6 @@ pub fn render_tail_event(
             from_session,
             to,
             to_session,
-            thread,
             body,
             ..
         } => {
@@ -575,10 +574,6 @@ pub fn render_tail_event(
                 .as_deref()
                 .map(|s| format!("[{}]", sess_code(s)))
                 .unwrap_or_default();
-            let thread_tag = thread
-                .as_deref()
-                .map(|t| format!(" #{}", &t[..t.len().min(8)]))
-                .unwrap_or_default();
             let snippet = if compact {
                 String::new()
             } else {
@@ -588,18 +583,14 @@ pub fn render_tail_event(
                 format!(" \"{}{}\"", body_clean, ellipsis)
             };
             format!(
-                "{ts_str}  {cat}  {}@{project}{sess}  {arrow} {}{to_sess}{thread_tag}{snippet}",
+                "{ts_str}  {cat}  {}@{project}{sess}  {arrow} {}{to_sess}{snippet}",
                 col!(from, cyan),
                 col!(to, cyan),
             )
         }
 
         TailEvent::Sync {
-            from,
-            to,
-            thread,
-            state,
-            ..
+            from, to, state, ..
         } => {
             let (cat, color_fn): (&str, fn(&str) -> String) = match state.as_str() {
                 "failed" => ("sync ", |s| {
@@ -620,10 +611,6 @@ pub fn render_tail_event(
                 cat.to_string()
             };
             let _ = color_fn; // suppress unused warning
-            let thread_tag = thread
-                .as_deref()
-                .map(|t| format!(" #{}", &t[..t.len().min(8)]))
-                .unwrap_or_default();
             let glyph = if use_emoji {
                 match state.as_str() {
                     "delivered" => "✓",
@@ -637,7 +624,7 @@ pub fn render_tail_event(
                     _ => "~",
                 }
             };
-            format!("{ts_str}  {cat_str}  {from} → {to}{thread_tag}  {glyph} {state}")
+            format!("{ts_str}  {cat_str}  {from} → {to}  {glyph} {state}")
         }
 
         TailEvent::Turn {

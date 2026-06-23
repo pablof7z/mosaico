@@ -33,7 +33,6 @@ async fn publishes_and_decodes_all_event_types() {
         project: Some(project.clone()),
         mentions_to: Some(reader_pk.clone()),
         owners: Vec::new(),
-        thread: None,
     };
     reader
         .subscribe(scope_filters(&scope))
@@ -64,7 +63,6 @@ async fn publishes_and_decodes_all_event_types() {
             busy: true,
             rel_cwd: String::new(),
             expires_at: Some(1_900_000_000),
-            thread_root_id: None,
         }),
     ];
     for ev in &events {
@@ -100,4 +98,3 @@ async fn publishes_and_decodes_all_event_types() {
     assert!(has_status, "expected status; saw {seen:#?}");
     assert!(has_profile, "expected profile; saw {seen:#?}");
 }
-

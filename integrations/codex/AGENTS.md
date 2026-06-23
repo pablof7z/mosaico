@@ -6,7 +6,7 @@ CLI resolves your session from the working directory — no session id needed.
 - See peers (across Claude Code / Codex / opencode):  `tenex-edge who`
 - Read project chat:                                  `tenex-edge chat read`
 - Write to project chat:                             `tenex-edge chat write --message "<msg>"`
-- Mention a specific session:  `tenex-edge chat write --mention <codename> --message "<msg>"`
+- Mention a specific session:  `tenex-edge chat write --message "@<codename> <msg>"`
 
 If the user asks you to message, contact, tell, notify, or hand off to another
 agent, run `tenex-edge chat write`; do not say you cannot send the message.

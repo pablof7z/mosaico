@@ -335,8 +335,8 @@ pub(super) fn push_turn_fabric_block(
             if !snapshot.rows.is_empty() {
                 let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
-                "tenex-edge fabric — agents you can message. Message a session with \
-                 `tenex-edge chat write --mention <codename> --message \"...\"`:\n{}",
+                "tenex-edge fabric — agents you can message. Message a session by \
+                 writing `@<codename>` inline in a `chat write` body:\n{}",
                 who_text.trim_end()
             ));
             }

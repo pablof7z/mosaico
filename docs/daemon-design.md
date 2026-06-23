@@ -407,27 +407,6 @@ result: {"agent": "slug", "pubkey": "hex", "session_id": "te-…", "project": "�
 ```
 Returns the resolved identity for the calling session.
 
-### `list_threads`
-```jsonc
-params: {"project": "…"|null, "cwd": "/path"}
-result: {"threads": [ {thread_id, subject, from_slug, created_at, unread}, … ]}
-```
-Lists proposal threads for the session.
-
-### `messages`
-```jsonc
-params: {"thread_id": "…"}
-result: {"messages": [ {from_slug, body, created_at, mention_event_id}, … ]}
-```
-Returns all messages in a thread.
-
-### `thread_meta`
-```jsonc
-params: {"thread_id": "…"}
-result: {"subject": "…", "participants": [...], "created_at": N}
-```
-Returns metadata for a specific thread without fetching its messages.
-
 ### `ping`
 ```jsonc
 params: {}

@@ -150,12 +150,12 @@ groups: the room session is disambiguated by `TENEX_EDGE_GROUP`, not by cwd.
 ### Commands
 
 `tenex-edge chat write` — publish a chat line (NIP-C7 kind:9 scoped to the bound
-group's `h`). Body comes from the positional arg, `--message`, or stdin.
+group's `h`). Body comes from the positional arg, `--message`, or stdin. Mention
+a session inline by writing `@<codename>` (from `who`) in the body — the first
+codename found gets a `p` tag and rings the idle tmux doorbell.
 
 ```
 tenex-edge chat write [OPTIONS] [MESSAGE]
-  --mention <MENTION>   Highlight a session in the chat (adds a p tag; rings the
-                        idle tmux doorbell). Resolves session ids/codenames.
   --message <MESSAGE>   Body, if not given positionally or on stdin.
   --session <SESSION>   My session id; if omitted, resolved from the current
                         directory (and TENEX_EDGE_GROUP when set).
@@ -284,7 +284,7 @@ is set in its environment), then:
 
 ```bash
 tenex-edge chat write "spinning up on the billing repro now"
-tenex-edge chat write --mention <session-id> "@here can you confirm the env?"
+tenex-edge chat write "@bravo4217 can you confirm the env?"
 tenex-edge chat read --tail --limit 30
 tenex-edge chat read --live
 ```

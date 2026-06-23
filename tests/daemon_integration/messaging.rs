@@ -2,6 +2,7 @@ use crate::daemon_harness::*;
 use std::time::Duration;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
+use tenex_edge::util::session_codename;
 
 #[test]
 fn session_start_runs_engine_and_records_alive_session() {
@@ -151,17 +152,13 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         )
     });
 
+    // Mention is now inline in the body as `@<codename>` — no --mention flag.
+    let receiver_codename = session_codename(&receiver_canon);
+    let body = format!("hello @{receiver_codename} from redirected stdin");
     let out = run_cli_stdin(
         &home,
-        &[
-            "chat",
-            "write",
-            "--session",
-            "chat-sender-session",
-            "--mention",
-            "chat-receiver-session",
-        ],
-        "hello from redirected stdin\n",
+        &["chat", "write", "--session", "chat-sender-session"],
+        &format!("{body}\n"),
     );
     assert!(
         out.status.success(),
@@ -178,7 +175,7 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("<chat-sender@test-host> hello from redirected stdin ["),
+        stdout.contains(&format!("<chat-sender@test-host> {body} [")),
         "chat read should render sender, host, body, and timestamp; got: {stdout}"
     );
 
@@ -186,10 +183,7 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     for _ in 0..12 {
         let store = Store::open(&home.store_path()).unwrap();
         let rows = store.peek_chat(&receiver_canon).unwrap();
-        if let Some(row) = rows
-            .iter()
-            .find(|row| row.body == "hello from redirected stdin")
-        {
+        if let Some(row) = rows.iter().find(|row| row.body == body) {
             assert_eq!(row.mentioned_session, receiver_canon);
             assert_eq!(row.from_session, sender_canon);
             received = true;
@@ -210,9 +204,9 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
             .expect("statusline");
         let pending = statusline["pending"].as_array().expect("pending array");
         assert!(
-            pending.iter().any(|row| {
-                row["from_slug"] == "chat-sender" && row["body"] == "hello from redirected stdin"
-            }),
+            pending
+                .iter()
+                .any(|row| { row["from_slug"] == "chat-sender" && row["body"] == body }),
             "statusline should surface explicit chat mentions as pending: {statusline}"
         );
 
@@ -231,9 +225,9 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
             .expect("statusline after drain");
         let recent = statusline["recent"].as_array().expect("recent array");
         assert!(
-            recent.iter().any(|row| {
-                row["from_slug"] == "chat-sender" && row["body"] == "hello from redirected stdin"
-            }),
+            recent
+                .iter()
+                .any(|row| { row["from_slug"] == "chat-sender" && row["body"] == body }),
             "statusline should briefly linger drained chat mentions: {statusline}"
         );
     });
@@ -246,4 +240,3 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
 
     stop_daemon(&home);
 }
-

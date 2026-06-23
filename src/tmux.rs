@@ -720,6 +720,7 @@ fn make_session_transparent(
         ("@te_agent", slug.to_string()),
         ("@te_cwd", abs_path.to_string()),
         // Status bar ON — driven by `tenex-edge statusline`, fail-open.
+        ("status-style", "default".to_string()),
         ("status", "on".to_string()),
         ("status-interval", "3".to_string()),
         ("status-left", String::new()),

@@ -84,7 +84,7 @@ surface.
 | Command | Purpose |
 |---|---|
 | `hook --host <name> --type <hook-type>` | The one entry point for the session/turn lifecycle. Reads the harness's hook JSON on stdin; dispatches `session-start`/`session-end`/`user-prompt-submit`/`post-tool-use`/`stop` to the matching internal step. This is how every host (Claude Code, Codex, opencode) starts sessions and brackets turns. |
-| `chat write --mention <codename> --message <m>` | Send a message to a session in the project chat. |
+| `chat write --message <m>` | Send a message to project chat. Mention a session inline with `@<codename>` in the body. |
 | `chat read [--live]` | Read project chat history. |
 | `who [--project <slug>] [--live]` | List visible peers (with session-id prefixes); `--live` opens a refreshing terminal board. |
 | `tail [--project <slug>]` | Stream all fabric activity, colorized. |
@@ -111,7 +111,8 @@ only the wiring differs per host's extension model.
 
 Agents resolve their own session from the working directory (or `$TENEX_EDGE_SESSION`),
 so the agent-facing commands are just `tenex-edge who` / `chat read` /
-`chat write --mention <codename> --message "..."` — no session id needed.
+`chat write --message "..."` — no session id needed. Mention a session by
+writing `@<codename>` (from `who`) inline in the message body.
 
 Verified live on `relay.tenex.chat`: a real opencode agent and a real codex agent
 each messaged a `hub` via NIP-29 group chat; a real claude agent auto-received

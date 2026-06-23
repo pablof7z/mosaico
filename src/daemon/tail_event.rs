@@ -20,7 +20,6 @@ pub enum TailEvent {
         from_session: Option<String>,
         to: String,
         to_session: Option<String>,
-        thread: Option<String>,
         body: String,
     },
     /// Outbound delivery state transition.
@@ -29,7 +28,6 @@ pub enum TailEvent {
         project: String,
         from: String,
         to: String,
-        thread: Option<String>,
         /// "accepted" | "delivered" | "failed"
         state: String,
         detail: Option<String>,
@@ -165,7 +163,6 @@ mod tests {
             from_session: None,
             to: "b".into(),
             to_session: None,
-            thread: None,
             body: "hi".into(),
         };
         let status = TailEvent::Status {

@@ -25,7 +25,7 @@ The CLI supports `tenex-edge chat write` to send chat messages in the NIP-29 cod
 <!-- citations: [^rollo-61] [^ses_1-41] -->
 ## Chat Write
 
-Chat messages are published as NIP-C7 kind:9 events scoped to the NIP-29 project group with an `h` tag. The `--mention <session-id>` flag resolves session ids/codes, adds a `p` tag, and highlights that session while keeping the event as group chat. <!-- [^rollo-62] -->
+Chat messages are published as NIP-C7 kind:9 events scoped to the NIP-29 project group with an `h` tag. An inline `@<codename>` in the body resolves the session codename, adds a `p` tag, and highlights that session while keeping the event as group chat. <!-- [^rollo-62] -->
 
 ## Chat Read Output
 
@@ -33,4 +33,4 @@ Chat read output format is `<$agentSlug@$hostName> message [timestamp]`. When ra
 
 ## Chat Delivery and Storage
 
-Chat is delivered live-only; sessions created after a chat event are not backfilled and only receive messages going forward. Chat history is stored separately in a durable local log (`chat_messages`) from the live-only per-session hook delivery queue (`chat_inbox`). Agents see chat messages in a separate hook block from direct inbox; turn-start drains it and turn-check peeks it mid-turn. Explicit chat mentions via `--mention` ring the idle tmux doorbell; ambient chat waits for normal hook flow. <!-- [^rollo-64] -->
+Chat is delivered live-only; sessions created after a chat event are not backfilled and only receive messages going forward. Chat history is stored separately in a durable local log (`chat_messages`) from the live-only per-session hook delivery queue (`chat_inbox`). Agents see chat messages in a separate hook block from direct inbox; turn-start drains it and turn-check peeks it mid-turn. Explicit chat mentions via an inline `@<codename>` ring the idle tmux doorbell; ambient chat waits for normal hook flow. <!-- [^rollo-64] -->

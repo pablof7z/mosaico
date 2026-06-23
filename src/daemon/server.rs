@@ -133,11 +133,7 @@ impl DaemonState {
     }
     /// Retrieve the derived per-session keypair by canonical session id.
     fn keys_for_session(&self, session_id: &str) -> Option<Keys> {
-        self.session_keys
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .cloned()
+        self.session_keys.lock().unwrap().get(session_id).cloned()
     }
     fn live_session_count(&self) -> usize {
         self.sessions.lock().unwrap().len()
@@ -500,9 +496,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
         "whoami" => rpc_whoami(state, &req.params),
-        "list_threads" => rpc_list_threads(state, &req.params).await,
-        "messages" => rpc_messages(state, &req.params),
-        "thread_meta" => rpc_thread_meta(state, &req.params),
         "tmux_status" => tmux_rpc::rpc_tmux_status(state),
         "tmux_send" => tmux_rpc::rpc_tmux_send(state, &req.params).await,
         "tmux_spawn" => tmux_rpc::rpc_tmux_spawn(state, &req.params).await,
@@ -963,7 +956,11 @@ async fn rpc_session_start(
                 "[daemon] session {} pubkey {} member-add: {}",
                 crate::util::session_codename(&session_id),
                 crate::util::pubkey_short(&session_pubkey),
-                if added { "accepted" } else { "skipped/failed (best-effort)" },
+                if added {
+                    "accepted"
+                } else {
+                    "skipped/failed (best-effort)"
+                },
             );
         }
     }
@@ -1047,11 +1044,7 @@ fn rpc_session_end(
         // remove it. Fire-and-forget task: session_end must not block on the relay.
         // The Mutex removal is synchronous so spawn_session's cleanup (engine
         // self-exit path) finds None and skips the duplicate publish.
-        let session_key = state
-            .session_keys
-            .lock()
-            .unwrap()
-            .remove(&rec.session_id);
+        let session_key = state.session_keys.lock().unwrap().remove(&rec.session_id);
         if let Some(sk) = session_key {
             let provider = state.provider.clone();
             let store = state.store.clone();
@@ -1073,7 +1066,11 @@ fn rpc_session_end(
                     eprintln!(
                         "[daemon] session-end NIP-29 remove {}: {}",
                         crate::util::pubkey_short(&session_pubkey),
-                        if removed { "accepted" } else { "skipped/failed (best-effort)" },
+                        if removed {
+                            "accepted"
+                        } else {
+                            "skipped/failed (best-effort)"
+                        },
                     );
                 }
             });
@@ -1101,14 +1098,11 @@ fn rpc_session_end(
     Ok(serde_json::json!({ "ended": existed }))
 }
 
-
 // ── chat_write ───────────────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize, Default)]
 struct ChatWriteParams {
     message: String,
-    #[serde(default)]
-    mention: Option<String>,
     #[serde(default)]
     session: Option<String>,
     #[serde(default)]
@@ -1136,19 +1130,20 @@ async fn rpc_chat_write(
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
     let from_pubkey = id.pubkey_hex();
 
-    // Mention target: an explicit `--mention <codename/id>`, OR — when none is
-    // given — the FIRST inline `@codename` found in the message body, so
-    // `chat write "hey @bravo4217"` highlights that session with no extra flag.
-    let mention_token: Option<String> = p
-        .mention
-        .as_deref()
-        .filter(|m| !m.is_empty())
-        .map(str::to_string)
-        .or_else(|| crate::idref::extract_mentions(&p.message).into_iter().next());
+    // Mention target: the FIRST inline `@codename` found in the message body,
+    // so `chat write "hey @bravo4217"` highlights that session. Only codename-
+    // shaped tokens (`<nato-word><digits>`) are recognized — `@` means host in
+    // every other tenex-edge identifier, so `@codex` / `@codex@laptop` are NOT
+    // mentions. See `idref::extract_mentions`.
+    let mention_token: Option<String> = crate::idref::extract_mentions(&p.message)
+        .into_iter()
+        .next();
     let mention = if let Some(raw) = mention_token {
         let target = state.with_store(|s| resolve_recipient(s, &rec.project, &state.host, &raw))?;
         let Some(session_id) = target.target_session else {
-            anyhow::bail!("mention {raw:?} must name a concrete session id/codename from `tenex-edge who`");
+            anyhow::bail!(
+                "mention @{raw} must name a concrete session codename from `tenex-edge who`"
+            );
         };
         if target.project != rec.project {
             anyhow::bail!(
@@ -1240,7 +1235,6 @@ async fn rpc_chat_write(
             .map(pubkey_short)
             .unwrap_or_else(|| "project-chat".to_string()),
         to_session: mentioned_session.clone(),
-        thread: None,
         body: p.message.chars().take(200).collect(),
     });
 
@@ -1266,8 +1260,6 @@ struct ProposeParams {
     cwd: Option<String>,
     #[serde(default)]
     agent: Option<String>,
-    #[serde(default)]
-    thread_id: Option<String>,
     /// Stable `d` identifier. When Some, the kind:30023 supersedes any prior
     /// proposal with the same (author, d) — a revision. When None, mint one.
     #[serde(default)]
@@ -1281,19 +1273,12 @@ struct ProposeParams {
 ///   ["title", <title>]          — human-readable title
 ///   ["h", <project>]            — NIP-29 group
 ///   ["p", <owner>]              — per owner in cfg.owners, surfaces to the human
-///   ["e", <root>, "", "root"]   — only when --thread given; links to work-thread
 ///   ["session-id", <session>]   — authoring session, lets a note route back
 ///   (no agent tag — author identity is the event signer pubkey; kind:0 carries slug)
-///
-/// Dual-writes a canonical row: project_origin → thread_origin (thread_id or
-/// the proposal's own event id as a new root) → message (direction=outbound,
-/// sync_state=published, body=title).
 async fn rpc_propose(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    use crate::fabric::provider::FABRIC;
-
     let p: ProposeParams =
         serde_json::from_value(params.clone()).context("parsing propose params")?;
     if p.title.is_empty() {
@@ -1339,13 +1324,6 @@ async fn rpc_propose(
         )
     });
 
-    // Resolve the thread root native key if --thread given.
-    let root_native_key: Option<String> = p.thread_id.as_deref().and_then(|tid| {
-        state.with_store(|s| {
-            s.thread_root_native_key(tid, FABRIC, &state.provider.provider_instance)
-        })
-    });
-
     // Build the Proposal domain event; the wire shape lives in the codec.
     let ev = DomainEvent::Proposal(crate::domain::Proposal {
         agent: crate::domain::AgentRef::new(id.pubkey_hex(), agent_slug.clone()),
@@ -1359,7 +1337,6 @@ async fn rpc_propose(
             .map(|rec| crate::util::SessionId::from(rec.session_id.clone())),
         // Surface to each owner.
         audience: state.owners.clone(),
-        thread_root_key: root_native_key,
     });
     // Checked publish: a NIP-29 relay rejecting the kind:30023 (e.g. the author
     // isn't a member of the project group) used to resolve Ok and report a false
@@ -1387,42 +1364,9 @@ async fn rpc_propose(
         .is_retrievable(event_id, Duration::from_secs(5))
         .await;
 
-    // Dual-write canonical read-model rows.
-    let now = now_secs();
-    let pi = state.provider.provider_instance.clone();
-    let thread_id = state.with_store(|s| -> Result<String> {
-        let project_id = s.ensure_project_origin(FABRIC, &pi, &project, &project, now)?;
-        let thread_id = if let Some(tid) = p.thread_id.as_deref() {
-            // Attach to an existing thread.
-            // ensure_thread_origin is idempotent; use the proposal's event id as
-            // native key for this message within the thread.
-            s.ensure_thread_origin(&project_id, FABRIC, &pi, tid, now)?;
-            tid.to_string()
-        } else {
-            // New standalone thread rooted at the proposal's event id.
-            s.ensure_thread_origin(&project_id, FABRIC, &pi, &eid_hex, now)?
-        };
-        // Record the proposal as an outbound message; body = title (full body is on relay).
-        let msg_id = s.record_message(
-            &thread_id,
-            &id.pubkey_hex(),
-            &p.title,
-            now,
-            "outbound",
-            "published",
-            Some(&eid_hex),
-        )?;
-        // Owner as recipient (so they see it in threads).
-        for owner in &state.owners {
-            s.add_message_recipient(&msg_id, owner, None)?;
-        }
-        Ok(thread_id)
-    })?;
-
     Ok(serde_json::json!({
         "event_id": eid_hex,
         "d_tag": d_tag,
-        "thread_id": thread_id,
         "title": p.title,
         "retrievable": retrievable,
     }))
@@ -1487,7 +1431,12 @@ fn resolve_recipient(
         Ref::Token(tok) => {
             // 1. Exact canonical id or harness alias.
             if let Some(s) = store.get_session(&tok)? {
-                return Ok(session_recipient(store, s.session_id, s.agent_pubkey, s.project));
+                return Ok(session_recipient(
+                    store,
+                    s.session_id,
+                    s.agent_pubkey,
+                    s.project,
+                ));
             }
             // 2. Session id prefix (peer presence, then own sessions).
             if tok.len() >= 6 {
@@ -1505,15 +1454,27 @@ fn resolve_recipient(
                     ));
                 }
                 if let Some(s) = store.find_session_by_prefix(&tok)? {
-                    return Ok(session_recipient(store, s.session_id, s.agent_pubkey, s.project));
+                    return Ok(session_recipient(
+                        store,
+                        s.session_id,
+                        s.agent_pubkey,
+                        s.project,
+                    ));
                 }
             }
             // 3. Session codename (e.g. `bravo4217` from `who`).
             if let Some(found) = find_session_by_codename(store, &tok)? {
-                return Ok(session_recipient(store, found.session_id, found.pubkey, found.project));
+                return Ok(session_recipient(
+                    store,
+                    found.session_id,
+                    found.pubkey,
+                    found.project,
+                ));
             }
             // 4. Bare agent slug → that agent on the LOCAL host.
-            if let Some(pk) = store.pubkey_for_agent_on_host(&tok, &crate::util::slugify_host(local_host))? {
+            if let Some(pk) =
+                store.pubkey_for_agent_on_host(&tok, &crate::util::slugify_host(local_host))?
+            {
                 return Ok(ResolvedRecipient {
                     pubkey: pk,
                     target_session: None,
@@ -1690,8 +1651,6 @@ async fn rpc_turn_end(
         // Single owner of the turn-end transition (runtime only observes).
         let session = state.with_store(|s| s.canonical_session_id(&p.session));
         // Read turn_started_at BEFORE marking end, so we can compute elapsed.
-        // Thread IDs are captured NOW so a concurrent user_prompt for the next
-        // turn cannot overwrite last_prompt_event_id before we publish.
         let (was_working, turn_started_at) =
             state.with_store(|s| s.get_turn_state(&session).unwrap_or((false, 0)));
         state.with_store(|s| {
@@ -1999,7 +1958,8 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
                 (d.busy, d.title)
             })
             .unwrap_or((false, String::new()));
-        let pending = s.peek_chat_mentions(&rec.session_id)
+        let pending = s
+            .peek_chat_mentions(&rec.session_id)
             .unwrap_or_default()
             .len();
         let session_pubkey = s.session_pubkey_for_session(&rec.session_id);
@@ -2021,7 +1981,6 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
         }))
     })
 }
-
 
 // ── project_add ──────────────────────────────────────────────────────────────
 
@@ -2195,8 +2154,10 @@ async fn rpc_groups_create(
         if roles.get(&mgmt_pk).map(String::as_str) == Some("admin") {
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt as u64 + 1).min(4)))
-            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            300 * (attempt as u64 + 1).min(4),
+        ))
+        .await;
     }
 
     // Admin set for the child: copy ALL parent admins (our invariant is that
@@ -2214,7 +2175,12 @@ async fn rpc_groups_create(
     for pk in &state.cfg.whitelisted_pubkeys {
         admin_set.insert(pk.clone());
     }
-    if let Some(op) = state.cfg.user_nsec.as_ref().and_then(|n| Keys::parse(n).ok()) {
+    if let Some(op) = state
+        .cfg
+        .user_nsec
+        .as_ref()
+        .and_then(|n| Keys::parse(n).ok())
+    {
         admin_set.insert(op.public_key().to_hex());
     }
     if let Some(bp) = state.backend_pubkey() {
@@ -2244,7 +2210,8 @@ async fn rpc_groups_create(
         }
         if confirmed {
             state.with_store(|s| {
-                s.upsert_group_member(&child_h, pk, "admin", now_secs()).ok();
+                s.upsert_group_member(&child_h, pk, "admin", now_secs())
+                    .ok();
             });
             granted.push(pk.clone());
         } else {
@@ -2278,7 +2245,8 @@ async fn rpc_groups_create(
     if let Some(ref pk) = creator {
         if state.provider.nip29_add_member(&child_h, pk).await {
             state.with_store(|s| {
-                s.upsert_group_member(&child_h, pk, "member", now_secs()).ok();
+                s.upsert_group_member(&child_h, pk, "member", now_secs())
+                    .ok();
             });
         }
     }
@@ -2334,7 +2302,11 @@ fn rpc_groups_list(
         if parent.is_empty() {
             continue;
         }
-        let display = if name.is_empty() { about.clone() } else { name.clone() };
+        let display = if name.is_empty() {
+            about.clone()
+        } else {
+            name.clone()
+        };
         children
             .entry(parent.clone())
             .or_default()
@@ -2453,10 +2425,11 @@ async fn resolve_backend_pubkey(state: &Arc<DaemonState>, token: &str) -> Result
     // Host-slug path: `who` renders backends as `slugify_host(backendName)`.
     let local_slug = crate::util::slugify_host(&state.host);
     if token == local_slug {
-        return state
-            .backend_pubkey
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("backend token {token:?} matches local host but no signing key is configured"));
+        return state.backend_pubkey.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "backend token {token:?} matches local host but no signing key is configured"
+            )
+        });
     }
 
     // Remote peer: scan profiles / peer_sessions.
@@ -2497,73 +2470,6 @@ async fn resolve_pubkey_hex(input: &str) -> Result<String> {
     }
 
     anyhow::bail!("cannot parse {input:?} as pubkey (hex/npub) or NIP-05 (user@domain)")
-}
-
-// ── list_threads / messages / thread_meta (Phase 7 read RPCs) ────────────────
-
-/// `list_threads`: return enriched thread list for a project.
-///
-/// Params: `{ "project": "<slug-or-project_id>" }` (slug resolved via
-/// `project_id_for_slug` on the kind1-nip29 fabric; no-op create if unknown).
-async fn rpc_list_threads(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        project: String,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("list_threads params")?;
-    let pi = state.provider.provider_instance.clone();
-
-    // Read-only: resolve slug → project_id without creating an origin.
-    // When the project has no recorded origin yet (no message traffic; no backfill)
-    // return an empty list rather than erroring — consistent with other read-model
-    // methods that gracefully degrade to empty on an empty store.
-    let Some(project_id) = state
-        .with_store(|s| s.project_id_for_slug(crate::fabric::provider::FABRIC, &pi, &p.project))?
-    else {
-        return Ok(serde_json::json!([]));
-    };
-
-    let threads = state.with_store(|s| s.list_threads(&project_id))?;
-    Ok(serde_json::to_value(&threads)?)
-}
-
-/// `messages`: return canonical messages for a thread.
-///
-/// Params: `{ "thread_id": "<thread_id>" }`
-fn rpc_messages(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        thread_id: String,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("messages params")?;
-    let msgs = state.with_store(|s| s.messages_for_thread(&p.thread_id))?;
-    Ok(serde_json::to_value(&msgs)?)
-}
-
-/// `thread_meta`: return enriched metadata for a single thread.
-///
-/// Params: `{ "thread_id": "<thread_id>" }`
-fn rpc_thread_meta(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        thread_id: String,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("thread_meta params")?;
-    let meta = state.with_store(|s| s.thread_meta(&p.thread_id))?;
-    // Never return a bare `null`: the JSON-RPC client carries the result in an
-    // Option and reads `ok: null` as "no result" ("daemon returned neither ok
-    // nor error"). An unknown thread → an empty object the reader treats as
-    // "no metadata", not an error.
-    match meta {
-        Some(m) => Ok(serde_json::to_value(&m)?),
-        None => Ok(serde_json::json!({})),
-    }
 }
 
 // ── chat read (backfill + optional live stream) ───────────────────────────────
@@ -2636,9 +2542,8 @@ async fn handle_chat_read<W: AsyncWriteExt + Unpin>(
         match rx.recv().await {
             Ok(TailEvent::Msg {
                 project: ev_project,
-                thread,
                 ..
-            }) if ev_project == project && thread.is_none() => {
+            }) if ev_project == project => {
                 let rows = state.with_store(|s| {
                     s.list_chat_messages(&project, cursor, None, 0, false)
                         .unwrap_or_default()
@@ -2787,21 +2692,19 @@ fn build_backfill(
 ) -> Vec<TailEvent> {
     let mut events: Vec<TailEvent> = Vec::new();
 
-    // ── Recent messages from the canonical messages table ───────────────────
-    let raw_msgs: Vec<(u64, String, String, String, String, Option<String>)> =
-        state.with_store(|s| {
-            s.recent_messages_for_backfill(project, since, limit)
-                .unwrap_or_default()
-        });
+    // ── Recent chat lines from chat_messages ───────────────────────────────────
+    let raw_msgs: Vec<(u64, String, String, String, Option<String>)> = state.with_store(|s| {
+        s.recent_chat_for_backfill(project, since, limit)
+            .unwrap_or_default()
+    });
 
-    for (ts, body, author_pubkey, proj, thread_id, author_session) in raw_msgs {
+    for (ts, body, author_pubkey, proj, author_session) in raw_msgs {
         // Resolve slug from pubkey.
         let from_slug = state
             .with_store(|s| s.resolve_slug_for_pubkey(&author_pubkey))
             .ok()
             .flatten()
             .unwrap_or_else(|| pubkey_short(&author_pubkey));
-        let thread_short = pubkey_short(&thread_id);
         events.push(TailEvent::Msg {
             ts,
             project: proj,
@@ -2809,7 +2712,6 @@ fn build_backfill(
             from_session: author_session,
             to: String::new(), // backfill: recipient not stored inline
             to_session: None,
-            thread: Some(thread_short),
             body: body.chars().take(200).collect(),
         });
     }
@@ -3056,7 +2958,10 @@ async fn handle_orchestration(
         // events the relay rejects is worse than no harness).
         let mut confirmed = false;
         for attempt in 0..12u32 {
-            let added = state.provider.nip29_add_member(&op.child_h, &agent_pk).await;
+            let added = state
+                .provider
+                .nip29_add_member(&op.child_h, &agent_pk)
+                .await;
             let (_, _, members) = state.provider.fetch_group_state(&op.child_h).await;
             // Two independent confirmations, EITHER suffices:
             //  (a) the relay's published 39002 roster lists the agent, or
@@ -3223,7 +3128,6 @@ fn derive_and_emit_tail_events(
                 from_session: None,
                 to,
                 to_session: None,
-                thread: None,
                 body: chat.body.chars().take(200).collect(),
             });
         }
@@ -3327,11 +3231,7 @@ fn is_idle(state: &Arc<DaemonState>) -> bool {
 /// Build the wire `Status` for one snapshot, re-arming the NIP-40 expiration to
 /// `now + STATUS_TTL_SECS`. Runs the SHARED `derive_status` projection so an idle
 /// session publishes a blanked activity (only the persistent title survives).
-fn status_from_snapshot(
-    snap: &SessionSnapshot,
-    now: u64,
-    thread_root_id: Option<String>,
-) -> crate::domain::Status {
+fn status_from_snapshot(snap: &SessionSnapshot, now: u64) -> crate::domain::Status {
     let d = derive_status(snap, now);
     crate::domain::Status {
         agent: crate::domain::AgentRef::new(snap.agent_pubkey.clone(), snap.agent_slug.clone()),
@@ -3343,17 +3243,7 @@ fn status_from_snapshot(
         busy: d.busy,
         rel_cwd: snap.rel_cwd.clone(),
         expires_at: Some(now + crate::domain::STATUS_TTL_SECS),
-        thread_root_id,
     }
-}
-
-/// Look up a session's conversation thread root for the kind:30315 link, or
-/// `None` before the first prompt has been recorded.
-fn thread_root_for(state: &Arc<DaemonState>, session_id: &str) -> Option<String> {
-    state.with_store(|s| {
-        let (root, _) = s.get_thread_event_ids(session_id);
-        (!root.is_empty()).then_some(root)
-    })
 }
 
 /// Heartbeat re-arm: every `HEARTBEAT_SECS`, re-publish the current kind:30315 for
@@ -3382,8 +3272,7 @@ fn spawn_status_heartbeat_publisher(state: Arc<DaemonState>) {
                     Some(k) => k,
                     None => continue,
                 };
-                let root = thread_root_for(&state, snap.session_id.as_str());
-                let status = status_from_snapshot(&snap, now, root);
+                let status = status_from_snapshot(&snap, now);
                 let _ = state.provider.set_status(&status, &keys).await;
             }
         }
@@ -3428,8 +3317,7 @@ fn spawn_status_outbox_drainer(state: Arc<DaemonState>) {
                             continue;
                         }
                     };
-                    let root = thread_root_for(&state, item.snapshot.session_id.as_str());
-                    let status = status_from_snapshot(&item.snapshot, now, root);
+                    let status = status_from_snapshot(&item.snapshot, now);
                     match state.provider.set_status(&status, &keys).await {
                         Ok(eid) => {
                             state.with_store(|s| {
@@ -3595,7 +3483,6 @@ async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
                 project: Some(project.clone()),
                 mentions_to: None,
                 owners: owners.clone(),
-                thread: None,
             };
             state.provider.subscribe(scope).await?;
         } else {
@@ -3605,7 +3492,6 @@ async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
                     project: Some(project.clone()),
                     mentions_to: Some(me.clone()),
                     owners: owners.clone(),
-                    thread: None,
                 };
                 state.provider.subscribe(scope).await?;
             }
@@ -3637,8 +3523,7 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
             // stored pubkey avoids any chance of removing the wrong key (and thus
             // stranding the real one as a live member) if the recovered anchor
             // ever diverges from what session_start used.
-            let stored_pubkey =
-                state.with_store(|s| s.session_pubkey_for_session(&session_id));
+            let stored_pubkey = state.with_store(|s| s.session_pubkey_for_session(&session_id));
             state.with_store(|s| {
                 s.end_session(&session_id, now).ok();
                 s.mark_session_dead(&session_id).ok();
@@ -3653,8 +3538,8 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
                         //   claude-code / codex → (harness, native_id)
                         //   opencode → anchor = session_id (resume alias only)
                         //   unknown / no rows → ("unknown", session_id)
-                        let (harness_kind, anchor) = state
-                            .with_store(|s| s.get_session_derivation_anchor(&session_id));
+                        let (harness_kind, anchor) =
+                            state.with_store(|s| s.get_session_derivation_anchor(&session_id));
                         identity::derive_session_keys(
                             op_keys.secret_key(),
                             &snap.project,
@@ -3699,8 +3584,8 @@ async fn reconcile_sessions(state: &Arc<DaemonState>) {
         // publish group_remove_user when the engine finishes.
         if let Some(nsec) = state.cfg.session_ikm_nsec().cloned() {
             if let Ok(op_keys) = nostr_sdk::prelude::Keys::parse(&nsec) {
-                let (harness_kind, anchor) = state
-                    .with_store(|s| s.get_session_derivation_anchor(&session_id));
+                let (harness_kind, anchor) =
+                    state.with_store(|s| s.get_session_derivation_anchor(&session_id));
                 let session_key = identity::derive_session_keys(
                     op_keys.secret_key(),
                     &snap.project,

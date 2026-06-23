@@ -105,7 +105,6 @@ mod tests {
             project: Some("tenex-edge".into()),
             mentions_to: Some(me),
             owners: vec![Keys::generate().public_key().to_hex()],
-            thread: None,
         };
         let filters = scope_filters(&scope);
         // profiles, presence/status, chat (kind:9), and NIP-29

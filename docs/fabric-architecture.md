@@ -79,7 +79,7 @@ flowchart TD
     subgraph DOMAIN["Domain — abstract verbs & nouns (no kinds, no tags)"]
         direction LR
         PS["ProjectState plane<br/>roster · presence · status · project-meta"]
-        CM["Communications plane<br/>send · inbox · threads · thread-meta"]
+        CM["Communications plane<br/>send · inbox"]
         ADMIT["Admission / routing policy<br/>is_member? deliver? show?"]
     end
 
@@ -126,7 +126,7 @@ or touches the wire. This is CQRS, and it is exactly why the daemon can solely o
 
 This store already exists — `~/.tenex/edge/state.db`, with `profiles`,
 `peer_sessions`, `inbox`, `agent_status`, `project_meta`, … The architecture
-**extends** it (chiefly: add `threads`); it does not define a new one. And the
+**extends** it; it does not define a new one. And the
 **single-writer materializer is the direct fix for the multi-writer `state.db`
 corruption** already hit when ~16 per-session processes wrote concurrently: one
 daemon owns the writer, every session/CLI is a read-only IPC client.
@@ -140,7 +140,7 @@ flowchart LR
         F4["a2a / invented / future"]
     end
     MAT["Provider = materializer<br/>decode · admit · derive · upsert"]
-    STORE[("Unified read model — SQLite / state.db<br/>projects · agents+membership · threads<br/>messages · recipients")]
+    STORE[("Unified read model — SQLite / state.db<br/>projects · agents+membership")]
     subgraph READERS["Readers — never touch the wire"]
         R1["CLI: who / inbox / list"]
         R2["channel adapter"]
@@ -166,12 +166,9 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 | agents + identity | `profiles` (`pubkey`,`slug`,`host`) | identity card (slug, host, owners) | — |
 | membership | `group_members`, canonical `membership` | which agents belong to a project | a project |
 | presence / status | `peer_sessions`, `agent_status` | who's online, what they're doing | a project |
-| messages | `inbox` (`from_pubkey`, `from_session`, `body`, `created_at`, …) | body, author, **sender session (the reply address)**, created_at | a thread |
-| recipients | `inbox.target_session` (+ mention p-tag) | the addressee(s) | a thread / message |
-| **threads** | **— (new)** | thread id, subject/meta | a project |
 
 Most rows already exist; the materializer reframing keeps membership explicit in
-the NIP-29 group/member tables and **adds `threads`** as the one genuinely new
+the NIP-29 group/member tables.
 entity.
 
 **The message row must carry its own return envelope.** A reader that surfaces an
@@ -226,12 +223,10 @@ flowchart LR
         r2["list_agents(project) + agent_meta"]
         r3["roster / is_member(project, pk)"]
         r4["presence / status(project)"]
-        r5["list_threads(project)"]
-        r6["messages(thread) + recipient"]
     end
     subgraph I["INTENTS — route to the active provider"]
         i0["open_project(project)"]
-        i1["send(to, project, body, thread?)"]
+        i1["send(to, project, body)"]
         i2["set_status / heartbeat"]
     end
     STORE[("unified read model")]
@@ -242,7 +237,7 @@ flowchart LR
 ```
 
 - **Reads** are exactly the user-facing list — *which projects exist, who's in
-  them, who's online, what they're doing, which threads, which messages, and the
+  them, who's online, and what they're doing.
   recipient of each.* All are `SELECT`s. None know the fabric.
 - **Intents** are writes: open a project, send a message, beat a heartbeat. The
   provider encodes the intent to its wire shape and (optimistically, or on echo)
@@ -312,7 +307,7 @@ flowchart TD
 | # | Capability | Responsibility | Must **not** |
 |---|------------|----------------|--------------|
 | ① | **Lifecycle** | Turn a domain lifecycle event into provider-native setup (create group, invite, or no-op). | Decide *when* a project opens (that's the host/daemon). |
-| ② | **Materializer** | **Composes ③ and ④:** consume ④'s inbound stream, decode via ③, then own *only* admission, derivation (e.g. thread structure), and upsert of canonical rows — membership, project list & metadata, agents, threads, messages, recipients. The store is the read contract; this fills it. | Subscribe or decode *itself* (that's ④ and ③), or answer reads (readers query the store directly; the materializer never sits in a read path). |
+| ② | **Materializer** | **Composes ③ and ④:** consume ④'s inbound stream, decode via ③, then own *only* admission, and upsert of canonical rows — membership, project list & metadata, agents. The store is the read contract; this fills it. | Subscribe or decode *itself* (that's ④ and ③), or answer reads (readers query the store directly; the materializer never sits in a read path). |
 | ③ | **Wire codec** | Pure, symmetric ser/de of the five+ `DomainEvent` nouns to its envelope. | Open subscriptions or manage groups. |
 | ④ | **Delivery** | Connect/auth, publish raw envelopes, and stream raw inbound envelopes for a `Scope`. Owns whatever fetch model the fabric uses. | Decode, derive, apply admission, or know domain meaning. |
 
@@ -381,7 +376,6 @@ sequenceDiagram
     P->>P: is_member(sender)?  (admission)
     P->>STORE: upsert message + recipient (if admitted)
 
-    RD->>STORE: SELECT messages WHERE thread = ?
     STORE-->>RD: rows
 ```
 
@@ -453,11 +447,6 @@ Add durable ids and origins:
 - `project_origins(project_id TEXT NOT NULL, fabric TEXT NOT NULL,
   provider_instance TEXT NOT NULL, native_project_key TEXT NOT NULL,
   UNIQUE(fabric, provider_instance, native_project_key))`
-- `threads(thread_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, subject TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER)`
-- `thread_origins(thread_id TEXT NOT NULL, fabric TEXT NOT NULL,
-  provider_instance TEXT NOT NULL, native_thread_key TEXT NOT NULL,
-  UNIQUE(fabric, provider_instance, native_thread_key))`
 
 Add canonical communication rows:
 
@@ -488,7 +477,6 @@ Accessors to add first:
 
 - `ensure_project_origin(fabric, provider_instance, native_project_key, display_slug) -> project_id`
 - `project_id_for_origin(fabric, provider_instance, native_project_key) -> Option<String>`
-- `ensure_thread_origin(project_id, fabric, provider_instance, native_thread_key) -> thread_id`
 - `record_message(...) -> message_id`
 - `mark_message_sync_state(message_id, sync_state, error)`
 - `add_message_recipient(message_id, recipient_pubkey, target_session)`
@@ -524,8 +512,6 @@ Add read-facing methods for host/RPC code:
 - `list_agents_read_model(project)`
 - `list_presence_read_model(project)`
 - `list_status_read_model(project)`
-- `list_threads(project)`
-- `messages_for_thread(thread_id)`
 - `undelivered_messages_for_session(session_id)`
 
 Add write-facing methods for provider/materializer code:
@@ -578,7 +564,6 @@ pub struct Scope {
     pub project: Option<String>,
     pub mentions_to: Option<String>,
     pub owners: Vec<String>,
-    pub thread: Option<String>,
 }
 
 pub trait Delivery {
@@ -710,7 +695,7 @@ Steps:
 
 1. Resolve sender session and recipient using read-model accessors.
 2. Build `SendIntent { from_agent, from_session, to_pubkey, project_id, body,
-   target_session, thread_id }` — `from_session` becomes the stored message's
+   target_session }` — `from_session` becomes the stored message's
    `author_session` (the return envelope), so inbound replies can address it.
 3. Provider signs first, returning the native event id.
 4. Store inserts/updates:
@@ -727,33 +712,6 @@ Steps:
 Done when: `inbox` and turn-start context can render from
 canonical message rows without losing the old delivered/seen semantics.
 
-### Phase 7 - thread materialization and APIs
-
-Add thread-aware read/write behavior after messages are canonical.
-
-Steps:
-
-1. For kind1/nip29 inbound messages:
-   - use NIP-10 root `e` tag as `native_thread_key`;
-   - if no root exists, use the event id as root;
-   - attach `(fabric, provider_instance, native_thread_key)` to
-     `thread_origins`.
-2. For outbound root messages:
-   - create local `thread_id`;
-   - sign event;
-   - attach event id as native thread key.
-3. For replies:
-   - require either `thread_id` or enough native reply context to resolve one;
-   - encode root/reply tags in the provider.
-4. Add CLI/RPC reads:
-   - `list_threads(project)`
-   - `messages(thread)`
-   - `thread_meta(thread)`
-5. Keep participant hash as a temporary helper only when importing old messages
-   that lack reply/root structure; never store it as the durable origin.
-
-Done when: the Communications plane has real thread/message reads and the old
-per-session inbox is just one delivery view over the same messages.
 
 ### Phase 8 - remove legacy coupling
 

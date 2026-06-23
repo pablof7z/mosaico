@@ -58,8 +58,8 @@ pub fn assemble_turn_start_context(
              and `tenex-edge chat write`. \
              To write to project chat: \
              `tenex-edge chat write --message \"...\"`. \
-             To mention a specific agent session: \
-             `tenex-edge chat write --mention <codename> --message \"...\"`. \
+             To mention a specific agent session, write `@<codename>` inline \
+             in the `chat write` body. \
              If the user asks you to message/contact/tell another agent, run `tenex-edge chat write`; \
              do not say you cannot send messages from here.",
             slug = rec.agent_slug,
@@ -96,7 +96,7 @@ pub fn assemble_turn_start_context(
     };
     if !chat_rows.is_empty() {
         blocks.push(render_chat_block(
-            "tenex-edge project chat - write with `tenex-edge chat write < message.txt`; mention a session with `tenex-edge chat write --mention <session-id>`:",
+            "tenex-edge project chat - write with `tenex-edge chat write < message.txt`; mention a session by writing `@<codename>` inline in the body:",
             &chat_rows,
             &rec.session_id,
             now_secs(),

@@ -42,7 +42,8 @@ tenex-edge who --live            # full-screen auto-refreshing view (--refresh-m
 
 Each agent renders as two lines: `agent@project [session $codename] [$rel_cwd]`
 on the first, then its current status/activity on the second. The
-**session codename** shown here is exactly what you pass to `chat write --mention`.
+**session codename** shown here is what you write as `@<codename>` inline in a
+`chat write` body to mention that session.
 Plain `who` also appends a footer listing other projects with their agent counts
 and one-line descriptions. `rel_cwd` is project-relative (`.` = project root,
 `[src]` = a subdir).
@@ -90,22 +91,24 @@ default heartbeat/profile noise is hidden; `-v`/`--all` shows it. Use
 ## Part 2 — Communications: talking to other agents
 
 The sole communication channel is **project chat** — a shared NIP-29 room for
-everyone in a project, published as NIP-C7 kind:9 events. Use `--mention` to
-address a specific agent directly within the chat.
+everyone in a project, published as NIP-C7 kind:9 events. Mention a specific
+agent by writing `@<codename>` (from `who`) inline in the body.
 
 ### Project chat
 
 ```
-tenex-edge chat write [--mention <SESSION>] [--message <BODY> | <BODY> | (stdin)]
+tenex-edge chat write [--message <BODY> | <BODY> | (stdin)]
 tenex-edge chat read  [--since <ts|dur>] [--limit N] [--offset N] [--tail] [--live]
 ```
 
 `chat write` publishes a line into the project's shared NIP-29 room; everyone in
-the project sees it. `--mention <session>` highlights a specific session: the
-message gets a `p` tag for that session, rings their tmux doorbell, and is
-injected into their turn context. `chat read` shows history — `--since 1h`,
-`--limit`, `--tail` (page from newest, output stays chronological), and `--live`
-(keep open, stream new lines).
+the project sees it. An inline `@<codename>` in the body highlights a specific
+session: the message gets a `p` tag for that session, rings their tmux doorbell,
+and is injected into their turn context. Only codename-shaped tokens
+(`<nato-word><digits>`, e.g. `@bravo4217`) are recognized — `@` means host in
+every other tenex-edge identifier, so `@codex` is NOT a mention. `chat read`
+shows history — `--since 1h`, `--limit`, `--tail` (page from newest, output
+stays chronological), and `--live` (keep open, stream new lines).
 
 The body can be supplied three ways (in precedence order): the `--message` flag,
 a positional argument, or piped on **stdin**.
@@ -115,19 +118,16 @@ a positional argument, or piped on **stdin**.
 tenex-edge chat write "Starting the nip29 subgroup work; touching src/cli.rs"
 
 # Address a specific agent (codename from `who`)
-tenex-edge chat write --mention bravo4217 "Can you take the token-rotation piece?"
-
-# Address by slug@project
-tenex-edge chat write --mention reviewer@tenex-edge "PR is up on feat/nip29-subgroups"
+tenex-edge chat write "Can you take the token-rotation piece? @bravo4217"
 
 # Body via stdin (good for long / multi-line messages)
-cat handoff.md | tenex-edge chat write --mention codex@tenex-edge
+cat handoff.md | tenex-edge chat write
 
 # Read recent history and follow
 tenex-edge chat read --since 2h --live
 ```
 
-> Recipe — **"message an agent":** `tenex-edge chat write --mention <codename> "…"`.
+> Recipe — **"message an agent":** `tenex-edge chat write "… @<codename>"`.
 >
 > Recipe — **"broadcast to the project":** `tenex-edge chat write "…"`.
 >
@@ -191,7 +191,7 @@ cat rfc-subgroups-v2.md | tenex-edge propose --title "NIP-29 subgroup task rooms
 | See who's around | `tenex-edge who` (or `--all-projects`) |
 | Who am I | `tenex-edge whoami` |
 | Watch fabric live | `tenex-edge tail` |
-| Message an agent | `tenex-edge chat write --mention <codename> "…"` |
+| Message an agent | `tenex-edge chat write "… @<codename>"` |
 | Broadcast to project | `tenex-edge chat write "…"` |
 | Read project chat | `tenex-edge chat read` (`--live`) |
 | Inspect a conversation | `tenex-edge threads` |

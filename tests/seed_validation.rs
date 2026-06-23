@@ -169,7 +169,6 @@ async fn seed_session_with_thread_root_link() {
             busy: false,
             rel_cwd: "tenex-off".into(),
             expires_at: Some(base + 365 * 24 * 3600),
-            thread_root_id: None,
         }),
         base + 1,
     )

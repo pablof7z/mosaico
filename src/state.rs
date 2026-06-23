@@ -72,35 +72,6 @@ pub struct ChatLogRow {
     pub mentioned_session: String,
 }
 
-// ── Phase 7 read-model types ─────────────────────────────────────────────────
-
-/// Enriched thread summary returned by `list_threads` and `thread_meta`.
-///
-/// `last_message_at` is `None` when the thread has no messages yet.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ThreadMeta {
-    pub thread_id: String,
-    pub project_id: String,
-    pub subject: Option<String>,
-    pub created_at: u64,
-    pub updated_at: u64,
-    pub message_count: u64,
-    pub last_message_at: Option<u64>,
-}
-
-/// One canonical message row returned by `messages_for_thread`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct MessageRow {
-    pub message_id: String,
-    pub thread_id: String,
-    pub author_pubkey: String,
-    pub body: String,
-    pub created_at: u64,
-    pub direction: String,
-    pub sync_state: String,
-    pub native_event_id: Option<String>,
-}
-
 // ── Phase 1 read-model types ─────────────────────────────────────────────────
 
 /// Whether a pubkey is a member of a project at a given timestamp.
@@ -371,48 +342,6 @@ CREATE TABLE IF NOT EXISTS project_origins (
     native_project_key   TEXT NOT NULL,
     UNIQUE(fabric, provider_instance, native_project_key)
 );
-CREATE TABLE IF NOT EXISTS threads (
-    thread_id   TEXT PRIMARY KEY,
-    project_id  TEXT NOT NULL,
-    subject     TEXT,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL,
-    archived_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS thread_origins (
-    thread_id            TEXT NOT NULL,
-    fabric               TEXT NOT NULL,
-    provider_instance    TEXT NOT NULL,
-    native_thread_key    TEXT NOT NULL,
-    UNIQUE(fabric, provider_instance, native_thread_key)
-);
--- author_session is the return envelope (the sender's session id so a reply can
--- target the exact sibling session that wrote the message; NULL when the fabric
--- can't supply it — reply degrades to agent-level). Populated during dual-write
--- in a later phase; schema included now per the doc (§2a + Phase 1 spec).
-CREATE TABLE IF NOT EXISTS messages (
-    message_id      TEXT PRIMARY KEY,
-    thread_id       TEXT NOT NULL,
-    author_pubkey   TEXT NOT NULL,
-    author_session  TEXT,
-    body            TEXT NOT NULL,
-    created_at      INTEGER NOT NULL,
-    direction       TEXT NOT NULL,
-    sync_state      TEXT NOT NULL,
-    native_event_id TEXT,
-    error           TEXT
-);
--- message_recipients PK includes target_session which can be NULL.  SQLite
--- treats NULL values as distinct in a UNIQUE / PRIMARY KEY constraint, so two
--- rows with the same (message_id, recipient_pubkey) but NULL target_session are
--- considered different rows.  That behaviour is acceptable here.
-CREATE TABLE IF NOT EXISTS message_recipients (
-    message_id       TEXT NOT NULL,
-    recipient_pubkey TEXT NOT NULL,
-    target_session   TEXT,
-    delivered_at     INTEGER,
-    PRIMARY KEY(message_id, recipient_pubkey, target_session)
-);
 CREATE TABLE IF NOT EXISTS inbound_quarantine (
     native_event_id TEXT PRIMARY KEY,
     project_id      TEXT,
@@ -523,22 +452,6 @@ impl Store {
         );
         let _ = conn.execute(
             "ALTER TABLE peer_sessions ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        // NIP-10 thread tracking: root event (first user prompt in the session
-        // thread) and most recent user prompt (triggers TurnReply at stop-hook).
-        let _ = conn.execute(
-            "ALTER TABLE sessions ADD COLUMN thread_root_event_id TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE sessions ADD COLUMN last_prompt_event_id TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        // Track the most recent TurnReply event ID so the next user prompt can
-        // carry the correct NIP-10 reply marker threading back to the agent reply.
-        let _ = conn.execute(
-            "ALTER TABLE sessions ADD COLUMN last_agent_reply_event_id TEXT NOT NULL DEFAULT ''",
             [],
         );
         // Snapshot of the last assistant text at the beginning of each turn.
@@ -817,33 +730,6 @@ impl Store {
             .flatten())
     }
 
-    /// Returns `(thread_root_event_id, last_prompt_event_id)` for a session.
-    /// Both are empty strings until the first user prompt is published.
-    pub fn get_thread_event_ids(&self, session_id: &str) -> (String, String) {
-        self.conn
-            .query_row(
-                "SELECT thread_root_event_id, last_prompt_event_id FROM sessions WHERE session_id=?1",
-                params![session_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-            )
-            .unwrap_or_default()
-    }
-
-    /// Update the NIP-10 thread tracking for a session.
-    /// `root_id` is the first user prompt event; `prompt_id` is the most recent.
-    pub fn set_thread_event_ids(
-        &self,
-        session_id: &str,
-        root_id: &str,
-        prompt_id: &str,
-    ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE sessions SET thread_root_event_id=?2, last_prompt_event_id=?3 WHERE session_id=?1",
-            params![session_id, root_id, prompt_id],
-        )?;
-        Ok(())
-    }
-
     /// Snapshot the last assistant text at the start of a turn. `rpc_turn_end`
     /// polls until the transcript returns something *different* from this value,
     /// so it reliably reads the current turn's response even when Claude Code
@@ -1008,14 +894,10 @@ impl Store {
         {
             let mut stmt = self
                 .conn
-                .prepare(
-                    "SELECT pubkey, host FROM peer_sessions ORDER BY last_seen DESC",
-                )
+                .prepare("SELECT pubkey, host FROM peer_sessions ORDER BY last_seen DESC")
                 .ok()?;
             let rows = stmt
-                .query_map([], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                })
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
                 .ok()?;
             for row in rows.flatten() {
                 if slugify_host(&row.1) == host_slug {
@@ -1030,9 +912,7 @@ impl Store {
                 .prepare("SELECT pubkey, host FROM profiles ORDER BY updated_at DESC")
                 .ok()?;
             let rows = stmt
-                .query_map([], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                })
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
                 .ok()?;
             for row in rows.flatten() {
                 if slugify_host(&row.1) == host_slug {
@@ -1196,7 +1076,6 @@ impl Store {
             params![before],
         )?)
     }
-
 
     /// Peer sessions first seen at or after `since`, still live (last_seen >= fresh_since).
     pub fn list_new_peer_sessions(
@@ -2438,6 +2317,37 @@ impl Store {
         Ok(rows)
     }
 
+    /// Recent project chat lines for tail backfill, newest first.
+    /// `project = None` spans all projects. Each row is `(created_at, body,
+    /// from_pubkey, project, from_session)` — enough to render a `Msg` event
+    /// without a relay round-trip.
+    pub fn recent_chat_for_backfill(
+        &self,
+        project: Option<&str>,
+        since: u64,
+        limit: u64,
+    ) -> Result<Vec<(u64, String, String, String, Option<String>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT created_at, body, from_pubkey, project, from_session
+             FROM chat_messages
+             WHERE (?1 IS NULL OR project=?1) AND created_at >= ?2
+             ORDER BY created_at DESC LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(params![project, since, limit as i64], |r| {
+                Ok((
+                    r.get::<_, u64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
     /// Read undelivered chat rows without marking them delivered. Used by
     /// mid-turn hook injection so the next turn-start remains authoritative.
     pub fn peek_chat(&self, session_id: &str) -> Result<Vec<ChatInboxRow>> {
@@ -2544,134 +2454,6 @@ impl Store {
                 |r| r.get::<_, String>(0),
             )
             .ok())
-    }
-
-    /// Map a fabric thread key to a durable `thread_id`, creating the thread +
-    /// origin on first sight. Idempotent.
-    pub fn ensure_thread_origin(
-        &self,
-        project_id: &str,
-        fabric: &str,
-        provider_instance: &str,
-        native_thread_key: &str,
-        now: u64,
-    ) -> Result<String> {
-        if let Ok(tid) = self.conn.query_row(
-            "SELECT thread_id FROM thread_origins
-                 WHERE fabric=?1 AND provider_instance=?2 AND native_thread_key=?3",
-            params![fabric, provider_instance, native_thread_key],
-            |r| r.get::<_, String>(0),
-        ) {
-            return Ok(tid);
-        }
-        let tid = gen_id("thr");
-        self.conn.execute(
-            "INSERT INTO threads (thread_id, project_id, subject, created_at, updated_at)
-             VALUES (?1, ?2, NULL, ?3, ?3)",
-            params![tid, project_id, now],
-        )?;
-        self.conn.execute(
-            "INSERT INTO thread_origins (thread_id, fabric, provider_instance, native_thread_key)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![tid, fabric, provider_instance, native_thread_key],
-        )?;
-        Ok(tid)
-    }
-
-    /// Insert a canonical message, returning its `message_id`. When
-    /// `native_event_id` is `Some` this is idempotent: a message already carrying
-    /// that native id is returned rather than duplicated (relay echo / refetch).
-    #[allow(clippy::too_many_arguments)] // one param per messages column; a struct would only move the noise
-    pub fn record_message(
-        &self,
-        thread_id: &str,
-        author_pubkey: &str,
-        body: &str,
-        created_at: u64,
-        direction: &str,
-        sync_state: &str,
-        native_event_id: Option<&str>,
-    ) -> Result<String> {
-        if let Some(eid) = native_event_id {
-            if let Ok(mid) = self.conn.query_row(
-                "SELECT message_id FROM messages WHERE native_event_id=?1",
-                params![eid],
-                |r| r.get::<_, String>(0),
-            ) {
-                return Ok(mid);
-            }
-        }
-        let mid = gen_id("msg");
-        self.conn.execute(
-            "INSERT INTO messages
-               (message_id, thread_id, author_pubkey, body, created_at, direction, sync_state, native_event_id, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
-            params![mid, thread_id, author_pubkey, body, created_at, direction, sync_state, native_event_id],
-        )?;
-        Ok(mid)
-    }
-
-    /// Canonical thread that contains the message published as `native_event_id`.
-    /// Used by `inbox reply` to file the reply into the original's thread.
-    pub fn thread_for_native_event(&self, native_event_id: &str) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT thread_id FROM messages WHERE native_event_id=?1",
-                params![native_event_id],
-                |r| r.get::<_, String>(0),
-            )
-            .ok()
-    }
-
-    pub fn mark_message_sync_state(
-        &self,
-        message_id: &str,
-        sync_state: &str,
-        error: Option<&str>,
-    ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE messages SET sync_state=?2, error=?3 WHERE message_id=?1",
-            params![message_id, sync_state, error],
-        )?;
-        Ok(())
-    }
-
-    /// Idempotent. `target_session = None` stores a NULL addressee (SQLite treats
-    /// NULL as distinct in the PK, matching the doc's recipient model).
-    pub fn add_message_recipient(
-        &self,
-        message_id: &str,
-        recipient_pubkey: &str,
-        target_session: Option<&str>,
-    ) -> Result<()> {
-        match target_session {
-            Some(ts) => {
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO message_recipients
-                       (message_id, recipient_pubkey, target_session, delivered_at)
-                     VALUES (?1, ?2, ?3, NULL)",
-                    params![message_id, recipient_pubkey, ts],
-                )?;
-            }
-            None => {
-                // SQLite treats NULL as DISTINCT in the PK, so INSERT OR IGNORE
-                // does NOT dedup an untargeted (NULL target_session) recipient —
-                // repeated materialization (relay echo + catch-up refetch) would
-                // otherwise accumulate one duplicate row per re-delivery. Guard
-                // with an explicit existence check so it stays idempotent.
-                self.conn.execute(
-                    "INSERT INTO message_recipients
-                       (message_id, recipient_pubkey, target_session, delivered_at)
-                     SELECT ?1, ?2, NULL, NULL
-                     WHERE NOT EXISTS (
-                       SELECT 1 FROM message_recipients
-                       WHERE message_id=?1 AND recipient_pubkey=?2 AND target_session IS NULL
-                     )",
-                    params![message_id, recipient_pubkey],
-                )?;
-            }
-        }
-        Ok(())
     }
 
     /// Admit (or re-admit) a member. Upsert: preserves the original `admitted_at`,
@@ -2907,153 +2689,6 @@ impl Store {
         self.list_peer_sessions(project, since)
     }
 
-    /// Canonical threads for a project, ordered by last activity (most-active first).
-    ///
-    /// Ordering: `COALESCE(MAX(m.created_at), t.created_at) DESC` — threads with
-    /// recent messages sort before inactive threads; threads with no messages at all
-    /// sort by their own `created_at` DESC.
-    ///
-    /// `project_id` is the canonical surrogate key from `projects`.
-    pub fn list_threads(&self, project_id: &str) -> Result<Vec<ThreadMeta>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT t.thread_id, t.project_id, t.subject, t.created_at, t.updated_at,
-                    COUNT(m.message_id) AS message_count,
-                    MAX(m.created_at) AS last_message_at
-             FROM threads t
-             LEFT JOIN messages m ON m.thread_id = t.thread_id
-             WHERE t.project_id = ?1
-             GROUP BY t.thread_id
-             ORDER BY COALESCE(MAX(m.created_at), t.created_at) DESC",
-        )?;
-        let rows: Vec<ThreadMeta> = stmt
-            .query_map(params![project_id], |r| {
-                Ok(ThreadMeta {
-                    thread_id: r.get(0)?,
-                    project_id: r.get(1)?,
-                    subject: r.get(2)?,
-                    created_at: r.get(3)?,
-                    updated_at: r.get(4)?,
-                    message_count: r.get(5)?,
-                    last_message_at: r.get(6)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
-    /// Canonical messages for a thread, ordered by `created_at` ascending
-    /// (chronological order for conversation rendering).
-    pub fn messages_for_thread(&self, thread_id: &str) -> Result<Vec<MessageRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT message_id, thread_id, author_pubkey, body, created_at,
-                    direction, sync_state, native_event_id
-             FROM messages WHERE thread_id=?1 ORDER BY created_at",
-        )?;
-        let rows: Vec<MessageRow> = stmt
-            .query_map(params![thread_id], |r| {
-                Ok(MessageRow {
-                    message_id: r.get(0)?,
-                    thread_id: r.get(1)?,
-                    author_pubkey: r.get(2)?,
-                    body: r.get(3)?,
-                    created_at: r.get(4)?,
-                    direction: r.get(5)?,
-                    sync_state: r.get(6)?,
-                    native_event_id: r.get(7)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
-    /// Enriched metadata for a single thread by its canonical id.
-    /// Returns `None` if no thread with that id exists.
-    pub fn thread_meta(&self, thread_id: &str) -> Result<Option<ThreadMeta>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT t.thread_id, t.project_id, t.subject, t.created_at, t.updated_at,
-                    COUNT(m.message_id) AS message_count,
-                    MAX(m.created_at) AS last_message_at
-             FROM threads t
-             LEFT JOIN messages m ON m.thread_id = t.thread_id
-             WHERE t.thread_id = ?1
-             GROUP BY t.thread_id",
-        )?;
-        let mut rows = stmt.query(params![thread_id])?;
-        if let Some(r) = rows.next()? {
-            Ok(Some(ThreadMeta {
-                thread_id: r.get(0)?,
-                project_id: r.get(1)?,
-                subject: r.get(2)?,
-                created_at: r.get(3)?,
-                updated_at: r.get(4)?,
-                message_count: r.get(5)?,
-                last_message_at: r.get(6)?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Query for tail backfill: returns recent messages with author/project/thread info.
-    ///
-    /// Each row: (created_at, body, author_pubkey, project_slug, thread_id, author_session)
-    pub fn recent_messages_for_backfill(
-        &self,
-        project: Option<&str>,
-        since: u64,
-        limit: u64,
-    ) -> Result<Vec<(u64, String, String, String, String, Option<String>)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT m.created_at, m.body, m.author_pubkey, p.display_slug, m.thread_id, m.author_session
-             FROM messages m
-             JOIN threads t ON t.thread_id = m.thread_id
-             JOIN projects p ON p.project_id = t.project_id
-             WHERE (?1 IS NULL OR p.display_slug = ?1) AND m.created_at >= ?2
-             ORDER BY m.created_at DESC LIMIT ?3",
-        )?;
-        let rows: Vec<(u64, String, String, String, String, Option<String>)> = stmt
-            .query_map(params![project, since, limit], |r| {
-                Ok((
-                    r.get::<_, u64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, String>(4)?,
-                    r.get::<_, Option<String>>(5)?,
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
-    /// Resolve the native relay key for a thread's root message.
-    ///
-    /// Used by `provider.send` when encoding a reply: the root `e` tag must
-    /// carry the relay-native event id of the thread's originating message so
-    /// the recipient's inbound materializer groups the reply into the same thread.
-    ///
-    /// Returns `None` when the thread has no registered origin (safe degradation:
-    /// the caller publishes without the root tag, creating a new thread on the
-    /// recipient's side).
-    pub fn thread_root_native_key(
-        &self,
-        thread_id: &str,
-        fabric: &str,
-        provider_instance: &str,
-    ) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT native_thread_key FROM thread_origins
-                 WHERE thread_id=?1 AND fabric=?2 AND provider_instance=?3",
-                params![thread_id, fabric, provider_instance],
-                |r| r.get::<_, String>(0),
-            )
-            .ok()
-    }
-
     /// Resolve a project display-slug to its canonical `project_id` for the
     /// kind1-nip29 fabric.  Read-only — does NOT create an origin.
     pub fn project_id_for_slug(
@@ -3134,42 +2769,6 @@ impl Store {
             }
         }
         Ok(())
-    }
-
-    /// Record an outbound message in the canonical `messages` table.
-    /// Returns the `message_id`.
-    pub fn materialize_outbound_message(
-        &self,
-        thread_id: &str,
-        author_pubkey: &str,
-        body: &str,
-        created_at: u64,
-        native_event_id: Option<&str>,
-    ) -> Result<String> {
-        self.record_message(
-            thread_id,
-            author_pubkey,
-            body,
-            created_at,
-            "outbound",
-            "pending",
-            native_event_id,
-        )
-    }
-
-    /// Transition an outbound message to `accepted` (relay accepted the event).
-    pub fn mark_outbound_accepted(&self, message_id: &str) -> Result<()> {
-        self.mark_message_sync_state(message_id, "accepted", None)
-    }
-
-    /// Transition an outbound message to `echoed` (relay echoed it back to us).
-    pub fn mark_outbound_echoed(&self, message_id: &str) -> Result<()> {
-        self.mark_message_sync_state(message_id, "echoed", None)
-    }
-
-    /// Transition an outbound message to `failed` with an error string.
-    pub fn mark_outbound_failed(&self, message_id: &str, error: &str) -> Result<()> {
-        self.mark_message_sync_state(message_id, "failed", Some(error))
     }
 
     /// Record a distillation failure for this session (upserts — only the last
@@ -3685,7 +3284,10 @@ mod tests {
             .iter()
             .filter(|d| d.snapshot.session_id == local.session_id)
             .count();
-        assert_eq!(hits, 1, "local session + its own peer echo must dedup to one");
+        assert_eq!(
+            hits, 1,
+            "local session + its own peer echo must dedup to one"
+        );
     }
 
     /// A session is never told about its own status: even when its own kind:30315
@@ -3833,7 +3435,10 @@ mod tests {
             .conn
             .query_row("SELECT COUNT(*) FROM session_state", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rows, 1, "exactly one session_state row (no churn), got {rows}");
+        assert_eq!(
+            rows, 1,
+            "exactly one session_state row (no churn), got {rows}"
+        );
     }
 
     #[test]
@@ -3965,7 +3570,6 @@ mod tests {
         assert!(!s.is_group_member("other-proj", "pk-alpha").unwrap());
     }
 
-
     // ── Phase 1: canonical read-model schema ─────────────────────────────
 
     #[test]
@@ -3975,13 +3579,12 @@ mod tests {
             .conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN
-                 ('projects','project_origins','threads','thread_origins','messages',
-                  'message_recipients','inbound_quarantine','membership')",
+                 ('projects','project_origins','inbound_quarantine','membership')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 8, "all 8 Phase 1 tables must be created");
+        assert_eq!(n, 4, "all 4 Phase 1 tables must be created");
     }
 
     #[test]
@@ -4061,60 +3664,6 @@ mod tests {
                 role: "admin".into()
             }
         );
-    }
-
-    #[test]
-    fn phase1_record_message_dedups_on_native_event_id() {
-        let s = Store::open_memory().unwrap();
-        let pid = s
-            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
-            .unwrap();
-        let tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "root-eid", 1)
-            .unwrap();
-        let m1 = s
-            .record_message(
-                &tid,
-                "author",
-                "hi",
-                10,
-                "inbound",
-                "accepted",
-                Some("evt-1"),
-            )
-            .unwrap();
-        let m2 = s
-            .record_message(
-                &tid,
-                "author",
-                "hi (echo)",
-                10,
-                "inbound",
-                "accepted",
-                Some("evt-1"),
-            )
-            .unwrap();
-        assert_eq!(m1, m2, "same native_event_id → same message_id (no dup)");
-        let count: i64 = s
-            .conn
-            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 1);
-        // None native id always inserts a fresh row.
-        let m3 = s
-            .record_message(&tid, "author", "local", 11, "outbound", "published", None)
-            .unwrap();
-        assert_ne!(m1, m3);
-        // Recipient rows are idempotent.
-        s.add_message_recipient(&m1, "rcpt", Some("sess-1"))
-            .unwrap();
-        s.add_message_recipient(&m1, "rcpt", Some("sess-1"))
-            .unwrap();
-        let rc: i64 = s
-            .conn
-            .query_row("SELECT COUNT(*) FROM message_recipients", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(rc, 1);
     }
 
     #[test]
@@ -4274,49 +3823,6 @@ mod tests {
             .list_presence_read_model(Some("proj"), 600)
             .unwrap()
             .is_empty());
-    }
-
-    /// list_threads returns empty on a fresh store (canonical table, Phase 7).
-    #[test]
-    fn phase2_list_threads_empty_until_phase7() {
-        let s = Store::open_memory().unwrap();
-        let pid = s
-            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
-            .unwrap();
-        assert!(
-            s.list_threads(&pid).unwrap().is_empty(),
-            "threads empty before Phase 7"
-        );
-        // After ensure_thread_origin it is populated — verify the enriched struct.
-        let tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
-            .unwrap();
-        let threads = s.list_threads(&pid).unwrap();
-        assert_eq!(threads.len(), 1);
-        assert_eq!(threads[0].thread_id, tid);
-        assert_eq!(threads[0].project_id, pid);
-        assert_eq!(threads[0].message_count, 0);
-        assert!(threads[0].last_message_at.is_none());
-    }
-
-    /// messages_for_thread returns empty on a fresh thread (canonical table, Phase 6).
-    #[test]
-    fn phase2_messages_for_thread_empty_until_phase6() {
-        let s = Store::open_memory().unwrap();
-        let pid = s
-            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
-            .unwrap();
-        let tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
-            .unwrap();
-        assert!(s.messages_for_thread(&tid).unwrap().is_empty());
-        let mid = s
-            .record_message(&tid, "pk", "hello", 3, "inbound", "accepted", None)
-            .unwrap();
-        let msgs = s.messages_for_thread(&tid).unwrap();
-        assert_eq!(msgs.len(), 1);
-        assert_eq!(msgs[0].message_id, mid);
-        assert_eq!(msgs[0].body, "hello");
     }
 
     /// materialize_profile round-trips through upsert_profile.
@@ -4561,415 +4067,7 @@ mod tests {
         assert!(s.is_group_member("unknown-proj", "pk-x").unwrap());
     }
 
-    /// materialize_outbound_message, mark_outbound_accepted/echoed/failed
-    /// round-trip through the canonical messages table.
-    #[test]
-    fn phase2_materialize_outbound_lifecycle() {
-        let s = Store::open_memory().unwrap();
-        let pid = s
-            .ensure_project_origin("kind1-nip29", "ri", "p", "p", 1)
-            .unwrap();
-        let tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", "ri", "t1", 2)
-            .unwrap();
-
-        let mid = s
-            .materialize_outbound_message(&tid, "pk-author", "hey", 10, Some("nat-1"))
-            .unwrap();
-        // Initial state is "pending".
-        let state: String = s
-            .conn
-            .query_row(
-                "SELECT sync_state FROM messages WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(state, "pending");
-
-        s.mark_outbound_accepted(&mid).unwrap();
-        let state: String = s
-            .conn
-            .query_row(
-                "SELECT sync_state FROM messages WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(state, "accepted");
-
-        s.mark_outbound_echoed(&mid).unwrap();
-        let state: String = s
-            .conn
-            .query_row(
-                "SELECT sync_state FROM messages WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(state, "echoed");
-
-        s.mark_outbound_failed(&mid, "relay rejected").unwrap();
-        let (st, err): (String, Option<String>) = s
-            .conn
-            .query_row(
-                "SELECT sync_state, error FROM messages WHERE message_id=?1",
-                params![mid],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(st, "failed");
-        assert_eq!(err.as_deref(), Some("relay rejected"));
-
-        // Idempotent dedup on native_event_id.
-        let mid2 = s
-            .materialize_outbound_message(&tid, "pk-author", "hey (echo)", 10, Some("nat-1"))
-            .unwrap();
-        assert_eq!(mid, mid2, "same native_event_id → same message_id");
-    }
-
     // ── Phase 6 dual-write tests ──────────────────────────────────────────────
 
-    /// Regression (found via live claude<->codex e2e): an UNTARGETED recipient
-    /// (target_session = None) must be idempotent. SQLite treats NULL as distinct
-    /// in the PK, so a naive INSERT OR IGNORE accumulated one duplicate recipient
-    /// row per re-materialization (relay echo + every catch-up refetch).
-    #[test]
-    fn add_message_recipient_is_idempotent_for_null_target_session() {
-        let s = Store::open_memory().unwrap();
-        let tid = s
-            .ensure_thread_origin(
-                &s.ensure_project_origin("kind1-nip29", "pi", "p", "p", 1)
-                    .unwrap(),
-                "kind1-nip29",
-                "pi",
-                "root",
-                1,
-            )
-            .unwrap();
-        let mid = s
-            .record_message(&tid, "auth", "b", 1, "inbound", "received", Some("evt"))
-            .unwrap();
-        // Untargeted: many re-deliveries → still one row.
-        for _ in 0..5 {
-            s.add_message_recipient(&mid, "rcpt", None).unwrap();
-        }
-        let n: i64 = s.conn.query_row(
-            "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1 AND recipient_pubkey='rcpt' AND target_session IS NULL",
-            params![mid], |r| r.get(0),
-        ).unwrap();
-        assert_eq!(
-            n, 1,
-            "untargeted recipient must not duplicate across re-materialization"
-        );
-        // Targeted dedup still works, and is a DISTINCT row from the untargeted one.
-        for _ in 0..3 {
-            s.add_message_recipient(&mid, "rcpt", Some("sess-1"))
-                .unwrap();
-        }
-        let total: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(total, 2, "one untargeted + one targeted recipient row");
-    }
-
-    /// Phase 6 outbound dual-write: the canonical row sequence used by
-    /// `provider.send()` produces exactly one message with sync_state="published",
-    /// one recipient row, and is idempotent on native_event_id (relay echo).
-    #[test]
-    fn phase6_outbound_canonical_dual_write_and_dedup() {
-        let s = Store::open_memory().unwrap();
-        let pi = "test-pi";
-        let now = 1000u64;
-        let eid = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
-
-        // Simulate what provider.send() does after publish succeeds.
-        let project_id = s
-            .ensure_project_origin("kind1-nip29", pi, "my-project", "my-project", now)
-            .unwrap();
-        let thread_id = s
-            .ensure_thread_origin(&project_id, "kind1-nip29", pi, eid, now)
-            .unwrap();
-        let message_id = s
-            .record_message(
-                &thread_id,
-                "pk-sender",
-                "hello world",
-                now,
-                "outbound",
-                "published",
-                Some(eid),
-            )
-            .unwrap();
-        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1"))
-            .unwrap();
-
-        // Verify the canonical message row.
-        let (direction, sync_state, native_eid): (String, String, Option<String>) = s
-            .conn
-            .query_row(
-                "SELECT direction, sync_state, native_event_id FROM messages WHERE message_id=?1",
-                params![message_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .unwrap();
-        assert_eq!(direction, "outbound");
-        assert_eq!(sync_state, "published");
-        assert_eq!(native_eid.as_deref(), Some(eid));
-
-        // Verify exactly one recipient row.
-        let rcpt_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
-                params![message_id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(rcpt_count, 1, "exactly one recipient row");
-
-        // Idempotency: same native_event_id → same message_id, no new row.
-        let mid2 = s
-            .record_message(
-                &thread_id,
-                "pk-sender",
-                "hello world (echo)",
-                now,
-                "outbound",
-                "published",
-                Some(eid),
-            )
-            .unwrap();
-        assert_eq!(
-            message_id, mid2,
-            "same native_event_id → same message_id (dedup)"
-        );
-
-        // add_message_recipient is INSERT OR IGNORE → still only one row.
-        s.add_message_recipient(&message_id, "pk-recipient", Some("sess-r1"))
-            .unwrap();
-        let rcpt_count2: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
-                params![message_id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(rcpt_count2, 1, "add_message_recipient is idempotent");
-    }
-
     // ── Phase 7 tests ─────────────────────────────────────────────────────────
-
-    /// list_threads/messages_for_thread/thread_meta return correct enriched data.
-    #[test]
-    fn phase7_read_model_enriched_data() {
-        let s = Store::open_memory().unwrap();
-        let pi = "test-pi-p7";
-        let pid = s
-            .ensure_project_origin("kind1-nip29", pi, "myproj", "myproj", 100)
-            .unwrap();
-
-        // Two threads; second thread has messages; first does not.
-        let tid1 = s
-            .ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t1", 100)
-            .unwrap();
-        let tid2 = s
-            .ensure_thread_origin(&pid, "kind1-nip29", pi, "native-t2", 200)
-            .unwrap();
-
-        // Add two messages to tid2.
-        let _m1 = s
-            .record_message(
-                &tid2,
-                "pk-a",
-                "first",
-                300,
-                "inbound",
-                "received",
-                Some("eid-1"),
-            )
-            .unwrap();
-        let _m2 = s
-            .record_message(
-                &tid2,
-                "pk-b",
-                "second",
-                400,
-                "outbound",
-                "published",
-                Some("eid-2"),
-            )
-            .unwrap();
-
-        // list_threads — tid2 (last activity 400) should come first.
-        let threads = s.list_threads(&pid).unwrap();
-        assert_eq!(threads.len(), 2);
-        assert_eq!(threads[0].thread_id, tid2, "most-active thread is first");
-        assert_eq!(threads[0].message_count, 2);
-        assert_eq!(threads[0].last_message_at, Some(400));
-        assert_eq!(threads[1].thread_id, tid1, "inactive thread is second");
-        assert_eq!(threads[1].message_count, 0);
-        assert!(threads[1].last_message_at.is_none());
-
-        // messages_for_thread — chronological order.
-        let msgs = s.messages_for_thread(&tid2).unwrap();
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0].body, "first");
-        assert_eq!(msgs[0].direction, "inbound");
-        assert_eq!(msgs[1].body, "second");
-        assert_eq!(msgs[1].direction, "outbound");
-        assert_eq!(msgs[1].native_event_id.as_deref(), Some("eid-2"));
-
-        // thread_meta — single thread lookup.
-        let meta = s.thread_meta(&tid2).unwrap().expect("thread_meta found");
-        assert_eq!(meta.thread_id, tid2);
-        assert_eq!(meta.message_count, 2);
-        assert_eq!(meta.last_message_at, Some(400));
-
-        // thread_meta on a non-existent id returns None.
-        assert!(s.thread_meta("no-such-thread").unwrap().is_none());
-    }
-
-    /// thread_root_native_key resolves the relay-native key for a thread origin.
-    #[test]
-    fn phase7_thread_root_native_key() {
-        let s = Store::open_memory().unwrap();
-        let pi = "pi-rootkey";
-        let pid = s
-            .ensure_project_origin("kind1-nip29", pi, "proj", "proj", 1)
-            .unwrap();
-        let tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", pi, "root-event-abc", 2)
-            .unwrap();
-
-        let key = s.thread_root_native_key(&tid, "kind1-nip29", pi);
-        assert_eq!(key.as_deref(), Some("root-event-abc"));
-
-        // Wrong fabric or provider_instance → None.
-        assert!(s.thread_root_native_key(&tid, "other-fabric", pi).is_none());
-        assert!(s
-            .thread_root_native_key(&tid, "kind1-nip29", "wrong-pi")
-            .is_none());
-    }
-
-    /// Proposal dual-write: record_message + thread origin produce a canonical
-    /// proposal row; idempotent on the kind:30023 event id.
-    #[test]
-    fn propose_dual_write_produces_canonical_row() {
-        let s = Store::open_memory().unwrap();
-        let pi = "test-pi-prop";
-        let now = 3_000u64;
-        let agent_pk = "cc".repeat(32);
-        let owner_pk = "dd".repeat(32);
-        let event_id = "abcd1234".repeat(8); // 64-char hex
-
-        // Simulate rpc_propose's dual-write path.
-        let project_id = s
-            .ensure_project_origin("kind1-nip29", pi, "workspace", "workspace", now)
-            .unwrap();
-        // New standalone thread rooted at the proposal's event id.
-        let thread_id = s
-            .ensure_thread_origin(&project_id, "kind1-nip29", pi, &event_id, now)
-            .unwrap();
-        let msg_id = s
-            .record_message(
-                &thread_id,
-                &agent_pk,
-                "My Big Proposal", // title is the body in the canonical row
-                now,
-                "outbound",
-                "published",
-                Some(&event_id),
-            )
-            .unwrap();
-        s.add_message_recipient(&msg_id, &owner_pk, None).unwrap();
-
-        // Verify the canonical row.
-        let msgs = s.messages_for_thread(&thread_id).unwrap();
-        assert_eq!(msgs.len(), 1, "one message row for the proposal");
-        let row = &msgs[0];
-        assert_eq!(row.direction, "outbound");
-        assert_eq!(row.sync_state, "published");
-        assert_eq!(row.body, "My Big Proposal");
-        assert_eq!(row.native_event_id.as_deref(), Some(event_id.as_str()));
-        assert_eq!(row.author_pubkey, agent_pk);
-
-        // Idempotency: the same event_id must not create a second message row.
-        let mid2 = s
-            .record_message(
-                &thread_id,
-                &agent_pk,
-                "My Big Proposal (echo)",
-                now,
-                "outbound",
-                "published",
-                Some(&event_id),
-            )
-            .unwrap();
-        assert_eq!(
-            msg_id, mid2,
-            "same native_event_id → same message_id (dedup)"
-        );
-        let msgs2 = s.messages_for_thread(&thread_id).unwrap();
-        assert_eq!(
-            msgs2.len(),
-            1,
-            "still one message row after idempotent write"
-        );
-    }
-
-    /// Proposal attached to an existing thread: when --thread is given rpc_propose
-    /// uses the thread_id directly as the target thread; the proposal message lands
-    /// in that thread without creating a new one.
-    #[test]
-    fn propose_into_existing_thread() {
-        let s = Store::open_memory().unwrap();
-        let pi = "test-pi-prop2";
-        let now = 4_000u64;
-        let agent_pk = "ee".repeat(32);
-        let thread_root_event_id = "1111aaaa".repeat(8);
-        let proposal_event_id = "2222bbbb".repeat(8);
-
-        // Pre-existing thread (e.g. created by a send-message earlier).
-        let project_id = s
-            .ensure_project_origin("kind1-nip29", pi, "workspace2", "workspace2", now)
-            .unwrap();
-        let existing_thread_id = s
-            .ensure_thread_origin(&project_id, "kind1-nip29", pi, &thread_root_event_id, now)
-            .unwrap();
-
-        // rpc_propose with --thread: use the thread_id directly (no new ensure_thread_origin).
-        // Mirror the dual-write code path in rpc_propose.
-        let thread_id_for_proposal = existing_thread_id.clone();
-        let msg_id = s
-            .record_message(
-                &thread_id_for_proposal,
-                &agent_pk,
-                "Proposal Title",
-                now,
-                "outbound",
-                "published",
-                Some(&proposal_event_id),
-            )
-            .unwrap();
-        s.add_message_recipient(&msg_id, &agent_pk, None).unwrap();
-
-        // Only one thread for this project.
-        let threads = s.list_threads(&project_id).unwrap();
-        assert_eq!(threads.len(), 1, "proposal must join existing thread");
-
-        let msgs = s.messages_for_thread(&existing_thread_id).unwrap();
-        assert_eq!(msgs.len(), 1, "one proposal message in the thread");
-        assert_eq!(msgs[0].body, "Proposal Title");
-        assert_eq!(
-            msgs[0].native_event_id.as_deref(),
-            Some(proposal_event_id.as_str())
-        );
-    }
 }
