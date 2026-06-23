@@ -650,8 +650,6 @@ struct WhoParams {
     #[serde(default)]
     project: Option<String>,
     #[serde(default)]
-    all: bool,
-    #[serde(default)]
     all_projects: bool,
     #[serde(default)]
     cwd: Option<String>,
@@ -677,7 +675,7 @@ fn rpc_who(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde
     let now = now_secs();
     let host = state.host.clone();
     let snapshot = state.with_store(|s| {
-        crate::cli::load_who_snapshot(s, current_project.as_deref(), p.all, now, &host)
+        crate::cli::load_who_snapshot(s, current_project.as_deref(), now, &host)
     })?;
     Ok(serde_json::to_value(snapshot)?)
 }

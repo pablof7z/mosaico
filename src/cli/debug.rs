@@ -404,7 +404,6 @@ fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
         "who",
         serde_json::json!({
             "project": null,
-            "all": false,
             "all_projects": true,
             "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
         }),

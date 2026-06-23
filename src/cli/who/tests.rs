@@ -144,7 +144,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
 
     // Daemon/viewer host is "laptop" → the local coder is same-machine; the
     // "tower" reviewer is a genuine remote.
-    let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
 
     assert_eq!(snapshot.rows.len(), 2);
     let coder = snapshot
@@ -211,7 +211,7 @@ fn who_snapshot_uses_session_scoped_status_for_sibling_sessions() {
     seed_busy_title(&store, &id_a, "reading files", 1_000);
     seed_busy_title(&store, &id_b, "running tests", 1_000);
 
-    let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let row_a = snapshot
         .rows
         .iter()
@@ -250,7 +250,7 @@ fn who_snapshot_ignores_same_host_peer_echo_for_known_local_agent() {
         1_000,
     );
 
-    let snapshot = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     assert!(
         snapshot.rows.is_empty(),
         "same-host peer echo for our own local identity should be hidden"
@@ -274,7 +274,7 @@ fn same_host_peer_is_not_remote() {
         false,
         1_000,
     );
-    let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let sib = snap
         .rows
         .iter()
@@ -297,7 +297,7 @@ fn root_rel_cwd_has_no_bracket() {
     record_peer(
         &store, "pk-a", "a", "proj", "r", "tower", ".", "", false, 1_000,
     );
-    let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let once = strip_ansi(&render_who_once(&snap));
     assert!(!once.contains("[.]"), "root cwd must not render a bracket");
     assert!(
@@ -310,7 +310,6 @@ fn root_rel_cwd_has_no_bracket() {
 fn live_renderer_same_as_once_with_hint() {
     let snapshot = WhoSnapshot {
         project: "proj".to_string(),
-        all: false,
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
@@ -355,7 +354,7 @@ fn who_renderer_summarizes_other_projects() {
         .upsert_project_meta("other", "Other work", 1_000)
         .unwrap();
 
-    let snap = load_who_snapshot(&store, Some("proj"), false, 1_000, "laptop").unwrap();
+    let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let once = strip_ansi(&render_who_once(&snap));
 
     // Peer rows no longer carry a native session id; their display id is the
@@ -372,7 +371,6 @@ fn who_renderer_summarizes_other_projects() {
 fn who_all_projects_includes_project_in_agent_names() {
     let snapshot = WhoSnapshot {
         project: "*".to_string(),
-        all: false,
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
@@ -407,7 +405,6 @@ fn who_all_projects_includes_project_in_agent_names() {
 fn agent_renderer_uses_markdown_sections_and_session_table() {
     let snapshot = WhoSnapshot {
         project: "proj".to_string(),
-        all: false,
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
@@ -461,7 +458,6 @@ fn render_labels_session_room_as_channel_with_parent_project() {
     // current Channel and the work-root it's nested under as the Project.
     let snapshot = WhoSnapshot {
         project: "session-a1b2c3d4e5f60718".to_string(),
-        all: false,
         now: 1000,
         rows: vec![],
         other_projects: vec![],
@@ -509,9 +505,11 @@ fn turn_start_fabric_block_uses_agent_markdown_renderer() {
     );
 
     let block = blocks.join("\n\n");
-    assert!(block.contains("tenex-edge fabric — agents you can message"));
+    assert!(block.contains("tenex-edge fabric — agents visible in this channel"));
+    assert!(!block.contains("@<codename>"), "got: {block}");
+    assert!(!block.contains("[session"), "got: {block}");
     assert!(block.contains("# tenex-edge who"));
-    assert!(block.contains("| Agent | Session | Host | Title | Status |"));
+    assert!(block.contains("| Agent | Host | Title | Status |"));
 }
 
 /// The shared delta renderer classifies appeared / changed (agent finished

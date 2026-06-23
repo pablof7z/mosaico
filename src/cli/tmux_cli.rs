@@ -894,7 +894,6 @@ fn fetch_tui_data() -> Result<TuiData> {
         "who",
         serde_json::json!({
             "project": null,
-            "all": false,
             "all_projects": true,
             "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
         }),

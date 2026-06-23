@@ -2262,6 +2262,19 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// Returns true if `project` is a known root (non-subgroup) project.
+    pub fn is_root_project(&self, project: &str) -> bool {
+        self.conn
+            .query_row(
+                "SELECT 1 FROM project_meta WHERE project=?1 AND (parent='' OR parent IS NULL) \
+                 UNION \
+                 SELECT 1 FROM owned_groups WHERE project=?1 AND is_session_room=0",
+                params![project],
+                |_| Ok(()),
+            )
+            .is_ok()
+    }
+
     /// Returns `true` if `project` is known locally — either it has a
     /// `project_meta` row (seen on relay) or an `owned_groups` row (we created it).
     pub fn channel_exists(&self, project: &str) -> bool {

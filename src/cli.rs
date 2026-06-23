@@ -86,18 +86,12 @@ enum Cmd {
     Who {
         #[arg(long)]
         project: Option<String>,
-        /// Include peers whose heartbeat has stopped (stale).
-        #[arg(long)]
-        all: bool,
         /// Show agents across all projects (overrides --project / cwd resolution).
         #[arg(long)]
         all_projects: bool,
         /// Keep a full-screen live view open, refreshing automatically.
         #[arg(long)]
         live: bool,
-        /// Refresh interval for --live, in milliseconds.
-        #[arg(long, default_value = "1000")]
-        refresh_ms: u64,
     },
     /// Show your own identity on the fabric: agent slug, session codename,
     /// canonical session id, project, host, pubkey, and current status.
@@ -523,20 +517,13 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Who {
             project,
-            all,
             all_projects,
             live,
-            refresh_ms,
         } => {
             if live {
-                who::who_live(
-                    project,
-                    all,
-                    all_projects,
-                    Duration::from_millis(refresh_ms.max(100)),
-                )
+                who::who_live(project, all_projects)
             } else {
-                who::who(project, all, all_projects)
+                who::who(project, all_projects)
             }
         }
         Cmd::Whoami { session, json } => who::whoami(session, json).await,
@@ -809,6 +796,27 @@ mod turn_context_tests {
         assert!(
             ctx.is_none(),
             "turn_start with no chat, non-first turn, no peers must return None; got: {ctx:?}"
+        );
+    }
+
+    #[test]
+    fn first_turn_intro_names_channel_not_session_code() {
+        let store = Store::open_memory().unwrap();
+        let rec = test_session("sess-intro");
+        let m = Mutex::new(store);
+
+        let text = assemble_turn_start_context(&m, &rec, 0).expect("first-turn intro expected");
+        assert!(
+            text.contains("You are coder on #proj"),
+            "intro should name the agent and channel; got: {text:?}"
+        );
+        assert!(
+            !text.contains("[session"),
+            "intro must not expose a session code; got: {text:?}"
+        );
+        assert!(
+            !text.contains("@<codename>"),
+            "intro must not teach codename mentions; got: {text:?}"
         );
     }
 

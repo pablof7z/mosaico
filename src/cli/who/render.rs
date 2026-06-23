@@ -12,15 +12,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out);
 
     if snapshot.rows.is_empty() {
-        let _ = writeln!(
-            out,
-            "(no live agents{})",
-            if snapshot.all {
-                ""
-            } else {
-                " — start a session, or run with --all to include stale"
-            }
-        );
+        let _ = writeln!(out, "(no live agents — start a session)");
     } else if snapshot.project == "*" {
         for row in &snapshot.rows {
             render_who_row(&mut out, row, true);
@@ -176,19 +168,11 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Sessions");
     let _ = writeln!(
         out,
-        "Message a session by writing `@<codename>` inline in a `chat write` body."
+        "Use `tenex-edge chat write --message \"...\"` to write to this channel."
     );
     let _ = writeln!(out);
     if snapshot.rows.is_empty() {
-        let _ = writeln!(
-            out,
-            "{}",
-            if snapshot.all {
-                "_No sessions visible._"
-            } else {
-                "_No live sessions visible. Run `tenex-edge who --all` to include stale sessions._"
-            }
-        );
+        let _ = writeln!(out, "_No live sessions visible._");
     } else {
         for line in SESSION_TABLE_HEADER {
             let _ = writeln!(out, "{line}");
@@ -237,6 +221,69 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     }
 
     out
+}
+
+pub(super) fn render_turn_roster_plain(snapshot: &WhoSnapshot) -> String {
+    let mut out = String::new();
+
+    let _ = writeln!(out, "# tenex-edge who");
+    let _ = writeln!(out);
+    if snapshot.project == "*" {
+        let _ = writeln!(out, "Project: all projects");
+    } else if let Some(parent) = &snapshot.channel_parent {
+        let _ = writeln!(out, "Channel: {} (your session room)", snapshot.project);
+        let _ = writeln!(out, "Project: {parent}");
+    } else {
+        let _ = writeln!(out, "Project: {}", snapshot.project);
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "## Agents in this channel");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "| Agent | Host | Title | Status |");
+    let _ = writeln!(out, "|---|---|---|---|");
+    for row in &snapshot.rows {
+        render_turn_roster_row(&mut out, row);
+    }
+    out
+}
+
+fn render_turn_roster_row(out: &mut String, row: &WhoRow) {
+    let agent = crate::idref::agent_label(&row.slug, &row.host);
+    let host = if row.remote {
+        format!("{}, remote", crate::util::slugify_host(&row.host))
+    } else {
+        crate::util::slugify_host(&row.host)
+    };
+    let host = rel_cwd_bracket(&row.rel_cwd)
+        .map(|dir| format!("{host} [{dir}]"))
+        .unwrap_or(host);
+    let title = if row.status.trim().is_empty() {
+        "—".to_string()
+    } else {
+        row.status.trim().to_string()
+    };
+    let mut status = if row.active {
+        let activity = row.activity.trim();
+        if activity.is_empty() {
+            "working".to_string()
+        } else {
+            activity.to_string()
+        }
+    } else {
+        "idle".to_string()
+    };
+    if !row.fresh {
+        status.push_str(" (stale)");
+    }
+    let _ = writeln!(
+        out,
+        "| {} | {} | {} | {} |",
+        md_cell(&agent),
+        md_cell(&host),
+        md_cell(&title),
+        md_cell(&status)
+    );
 }
 
 fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: bool) {
@@ -354,10 +401,6 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
         stale,
         status_colored(&row.status, &row.activity, row.active),
     );
-    // The hex pubkey behind the codename — the wire address others route to.
-    if !row.pubkey.is_empty() {
-        let _ = writeln!(out, "    {}", row.pubkey.dimmed());
-    }
 }
 
 /// The `[dir]` to show for a row's `rel_cwd`: `None` when empty or the project

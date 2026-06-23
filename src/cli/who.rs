@@ -7,10 +7,9 @@ mod render;
 
 /// `who` params for the daemon RPC. The daemon resolves the current project the
 /// same way the old CLI did (`all_projects ? None : resolve(cwd)`).
-fn who_params(project: &Option<String>, all: bool, all_projects: bool) -> serde_json::Value {
+fn who_params(project: &Option<String>, all_projects: bool) -> serde_json::Value {
     serde_json::json!({
         "project": project,
-        "all": all,
         "all_projects": all_projects,
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     })
@@ -18,33 +17,30 @@ fn who_params(project: &Option<String>, all: bool, all_projects: bool) -> serde_
 
 fn who_snapshot_via_daemon(
     project: &Option<String>,
-    all: bool,
     all_projects: bool,
 ) -> Result<WhoSnapshot> {
-    let v = crate::daemon::blocking::call("who", who_params(project, all, all_projects))?;
+    let v = crate::daemon::blocking::call("who", who_params(project, all_projects))?;
     Ok(serde_json::from_value(v)?)
 }
 
-pub(super) fn who(project: Option<String>, all: bool, all_projects: bool) -> Result<()> {
-    let snapshot = who_snapshot_via_daemon(&project, all, all_projects)?;
+pub(super) fn who(project: Option<String>, all_projects: bool) -> Result<()> {
+    let snapshot = who_snapshot_via_daemon(&project, all_projects)?;
     print!("{}", render::render_who_for_stdout(&snapshot));
     Ok(())
 }
 
 pub(super) fn who_live(
     project: Option<String>,
-    all: bool,
     all_projects: bool,
-    refresh: Duration,
 ) -> Result<()> {
-    let refresh = refresh.max(Duration::from_millis(100));
+    let refresh = Duration::from_millis(1000);
     let _terminal = render::LiveTerminal::enter()?;
     let mut next_draw = Instant::now();
 
     loop {
         let now = Instant::now();
         if now >= next_draw {
-            let snapshot = who_snapshot_via_daemon(&project, all, all_projects)?;
+            let snapshot = who_snapshot_via_daemon(&project, all_projects)?;
             render::draw_who_live(&snapshot, refresh)?;
             next_draw = Instant::now() + refresh;
         }
@@ -95,7 +91,6 @@ pub struct OtherProjectSummary {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WhoSnapshot {
     project: String,
-    all: bool,
     now: u64,
     rows: Vec<WhoRow>,
     other_projects: Vec<OtherProjectSummary>,
@@ -165,7 +160,6 @@ enum WhoSource {
 pub fn load_who_snapshot(
     store: &Store,
     current_project: Option<&str>,
-    all: bool,
     now: u64,
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
@@ -174,11 +168,7 @@ pub fn load_who_snapshot(
     // a second Config::load(). Local sessions are on this machine by construction
     // → never remote. A peer is remote ONLY when its host differs from ours.
     let local_host = slugify_host(daemon_host);
-    let since = if all {
-        0
-    } else {
-        now.saturating_sub(PEER_FRESH_SECS)
-    };
+    let since = now.saturating_sub(PEER_FRESH_SECS);
 
     // Single source of truth: the session-state read facade. Local rows project
     // `session_state`, peer rows project `peer_session_state`, and BOTH run through
@@ -240,7 +230,7 @@ pub fn load_who_snapshot(
                 // never prefer a stale per-session derived pubkey.
                 pubkey: s.agent_pubkey.clone(),
             });
-        } else {
+        } else if store.is_root_project(&s.project) {
             other_agents
                 .entry(s.project.clone())
                 .or_default()
@@ -271,7 +261,7 @@ pub fn load_who_snapshot(
                 // session pubkey — the address to route to.
                 pubkey: p.agent_pubkey.clone(),
             });
-        } else {
+        } else if store.is_root_project(&p.project) {
             other_agents
                 .entry(p.project.clone())
                 .or_default()
@@ -310,7 +300,6 @@ pub fn load_who_snapshot(
 
     Ok(WhoSnapshot {
         project: current_project.unwrap_or("*").to_string(),
-        all,
         now,
         rows,
         other_projects,
@@ -342,12 +331,11 @@ pub(super) fn push_turn_fabric_block(
 ) {
     let store = store.lock().expect("store mutex poisoned");
     if first_turn {
-        if let Ok(snapshot) = load_who_snapshot(&store, Some(project), false, now, daemon_host) {
+        if let Ok(snapshot) = load_who_snapshot(&store, Some(project), now, daemon_host) {
             if !snapshot.rows.is_empty() {
-                let who_text = render::render_who_plain(&snapshot);
+                let who_text = render::render_turn_roster_plain(&snapshot);
                 blocks.push(format!(
-                    "tenex-edge fabric — agents you can message. Message a session by \
-                 writing `@<codename>` inline in a `chat write` body:\n{}",
+                    "tenex-edge fabric — agents visible in this channel:\n{}",
                     who_text.trim_end()
                 ));
             }
