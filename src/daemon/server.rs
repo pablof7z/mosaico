@@ -581,8 +581,15 @@ fn resolve_session_inner(
     // pane exports `TENEX_EDGE_GROUP`; prefer it over the cwd-derived project so
     // the (agent, project) lookup finds the subgroup session rather than a
     // sibling parent-project session.
-    let project = group
-        .filter(|g| !g.is_empty())
+    // When the caller carries an explicit group, that group id IS the project a
+    // session is stored under (a `tenex-edge launch`-spawned subgroup session).
+    // Otherwise the project is the bare work-root from `cwd` — and a
+    // human-initiated session is stored under a per-session room minted beneath
+    // it (issue #6), so an exact `project` match misses. `work_root` drives the
+    // room-aware fallback below for exactly that case.
+    let explicit_group = group.filter(|g| !g.is_empty());
+    let work_root = explicit_group.is_none();
+    let project = explicit_group
         .map(|g| g.to_string())
         .unwrap_or_else(|| crate::project::resolve(&cwd).unwrap_or_default());
     if let Some(agent) = agent.filter(|a| !a.is_empty()) {
@@ -590,6 +597,13 @@ fn resolve_session_inner(
             state.with_store(|s| s.latest_alive_session_for_agent_in_project(agent, &project))?
         {
             return Ok(rec);
+        }
+        if work_root {
+            if let Some(rec) = state
+                .with_store(|s| s.latest_alive_session_under_work_root(&project, Some(agent)))?
+            {
+                return Ok(rec);
+            }
         }
         anyhow::bail!(
             "no active tenex-edge session for agent {agent:?} in project {project:?} (run session-start, or pass --session)"
@@ -600,11 +614,19 @@ fn resolve_session_inner(
             "not running as a tenex-edge agent: no --session, TENEX_EDGE_SESSION, or TENEX_EDGE_AGENT in scope"
         );
     }
-    state
-        .with_store(|s| s.latest_alive_session_for_project(&project))?
-        .with_context(|| {
-            format!("no active tenex-edge session for project {project:?} (run session-start, or pass --session)")
-        })
+    if let Some(rec) = state.with_store(|s| s.latest_alive_session_for_project(&project))? {
+        return Ok(rec);
+    }
+    if work_root {
+        if let Some(rec) =
+            state.with_store(|s| s.latest_alive_session_under_work_root(&project, None))?
+        {
+            return Ok(rec);
+        }
+    }
+    anyhow::bail!(
+        "no active tenex-edge session for project {project:?} (run session-start, or pass --session)"
+    )
 }
 
 // ── who ──────────────────────────────────────────────────────────────────────
@@ -949,6 +971,12 @@ async fn rpc_session_start(
             s.mark_group_owned(&project, now).ok();
             s.mark_session_room(&project, now).ok();
             s.upsert_group_metadata(&project, &p.agent, parent, now).ok();
+            // The relay create/member-add runs in the background. Record the
+            // intended local membership immediately so the first-turn context
+            // does not report a false "not a member" warning for a group this
+            // backend owns and is currently provisioning.
+            s.upsert_group_member(&project, &id.pubkey_hex(), "member", now)
+                .ok();
         });
         // ALL relay work (subgroup create, admin poll, member-add, subscription)
         // runs in the background — session start has zero synchronous relay await
@@ -2230,7 +2258,7 @@ async fn rpc_project_add(
         .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
     let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
-    let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
+    let pubkey_hex = resolve_project_member_pubkey_hex(&p.pubkey).await?;
 
     let builder = crate::fabric::nip29::lifecycle::group_put_user(&p.project, &pubkey_hex)?;
     state
@@ -2745,6 +2773,20 @@ async fn resolve_backend_pubkey(state: &Arc<DaemonState>, token: &str) -> Result
     anyhow::bail!(
         "cannot resolve backend {token:?}: not a pubkey/npub/NIP-05 and no known peer with that host slug"
     )
+}
+
+async fn resolve_project_member_pubkey_hex(input: &str) -> Result<String> {
+    let edge_home = config::edge_home();
+    if let Some(agent) = identity::list_local_agent_details(&edge_home)
+        .into_iter()
+        .find(|agent| agent.slug == input)
+    {
+        return Ok(agent.pubkey);
+    }
+
+    resolve_pubkey_hex(input).await.with_context(|| {
+        format!("resolving {input:?} as a local agent slug, pubkey, npub, or NIP-05 address")
+    })
 }
 
 async fn resolve_pubkey_hex(input: &str) -> Result<String> {

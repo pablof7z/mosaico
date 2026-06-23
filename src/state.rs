@@ -702,6 +702,33 @@ impl Store {
         }
     }
 
+    /// Most-recent still-alive session for an agent under a `work_root` — the
+    /// bare project OR any per-session room minted beneath it
+    /// (`<slug>-<hex8>`). A human-initiated session is stored under its minted
+    /// room (issue #6), but the same terminal's later `tenex-edge` verbs only
+    /// resolve the bare work-root from `cwd` (no `TENEX_EDGE_GROUP` is exported
+    /// into an already-running interactive shell). Without this the agent can't
+    /// find the very session it is running inside. Pass `None` for `agent` to
+    /// match any agent in the work-root.
+    pub fn latest_alive_session_under_work_root(
+        &self,
+        work_root: &str,
+        agent_slug: Option<&str>,
+    ) -> Result<Option<SessionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd
+             FROM sessions WHERE alive=1 AND (?2 IS NULL OR agent_slug=?2) ORDER BY created_at DESC",
+        )?;
+        let mut rows = stmt.query(params![work_root, agent_slug])?;
+        while let Some(row) = rows.next()? {
+            let rec = row_to_session(row)?;
+            if crate::util::is_session_room_of(&rec.project, work_root) {
+                return Ok(Some(rec));
+            }
+        }
+        Ok(None)
+    }
+
     /// Persist the harness-native resume token for a session. Idempotent; a
     /// later call with the same token is a no-op. Never clears a known token with
     /// an empty one (so a stray payload can't wipe a good resume id).

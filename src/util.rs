@@ -229,6 +229,29 @@ pub fn child_group_id_from_anchor(name: &str, anchor: &str) -> String {
     format!("{slug}-{hex8}")
 }
 
+/// True when `project` is the work-root `name` itself, or a per-session room
+/// minted under it — i.e. `<slugify(name)>-<hex8>` (the shape produced by
+/// [`child_group_id`] / [`child_group_id_from_anchor`]).
+///
+/// Host-side session resolution needs this because a human-initiated session
+/// (someone ran `claude`/`codex` directly, no `TENEX_EDGE_GROUP`) is stored
+/// under its minted room, but the same terminal's later `tenex-edge` verbs only
+/// know the bare work-root from `cwd`. Matching the room lets those verbs find
+/// the session they belong to. The suffix is required to be exactly 8 lowercase
+/// hex chars so a sibling project that merely shares the prefix can't match.
+pub fn is_session_room_of(project: &str, name: &str) -> bool {
+    let slug = slugify_host(name);
+    if project == name || project == slug {
+        return true;
+    }
+    project
+        .strip_prefix(&slug)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|hex| {
+            hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,6 +342,31 @@ mod tests {
         // The anchor (a local-only handle) is hashed, never carried verbatim.
         let id = child_group_id_from_anchor("my-repo", "secret-resume-token-xyz");
         assert!(!id.contains("secret-resume-token-xyz"), "got {id}");
+    }
+
+    #[test]
+    fn is_session_room_of_matches_bare_and_minted_rooms() {
+        // The bare work-root itself, and any room minted beneath it, match.
+        assert!(is_session_room_of("lsjkd", "lsjkd"));
+        assert!(is_session_room_of("lsjkd-2d3145b3", "lsjkd"));
+        assert!(is_session_room_of(
+            &child_group_id_from_anchor("lsjkd", "sess-1"),
+            "lsjkd"
+        ));
+        // A repo whose name already contains a hyphen still works.
+        assert!(is_session_room_of("tenex-edge-86b961bb", "tenex-edge"));
+    }
+
+    #[test]
+    fn is_session_room_of_rejects_unrelated_and_prefix_lookalikes() {
+        // Different project entirely.
+        assert!(!is_session_room_of("other-2d3145b3", "lsjkd"));
+        // A sibling project that merely shares the prefix but whose suffix is
+        // not exactly 8 hex chars must NOT match.
+        assert!(!is_session_room_of("lsjkd-frontend", "lsjkd"));
+        assert!(!is_session_room_of("lsjkd-2d3145b", "lsjkd")); // 7 chars
+        assert!(!is_session_room_of("lsjkd-2d3145b3a", "lsjkd")); // 9 chars
+        assert!(!is_session_room_of("lsjkd2d3145b3", "lsjkd")); // missing hyphen
     }
 
     #[test]
