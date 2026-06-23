@@ -405,6 +405,25 @@ impl Kind1Nip29Provider {
             }
         } else {
             progress("group already exists on relay".to_string());
+            // Bug C fix: if this machine's management key is NOT an admin of the
+            // pre-existing channel, all subsequent put-user calls will be silently
+            // rejected by the relay. Surface a clear, actionable error and bail out
+            // of the membership-provisioning steps (fail-open: the session still
+            // starts, but we won't spam the relay with guaranteed-rejected events).
+            let mgmt_pubkey = user_keys.public_key().to_hex();
+            if roles.get(&mgmt_pubkey).map(String::as_str) != Some("admin") {
+                let short = crate::util::pubkey_short(&mgmt_pubkey);
+                eprintln!(
+                    "[daemon] ERROR: this backend's management key ({short}) is not an admin \
+                     of channel {project} on the relay (it was likely created on another \
+                     machine). Sessions here may have their events rejected. Ask an admin of \
+                     that channel to grant this pubkey admin."
+                );
+                progress(format!(
+                    "management key {short} is not an admin of this channel; skipping membership provisioning"
+                ));
+                return;
+            }
         }
 
         // 2. Backfill admins: every whitelisted human pubkey MUST hold the admin
