@@ -229,7 +229,7 @@ enum Cmd {
         hook_type: String,
     },
     /// Publish a long-form proposal (kind:30023) from this agent's session.
-    Propose {
+    Publish {
         /// Proposal title.
         #[arg(long)]
         title: String,
@@ -508,7 +508,7 @@ enum DebugAction {
 
 pub async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
-        Cmd::Propose {
+        Cmd::Publish {
             title,
             message,
             thread_id,
@@ -516,7 +516,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             session,
         } => {
             let body = messaging::resolve_send_message_body(message)?;
-            messaging::propose(title, body, thread_id, d, session).await
+            messaging::publish(title, body, thread_id, d, session).await
         }
         Cmd::Threads { project, thread } => messaging::threads(project, thread).await,
         Cmd::Who {

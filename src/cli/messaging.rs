@@ -102,9 +102,9 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
     }
 }
 
-// ── propose ───────────────────────────────────────────────────────────────────
+// ── publish ───────────────────────────────────────────────────────────────────
 
-pub(super) async fn propose(
+pub(super) async fn publish(
     title: String,
     body: String,
     thread_id: Option<String>,
@@ -122,7 +122,7 @@ pub(super) async fn propose(
         "thread_id": thread_id,
         "d": d,
     });
-    let v = daemon_call_async("propose", params).await?;
+    let v = daemon_call_async("publish", params).await?;
     let title_echo = v["title"].as_str().unwrap_or(&title);
     let d_tag = v["d_tag"].as_str().unwrap_or("?");
     println!("published proposal {} ({})", title_echo, d_tag);
