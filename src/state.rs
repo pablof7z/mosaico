@@ -310,7 +310,13 @@ CREATE TABLE IF NOT EXISTS owned_groups (
     -- 1 when this owned group is a per-session room (issue #6), so only the
     -- owning session auto-renames it to its distilled title. The ALTER in `open`
     -- backfills this column for databases created before the column existed.
-    is_session_room INTEGER NOT NULL DEFAULT 0
+    is_session_room INTEGER NOT NULL DEFAULT 0,
+    -- The work-root project a per-session room is nested under. Set at mint and
+    -- NOT touched by the relay materializer (unlike project_meta.parent, which a
+    -- relay that doesn't re-emit the NIP-29 parent tag can clobber). Lets
+    -- host-side resolution find a session by its work-root now that the room id
+    -- (session-<hash>) no longer encodes the project name.
+    room_parent TEXT NOT NULL DEFAULT ''
 );
 -- NIP-29 group membership cache (relay-authoritative kind 39002 + our optimistic
 -- put-user writes). Lets session_start skip redundant 9000 publishes idempotently.
@@ -450,6 +456,10 @@ impl Store {
         // distilled title.
         let _ = conn.execute(
             "ALTER TABLE owned_groups ADD COLUMN is_session_room INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE owned_groups ADD COLUMN room_parent TEXT NOT NULL DEFAULT ''",
             [],
         );
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN transcript_path TEXT", []);
@@ -722,7 +732,12 @@ impl Store {
         let mut rows = stmt.query(params![work_root, agent_slug])?;
         while let Some(row) = rows.next()? {
             let rec = row_to_session(row)?;
-            if crate::util::is_session_room_of(&rec.project, work_root) {
+            // The session is either directly in the bare work-root project, or in
+            // a per-session room nested under it. The room id (session-<hash>) no
+            // longer encodes the project, so match on the stored room_parent.
+            let under_work_root = rec.project == work_root
+                || self.session_room_parent(&rec.project)?.as_deref() == Some(work_root);
+            if under_work_root {
                 return Ok(Some(rec));
             }
         }
@@ -2160,13 +2175,30 @@ impl Store {
 
     /// Mark an owned group as a per-session room (issue #6). Idempotent; assumes
     /// the group is already (or concurrently) recorded in `owned_groups`.
-    pub fn mark_session_room(&self, project: &str, ts: u64) -> Result<()> {
+    pub fn mark_session_room(&self, project: &str, parent: &str, ts: u64) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO owned_groups (project, created_at, is_session_room) VALUES (?1, ?2, 1)
-             ON CONFLICT(project) DO UPDATE SET is_session_room=1",
-            params![project, ts],
+            "INSERT INTO owned_groups (project, created_at, is_session_room, room_parent)
+             VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT(project) DO UPDATE SET is_session_room=1, room_parent=?3",
+            params![project, ts, parent],
         )?;
         Ok(())
+    }
+
+    /// The work-root project a per-session room is nested under (set at mint).
+    /// `None` if `project` is not a known per-session room. Materializer-safe.
+    pub fn session_room_parent(&self, project: &str) -> Result<Option<String>> {
+        let parent: rusqlite::Result<String> = self.conn.query_row(
+            "SELECT room_parent FROM owned_groups WHERE project=?1 AND is_session_room=1",
+            params![project],
+            |r| r.get::<_, String>(0),
+        );
+        match parent {
+            Ok(p) if !p.is_empty() => Ok(Some(p)),
+            Ok(_) => Ok(None),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// True if `project` is a per-session room (minted at session birth), as
@@ -3646,15 +3678,17 @@ mod tests {
         // A plain owned group is not a session room.
         s.mark_group_owned("proj", 100).unwrap();
         assert!(!s.is_session_room("proj").unwrap());
-        // Marking a room sets the flag; it stays owned.
-        s.mark_session_room("proj-room", 100).unwrap();
+        // Marking a room sets the flag + records its work-root parent; it stays owned.
+        s.mark_session_room("proj-room", "proj", 100).unwrap();
         assert!(s.is_session_room("proj-room").unwrap());
         assert!(s.is_group_owned("proj-room").unwrap());
-        // Idempotent.
-        s.mark_session_room("proj-room", 200).unwrap();
+        assert_eq!(s.session_room_parent("proj-room").unwrap().as_deref(), Some("proj"));
+        // Idempotent (parent preserved).
+        s.mark_session_room("proj-room", "proj", 200).unwrap();
         assert!(s.is_session_room("proj-room").unwrap());
-        // Unknown group is not a session room.
+        // Unknown group is not a session room and has no parent.
         assert!(!s.is_session_room("nope").unwrap());
+        assert_eq!(s.session_room_parent("nope").unwrap(), None);
     }
 
     #[test]

@@ -800,7 +800,7 @@ async fn rpc_session_start(
             (crate::session::RoomDecision::Mint { parent }, Some(anchor))
                 if state.cfg.management_nsec().is_some() =>
             {
-                project = crate::util::child_group_id_from_anchor(&parent, anchor);
+                project = crate::util::session_room_id(anchor);
                 Some(parent)
             }
             _ => None,
@@ -970,14 +970,15 @@ async fn rpc_session_start(
         let now = now_secs();
         state.with_store(|s| {
             s.mark_group_owned(&project, now).ok();
-            s.mark_session_room(&project, now).ok();
+            s.mark_session_room(&project, parent, now).ok();
             s.upsert_group_metadata(&project, &p.agent, parent, now).ok();
-            // The relay create/member-add runs in the background. Record the
-            // intended local membership immediately so the first-turn context
-            // does not report a false "not a member" warning for a group this
-            // backend owns and is currently provisioning.
-            s.upsert_group_member(&project, &id.pubkey_hex(), "member", now)
-                .ok();
+            // NOTE: we deliberately do NOT pre-insert local group membership here.
+            // The first-turn "not a member" warning is already suppressed by the
+            // `locally_owned` guard (mark_group_owned above is synchronous), so a
+            // local membership row is unnecessary for that — and recording it
+            // before the relay confirms would make `is_group_member` a false
+            // positive (it should mean "the relay accepted our 9000"). The
+            // background mint inserts it only after the relay accepts the add.
         });
         // ALL relay work (subgroup create, admin poll, member-add, subscription)
         // runs in the background — session start has zero synchronous relay await
@@ -2378,7 +2379,7 @@ async fn ensure_session_room(
     // arrives later.
     state.with_store(|s| {
         s.mark_group_owned(room_h, now_secs()).ok();
-        s.mark_session_room(room_h, now_secs()).ok();
+        s.mark_session_room(room_h, parent, now_secs()).ok();
         s.upsert_group_metadata(room_h, name, parent, now_secs()).ok();
     });
     let _ = ensure_subscription(state, room_h).await;

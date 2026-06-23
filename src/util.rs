@@ -207,49 +207,28 @@ pub fn child_group_id(name: &str) -> String {
     format!("{slug}-{rand8}")
 }
 
-/// Derive a *deterministic* per-session room id of the same `<slug>-<hex8>`
-/// shape as [`child_group_id`], but with the hex suffix derived from a stable
-/// `anchor` (the session's resume token / harness id) instead of randomness.
+/// Deterministic id for a per-session room (issue #6): `session-<16hex>`, where
+/// the hex is a stable hash of the session's `anchor` (resume token / harness id
+/// / pid).
 ///
-/// Determinism is the point: a resumed session re-enters this path with the
-/// same `anchor` and so rejoins the SAME room (issue #6: "resume reuses the
-/// room"), rather than minting a fresh subgroup each time. `DefaultHasher::new()`
-/// uses fixed keys, so the suffix is stable across daemon restarts.
+/// The id does NOT prefix the work-root project name: a per-session room is
+/// already nested under its project via the NIP-29 `parent` tag, so repeating
+/// the project in the id is redundant. The room→project link is stored
+/// explicitly (`owned_groups.room_parent`) rather than inferred from the id, so
+/// host-side resolution doesn't depend on the id's shape.
 ///
-/// `anchor` is hashed, never embedded verbatim, so a local-only handle never
-/// reaches the wire (issue #5: "no session_id on the wire").
-pub fn child_group_id_from_anchor(name: &str, anchor: &str) -> String {
+/// 16 hex chars (the full `u64` hash) because the id is no longer scoped by a
+/// project prefix, so it must stay globally unique on the relay across all
+/// projects. Deterministic (`DefaultHasher::new()` uses fixed keys) so a resumed
+/// session re-derives the same room; `anchor` is hashed, never embedded verbatim
+/// (no session_id on the wire, issue #5).
+pub fn session_room_id(anchor: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    let slug = slugify_host(name);
     let mut hasher = DefaultHasher::new();
     anchor.hash(&mut hasher);
-    let hex8 = format!("{:08x}", hasher.finish() as u32);
-    format!("{slug}-{hex8}")
-}
-
-/// True when `project` is the work-root `name` itself, or a per-session room
-/// minted under it — i.e. `<slugify(name)>-<hex8>` (the shape produced by
-/// [`child_group_id`] / [`child_group_id_from_anchor`]).
-///
-/// Host-side session resolution needs this because a human-initiated session
-/// (someone ran `claude`/`codex` directly, no `TENEX_EDGE_CHANNEL`) is stored
-/// under its minted room, but the same terminal's later `tenex-edge` verbs only
-/// know the bare work-root from `cwd`. Matching the room lets those verbs find
-/// the session they belong to. The suffix is required to be exactly 8 lowercase
-/// hex chars so a sibling project that merely shares the prefix can't match.
-pub fn is_session_room_of(project: &str, name: &str) -> bool {
-    let slug = slugify_host(name);
-    if project == name || project == slug {
-        return true;
-    }
-    project
-        .strip_prefix(&slug)
-        .and_then(|rest| rest.strip_prefix('-'))
-        .is_some_and(|hex| {
-            hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        })
+    format!("session-{:016x}", hasher.finish())
 }
 
 #[cfg(test)]
@@ -310,63 +289,35 @@ mod tests {
     }
 
     #[test]
-    fn child_group_id_from_anchor_shape() {
-        let id = child_group_id_from_anchor("My Repo", "sess-abc-123");
-        assert!(id.starts_with("my-repo-"), "got {id}");
-        let suffix = id.rsplit('-').next().unwrap();
-        assert_eq!(suffix.len(), 8, "got {id}");
+    fn session_room_id_shape() {
+        let id = session_room_id("sess-abc-123");
+        assert!(id.starts_with("session-"), "got {id}");
+        let suffix = id.strip_prefix("session-").unwrap();
+        assert_eq!(suffix.len(), 16, "got {id}");
         assert!(
             suffix.chars().all(|c| c.is_ascii_hexdigit()),
             "non-hex suffix in {id}"
         );
+        // No project name anywhere in the id — the room is nested via parent.
+        assert!(!session_room_id("my-repo-anchor").contains("my-repo"));
     }
 
     #[test]
-    fn child_group_id_from_anchor_is_deterministic() {
+    fn session_room_id_is_deterministic() {
         // Same anchor → same id (so a resumed session rejoins the SAME room).
-        let a = child_group_id_from_anchor("my-repo", "sess-abc-123");
-        let b = child_group_id_from_anchor("my-repo", "sess-abc-123");
-        assert_eq!(a, b);
+        assert_eq!(session_room_id("sess-abc-123"), session_room_id("sess-abc-123"));
     }
 
     #[test]
-    fn child_group_id_from_anchor_varies_by_anchor() {
-        // Different sessions in the same repo get different rooms.
-        let a = child_group_id_from_anchor("my-repo", "sess-aaa");
-        let b = child_group_id_from_anchor("my-repo", "sess-bbb");
-        assert_ne!(a, b);
+    fn session_room_id_varies_by_anchor() {
+        assert_ne!(session_room_id("sess-aaa"), session_room_id("sess-bbb"));
     }
 
     #[test]
-    fn child_group_id_from_anchor_does_not_embed_anchor() {
+    fn session_room_id_does_not_embed_anchor() {
         // The anchor (a local-only handle) is hashed, never carried verbatim.
-        let id = child_group_id_from_anchor("my-repo", "secret-resume-token-xyz");
+        let id = session_room_id("secret-resume-token-xyz");
         assert!(!id.contains("secret-resume-token-xyz"), "got {id}");
-    }
-
-    #[test]
-    fn is_session_room_of_matches_bare_and_minted_rooms() {
-        // The bare work-root itself, and any room minted beneath it, match.
-        assert!(is_session_room_of("lsjkd", "lsjkd"));
-        assert!(is_session_room_of("lsjkd-2d3145b3", "lsjkd"));
-        assert!(is_session_room_of(
-            &child_group_id_from_anchor("lsjkd", "sess-1"),
-            "lsjkd"
-        ));
-        // A repo whose name already contains a hyphen still works.
-        assert!(is_session_room_of("tenex-edge-86b961bb", "tenex-edge"));
-    }
-
-    #[test]
-    fn is_session_room_of_rejects_unrelated_and_prefix_lookalikes() {
-        // Different project entirely.
-        assert!(!is_session_room_of("other-2d3145b3", "lsjkd"));
-        // A sibling project that merely shares the prefix but whose suffix is
-        // not exactly 8 hex chars must NOT match.
-        assert!(!is_session_room_of("lsjkd-frontend", "lsjkd"));
-        assert!(!is_session_room_of("lsjkd-2d3145b", "lsjkd")); // 7 chars
-        assert!(!is_session_room_of("lsjkd-2d3145b3a", "lsjkd")); // 9 chars
-        assert!(!is_session_room_of("lsjkd2d3145b3", "lsjkd")); // missing hyphen
     }
 
     #[test]

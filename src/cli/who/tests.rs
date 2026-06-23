@@ -329,6 +329,7 @@ fn live_renderer_same_as_once_with_hint() {
         }],
         other_projects: vec![],
         spawnable: vec![],
+        channel_parent: None,
     };
 
     // --live uses render_who_once: same content, plus a dim quit-hint footer.
@@ -390,6 +391,7 @@ fn who_all_projects_includes_project_in_agent_names() {
         }],
         other_projects: vec![],
         spawnable: vec![],
+        channel_parent: None,
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
@@ -434,6 +436,7 @@ fn agent_renderer_uses_markdown_sections_and_session_table() {
             command: "codex".to_string(),
             byline: Some("Use for autonomous coding tasks".to_string()),
         }],
+        channel_parent: None,
     };
 
     let out = render_who_plain(&snapshot);
@@ -449,6 +452,29 @@ fn agent_renderer_uses_markdown_sections_and_session_table() {
     assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
     assert!(!out.contains("| codex | laptop | `codex` |"));
     assert!(out.contains("## Other projects\n\n- other"));
+}
+
+#[test]
+fn render_labels_session_room_as_channel_with_parent_project() {
+    // When the scope is a per-session room, the header shows the room as the
+    // current Channel and the work-root it's nested under as the Project.
+    let snapshot = WhoSnapshot {
+        project: "session-a1b2c3d4e5f60718".to_string(),
+        all: false,
+        now: 1000,
+        rows: vec![],
+        other_projects: vec![],
+        spawnable: vec![],
+        channel_parent: Some("lsjkd".to_string()),
+    };
+    let out = render_who_plain(&snapshot);
+    assert!(
+        out.contains("Channel: session-a1b2c3d4e5f60718 (your session room)"),
+        "got: {out}"
+    );
+    assert!(out.contains("Project: lsjkd"), "got: {out}");
+    // The room id must NOT be presented as the project.
+    assert!(!out.contains("Project: session-a1b2c3d4e5f60718"), "got: {out}");
 }
 
 #[test]

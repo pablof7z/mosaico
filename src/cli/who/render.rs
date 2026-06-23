@@ -159,14 +159,18 @@ pub(super) fn render_who_for_stdout(snapshot: &WhoSnapshot) -> String {
 pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
 
-    let scope = if snapshot.project == "*" {
-        "all projects".to_string()
-    } else {
-        snapshot.project.clone()
-    };
     let _ = writeln!(out, "# tenex-edge who");
     let _ = writeln!(out);
-    let _ = writeln!(out, "Project: {scope}");
+    if snapshot.project == "*" {
+        let _ = writeln!(out, "Project: all projects");
+    } else if let Some(parent) = &snapshot.channel_parent {
+        // The current scope is this session's own room — show it as the channel,
+        // with the work-root project it's nested under.
+        let _ = writeln!(out, "Channel: {} (your session room)", snapshot.project);
+        let _ = writeln!(out, "Project: {parent}");
+    } else {
+        let _ = writeln!(out, "Project: {}", snapshot.project);
+    }
     let _ = writeln!(out);
 
     let _ = writeln!(out, "## Sessions");

@@ -89,15 +89,15 @@ fn human_initiated_session_mints_per_session_room() {
         .get_session("sess-room-1")
         .unwrap()
         .expect("session row");
-    // The session must live in a freshly-minted room (`<work-root>-<hex8>`),
-    // not the bare work-root project "tmp".
+    // The session must live in a freshly-minted room (`session-<hash>`), not the
+    // bare work-root project "tmp".
     assert_ne!(
         rec.project, "tmp",
         "human-initiated session should mint a per-session room, not use the bare project"
     );
     assert!(
-        rec.project.starts_with("tmp-"),
-        "room id should be a child of the work-root project: got {}",
+        rec.project.starts_with("session-"),
+        "room id should be a project-agnostic session room: got {}",
         rec.project
     );
     // Membership lands via the background mint.
@@ -143,7 +143,7 @@ fn opencode_style_session_without_id_mints_room_via_pid() {
         .find(|r| r.agent_slug == "opencoder")
         .expect("opencode session row");
     assert!(
-        rec.project.starts_with("tmp-"),
+        rec.project.starts_with("session-"),
         "opencode session must mint a per-session room, not stay in the bare project: got {}",
         rec.project
     );

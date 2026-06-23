@@ -103,6 +103,11 @@ pub struct WhoSnapshot {
     /// Agents tenex-edge has an identity for that can be spawned via tmux.
     #[serde(default)]
     spawnable: Vec<SpawnableRow>,
+    /// When the current scope is a per-session room, the work-root project it is
+    /// nested under. Lets the renderer label the room as the current *channel*
+    /// (distinct from the *project*). `None` when the scope is a plain project.
+    #[serde(default)]
+    channel_parent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -300,6 +305,11 @@ pub fn load_who_snapshot(
         })
         .collect();
 
+    // If the current scope is a per-session room, surface its work-root parent
+    // so the renderer can label it as the channel (not the project).
+    let channel_parent = current_project
+        .and_then(|p| store.session_room_parent(p).ok().flatten());
+
     Ok(WhoSnapshot {
         project: current_project.unwrap_or("*").to_string(),
         all,
@@ -307,6 +317,7 @@ pub fn load_who_snapshot(
         rows,
         other_projects,
         spawnable,
+        channel_parent,
     })
 }
 
