@@ -29,7 +29,11 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-grp-1", "cwd": "/tmp"}),
+            // Supply a live watch_pid (this test process) so the daemon engine's
+            // pid-watcher sees a running process and the session stays alive.
+            // Real hooks always send the harness pid; omitting it lets the engine
+            // self-terminate (no live process to watch) and race the store read.
+            serde_json::json!({"agent": "coder", "session_id": "sess-grp-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
