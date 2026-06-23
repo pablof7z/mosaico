@@ -82,7 +82,7 @@ enum Cmd {
     // corresponding private fn (session_start_inner / session_end / turn_start /
     // turn_check / turn_end). There is no host-facing way — or need — to invoke
     // them by hand.
-    /// List peers currently visible (with session-id prefixes for targeting).
+    /// List agents currently visible in the project/channel.
     Who {
         #[arg(long)]
         project: Option<String>,
@@ -93,8 +93,8 @@ enum Cmd {
         #[arg(long)]
         live: bool,
     },
-    /// Show your own identity on the fabric: agent slug, session codename,
-    /// canonical session id, project, host, pubkey, and current status.
+    /// Show your own identity on the fabric: agent slug, project/channel, host,
+    /// pubkey, and current status.
     Whoami {
         /// Session id; if omitted, resolved from env / the current directory.
         #[arg(long)]
@@ -289,7 +289,7 @@ enum Cmd {
 #[derive(Subcommand)]
 enum ChatAction {
     /// Publish a project chat line. Reads body from arg, --message, or stdin.
-    /// Mention a session inline by writing `@<codename>` in the body.
+    /// Write to the current project/channel chat.
     Write {
         /// Message body. Positional, or via --message, or piped on stdin.
         #[arg(value_name = "MESSAGE")]
@@ -870,20 +870,18 @@ mod turn_context_tests {
             text.contains("changes on #proj since your last check"),
             "delta header expected; got: {text:?}"
         );
-        // Changed renders as a canonical presence line: `* codename (agent@host) — activity`.
+        // Changed renders as an agent/host presence line.
         assert!(
-            text.contains("(sib@laptop) — editing hooks.rs"),
-            "sibling activity expected as a canonical presence line; got: {text:?}"
+            text.contains("sib (laptop) — editing hooks.rs"),
+            "sibling activity expected as an agent/host presence line; got: {text:?}"
         );
         assert!(
             !text.contains("My own work"),
             "viewer's own status must be excluded; got: {text:?}"
         );
-        // The session must render as the targetable codename (matching `who`),
-        // never the raw id — otherwise it can't be copied into `send --to-session`.
         assert!(
-            text.contains(&crate::util::session_codename(&sib_id)),
-            "session must render as codename; got: {text:?}"
+            !text.contains(&crate::util::session_codename(&sib_id)),
+            "session code must not render as the primary identity; got: {text:?}"
         );
         assert!(
             !text.contains(sib_id.as_str()),
@@ -914,8 +912,8 @@ mod turn_context_tests {
             assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
                 .expect("delta block expected for idle transition");
         assert!(
-            text.contains("(sib@laptop) — idle"),
-            "idle marker expected in the canonical presence line; got: {text:?}"
+            text.contains("sib (laptop) — idle"),
+            "idle marker expected in the agent/host presence line; got: {text:?}"
         );
     }
 

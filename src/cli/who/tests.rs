@@ -172,15 +172,10 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     assert!(once.starts_with("proj\n\n"));
     // Host is shown for every agent now, including same-machine sessions. The
     // freshly-registered coder is idle (no turn opened yet).
-    // Canonical agent reference `agent@host`; a local session shows no host paren.
-    assert!(once.contains(&format!(
-        "coder@laptop [session {}] - idle",
-        session_codename(&coder_id)
-    )));
-    assert!(once.contains("coder@laptop"));
-    // The genuine remote carries its host in the `@host` name plus a `(remote)` flag.
-    assert!(once.contains("@tower"));
-    assert!(once.contains("(remote)"));
+    assert!(once.contains("coder (laptop) - idle"));
+    assert!(!once.contains("[session"));
+    assert!(!once.contains(&session_codename(&coder_id)));
+    assert!(once.contains("reviewer (tower, remote) - reviewing the patch"));
 }
 
 #[test]
@@ -283,10 +278,8 @@ fn same_host_peer_is_not_remote() {
     assert!(!sib.remote, "same-host peer must not be remote");
     assert_eq!(sib.rel_cwd, "worktree1");
     let once = strip_ansi(&render_who_once(&snap));
-    assert!(
-        once.contains("@laptop") && !once.contains("(remote)"),
-        "same-host peer shows its host in the @host name with no remote flag"
-    );
+    assert!(once.contains("codex (laptop)"), "same-host peer shows its host");
+    assert!(!once.contains("remote"), "same-host peer must not be remote");
     assert!(once.contains("[worktree1]"), "rel_cwd shown in bracket");
 }
 
@@ -301,8 +294,8 @@ fn root_rel_cwd_has_no_bracket() {
     let once = strip_ansi(&render_who_once(&snap));
     assert!(!once.contains("[.]"), "root cwd must not render a bracket");
     assert!(
-        once.contains("@tower") && once.contains("(remote)"),
-        "remote peer shows host in the @host name plus a remote flag"
+        once.contains("a (tower, remote)"),
+        "remote peer shows host plus a remote flag"
     );
 }
 
@@ -357,12 +350,8 @@ fn who_renderer_summarizes_other_projects() {
     let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let once = strip_ansi(&render_who_once(&snap));
 
-    // Peer rows no longer carry a native session id; their display id is the
-    // pubkey, so the codename derives from "pk-a" (issue #5 §4 re-key).
-    assert!(once.contains(&format!(
-        "a@laptop [session {}] - idle",
-        session_codename("pk-a")
-    )));
+    assert!(once.contains("a (laptop) - idle"));
+    assert!(!once.contains("[session"));
     assert!(once.contains("1 other agent(s) in other projects:"));
     assert!(once.contains("  * other - Other work"));
 }
@@ -395,14 +384,11 @@ fn who_all_projects_includes_project_in_agent_names() {
 
     let once = strip_ansi(&render_who_once(&snapshot));
     assert!(once.starts_with("all projects\n\n"));
-    assert!(once.contains(&format!(
-        "reviewer@tower [session {}] - idle",
-        session_codename("remote-session")
-    )));
+    assert!(once.contains("reviewer (tower) - idle"));
 }
 
 #[test]
-fn agent_renderer_uses_markdown_sections_and_session_table() {
+fn agent_renderer_uses_markdown_sections_and_agent_table() {
     let snapshot = WhoSnapshot {
         project: "proj".to_string(),
         now: 1_000,
@@ -438,18 +424,72 @@ fn agent_renderer_uses_markdown_sections_and_session_table() {
     };
 
     let out = render_who_plain(&snapshot);
-    assert!(out.starts_with("# tenex-edge who\n\nProject: proj\n\n## Sessions\n"));
-    assert!(out.contains("| Agent | Session | Host | Title | Status |"));
-    assert!(out.contains(&format!(
-        "| reviewer@tower | `{}` | tower, remote [worktree] | Review plan | checking patch \\| tests |",
-        session_codename("remote-session")
-    )));
+    assert!(out.starts_with("# tenex-edge who\n\nProject: proj\n\n## Agents in this channel\n"));
+    assert!(out.contains("| Agent | Host | Title | Status |"));
+    assert!(out.contains(
+        "| reviewer | tower, remote [worktree] | Review plan | checking patch \\| tests |"
+    ));
+    assert!(!out.contains("[session"));
+    assert!(!out.contains("remote-session"));
     assert!(out.contains("## Agents (for new sessions)"));
     // Agent table carries the byline ("When to use"), not the launch command.
     assert!(out.contains("| Agent | Host | When to use |"));
     assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
     assert!(!out.contains("| codex | laptop | `codex` |"));
     assert!(out.contains("## Other projects\n\n- other"));
+}
+
+#[test]
+fn agent_renderer_disambiguates_duplicate_slugs_as_agent_names() {
+    let snapshot = WhoSnapshot {
+        project: "proj".to_string(),
+        now: 1_000,
+        rows: vec![
+            WhoRow {
+                source: WhoSource::Local,
+                fresh: true,
+                slug: "codex".to_string(),
+                project: "proj".to_string(),
+                status: "one".to_string(),
+                activity: String::new(),
+                active: false,
+                host: "laptop".to_string(),
+                session_id: "sess-a".to_string(),
+                age_secs: Some(5),
+                rel_cwd: String::new(),
+                remote: false,
+                attachable: false,
+                pubkey: String::new(),
+            },
+            WhoRow {
+                source: WhoSource::Peer,
+                fresh: true,
+                slug: "codex".to_string(),
+                project: "proj".to_string(),
+                status: "two".to_string(),
+                activity: String::new(),
+                active: false,
+                host: "tower".to_string(),
+                session_id: "sess-b".to_string(),
+                age_secs: Some(5),
+                rel_cwd: String::new(),
+                remote: true,
+                attachable: false,
+                pubkey: String::new(),
+            },
+        ],
+        other_projects: vec![],
+        spawnable: vec![],
+        channel_parent: None,
+    };
+
+    let out = render_who_plain(&snapshot);
+    assert!(out.contains(&format!("| codex-{} | laptop |", session_codename("sess-a"))));
+    assert!(out.contains(&format!(
+        "| codex-{} | tower, remote |",
+        session_codename("sess-b")
+    )));
+    assert!(!out.contains("| Agent | Session |"));
 }
 
 #[test]
@@ -536,27 +576,24 @@ fn build_status_delta_reports_appeared_changed_and_excludes_self() {
     );
     seed_busy_title(&store, &me_id, "my work", 1_000);
 
-    let lines = build_status_delta(&store, 500, "proj", 1_000, Some(&me_id));
+    let lines = build_status_delta(&store, 500, "proj", 1_000, "laptop", Some(&me_id));
     let joined = lines.join("\n");
-    // The delta renders canonical presence lines: `* codename (agent@host) joined`.
+    // The delta renders presence lines with the same agent/host vocabulary as `who`.
     assert!(
-        joined.contains("(reviewer@tower) joined"),
-        "peer appearance must surface as a canonical `(reviewer@tower) joined` line: {joined}"
+        joined.contains("reviewer (tower) joined"),
+        "peer appearance must surface as an agent/host joined line: {joined}"
     );
     assert!(
         joined.trim_start().starts_with('*'),
         "delta lines are `* …` presence lines, not a table: {joined}"
     );
-    assert!(
-        !joined.contains(&session_codename(&me_id)),
-        "viewer's own session must be excluded: {joined}"
-    );
+    assert!(!joined.contains("coder"), "viewer's own session must be excluded: {joined}");
 }
 
 /// `whoami`'s agent-facing (non-TTY) render is a markdown identity card that
-/// names the session's own codename and the `--to-session` form others use.
+/// uses the same agent/project/host vocabulary as `who`.
 #[test]
-fn render_whoami_card_names_self_and_addressing() {
+fn render_whoami_card_names_self_without_session_code() {
     let card = serde_json::json!({
         "agent": "developer",
         "session_id": "sess-abc",
@@ -575,14 +612,13 @@ fn render_whoami_card_names_self_and_addressing() {
     let out = render_whoami(&card);
     let code = session_codename("sess-abc");
     assert!(
-        out.contains(&format!("You are **developer** [session {code}]")),
-        "card must name the agent + codename: {out}"
+        out.contains("You are **developer** on **tenex-edge**."),
+        "card must name the agent + project: {out}"
     );
-    assert!(
-        out.contains(&format!("`--to-session {code}`")),
-        "card must show how others address this session: {out}"
-    );
-    assert!(out.contains("| Session ID | sess-abc |"), "raw id: {out}");
+    assert!(!out.contains(&code), "session code must not be rendered: {out}");
+    assert!(!out.contains("--to-session"), "addressing guidance must not mention sessions: {out}");
+    assert!(!out.contains("| Session"), "session rows must not be rendered: {out}");
+    assert!(!out.contains("sess-abc"), "raw id: {out}");
     assert!(
         out.contains("| Host | laptop [worktree1] |"),
         "host+cwd: {out}"

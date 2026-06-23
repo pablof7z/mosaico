@@ -58,8 +58,8 @@ pub(super) fn who_live(
 
 /// `whoami`: print this session's own identity card. Resolves the current
 /// session daemon-side (explicit `--session` → `TENEX_EDGE_SESSION` env → the
-/// cwd's project), then renders who you are on the fabric so an agent can pick
-/// its own row out of `who` and knows the codename others address it by.
+/// cwd's project), then renders the same agent/channel/host vocabulary used by
+/// `who` and the hook-injected fabric context.
 pub(super) async fn whoami(session: Option<String>, json: bool) -> Result<()> {
     let params = serde_json::json!({
         "session": session,
@@ -146,7 +146,7 @@ struct WhoRow {
     #[serde(default)]
     attachable: bool,
     /// Hex pubkey others route to: the per-session pubkey when derived, else the
-    /// durable agent pubkey. This is the wire address behind the codename.
+    /// durable agent pubkey.
     #[serde(default)]
     pubkey: String,
 }
@@ -333,7 +333,7 @@ pub(super) fn push_turn_fabric_block(
     if first_turn {
         if let Ok(snapshot) = load_who_snapshot(&store, Some(project), now, daemon_host) {
             if !snapshot.rows.is_empty() {
-                let who_text = render::render_turn_roster_plain(&snapshot);
+                let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
                     "tenex-edge fabric — agents visible in this channel:\n{}",
                     who_text.trim_end()
@@ -349,6 +349,7 @@ pub(super) fn push_turn_fabric_block(
             prev_turn_started_at,
             project,
             now,
+            daemon_host,
             Some(self_session),
         );
         if !delta.is_empty() {
@@ -377,6 +378,7 @@ pub(super) fn build_status_delta(
     since: u64,
     project: &str,
     now: u64,
+    daemon_host: &str,
     exclude_session: Option<&str>,
 ) -> Vec<String> {
     let items = store
@@ -386,19 +388,14 @@ pub(super) fn build_status_delta(
         return Vec::new();
     }
 
-    // Canonical presence lines, one per change, referring to each session the
-    // single standard way: `codename (agent@host)`.
-    //   * bravo4217 (codex@laptop) joined
-    //   * echo0163 (claude@tower) left
-    //   * bravo4217 (codex@laptop) — reviewing the patch
+    let name_counts = load_who_snapshot(store, Some(project), now, daemon_host)
+        .map(|snapshot| render::agent_name_counts(&snapshot.rows))
+        .unwrap_or_default();
+
     let mut delta: Vec<String> = Vec::with_capacity(items.len());
     for item in &items {
         let snap = &item.snapshot;
-        let label = crate::idref::session_label(
-            snap.session_id.as_str(),
-            snap.agent_slug.as_str(),
-            &snap.host,
-        );
+        let label = delta_agent_label(snap, &name_counts);
         let activity = render::status_plain("", &item.derived.activity, item.derived.busy);
         let line = match item.kind {
             DeltaKind::Appeared => format!("* {label} joined"),
@@ -408,6 +405,23 @@ pub(super) fn build_status_delta(
         delta.push(line);
     }
     delta
+}
+
+fn delta_agent_label(
+    snap: &SessionSnapshot,
+    name_counts: &std::collections::BTreeMap<String, usize>,
+) -> String {
+    let agent = render::display_agent_name(
+        snap.agent_slug.as_str(),
+        snap.session_id.as_str(),
+        name_counts,
+    );
+    let host = slugify_host(&snap.host);
+    if host.is_empty() {
+        agent
+    } else {
+        format!("{agent} ({host})")
+    }
 }
 
 #[cfg(test)]

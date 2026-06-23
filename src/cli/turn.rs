@@ -135,7 +135,7 @@ pub fn assemble_turn_start_context(
 pub fn assemble_turn_check_context(
     store: &std::sync::Mutex<Store>,
     rec: &crate::state::SessionRecord,
-    _self_host: &str,
+    self_host: &str,
     delta_since: Option<u64>,
     now: u64,
 ) -> Option<String> {
@@ -169,7 +169,7 @@ pub fn assemble_turn_check_context(
         }
 
         let s = store.lock().expect("store mutex poisoned");
-        let delta = build_status_delta(&s, since, &scope, now, Some(&rec.session_id));
+        let delta = build_status_delta(&s, since, &scope, now, self_host, Some(&rec.session_id));
         if !delta.is_empty() {
             blocks.push(format!(
                 "tenex-edge fabric — changes on {channel} since your last check:\n{}",
@@ -221,15 +221,12 @@ pub(crate) fn render_chat_block(
 ) -> String {
     let mut text = String::from(header);
     for row in rows {
-        // Canonical sender: `codename (agent@host)` when the session is known,
-        // else `agent@host`, else the short pubkey for an unknown sender.
-        // ChatInboxRow carries no host, so this degrades to `codename (slug)`.
+        // Keep the chat sender in the same human-facing vocabulary as `who`:
+        // agent slug when known, short pubkey only for an unknown sender.
         let from = if row.from_slug.is_empty() {
             pubkey_short(&row.from_pubkey)
-        } else if row.from_session.is_empty() {
-            row.from_slug.clone()
         } else {
-            crate::idref::session_label(&row.from_session, &row.from_slug, "")
+            row.from_slug.clone()
         };
         let mention = if row.mentioned_session == self_session {
             " mentioned you"

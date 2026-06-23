@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
+    let name_counts = agent_name_counts(&snapshot.rows);
 
     let scope = if snapshot.project == "*" {
         "all projects".to_string()
@@ -15,11 +16,11 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
         let _ = writeln!(out, "(no live agents — start a session)");
     } else if snapshot.project == "*" {
         for row in &snapshot.rows {
-            render_who_row(&mut out, row, true);
+            render_who_row(&mut out, row, true, &name_counts);
         }
     } else {
         for row in &snapshot.rows {
-            render_who_row(&mut out, row, false);
+            render_who_row(&mut out, row, false, &name_counts);
         }
     }
 
@@ -64,8 +65,6 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
 pub(super) fn render_whoami(v: &serde_json::Value) -> String {
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let agent = s("agent");
-    let codename = s("codename");
-    let session_id = s("session_id");
     let project = s("project");
     let host = s("host");
     let rel_cwd = s("rel_cwd");
@@ -88,16 +87,13 @@ pub(super) fn render_whoami(v: &serde_json::Value) -> String {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "You are {} [session {}] on {}.",
+            "You are {} on {}.",
             agent.cyan().bold(),
-            codename.yellow(),
-            host
+            project
         );
         let _ = writeln!(out);
         let row = |k: &str, val: &str| format!("  {:<10} {}\n", format!("{k}:").dimmed(), val);
         let _ = write!(out, "{}", row("agent", &agent));
-        let _ = write!(out, "{}", row("session", &codename));
-        let _ = write!(out, "{}", row("id", &session_id));
         let _ = write!(out, "{}", row("project", &project));
         let _ = write!(out, "{}", row("host", &dir));
         let _ = write!(out, "{}", row("pubkey", &key));
@@ -113,17 +109,11 @@ pub(super) fn render_whoami(v: &serde_json::Value) -> String {
         out
     } else {
         let mut out = String::new();
-        let _ = writeln!(
-            out,
-            "You are **{agent}** [session {codename}] on the tenex-edge fabric. \
-             Others address you with `--to-session {codename}`."
-        );
+        let _ = writeln!(out, "You are **{agent}** on **{project}**.");
         let _ = writeln!(out);
         let _ = writeln!(out, "| Field | Value |");
         let _ = writeln!(out, "|---|---|");
         let _ = writeln!(out, "| Agent | {} |", md_cell(&agent));
-        let _ = writeln!(out, "| Session | {} |", md_cell(&codename));
-        let _ = writeln!(out, "| Session ID | {} |", md_cell(&session_id));
         let _ = writeln!(out, "| Project | {} |", md_cell(&project));
         let _ = writeln!(out, "| Host | {} |", md_cell(&dir));
         let _ = writeln!(out, "| Pubkey | {} |", md_cell(&key));
@@ -150,6 +140,7 @@ pub(super) fn render_who_for_stdout(snapshot: &WhoSnapshot) -> String {
 
 pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
+    let name_counts = agent_name_counts(&snapshot.rows);
 
     let _ = writeln!(out, "# tenex-edge who");
     let _ = writeln!(out);
@@ -165,20 +156,20 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     }
     let _ = writeln!(out);
 
-    let _ = writeln!(out, "## Sessions");
+    let _ = writeln!(out, "## Agents in this channel");
     let _ = writeln!(
         out,
         "Use `tenex-edge chat write --message \"...\"` to write to this channel."
     );
     let _ = writeln!(out);
     if snapshot.rows.is_empty() {
-        let _ = writeln!(out, "_No live sessions visible._");
+        let _ = writeln!(out, "_No live agents visible._");
     } else {
-        for line in SESSION_TABLE_HEADER {
+        for line in AGENT_TABLE_HEADER {
             let _ = writeln!(out, "{line}");
         }
         for row in &snapshot.rows {
-            render_who_markdown_row(&mut out, row, snapshot.project == "*");
+            render_who_markdown_row(&mut out, row, snapshot.project == "*", &name_counts);
         }
     }
 
@@ -223,59 +214,16 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     out
 }
 
-pub(super) fn render_turn_roster_plain(snapshot: &WhoSnapshot) -> String {
-    let mut out = String::new();
-
-    let _ = writeln!(out, "# tenex-edge who");
-    let _ = writeln!(out);
-    if snapshot.project == "*" {
-        let _ = writeln!(out, "Project: all projects");
-    } else if let Some(parent) = &snapshot.channel_parent {
-        let _ = writeln!(out, "Channel: {} (your session room)", snapshot.project);
-        let _ = writeln!(out, "Project: {parent}");
-    } else {
-        let _ = writeln!(out, "Project: {}", snapshot.project);
-    }
-    let _ = writeln!(out);
-
-    let _ = writeln!(out, "## Agents in this channel");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Agent | Host | Title | Status |");
-    let _ = writeln!(out, "|---|---|---|---|");
-    for row in &snapshot.rows {
-        render_turn_roster_row(&mut out, row);
-    }
-    out
-}
-
-fn render_turn_roster_row(out: &mut String, row: &WhoRow) {
-    let agent = crate::idref::agent_label(&row.slug, &row.host);
-    let host = if row.remote {
-        format!("{}, remote", crate::util::slugify_host(&row.host))
-    } else {
-        crate::util::slugify_host(&row.host)
-    };
-    let host = rel_cwd_bracket(&row.rel_cwd)
-        .map(|dir| format!("{host} [{dir}]"))
-        .unwrap_or(host);
-    let title = if row.status.trim().is_empty() {
-        "—".to_string()
-    } else {
-        row.status.trim().to_string()
-    };
-    let mut status = if row.active {
-        let activity = row.activity.trim();
-        if activity.is_empty() {
-            "working".to_string()
-        } else {
-            activity.to_string()
-        }
-    } else {
-        "idle".to_string()
-    };
-    if !row.fresh {
-        status.push_str(" (stale)");
-    }
+fn render_who_markdown_row(
+    out: &mut String,
+    row: &WhoRow,
+    _include_project: bool,
+    name_counts: &std::collections::BTreeMap<String, usize>,
+) {
+    let agent = display_agent_name(&row.slug, &row.session_id, name_counts);
+    let host = row_host_label(row);
+    let title = row_title_label(row);
+    let status = row_state_label(row);
     let _ = writeln!(
         out,
         "| {} | {} | {} | {} |",
@@ -286,23 +234,46 @@ fn render_turn_roster_row(out: &mut String, row: &WhoRow) {
     );
 }
 
-fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: bool) {
-    // Canonical agent reference `agent@host` (host slugified), the one way to
-    // name an agent everywhere — independent of project scope.
-    let agent = crate::idref::agent_label(&row.slug, &row.host);
+pub(super) fn agent_name_counts(rows: &[WhoRow]) -> std::collections::BTreeMap<String, usize> {
+    let mut counts = std::collections::BTreeMap::new();
+    for row in rows {
+        *counts.entry(row.slug.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+pub(super) fn display_agent_name(
+    slug: &str,
+    session_id: &str,
+    name_counts: &std::collections::BTreeMap<String, usize>,
+) -> String {
+    if name_counts.get(slug).copied().unwrap_or(0) > 1 {
+        format!("{}-{}", slug, session_codename(session_id))
+    } else {
+        slug.to_string()
+    }
+}
+
+fn row_host_label(row: &WhoRow) -> String {
     let host = if row.remote {
         format!("{}, remote", crate::util::slugify_host(&row.host))
     } else {
         crate::util::slugify_host(&row.host)
     };
-    let host = rel_cwd_bracket(&row.rel_cwd)
+    rel_cwd_bracket(&row.rel_cwd)
         .map(|dir| format!("{host} [{dir}]"))
-        .unwrap_or(host);
-    let title = if row.status.trim().is_empty() {
+        .unwrap_or(host)
+}
+
+fn row_title_label(row: &WhoRow) -> String {
+    if row.status.trim().is_empty() {
         "—".to_string()
     } else {
         row.status.trim().to_string()
-    };
+    }
+}
+
+fn row_state_label(row: &WhoRow) -> String {
     let mut status = if row.active {
         let activity = row.activity.trim();
         if activity.is_empty() {
@@ -316,45 +287,10 @@ fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: boo
     if !row.fresh {
         status.push_str(" (stale)");
     }
-    let _ = writeln!(
-        out,
-        "{}",
-        session_table_row(
-            &agent,
-            &session_codename(&row.session_id),
-            &host,
-            &title,
-            &status,
-        )
-    );
+    status
 }
 
-/// The header + alignment rows for the agent-facing session table. Shared by the
-/// first-turn roster (`render_who_plain`) and the "changes since…" delta so both
-/// render with an identical table shape.
-pub(super) const SESSION_TABLE_HEADER: [&str; 2] = [
-    "| Agent | Session | Host | Title | Status |",
-    "|---|---:|---|---|---|",
-];
-
-/// One markdown row for the agent-facing session table. The session codename is
-/// backtick-wrapped; every other cell is escaped via [`md_cell`].
-pub(super) fn session_table_row(
-    agent: &str,
-    session_code: &str,
-    host: &str,
-    title: &str,
-    status: &str,
-) -> String {
-    format!(
-        "| {} | `{}` | {} | {} | {} |",
-        md_cell(agent),
-        session_code,
-        md_cell(host),
-        md_cell(title),
-        md_cell(status),
-    )
-}
+const AGENT_TABLE_HEADER: [&str; 2] = ["| Agent | Host | Title | Status |", "|---|---|---|---|"];
 
 fn md_cell(input: &str) -> String {
     md_text(input).replace('|', r"\|")
@@ -368,36 +304,37 @@ fn md_text(input: &str) -> String {
         .join(" ")
 }
 
-fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
+fn render_who_row(
+    out: &mut String,
+    row: &WhoRow,
+    include_project: bool,
+    name_counts: &std::collections::BTreeMap<String, usize>,
+) {
     let stale = if row.fresh {
         String::new()
     } else {
         format!(" {}", "(stale)".dimmed())
     };
-    // Always show which host the agent runs on. Same-machine agents get a plain
-    // `(hostname)`; a true remote (peer on a different host than the daemon) is
-    // flagged `(hostname, remote)` so cross-machine sessions stay distinguishable.
-    // Host is already in the canonical `agent@host` name; only flag remoteness.
+    // Always show which host the agent runs on. A true remote peer is flagged so
+    // cross-machine sessions stay distinguishable without exposing a session id.
     let host = if row.remote {
-        format!(" {}", "(remote)".dimmed())
+        format!("{}, remote", crate::util::slugify_host(&row.host))
     } else {
-        String::new()
+        crate::util::slugify_host(&row.host)
     };
     let dir = rel_cwd_bracket(&row.rel_cwd)
         .map(|d| format!(" {}", format!("[{d}]").dimmed()))
         .unwrap_or_default();
-    // Canonical agent reference `agent@host` (host slugified), always.
     let _ = include_project;
-    let name = crate::idref::agent_label(&row.slug, &row.host)
+    let name = display_agent_name(&row.slug, &row.session_id, name_counts)
         .cyan()
         .to_string();
     let _ = writeln!(
         out,
-        "{} [session {}]{}{}{} - {}",
+        "{} ({}){}{} - {}",
         name,
-        session_codename(&row.session_id).yellow(),
-        dir,
         host,
+        dir,
         stale,
         status_colored(&row.status, &row.activity, row.active),
     );
