@@ -7,15 +7,12 @@
 //!   `Arc<Mutex<Store>>` that `DaemonState` owns — one SQLite connection total.
 //! - Dynamic per-call data (the hosted "me" set, owners, now) is passed to
 //!   methods, not stored; the provider owns only stable construction-time data.
-//!
-//! Phase 6 adds `SendIntent`, `OutboundReceipt`, and `provider.send()` for
-//! canonical dual-write outbound messages alongside the legacy inbox path.
 
-use crate::domain::{AgentRef, DomainEvent, Mention};
+use crate::domain::DomainEvent;
 use crate::fabric::kind1::wire::Kind1WireCodec;
 use crate::fabric::nostr_delivery::NostrDelivery;
 use crate::fabric::{MaterializationOutcome, RawEnvelope, WireCodec};
-use crate::state::{SessionRecord, Store};
+use crate::state::Store;
 use crate::transport::Transport;
 use crate::util::now_secs;
 use anyhow::Result;
@@ -28,69 +25,19 @@ use std::time::Duration;
 // Fabric identifier used in all canonical origin rows.
 pub const FABRIC: &str = "kind1-nip29";
 
-// ── Phase 6 send types ────────────────────────────────────────────────────────
-
-/// All inputs needed to publish one outbound message.
-pub struct SendIntent {
-    /// Sender's identity on the fabric.
-    pub from: AgentRef,
-    /// Recipient's pubkey (hex). Stage 4: always the session pubkey (or agent
-    /// pubkey when no session key was derived), never the legacy agent pubkey
-    /// + session-id pair.
-    pub to_pubkey: String,
-    /// Project slug (NIP-29 group name).
-    pub project: String,
-    /// Message body.
-    pub body: String,
-    /// Existing canonical thread id to attach to. `None` → a new thread root
-    /// is created from the published event id (Phase 7 will refine).
-    pub thread_id: Option<String>,
-    /// Envelope metadata (subject + sender workspace snapshot + reply-to).
-    /// Rides the wire as tags; rendered as an email-like header on receipt.
-    pub meta: crate::domain::MentionMeta,
-}
-
-impl SendIntent {
-    /// Convert to the `Mention` domain event used by the wire codec and the
-    /// local-delivery path. Both callers see the same struct.
-    pub fn to_mention(&self) -> Mention {
-        Mention {
-            from: self.from.clone(),
-            to_pubkey: self.to_pubkey.clone(),
-            project: self.project.clone(),
-            body: self.body.clone(),
-            meta: self.meta.clone(),
-        }
-    }
-}
-
-/// Result of a successful `provider.send()`.
-pub struct OutboundReceipt {
-    /// Hex event id of the published Nostr event.
-    pub native_event_id: String,
-    /// Canonical `message_id` inserted into the read-model `messages` table.
-    pub message_id: String,
-    /// Sync state stored on the canonical message (`"published"` or `"accepted"`).
-    pub sync_state: String,
-    /// The canonical thread_id the message was filed under (new or existing).
-    pub thread_id: String,
-}
-
 // ── Trait shell (documentation only; daemon calls concrete inherent methods) ───
 
 /// Shell trait documenting the provider API surface.
 ///
 /// Phase 5 implements the concrete methods directly on `Kind1Nip29Provider`
 /// (inherent) rather than via `impl FabricProvider`, to avoid async-fn-in-trait
-/// machinery. `send` and `set_status` are implemented as inherent methods.
+/// machinery. `set_status` is implemented as an inherent method.
 #[allow(dead_code)]
 pub trait FabricProvider {
     fn name(&self) -> &'static str;
     // async fn open_project(&self, project: &str, agent_pubkey: &str);
-    // async fn send(&self, intent: SendIntent) -> Result<OutboundReceipt>;
     // async fn set_status(&self, status: &Status, keys: &Keys) -> Result<EventId>;
     // async fn subscribe_project(&self, scope: crate::fabric::Scope) -> Result<()>;
-    // async fn catch_up_mentions(&self, rec: &SessionRecord) -> Result<usize>;
     // fn materialize(&self, env: RawEnvelope, hosted: &[String], owners: &[String], now: u64, store: &Store) -> MaterializationOutcome;
 }
 
@@ -201,25 +148,6 @@ impl Kind1Nip29Provider {
             .await
             .map(|evs| !evs.is_empty())
             .unwrap_or(false)
-    }
-
-    /// Publish a mention that the daemon is emitting on behalf of `suppress_for`'s
-    /// OWN session (a local user-prompt), pre-recording it as seen for that agent
-    /// BEFORE the wire send so its relay echo is never routed back into that
-    /// agent's own inbox. Marking seen before publishing closes the race where the
-    /// echo arrives and routes before a post-publish mark could land. Returns the
-    /// published event id. (Events are built/signed only here, never above the seam.)
-    pub async fn publish_seen_by(
-        &self,
-        ev: &DomainEvent,
-        keys: &nostr_sdk::prelude::Keys,
-        suppress_for: &str,
-    ) -> Result<nostr_sdk::prelude::EventId> {
-        let builder = self.wire.encode(ev)?;
-        let signed = self.transport.sign(builder, keys).await?;
-        let eid = signed.id.to_hex();
-        self.with_store(|s| s.mark_mention_seen(suppress_for, &eid, now_secs()).ok());
-        self.transport.publish_event(&signed).await
     }
 
     /// Connectivity probe: publish a uniquely-tagged throwaway note on the
@@ -702,113 +630,6 @@ impl Kind1Nip29Provider {
         self.transport.publish_signed(builder, keys).await
     }
 
-    // ── send ──────────────────────────────────────────────────────────────────
-
-    /// Publish one outbound message and dual-write canonical read-model rows.
-    ///
-    /// Behavior:
-    /// 1. If `intent.thread_id` is Some, look up the thread's root native key
-    ///    (BEFORE publish; no lock held across await).
-    /// 2. Encode the intent as a Mention DomainEvent. When a root native key was
-    ///    found, append a NIP-10 root `["e", <key>, "", "root"]` tag to the
-    ///    EventBuilder so the recipient materializer groups the reply into the
-    ///    same thread.  If the thread has no registered origin, publish without
-    ///    the tag (safe degradation: reply becomes a new root on the recipient's
-    ///    side).
-    /// 3. Publish. On error, propagate immediately — no canonical row written.
-    /// 4. On success, lock the store ONCE and write:
-    ///    - `projects` / `project_origins` (idempotent)
-    ///    - `threads` / `thread_origins` (idempotent, keyed by event id for new
-    ///      roots, by existing thread_id for replies)
-    ///    - `messages` with `sync_state="published"` (idempotent on native_event_id)
-    ///    - `message_recipients`
-    /// 5. Return `OutboundReceipt` carrying the published event id and the new
-    ///    canonical `message_id`.
-    ///
-    /// The legacy inbox path is NOT touched here — local delivery is the
-    /// caller's responsibility (rpc_send_message keeps route_mention_into_with_id).
-    /// Sign a [`SendIntent`] and return the pre-signed Nostr event WITHOUT
-    /// submitting it to the relay.  Callers that need to perform local inbox
-    /// delivery and `mark_mention_seen` between signing and publishing (to
-    /// prevent the relay echo from racing ahead) call this first, act on the
-    /// `event.id`, then call [`publish_intent`].
-    pub async fn sign_intent(
-        &self,
-        intent: &SendIntent,
-        agent_keys: &nostr_sdk::Keys,
-    ) -> Result<nostr_sdk::Event> {
-        use nostr_sdk::Tag;
-        let root_native_key: Option<String> = intent.thread_id.as_deref().and_then(|tid| {
-            self.with_store(|s| s.thread_root_native_key(tid, FABRIC, &self.provider_instance))
-        });
-        let mention = intent.to_mention();
-        let mut builder = self.wire.encode(&DomainEvent::Mention(mention))?;
-        if let Some(ref root_key) = root_native_key {
-            match Tag::parse(["e", root_key, "", "root"]) {
-                Ok(tag) => { builder = builder.tags([tag]); }
-                Err(e) => {
-                    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                        eprintln!("[provider] could not build root e-tag: {e:#}");
-                    }
-                }
-            }
-        }
-        self.transport.sign(builder, agent_keys).await
-    }
-
-    /// Publish a pre-signed event and write canonical dual-write rows.
-    /// Counterpart to [`sign_intent`].  On relay error, propagates immediately
-    /// (no canonical row written).
-    pub async fn publish_intent(
-        &self,
-        intent: SendIntent,
-        signed: nostr_sdk::Event,
-    ) -> Result<OutboundReceipt> {
-        let eid_hex = signed.id.to_hex();
-        self.transport.publish_event(&signed).await?;
-        let now = now_secs();
-        let pi = self.provider_instance.clone();
-        let (message_id, thread_id) = self.with_store(|s| -> Result<(String, String)> {
-            let project_id =
-                s.ensure_project_origin(FABRIC, &pi, &intent.project, &intent.project, now)?;
-            let thread_id = if let Some(tid) = intent.thread_id.as_deref() {
-                tid.to_string()
-            } else {
-                s.ensure_thread_origin(&project_id, FABRIC, &pi, &eid_hex, now)?
-            };
-            let message_id = s.record_message(
-                &thread_id,
-                &intent.from.pubkey,
-                &intent.body,
-                now,
-                "outbound",
-                "published",
-                Some(&eid_hex),
-            )?;
-            s.add_message_recipient(&message_id, &intent.to_pubkey, None)?;
-            Ok((message_id, thread_id))
-        })?;
-        Ok(OutboundReceipt {
-            native_event_id: eid_hex,
-            message_id,
-            sync_state: "published".into(),
-            thread_id,
-        })
-    }
-
-    /// Convenience wrapper: sign + publish in one call.  Equivalent to
-    /// `sign_intent` followed immediately by `publish_intent` with no
-    /// caller action between the two.  Used by callers that have no local
-    /// inbox delivery to perform (e.g. `rpc_inbox_reply`).
-    pub async fn send(
-        &self,
-        intent: SendIntent,
-        agent_keys: &nostr_sdk::Keys,
-    ) -> Result<OutboundReceipt> {
-        let signed = self.sign_intent(&intent, agent_keys).await?;
-        self.publish_intent(intent, signed).await
-    }
-
     // ── refresh_project_list ──────────────────────────────────────────────────
 
     /// Fetch all kind:39000 events from the relay, parse `d` + `about`, and
@@ -844,40 +665,6 @@ impl Kind1Nip29Provider {
         Ok(())
     }
 
-    // ── catch_up_mentions ─────────────────────────────────────────────────────
-
-    /// Fetch kind:1 events p-tagged to `rec.agent_pubkey` from the relay and
-    /// materialize each through `crate::fabric::materialize`. Returns the number
-    /// of events that triggered a mention wake.
-    ///
-    /// IMPORTANT: uses a single-element `hosted = [rec.agent_pubkey]` slice —
-    /// intentionally NOT the daemon's full hosted set — so the Mention guard
-    /// (`m.to_pubkey == me`) works exactly (relay filter already restricts).
-    /// The caller triggers any live delivery surfaces if the count > 0.
-    pub async fn catch_up_mentions(&self, rec: &SessionRecord, owners: &[String]) -> Result<usize> {
-        use nostr_sdk::prelude::{Filter, Kind, PublicKey};
-        let me = rec.agent_pubkey.clone();
-        let pk = PublicKey::from_hex(&me)?;
-        let filter = Filter::new().kind(Kind::from(1u16)).pubkey(pk).limit(50);
-        let mut wake_count = 0usize;
-        if let Ok(events) = self.transport.fetch(filter, Duration::from_secs(3)).await {
-            let hosted = vec![me.clone()];
-            let now = now_secs();
-            let pi = self.provider_instance.clone();
-            for ev in events {
-                let env = RawEnvelope::Nostr(ev);
-                let outcome = self
-                    .with_store(|s| crate::fabric::materialize(&env, &hosted, owners, now, &pi, s));
-                // NOTE: do NOT send outcome.tail here — fetch is startup catchup only;
-                // historical mentions must not be replayed onto the tail channel.
-                if outcome.wake_mentions {
-                    wake_count += 1;
-                }
-            }
-        }
-        Ok(wake_count)
-    }
-
     // ── materialize ───────────────────────────────────────────────────────────
 
     /// Decode one raw envelope and apply all store side-effects.
@@ -889,11 +676,10 @@ impl Kind1Nip29Provider {
         &self,
         env: &RawEnvelope,
         hosted: &[String],
-        owners: &[String],
         now: u64,
         store: &Store,
     ) -> MaterializationOutcome {
-        crate::fabric::materialize(env, hosted, owners, now, &self.provider_instance, store)
+        crate::fabric::materialize(env, hosted, now, &self.provider_instance, store)
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
@@ -922,80 +708,3 @@ fn derive_provider_instance(relays: &[String]) -> String {
     format!("{:016x}", h.finish())
 }
 
-// ── unit tests ────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::AgentRef;
-    use crate::fabric::kind1::wire::Kind1WireCodec;
-    use nostr_sdk::prelude::{Keys, Tag};
-
-    /// Verify that `builder.tags([root_e_tag])` APPENDS rather than replaces:
-    /// the resulting signed event must carry BOTH the original routing tags
-    /// (p-tag, h-tag) AND the new root e-tag — all three present.
-    #[test]
-    fn reply_encoding_preserves_original_tags_and_adds_root_e_tag() {
-        let wire = Kind1WireCodec;
-        let sender_keys = Keys::generate();
-        let recipient_pk = Keys::generate().public_key().to_hex();
-        // Use a fixed 64-char hex root key (valid EventId format for Tag::parse).
-        let root_hex = "b".repeat(64);
-
-        let mention = crate::domain::Mention {
-            from: AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
-            to_pubkey: recipient_pk.clone(),
-            project: "myproj".into(),
-            body: "hello reply".into(),
-            meta: crate::domain::MentionMeta::default(),
-        };
-
-        let builder = wire
-            .encode(&crate::domain::DomainEvent::Mention(mention))
-            .expect("encode succeeded");
-
-        // Append the root e-tag (simulating what provider.send does for replies).
-        let root_tag = Tag::parse(["e", &root_hex, "", "root"]).expect("valid root tag");
-        let builder = builder.tags([root_tag]);
-
-        // Sign to materialise the final event.
-        let event = builder
-            .sign_with_keys(&sender_keys)
-            .expect("signing succeeded");
-
-        // Collect tag names present on the event.
-        let tag_names: Vec<&str> = event
-            .tags
-            .iter()
-            .filter_map(|t| t.as_slice().first().map(String::as_str))
-            .collect();
-
-        assert!(
-            tag_names.contains(&"p"),
-            "p-tag (recipient) must be present; tags: {:?}",
-            tag_names
-        );
-        assert!(
-            tag_names.contains(&"h"),
-            "h-tag (project/group) must be present; tags: {:?}",
-            tag_names
-        );
-        assert!(
-            tag_names.contains(&"e"),
-            "e-tag (root) must be present; tags: {:?}",
-            tag_names
-        );
-
-        // Verify root e-tag has marker "root".
-        let root_tag_found = event.tags.iter().any(|t| {
-            let s = t.as_slice();
-            s.first().map(String::as_str) == Some("e")
-                && s.get(3).map(String::as_str) == Some("root")
-        });
-        assert!(
-            root_tag_found,
-            "e-tag must carry the 'root' marker; tags: {:?}",
-            event.tags
-        );
-    }
-}

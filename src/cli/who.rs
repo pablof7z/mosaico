@@ -146,9 +146,6 @@ struct WhoRow {
     /// can be attached to via `tenex-edge tmux attach`.
     #[serde(default)]
     attachable: bool,
-    /// Number of unread inbox mentions for this session.
-    #[serde(default)]
-    unread: usize,
     /// Hex pubkey others route to: the per-session pubkey when derived, else the
     /// durable agent pubkey. This is the wire address behind the codename.
     #[serde(default)]
@@ -219,7 +216,6 @@ pub fn load_who_snapshot(
             // Derived projection: busy/liveness/title/activity all come from the
             // one `derive_status` so idle/freshness can never diverge per source.
             let d = derive_status(s, now);
-            let unread = store.count_unread_inbox(sid).unwrap_or(0);
             rows.push(WhoRow {
                 source: WhoSource::Local,
                 fresh: d.liveness.is_live(),
@@ -234,7 +230,6 @@ pub fn load_who_snapshot(
                 rel_cwd: s.rel_cwd.clone(),
                 remote: false,
                 attachable: tmux_sessions.contains(sid),
-                unread,
                 pubkey: store
                     .session_pubkey_for_session(sid)
                     .unwrap_or_else(|| s.agent_pubkey.clone()),
@@ -266,7 +261,6 @@ pub fn load_who_snapshot(
                 rel_cwd: p.rel_cwd.clone(),
                 remote: slugify_host(&p.host) != local_host,
                 attachable: false,
-                unread: 0,
                 // Peer status is session-signed, so agent_pubkey IS the peer's
                 // session pubkey — the address to route to.
                 pubkey: p.agent_pubkey.clone(),
@@ -341,9 +335,8 @@ pub(super) fn push_turn_fabric_block(
             if !snapshot.rows.is_empty() {
                 let who_text = render::render_who_plain(&snapshot);
                 blocks.push(format!(
-                "tenex-edge fabric — agents you can message. Message an existing session with \
-                 `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`, \
-                 or start a fresh one with `tenex-edge inbox send --to-new-session <agent> ...`:\n{}",
+                "tenex-edge fabric — agents you can message. Message a session with \
+                 `tenex-edge chat write --mention <codename> --message \"...\"`:\n{}",
                 who_text.trim_end()
             ));
             }

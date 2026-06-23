@@ -35,7 +35,6 @@ mod who;
 pub use admin::render_fabric;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
-pub(crate) use messaging::row_envelope;
 pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub(crate) use turn::render_chat_block;
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
@@ -170,18 +169,6 @@ enum Cmd {
         #[arg(long)]
         live: bool,
     },
-    /// Read your messages (bare `inbox`), or `send` / `reply` to other agents.
-    ///
-    /// Bare `inbox` prints + drains pending mentions for a session — used by the
-    /// opencode injection path and as a manual "check my messages" command.
-    /// (Claude Code and Codex drain via the `hook --type user-prompt-submit` path.)
-    Inbox {
-        #[command(subcommand)]
-        action: Option<InboxAction>,
-        /// Session id; if omitted, resolved from the current directory.
-        #[arg(long, global = true)]
-        session: Option<String>,
-    },
     /// Write or read NIP-29 project chat.
     Chat {
         #[command(subcommand)]
@@ -213,6 +200,15 @@ enum Cmd {
         /// Session id; if omitted, taken from the stdin payload or resolved from cwd.
         #[arg(long)]
         session: Option<String>,
+        /// Agent slug to resolve when no session id is available (used by the
+        /// tmux status-format invocation, which has no stdin payload).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Working directory override for project resolution (used by the tmux
+        /// status-format invocation, which runs in the server's cwd, not the
+        /// pane's project directory).
+        #[arg(long)]
+        cwd: Option<String>,
     },
     /// Connectivity check: publish a test note to the configured relays and read it back.
     Doctor,
@@ -302,54 +298,6 @@ enum Cmd {
     /// task inside this one daemon — the sole writer of state.db.)
     #[command(name = "__daemon", hide = true)]
     Daemon,
-}
-
-#[derive(Subcommand)]
-enum InboxAction {
-    /// Send a message: either spawn a NEW session of an agent (`--to-new-session`)
-    /// or message an EXISTING session (`--to-session`). Exactly one is required.
-    /// To reply to a message you received, use `inbox reply` instead.
-    #[command(group(clap::ArgGroup::new("send_to").required(true).args(["to_new_session", "to_session"])))]
-    Send {
-        /// Spawn a NEW session of this agent and send the message to it.
-        /// Value is an agent slug (e.g. `codex`); see `who` for spawnable agents.
-        #[arg(long = "to-new-session", value_name = "AGENT")]
-        to_new_session: Option<String>,
-        /// Message an EXISTING session, addressed by its session id or codename
-        /// (e.g. `bravo4217`, as shown in `who`).
-        #[arg(long = "to-session", value_name = "SESSION")]
-        to_session: Option<String>,
-        /// Project for `--to-new-session` (defaults to the current dir's project).
-        #[arg(long)]
-        project: Option<String>,
-        /// One-line subject ("what this is about").
-        #[arg(long)]
-        subject: Option<String>,
-        /// Message body. Positional, or via --message, or piped on stdin.
-        #[arg(value_name = "MESSAGE")]
-        message: Option<String>,
-        #[arg(long = "message", value_name = "MESSAGE")]
-        message_flag: Option<String>,
-        /// Canonical thread id to reply into (encodes NIP-10 root e-tag on the
-        /// published event so the recipient groups the reply into the same thread).
-        /// Omit for a new root message.
-        #[arg(long = "thread", value_name = "THREAD_ID")]
-        thread_id: Option<String>,
-    },
-    /// Reply to a message by its ID (the `ID:` shown on each message you receive).
-    Reply {
-        /// The ID shown on the message you're replying to.
-        #[arg(long)]
-        id: String,
-        /// Subject; defaults to "Re: <original subject>".
-        #[arg(long)]
-        subject: Option<String>,
-        /// Reply body. Positional, or via --message, or piped on stdin.
-        #[arg(value_name = "MESSAGE")]
-        message: Option<String>,
-        #[arg(long = "message", value_name = "MESSAGE")]
-        message_flag: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -628,36 +576,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             })
             .await
         }
-        Cmd::Inbox { action, session } => match action {
-            None => messaging::inbox(session).await,
-            Some(InboxAction::Send {
-                to_new_session,
-                to_session,
-                project,
-                subject,
-                message,
-                message_flag,
-                thread_id,
-            }) => {
-                let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-                // clap's ArgGroup guarantees exactly one of these is Some.
-                let target = match (to_new_session, to_session) {
-                    (Some(agent), None) => messaging::SendTarget::NewSession { agent, project },
-                    (None, Some(sess)) => messaging::SendTarget::Session(sess),
-                    _ => unreachable!("clap ArgGroup enforces exactly one addressing flag"),
-                };
-                messaging::inbox_send(target, subject, message, session, thread_id).await
-            }
-            Some(InboxAction::Reply {
-                id,
-                subject,
-                message,
-                message_flag,
-            }) => {
-                let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-                messaging::inbox_reply(id, subject, message, session).await
-            }
-        },
         Cmd::Chat { action } => match action {
             ChatAction::Write {
                 mention,
@@ -677,7 +595,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 project,
             } => messaging::chat_read(since, limit, offset, tail, live, project).await,
         },
-        Cmd::Statusline { session } => statusline::statusline(session),
+        Cmd::Statusline { session, agent, cwd } => statusline::statusline(session, agent, cwd),
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Groups { action } => admin::groups(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
@@ -772,7 +690,7 @@ where
 mod turn_context_tests {
     use super::*;
     use crate::session::{Harness, SessionObservation};
-    use crate::state::{InboxRow, SessionRecord, Store};
+    use crate::state::{SessionRecord, Store};
     use std::sync::Mutex;
 
     /// Register a local session into `session_state` (daemon mints the canonical
@@ -856,8 +774,7 @@ mod turn_context_tests {
         id
     }
 
-    /// Build a minimal alive SessionRecord (not first-turn when prev != 0, no peers
-    /// seeded, so the only context block the function can emit is inbox mentions).
+    /// Build a minimal alive SessionRecord for testing context assembly.
     fn test_session(id: &str) -> SessionRecord {
         SessionRecord {
             session_id: id.to_string(),
@@ -873,136 +790,31 @@ mod turn_context_tests {
         }
     }
 
-    fn inbox_row(session_id: &str, eid: &str) -> InboxRow {
-        InboxRow {
-            mention_event_id: eid.to_string(),
-            target_session: session_id.to_string(),
-            from_pubkey: "pk-sender".to_string(),
-            from_slug: "sender".to_string(),
-            project: "proj".to_string(),
-            body: "hello from sender".to_string(),
-            created_at: 100,
-            from_session: String::new(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        }
-    }
-
-    /// FREEZE C1: assemble_turn_start_context drains inbox rows and renders them.
-    ///
-    /// On a non-first turn (prev_turn_started_at != 0) with no peer sessions seeded,
-    /// the ONLY possible context block is inbox mentions. With one row present: the
-    /// function returns Some(text) containing the mention line. On a SECOND call
-    /// (the row is now delivered=1), it returns None — the drain was real.
+    /// turn_start returns None on a non-first turn with no chat and no peers.
     #[test]
-    fn freeze_turn_start_context_drains_inbox_and_renders_mention_line() {
-        let store = Store::open_memory().unwrap();
-        let rec = test_session("sess-freeze-1");
-
-        // Seed one inbox row for this session.
-        store
-            .enqueue_mention(&inbox_row("sess-freeze-1", "evt-c1"))
-            .unwrap();
-
-        let m = Mutex::new(store);
-
-        // Non-first turn (prev != 0) → no intro block; no peers → no fabric block.
-        // Only the inbox mention block should be present.
-        let ctx = assemble_turn_start_context(&m, &rec, /* prev_turn_started_at */ 1);
-        let text = ctx.expect("FREEZE: turn_start must return Some when inbox has rows");
-
-        assert!(
-            text.contains("Messages from other agents (tenex-edge)"),
-            "FREEZE: mention section header must be present; got: {text:?}"
-        );
-        assert!(
-            text.contains("From: sender@laptop"),
-            "envelope From line must be present; got: {text:?}"
-        );
-        assert!(
-            text.contains("hello from sender"),
-            "FREEZE: mention body must be in context; got: {text:?}"
-        );
-
-        // SECOND call: the drain marked the row delivered — no more context to emit.
-        let ctx2 = assemble_turn_start_context(&m, &rec, /* prev_turn_started_at */ 1);
-        assert!(
-            ctx2.is_none(),
-            "FREEZE: second turn_start call must return None (row already drained)"
-        );
-    }
-
-    /// FREEZE C2: assemble_turn_start_context returns None when inbox is empty
-    /// (non-first turn, no peers).
-    #[test]
-    fn freeze_turn_start_context_returns_none_when_inbox_empty_non_first_turn() {
+    fn turn_start_context_returns_none_when_empty_non_first_turn() {
         let store = Store::open_memory().unwrap();
         let rec = test_session("sess-freeze-2");
-        // No inbox rows. Non-first turn (prev != 0). No peer sessions.
+        // No chat rows. Non-first turn (prev != 0). No peer sessions.
         let m = Mutex::new(store);
 
         let ctx = assemble_turn_start_context(&m, &rec, /* prev_turn_started_at */ 42);
         assert!(
             ctx.is_none(),
-            "FREEZE: turn_start with empty inbox, non-first turn, no peers must return None"
+            "turn_start with no chat, non-first turn, no peers must return None; got: {ctx:?}"
         );
     }
 
-    /// FREEZE C3: assemble_turn_check_context PEEKs — rows survive and are still
-    /// drainable by turn_start afterward.
-    ///
-    /// This is the discriminating property: peek does NOT set delivered=1, so a
-    /// following drain_inbox still finds the row.
+    /// turn_check returns None when there is no chat and delta_since=None (rate-limited).
     #[test]
-    fn freeze_turn_check_context_peeks_not_drains() {
-        let store = Store::open_memory().unwrap();
-        store
-            .enqueue_mention(&inbox_row("sess-freeze-3", "evt-c3"))
-            .unwrap();
-        let m = Mutex::new(store);
-
-        // turn_check peeks: returns Some with the mention line. delta_since=None
-        // isolates the inbox-peek path (no sibling-delta query).
-        let ctx =
-            assemble_turn_check_context(&m, &test_session("sess-freeze-3"), "laptop", None, 200);
-        let text =
-            ctx.expect("FREEZE: turn_check must return Some when inbox has undelivered rows");
-        assert!(
-            text.contains("[tenex-edge] Message(s) arrived while you were working:"),
-            "FREEZE: turn_check header must be present; got: {text:?}"
-        );
-        assert!(
-            text.contains("From: sender@laptop"),
-            "turn_check must render the envelope From line; got: {text:?}"
-        );
-        assert!(
-            text.contains("ID: evt-c3"),
-            "turn_check envelope must carry the reply ID; got: {text:?}"
-        );
-
-        // The row is still in the store (peek, not drain): drain_inbox now consumes it.
-        let g = m.lock().unwrap();
-        let drained = g.drain_inbox("sess-freeze-3").unwrap();
-        assert_eq!(
-            drained.len(),
-            1,
-            "FREEZE: row must survive turn_check peek and still be drainable"
-        );
-    }
-
-    /// FREEZE C4: assemble_turn_check_context returns None when inbox is empty.
-    #[test]
-    fn freeze_turn_check_context_returns_none_when_inbox_empty() {
+    fn turn_check_context_returns_none_when_nothing_due() {
         let store = Store::open_memory().unwrap();
         let m = Mutex::new(store);
         let ctx =
             assemble_turn_check_context(&m, &test_session("sess-no-rows"), "laptop", None, 200);
         assert!(
             ctx.is_none(),
-            "FREEZE: turn_check with empty inbox must return None"
+            "turn_check with no chat, no delta → None; got: {ctx:?}"
         );
     }
 

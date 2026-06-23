@@ -20,9 +20,7 @@
 use nostr_sdk::prelude::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tenex_edge::codec::{Codec, Kind1Codec};
-use tenex_edge::domain::{
-    AgentRef, DomainEvent, Mention, MentionMeta, Profile as TeProfile, Status, TurnReply,
-};
+use tenex_edge::domain::{AgentRef, DomainEvent, Profile as TeProfile, Status};
 
 fn relay_url() -> String {
     std::env::var("TE_NIP29_RELAY").unwrap_or_else(|_| "wss://nip29.f7z.io".to_string())
@@ -157,72 +155,7 @@ async fn seed_session_with_thread_root_link() {
     .await;
     publish(&agent_c, &profile, "kind:0 agent profile").await;
 
-    // 2) Root user prompt (kind:1 Mention, no `e` tag → the thread root/OP).
-    let prompt1 = sign_domain(
-        &user,
-        &DomainEvent::Mention(Mention {
-            from: AgentRef::new(user_pk.clone(), String::new()),
-            to_pubkey: agent_pk.clone(),
-            project: project.clone(),
-            body: "Seed prompt one: please summarize the session→thread fix.".into(),
-            meta: MentionMeta::default(),
-        }),
-        base + 1,
-    )
-    .await;
-    let root_id = prompt1.id.to_hex();
-    publish(&user_c, &prompt1, "kind:1 root prompt (OP)").await;
-
-    // 3) Agent turn reply (kind:1, e-root=OP) — first answer.
-    let reply1 = sign_domain(
-        &agent,
-        &DomainEvent::TurnReply(TurnReply {
-            agent: agent_ref.clone(),
-            project: project.clone(),
-            body: "Seed reply one: the kind:30315 now carries the thread root as an e-tag."
-                .into(),
-            root_event_id: root_id.clone(),
-            reply_event_id: root_id.clone(),
-        }),
-        base + 2,
-    )
-    .await;
-    publish(&agent_c, &reply1, "kind:1 turn reply #1").await;
-
-    // 4) Follow-up user prompt (its own orphan kind:1 root, no `e` tag).
-    let prompt2 = sign_domain(
-        &user,
-        &DomainEvent::Mention(Mention {
-            from: AgentRef::new(user_pk.clone(), String::new()),
-            to_pubkey: agent_pk.clone(),
-            project: project.clone(),
-            body: "Seed prompt two: and how does the reader reconstruct it?".into(),
-            meta: MentionMeta::default(),
-        }),
-        base + 3,
-    )
-    .await;
-    let prompt2_id = prompt2.id.to_hex();
-    publish(&user_c, &prompt2, "kind:1 follow-up prompt").await;
-
-    // 5) Agent turn reply (kind:1, e-root=OP, e-reply=prompt2) — second answer.
-    let reply2 = sign_domain(
-        &agent,
-        &DomainEvent::TurnReply(TurnReply {
-            agent: agent_ref.clone(),
-            project: project.clone(),
-            body: "Seed reply two: it maps session→root via the 30315 e-tag, then \
-                   joins the root prompt with all e-root replies."
-                .into(),
-            root_event_id: root_id.clone(),
-            reply_event_id: prompt2_id.clone(),
-        }),
-        base + 4,
-    )
-    .await;
-    publish(&agent_c, &reply2, "kind:1 turn reply #2").await;
-
-    // 6) THE LINK: kind:30315 status carrying the thread-root e-tag. Far-future
+    // 2) kind:30315 status. Far-future
     //    expiration so the session reads as live in the reader.
     let status = sign_domain(
         &agent,
@@ -236,14 +169,14 @@ async fn seed_session_with_thread_root_link() {
             busy: false,
             rel_cwd: "tenex-off".into(),
             expires_at: Some(base + 365 * 24 * 3600),
-            thread_root_id: Some(root_id.clone()),
+            thread_root_id: None,
         }),
-        base + 5,
+        base + 1,
     )
     .await;
-    publish(&agent_c, &status, "kind:30315 status (with thread-root e-tag)").await;
+    publish(&agent_c, &status, "kind:30315 status").await;
 
-    // ── Read back the status and confirm the link survived the round trip.
+    // ── Read back the status to confirm it's retrievable.
     tokio::time::sleep(Duration::from_millis(1200)).await;
     let statuses = admin_c
         .fetch_events(
@@ -256,40 +189,15 @@ async fn seed_session_with_thread_root_link() {
         .map(|e| e.into_iter().collect::<Vec<_>>())
         .unwrap_or_default();
 
-    let linked = statuses.iter().any(|e| {
-        e.tags.iter().any(|t| {
-            let s = t.as_slice();
-            s.first().map(String::as_str) == Some("e") && s.get(1).map(String::as_str) == Some(&root_id)
-        })
-    });
     eprintln!(
-        "[seed] readback: {} status event(s); thread-root e-tag present = {linked}",
+        "[seed] readback: {} status event(s)",
         statuses.len()
     );
 
-    let notes = admin_c
-        .fetch_events(
-            Filter::new()
-                .kind(Kind::from(1u16))
-                .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &project),
-            Duration::from_secs(5),
-        )
-        .await
-        .map(|e| e.into_iter().collect::<Vec<_>>())
-        .unwrap_or_default();
-    eprintln!("[seed] readback: {} kind:1 event(s) in the conversation", notes.len());
-
     eprintln!("\n[seed] ===== SEED COMPLETE — open tenex-off and find this session =====");
     eprintln!("[seed] Look for the session titled: {title:?}");
-    eprintln!("[seed] Tapping it must show 4 messages (2 prompts, 2 replies), oldest→newest:");
-    eprintln!("[seed]   1. (user)  Seed prompt one ...");
-    eprintln!("[seed]   2. (agent) Seed reply one ...");
-    eprintln!("[seed]   3. (user)  Seed prompt two ...");
-    eprintln!("[seed]   4. (agent) Seed reply two ...");
 
-    assert!(linked, "the kind:30315 must carry the thread-root e-tag on readback");
     assert!(statuses.iter().count() >= 1, "status must be retrievable");
-    assert!(notes.len() >= 4, "all four conversation notes must be retrievable");
 
     admin_c.disconnect().await;
     agent_c.disconnect().await;

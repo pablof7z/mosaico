@@ -2,18 +2,13 @@
 //!
 //! Two public surfaces:
 //!
-//!   • `ring_doorbells(state)` — called after inbox/chat delivery events.
-//!     Finds sessions that have unread inbox rows + a live tmux endpoint, then
+//!   • `ring_doorbells(state)` — called after chat delivery events.
+//!     Finds sessions that have unread chat mentions + a live tmux endpoint, then
 //!     injects the rendered pending messages into the pane.
 //!
 //!   • `spawn_agent(state, slug, project, launch_args)` — spawns a new tmux window
-//!     running the
-//!     appropriate harness command. When the spawn was triggered by an inbound
-//!     mention (spawn-on-send), the caller tags the new pane with that mention via
-//!     `register_pending_spawn_with_mention`; when the harness fires its
-//!     `session-start` hook, the daemon types the received message straight into
-//!     the pane as its first prompt. Manual spawns (from the TUI) register nothing
-//!     and start clean — no prompt is injected.
+//!     running the appropriate harness command. Manual spawns start clean — no
+//!     prompt is injected.
 //!
 //! Fail-open everywhere: if the `tmux` binary is absent, TMUX_PANE was never set,
 //! or any sub-command errors, we log to stderr (debug only) and return Ok(()).
@@ -177,60 +172,6 @@ fn debounce() -> &'static Mutex<HashMap<String, u64>> {
     DEBOUNCE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// ── pending-spawn tracking ────────────────────────────────────────────────────
-//
-// When `spawn_agent` creates a new tmux window it registers the returned pane id
-// here (keyed by pane_id, value is the spawn prompt text + optional mention).
-// When the harness later fires its `session-start` hook and calls
-// `rpc_session_start`, the server consumes the entry: writes the mention to the
-// new session's inbox (if present), and injects the prompt.
-
-/// A triggering mention that should be pre-loaded into the spawned session's
-/// inbox before the harness receives its first prompt.
-pub struct PendingMention {
-    pub event_id: String,
-    pub from_pubkey: String,
-    pub from_slug: String,
-    pub from_session: String,
-    pub project: String,
-    pub body: String,
-    pub created_at: u64,
-}
-
-/// State registered for a pane created by spawn-on-send: an inbound mention
-/// p-tagging a locally-owned agent spawned this window. Carries the triggering
-/// mention so `rpc_session_start` can type the received message into the new
-/// session as its first prompt. Manual spawns (from the TUI) register NO pending
-/// spawn, so they start clean with no injected prompt.
-pub struct PendingSpawn {
-    pub mention: PendingMention,
-}
-
-/// Map from pane_id → `PendingSpawn` for panes created by spawn-on-send whose
-/// harness has not yet called `session_start`.
-static PENDING_SPAWNS: OnceLock<Mutex<HashMap<String, PendingSpawn>>> = OnceLock::new();
-
-fn pending_spawns() -> &'static Mutex<HashMap<String, PendingSpawn>> {
-    PENDING_SPAWNS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Tag a freshly-spawned pane with the mention that triggered it, so that when
-/// the harness fires `session-start` the daemon types that message into the
-/// pane. Called from `rpc_send_message` after `spawn_agent` returns the pane id.
-pub fn register_pending_spawn_with_mention(pane_id: &str, mention: PendingMention) {
-    pending_spawns()
-        .lock()
-        .unwrap()
-        .insert(pane_id.to_string(), PendingSpawn { mention });
-}
-
-/// Remove and return the `PendingSpawn` for `pane_id`, or `None` if this pane
-/// was not created by spawn-on-send (a manual spawn or an ordinary harness
-/// start). Called by `rpc_session_start` when a pane registers its tmux endpoint.
-pub fn consume_pending_spawn(pane_id: &str) -> Option<PendingSpawn> {
-    pending_spawns().lock().unwrap().remove(pane_id)
-}
-
 fn is_debounced(session_id: &str) -> bool {
     let m = debounce().lock().unwrap();
     m.get(session_id)
@@ -374,43 +315,23 @@ pub async fn inject_spawn_message(pane_id: &str, text: &str) -> Result<()> {
 
 struct PendingTmuxPrompt {
     text: String,
-    mention_ids: Vec<String>,
     chat_ids: Vec<String>,
 }
 
 fn render_pending_message_prompt(
-    inbox_rows: &[crate::state::InboxRow],
     chat_rows: &[crate::state::ChatInboxRow],
     rec: &crate::state::SessionRecord,
     now: u64,
 ) -> Option<String> {
-    let mut blocks = Vec::new();
-
-    if !inbox_rows.is_empty() {
-        let mut text = String::from(
-            "Messages from other agents (tenex-edge) - reply with `tenex-edge inbox reply --id <ID> \"...\"`:",
-        );
-        for row in inbox_rows {
-            text.push_str("\n\n");
-            text.push_str(&crate::cli::row_envelope(row, &rec.host, now));
-        }
-        blocks.push(text);
+    if chat_rows.is_empty() {
+        return None;
     }
-
-    if !chat_rows.is_empty() {
-        blocks.push(crate::cli::render_chat_block(
-            "tenex-edge project chat - write with `tenex-edge chat write < message.txt`; mention a session with `tenex-edge chat write --mention <session-id>`:",
-            chat_rows,
-            &rec.session_id,
-            now,
-        ));
-    }
-
-    if blocks.is_empty() {
-        None
-    } else {
-        Some(blocks.join("\n\n"))
-    }
+    Some(crate::cli::render_chat_block(
+        "tenex-edge project chat - write with `tenex-edge chat write < message.txt`; mention a session with `tenex-edge chat write --mention <session-id>`:",
+        chat_rows,
+        &rec.session_id,
+        now,
+    ))
 }
 
 fn collect_pending_prompt(
@@ -419,19 +340,14 @@ fn collect_pending_prompt(
 ) -> Result<Option<PendingTmuxPrompt>> {
     let now = now_secs();
     state.with_store(|s| -> Result<Option<PendingTmuxPrompt>> {
-        let inbox_rows = s.peek_inbox(&rec.session_id)?;
         let chat_rows = s.peek_chat_mentions(&rec.session_id)?;
 
-        let Some(text) = render_pending_message_prompt(&inbox_rows, &chat_rows, rec, now) else {
+        let Some(text) = render_pending_message_prompt(&chat_rows, rec, now) else {
             return Ok(None);
         };
 
         Ok(Some(PendingTmuxPrompt {
             text,
-            mention_ids: inbox_rows
-                .iter()
-                .map(|row| row.mention_event_id.clone())
-                .collect(),
             chat_ids: chat_rows
                 .iter()
                 .map(|row| row.chat_event_id.clone())
@@ -447,10 +363,6 @@ fn mark_prompt_delivered(
 ) -> Result<()> {
     let delivered_at = now_secs();
     state.with_store(|s| -> Result<()> {
-        s.mark_inbox_rows_delivered(&rec.session_id, &prompt.mention_ids, delivered_at)?;
-        for event_id in &prompt.mention_ids {
-            s.mark_mention_seen(&rec.agent_pubkey, event_id, delivered_at)?;
-        }
         s.mark_chat_rows_delivered(&rec.session_id, &prompt.chat_ids, delivered_at)?;
         Ok(())
     })
@@ -496,22 +408,20 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
         return Ok(());
     }
 
-    // Collect sessions that have unread direct inbox rows or explicit chat
-    // mentions AND are currently idle.
-    // Skip any session where working=1 to avoid typing a prompt mid-turn.
-    let sessions_with_inbox: Vec<crate::state::SessionRecord> = state.with_store(|s| {
+    // Collect sessions that have unread explicit chat mentions AND are currently
+    // idle. Skip any session where working=1 to avoid typing a prompt mid-turn.
+    let sessions_with_chat: Vec<crate::state::SessionRecord> = state.with_store(|s| {
         s.list_alive_sessions()
             .unwrap_or_default()
             .into_iter()
             .filter(|rec| {
-                (s.count_unread_inbox(&rec.session_id).unwrap_or(0) > 0
-                    || s.count_unread_chat_mentions(&rec.session_id).unwrap_or(0) > 0)
+                s.count_unread_chat_mentions(&rec.session_id).unwrap_or(0) > 0
                     && !s.is_session_working(&rec.session_id)
             })
             .collect()
     });
 
-    for rec in sessions_with_inbox {
+    for rec in sessions_with_chat {
         let sid = rec.session_id.clone();
         if is_debounced(&sid) {
             continue;
@@ -759,7 +669,7 @@ async fn open_agent_session(
     let tenex_bin = std::env::var("TENEX_EDGE_BIN")
         .ok()
         .filter(|s| !s.is_empty());
-    make_session_transparent(&session_name, tenex_bin.as_deref())?;
+    make_session_transparent(&session_name, tenex_bin.as_deref(), slug, abs_path)?;
 
     Ok(pane_id)
 }
@@ -772,7 +682,12 @@ async fn open_agent_session(
 /// `tenex-edge statusline` invocation, when known (`TENEX_EDGE_BIN`). When
 /// unknown, the bare `tenex-edge` is used and must be on the tmux server's
 /// PATH.
-fn make_session_transparent(session: &str, tenex_bin: Option<&str>) -> Result<()> {
+fn make_session_transparent(
+    session: &str,
+    tenex_bin: Option<&str>,
+    slug: &str,
+    abs_path: &str,
+) -> Result<()> {
     // Each `(option, value)` pair is applied with `set-option -t <session>`.
     // `-g` is NOT used: we only want to affect this one session, not the global
     // tmux environment (the user may have their own tmux sessions that should
@@ -784,11 +699,26 @@ fn make_session_transparent(session: &str, tenex_bin: Option<&str>) -> Result<()
     // pure display surface that gives every harness (claude, codex, opencode,
     // …) the same fabric awareness floor that ccstatusline currently gives only
     // claude. Refresh at 3s matches ccstatusline's cadence.
-    let statusline_cmd = match tenex_bin {
-        Some(p) => format!("#({p} statusline)"),
-        None => "#(tenex-edge statusline)".to_string(),
-    };
+    //
+    // The `#(...)` status-format command runs in the tmux SERVER's environment,
+    // not the pane's — TENEX_EDGE_AGENT and the project cwd are not available
+    // there. We store them as tmux user options (@te_agent, @te_cwd) and pass
+    // them explicitly via --agent and --cwd so session resolution works.
+    // #{q:@te_cwd} applies shell quoting so paths with spaces are handled safely.
+    let bin = tenex_bin.unwrap_or("tenex-edge");
+    // #{@te_agent} and #{q:@te_cwd} are tmux format variables expanded by tmux
+    // before the shell runs the command. #{q:...} adds shell quoting so paths
+    // with spaces are safe. In Rust format strings, {{ and }} produce literal
+    // { and } respectively.
+    let statusline_cmd = format!(
+        "#({bin} statusline --agent #{{@te_agent}} --cwd #{{q:@te_cwd}})"
+    );
     let OPTIONS: Vec<(&str, String)> = vec![
+        // Session identity for the status bar: stored as user options so the
+        // #(...) status-format command can read them via #{@te_agent} /
+        // #{q:@te_cwd} without needing the pane's process environment.
+        ("@te_agent", slug.to_string()),
+        ("@te_cwd", abs_path.to_string()),
         // Status bar ON — driven by `tenex-edge statusline`, fail-open.
         ("status", "on".to_string()),
         ("status-interval", "3".to_string()),
@@ -1019,8 +949,8 @@ mod resume_command_tests {
     #[test]
     fn pending_message_prompt_contains_the_actual_message_body() {
         let rec = sample_session();
-        let row = crate::state::InboxRow {
-            mention_event_id: "abcdef123456".into(),
+        let row = crate::state::ChatInboxRow {
+            chat_event_id: "abcdef123456".into(),
             target_session: rec.session_id.clone(),
             from_pubkey: "pk-sender".into(),
             from_slug: "codex".into(),
@@ -1028,18 +958,13 @@ mod resume_command_tests {
             body: "please review the tmux delivery path".into(),
             created_at: 100,
             from_session: "sender-session".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: "host-a".into(),
+            mentioned_session: rec.session_id.clone(),
         };
 
-        let prompt = render_pending_message_prompt(&[row], &[], &rec, 120).unwrap();
+        let prompt = render_pending_message_prompt(&[row], &rec, 120).unwrap();
 
         assert!(prompt.contains("please review the tmux delivery path"));
-        assert!(prompt.contains("ID: abcdef12"));
-        assert!(!prompt.contains("Run `tenex-edge inbox` to read and reply"));
+        assert!(!prompt.contains("tenex-edge inbox"));
     }
 }
 

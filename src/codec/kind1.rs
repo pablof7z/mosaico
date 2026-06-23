@@ -1,13 +1,11 @@
-//! The `kind1` codec set — tenex-edge's initial wire shape (M1 §3).
+//! The `kind1` codec set — tenex-edge's wire shape (M1 §3).
 //!
-//! | Domain    | Wire |
-//! |-----------|------|
-//! | Profile   | kind:0,    content `{"name": slug}`, `["host", host]` |
-//! | Activity   | kind:1,    `["h", project]` |
-//! | TurnReply  | kind:1,    `["h", project]`, `["e", root_id, "", "root"]`, `["e", reply_id, "", "reply"]` |
-//! | Status     | kind:30315, content = live activity (may be empty when idle), `["d", "<project>:<session>"]`, `["h", project]`, `["session-id", id]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
-//! | Mention    | kind:1,    `["h", project]`, `["p", to]`, optional `["session-id", target]`, `["from-session", sender]`, `["subject", s]`, `["git-branch", b]`, `["git-commit", c]`, `["git-dirty", n]`, `["from-host", h]`, `["e", reply_to, "", "reply"]` |
-//! | Chat       | kind:9,    `["h", project]`, optional `["from-session", sender]`, optional `["p", mentioned_pubkey]`, optional `["session-id", mentioned_session]` |
+//! | Domain      | Wire |
+//! |-------------|------|
+//! | Profile     | kind:0,     content `{"name": slug}`, `["host", host]` |
+//! | Activity    | kind:1,     `["h", project]` — social narrative (no inbox routing) |
+//! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", "<project>:<session>"]`, `["h", project]`, `["session-id", id]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
+//! | Chat        | kind:9,     `["h", project]`, optional `["from-session", sender]`, optional `["p", mentioned_pubkey]`, optional `["session-id", mentioned_session]` |
 //!
 //! Status is the single self-contained per-session signal: ONE kind:30315 event
 //! carries the whole live state of a session (busy/idle, the live activity in
@@ -19,31 +17,23 @@
 //! `Status` with `expires_at == None` publishes no expiration (tests /
 //! non-heartbeat contexts). There is no separate presence heartbeat.
 //!
-//! kind:1 disambiguation on decode (in priority order):
-//!   1. Has `["p", ...]` tag                    → Mention
-//!   2. Has `["e", ..., "", "root"]` NIP-10 tag → TurnReply
-//!   3. Otherwise                               → Activity
+//! Chat (kind:9) is the sole agent-to-agent messaging mechanism. Direct messaging
+//! uses `--mention <session-id>` which adds `p` + `session-id` tags to the chat event.
 //!
 //! Slug is NOT carried on the wire; it is resolved downstream from the signer's
 //! kind:0 profile (authoritative) or the local `profiles` table. Authorization
 //! uses only event.pubkey (signer); self-asserted `agent` tags have no authority
 //! and are never written or read.
-//!
-//! For kind:30023 long-form articles generated during a session, the same
-//! `root_event_id` from the session's TurnReply thread should be e-tagged so the
-//! article can be linked back to the conversation that produced it.
 
 use crate::codec::Codec;
 use crate::domain::{
-    Activity, AgentRef, ChatMessage, DomainEvent, Mention, MentionMeta, Profile, Proposal, Status,
-    TurnReply,
+    Activity, AgentRef, ChatMessage, DomainEvent, Profile, Proposal, Status,
 };
 use crate::util::SessionId;
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 
 pub const KIND_PROFILE: u16 = 0;
-pub const KIND_NOTE: u16 = 1;
 pub const KIND_CHAT: u16 = 9;
 pub const KIND_STATUS: u16 = 30315;
 
@@ -169,7 +159,13 @@ impl Codec for Kind1Codec {
                 agent: _agent,
                 project,
                 text,
-            }) => EventBuilder::new(kind(KIND_NOTE), text.clone()).tags([project_tag(project)?]),
+            }) => {
+                // Activity is a social narrative note (kind:1 without inbox routing).
+                // We still encode it for broadcast purposes but it's not part of
+                // the inbox system. For now, encode as a plain kind:1 note.
+                use nostr_sdk::prelude::EventBuilder as EB;
+                EB::new(Kind::from(1u16), text.clone()).tags([project_tag(project)?])
+            }
             DomainEvent::Status(Status {
                 agent,
                 project,
@@ -220,40 +216,6 @@ impl Codec for Kind1Codec {
                 }
                 EventBuilder::new(kind(KIND_STATUS), activity.clone()).tags(tags)
             }
-            DomainEvent::Mention(Mention {
-                from: _from,
-                to_pubkey,
-                project,
-                body,
-                meta,
-            }) => {
-                let mut tags = vec![project_tag(project)?, tag(&["p", to_pubkey])?];
-                if !meta.subject.is_empty() {
-                    tags.push(tag(&["subject", &meta.subject])?);
-                }
-                if !meta.branch.is_empty() {
-                    tags.push(tag(&["git-branch", &meta.branch])?);
-                }
-                if !meta.commit.is_empty() {
-                    tags.push(tag(&["git-commit", &meta.commit])?);
-                }
-                if meta.dirty > 0 {
-                    tags.push(tag(&["git-dirty", &meta.dirty.to_string()])?);
-                }
-                if !meta.host.is_empty() {
-                    tags.push(tag(&["from-host", &meta.host])?);
-                }
-                if let Some(reply_to) = &meta.reply_to_event_id {
-                    // NIP-10 reply marker back to the original mention; the `p`
-                    // tag above still makes this decode as a Mention (priority 1).
-                    tags.push(tag(&["e", reply_to, "", "reply"])?);
-                }
-                // allow_self_tagging: a mention to a sibling session of the SAME
-                // agent has p == author; nostr would otherwise strip that p tag.
-                EventBuilder::new(kind(KIND_NOTE), body.clone())
-                    .tags(tags)
-                    .allow_self_tagging()
-            }
             DomainEvent::ChatMessage(ChatMessage {
                 from: _from,
                 project,
@@ -276,17 +238,6 @@ impl Codec for Kind1Codec {
                     .tags(tags)
                     .allow_self_tagging()
             }
-            DomainEvent::TurnReply(TurnReply {
-                agent: _,
-                project,
-                body,
-                root_event_id,
-                reply_event_id,
-            }) => EventBuilder::new(kind(KIND_NOTE), body.clone()).tags([
-                project_tag(project)?,
-                tag(&["e", root_event_id, "", "root"])?,
-                tag(&["e", reply_event_id, "", "reply"])?,
-            ]),
             DomainEvent::Proposal(Proposal {
                 agent: _,
                 project,
@@ -367,55 +318,9 @@ impl Codec for Kind1Codec {
                 mentioned_session: first_tag(event, "session-id").map(str::to_string),
                 mentioned_pubkey: first_tag(event, "p").map(str::to_string),
             })),
-            KIND_NOTE => {
+            1 => {
+                // kind:1 notes: decode as Activity for social narrative (no routing).
                 let project = project_from_tags(event)?;
-
-                // Disambiguation (in priority order):
-                //   1. Has p tag                            → Mention
-                //   2. Has NIP-10 e-tag with "root" marker  → TurnReply
-                //   3. Otherwise                            → Activity
-                // Authorization is by signer pubkey only; self-asserted agent tags
-                // are not written and not read. Slug is always empty here; it is
-                // resolved from the profiles table downstream by the materializer.
-                if let Some(to) = first_tag(event, "p") {
-                    return Some(DomainEvent::Mention(Mention {
-                        from: AgentRef::new(pubkey, String::new()),
-                        to_pubkey: to.to_string(),
-                        project,
-                        body: event.content.clone(),
-                        meta: MentionMeta {
-                            subject: first_tag(event, "subject").unwrap_or_default().to_string(),
-                            branch: first_tag(event, "git-branch")
-                                .unwrap_or_default()
-                                .to_string(),
-                            commit: first_tag(event, "git-commit")
-                                .unwrap_or_default()
-                                .to_string(),
-                            dirty: first_tag(event, "git-dirty")
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0),
-                            host: first_tag(event, "from-host")
-                                .unwrap_or_default()
-                                .to_string(),
-                            reply_to_event_id: e_tag_with_marker(event, "reply")
-                                .map(|s| s.to_string()),
-                        },
-                    }));
-                }
-                if let (Some(root_id), Some(reply_id)) = (
-                    e_tag_with_marker(event, "root"),
-                    e_tag_with_marker(event, "reply"),
-                ) {
-                    return Some(DomainEvent::TurnReply(TurnReply {
-                        agent: AgentRef::new(pubkey, ""),
-                        project,
-                        body: event.content.clone(),
-                        root_event_id: root_id.to_string(),
-                        reply_event_id: reply_id.to_string(),
-                    }));
-                }
-
-                // No p tag → Activity.
                 Some(DomainEvent::Activity(Activity {
                     agent: AgentRef::new(pubkey, String::new()),
                     project,
@@ -698,120 +603,6 @@ mod tests {
     }
 
     #[test]
-    fn mention_roundtrip() {
-        // Slug is NOT on the wire; decoded mention always has empty slug.
-        let keys = Keys::generate();
-        let ev = DomainEvent::Mention(Mention {
-            from: AgentRef::new(keys.public_key().to_hex(), String::new()),
-            to_pubkey: "cc".repeat(32),
-            project: "tenex-edge".into(),
-            body: "can you review?".into(),
-            meta: MentionMeta::default(),
-        });
-        assert_eq!(roundtrip(ev.clone(), &keys), ev);
-        // Wire event must have NO agent tag, no session-id tag, no from-session tag.
-        let signed = Kind1Codec
-            .encode(&ev)
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        assert!(!has_tag_name(&signed, "agent"));
-        assert!(!has_tag_name(&signed, "session-id"));
-        assert!(!has_tag_name(&signed, "from-session"));
-    }
-
-    #[test]
-    fn mention_no_session_tags_on_wire() {
-        let keys = Keys::generate();
-        // Session-pubkey addressing: no session-id or from-session tags emitted.
-        let ev = DomainEvent::Mention(Mention {
-            from: AgentRef::new(keys.public_key().to_hex(), String::new()),
-            to_pubkey: "cc".repeat(32),
-            project: "tenex-edge".into(),
-            body: "ping".into(),
-            meta: MentionMeta::default(),
-        });
-        let signed = Kind1Codec
-            .encode(&ev)
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        // Stage 4: session-id and from-session tags must NOT appear on wire.
-        assert!(!has_tag_name(&signed, "from-session"));
-        assert!(!has_tag_name(&signed, "session-id"));
-        // Wire event must have NO agent tag.
-        assert!(!has_tag_name(&signed, "agent"));
-    }
-
-    #[test]
-    fn mention_uses_nip29_h_tag_not_hashtag() {
-        let keys = Keys::generate();
-        let ev = DomainEvent::Mention(Mention {
-            from: agent(&keys, "coder"),
-            to_pubkey: "cc".repeat(32),
-            project: "tenex-edge".into(),
-            body: "can you review?".into(),
-            meta: MentionMeta::default(),
-        });
-        let signed = Kind1Codec
-            .encode(&ev)
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        assert!(has_tag(&signed, "h", "tenex-edge"));
-        assert!(!has_tag_name(&signed, "t"));
-    }
-
-    #[test]
-    fn mention_to_self_keeps_p_tag() {
-        // A mention from one session of an agent to another session of the SAME
-        // agent has to_pubkey == the signer's own pubkey. Ensure the p tag survives.
-        // Slug is NOT on the wire; decoded mention has empty slug.
-        let keys = Keys::generate();
-        let pk = keys.public_key().to_hex();
-        let ev = DomainEvent::Mention(Mention {
-            from: AgentRef::new(pk.clone(), String::new()),
-            to_pubkey: pk.clone(),
-            project: "p".into(),
-            body: "hi".into(),
-            meta: MentionMeta::default(),
-        });
-        let signed = Kind1Codec
-            .encode(&ev)
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap();
-        let has_p = signed
-            .tags
-            .iter()
-            .any(|t| t.as_slice().first().map(|s| s.as_str()) == Some("p"));
-        assert!(
-            has_p,
-            "p tag missing! tags={:?}",
-            signed
-                .tags
-                .iter()
-                .map(|t| t.as_slice().to_vec())
-                .collect::<Vec<_>>()
-        );
-        // No agent tag on the wire.
-        assert!(!has_tag_name(&signed, "agent"));
-        assert_eq!(Kind1Codec.decode(&signed).unwrap(), ev);
-    }
-
-    #[test]
-    fn mention_vs_activity_disambiguation() {
-        let keys = Keys::generate();
-        // A note WITHOUT a p tag decodes as Activity.
-        let act = DomainEvent::Activity(Activity {
-            agent: agent(&keys, "coder"),
-            project: "p".into(),
-            text: "doing stuff".into(),
-        });
-        assert!(matches!(roundtrip(act, &keys), DomainEvent::Activity(_)));
-    }
-
-    #[test]
     fn unrelated_kind_decodes_to_none() {
         let keys = Keys::generate();
         let reaction = EventBuilder::new(Kind::from(7u16), "+")
@@ -836,86 +627,14 @@ mod tests {
 
     #[test]
     fn t_only_project_notes_are_ignored() {
-        // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None.
+        // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None
+        // (no `h` tag means no project, so project_from_tags returns None).
         let keys = Keys::generate();
-        let event = EventBuilder::new(Kind::from(KIND_NOTE), "old shape")
+        let event = EventBuilder::new(Kind::from(1u16), "old shape")
             .tags([tag(&["t", "tenex-edge"]).unwrap()])
             .sign_with_keys(&keys)
             .unwrap();
         assert!(Kind1Codec.decode(&event).is_none());
-    }
-
-    // ── Owner-note decode rules ───────────────────────────────────────────────
-
-    #[test]
-    fn owner_note_with_p_and_session_id_decodes_as_mention() {
-        // A human-signed kind:1 with `p` + `session-id` + NO `agent` tag must
-        // decode as a Mention so the materializer can route it via the owner gate.
-        let owner_keys = Keys::generate();
-        let agent_pk = "aa".repeat(32);
-        let session = "sess-owner-1";
-
-        let event = EventBuilder::new(Kind::from(KIND_NOTE), "looks good, ship it")
-            .tags([
-                tag(&["h", "myproject"]).unwrap(),
-                tag(&["p", &agent_pk]).unwrap(),
-                tag(&["session-id", session]).unwrap(),
-            ])
-            .sign_with_keys(&owner_keys)
-            .unwrap();
-
-        match Kind1Codec.decode(&event) {
-            Some(DomainEvent::Mention(m)) => {
-                assert_eq!(m.to_pubkey, agent_pk, "to_pubkey must be the p tag");
-                assert_eq!(
-                    m.from.pubkey,
-                    owner_keys.public_key().to_hex(),
-                    "from.pubkey must be the event author"
-                );
-                assert_eq!(m.project, "myproject");
-                assert_eq!(m.body, "looks good, ship it");
-            }
-            other => panic!("expected Mention, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn owner_note_p_only_decodes_as_mention() {
-        // Under the new unified rule, ANY kind:1 with a `p` tag decodes as Mention
-        // (including p-only notes without session-id). The routing gate in the
-        // materializer then decides whether to admit based on signer identity.
-        let owner_keys = Keys::generate();
-        let agent_pk = "bb".repeat(32);
-
-        let event = EventBuilder::new(Kind::from(KIND_NOTE), "just doing something")
-            .tags([
-                tag(&["h", "myproject"]).unwrap(),
-                tag(&["p", &agent_pk]).unwrap(),
-            ])
-            .sign_with_keys(&owner_keys)
-            .unwrap();
-
-        match Kind1Codec.decode(&event) {
-            Some(DomainEvent::Mention(m)) => {
-                assert_eq!(m.to_pubkey, agent_pk);
-            }
-            other => panic!("expected Mention for p-note, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn p_note_decodes_as_mention_regardless_of_other_tags() {
-        // Under the new unified rule, any kind:1 with a `p` tag decodes as Mention.
-        // Slug is NOT on the wire; decoded mention has empty slug.
-        let keys = Keys::generate();
-        let ev = DomainEvent::Mention(Mention {
-            from: AgentRef::new(keys.public_key().to_hex(), String::new()),
-            to_pubkey: "cc".repeat(32),
-            project: "myproject".into(),
-            body: "review this".into(),
-            meta: MentionMeta::default(),
-        });
-        assert!(matches!(roundtrip(ev, &keys), DomainEvent::Mention(_)));
     }
 
     #[test]

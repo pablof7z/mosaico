@@ -1,73 +1,5 @@
 use super::*;
 
-// ── send-message ─────────────────────────────────────────────────────────────
-
-/// Where an `inbox send` should go. Mirrors the two mutually-exclusive
-/// addressing flags on the CLI (`--to-new-session` / `--to-session`).
-pub(super) enum SendTarget {
-    /// Spawn a fresh session of `agent` (in `project`, else the cwd's project)
-    /// and deliver the message to it.
-    NewSession {
-        agent: String,
-        project: Option<String>,
-    },
-    /// Deliver to an existing session, addressed by id or codename.
-    Session(String),
-}
-
-pub(super) async fn inbox_send(
-    target: SendTarget,
-    subject: Option<String>,
-    message: String,
-    session: Option<String>,
-    thread_id: Option<String>,
-) -> Result<()> {
-    // `recipient` carries the agent slug or session handle; `mode` tells the
-    // daemon which one and whether to spawn. `project` only applies to
-    // new-session sends.
-    let (recipient, mode, project) = match target {
-        SendTarget::NewSession { agent, project } => (agent, "new_session", project),
-        SendTarget::Session(sess) => (sess, "session", None),
-    };
-    let params = serde_json::json!({
-        "recipient": recipient,
-        "mode": mode,
-        "project": project,
-        "subject": subject,
-        "message": message,
-        "session": session,
-        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
-        "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
-        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-        "thread_id": thread_id,
-    });
-    let v = daemon_call_async("send_message", params).await?;
-    print_send_ack(&v);
-    Ok(())
-}
-
-pub(super) async fn inbox_reply(
-    id: String,
-    subject: Option<String>,
-    message: String,
-    session: Option<String>,
-) -> Result<()> {
-    let params = serde_json::json!({
-        "id": id,
-        "subject": subject,
-        "message": message,
-        "session": session,
-        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
-        "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
-        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-    });
-    let v = daemon_call_async("inbox_reply", params).await?;
-    print_send_ack(&v);
-    Ok(())
-}
-
 pub(super) async fn chat_write(
     message: String,
     mention: Option<String>,
@@ -167,22 +99,6 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
         3 => text.magenta().to_string(),
         4 => text.blue().to_string(),
         _ => text.red().to_string(),
-    }
-}
-
-fn print_send_ack(v: &serde_json::Value) {
-    let to_pubkey = v["to_pubkey"].as_str().unwrap_or_default().to_string();
-    let target_session = v["target_session"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    match target_session {
-        Some(s) => println!(
-            "mentioned {} (session {})",
-            pubkey_short(&to_pubkey),
-            SessionId::from(s)
-        ),
-        None => println!("mentioned {}", pubkey_short(&to_pubkey)),
     }
 }
 
@@ -331,45 +247,15 @@ fn strip_single_trailing_newline(mut s: String) -> String {
     s
 }
 
-// ── mention rendering (one place; reused by inbox / turn injection) ───────────
+// ── envelope rendering ───────────────────────────────────────────────────────
 
-/// The fully-qualified `--recipient` handle the receiver should reply to. Prefer
-/// the sender's exact session id — so a reply reaches the precise sibling session
-/// that wrote this — but only when that session actually resolves on our side;
-/// otherwise fall back to `slug@project`, which always routes to the agent.
-/// Render an `InboxRow` as an email-like envelope (the daemon-side path; the CLI
-/// path renders from JSON). `self_host` decides the `[remote: …]` annotation.
-pub(crate) fn row_envelope(r: &crate::state::InboxRow, self_host: &str, now: u64) -> String {
-    let id = mention_short_id(&r.mention_event_id);
-    format_envelope(&EnvelopeView {
-        from_slug: &r.from_slug,
-        project: &r.project,
-        from_session: &r.from_session,
-        host: &r.host,
-        self_host,
-        subject: &r.subject,
-        branch: &r.branch,
-        commit: &r.commit,
-        dirty: r.dirty,
-        id: &id,
-        sent_at: r.created_at,
-        now,
-        body: &r.body,
-    })
-}
-
-// ── envelope rendering (one place; reused by inbox / turn injection) ─────────
-
-/// The short `ID` shown on an envelope — the first 8 hex chars of the mention's
-/// event id. The receiver passes it to `tenex-edge inbox reply --id <ID>`, which
-/// matches it back to the full event by prefix.
+/// The short `ID` shown on an envelope — the first 8 hex chars of a message's
+/// event id.
 pub fn mention_short_id(event_id: &str) -> String {
     event_id.chars().take(8).collect()
 }
 
 /// Everything needed to render one inbound message as an email-like envelope.
-/// Built either daemon-side from an `InboxRow` (turn injection) or client-side
-/// from the daemon's JSON (the `inbox` command).
 pub struct EnvelopeView<'a> {
     pub from_slug: &'a str,
     pub project: &'a str,
@@ -450,45 +336,3 @@ pub fn format_envelope(e: &EnvelopeView) -> String {
     s
 }
 
-/// Render a `serde_json` row (as produced by the daemon's `rows_to_json`) into an
-/// envelope. Used by the `inbox` CLI command.
-fn format_envelope_json(r: &serde_json::Value, now: u64) -> String {
-    format_envelope(&EnvelopeView {
-        from_slug: r["from_slug"].as_str().unwrap_or(""),
-        project: r["project"].as_str().unwrap_or(""),
-        from_session: r["from_session"].as_str().unwrap_or(""),
-        host: r["host"].as_str().unwrap_or(""),
-        self_host: r["self_host"].as_str().unwrap_or(""),
-        subject: r["subject"].as_str().unwrap_or(""),
-        branch: r["branch"].as_str().unwrap_or(""),
-        commit: r["commit"].as_str().unwrap_or(""),
-        dirty: r["dirty"].as_u64().unwrap_or(0) as u32,
-        id: r["id"].as_str().unwrap_or(""),
-        sent_at: r["created_at"].as_u64().unwrap_or(0),
-        now,
-        body: r["body"].as_str().unwrap_or(""),
-    })
-}
-
-// ── inbox ────────────────────────────────────────────────────────────────────
-
-pub(super) async fn inbox(session: Option<String>) -> Result<()> {
-    let params = serde_json::json!({
-        "session": session,
-        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
-        "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
-        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-    });
-    let v = daemon_call_async("inbox", params).await?;
-    if let Some(rows) = v["rows"].as_array() {
-        let now = now_secs();
-        for (i, r) in rows.iter().enumerate() {
-            if i > 0 {
-                println!();
-            }
-            println!("{}", format_envelope_json(r, now));
-        }
-    }
-    Ok(())
-}

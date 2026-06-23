@@ -1,4 +1,3 @@
-use super::messaging::row_envelope;
 use super::who::{build_status_delta, push_turn_fabric_block};
 use super::*;
 
@@ -56,13 +55,12 @@ pub fn assemble_turn_start_context(
         blocks.push(format!(
             "[tenex-edge] You are {slug} [session {codename}] on the tenex-edge fabric. \
              You can run `tenex-edge whoami` (your own identity), `tenex-edge who`, \
-             `tenex-edge inbox`, and `tenex-edge inbox send`. \
-             To message an existing session: \
-             `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`. \
-             To start a fresh agent session: \
-             `tenex-edge inbox send --to-new-session <agent> --subject \"...\" --message \"...\"`. \
-             Reply to a message you received with `tenex-edge inbox reply --id <ID> \"...\"`. \
-             If the user asks you to message/contact/tell another agent, run `tenex-edge inbox send`; \
+             and `tenex-edge chat write`. \
+             To write to project chat: \
+             `tenex-edge chat write --message \"...\"`. \
+             To mention a specific agent session: \
+             `tenex-edge chat write --mention <codename> --message \"...\"`. \
+             If the user asks you to message/contact/tell another agent, run `tenex-edge chat write`; \
              do not say you cannot send messages from here.",
             slug = rec.agent_slug,
             codename = codename,
@@ -90,27 +88,6 @@ pub fn assemble_turn_start_context(
                 project = rec.project,
             ));
         }
-    }
-
-    // Drain inbox (authoritative delivery; turn_check only peeks).
-    let inbox_envelopes = {
-        let s = store.lock().expect("store mutex poisoned");
-        let rows = s.drain_inbox(&rec.session_id).unwrap_or_default();
-        for r in &rows {
-            s.mark_mention_seen(&rec.agent_pubkey, &r.mention_event_id, now_secs())
-                .ok();
-        }
-        rows
-    };
-    if !inbox_envelopes.is_empty() {
-        let now = now_secs();
-        let mut text = String::from(
-            "Messages from other agents (tenex-edge) — reply with `tenex-edge inbox reply --id <ID> \"...\"`:",
-        );
-        for r in &inbox_envelopes {
-            let _ = write!(text, "\n\n{}", row_envelope(r, &rec.host, now));
-        }
-        blocks.push(text);
     }
 
     let chat_rows = {
@@ -145,45 +122,25 @@ pub fn assemble_turn_start_context(
     }
 }
 
-/// Mid-turn context for the PostToolUse `turn_check` hook. Three independent
+/// Mid-turn context for the PostToolUse `turn_check` hook. Two independent
 /// blocks, each shown only when it has content:
-///   1. Inbox PEEK — direct messages that arrived mid-turn (read-only peek;
-///      authoritative delivery still happens at turn_start). Always surfaced,
-///      even when rate-limited: direct messages are high-value and the recipient
-///      should see them until the next turn drains them.
-///   2. Project chat — ambient chat that arrived since the last check. Unlike
-///      the inbox, this is delta-gated and debounced like the sibling block:
-///      it would otherwise re-emit the same undelivered rows on *every* tool
-///      call (peek never marks them delivered). Shown once per arrival.
-///   3. Sibling-session delta — project-scoped title/status changes since the
+///   1. Project chat — ambient chat that arrived since the last check.
+///      Delta-gated and debounced: shown once per arrival, not on every tool call.
+///   2. Sibling-session delta — project-scoped title/status changes since the
 ///      last check, excluding this session.
-/// Blocks 2 and 3 are present only when `delta_since` is `Some` (the daemon's
+/// Both blocks are present only when `delta_since` is `Some` (the daemon's
 /// rate-limit floor passed) and there is something new past the cursor.
-/// `self_host` flags remote senders; `now` is the shared timestamp.
+/// `now` is the shared timestamp.
 pub fn assemble_turn_check_context(
     store: &std::sync::Mutex<Store>,
     rec: &crate::state::SessionRecord,
-    self_host: &str,
+    _self_host: &str,
     delta_since: Option<u64>,
     now: u64,
 ) -> Option<String> {
     let mut blocks: Vec<String> = Vec::new();
 
-    // 1. Inbox peek — direct messages addressed to this session.
-    let rows = {
-        let s = store.lock().expect("store mutex poisoned");
-        s.undelivered_messages_for_session(&rec.session_id)
-            .unwrap_or_default()
-    };
-    if !rows.is_empty() {
-        let mut text = String::from("[tenex-edge] Message(s) arrived while you were working:");
-        for r in &rows {
-            let _ = write!(text, "\n\n{}", row_envelope(r, self_host, now));
-        }
-        blocks.push(text);
-    }
-
-    // 2 + 3. Chat and sibling-delta — both gated by the daemon's rate-limit
+    // Chat and sibling-delta — both gated by the daemon's rate-limit
     // floor and cursored off the same `since` so nothing re-emits per tool call.
     if let Some(since) = delta_since {
         let chat_rows: Vec<_> = {

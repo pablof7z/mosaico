@@ -92,7 +92,10 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
         !sid.is_empty(),
         "session-start printed no generated session id"
     );
-    let hook_log = std::fs::read_to_string(home.dir.path().join("hook-calls.jsonl"))
+    // Forensics logs are now scoped to per-session dirs. The session-start hook
+    // payload has no session_id key (opencode with no id), so it lands in _unscoped.
+    let hook_log_path = home.dir.path().join("sessions").join("_unscoped").join("hook-calls.jsonl");
+    let hook_log = std::fs::read_to_string(&hook_log_path)
         .expect("hook forensic log");
     let first_hook: serde_json::Value =
         serde_json::from_str(hook_log.lines().next().expect("hook log line"))
@@ -162,7 +165,10 @@ fn invalid_cli_invocation_is_recorded_before_clap_rejects_it() {
         "hallucinated command unexpectedly succeeded"
     );
 
-    let command_log = std::fs::read_to_string(home.dir.path().join("command-calls.jsonl"))
+    // Forensics logs are now scoped to per-session dirs. The --session flag
+    // value is "hallucinated-session", so the log lands in that session subdir.
+    let command_log_path = home.dir.path().join("sessions").join("hallucinated-session").join("command-calls.jsonl");
+    let command_log = std::fs::read_to_string(&command_log_path)
         .expect("command forensic log");
     let records: Vec<serde_json::Value> = command_log
         .lines()

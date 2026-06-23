@@ -122,7 +122,7 @@ pub(super) fn render_whoami(v: &serde_json::Value) -> String {
             row("member", if is_member { "yes" } else { "no" })
         );
         if pending > 0 {
-            let _ = write!(out, "{}", row("inbox", &format!("{pending} pending")));
+            let _ = write!(out, "{}", row("chat", &format!("{pending} pending")));
         }
         out
     } else {
@@ -147,7 +147,9 @@ pub(super) fn render_whoami(v: &serde_json::Value) -> String {
             "| Project member | {} |",
             if is_member { "yes" } else { "no" }
         );
-        let _ = writeln!(out, "| Inbox | {} pending |", pending);
+        if pending > 0 {
+            let _ = writeln!(out, "| Chat | {} pending |", pending);
+        }
         out
     }
 }
@@ -176,7 +178,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Sessions");
     let _ = writeln!(
         out,
-        "Message an active session with `tenex-edge inbox send --to-session <codename> --subject \"...\" --message \"...\"`."
+        "Message an active session with `tenex-edge chat write --mention <codename> --message \"...\"`."
     );
     let _ = writeln!(out);
     if snapshot.rows.is_empty() {
@@ -202,7 +204,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "## Agents (for new sessions)");
     let _ = writeln!(
         out,
-        "Start a new session with `tenex-edge inbox send --to-new-session <slug> --subject \"...\" --message \"...\"`."
+        "Start a new session with `tenex-edge chat write --message \"...\"`."
     );
     let _ = writeln!(out);
     if snapshot.spawnable.is_empty() {
@@ -269,10 +271,6 @@ fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: boo
     if !row.fresh {
         status.push_str(" (stale)");
     }
-    if row.unread > 0 {
-        let _ = write!(status, ", {} unread", row.unread);
-    }
-
     let _ = writeln!(
         out,
         "{}",
@@ -341,11 +339,6 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
     let dir = rel_cwd_bracket(&row.rel_cwd)
         .map(|d| format!(" {}", format!("[{d}]").dimmed()))
         .unwrap_or_default();
-    let unread = if row.unread > 0 {
-        format!(" {}", format!("◉{}", row.unread).yellow())
-    } else {
-        String::new()
-    };
     // Canonical agent reference `agent@host` (host slugified), always.
     let _ = include_project;
     let name = crate::idref::agent_label(&row.slug, &row.host)
@@ -353,13 +346,12 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
         .to_string();
     let _ = writeln!(
         out,
-        "{} [session {}]{}{}{}{} - {}",
+        "{} [session {}]{}{}{} - {}",
         name,
         session_codename(&row.session_id).yellow(),
         dir,
         host,
         stale,
-        unread,
         status_colored(&row.status, &row.activity, row.active),
     );
     // The hex pubkey behind the codename — the wire address others route to.

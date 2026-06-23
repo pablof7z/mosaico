@@ -17,9 +17,9 @@ The hook mapping is:
 
 - `SessionStart` → `tenex-edge hook --host codex --type session-start`
 - `UserPromptSubmit` → `tenex-edge hook --host codex --type user-prompt-submit`
-  (marks the turn "working", injects pending mentions and `tenex-edge who` output)
+  (marks the turn "working", injects pending chat messages and `tenex-edge who` output)
 - `PostToolUse` → `tenex-edge hook --host codex --type post-tool-use`
-  (read-only inbox peek mid-turn; does not drain the inbox)
+  (read-only chat peek mid-turn; does not drain)
 - `Stop` → `tenex-edge hook --host codex --type stop`
   (marks the session idle when the turn finishes)
 

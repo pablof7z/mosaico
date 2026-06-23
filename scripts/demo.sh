@@ -87,16 +87,6 @@ sleep 3
 "$BIN" turn-end --session "$CODER_SID"
 
 echo
-echo "== coder mentions reviewer's session directly =="
-"$BIN" send-message "$REV_SID" "can you review the auth fix?" --session "$CODER_SID"
-sleep 2
-
-echo
-echo "== reviewer's inbox (routed + injectable) =="
-INBOX="$("$BIN" inbox --session "$REV_SID")"
-echo "$INBOX"
-
-echo
 echo "== live tail captured =="
 sed 's/^/   | /' "$TAIL_LOG"
 
@@ -110,7 +100,6 @@ check "who shows reviewer"             "$WHO"   "reviewer@myproject"
 check "tail shows live presence"       "$(cat "$TAIL_LOG")" "live"
 check "tail shows distilled activity"  "$(cat "$TAIL_LOG")" "Fixing the auth bug"
 check "tail shows the mention"         "$(cat "$TAIL_LOG")" "msg"
-check "reviewer received the mention"  "$INBOX" "can you review the auth fix?"
 
 echo
 if [ "$fail" = 0 ]; then echo "ALL CHECKS PASSED"; else echo "SOME CHECKS FAILED"; fi

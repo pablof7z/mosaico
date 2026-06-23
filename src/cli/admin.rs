@@ -798,13 +798,6 @@ fn render(de: &DomainEvent) -> String {
         DomainEvent::Status(s) => {
             format!("{} {}: {}", "stat".magenta(), s.agent.slug.cyan(), s.title)
         }
-        DomainEvent::Mention(m) => format!(
-            "{} {} -> {}: {}",
-            "msg ".yellow(),
-            m.from.slug.cyan(),
-            pubkey_short(&m.to_pubkey),
-            m.body
-        ),
         DomainEvent::ChatMessage(c) => format!(
             "{} {}@{}{}: {}",
             "chat".green(),
@@ -816,9 +809,6 @@ fn render(de: &DomainEvent) -> String {
                 .unwrap_or_default(),
             c.body
         ),
-        DomainEvent::TurnReply(r) => {
-            format!("{} {}: {}", "turn".blue(), r.agent.slug.cyan(), r.body)
-        }
         DomainEvent::Proposal(p) => {
             format!(
                 "{} {}: {} ({})",

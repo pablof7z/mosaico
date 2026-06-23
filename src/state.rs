@@ -2,9 +2,7 @@
 //!
 //! NMP-shaped event stores aside, tenex-edge keeps the *app* state the fabric
 //! shouldn't own: my own sessions (+ the CC pid to watch), a directory of peers
-//! built from their profiles/presence, and a per-session inbox of mentions —
-//! idempotent on `(mention_event_id, target_session)` so the same mention seen
-//! by two of an agent's processes injects once per session.
+//! built from their profiles/presence, and per-session chat inbox rows.
 
 use crate::domain::Lifecycle;
 use crate::session::{
@@ -46,32 +44,6 @@ pub struct PeerSession {
     pub last_seen: u64,
     /// Peer's project-relative working dir, learned from its presence events.
     pub rel_cwd: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InboxRow {
-    pub mention_event_id: String,
-    pub target_session: String,
-    pub from_pubkey: String,
-    pub from_slug: String,
-    pub project: String,
-    pub body: String,
-    /// When the sender published this mention (the kind:1 event timestamp), so the
-    /// envelope's Date reflects send time, not local receipt/route time.
-    pub created_at: u64,
-    /// The sender's session id (empty when unknown — old peers / untargeted).
-    /// Lets the recipient reply to the exact sibling session that wrote this.
-    pub from_session: String,
-    /// Envelope: one-line subject ("" when unset).
-    pub subject: String,
-    /// Envelope: sender's git branch at send time ("" outside a repo).
-    pub branch: String,
-    /// Envelope: sender's short commit hash at send time ("" outside a repo).
-    pub commit: String,
-    /// Envelope: count of dirty, non-gitignored files in the sender's tree.
-    pub dirty: u32,
-    /// Envelope: sender's host label (drives the `[remote: <host>]` annotation).
-    pub host: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,24 +190,6 @@ CREATE TABLE IF NOT EXISTS peer_sessions (
     first_seen INTEGER NOT NULL DEFAULT 0,
     rel_cwd    TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS inbox (
-    mention_event_id TEXT NOT NULL,
-    target_session   TEXT NOT NULL,
-    from_pubkey      TEXT NOT NULL,
-    from_slug        TEXT NOT NULL,
-    project          TEXT NOT NULL,
-    body             TEXT NOT NULL,
-    created_at       INTEGER NOT NULL,
-    delivered        INTEGER NOT NULL DEFAULT 0,
-    delivered_at     INTEGER NOT NULL DEFAULT 0,
-    from_session     TEXT NOT NULL DEFAULT '',
-    subject          TEXT NOT NULL DEFAULT '',
-    branch           TEXT NOT NULL DEFAULT '',
-    commit_hash      TEXT NOT NULL DEFAULT '',
-    dirty            INTEGER NOT NULL DEFAULT 0,
-    host             TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (mention_event_id, target_session)
-);
 CREATE TABLE IF NOT EXISTS chat_inbox (
     chat_event_id     TEXT NOT NULL,
     target_session    TEXT NOT NULL,
@@ -276,14 +230,6 @@ CREATE TABLE IF NOT EXISTS turn_state (
     -- changes since the previous check (the guarded ALTER below migrates
     -- pre-existing on-disk databases that predate this column).
     last_check_at   INTEGER NOT NULL DEFAULT 0
-);
--- A mention an agent has already received, so it is never re-delivered in a
--- later session (mentions are stored kind:1 events that persist on the relay).
-CREATE TABLE IF NOT EXISTS seen_mentions (
-    agent_pubkey     TEXT NOT NULL,
-    mention_event_id TEXT NOT NULL,
-    seen_at          INTEGER NOT NULL,
-    PRIMARY KEY (agent_pubkey, mention_event_id)
 );
 -- ── canonical session aggregate (single source of truth) ─────────────────────
 -- ONE row per local session keyed by the daemon-minted canonical session_id.
@@ -577,28 +523,6 @@ impl Store {
         );
         let _ = conn.execute(
             "ALTER TABLE peer_sessions ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        // Sender session id on inbox mentions, so a reply can target the exact
-        // sibling session that wrote the message.
-        let _ = conn.execute(
-            "ALTER TABLE inbox ADD COLUMN from_session TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        // Envelope columns: subject + the sender's workspace snapshot at send time.
-        for col in [
-            "subject TEXT NOT NULL DEFAULT ''",
-            "branch TEXT NOT NULL DEFAULT ''",
-            "commit_hash TEXT NOT NULL DEFAULT ''",
-            "dirty INTEGER NOT NULL DEFAULT 0",
-            "host TEXT NOT NULL DEFAULT ''",
-        ] {
-            let _ = conn.execute(&format!("ALTER TABLE inbox ADD COLUMN {col}"), []);
-        }
-        // When a mention was drained to its session — drives the statusline's
-        // "recently consumed" inbox segment.
-        let _ = conn.execute(
-            "ALTER TABLE inbox ADD COLUMN delivered_at INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // NIP-10 thread tracking: root event (first user prompt in the session
@@ -1074,6 +998,51 @@ impl Store {
         Ok(None)
     }
 
+    /// Resolve a backend pubkey from a host slug (the `slugify_host` form shown
+    /// by `who`). Queries peer_sessions then profiles for any row whose host,
+    /// when slugified, equals `host_slug`. Returns the most-recently-seen pubkey,
+    /// or `None` if no peer is known under that host name.
+    pub fn pubkey_for_host_slug(&self, host_slug: &str) -> Option<String> {
+        use crate::util::slugify_host;
+        // peer_sessions: prefer the most-recently active backend on that host.
+        {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT pubkey, host FROM peer_sessions ORDER BY last_seen DESC",
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .ok()?;
+            for row in rows.flatten() {
+                if slugify_host(&row.1) == host_slug {
+                    return Some(row.0);
+                }
+            }
+        }
+        // profiles: fall back to kind:0 identity cards.
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT pubkey, host FROM profiles ORDER BY updated_at DESC")
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .ok()?;
+            for row in rows.flatten() {
+                if slugify_host(&row.1) == host_slug {
+                    return Some(row.0);
+                }
+            }
+        }
+        None
+    }
+
     /// Reverse-lookup: given a pubkey, return the slug this agent is known by
     /// (from own sessions, peer_sessions, or profiles). Returns None if completely unknown.
     /// Look up the agent slug for a locally-owned pubkey from the `sessions`
@@ -1228,74 +1197,6 @@ impl Store {
         )?)
     }
 
-    // ── inbox ────────────────────────────────────────────────────────────
-
-    /// Idempotent insert. Returns true if the row was newly stored.
-    pub fn enqueue_mention(&self, m: &InboxRow) -> Result<bool> {
-        let changed = self.conn.execute(
-            "INSERT OR IGNORE INTO inbox
-               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, from_session, subject, branch, commit_hash, dirty, host)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,?10,?11,?12,?13)",
-            params![
-                m.mention_event_id, m.target_session, m.from_pubkey, m.from_slug,
-                m.project, m.body, m.created_at, m.from_session,
-                m.subject, m.branch, m.commit, m.dirty, m.host
-            ],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// Enqueue a mention already marked delivered. Used when the message is
-    /// handed to the agent out-of-band — e.g. typed straight into a freshly
-    /// spawned pane as its first prompt: the row must persist so `inbox reply
-    /// --id` can resolve the original, but the turn-start drain must NOT
-    /// re-deliver it as duplicate context.
-    pub fn enqueue_mention_delivered(&self, m: &InboxRow, delivered_at: u64) -> Result<bool> {
-        let changed = self.conn.execute(
-            "INSERT OR IGNORE INTO inbox
-               (mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, delivered_at, from_session, subject, branch, commit_hash, dirty, host)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9,?10,?11,?12,?13,?14)",
-            params![
-                m.mention_event_id, m.target_session, m.from_pubkey, m.from_slug,
-                m.project, m.body, m.created_at, delivered_at, m.from_session,
-                m.subject, m.branch, m.commit, m.dirty, m.host
-            ],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// Read undelivered mentions without marking them delivered. Safe for
-    /// mid-turn checks (turn_check) — no writes to state.db.
-    pub fn peek_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
-             FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
-        )?;
-        let rows: Vec<InboxRow> = stmt
-            .query_map(params![session_id], row_to_inbox)?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
-    /// Mark exactly these mention rows delivered for `session_id`.
-    /// Used when another delivery path has already handed the rendered message to
-    /// the agent and must prevent turn-start from echoing it again.
-    pub fn mark_inbox_rows_delivered(
-        &self,
-        session_id: &str,
-        event_ids: &[String],
-        delivered_at: u64,
-    ) -> Result<()> {
-        let mut stmt = self.conn.prepare(
-            "UPDATE inbox SET delivered=1, delivered_at=?3
-             WHERE target_session=?1 AND mention_event_id=?2 AND delivered=0",
-        )?;
-        for event_id in event_ids {
-            stmt.execute(params![session_id, event_id, delivered_at])?;
-        }
-        Ok(())
-    }
 
     /// Peer sessions first seen at or after `since`, still live (last_seen >= fresh_since).
     pub fn list_new_peer_sessions(
@@ -1418,16 +1319,6 @@ impl Store {
             != 0
     }
 
-    /// Count undelivered mentions for a session without consuming them.
-    pub fn count_unread_inbox(&self, session_id: &str) -> Result<usize> {
-        let n: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM inbox WHERE target_session=?1 AND delivered=0",
-            params![session_id],
-            |r| r.get(0),
-        )?;
-        Ok(n as usize)
-    }
-
     /// Count undelivered chat rows that explicitly mention this session.
     pub fn count_unread_chat_mentions(&self, session_id: &str) -> Result<usize> {
         let n: i64 = self.conn.query_row(
@@ -1437,16 +1328,6 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(n as usize)
-    }
-
-    // ── per-agent mention dedup (across sessions) ────────────────────────
-
-    pub fn mark_mention_seen(&self, agent_pubkey: &str, event_id: &str, ts: u64) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO seen_mentions (agent_pubkey, mention_event_id, seen_at) VALUES (?1,?2,?3)",
-            params![agent_pubkey, event_id, ts],
-        )?;
-        Ok(())
     }
 
     // ── canonical session aggregate: identity registry ───────────────────────
@@ -2478,32 +2359,6 @@ impl Store {
             .ok()
     }
 
-    pub fn is_mention_seen(&self, agent_pubkey: &str, event_id: &str) -> Result<bool> {
-        let n: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM seen_mentions WHERE agent_pubkey=?1 AND mention_event_id=?2",
-            params![agent_pubkey, event_id],
-            |r| r.get(0),
-        )?;
-        Ok(n > 0)
-    }
-
-    /// Return undelivered mentions for a session and mark them delivered.
-    pub fn drain_inbox(&self, session_id: &str) -> Result<Vec<InboxRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
-             FROM inbox WHERE target_session=?1 AND delivered=0 ORDER BY created_at",
-        )?;
-        let rows: Vec<InboxRow> = stmt
-            .query_map(params![session_id], row_to_inbox)?
-            .filter_map(|r| r.ok())
-            .collect();
-        self.conn.execute(
-            "UPDATE inbox SET delivered=1, delivered_at=?2 WHERE target_session=?1 AND delivered=0",
-            params![session_id, crate::util::now_secs()],
-        )?;
-        Ok(rows)
-    }
-
     /// Idempotently enqueue a live project chat row for one target session.
     /// Chat is intentionally per-session/live-only: callers decide the target
     /// sessions at materialization time and never catch up old chat on startup.
@@ -3210,38 +3065,6 @@ impl Store {
         self.project_id_for_origin(fabric, provider_instance, slug)
     }
 
-    /// Peek (non-destructive read) of undelivered inbox rows for a session.
-    ///
-    /// This is the read-model facade for turn_check and any other non-draining
-    /// reader.  `assemble_turn_start_context` intentionally keeps its direct
-    /// `drain_inbox` call because drain is a delivery write, not a read-model
-    /// query; routing it through this method would change the peek/drain
-    /// semantics that freeze tests pin.
-    ///
-    // Retained storage (Phase 8): inbox is the deliberately-retained canonical home for
-    // per-session delivered/seen messages; readers query it directly per fabric-architecture.md §6.
-    pub fn undelivered_messages_for_session(&self, session_id: &str) -> Result<Vec<InboxRow>> {
-        self.peek_inbox(session_id)
-    }
-
-    /// Find any inbox row whose `mention_event_id` starts with `prefix` (the short
-    /// `ID` shown in an envelope). Used by `inbox reply --id` to recover the
-    /// original sender + event to thread the reply against. Returns the first
-    /// match ordered by recency; `None` if nothing matches.
-    /// Mentions already drained to `session_id` at or after `since`. Read-only —
-    /// drives the statusline's "recently consumed" inbox segment.
-    pub fn list_recently_delivered(&self, session_id: &str, since: u64) -> Result<Vec<InboxRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
-             FROM inbox WHERE target_session=?1 AND delivered=1 AND delivered_at>=?2 AND from_pubkey<>'' ORDER BY created_at",
-        )?;
-        let rows: Vec<InboxRow> = stmt
-            .query_map(params![session_id, since], row_to_inbox)?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    }
-
     /// Explicit chat mentions already drained to `session_id` at or after `since`.
     pub fn list_recently_delivered_chat_mentions(
         &self,
@@ -3259,19 +3082,6 @@ impl Store {
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
-    }
-
-    pub fn find_inbox_by_event_prefix(&self, prefix: &str) -> Result<Option<InboxRow>> {
-        let pattern = format!("{prefix}%");
-        let mut stmt = self.conn.prepare(
-            "SELECT mention_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, subject, branch, commit_hash, dirty, host
-             FROM inbox WHERE mention_event_id LIKE ?1 ORDER BY created_at DESC LIMIT 1",
-        )?;
-        let row = stmt
-            .query_map(params![pattern], row_to_inbox)?
-            .filter_map(|r| r.ok())
-            .next();
-        Ok(row)
     }
 
     // ── Phase 2: write-facing materializer methods ───────────────────────────
@@ -3324,14 +3134,6 @@ impl Store {
             }
         }
         Ok(())
-    }
-
-    /// Record an inbound mention in the legacy inbox with full dedup semantics.
-    /// Returns true when the row was newly stored.
-    ///
-    /// Canonical `messages` dual-write comes in Phase 6.
-    pub fn materialize_inbound_message(&self, m: &InboxRow) -> Result<bool> {
-        self.enqueue_mention(m)
     }
 
     /// Record an outbound message in the canonical `messages` table.
@@ -3551,27 +3353,6 @@ fn row_to_peer(row: &rusqlite::Row) -> rusqlite::Result<PeerSession> {
     })
 }
 
-/// Column order: mention_event_id, target_session, from_pubkey, from_slug,
-/// project, body, created_at, from_session, subject, branch, commit_hash, dirty,
-/// host. Shared by `peek_inbox`, `drain_inbox`, and `find_inbox_by_event_prefix`.
-fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
-    Ok(InboxRow {
-        mention_event_id: row.get(0)?,
-        target_session: row.get(1)?,
-        from_pubkey: row.get(2)?,
-        from_slug: row.get(3)?,
-        project: row.get(4)?,
-        body: row.get(5)?,
-        created_at: row.get(6)?,
-        from_session: row.get(7)?,
-        subject: row.get(8)?,
-        branch: row.get(9)?,
-        commit: row.get(10)?,
-        dirty: row.get::<_, i64>(11)? as u32,
-        host: row.get(12)?,
-    })
-}
-
 fn row_to_chat(row: &rusqlite::Row) -> rusqlite::Result<ChatInboxRow> {
     Ok(ChatInboxRow {
         chat_event_id: row.get(0)?,
@@ -3631,70 +3412,6 @@ mod tests {
         s.mark_session_dead("sess-1").unwrap();
         assert!(s.list_alive_sessions().unwrap().is_empty());
         assert!(!s.get_session("sess-1").unwrap().unwrap().alive);
-    }
-
-    #[test]
-    fn inbox_is_idempotent_per_session() {
-        let s = Store::open_memory().unwrap();
-        let row = InboxRow {
-            mention_event_id: "evt-1".into(),
-            target_session: "sess-A".into(),
-            from_pubkey: "pk".into(),
-            from_slug: "reviewer".into(),
-            project: "proj".into(),
-            body: "look here".into(),
-            created_at: 5,
-            from_session: "sender-A".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-        assert!(s.enqueue_mention(&row).unwrap()); // new
-        assert!(!s.enqueue_mention(&row).unwrap()); // duplicate ignored
-                                                    // same mention, different session = distinct delivery
-        let mut other = row.clone();
-        other.target_session = "sess-B".into();
-        assert!(s.enqueue_mention(&other).unwrap());
-
-        let drained = s.drain_inbox("sess-A").unwrap();
-        assert_eq!(drained.len(), 1);
-        assert_eq!(drained[0].body, "look here");
-        assert!(s.drain_inbox("sess-A").unwrap().is_empty()); // delivered once
-        assert_eq!(s.drain_inbox("sess-B").unwrap().len(), 1);
-    }
-
-    #[test]
-    fn mark_inbox_rows_delivered_marks_only_selected_rows() {
-        let s = Store::open_memory().unwrap();
-        let row = InboxRow {
-            mention_event_id: "evt-1".into(),
-            target_session: "sess-A".into(),
-            from_pubkey: "pk".into(),
-            from_slug: "reviewer".into(),
-            project: "proj".into(),
-            body: "first".into(),
-            created_at: 5,
-            from_session: "sender-A".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-        let mut other = row.clone();
-        other.mention_event_id = "evt-2".into();
-        other.body = "second".into();
-        s.enqueue_mention(&row).unwrap();
-        s.enqueue_mention(&other).unwrap();
-
-        s.mark_inbox_rows_delivered("sess-A", &["evt-1".to_string()], 99)
-            .unwrap();
-
-        let remaining = s.peek_inbox("sess-A").unwrap();
-        assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].mention_event_id, "evt-2");
     }
 
     /// Bug C (agent-scoped sender resolution): the latest-alive fallback must be
@@ -4201,63 +3918,6 @@ mod tests {
 
     // ── freeze tests (Phase-0 regression oracle) ─────────────────────────────
 
-    /// FREEZE B1: enqueue_mention is idempotent on (mention_event_id, target_session).
-    /// Recording the same event id for the same session twice yields exactly one row;
-    /// the second call returns false. A different session with the same event id is
-    /// a DISTINCT row (different PK component).
-    #[test]
-    fn freeze_inbox_dedup_by_event_id() {
-        let s = Store::open_memory().unwrap();
-        let base = InboxRow {
-            mention_event_id: "evt-freeze-1".into(),
-            target_session: "sess-X".into(),
-            from_pubkey: "pk-sender".into(),
-            from_slug: "sender".into(),
-            project: "proj".into(),
-            body: "hello".into(),
-            created_at: 100,
-            from_session: "".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-
-        // First insert: new row → true.
-        assert!(
-            s.enqueue_mention(&base).unwrap(),
-            "first insert must return true"
-        );
-
-        // Duplicate for the SAME (event_id, session): must be ignored → false.
-        assert!(
-            !s.enqueue_mention(&base).unwrap(),
-            "duplicate must be ignored (idempotent)"
-        );
-
-        // Same event id, DIFFERENT session: distinct PK → separate delivery → true.
-        let mut other_session = base.clone();
-        other_session.target_session = "sess-Y".into();
-        assert!(
-            s.enqueue_mention(&other_session).unwrap(),
-            "same event_id, different session = distinct row"
-        );
-
-        // Both sessions have exactly one undelivered row.
-        assert_eq!(s.peek_inbox("sess-X").unwrap().len(), 1);
-        assert_eq!(s.peek_inbox("sess-Y").unwrap().len(), 1);
-
-        // drain_inbox marks delivered; a second drain is empty.
-        let drained = s.drain_inbox("sess-X").unwrap();
-        assert_eq!(drained.len(), 1);
-        assert_eq!(drained[0].body, "hello");
-        assert!(
-            s.drain_inbox("sess-X").unwrap().is_empty(),
-            "delivered rows must not re-drain"
-        );
-    }
-
     /// FREEZE B2: replace_group_members applied TWICE with the same snapshot is
     /// idempotent — no duplicates, no stale survivors, and other projects are
     /// unaffected. This extends the existing authoritative-replace test.
@@ -4305,55 +3965,6 @@ mod tests {
         assert!(!s.is_group_member("other-proj", "pk-alpha").unwrap());
     }
 
-    /// FREEZE B4: peek_inbox is read-only — rows survive a peek and remain
-    /// available to drain. drain_inbox marks them delivered.
-    #[test]
-    fn freeze_peek_is_nondestructive_drain_is_final() {
-        let s = Store::open_memory().unwrap();
-        let row = InboxRow {
-            mention_event_id: "evt-peek-1".into(),
-            target_session: "sess-peek".into(),
-            from_pubkey: "pk-s".into(),
-            from_slug: "sender".into(),
-            project: "proj".into(),
-            body: "peek me".into(),
-            created_at: 1,
-            from_session: "".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-        s.enqueue_mention(&row).unwrap();
-
-        // peek: row is visible.
-        assert_eq!(
-            s.peek_inbox("sess-peek").unwrap().len(),
-            1,
-            "peek must see the row"
-        );
-        // peek again: still there (not consumed).
-        assert_eq!(
-            s.peek_inbox("sess-peek").unwrap().len(),
-            1,
-            "second peek must still see the row"
-        );
-
-        // drain: consumes and marks delivered.
-        let drained = s.drain_inbox("sess-peek").unwrap();
-        assert_eq!(drained.len(), 1);
-
-        // After drain, both peek and drain return empty.
-        assert!(
-            s.peek_inbox("sess-peek").unwrap().is_empty(),
-            "peek after drain must be empty"
-        );
-        assert!(
-            s.drain_inbox("sess-peek").unwrap().is_empty(),
-            "second drain must be empty"
-        );
-    }
 
     // ── Phase 1: canonical read-model schema ─────────────────────────────
 
@@ -4708,44 +4319,6 @@ mod tests {
         assert_eq!(msgs[0].body, "hello");
     }
 
-    /// undelivered_messages_for_session is non-destructive (same as peek_inbox).
-    #[test]
-    fn phase2_undelivered_messages_for_session_is_nondestructive() {
-        let s = Store::open_memory().unwrap();
-        let row = InboxRow {
-            mention_event_id: "evt-rdm-1".into(),
-            target_session: "sess-rm".into(),
-            from_pubkey: "pk-s".into(),
-            from_slug: "sender".into(),
-            project: "proj".into(),
-            body: "hello rdm".into(),
-            created_at: 1,
-            from_session: "".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-        s.enqueue_mention(&row).unwrap();
-        // Call twice — rows survive (non-destructive).
-        assert_eq!(
-            s.undelivered_messages_for_session("sess-rm").unwrap().len(),
-            1
-        );
-        assert_eq!(
-            s.undelivered_messages_for_session("sess-rm").unwrap().len(),
-            1
-        );
-        // drain_inbox still works after peeking via the read-model method.
-        let drained = s.drain_inbox("sess-rm").unwrap();
-        assert_eq!(drained.len(), 1);
-        assert!(s
-            .undelivered_messages_for_session("sess-rm")
-            .unwrap()
-            .is_empty());
-    }
-
     /// materialize_profile round-trips through upsert_profile.
     #[test]
     fn phase2_materialize_profile() {
@@ -4988,36 +4561,6 @@ mod tests {
         assert!(s.is_group_member("unknown-proj", "pk-x").unwrap());
     }
 
-    /// materialize_inbound_message is idempotent (delegates to enqueue_mention).
-    #[test]
-    fn phase2_materialize_inbound_message_idempotent() {
-        let s = Store::open_memory().unwrap();
-        let row = InboxRow {
-            mention_event_id: "evt-mat-1".into(),
-            target_session: "sess-mat".into(),
-            from_pubkey: "pk-s".into(),
-            from_slug: "sender".into(),
-            project: "proj".into(),
-            body: "inbound".into(),
-            created_at: 1,
-            from_session: "".into(),
-            subject: String::new(),
-            branch: String::new(),
-            commit: String::new(),
-            dirty: 0,
-            host: String::new(),
-        };
-        assert!(
-            s.materialize_inbound_message(&row).unwrap(),
-            "first insert → true"
-        );
-        assert!(
-            !s.materialize_inbound_message(&row).unwrap(),
-            "duplicate → false (idempotent)"
-        );
-        assert_eq!(s.peek_inbox("sess-mat").unwrap().len(), 1);
-    }
-
     /// materialize_outbound_message, mark_outbound_accepted/echoed/failed
     /// round-trip through the canonical messages table.
     #[test]
@@ -5221,114 +4764,6 @@ mod tests {
         assert_eq!(rcpt_count2, 1, "add_message_recipient is idempotent");
     }
 
-    /// Phase 6 inbound dual-write: materializing the same inbound event twice
-    /// (simulating relay echo) yields exactly one canonical message row, one
-    /// recipient row, and exactly one legacy inbox row.
-    #[test]
-    fn phase6_inbound_canonical_dual_write_and_dedup() {
-        use crate::fabric::kind1::materializer::Kind1Materializer;
-        use nostr_sdk::prelude::{EventBuilder, Keys, Kind};
-
-        let s = Store::open_memory().unwrap();
-        let keys = Keys::generate();
-        let pk_hex = keys.public_key().to_hex();
-
-        // Create a recipient session so the legacy inbox path has somewhere to deliver.
-        let rec = SessionRecord {
-            session_id: "sess-inbound-1".into(),
-            agent_slug: "agent".into(),
-            agent_pubkey: pk_hex.clone(),
-            project: "test-proj".into(),
-            host: "host".into(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        };
-        s.upsert_session(&rec).unwrap();
-
-        // Build a signed Event (kind:1) that looks like a mention.
-        // We use a minimal event — the codec is not involved here;
-        // we test the materialize_inbound_message store writes directly.
-        let sender_keys = Keys::generate();
-        let event = EventBuilder::new(Kind::from(1u16), "hi from sender")
-            .sign_with_keys(&sender_keys)
-            .unwrap();
-        let eid = event.id.to_hex();
-
-        let mention = crate::domain::Mention {
-            from: crate::domain::AgentRef::new(
-                sender_keys.public_key().to_hex(),
-                "sender".to_string(),
-            ),
-            to_pubkey: pk_hex.clone(),
-            project: "test-proj".into(),
-            body: "hi from sender".into(),
-            meta: crate::domain::MentionMeta::default(),
-        };
-        let pi = "test-pi-inbound";
-        let now = 2000u64;
-
-        // First materialization.
-        let (routed1, thread1) =
-            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
-        assert!(routed1, "first delivery must route to session");
-        assert!(
-            thread1.is_some(),
-            "canonical write must report the thread id"
-        );
-
-        // Second materialization (relay echo) — must be a no-op everywhere.
-        let (routed2, _) =
-            Kind1Materializer::materialize_inbound_message(&s, &pk_hex, &mention, &event, pi, now);
-        assert!(
-            !routed2,
-            "echo: inbox already has this (mention_event_id, target_session)"
-        );
-
-        // Exactly one canonical message row.
-        let msg_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE native_event_id=?1",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(msg_count, 1, "exactly one canonical message after echo");
-
-        // Exactly one recipient row.
-        let mid: String = s
-            .conn
-            .query_row(
-                "SELECT message_id FROM messages WHERE native_event_id=?1",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        let rcpt_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM message_recipients WHERE message_id=?1",
-                params![mid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(rcpt_count, 1, "exactly one recipient row after echo");
-
-        // Exactly one legacy inbox row (the dedup the legacy path enforces).
-        let inbox_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM inbox WHERE mention_event_id=?1 AND target_session='sess-inbound-1'",
-                params![eid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(inbox_count, 1, "exactly one legacy inbox row after echo");
-    }
-
     // ── Phase 7 tests ─────────────────────────────────────────────────────────
 
     /// list_threads/messages_for_thread/thread_meta return correct enriched data.
@@ -5421,112 +4856,6 @@ mod tests {
         assert!(s
             .thread_root_native_key(&tid, "kind1-nip29", "wrong-pi")
             .is_none());
-    }
-
-    /// Reply grouping round-trip: a reply event carrying a root `e` tag pointing
-    /// at an existing outbound thread's native key lands in the SAME thread.
-    ///
-    /// The Phase 6 inbound materializer reads `["e", ..., "root"]` to determine
-    /// `native_thread_key`.  This test proves the end-to-end grouping works.
-    #[test]
-    fn phase7_reply_groups_into_same_thread() {
-        use crate::domain::{AgentRef, Mention};
-        use crate::fabric::kind1::materializer::Kind1Materializer;
-        use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
-
-        let s = Store::open_memory().unwrap();
-        let pi = "pi-rg";
-        let proj = "reply-proj";
-
-        // Use a fixed 64-char hex as the "root event id" (E1).
-        // In production this comes from the published Nostr event id.
-        let e1_hex = "a".repeat(64);
-
-        // Seed the outbound root: project origin → thread origin keyed on E1.
-        let pid = s
-            .ensure_project_origin("kind1-nip29", pi, proj, proj, 100)
-            .unwrap();
-        let root_tid = s
-            .ensure_thread_origin(&pid, "kind1-nip29", pi, &e1_hex, 100)
-            .unwrap();
-        let _root_mid = s
-            .record_message(
-                &root_tid,
-                "pk-sender",
-                "root message",
-                100,
-                "outbound",
-                "published",
-                Some(&e1_hex),
-            )
-            .unwrap();
-
-        // Build a signed inbound reply event carrying ["e", E1, "", "root"].
-        let recipient_keys = Keys::generate();
-        let recipient_pk = recipient_keys.public_key().to_hex();
-
-        // Create a recipient session so the legacy inbox path has somewhere to deliver.
-        let rec = SessionRecord {
-            session_id: "sess-reply-rg".into(),
-            agent_slug: "agent".into(),
-            agent_pubkey: recipient_pk.clone(),
-            project: proj.into(),
-            host: "host".into(),
-            child_pid: None,
-            watch_pid: None,
-            created_at: 1,
-            alive: true,
-            rel_cwd: String::new(),
-        };
-        s.upsert_session(&rec).unwrap();
-
-        let sender_keys = Keys::generate();
-        // Build a reply event with a NIP-10 root e-tag pointing at E1.
-        let reply_event = EventBuilder::new(Kind::from(1u16), "reply body")
-            .tags([
-                Tag::parse(["h", proj]).unwrap(),
-                Tag::parse(["p", &recipient_pk]).unwrap(),
-                Tag::parse(["e", &e1_hex, "", "root"]).unwrap(),
-            ])
-            .sign_with_keys(&sender_keys)
-            .unwrap();
-
-        let mention = Mention {
-            from: AgentRef::new(sender_keys.public_key().to_hex(), "sender".to_string()),
-            to_pubkey: recipient_pk.clone(),
-            project: proj.into(),
-            body: "reply body".into(),
-            meta: crate::domain::MentionMeta::default(),
-        };
-
-        Kind1Materializer::materialize_inbound_message(
-            &s,
-            &recipient_pk,
-            &mention,
-            &reply_event,
-            pi,
-            200,
-        );
-
-        // The reply must land in the SAME thread as the root.
-        let thread_count: i64 = s
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM threads WHERE project_id=?1",
-                params![pid],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            thread_count, 1,
-            "reply must join the existing thread, not create a new one"
-        );
-
-        let msgs = s.messages_for_thread(&root_tid).unwrap();
-        assert_eq!(msgs.len(), 2, "one root + one reply in the same thread");
-        assert_eq!(msgs[0].direction, "outbound");
-        assert_eq!(msgs[1].direction, "inbound");
-        assert_eq!(msgs[1].body, "reply body");
     }
 
     /// Proposal dual-write: record_message + thread origin produce a canonical

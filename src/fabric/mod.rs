@@ -11,8 +11,6 @@ pub mod nip29;
 pub mod nostr_delivery;
 pub mod provider;
 
-use crate::domain::Mention;
-
 /// Raw wire envelope crossing the transport boundary. Phase 3 adds only the
 /// Nostr variant; additional transports (NMP, Marmot) add variants in Phase 5.
 pub enum RawEnvelope {
@@ -68,24 +66,14 @@ pub struct MaterializationOutcome {
 
 /// Decode one raw envelope and apply all store side-effects.
 ///
-/// Reproduces `handle_incoming` EXACTLY, split across the nip29 and kind1
-/// materializers. Observable behavior is unchanged: tail is emitted for every
-/// decoded event (including is_self), and `wake_mentions` is set only when a
-/// mention is actually routed.
+/// Tail is emitted for every decoded event (including is_self).
+/// `wake_mentions` is set only when a chat message is routed to a live session.
 ///
-/// Routing gate for directed Mentions (to_pubkey ∈ hosted):
-///   admitted = signer ∈ hosted  OR  signer ∈ owners  OR  is_group_member(project, signer)
-/// The self-asserted `["agent", …]` wire tag carries no authority and is not
-/// consulted here or anywhere; routing is by signer pubkey only.
-///
-/// Phase 6: `provider_instance` is threaded through to `materialize_inbound_message`
-/// so canonical dual-write rows are keyed by the correct origin.
 pub fn materialize(
     env: &RawEnvelope,
     hosted: &[String],
-    owners: &[String],
     now: u64,
-    provider_instance: &str,
+    _provider_instance: &str,
     store: &crate::state::Store,
 ) -> MaterializationOutcome {
     use crate::domain::DomainEvent;
@@ -138,52 +126,6 @@ pub fn materialize(
             Kind1Materializer::materialize_status(store, st, event.created_at.as_secs(), now);
         }
 
-        DomainEvent::Mention(ref m) if hosted.contains(&m.to_pubkey) => {
-            // Admission gate: route only when the SIGNER is trusted.
-            // admitted = signer ∈ hosted  OR  signer ∈ owners  OR
-            //            is_group_member(project, signer)
-            // The old self-asserted ["agent", …] wire tag is no longer consulted;
-            // identity is the signer pubkey only.
-            let sender_pk = event.pubkey.to_hex();
-            let admitted = hosted.contains(&sender_pk)
-                || owners.contains(&sender_pk)
-                || store
-                    .is_group_member(&m.project, &sender_pk)
-                    .unwrap_or(false);
-            if admitted {
-                let to = m.to_pubkey.clone();
-                // Slug is no longer on the wire; resolve from profiles/sessions table
-                // so inbox rows carry a readable sender name for all senders.
-                let resolved_slug = store
-                    .resolve_slug_for_pubkey(&sender_pk)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-                let enriched = if resolved_slug.is_empty() {
-                    std::borrow::Cow::Borrowed(m)
-                } else {
-                    std::borrow::Cow::Owned(Mention {
-                        from: crate::domain::AgentRef::new(sender_pk, resolved_slug),
-                        ..m.clone()
-                    })
-                };
-                let (routed, thread_id) = Kind1Materializer::materialize_inbound_message(
-                    store,
-                    &to,
-                    &enriched,
-                    event,
-                    provider_instance,
-                    now,
-                );
-                if routed {
-                    outcome.wake_mentions = true;
-                }
-                outcome.thread_id = thread_id;
-                // Tail carries the enriched event so consumers see the slug.
-                outcome.tail = Some(DomainEvent::Mention(enriched.into_owned()));
-            }
-        }
-
         DomainEvent::ChatMessage(ref chat) => {
             let sender_pk = event.pubkey.to_hex();
             let resolved_slug = store
@@ -230,162 +172,6 @@ mod tests {
             .tags(tags)
             .sign_with_keys(keys)
             .unwrap()
-    }
-
-    /// Owner-signed directed note (p + session-id + no agent) from a key in `owners`
-    /// must route to the target session's inbox.
-    #[test]
-    fn owner_directed_note_routes_to_session_inbox() {
-        let store = Store::open_memory().unwrap();
-        let owner_keys = Keys::generate();
-        let agent_keys = Keys::generate();
-        let owner_pk = owner_keys.public_key().to_hex();
-        let agent_pk = agent_keys.public_key().to_hex();
-        let session_id = "test-sess-owner-1";
-
-        // Register a live session for the agent so route_mention_into finds it.
-        store
-            .upsert_session(&crate::state::SessionRecord {
-                session_id: session_id.to_string(),
-                agent_slug: "claude".to_string(),
-                agent_pubkey: agent_pk.clone(),
-                project: "myproject".to_string(),
-                host: "laptop".to_string(),
-                child_pid: None,
-                watch_pid: None,
-                created_at: 1,
-                alive: true,
-                rel_cwd: String::new(),
-            })
-            .unwrap();
-        store.touch_session(session_id, 1_000).unwrap();
-
-        let event = build_event(
-            &owner_keys,
-            1,
-            "looks good, ship it",
-            vec![
-                make_tag(&["h", "myproject"]),
-                make_tag(&["p", &agent_pk]),
-                make_tag(&["session-id", session_id]),
-                // NO agent tag
-            ],
-        );
-
-        let hosted = vec![agent_pk.clone()];
-        let owners = vec![owner_pk.clone()];
-        let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
-
-        assert!(outcome.wake_mentions, "owner-note must wake mentions");
-
-        let inbox = store.drain_inbox(session_id).unwrap();
-        assert_eq!(inbox.len(), 1, "one inbox row expected");
-        assert_eq!(inbox[0].body, "looks good, ship it");
-        assert_eq!(inbox[0].from_pubkey, owner_pk);
-    }
-
-    /// A directed note from a stranger (not in owners, not an agent) must NOT route.
-    #[test]
-    fn stranger_directed_note_does_not_route() {
-        let store = Store::open_memory().unwrap();
-        let stranger_keys = Keys::generate();
-        let agent_keys = Keys::generate();
-        let owner_keys = Keys::generate();
-        let agent_pk = agent_keys.public_key().to_hex();
-        let owner_pk = owner_keys.public_key().to_hex();
-        let session_id = "test-sess-stranger-1";
-
-        store
-            .upsert_session(&crate::state::SessionRecord {
-                session_id: session_id.to_string(),
-                agent_slug: "claude".to_string(),
-                agent_pubkey: agent_pk.clone(),
-                project: "myproject".to_string(),
-                host: "laptop".to_string(),
-                child_pid: None,
-                watch_pid: None,
-                created_at: 1,
-                alive: true,
-                rel_cwd: String::new(),
-            })
-            .unwrap();
-        store.touch_session(session_id, 1_000).unwrap();
-
-        let event = build_event(
-            &stranger_keys,
-            1,
-            "I am a stranger",
-            vec![
-                make_tag(&["h", "myproject"]),
-                make_tag(&["p", &agent_pk]),
-                make_tag(&["session-id", session_id]),
-                // NO agent tag, sender NOT in owners
-            ],
-        );
-
-        let hosted = vec![agent_pk.clone()];
-        let owners = vec![owner_pk]; // stranger is NOT in owners
-        let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
-
-        assert!(
-            !outcome.wake_mentions,
-            "stranger note must NOT wake mentions"
-        );
-
-        let inbox = store.drain_inbox(session_id).unwrap();
-        assert!(inbox.is_empty(), "inbox must be empty for stranger note");
-    }
-
-    /// Hosted-sender mention routes (signer ∈ hosted is the new gate).
-    #[test]
-    fn hosted_sender_mention_routes() {
-        let store = Store::open_memory().unwrap();
-        let sender_keys = Keys::generate();
-        let recipient_keys = Keys::generate();
-        let sender_pk = sender_keys.public_key().to_hex();
-        let recipient_pk = recipient_keys.public_key().to_hex();
-        let session_id = "test-sess-agent-1";
-
-        store
-            .upsert_session(&crate::state::SessionRecord {
-                session_id: session_id.to_string(),
-                agent_slug: "codex".to_string(),
-                agent_pubkey: recipient_pk.clone(),
-                project: "myproject".to_string(),
-                host: "laptop".to_string(),
-                child_pid: None,
-                watch_pid: None,
-                created_at: 1,
-                alive: true,
-                rel_cwd: String::new(),
-            })
-            .unwrap();
-        store.touch_session(session_id, 1_000).unwrap();
-
-        // Wire event has NO agent tag — the sender is hosted (same daemon).
-        let event = build_event(
-            &sender_keys,
-            1,
-            "hey review this",
-            vec![
-                make_tag(&["h", "myproject"]),
-                make_tag(&["p", &recipient_pk]),
-                make_tag(&["session-id", session_id]),
-            ],
-        );
-
-        // Sender is in the hosted set — that is the admission criterion.
-        let hosted = vec![recipient_pk.clone(), sender_pk.clone()];
-        let owners: Vec<String> = vec![];
-        let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
-
-        assert!(outcome.wake_mentions, "hosted-sender mention must route");
-        let inbox = store.drain_inbox(session_id).unwrap();
-        assert_eq!(inbox.len(), 1);
-        assert_eq!(inbox[0].body, "hey review this");
     }
 
     #[test]
@@ -450,7 +236,7 @@ mod tests {
 
         let hosted = vec![sender_pk, receiver_pk, future_pk];
         let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &hosted, &[], event_ts, "test-pi", &store);
+        let outcome = materialize(&env, &hosted, event_ts, "test-pi", &store);
 
         assert!(outcome.wake_mentions, "live receiver should wake");
         assert!(
@@ -467,61 +253,4 @@ mod tests {
         );
     }
 
-    /// Group-member sender mention routes (signer ∈ is_group_member).
-    #[test]
-    fn group_member_sender_mention_routes() {
-        let store = Store::open_memory().unwrap();
-        let sender_keys = Keys::generate();
-        let recipient_keys = Keys::generate();
-        let sender_pk = sender_keys.public_key().to_hex();
-        let recipient_pk = recipient_keys.public_key().to_hex();
-        let session_id = "test-sess-member-1";
-
-        store
-            .upsert_session(&crate::state::SessionRecord {
-                session_id: session_id.to_string(),
-                agent_slug: "claude".to_string(),
-                agent_pubkey: recipient_pk.clone(),
-                project: "myproject".to_string(),
-                host: "laptop".to_string(),
-                child_pid: None,
-                watch_pid: None,
-                created_at: 1,
-                alive: true,
-                rel_cwd: String::new(),
-            })
-            .unwrap();
-        store.touch_session(session_id, 1_000).unwrap();
-
-        // Register sender as a group member via the 39002 membership cache.
-        store
-            .replace_group_members(
-                "myproject",
-                &[(sender_pk.clone(), "member".to_string())],
-                100,
-            )
-            .unwrap();
-
-        let event = build_event(
-            &sender_keys,
-            1,
-            "review please",
-            vec![
-                make_tag(&["h", "myproject"]),
-                make_tag(&["p", &recipient_pk]),
-                make_tag(&["session-id", session_id]),
-            ],
-        );
-
-        // Sender is NOT hosted, NOT owner — admitted via group membership.
-        let hosted = vec![recipient_pk.clone()];
-        let owners: Vec<String> = vec![];
-        let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &hosted, &owners, 1_000, "test-pi", &store);
-
-        assert!(outcome.wake_mentions, "group-member mention must route");
-        let inbox = store.drain_inbox(session_id).unwrap();
-        assert_eq!(inbox.len(), 1);
-        assert_eq!(inbox[0].body, "review please");
-    }
 }

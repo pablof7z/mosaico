@@ -16,7 +16,7 @@ import { join } from "node:path"
 //   user-prompt-submit (hook)   → experimental.chat.messages.transform, on the
 //                   first model invocation of a user message (marks "working",
 //                   starts the distillation timer). Its stdout — self-identity,
-//                   drained inbox, project chat, peer roster, all assembled by
+//                   project chat, peer roster, all assembled by
 //                   the shared Rust hook — is injected verbatim into the turn.
 //   post-tool-use (hook)        → experimental.chat.messages.transform, on later
 //                   model invocations of the same message (mid-turn checkpoint:
@@ -50,7 +50,7 @@ export const TenexEdge: Plugin = async ({ client, directory }) => {
   // door Claude Code and Codex use — by piping a small JSON payload on stdin and
   // reading stdout back. tenex-edge has no per-step subcommands anymore; `hook
   // --host opencode --type <t>` parses this payload and drives the lifecycle.
-  // (Peer queries — `who`, `inbox`, `send-message` — stay plain subcommands.)
+  // (Peer queries — `who`, `chat` — stay plain subcommands.)
   function runHook(type: string, payload: Record<string, unknown>): Promise<string> {
     return new Promise((resolve) => {
       const child = execFile(
@@ -161,13 +161,13 @@ export const TenexEdge: Plugin = async ({ client, directory }) => {
 
       // The hook is the single source of truth for injected context: the same
       // Rust path that serves Claude Code and Codex assembles the self-identity
-      // line, drained inbox, project chat, and peer roster, and prints it on
-      // stdout. We don't rebuild any of that here — we just pipe stdout into the
-      // turn. Two hook types map to opencode's two moments:
-      //   • new user message → user-prompt-submit (turn start: drains the inbox
-      //     authoritatively, full roster on the first turn, deltas after).
+      // line, project chat, and peer roster, and prints it on stdout. We don't
+      // rebuild any of that here — we just pipe stdout into the turn. Two hook
+      // types map to opencode's two moments:
+      //   • new user message → user-prompt-submit (turn start: drains chat,
+      //     full roster on the first turn, deltas after).
       //   • same user message, later model invocation → post-tool-use (mid-turn
-      //     checkpoint: non-destructive peek of new messages + sibling deltas,
+      //     checkpoint: non-destructive peek of new chat + sibling deltas,
       //     rate-limited by the daemon — exactly Claude Code's PostToolUse).
       let context = ""
       if (SID && msgID && msgID !== lastTurnMsgID) {

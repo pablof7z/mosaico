@@ -1,15 +1,15 @@
 # tenex-edge: per-machine daemon design
 
-Status: proposed (human review checkpoint). Implements the architecture change
+Status: implemented. Implements the architecture change
 from **per-session process** to **one per-machine daemon** that solely owns
-`state.db`, the relay connection, the inbox, presence, NIP-29 membership cache,
+`state.db`, the relay connection, chat delivery, presence, NIP-29 membership cache,
 and peer pruning.
 
 ## 1. Why
 
 Today every Claude Code / Codex / OpenCode session spawns its own detached
 engine (`tenex-edge __run-session`), and **every** CLI invocation (`who`,
-`inbox`, `send-message`, `turn-start`, …) opens its **own** `rusqlite`
+`chat`, `who`, `turn-start`, …) opens its **own** `rusqlite`
 connection to the single SQLite file at `~/.tenex/edge/state.db`. Under ~16
 concurrent per-session writers this corrupted `state.db` (a real incident).
 Root cause: many independent processes each believe they own the db, and N
@@ -22,7 +22,7 @@ Unix domain socket. One writer by construction → corruption window goes to
 zero; N relay connections collapse to one.
 
 This is a pure-internal change: **external CLI behavior and output are
-preserved byte-for-byte** (the Python hooks in `integrations/` and the parallel
+preserved** (the Python hooks in `integrations/` and the parallel
 Claude channel adapter shell out to these verbs and parse their stdout).
 
 ## 2. Stages (sequenced, each independently reviewable)
@@ -37,12 +37,12 @@ Claude channel adapter shell out to these verbs and parse their stdout).
    the daemon is sole writer. **Done.**
 2. **Daemon + single writer** — introduce the UDS daemon, spawn-if-absent,
    lock/socket/stale-reclaim/version-handshake, and the RPC protocol. CLI verbs
-   become thin RPC clients. The daemon owns one `Store`.
+   become thin RPC clients. The daemon owns one `Store`. **Done.**
 3. **Engine + relay relocation** — move the per-session engine
    (`runtime::run_session`) **into** the daemon as a per-session async task, and
    collapse the relay connection(s) to **one** shared `Transport` inside the
-   daemon. `__run-session` (the detached subprocess) is removed; `session-start`
-   becomes an RPC that asks the daemon to spawn an in-process session task.
+   daemon. `__run-session` (the detached subprocess) is removed; `session_start`
+   is a daemon RPC that spawns an in-process `SessionTask`. **Done.**
 
 ## 3. Process model
 
@@ -55,7 +55,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
               │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
               │                            │  • owns ONE relay Transport ─────┼──┼──▶ relay
               │                            │  • per-session async tasks       │  │  (NIP-42)
-              │                            │  • inbox / presence / pruning    │  │
+              │                            │  • chat / presence / pruning     │  │
               │                            │  • NIP-29 membership cache       │  │
               │                            └──────────────────────────────────┘  │
               └───────────────────────────────────────────────────────────────────┘
@@ -201,15 +201,15 @@ Walking each verb's true I/O shape:
 
 | verb               | shape                | mechanism                                            |
 |--------------------|----------------------|------------------------------------------------------|
-| `session-start`    | one-shot             | daemon spawns a `SessionTask`, returns `session_id`  |
-| `session-end`      | one-shot             | daemon stops the `SessionTask`                       |
-| `turn-start`       | one-shot (may be big)| daemon drains inbox + builds context, returns text   |
-| `turn-check`       | one-shot, read-only  | peek inbox; no writes                                |
-| `turn-end`         | one-shot             | flip turn state                                      |
-| `send-message`     | one-shot             | daemon publishes the Mention on the shared relay     |
+| `session_start`    | one-shot             | daemon spawns a `SessionTask`, returns `session_id`  |
+| `session_end`      | one-shot             | daemon stops the `SessionTask`                       |
+| `turn_start`       | one-shot (may be big)| daemon drains chat + builds context, returns text    |
+| `turn_check`       | one-shot, read-only  | peek chat; no writes                                 |
+| `turn_end`         | one-shot             | flip turn state                                      |
+| `chat_write`       | one-shot             | daemon publishes kind:9 chat event on the relay      |
+| `chat_read`        | one-shot             | daemon returns chat history for the session/project  |
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
-| `inbox`            | one-shot             | drain inbox                                          |
 | `doctor`           | one-shot             | daemon does the relay round-trip, returns result     |
 | `tail`             | **stream**           | daemon pushes decoded fabric events until disconnect |
 
@@ -226,7 +226,7 @@ it drops a `tail` subscription forwarder.
 
 Coarse, lifecycle/intent-level — **not** fine-grained DB ops. The engine lives
 inside the daemon, so there is no per-DB-op RPC chatter; the surface is
-low-frequency lifecycle signals from hooks, CLI reads, and send-message.
+low-frequency lifecycle signals from hooks, CLI reads, and chat writes.
 
 All params/results are JSON. `session` fields are full session ids; the daemon
 resolves "my session from cwd/env" the same way the CLI does today
@@ -259,30 +259,6 @@ Stops the `SessionTask` (which publishes idle presence/status and marks the
 session dead). stderr message (`session … ended` / `no such session: …`) is
 produced client-side to match today's output.
 
-### `send_message`
-```jsonc
-params: {"recipient": "…", "mode": "session"|"new_session", "project": "…"|null,
-         "message": "…", "session": "te-…"|null, "cwd": "/path", "env_session": "…"|null}
-result: {"to_pubkey": "hex", "target_session": "te-…"|null}
-```
-Two addressing modes, set by the CLI's mutually-exclusive flags:
-- **`session`** (default; CLI `--to-session <id|codename>`): `recipient` is an
-  existing session. Resolved via `resolve_recipient` (accepts session id/prefix
-  and codenames such as `bravo4217`). Never spawns. The RPC also still accepts a
-  raw pubkey/`slug@project` here for untargeted delivery — the path remote inbound
-  mentions exercise — though the CLI never emits those forms.
-- **`new_session`** (CLI `--to-new-session <agent>`): `recipient` is an agent
-  slug. The daemon mints that agent's stable identity (works even if it has never
-  run here), spawns a fresh harness window in `project` (or the sender's project),
-  and pre-loads this message into the new session's inbox via the pending-spawn
-  mention. The spawn is awaited, so an unknown/unspawnable agent errors back to
-  the caller. Same-machine fan-out to the agent's *other* sessions is skipped —
-  the message belongs to the new session only.
-
-The daemon publishes the Mention on the **shared** relay connection. Client prints
-`mentioned <codename> (session <codename>)` / `mentioned <codename>` to match
-today. (`inbox reply --id <message-id>` remains its own RPC/subcommand for
-replying upstream to a received message.)
 
 ### `who`
 ```jsonc
@@ -295,29 +271,20 @@ client-side** — `render_who_once` (colored), `render_who_plain`, and the
 `--live` terminal UI are unchanged and consume these rows. `who --live` just
 re-issues `who` each refresh tick (no streaming).
 
-### `inbox`
-```jsonc
-params: {"session": "te-…"|null, "cwd": "/path", "env_session": "…"|null}
-result: {"rows": [ {from_slug, project, body, mention_event_id}, … ]}
-```
-Daemon does the self-fetch-into-inbox + `drain_inbox` + `mark_mention_seen`
-(all the writes happen daemon-side, single writer). Client prints the exact
-`[mention from …@…] …` lines as today.
-
 ### `turn_start`
 ```jsonc
 params: {"session": "te-…", "transcript": "/path"|null, "json": bool, "cwd": "/path"}
 result: {"context": "…"|null}    // the assembled injection text, or null
 ```
 Daemon does everything `turn_start` does today (mark turn, set transcript,
-self-fetch, drain inbox, full roster on first turn / deltas
-after). Client emits via `emit_context` (plain or `{"systemMessage":…}`) to keep
-byte-identical output. Empty session id ⇒ no-op (returns `context: null`).
+drain pending chat messages, full roster on first turn / deltas after). Client
+emits via `emit_context` (plain or `{"systemMessage":…}`) to keep byte-identical
+output. Empty session id ⇒ no-op (returns `context: null`).
 
 ### `turn_check`
 ```jsonc
 params: {"session": "te-…"|null, "json": bool, "cwd": "/path", "env_session": "…"|null}
-result: {"context": "…"|null}    // peek only; no inbox drain, no writes
+result: {"context": "…"|null}    // peek only; no chat drain, no writes
 ```
 
 ### `turn_end`
@@ -347,6 +314,145 @@ The client just prints each `item.line`. (The daemon may need a project-scoped
 ephemeral subscription distinct from its trusted-author subscription; it can add
 a tail-scoped REQ for the duration of the connection.)
 
+### `chat_read` (streaming)
+```jsonc
+params: {"session": "te-…"|null, "cwd": "/path", "env_session": "…"|null}
+stream: {"item": { message fields }}
+```
+Streams unread chat-inbox messages for the session; used by the TUI reader.
+
+### `chat_write`
+```jsonc
+params: {"session": "te-…"|null, "cwd": "/path", "message": "…", "mention": "…"|null, ...}
+result: {"ok": true}
+```
+Publishes a chat message (NIP-C7 kind:9 event) from the session agent, optionally mentioning a specific peer session.
+
+### `propose`
+```jsonc
+params: {"title": "…", "body": "…", "session": "te-…"|null, "cwd": "/path", ...}
+result: {"event_id": "hex"}
+```
+Publishes a NIP-29 proposal (structured suggestion) to the project group.
+
+
+### `project_list`
+```jsonc
+params: {}
+result: {"projects": [ {slug, name, about, relay}, … ]}
+```
+Returns all known NIP-29 projects (group metadata) from the daemon's cache.
+
+### `project_edit`
+```jsonc
+params: {"project": "…", "name": "…"|null, "about": "…"|null}
+result: {"ok": true}
+```
+Publishes an updated NIP-29 kind:39000 group metadata event for the project.
+
+### `project_members`
+```jsonc
+params: {"project": "…"}
+result: {"members": [ {pubkey, slug, role}, … ]}
+```
+Returns the current membership list for the given NIP-29 group.
+
+### `project_add`
+```jsonc
+params: {"project": "…", "pubkey": "hex"|null, "agent": "slug"|null}
+result: {"ok": true}
+```
+Adds a pubkey or agent to the project's NIP-29 group (admin-signed kind:9000 add event).
+
+### `project_remove`
+```jsonc
+params: {"project": "…", "pubkey": "hex"}
+result: {"ok": true}
+```
+Removes a pubkey from the project's NIP-29 group (admin-signed kind:9001 remove event).
+
+### `groups_create`
+```jsonc
+params: {"slug": "…", "name": "…"|null, "about": "…"|null, "parent": "…"|null, "cwd": "/path", ...}
+result: {"group_id": "…", "relay": "wss://…"}
+```
+Creates a new NIP-29 group (subgroup or top-level); publishes kind:9007 create event.
+
+### `groups_list`
+```jsonc
+params: {"project": "…"|null, "cwd": "/path"}
+result: {"groups": [ {group_id, name, about, parent, relay}, … ]}
+```
+Lists NIP-29 groups visible to the daemon, optionally scoped to a project.
+
+### `publish_profile`
+```jsonc
+params: {"agent": "slug", "name": "…"|null, "about": "…"|null}
+result: {"event_id": "hex"}
+```
+Force-publishes or updates the agent's kind:0 profile.
+
+### `statusline`
+```jsonc
+params: {"session": "te-…"|null, "cwd": "/path", ...}
+result: {"working": bool, "status": "…", "session_count": N, "member_count": N,
+         "is_member": bool, "pending": N, "pending_chat": N}
+```
+Pure-read snapshot for the host statusline integration — no drain, no writes.
+
+### `whoami`
+```jsonc
+params: {"session": "te-…"|null, "cwd": "/path", ...}
+result: {"agent": "slug", "pubkey": "hex", "session_id": "te-…", "project": "…"}
+```
+Returns the resolved identity for the calling session.
+
+### `list_threads`
+```jsonc
+params: {"project": "…"|null, "cwd": "/path"}
+result: {"threads": [ {thread_id, subject, from_slug, created_at, unread}, … ]}
+```
+Lists proposal threads for the session.
+
+### `messages`
+```jsonc
+params: {"thread_id": "…"}
+result: {"messages": [ {from_slug, body, created_at, mention_event_id}, … ]}
+```
+Returns all messages in a thread.
+
+### `thread_meta`
+```jsonc
+params: {"thread_id": "…"}
+result: {"subject": "…", "participants": [...], "created_at": N}
+```
+Returns metadata for a specific thread without fetching its messages.
+
+### `ping`
+```jsonc
+params: {}
+result: {"pong": true}
+```
+Health-check / keep-alive.
+
+### `tmux_status`
+Returns live tmux session state (panes, windows) known to the daemon.
+
+### `tmux_send`
+Sends keystrokes or text to a tmux pane.
+
+### `tmux_spawn`
+Spawns a new tmux window/session for an agent, optionally pre-loading a message.
+
+### `tmux_attach`
+Returns the tmux target string needed to attach to a session's pane.
+
+### `tmux_resume`
+Reconstitutes a dead harness session in tmux (re-opens the agent in its worktree).
+
+### `tmux_resumable`
+Returns the list of sessions that can be resumed (have a dead tmux pane but live session row).
+
 ### Control / handshake (not user verbs)
 - `hello` / `welcome` (§4)
 - `please_exit` (version-skew re-exec, §4)
@@ -365,7 +471,7 @@ of) `runtime::run_session`, but:
 - It uses the daemon's **shared** `Transport`. The daemon maintains **one** relay
   connection and **one** union subscription (trusted authors ∪ all live session
   owners, per-project as needed). Incoming relay events are demuxed once,
-  daemon-side, and routed to the right session inbox(es) — replacing today's
+  daemon-side, and routed to the right session chat queue(s) — replacing today's
   per-engine `handle_incoming`. Mentions route via the existing
   `compute_targets` / `route_mention` logic over all alive sessions.
 - Presence/status/activity publishing, heartbeats, turn-driven distillation, and
@@ -452,8 +558,8 @@ daemon, "me" becomes the **set** of hosted local agent pubkeys:
 - Profile/presence/status from peers (non-local pubkeys) update the directory as
   today.
 
-Test (added): a mention to A must land only in A's inbox, never B's; untargeted
-mention to A fans out to all of A's sessions.
+Test (added): a chat mention to A must land only in A's chat queue, never B's; untargeted
+chat to A fans out to all of A's sessions.
 
 ## 8c. Session reconciliation on daemon (re)start (correctness)
 
@@ -565,8 +671,8 @@ rendering stays client-side.
   assert exactly one daemon binds and all clients connect.
 - **Stale-socket reclaim**: create a `daemon.sock` file with no listener; assert
   `connect_or_spawn()` unlinks + reclaims and connects.
-- **RPC round-trip**: start a daemon (test home), issue `who` / `send_message` /
-  `inbox` RPCs, assert results.
+- **RPC round-trip**: start a daemon (test home), issue `who` / `chat_write` /
+  `chat_read` RPCs, assert results.
 - **Version-skew handshake**: client with `protocol = N+1` against a daemon
   pinned to `N` → daemon exits, client respawns and succeeds; assert the old
   daemon process is gone.
