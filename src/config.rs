@@ -1,9 +1,8 @@
 //! Device-level config + tenex-edge's own writable home.
 //!
-//! tenex-edge *reads* the shared `~/.tenex/config.json` (for `whitelistedPubkeys`,
-//! optional `relays`, and `backendName` as the host label) but keeps all of its
-//! own writable state under a SEPARATE home so it never clobbers TENEX/pc data
-//! that already lives in `~/.tenex/agents`, `~/.tenex/data`, etc.
+//! tenex-edge *reads* `~/.tenex-edge/config.json` (for `whitelistedPubkeys`,
+//! optional `relays`, and `backendName` as the host label) and keeps all of its
+//! own writable state under `~/.tenex-edge`.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -57,7 +56,7 @@ impl Config {
     }
 }
 
-/// Mirror of the relevant fields in `~/.tenex/config.json`. Unknown fields are
+/// Mirror of the relevant fields in `~/.tenex-edge/config.json`. Unknown fields are
 /// ignored, so we coexist with TENEX's much larger (camelCase) config.
 #[derive(Debug, Deserialize)]
 struct RawConfig {
@@ -104,7 +103,7 @@ impl Config {
         })
     }
 
-    /// Load from `~/.tenex/config.json` (or `$TENEX_CONFIG` override).
+    /// Load from `~/.tenex-edge/config.json` (or `$TENEX_CONFIG` override).
     pub fn load() -> Result<Self> {
         let path = config_path();
         let s = std::fs::read_to_string(&path)
@@ -117,24 +116,24 @@ pub fn config_path() -> PathBuf {
     if let Ok(p) = std::env::var("TENEX_CONFIG") {
         return PathBuf::from(p);
     }
-    home_dir().join(".tenex").join("config.json")
+    home_dir().join(".tenex-edge").join("config.json")
 }
 
 /// tenex-edge's own writable root. Override with `$TENEX_EDGE_HOME` (tests use
-/// this for isolation). Default: `~/.tenex/edge`.
+/// this for isolation). Default: `~/.tenex-edge`.
 pub fn edge_home() -> PathBuf {
     if let Ok(p) = std::env::var("TENEX_EDGE_HOME") {
         return PathBuf::from(p);
     }
-    home_dir().join(".tenex").join("edge")
+    home_dir().join(".tenex-edge")
 }
 
-/// The shared `~/.tenex` directory (override with `$TENEX_DIR`, for tests).
+/// The shared `~/.tenex-edge` directory (override with `$TENEX_DIR`, for tests).
 pub fn tenex_dir() -> PathBuf {
     if let Ok(p) = std::env::var("TENEX_DIR") {
         return PathBuf::from(p);
     }
-    home_dir().join(".tenex")
+    home_dir().join(".tenex-edge")
 }
 
 pub fn ensure_dir(p: &Path) -> Result<()> {

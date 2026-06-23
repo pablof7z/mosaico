@@ -4,8 +4,8 @@
 //! and persisted under `<edge_home>/agents/<slug>.json`. Identity is
 //! `(agent, machine)`: the same slug on another machine is a different key.
 //!
-//! NOTE: this is a SEPARATE directory from TENEX's `~/.tenex/agents` — we never
-//! touch those. `edge_home()` defaults to `~/.tenex/edge`.
+//! NOTE: agent keypairs live under `<edge_home>/agents/<slug>.json`, which
+//! defaults to `~/.tenex-edge/agents/`. `edge_home()` defaults to `~/.tenex-edge`.
 
 use anyhow::{bail, Context, Result};
 use nostr_sdk::prelude::*;

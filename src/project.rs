@@ -6,7 +6,7 @@
 //!   1. **Git repo name** — derived from `git rev-parse --git-common-dir`, so a
 //!      repo and all of its git worktrees resolve to the **same** slug (the
 //!      basename of the shared main repo root).
-//!   2. **`~/.tenex/edge/projects.json`** — a JSON object mapping slugs to
+//!   2. **`~/.tenex-edge/projects.json`** — a JSON object mapping slugs to
 //!      absolute paths. The cwd itself, or its nearest ancestor present in the
 //!      map, wins. This is the only way to give a non-git directory a project.
 //!   3. Otherwise: `Err(NoProject)`. The caller decides how to surface — hooks
@@ -14,7 +14,7 @@
 //!      init` or `git init`" message and exit non-zero.
 //!
 //! There is no longer a `.tenex/project.json` file. The map at
-//! `~/.tenex/edge/projects.json` is the single source of truth for non-git
+//! `~/.tenex-edge/projects.json` is the single source of truth for non-git
 //! projects.
 
 use anyhow::{Context, Result};
@@ -39,7 +39,7 @@ impl std::error::Error for NoProject {}
 /// Resolve the project slug for a working directory.
 ///
 /// Returns the slug, or [`NoProject`] when the cwd is not in a git repo and is
-/// not registered in `~/.tenex/edge/projects.json` (nor any ancestor of it).
+/// not registered in `~/.tenex-edge/projects.json` (nor any ancestor of it).
 pub fn resolve(cwd: &Path) -> std::result::Result<String, NoProject> {
     // 1. git repo name (shared across all worktrees of the same repo).
     if let Some(root) = git_toplevel(cwd) {

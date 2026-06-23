@@ -1,5 +1,5 @@
 //! Resolve a TENEX **role** (e.g. `edge-distillation`) to a concrete model +
-//! credentials, reading the EXISTING TENEX config format from `~/.tenex`:
+//! credentials, reading the EXISTING TENEX config format from `~/.tenex-edge`:
 //!
 //!   - `providers.json`: `{ "providers": { "<provider>": { "apiKey": ... } } }`
 //!     where for `ollama` the `apiKey` field actually holds the **base URL**.

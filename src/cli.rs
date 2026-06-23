@@ -420,7 +420,7 @@ enum ProjectAction {
     /// List all NIP-29 project groups on the relay.
     List,
     /// Initialize the current directory as a tenex-edge project. Registers the
-    /// directory's basename as a slug in `~/.tenex/edge/projects.json`. Refuses
+    /// directory's basename as a slug in `~/.tenex-edge/projects.json`. Refuses
     /// if the slug is already mapped to a different path; pass `--force` to
     /// overwrite. No-op if the slug is already mapped to this exact path.
     Init {
@@ -460,7 +460,7 @@ enum GroupsAction {
         #[arg(long)]
         name: String,
         /// Repeatable `slug@backend`, where `slug` is the agent identity (the
-        /// `~/.tenex/edge/agents/*.json` filename stem, e.g. `developer`, `alice`)
+        /// `~/.tenex-edge/agents/*.json` filename stem, e.g. `developer`, `alice`)
         /// and `backend` is a hex pubkey or npub of the target backend (the pubkey
         /// of its tenexPrivateKey).
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]

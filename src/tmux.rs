@@ -483,7 +483,7 @@ fn resolve_spawn_entry(slug: &str) -> Result<(Vec<String>, Option<serde_json::Va
         .unwrap_or((None, None));
     let base = file_cmd
         .or_else(|| find_spawn_def(slug).map(|d| d.command.iter().map(|s| s.to_string()).collect()))
-        .with_context(|| format!("no harness command for agent {slug:?}: add a \"command\" field to ~/.tenex/edge/agents/{slug}.json"))?;
+        .with_context(|| format!("no harness command for agent {slug:?}: add a \"command\" field to ~/.tenex-edge/agents/{slug}.json"))?;
     Ok((base, agent_def))
 }
 

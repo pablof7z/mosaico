@@ -24,7 +24,7 @@ fn tag(parts: &[&str]) -> Result<Tag> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddTarget {
     pub backend_pubkey: String,
-    /// Agent identity slug (the `~/.tenex/edge/agents/*.json` filename stem).
+    /// Agent identity slug (the `~/.tenex-edge/agents/*.json` filename stem).
     pub slug: String,
 }
 

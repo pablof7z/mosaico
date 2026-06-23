@@ -9,7 +9,7 @@
 //! agent is doing given the transcript.
 //!
 //! Ordering: `$TENEX_EDGE_DISTILL_CMD` (explicit external-command override) →
-//! the `edge-distillation` role in `~/.tenex/llms.json` called natively via
+//! the `edge-distillation` role in `~/.tenex-edge/llms.json` called natively via
 //! `rig` (openrouter/ollama) → `None`.
 
 use anyhow::Result;
