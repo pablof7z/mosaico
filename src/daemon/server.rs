@@ -507,8 +507,9 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_members" => rpc_project_members(state, &req.params).await,
         "project_add" => rpc_project_add(state, &req.params).await,
         "project_remove" => rpc_project_remove(state, &req.params).await,
-        "groups_create" => rpc_groups_create(state, &req.params).await,
-        "groups_list" => rpc_groups_list(state, &req.params),
+        "channels_create" => rpc_channels_create(state, &req.params).await,
+        "channels_list" => rpc_channels_list(state, &req.params),
+        "channels_switch" => rpc_channels_switch(state, &req.params).await,
         "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
         "whoami" => rpc_whoami(state, &req.params),
@@ -578,7 +579,7 @@ fn resolve_session_inner(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     // A subgroup session is stored under its child group id (`h`), not the
     // working-directory project. When the caller is inside such a session its
-    // pane exports `TENEX_EDGE_GROUP`; prefer it over the cwd-derived project so
+    // pane exports `TENEX_EDGE_CHANNEL`; prefer it over the cwd-derived project so
     // the (agent, project) lookup finds the subgroup session rather than a
     // sibling parent-project session.
     // When the caller carries an explicit group, that group id IS the project a
@@ -699,12 +700,12 @@ struct SessionStartParams {
     #[serde(default)]
     harness: Option<String>,
     /// NIP-29 subgroup id (`h`) this pane was spawned into (from
-    /// `TENEX_EDGE_GROUP`). When present, the session is scoped to this group
-    /// instead of the working-directory project: all group publishing
+    /// `TENEX_EDGE_CHANNEL`). When present, the session is scoped to this channel
+    /// instead of the working-directory project: all channel publishing
     /// (presence/status/chat/mentions/membership) keys on it. The working
     /// directory remains the parent repo. Absent for ordinary project sessions.
     #[serde(default)]
-    group: Option<String>,
+    channel: Option<String>,
 }
 
 async fn rpc_session_start(
@@ -732,12 +733,12 @@ async fn rpc_session_start(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     // The working-directory project (the repo this harness runs in).
     let work_root = crate::project::resolve(&cwd).unwrap_or_default();
-    // The NIP-29 group this session belongs to. For a subgroup task room this is
-    // the child `h` supplied via TENEX_EDGE_GROUP; otherwise it equals the
+    // The NIP-29 channel this session belongs to. For a subgroup task room this is
+    // the child `h` supplied via TENEX_EDGE_CHANNEL; otherwise it equals the
     // working-directory project (continuity: existing sessions are unchanged).
     // Everything below keys group membership + fabric publishing on `project`.
     let mut project = p
-        .group
+        .channel
         .clone()
         .filter(|g| !g.is_empty())
         .unwrap_or_else(|| work_root.clone());
@@ -774,7 +775,7 @@ async fn rpc_session_start(
     let tmux_pane = p.tmux_pane.clone().filter(|s| !s.is_empty());
 
     // Per-session rooms (issue #6): a human-initiated session — one with no
-    // TENEX_EDGE_GROUP override (someone ran `claude` / `tenex-edge launch`
+    // TENEX_EDGE_CHANNEL override (someone ran `claude` / `tenex-edge launch`
     // directly) — lives in its OWN minted subgroup of the work-root project,
     // not the bare project. Orchestration-spawned sessions (group override
     // present) join the supplied subgroup as today. The room id is derived
@@ -793,7 +794,7 @@ async fn rpc_session_start(
             .or(resume_id.as_deref())
             .or(pid_anchor.as_deref());
         match (
-            crate::session::decide_session_room(p.group.as_deref(), &work_root),
+            crate::session::decide_session_room(p.channel.as_deref(), &work_root),
             anchor,
         ) {
             (crate::session::RoomDecision::Mint { parent }, Some(anchor))
@@ -1264,7 +1265,7 @@ async fn rpc_user_prompt(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )?;
 
     // Only mirror prompts into a per-session room. A human start with no resume
@@ -1329,7 +1330,7 @@ async fn rpc_chat_write(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
     let from_pubkey = id.pubkey_hex();
@@ -1497,7 +1498,7 @@ async fn rpc_propose(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )
     .ok();
     let cwd = p
@@ -1824,7 +1825,7 @@ fn rpc_turn_check(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )?;
     let now = now_secs();
     // Rate-limit the sibling-session delta to at most once per 60s per session
@@ -2117,7 +2118,7 @@ fn rpc_statusline(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )?;
     let now = now_secs();
     let host = state.host.clone();
@@ -2189,7 +2190,7 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
         false,
     )?;
     let now = now_secs();
@@ -2409,7 +2410,7 @@ async fn ensure_session_room(
     true
 }
 
-async fn rpc_groups_create(
+async fn rpc_channels_create(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
@@ -2430,7 +2431,7 @@ async fn rpc_groups_create(
         #[serde(default)]
         brief: String,
     }
-    let p: P = serde_json::from_value(params.clone()).context("groups_create params")?;
+    let p: P = serde_json::from_value(params.clone()).context("channels_create params")?;
     if p.agents.is_empty() {
         anyhow::bail!("at least one agent (slug@backend) is required");
     }
@@ -2549,7 +2550,7 @@ async fn rpc_groups_create(
             granted.push(pk.clone());
         } else {
             eprintln!(
-                "[daemon] groups_create: admin grant for {} in {child_h} not confirmed on the relay",
+                "[daemon] channels_create: admin grant for {} in {child_h} not confirmed on the relay",
                 crate::util::pubkey_short(pk)
             );
         }
@@ -2571,7 +2572,7 @@ async fn rpc_groups_create(
         params.get("env_session").and_then(|v| v.as_str()),
         params.get("cwd").and_then(|v| v.as_str()),
         params.get("agent").and_then(|v| v.as_str()),
-        params.get("group").and_then(|v| v.as_str()),
+        params.get("channel").and_then(|v| v.as_str()),
     )
     .ok()
     .map(|rec| rec.agent_pubkey);
@@ -2612,11 +2613,11 @@ async fn rpc_groups_create(
     }))
 }
 
-/// `groups list`: render the subgroup tree under `project` from LOCAL daemon
+/// `channels list`: render the subgroup tree under `project` from LOCAL daemon
 /// state (materialized kind:39000 metadata) — no relay round-trip. Returns the
 /// rooms in depth-first order, each with a `depth` (the project root is depth 0
 /// and not included; its direct children are depth 1) so the CLI can indent.
-fn rpc_groups_list(
+fn rpc_channels_list(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
@@ -2624,7 +2625,7 @@ fn rpc_groups_list(
     struct P {
         project: String,
     }
-    let p: P = serde_json::from_value(params.clone()).context("groups_list params")?;
+    let p: P = serde_json::from_value(params.clone()).context("channels_list params")?;
 
     // (group_id, about, name, parent) for every group the daemon knows about.
     let rows = state.with_store(|s| s.list_group_metadata())?;
@@ -2685,6 +2686,54 @@ fn preorder_rooms(
     seen.insert(root.to_string());
     walk(children, root, 0, &mut seen, &mut out);
     out
+}
+
+/// `channels_switch`: update the session's NIP-29 channel binding (`project`
+/// column) to the supplied `h` value. This lets a running session move to a
+/// different subgroup room without restarting. The new channel must already
+/// exist. Best-effort: the caller is responsible for ensuring membership in the
+/// target channel before or after switching.
+async fn rpc_channels_switch(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        channel: String,
+        #[serde(default)]
+        session: Option<String>,
+        #[serde(default)]
+        env_session: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        agent: Option<String>,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("channels_switch params")?;
+    if p.channel.trim().is_empty() {
+        anyhow::bail!("channel h must not be empty");
+    }
+    let rec = resolve_session(
+        state,
+        p.session.as_deref(),
+        p.env_session.as_deref(),
+        p.cwd.as_deref(),
+        p.agent.as_deref(),
+        params.get("channel").and_then(|v| v.as_str()),
+    )?;
+    let prev_channel = rec.project.clone();
+    let new_channel = p.channel.clone();
+    state.with_store(|s| {
+        s.upsert_session(&crate::state::SessionRecord {
+            project: new_channel.clone(),
+            ..rec.clone()
+        })
+    })?;
+    Ok(serde_json::json!({
+        "session_id": rec.session_id,
+        "prev_channel": prev_channel,
+        "channel": new_channel,
+    }))
 }
 
 /// Human-readable summary of the add-agents request, grouped per backend, e.g.
@@ -3344,7 +3393,7 @@ async fn handle_orchestration(
         });
 
         // Spawn the harness in the PARENT project's working directory but scoped
-        // to the child group (TENEX_EDGE_GROUP). The spawned session's
+        // to the child channel (TENEX_EDGE_CHANNEL). The spawned session's
         // session-start path adds its derived session pubkey to the child group.
         match crate::tmux::spawn_agent(state, slug, &op.parent, Vec::new(), Some(&op.child_h), None)
             .await

@@ -69,7 +69,7 @@ pub(super) async fn whoami(session: Option<String>, json: bool) -> Result<()> {
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": crate::cli::agent_env_slug(),
-        "group": crate::cli::group_env(),
+        "channel": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     });
     let v = super::daemon_call_async("whoami", params).await?;

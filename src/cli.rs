@@ -54,12 +54,12 @@ pub(crate) fn agent_env_slug() -> Option<String> {
 }
 
 /// The NIP-29 subgroup id (`h`) this pane was spawned into, exported as
-/// `TENEX_EDGE_GROUP`. Present only for sessions launched into a subgroup task
+/// `TENEX_EDGE_CHANNEL`. Present only for sessions launched into a subgroup task
 /// room; absent for ordinary project sessions. Threaded into session-resolving
 /// RPCs so the daemon binds to the subgroup session (stored under this `h`)
 /// rather than a sibling parent-project session in the same working directory.
-pub(crate) fn group_env() -> Option<String> {
-    std::env::var("TENEX_EDGE_GROUP")
+pub(crate) fn channel_env() -> Option<String> {
+    std::env::var("TENEX_EDGE_CHANNEL")
         .ok()
         .filter(|s| !s.is_empty())
 }
@@ -170,10 +170,10 @@ enum Cmd {
         #[command(subcommand)]
         action: ProjectAction,
     },
-    /// Manage NIP-29 subgroup task rooms under a project (create, list).
-    Groups {
+    /// Manage NIP-29 subgroup task channels under a project (create, list, switch).
+    Channels {
         #[command(subcommand)]
-        action: GroupsAction,
+        action: ChannelsAction,
     },
     /// Manage the local agent keystore: agents that have a private key on THIS
     /// machine under `<edge_home>/agents/<slug>.json`. These are the identities
@@ -452,15 +452,15 @@ enum ProjectAction {
     },
 }
 
-/// Subgroup task rooms under a project (NIP-29 child groups).
+/// Subgroup task channels under a project (NIP-29 child groups).
 #[derive(Subcommand)]
-enum GroupsAction {
-    /// Create a subgroup task room under a project and publish one kind:9
+enum ChannelsAction {
+    /// Create a subgroup task channel under a project and publish one kind:9
     /// orchestration event asking the named backends to add their agents. The
-    /// agent that runs this command is auto-added to the new room.
+    /// agent that runs this command is auto-added to the new channel.
     Create {
-        /// Human-readable room name, e.g. "subgroup support". The child group id
-        /// becomes "<slugified-name>-<random8>".
+        /// Human-readable channel name, e.g. "support". The child group id
+        /// (NIP-29 `h` value) becomes "<slugified-name>-<random8>".
         #[arg(long)]
         name: String,
         /// Repeatable `slug@backend`, where `slug` is the agent identity (the
@@ -469,7 +469,7 @@ enum GroupsAction {
         /// of its tenexPrivateKey).
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]
         agents: Vec<String>,
-        /// Parent project slug this room hangs under. Defaults to the project
+        /// Parent project slug this channel hangs under. Defaults to the project
         /// resolved from the current directory.
         #[arg(long)]
         project: Option<String>,
@@ -477,12 +477,17 @@ enum GroupsAction {
         #[arg(long = "message", value_name = "PATH")]
         message: Option<PathBuf>,
     },
-    /// List the subgroup task rooms under a project.
+    /// List the subgroup task channels under a project.
     List {
         /// Parent project slug. Defaults to the project resolved from the current
         /// directory.
         #[arg(long)]
         project: Option<String>,
+    },
+    /// Switch the active channel for the current tmux pane to a different NIP-29 subgroup.
+    Switch {
+        /// The NIP-29 `h` value of the subgroup to switch to.
+        channel: String,
     },
 }
 
@@ -598,7 +603,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             tmux,
         } => statusline::statusline(session, agent, cwd, tmux),
         Cmd::Project { action } => admin::project(action).await,
-        Cmd::Groups { action } => admin::groups(action).await,
+        Cmd::Channels { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Doctor => admin::doctor().await,
         Cmd::Debug { action } => match action {

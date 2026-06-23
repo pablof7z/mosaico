@@ -6,7 +6,7 @@ pub(super) async fn chat_write(message: String, session: Option<String>) -> Resu
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
+        "channel": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     });
     let v = daemon_call_async("chat_write", params).await?;
@@ -113,7 +113,7 @@ pub(super) async fn publish(
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
+        "channel": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
         "d": d,
     });

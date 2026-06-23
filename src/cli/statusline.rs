@@ -60,7 +60,7 @@ pub(super) fn statusline(
         "env_session": env_session,
         "cwd": cwd,
         "agent": agent,
-        "group": crate::cli::group_env(),
+        "channel": crate::cli::channel_env(),
     });
     // Fail open on ANY failure (no daemon, no session yet, protocol skew): a
     // status bar with a missing segment beats a status bar with an error in it.
@@ -194,7 +194,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool, tmux_fmt: bool) -> S
 
     // Citizenship problem beats cosmetics: surface the membership gap loudly.
     if !v.is_member && v.member_count > 0 {
-        segs.push(paint(format!("⚠ not in group {}", v.project), "1;31"));
+        segs.push(paint(format!("⚠ not in channel {}", v.project), "1;31"));
     }
 
     // What this session says it is doing right now (its `who` status).
@@ -341,7 +341,7 @@ mod tests {
         let mut v = view();
         v.is_member = false;
         let s = render_statusline(&v, false);
-        assert!(s.contains("⚠ not in group tenex-edge"), "got: {s}");
+        assert!(s.contains("⚠ not in channel tenex-edge"), "got: {s}");
 
         v.member_count = 0;
         let s = render_statusline(&v, false);

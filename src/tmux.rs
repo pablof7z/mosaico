@@ -616,11 +616,11 @@ async fn open_agent_session(
         }
     }
     // Scope the spawned session to a NIP-29 subgroup task room when requested:
-    // the session-start hook forwards TENEX_EDGE_GROUP so the daemon stores the
+    // the session-start hook forwards TENEX_EDGE_CHANNEL so the daemon stores the
     // session (and publishes its presence/chat) under the child `h` while the
     // working directory stays the parent project's repo.
     if let Some(g) = group.filter(|g| !g.is_empty()) {
-        passthrough_env.push(format!("TENEX_EDGE_GROUP={g}"));
+        passthrough_env.push(format!("TENEX_EDGE_CHANNEL={g}"));
     }
     let mut cmd_args: Vec<&str> = vec![
         "new-session",

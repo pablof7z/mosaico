@@ -87,9 +87,9 @@ pub(super) async fn project(action: ProjectAction) -> Result<()> {
     Ok(())
 }
 
-// ── groups (NIP-29 subgroup task rooms) ───────────────────────────────────────
+// ── channels (NIP-29 subgroup task rooms) ────────────────────────────────────
 
-pub(super) async fn groups(action: GroupsAction) -> Result<()> {
+pub(super) async fn channels(action: ChannelsAction) -> Result<()> {
     fn resolve_project(project: Option<String>) -> Result<String> {
         match project {
             Some(p) => Ok(p),
@@ -97,7 +97,7 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
         }
     }
     match action {
-        GroupsAction::Create {
+        ChannelsAction::Create {
             name,
             agents,
             project,
@@ -122,7 +122,7 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
                 None => String::new(),
             };
             let v = daemon_call_async(
-                "groups_create",
+                "channels_create",
                 serde_json::json!({
                     "parent": parent,
                     "name": name,
@@ -131,7 +131,7 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
                     // Caller identity so the daemon auto-adds the creating agent
                     // to the new room (resolved like the messaging commands).
                     "agent": crate::cli::agent_env_slug(),
-                    "group": crate::cli::group_env(),
+                    "channel": crate::cli::channel_env(),
                     "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
                     "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
                 }),
@@ -140,7 +140,7 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
             let child = v["child_h"].as_str().unwrap_or("?");
             let path = v["display_path"].as_str().unwrap_or("");
             let oid = v["orchestration_event_id"].as_str().unwrap_or("");
-            println!("created subgroup {} ({})", child.bold(), path);
+            println!("created channel {} ({})", child.bold(), path);
             if let Some(admins) = v["admins"].as_array() {
                 println!("  admins copied: {}", admins.len());
             }
@@ -153,11 +153,11 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
                 println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
             }
         }
-        GroupsAction::List { project } => {
+        ChannelsAction::List { project } => {
             use owo_colors::Stream::Stdout;
             let parent = resolve_project(project)?;
             let v =
-                daemon_call_async("groups_list", serde_json::json!({ "project": parent })).await?;
+                daemon_call_async("channels_list", serde_json::json!({ "project": parent })).await?;
             let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
             // Root of the tree is the project itself. Colorize ONLY when stdout is a
             // real terminal: piped/captured output (the e2e harness, shell
@@ -166,7 +166,7 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
             // would never match.
             println!("{}", parent.if_supports_color(Stdout, |s| s.bold()));
             if rooms.is_empty() {
-                println!("  (no subgroup task rooms)");
+                println!("  (no channels)");
                 return Ok(());
             }
             for r in rooms {
@@ -182,6 +182,27 @@ pub(super) async fn groups(action: GroupsAction) -> Result<()> {
                     println!("{indent}{id_c}  — {name}");
                 }
             }
+        }
+        ChannelsAction::Switch { channel } => {
+            // Update TENEX_EDGE_CHANNEL in the current tmux pane's environment
+            // and call a daemon RPC to rebind this session to the new channel.
+            let tmux_pane = std::env::var("TMUX_PANE").ok();
+            if let Some(pane) = tmux_pane {
+                std::process::Command::new("tmux")
+                    .args(["set-environment", "-t", &pane, "TENEX_EDGE_CHANNEL", &channel])
+                    .status()
+                    .context("tmux set-environment failed")?;
+            }
+            match daemon_call_async(
+                "channels_switch",
+                serde_json::json!({ "channel": channel }),
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(e) => eprintln!("warning: daemon channels_switch failed ({}); env updated", e),
+            }
+            println!("switched to channel {}", channel);
         }
     }
     Ok(())

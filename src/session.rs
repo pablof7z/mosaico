@@ -437,7 +437,7 @@ pub enum RoomDecision {
     /// subgroup as a leaf under `parent` and route the session's fabric events
     /// into it.
     Mint { parent: String },
-    /// Orchestration-spawned session (group override present): the backend
+    /// Orchestration-spawned session (channel override present): the backend
     /// already scoped this agent to subgroup `group`; join it as a member, do
     /// not mint a child room.
     UseExisting { group: String },
@@ -445,8 +445,8 @@ pub enum RoomDecision {
 
 /// Decide whether a session-birth mints its own per-session room.
 ///
-/// The discriminator is the wire-level `TENEX_EDGE_GROUP` override the daemon
-/// reads as `group`:
+/// The discriminator is the wire-level `TENEX_EDGE_CHANNEL` override the daemon
+/// reads as `channel`:
 ///   - `None`/empty → human-initiated (someone ran `claude` / `tenex-edge
 ///     launch` directly) → mint a per-session subgroup under `work_root`.
 ///   - `Some(g)`    → orchestration-spawned (the backend added this agent to
@@ -590,7 +590,7 @@ mod tests {
     #[test]
     fn room_no_group_override_mints_under_work_root() {
         // Human-initiated: someone ran `claude` / `tenex-edge launch` directly,
-        // so TENEX_EDGE_GROUP is unset → mint a per-session room under the repo.
+        // so TENEX_EDGE_CHANNEL is unset → mint a per-session room under the repo.
         assert_eq!(
             decide_session_room(None, "my-repo"),
             RoomDecision::Mint {
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn room_empty_group_override_mints_under_work_root() {
         // An empty override is treated identically to absent (the daemon reads
-        // TENEX_EDGE_GROUP="" as "no group").
+        // TENEX_EDGE_CHANNEL="" as "no channel").
         assert_eq!(
             decide_session_room(Some(""), "my-repo"),
             RoomDecision::Mint {

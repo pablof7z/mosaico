@@ -234,7 +234,7 @@ pub fn child_group_id_from_anchor(name: &str, anchor: &str) -> String {
 /// [`child_group_id`] / [`child_group_id_from_anchor`]).
 ///
 /// Host-side session resolution needs this because a human-initiated session
-/// (someone ran `claude`/`codex` directly, no `TENEX_EDGE_GROUP`) is stored
+/// (someone ran `claude`/`codex` directly, no `TENEX_EDGE_CHANNEL`) is stored
 /// under its minted room, but the same terminal's later `tenex-edge` verbs only
 /// know the bare work-root from `cwd`. Matching the room lets those verbs find
 /// the session they belong to. The suffix is required to be exactly 8 lowercase

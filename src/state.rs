@@ -706,7 +706,7 @@ impl Store {
     /// bare project OR any per-session room minted beneath it
     /// (`<slug>-<hex8>`). A human-initiated session is stored under its minted
     /// room (issue #6), but the same terminal's later `tenex-edge` verbs only
-    /// resolve the bare work-root from `cwd` (no `TENEX_EDGE_GROUP` is exported
+    /// resolve the bare work-root from `cwd` (no `TENEX_EDGE_CHANNEL` is exported
     /// into an already-running interactive shell). Without this the agent can't
     /// find the very session it is running inside. Pass `None` for `agent` to
     /// match any agent in the work-root.

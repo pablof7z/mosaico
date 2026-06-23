@@ -187,7 +187,7 @@ pub(super) fn turn_check(session: Option<String>, emit: EmitFormat) -> Result<Op
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
-        "group": crate::cli::group_env(),
+        "channel": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     });
     let v = crate::daemon::blocking::call("turn_check", params)?;
