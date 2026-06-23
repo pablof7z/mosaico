@@ -63,7 +63,7 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
         presence_status = h_filter(presence_status, p);
     }
     // Group-scoped events are not author-gated locally; the relay enforces
-    // membership for groups this daemon owns (created closed via userNsec).
+    // membership for groups this daemon owns (created closed via tenexPrivateKey).
     filters.push(presence_status);
 
     // Chat (kind:9) — NIP-29 group chat (the sole agent-to-agent channel).

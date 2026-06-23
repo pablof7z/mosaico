@@ -107,10 +107,10 @@ pub struct DaemonState {
     /// in `rpc_session_end` / `spawn_session` cleanup / crash-GC are harmless
     /// no-ops. `keys_for_session` always returns `None` in this slice.
     session_keys: Mutex<HashMap<String, Keys>>,
-    /// Hex pubkey of this backend's identity (pubkey of `tenexPrivateKey`,
-    /// falling back to `userNsec`). Added as an admin to every group we create
+    /// Hex pubkey of this backend's identity (pubkey of `tenexPrivateKey`;
+    /// no `userNsec` fallback). Added as an admin to every group we create
     /// and the address the subgroup orchestration listener matches `add` tags
-    /// against. `None` only when no signing key is configured at all.
+    /// against. `None` only when no `tenexPrivateKey` is configured.
     backend_pubkey: Option<String>,
 }
 
@@ -206,9 +206,10 @@ pub async fn run() -> Result<()> {
         cfg.whitelisted_pubkeys.clone(),
         &cfg.relays, // provider_instance hashes main relays only, not indexer
     ));
-    // Backend identity: pubkey of tenexPrivateKey (falling back to userNsec).
-    // Used as a copied admin on every group we create and as the orchestration
-    // listener's `add`-tag matcher.
+    // Backend identity: pubkey of `tenexPrivateKey` (no `userNsec` fallback —
+    // the operator key is a human identity, not a backend identity). Used as a
+    // copied admin on every group we create and as the orchestration listener's
+    // `add`-tag matcher.
     let backend_pubkey: Option<String> = cfg
         .backend_nsec()
         .and_then(|n| Keys::parse(n).ok())
@@ -1255,7 +1256,8 @@ async fn rpc_user_prompt(
     }
 
     // No operator key → nothing to sign with; fail open (session still runs).
-    let Some(nsec) = state.cfg.management_nsec() else {
+    // `userNsec` is the ONLY signer for user prompts — the human is speaking.
+    let Some(nsec) = state.cfg.user_nsec() else {
         return Ok(serde_json::json!({ "skipped": "userNsec unset" }));
     };
     let op_keys = Keys::parse(nsec).context("parsing operator key")?;
@@ -2005,7 +2007,7 @@ async fn rpc_project_edit(
     let nsec = state
         .cfg
         .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
     let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     // NIP-29 edit-metadata: the wire shape lives in the nip29 lifecycle module.
@@ -2258,7 +2260,7 @@ async fn rpc_project_add(
     let nsec = state
         .cfg
         .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
     let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     let pubkey_hex = resolve_project_member_pubkey_hex(&p.pubkey).await?;
@@ -2300,7 +2302,7 @@ async fn rpc_project_remove(
     let nsec = state
         .cfg
         .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
     let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
@@ -2409,6 +2411,17 @@ async fn ensure_session_room(
                 .ok();
         });
     }
+    // Grant every whitelisted human pubkey the admin role in the room. The
+    // whitelist carries the user's own pubkey (the human behind `userNsec`),
+    // so this is what lets the user publish prompts into the closed room.
+    // Signed by `tenexPrivateKey` (the management signer). Best-effort.
+    for pk in &state.cfg.whitelisted_pubkeys {
+        if state.provider.nip29_add_admin(room_h, pk).await {
+            state.with_store(|s| {
+                s.upsert_group_member(room_h, pk, "admin", now_secs()).ok();
+            });
+        }
+    }
     true
 }
 
@@ -2445,7 +2458,7 @@ async fn rpc_channels_create(
     let nsec = state
         .cfg
         .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (userNsec/tenexPrivateKey) set"))?;
+        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
     let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     // Resolve each backend token to a hex pubkey. Accepts explicit
@@ -2510,14 +2523,6 @@ async fn rpc_channels_create(
     }
     for pk in &state.cfg.whitelisted_pubkeys {
         admin_set.insert(pk.clone());
-    }
-    if let Some(op) = state
-        .cfg
-        .user_nsec
-        .as_ref()
-        .and_then(|n| Keys::parse(n).ok())
-    {
-        admin_set.insert(op.public_key().to_hex());
     }
     if let Some(bp) = state.backend_pubkey() {
         admin_set.insert(bp.to_string());

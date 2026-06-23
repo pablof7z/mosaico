@@ -20,41 +20,54 @@ pub struct Config {
     pub indexer_relay: String,
     /// Host label published on the agent's profile (M1 §3 `host` tag).
     pub host: String,
-    /// Human operator's Nostr secret key (bech32 nsec or hex). Used to publish
-    /// user-prompt events on behalf of the human, not the agent.
+    /// Human operator's Nostr secret key (bech32 nsec or hex). Used for exactly
+    /// one purpose: signing user-prompt events when the human submits a prompt
+    /// from the CLI. The operator's pubkey is NOT derived from this field for
+    /// group admin grants — the operator's pubkey lives in `whitelisted_pubkeys`
+    /// (config `whitelistedPubkeys`), which is the source of truth for who is an
+    /// admin in every project group. Never used for group management,
+    /// session-key derivation, or backend identity.
     pub user_nsec: Option<String>,
-    /// This backend/daemon's own Nostr secret key (bech32 nsec or hex). Distinct
-    /// from `user_nsec`: it is the local backend IDENTITY — its pubkey is added as
-    /// an admin to every group we create and is the address the orchestration
-    /// listener matches `add` tags against.
+    /// This backend/daemon's own Nostr secret key (bech32 nsec or hex). The
+    /// sole signer for NIP-29 group management, session-key derivation, and
+    /// backend identity. Its pubkey is added as an admin to every group we
+    /// create and is the address the orchestration listener matches `add`
+    /// tags against.
     pub tenex_private_key: Option<String>,
     /// Custom tmux status-format string. None means use the default.
     pub tmux_status_command: Option<String>,
 }
 
 impl Config {
-    /// Key used as the HKDF IKM for per-session key derivation. MUST exactly
-    /// reproduce the value the old collapsed `user_nsec` field held
-    /// (`userNsec` preferred, `tenexPrivateKey` fallback) — changing it would
-    /// rotate every derived session pubkey and strand live group members.
+    /// Key used as the HKDF IKM for per-session key derivation. The backend's
+    /// own key (`tenexPrivateKey`) — never the operator's `userNsec`.
     pub fn session_ikm_nsec(&self) -> Option<&String> {
-        self.user_nsec.as_ref().or(self.tenex_private_key.as_ref())
+        self.tenex_private_key.as_ref()
     }
 
     /// Signer for NIP-29 group-management events (create/lock/put-user/
-    /// put-admin/remove-user/edit-metadata). Operator-first to preserve
-    /// continuity with groups historically created by the operator key; the
-    /// backend key is added as admin to every group we create, so either signer
-    /// is accepted by the relay.
+    /// put-admin/remove-user/edit-metadata). Always the backend's own
+    /// `tenexPrivateKey` — the operator's `userNsec` is no longer used for
+    /// group management. The operator's pubkey is instead *granted* the admin
+    /// role by this signer (see `Kind1Nip29Provider::open_project`).
     pub fn management_nsec(&self) -> Option<&String> {
-        self.user_nsec.as_ref().or(self.tenex_private_key.as_ref())
+        self.tenex_private_key.as_ref()
     }
 
-    /// This backend's own identity key. Backend-first (the daemon signs its own
-    /// presence/role events with it), falling back to the operator key when no
-    /// dedicated backend key is configured.
+    /// This backend's own identity key. Always `tenexPrivateKey`; there is no
+    /// fallback to `userNsec` — the operator key is a human identity, not a
+    /// backend identity.
     pub fn backend_nsec(&self) -> Option<&String> {
-        self.tenex_private_key.as_ref().or(self.user_nsec.as_ref())
+        self.tenex_private_key.as_ref()
+    }
+
+    /// The human operator's Nostr secret key. Used in exactly one place:
+    /// `rpc_user_prompt` signs the user's prompt as the operator. The
+    /// operator's pubkey is NOT derived from this field for group admin grants —
+    /// it lives in `whitelisted_pubkeys` instead. Never used for group
+    /// management, session-key derivation, or backend identity.
+    pub fn user_nsec(&self) -> Option<&String> {
+        self.user_nsec.as_ref()
     }
 }
 
@@ -73,7 +86,8 @@ struct RawConfig {
     backend_name: Option<String>,
     #[serde(default, rename = "userNsec")]
     user_nsec: Option<String>,
-    /// Fallback signing key for NIP-29 group management when userNsec is absent.
+    /// Backend's own signing key for group management, session derivation, and
+    /// backend identity.
     #[serde(default, rename = "tenexPrivateKey")]
     tenex_private_key: Option<String>,
     /// Custom tmux status-format string for agent sessions. When set, overrides
@@ -182,12 +196,11 @@ mod tests {
         assert_eq!(c.host, "pablos' laptop");
         assert_eq!(c.relays, vec![DEFAULT_RELAY]); // defaulted
         assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY); // defaulted
-                                                            // Back-compat: with only tenexPrivateKey set, all three accessors resolve
-                                                            // to it (the old collapsed field's behavior).
         assert_eq!(c.tenex_private_key.as_deref(), Some("deadbeef"));
         assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("deadbeef"));
         assert_eq!(c.management_nsec().map(String::as_str), Some("deadbeef"));
         assert_eq!(c.backend_nsec().map(String::as_str), Some("deadbeef"));
+        assert!(c.user_nsec().is_none());
     }
 
     #[test]
@@ -198,14 +211,27 @@ mod tests {
             "tenexPrivateKey": "backendkey"
         }"#;
         let c = Config::from_json_str(json, "host").unwrap();
-        // session derivation + management stay operator-first (continuity).
+        // session derivation + management + backend identity all use the
+        // backend key; the operator key is only for user prompts + admin grant.
         assert_eq!(
             c.session_ikm_nsec().map(String::as_str),
-            Some("operatorkey")
+            Some("backendkey")
         );
-        assert_eq!(c.management_nsec().map(String::as_str), Some("operatorkey"));
-        // backend identity prefers the dedicated backend key.
+        assert_eq!(c.management_nsec().map(String::as_str), Some("backendkey"));
         assert_eq!(c.backend_nsec().map(String::as_str), Some("backendkey"));
+        assert_eq!(c.user_nsec().map(String::as_str), Some("operatorkey"));
+    }
+
+    #[test]
+    fn user_nsec_alone_is_not_a_management_key() {
+        let json = r#"{ "userNsec": "operatorkey" }"#;
+        let c = Config::from_json_str(json, "host").unwrap();
+        // No tenexPrivateKey → no management, session derivation, or backend.
+        assert!(c.management_nsec().is_none());
+        assert!(c.session_ikm_nsec().is_none());
+        assert!(c.backend_nsec().is_none());
+        // The operator key is still available for user prompts + admin grant.
+        assert_eq!(c.user_nsec().map(String::as_str), Some("operatorkey"));
     }
 
     #[test]

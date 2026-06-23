@@ -37,7 +37,7 @@ pub const KIND_PROFILE: u16 = 0;
 pub const KIND_CHAT: u16 = 9;
 pub const KIND_STATUS: u16 = 30315;
 
-// NIP-29 group management (operator/userNsec-signed) + relay-authored state.
+// NIP-29 group management (tenexPrivateKey-signed) + relay-authored state.
 pub const KIND_GROUP_CREATE: u16 = 9007;
 pub const KIND_GROUP_PUT_USER: u16 = 9000;
 pub const KIND_GROUP_REMOVE_USER: u16 = 9001;

@@ -6,16 +6,24 @@ use tenex_edge::state::Store;
 // ── Frozen regression guards (dedup, targeted/untargeted mention routing,
 //    39000/39002 idempotency, startup catch-up) and the threaded e2e. ───────────
 
-/// A valid (throwaway) operator nsec for the local relay.
+/// A valid (throwaway) operator nsec for the local relay — the HUMAN's key.
 const EXAMPLE_USER_NSEC: &str = "nsec1eulru7a67wt9ndqxv424kmgvd6uyd8defdxh7y9peut28f2p2vhs35m5h4";
+/// A valid (throwaway) backend seckey (hex) — distinct from the user's key.
+const EXAMPLE_BACKEND_SEC_HEX: &str =
+    "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422";
 
 fn rewrite_config_with_user_nsec(home: &Home) {
+    // The user's pubkey is whitelisted (granted admin in every group); the
+    // backend key signs group management. Distinct keys per doctrine.
+    use nostr_sdk::prelude::Keys;
+    let user_pk = Keys::parse(EXAMPLE_USER_NSEC).unwrap().public_key().to_hex();
     let cfg = home.dir.path().join("config.json");
     let body = serde_json::json!({
-        "whitelistedPubkeys": [],
+        "whitelistedPubkeys": [user_pk],
         "backendName": "test-host",
         "relays": [shared_relay_url()],
         "userNsec": EXAMPLE_USER_NSEC,
+        "tenexPrivateKey": EXAMPLE_BACKEND_SEC_HEX,
     });
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }

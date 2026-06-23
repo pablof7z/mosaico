@@ -157,24 +157,32 @@ Fields tenex-edge reads (all optional):
 | `relays` | NIP-29 group relays. | `["wss://nip29.f7z.io"]` |
 | `indexerRelay` | Relay for kind:0 profile discovery/publishing. | `"wss://purplepag.es"` |
 | `backendName` | Human label for this host (shown as the machine in identities). | system hostname |
-| `userNsec` | Operator signing key. Used for session-key derivation and NIP-29 group management. | — |
-| `tenexPrivateKey` | Fallback backend/management key when `userNsec` is absent. | — |
+| `userNsec` | Operator signing key. Used ONLY to sign user-prompt events. The operator's pubkey must also appear in `whitelistedPubkeys` to be an admin in groups. | — |
+| `tenexPrivateKey` | Backend's own signing key for NIP-29 group management, session-key derivation, and backend identity. Its pubkey is automatically an admin of every group it creates. | — |
 
-Key resolution (see `src/config.rs`): session derivation and group management
-prefer `userNsec`; the backend identity prefers `tenexPrivateKey`. If only
-`tenexPrivateKey` is set, all three roles collapse onto it (back-compat). For the
-security rationale on these keys, see
-`docs/wiki/guides/tenex-edge-key-security.md`.
+Key resolution (see `src/config.rs`): group management, session derivation, and
+backend identity all use `tenexPrivateKey` only. `userNsec` is used solely for
+user-prompt signing. The admin set of any new channel is `whitelistedPubkeys` +
+parent channel admins + the `tenexPrivateKey` pubkey. Put the user's own pubkey
+in `whitelistedPubkeys` so they can speak and manage their groups. For the
+security rationale on these keys, see `docs/wiki/guides/tenex-edge-key-security.md`.
 
 Minimal example `~/.tenex/config.json`:
 
 ```json
 {
-  "whitelistedPubkeys": [],
+  "whitelistedPubkeys": ["<your-pubkey-hex>"],
   "relays": ["wss://nip29.f7z.io"],
+  "tenexPrivateKey": "nsec1...",
   "userNsec": "nsec1..."
 }
 ```
+
+`tenexPrivateKey` is required for group management, session rooms, and
+orchestration; without it the daemon runs in unmanaged mode (sessions start but
+no groups are created). `userNsec` is the human's key — used only to sign user
+prompts; its pubkey must also appear in `whitelistedPubkeys` so the user is an
+admin of every group and can publish into closed rooms.
 
 ---
 

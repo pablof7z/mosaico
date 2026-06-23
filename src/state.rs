@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS project_meta (
     name       TEXT NOT NULL DEFAULT '',
     parent     TEXT NOT NULL DEFAULT ''
 );
--- NIP-29 groups this daemon owns/manages (created + locked closed via userNsec).
+-- NIP-29 groups this daemon owns/manages (created + locked closed via tenexPrivateKey).
 CREATE TABLE IF NOT EXISTS owned_groups (
     project    TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL,
@@ -2263,7 +2263,7 @@ impl Store {
     }
 
     /// Cached NIP-29 roster size for a project (0 when membership is unknown,
-    /// e.g. no userNsec → no group management → empty cache).
+    /// e.g. no tenexPrivateKey → no group management → empty cache).
     pub fn count_group_members(&self, project: &str) -> Result<u64> {
         let n: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM group_members WHERE project=?1",

@@ -81,8 +81,8 @@ impl Nip29Materializer {
         // metadata tags. Mention (kind:1) routing fully cut over to the session
         // pubkey, but chat fans out to all alive project sessions, so these tags
         // remain the source of truth for "who sent / who was @-mentioned" — and
-        // they're the only way to recover that in unmanaged (no-userNsec) mode
-        // where no session keys exist. Fall back to the session_pubkeys mapping
+        // they're the only way to recover that in unmanaged (no-tenexPrivateKey)
+        // mode where no session keys exist. Fall back to the session_pubkeys mapping
         // when a tag is absent (older publishers / managed-mode enrichment).
         let from_session = chat.from_session.clone().unwrap_or_else(|| {
             store

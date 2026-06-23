@@ -187,8 +187,8 @@ impl Status {
 /// live sessions see it going forward only. Chat fans out to every alive project
 /// session — `from_session`/`mentioned_session` are display metadata (who sent /
 /// who was @-mentioned), not the routing mechanism, so they stay on the wire.
-/// They are also the only way to recover this in unmanaged (no-userNsec) mode,
-/// where no per-session keys exist.
+/// They are also the only way to recover this in unmanaged (no-tenexPrivateKey)
+/// mode, where no per-session keys exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,

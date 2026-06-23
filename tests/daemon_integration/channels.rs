@@ -4,17 +4,36 @@ use tenex_edge::state::Store;
 
 // ── NIP-29 daemon-owned channels ─────────────────────────────────────────────
 
-/// A valid (throwaway) operator nsec for the local relay.
+/// A valid (throwaway) operator nsec for the local relay — the HUMAN's key.
+/// `userNsec` is ONLY used to sign user-prompt events; its pubkey is whitelisted
+/// so it's granted admin in every group (signed by `tenexPrivateKey`).
 const EXAMPLE_USER_NSEC: &str = "nsec1eulru7a67wt9ndqxv424kmgvd6uyd8defdxh7y9peut28f2p2vhs35m5h4";
+/// A valid (throwaway) backend seckey (hex) — distinct from the user's key, per
+/// doctrine: `userNsec` is the human, `tenexPrivateKey` is the backend. The
+/// backend is the management signer (group create/lock/put-user/etc.) and is
+/// automatically an admin of every group it creates.
+const EXAMPLE_BACKEND_SEC_HEX: &str =
+    "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422";
+
+/// Derive the hex pubkey from an nsec/hex seckey at runtime.
+fn pubkey_of(sec: &str) -> String {
+    use nostr_sdk::prelude::Keys;
+    Keys::parse(sec).unwrap().public_key().to_hex()
+}
 
 fn rewrite_config_with_user_nsec(home: &Home) {
     // NIP-29 ownership/minting needs a NIP-29-aware relay; nak can't do it.
+    // The user's pubkey is whitelisted (so it's granted admin in every group),
+    // and the backend key signs group management. The two keys are ALWAYS
+    // distinct per doctrine: userNsec = human, tenexPrivateKey = backend.
+    let user_pk = pubkey_of(EXAMPLE_USER_NSEC);
     let cfg = home.dir.path().join("config.json");
     let body = serde_json::json!({
-        "whitelistedPubkeys": [],
+        "whitelistedPubkeys": [user_pk],
         "backendName": "test-host",
         "relays": [shared_croissant_url()],
         "userNsec": EXAMPLE_USER_NSEC,
+        "tenexPrivateKey": EXAMPLE_BACKEND_SEC_HEX,
     });
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }
@@ -321,9 +340,9 @@ fn agent_reply_publishes_kind9_chat_into_room() {
 }
 
 #[test]
-fn session_start_without_user_nsec_still_starts_unmanaged() {
+fn session_start_without_tenex_private_key_still_starts_unmanaged() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new(); // default config has NO userNsec
+    let home = Home::new(); // default config has NO tenexPrivateKey
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -332,7 +351,7 @@ fn session_start_without_user_nsec_still_starts_unmanaged() {
             serde_json::json!({"agent": "coder", "session_id": "sess-nogrp", "cwd": "/tmp"}),
         )
         .await
-        .expect("session_start must succeed even without userNsec");
+        .expect("session_start must succeed even without tenexPrivateKey");
     });
 
     // Fail-open: the session runs, but the group stays unmanaged (no ownership).
@@ -341,10 +360,10 @@ fn session_start_without_user_nsec_still_starts_unmanaged() {
         .get_session("sess-nogrp")
         .unwrap()
         .expect("session row");
-    assert!(rec.alive, "session must start even without userNsec");
+    assert!(rec.alive, "session must start even without tenexPrivateKey");
     assert!(
         !store.is_group_owned(&rec.project).unwrap(),
-        "without userNsec the daemon must not claim/own the group"
+        "without tenexPrivateKey the daemon must not claim/own the group"
     );
 
     stop_daemon(&home);
