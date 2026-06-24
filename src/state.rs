@@ -2663,9 +2663,18 @@ impl Store {
     /// sessions at materialization time and never catch up old chat on startup.
     pub fn enqueue_chat(&self, row: &ChatInboxRow) -> Result<bool> {
         let changed = self.conn.execute(
-            "INSERT OR IGNORE INTO chat_inbox
+            "INSERT INTO chat_inbox
                (chat_event_id, target_session, from_pubkey, from_slug, project, body, created_at, delivered, from_session, mentioned_session)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9)",
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9)
+             ON CONFLICT(chat_event_id, target_session) DO UPDATE SET
+               from_session=CASE
+                 WHEN chat_inbox.from_session='' THEN excluded.from_session
+                 ELSE chat_inbox.from_session
+               END,
+               mentioned_session=CASE
+                 WHEN chat_inbox.mentioned_session='' THEN excluded.mentioned_session
+                 ELSE chat_inbox.mentioned_session
+               END",
             params![
                 row.chat_event_id,
                 row.target_session,
@@ -2686,9 +2695,18 @@ impl Store {
     /// live-only hook injection queue.
     pub fn record_chat(&self, row: &ChatLogRow) -> Result<bool> {
         let changed = self.conn.execute(
-            "INSERT OR IGNORE INTO chat_messages
+            "INSERT INTO chat_messages
                (chat_event_id, from_pubkey, from_slug, host, project, body, created_at, from_session, mentioned_session)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(chat_event_id) DO UPDATE SET
+               from_session=CASE
+                 WHEN chat_messages.from_session='' THEN excluded.from_session
+                 ELSE chat_messages.from_session
+               END,
+               mentioned_session=CASE
+                 WHEN chat_messages.mentioned_session='' THEN excluded.mentioned_session
+                 ELSE chat_messages.mentioned_session
+               END",
             params![
                 row.chat_event_id,
                 row.from_pubkey,
@@ -2700,6 +2718,20 @@ impl Store {
                 row.from_session,
                 row.mentioned_session,
             ],
+        )?;
+        self.conn.execute(
+            "UPDATE chat_inbox
+             SET
+               from_session=CASE
+                 WHEN from_session='' THEN ?2
+                 ELSE from_session
+               END,
+               mentioned_session=CASE
+                 WHEN mentioned_session='' THEN ?3
+                 ELSE mentioned_session
+               END
+             WHERE chat_event_id=?1",
+            params![row.chat_event_id, row.from_session, row.mentioned_session,],
         )?;
         Ok(changed > 0)
     }

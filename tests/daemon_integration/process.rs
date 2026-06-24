@@ -117,7 +117,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     );
 
     // who --all-projects shows the agent (blocking client + real renderer).
-    let out = run_cli(&home, &["who", "--all", "--all-projects"]);
+    let out = run_cli(&home, &["who", "--all-projects"]);
     assert!(
         out.status.success(),
         "who failed: {}",

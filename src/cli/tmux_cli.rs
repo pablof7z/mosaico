@@ -114,7 +114,8 @@ async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
 pub(super) async fn launch(
     agent: String,
     project: Option<String>,
-    command: Vec<String>,
+    override_command: Vec<String>,
+    extra_args: Vec<String>,
 ) -> Result<()> {
     let project = match project {
         Some(p) => p,
@@ -125,7 +126,13 @@ pub(super) async fn launch(
         .map(|p| p.to_string_lossy().to_string());
     let v = crate::daemon::blocking::call(
         "tmux_spawn",
-        serde_json::json!({ "agent": agent, "project": project, "command": command, "cwd": cwd }),
+        serde_json::json!({
+            "agent": agent,
+            "project": project,
+            "command": extra_args,
+            "base_command": override_command,
+            "cwd": cwd,
+        }),
     )
     .context("tmux_spawn RPC")?;
 

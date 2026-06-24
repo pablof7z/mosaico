@@ -87,6 +87,11 @@ struct TmuxSpawnParams {
     project: String,
     #[serde(default)]
     command: Vec<String>,
+    /// Override the entire base command, replacing what would be resolved from
+    /// the agent file. When non-empty, `command` (extra args) is still appended.
+    /// Forwarded from `tenex-edge launch -c <string>`.
+    #[serde(default)]
+    base_command: Vec<String>,
     /// The client's cwd, forwarded so the daemon spawns the agent in the
     /// directory the user actually invoked `tenex-edge launch` from — NOT the
     /// daemon's own cwd (which is sticky and never matches the client's). When
@@ -103,8 +108,13 @@ pub(super) async fn rpc_tmux_spawn(
     let p: TmuxSpawnParams =
         serde_json::from_value(params.clone()).context("parsing tmux_spawn params")?;
     let client_cwd = p.cwd.as_deref().map(std::path::Path::new);
+    let base_override = if p.base_command.is_empty() {
+        None
+    } else {
+        Some(p.base_command)
+    };
     let pane_id =
-        crate::tmux::spawn_agent(state, &p.agent, &p.project, p.command, None, client_cwd).await?;
+        crate::tmux::spawn_agent(state, &p.agent, &p.project, p.command, base_override, None, client_cwd).await?;
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))
 }
 

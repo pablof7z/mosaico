@@ -290,6 +290,22 @@ pub async fn run() -> Result<()> {
     tokio::spawn(async move {
         relay_state.transport.warmup().await;
 
+        // Publish the backend's own kind:0 so it is identifiable on the relay by
+        // Nostr clients. Best-effort: failure deferred to next restart.
+        // Intentionally NOT stored in the hosted set — the echo must NOT appear in
+        // `who` or be injected into agent turn-context.
+        if let Some(nsec) = relay_state.cfg.backend_nsec() {
+            if let Ok(backend_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
+                let name = format!("{} (tenex-edge)", relay_state.host);
+                let ev = crate::domain::DomainEvent::Profile(crate::domain::Profile {
+                    agent: crate::domain::AgentRef::new(backend_keys.public_key().to_hex(), name),
+                    host: relay_state.host.clone(),
+                    owners: relay_state.owners.clone(),
+                });
+                let _ = relay_state.provider.publish(&ev, &backend_keys).await;
+            }
+        }
+
         // Standalone backend orchestration subscription (kind:9 p-tagged to this
         // backend's identity), independent of any project — so a backend with no
         // live sessions still receives subgroup add-agents requests (issue #3).
@@ -986,13 +1002,12 @@ async fn rpc_session_start(
             s.mark_session_room(&project, parent, now).ok();
             s.upsert_group_metadata(&project, &p.agent, parent, now)
                 .ok();
-            // NOTE: we deliberately do NOT pre-insert local group membership here.
-            // The first-turn "not a member" warning is already suppressed by the
-            // `locally_owned` guard (mark_group_owned above is synchronous), so a
-            // local membership row is unnecessary for that — and recording it
-            // before the relay confirms would make `is_group_member` a false
-            // positive (it should mean "the relay accepted our 9000"). The
-            // background mint inserts it only after the relay accepts the add.
+            // Session rooms are fail-open local routing scopes first; relay
+            // membership converges asynchronously below. Record the durable
+            // agent as a local member immediately so prompts/replies can use the
+            // room without racing NIP-29 admin reflection.
+            s.upsert_group_member(&project, &id.pubkey_hex(), "member", now)
+                .ok();
         });
         // ALL relay work (subgroup create, admin poll, member-add, subscription)
         // runs in the background — session start has zero synchronous relay await
@@ -1206,11 +1221,11 @@ async fn publish_chat_checked(
     signing: &Keys,
     draft: &ChatRecordDraft,
 ) -> Result<String> {
-    let event_id = state
+    let builder = state
         .provider
-        .publish_checked(&DomainEvent::ChatMessage(chat.clone()), signing)
-        .await?
-        .to_hex();
+        .encode(&DomainEvent::ChatMessage(chat.clone()))?;
+    let signed = state.transport.sign(builder, signing).await?;
+    let event_id = signed.id.to_hex();
     let created_at = now_secs();
 
     state.with_store(|s| {
@@ -1227,6 +1242,7 @@ async fn publish_chat_checked(
         });
     });
 
+    state.transport.publish_event(&signed).await?;
     Ok(event_id)
 }
 
@@ -1303,7 +1319,13 @@ async fn publish_agent_reply(
         from_session: rec.session_id.clone(),
         mentioned_session: String::new(),
     };
-    spawn_chat_publish_retry(state.clone(), chat, signing, draft, "agent reply");
+    let publish = publish_chat_checked(state, &chat, &signing, &draft);
+    match tokio::time::timeout(std::time::Duration::from_secs(3), publish).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) | Err(_) => {
+            spawn_chat_publish_retry(state.clone(), chat, signing, draft, "agent reply");
+        }
+    }
     Ok(())
 }
 
@@ -1431,11 +1453,16 @@ async fn rpc_user_prompt(
         from_session: rec.session_id.clone(),
         mentioned_session: String::new(),
     };
-    // Do not block the editor on relay room creation or membership convergence.
-    // SessionStart marks the room locally, then provisions it on the relay in
-    // the background; the first UserPromptSubmit often arrives before that
-    // relay state exists. Queue an in-daemon retry so the prompt is not lost.
-    spawn_chat_publish_retry(state.clone(), chat, op_keys, draft, "user prompt");
+    // Try once synchronously so local chat history exists when the hook/RPC
+    // returns. If relay membership is still converging, fall back to a daemon
+    // retry without blocking the editor.
+    let publish = publish_chat_checked(state, &chat, &op_keys, &draft);
+    match tokio::time::timeout(std::time::Duration::from_secs(3), publish).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) | Err(_) => {
+            spawn_chat_publish_retry(state.clone(), chat, op_keys, draft, "user prompt");
+        }
+    }
 
     Ok(serde_json::json!({ "queued": true, "project": scope }))
 }
@@ -2575,12 +2602,21 @@ async fn ensure_session_room(
         .await;
     }
 
-    // Add the agent's durable pubkey as a member of its own room.
-    if state.provider.nip29_add_member(room_h, agent_pubkey).await {
-        state.with_store(|s| {
-            s.upsert_group_member(room_h, agent_pubkey, "member", now_secs())
-                .ok();
-        });
+    // Add the agent's durable pubkey as a member of its own room. Relay admin
+    // reflection can lag the subgroup create, so retry without marking local
+    // membership until the relay accepts the add.
+    for attempt in 0..40u32 {
+        if state.provider.nip29_add_member(room_h, agent_pubkey).await {
+            state.with_store(|s| {
+                s.upsert_group_member(room_h, agent_pubkey, "member", now_secs())
+                    .ok();
+            });
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(
+            500 * (attempt as u64 + 1).min(4),
+        ))
+        .await;
     }
     // Grant every whitelisted human pubkey the admin role in the room. The
     // whitelist carries the user's own pubkey (the human behind `userNsec`),
@@ -3595,7 +3631,7 @@ async fn handle_orchestration(
         // Spawn the harness in the PARENT project's working directory but scoped
         // to the child channel (TENEX_EDGE_CHANNEL). The spawned session's
         // session-start path adds its derived session pubkey to the child group.
-        match crate::tmux::spawn_agent(state, slug, &op.parent, Vec::new(), Some(&op.child_h), None)
+        match crate::tmux::spawn_agent(state, slug, &op.parent, Vec::new(), None, Some(&op.child_h), None)
             .await
         {
             Ok(pane) => {

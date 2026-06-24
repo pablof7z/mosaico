@@ -7,6 +7,7 @@ use crate::util::{
     slugify_host, SessionId,
 };
 use anyhow::{bail, Context, Result};
+use shlex;
 use clap::{Parser, Subcommand};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -251,10 +252,14 @@ enum Cmd {
         /// Project slug; defaults to project resolved from current directory.
         #[arg(long)]
         project: Option<String>,
+        /// Override the entire launch command (shell-word split). Replaces the command
+        /// stored in the agent file. Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
+        #[arg(short = 'c', long = "command", value_name = "COMMAND")]
+        command_str: Option<String>,
         /// Extra args passed after `--`; appended to the launch command.
         /// Example: `tenex-edge launch codex -- --yolo`
-        #[arg(last = true, value_name = "COMMAND")]
-        command: Vec<String>,
+        #[arg(last = true, value_name = "ARGS")]
+        extra_args: Vec<String>,
     },
     /// Detect local agent harnesses (Claude Code, Codex, opencode) and wire
     /// tenex-edge's hook entries into each. With no flags, opens a picker when
@@ -389,6 +394,10 @@ enum AgentAction {
         /// project's NIP-29 group.
         #[arg(long = "project", value_name = "PROJECT")]
         projects: Vec<String>,
+        /// Set the harness command as a string (shell-word split). Takes priority
+        /// over `--` args. Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
+        #[arg(short = 'c', long = "command", value_name = "COMMAND")]
+        command_str: Option<String>,
         /// Harness launch command (everything after `--`). Optional.
         #[arg(last = true, value_name = "COMMAND")]
         command: Vec<String>,
@@ -613,8 +622,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Launch {
             slug,
             project,
-            command,
-        } => tmux_cli::launch(slug, project, command).await,
+            command_str,
+            extra_args,
+        } => {
+            let override_command = command_str
+                .map(|s| shlex::split(&s).unwrap_or_else(|| vec![s]))
+                .unwrap_or_default();
+            tmux_cli::launch(slug, project, override_command, extra_args).await
+        }
         Cmd::Daemon => crate::daemon::server::run().await,
         Cmd::Install {
             all,

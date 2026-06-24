@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn roundtrip(ev: DomainEvent, keys: &Keys) -> DomainEvent {

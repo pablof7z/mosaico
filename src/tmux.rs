@@ -863,6 +863,9 @@ fn make_session_transparent(
 /// Spawn a new tmux window running `slug`'s harness in `project`'s directory.
 /// Returns the new pane id (e.g. "%7") or an error.
 ///
+/// `base_override`, when supplied, replaces the command resolved from the agent
+/// file entirely. `launch_args` are still appended afterward.
+///
 /// `client_cwd`, when supplied, is the absolute path the client invoked the
 /// spawn from; it overrides `project_paths` lookup so the agent lands in the
 /// user's actual cwd, not whichever worktree last fired `session_start`.
@@ -871,6 +874,7 @@ pub async fn spawn_agent(
     slug: &str,
     project: &str,
     launch_args: Vec<String>,
+    base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
 ) -> Result<String> {
@@ -878,7 +882,10 @@ pub async fn spawn_agent(
         anyhow::bail!("tmux binary not found");
     }
 
-    let (base_command, agent_def) = resolve_spawn_entry(slug)?;
+    let (base_command, agent_def) = match base_override {
+        Some(cmd) => (cmd, None),
+        None => resolve_spawn_entry(slug)?,
+    };
     let mut agent_command = apply_agent_def_args(base_command, slug, agent_def);
     if !launch_args.is_empty() {
         agent_command.extend(launch_args);

@@ -232,12 +232,13 @@ pub(super) async fn agent(action: AgentAction) -> Result<()> {
         AgentAction::Add {
             slug,
             projects,
+            command_str,
             command,
         } => {
-            let command = if command.is_empty() {
-                None
-            } else {
-                Some(command)
+            let command = match command_str {
+                Some(s) => Some(shlex::split(&s).unwrap_or_else(|| vec![s])),
+                None if !command.is_empty() => Some(command),
+                _ => None,
             };
             let (id, created) =
                 crate::identity::add_local_agent(&edge_home, &slug, command, now_secs())?;
