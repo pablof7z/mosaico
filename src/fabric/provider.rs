@@ -363,6 +363,7 @@ impl Nip29Provider {
                 return;
             }
         };
+        let mgmt_pubkey = mgmt_keys.public_key().to_hex();
 
         // Query the RELAY (not the local cache) for the group's live state.
         progress("fetching relay group metadata/admins/members".to_string());
@@ -375,6 +376,12 @@ impl Nip29Provider {
 
         // 1. Create + lock the group if the relay has no record of it.
         if !group_exists {
+            Self::log_group_role_decision(
+                project,
+                &mgmt_pubkey,
+                "admin",
+                "open_project group_create signer becomes relay admin",
+            );
             progress("group not found; publishing kind:9007 create-group".to_string());
             let created = match crate::fabric::nip29::lifecycle::group_create(project) {
                 Ok(b) => {
@@ -419,7 +426,6 @@ impl Nip29Provider {
             // rejected by the relay. Surface a clear, actionable error and bail out
             // of the membership-provisioning steps (fail-open: the session still
             // starts, but we won't spam the relay with guaranteed-rejected events).
-            let mgmt_pubkey = mgmt_keys.public_key().to_hex();
             if roles.get(&mgmt_pubkey).map(String::as_str) != Some("admin") {
                 let short = crate::util::pubkey_short(&mgmt_pubkey);
                 eprintln!(
@@ -442,8 +448,20 @@ impl Nip29Provider {
         //    so a re-run repairs any pubkey that is missing or only a plain member.
         for pk in &self.whitelisted_pubkeys {
             if roles.get(pk).map(String::as_str) == Some("admin") {
+                Self::log_group_role_decision(
+                    project,
+                    pk,
+                    "admin",
+                    "open_project whitelist already admin in relay 39001",
+                );
                 continue;
             }
+            Self::log_group_role_decision(
+                project,
+                pk,
+                "admin",
+                "open_project configured whitelisted_pubkeys backfill",
+            );
             progress(format!(
                 "granting admin to {}",
                 crate::util::pubkey_short(pk)
@@ -480,6 +498,12 @@ impl Nip29Provider {
 
         // 3. Add this agent as a member if the relay's live roster lacks it.
         if !members.contains(agent_pubkey) && !roles.contains_key(agent_pubkey) {
+            Self::log_group_role_decision(
+                project,
+                agent_pubkey,
+                "member",
+                "open_project agent_pubkey absent from relay members/admins",
+            );
             progress(format!(
                 "adding agent {} as group member",
                 crate::util::pubkey_short(agent_pubkey)
@@ -508,6 +532,16 @@ impl Nip29Provider {
                 ));
             }
         } else {
+            let existing_role = roles
+                .get(agent_pubkey)
+                .map(String::as_str)
+                .unwrap_or("member");
+            Self::log_group_role_decision(
+                project,
+                agent_pubkey,
+                existing_role,
+                "open_project agent already present in relay state; no put-user published",
+            );
             progress(format!(
                 "agent {} is already in the relay roster",
                 crate::util::pubkey_short(agent_pubkey)
@@ -530,7 +564,7 @@ impl Nip29Provider {
                     // moderation action the relay reports as a no-op because its
                     // target is ALREADY in the desired state, are both idempotent
                     // successes — the relay's authoritative in-memory state already
-                    // reflects what we asked for. croissant phrases the put-user
+                    // reflects what we asked for. nip29.f7z.io phrases the put-user
                     // no-op as "all targets are members already" / "already a member"
                     // and the put-admin/create cases as "already exists"/"duplicate".
                     // Treating these as failures makes a confirm-retry loop spin
@@ -562,6 +596,13 @@ impl Nip29Provider {
             .and_then(|n| nostr_sdk::prelude::Keys::parse(n).ok())
     }
 
+    fn log_group_role_decision(project: &str, pubkey: &str, role: &str, reason: &str) {
+        eprintln!(
+            "[daemon] nip29-role-decision project={project} target={} role={role} reason={reason}",
+            crate::util::pubkey_short(pubkey)
+        );
+    }
+
     /// Admin-add `pubkey_hex` to `project` as a plain member (not admin).
     ///
     /// Best-effort: returns `true` when the relay accepted the 9000 event or
@@ -571,6 +612,12 @@ impl Nip29Provider {
         let Some(mgmt_keys) = self.parse_management_keys() else {
             return false;
         };
+        Self::log_group_role_decision(
+            project,
+            pubkey_hex,
+            "member",
+            "provider.nip29_add_member builds kind:9000 bare p tag",
+        );
         match crate::fabric::nip29::lifecycle::group_put_user(project, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management(b, &mgmt_keys, "9000 put-user (session)")
@@ -603,6 +650,12 @@ impl Nip29Provider {
         let Some(mgmt_keys) = self.parse_management_keys() else {
             return false;
         };
+        Self::log_group_role_decision(
+            project,
+            pubkey_hex,
+            "admin",
+            "provider.nip29_add_admin builds kind:9000 p-tag role=admin",
+        );
         match crate::fabric::nip29::lifecycle::group_put_admin(project, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management(b, &mgmt_keys, "9000 put-user (admin)")

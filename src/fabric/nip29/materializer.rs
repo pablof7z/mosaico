@@ -90,10 +90,13 @@ impl Nip29Materializer {
                     let s = t.as_slice();
                     if s.first().map(String::as_str) == Some("p") {
                         s.get(1).map(|pk| {
-                            (
-                                pk.clone(),
-                                s.get(2).cloned().unwrap_or_else(|| "member".to_string()),
-                            )
+                            let role = s.get(2).cloned().unwrap_or_else(|| "member".to_string());
+                            eprintln!(
+                                "[daemon] nip29-role-decision group={project} target={} role={} reason=materialize relay 39002 membership snapshot",
+                                crate::util::pubkey_short(pk),
+                                role
+                            );
+                            (pk.clone(), role)
                         })
                     } else {
                         None

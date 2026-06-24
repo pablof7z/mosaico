@@ -2439,6 +2439,13 @@ fn rpc_whoami(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<se
 
 // ── project_add ──────────────────────────────────────────────────────────────
 
+fn log_nip29_role_decision(group: &str, pubkey: &str, role: &str, reason: &str) {
+    eprintln!(
+        "[daemon] nip29-role-decision group={group} target={} role={role} reason={reason}",
+        crate::util::pubkey_short(pubkey)
+    );
+}
+
 /// Publish a NIP-29 kind:9000 (put-user) event to add a pubkey to the group.
 /// Accepts hex, npub (bech32), or a NIP-05 address (user@domain.com).
 async fn rpc_project_add(
@@ -2461,6 +2468,12 @@ async fn rpc_project_add(
     let user_keys = Keys::parse(nsec).context("parsing signing key")?;
 
     let pubkey_hex = resolve_project_member_pubkey_hex(&p.pubkey).await?;
+    log_nip29_role_decision(
+        &p.project,
+        &pubkey_hex,
+        "member",
+        "rpc_project_add manual add uses group_put_user bare p tag",
+    );
 
     let builder = crate::fabric::nip29::lifecycle::group_put_user(&p.project, &pubkey_hex)?;
     state
@@ -2556,11 +2569,18 @@ async fn ensure_session_room(
     let Ok(mgmt_keys) = Keys::parse(nsec) else {
         return false;
     };
+    let mgmt_pk = mgmt_keys.public_key().to_hex();
 
     // The parent project group must exist before a child can be parented under it.
     state.provider.open_project(parent, agent_pubkey).await;
 
     // Create + lock the child with its parent relationship.
+    log_nip29_role_decision(
+        room_h,
+        &mgmt_pk,
+        "admin",
+        "ensure_session_room subgroup create signer becomes relay admin",
+    );
     if !state
         .provider
         .nip29_create_subgroup(room_h, name, parent)
@@ -2590,7 +2610,6 @@ async fn ensure_session_room(
     // validates against the author's admin role at apply-time. Bounded to a few
     // attempts (~3s worst case): this runs on the session-birth path, so it must
     // not stall the first prompt. The common case resolves on attempt 0-1.
-    let mgmt_pk = mgmt_keys.public_key().to_hex();
     for attempt in 0..6u32 {
         let roles = state.provider.fetch_group_roles(room_h).await;
         if roles.get(&mgmt_pk).map(String::as_str) == Some("admin") {
@@ -2605,6 +2624,12 @@ async fn ensure_session_room(
     // Add the agent's durable pubkey as a member of its own room. Relay admin
     // reflection can lag the subgroup create, so retry without marking local
     // membership until the relay accepts the add.
+    log_nip29_role_decision(
+        room_h,
+        agent_pubkey,
+        "member",
+        "ensure_session_room adds owning agent durable pubkey",
+    );
     for attempt in 0..40u32 {
         if state.provider.nip29_add_member(room_h, agent_pubkey).await {
             state.with_store(|s| {
@@ -2623,6 +2648,12 @@ async fn ensure_session_room(
     // so this is what lets the user publish prompts into the closed room.
     // Signed by `tenexPrivateKey` (the management signer). Best-effort.
     for pk in &state.cfg.whitelisted_pubkeys {
+        log_nip29_role_decision(
+            room_h,
+            pk,
+            "admin",
+            "ensure_session_room whitelisted_pubkeys grant",
+        );
         if state.provider.nip29_add_admin(room_h, pk).await {
             state.with_store(|s| {
                 s.upsert_group_member(room_h, pk, "admin", now_secs()).ok();
@@ -2667,6 +2698,10 @@ async fn rpc_channels_create(
         .management_nsec()
         .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
     let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+    let mgmt_pk = mgmt_keys.public_key().to_hex();
+
+    // Short child id; hierarchy lives in metadata, not the id.
+    let child_h = crate::util::child_group_id(&p.name);
 
     // Resolve each backend token to a hex pubkey. Accepts explicit
     // pubkey/npub/NIP-05 *and* host slugs as shown by `tenex-edge who`.
@@ -2675,17 +2710,27 @@ async fn rpc_channels_create(
         let backend_pubkey = resolve_backend_pubkey(state, &a.backend)
             .await
             .with_context(|| format!("resolving backend {:?}", a.backend))?;
+        eprintln!(
+            "[daemon] nip29-role-decision channel={} requested_agent={} backend={} backend_pubkey={} role=member reason=channels_create orchestration target; backend may be admin but spawned agent must be member",
+            child_h,
+            a.slug,
+            a.backend,
+            crate::util::pubkey_short(&backend_pubkey)
+        );
         adds.push(AddTarget {
             backend_pubkey,
             slug: a.slug.clone(),
         });
     }
 
-    // Short child id; hierarchy lives in metadata, not the id.
-    let child_h = crate::util::child_group_id(&p.name);
-
     // Create + lock the child with its parent relationship. Fail loudly: a
     // create-group that didn't actually create a group must not look successful.
+    log_nip29_role_decision(
+        &child_h,
+        &mgmt_pk,
+        "admin",
+        "channels_create subgroup create signer becomes relay admin",
+    );
     let created = state
         .provider
         .nip29_create_subgroup(&child_h, &p.name, &p.parent)
@@ -2704,7 +2749,6 @@ async fn rpc_channels_create(
     // race that and be dropped (the relay validates the author's admin role at
     // apply-time). Poll the child's 39001 until the signing key is admin; every
     // subsequent grant/add then applies on the first try.
-    let mgmt_pk = mgmt_keys.public_key().to_hex();
     for attempt in 0..20u32 {
         let roles = state.provider.fetch_group_roles(&child_h).await;
         if roles.get(&mgmt_pk).map(String::as_str) == Some("admin") {
@@ -2723,15 +2767,50 @@ async fn rpc_channels_create(
     // backend can manage the child and authority carries downward.
     let mut admin_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let parent_roles = state.provider.fetch_group_roles(&p.parent).await;
+    eprintln!(
+        "[daemon] nip29-role-decision channel={child_h} parent={} parent_role_count={} whitelist_count={} backend_pubkey={} reason=channels_create building child admin set",
+        p.parent,
+        parent_roles.len(),
+        state.cfg.whitelisted_pubkeys.len(),
+        state
+            .backend_pubkey()
+            .map(crate::util::pubkey_short)
+            .unwrap_or_else(|| "none".to_string())
+    );
     for (pk, role) in &parent_roles {
         if role == "admin" {
+            log_nip29_role_decision(
+                &child_h,
+                pk,
+                "admin",
+                "channels_create copied parent admin from relay 39001",
+            );
             admin_set.insert(pk.clone());
+        } else {
+            log_nip29_role_decision(
+                &child_h,
+                pk,
+                role,
+                "channels_create parent role not copied to child admin set",
+            );
         }
     }
     for pk in &state.cfg.whitelisted_pubkeys {
+        log_nip29_role_decision(
+            &child_h,
+            pk,
+            "admin",
+            "channels_create configured whitelisted_pubkeys grant",
+        );
         admin_set.insert(pk.clone());
     }
     if let Some(bp) = state.backend_pubkey() {
+        log_nip29_role_decision(
+            &child_h,
+            bp,
+            "admin",
+            "channels_create backend tenexPrivateKey pubkey grant",
+        );
         admin_set.insert(bp.to_string());
     }
     // Grant each admin and CONFIRM it landed in the relay's 39001 roster. Like
@@ -2791,6 +2870,12 @@ async fn rpc_channels_create(
     .ok()
     .map(|rec| rec.agent_pubkey);
     if let Some(ref pk) = creator {
+        log_nip29_role_decision(
+            &child_h,
+            pk,
+            "member",
+            "channels_create auto-join creator agent",
+        );
         if state.provider.nip29_add_member(&child_h, pk).await {
             state.with_store(|s| {
                 s.upsert_group_member(&child_h, pk, "member", now_secs())
@@ -3571,6 +3656,12 @@ async fn handle_orchestration(
             }
         };
         let agent_pk = id.pubkey_hex();
+        log_nip29_role_decision(
+            &op.child_h,
+            &agent_pk,
+            "member",
+            "handle_orchestration target agent durable pubkey",
+        );
 
         // Publish the durable agent's kind:0 identity card.
         let profile = DomainEvent::Profile(crate::domain::Profile {
@@ -3598,7 +3689,7 @@ async fn handle_orchestration(
             // Two independent confirmations, EITHER suffices:
             //  (a) the relay's published 39002 roster lists the agent, or
             //  (b) a RE-issued add (attempt > 0) is accepted as benign — for
-            //      croissant that means it returned "all targets are members
+            //      nip29.f7z.io phrases this as "all targets are members
             //      already", i.e. the relay's authoritative in-memory membership
             //      already holds the agent. Relying on (a) alone deadlocks when the
             //      relay's 39002 replaceable is stale (a same-second created_at
@@ -3631,8 +3722,16 @@ async fn handle_orchestration(
         // Spawn the harness in the PARENT project's working directory but scoped
         // to the child channel (TENEX_EDGE_CHANNEL). The spawned session's
         // session-start path adds its derived session pubkey to the child group.
-        match crate::tmux::spawn_agent(state, slug, &op.parent, Vec::new(), None, Some(&op.child_h), None)
-            .await
+        match crate::tmux::spawn_agent(
+            state,
+            slug,
+            &op.parent,
+            Vec::new(),
+            None,
+            Some(&op.child_h),
+            None,
+        )
+        .await
         {
             Ok(pane) => {
                 if std::env::var("TENEX_EDGE_DEBUG").is_ok() {

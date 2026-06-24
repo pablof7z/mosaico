@@ -40,7 +40,7 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 /// kind:9007 create-group for a CHILD (sub-)group, using `child_h` as the
 /// client-chosen group id and declaring its `parent_h` relationship at creation.
 /// The `["parent", parent_h]` tag rides on the 9007 itself: NIP-29 subgroup
-/// relays (per nostr-protocol/nips#2319, e.g. croissant) validate the parent at
+/// relays (per nostr-protocol/nips#2319, e.g. nip29.f7z.io) validate the parent at
 /// create time (parent must exist; signer must be a parent admin; no cycles) and
 /// re-emit the tag on the relay-authored kind:39000. The signer becomes the
 /// subgroup admin and, as with any fresh group, it is OPEN until locked.
@@ -74,7 +74,7 @@ pub fn group_lock_closed_with_parent(
 /// presence/activity/mentions into the now-closed group.
 pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey, "member"])?]))
+        .tags([project_tag(project)?, tag(&["p", pubkey])?]))
 }
 
 /// kind:9001 remove-user removing `pubkey` from the group.
@@ -192,18 +192,19 @@ mod tests {
     }
 
     #[test]
-    fn group_put_user_tags_member() {
+    fn group_put_user_tags_plain_member_without_role() {
         let member = Keys::generate().public_key().to_hex();
         let b = group_put_user("tenex-edge", &member).unwrap();
         let ev = b.sign_with_keys(&Keys::generate()).unwrap();
         assert_eq!(ev.kind.as_u16(), KIND_GROUP_PUT_USER);
         assert!(has_tag(&ev, "h", "tenex-edge"));
-        // p tag carries the member pubkey with the "member" role.
+        // Plain membership is just the pubkey. Role labels are elevated access
+        // and make relays list the user in kind:39001.
         assert!(ev.tags.iter().any(|t| {
             let s = t.as_slice();
             s.first().map(String::as_str) == Some("p")
                 && s.get(1).map(String::as_str) == Some(member.as_str())
-                && s.get(2).map(String::as_str) == Some("member")
+                && s.get(2).is_none()
         }));
     }
 
