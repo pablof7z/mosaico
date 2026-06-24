@@ -328,6 +328,35 @@ pub async fn run() -> Result<()> {
             }
         }
 
+        // Subscribe to groups where local agents are already members so kind:9
+        // chat arrives even when no session is alive (spawn-on-mention path).
+        // Each group gets its own #h-filtered subscription via ensure_subscription;
+        // new memberships discovered from 39002 events extend coverage dynamically.
+        {
+            let edge = crate::config::edge_home();
+            let local_pks: Vec<String> =
+                crate::identity::list_local_pubkeys(&edge);
+            let member_groups: Vec<String> = relay_state.with_store(|s| {
+                let mut groups = Vec::new();
+                for pk in &local_pks {
+                    if let Ok(gs) = s.list_groups_for_member(pk) {
+                        groups.extend(gs);
+                    }
+                }
+                groups.sort_unstable();
+                groups.dedup();
+                groups
+            });
+            for group in &member_groups {
+                let _ = ensure_subscription(&relay_state, group).await;
+            }
+            eprintln!(
+                "[daemon] spawn-on-mention: {} local agents, {} member groups subscribed",
+                local_pks.len(),
+                member_groups.len()
+            );
+        }
+
         // Revive sessions a previous daemon left behind + (re)open their project
         // subscriptions. Subscriptions go out post-auth.
         reconcile_sessions(&relay_state).await;
@@ -3714,16 +3743,52 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     // load-bearing — a refreshed subscription replays stored events, which is
     // how a NEW session receives mentions that predate it.
     let outcome = state.with_store(|s| state.provider.materialize(&env, &hosted, now, s));
+
     // The relay pool notifies once PER MATCHING SUBSCRIPTION (scope filters ×
     // live sessions), so the same event reaches here many times. The tail
     // broadcast is NOT idempotent — emit only on first sight of the event id.
+    // Spawn-on-mention also runs inside first_sight so we attempt at most once
+    // per run; has_alive check in the handler covers daemon-restart idempotency.
     if let Some(de) = outcome.tail {
         if state.first_sight(&event.id.to_hex()) {
             derive_and_emit_tail_events(state, &de, &hosted, now);
+            if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
+                if let DomainEvent::ChatMessage(ref chat) = de {
+                    if let Some(ref mentioned_pk) = chat.mentioned_pubkey {
+                        let st = state.clone();
+                        let mentioned_pk = mentioned_pk.clone();
+                        let project = chat.project.clone();
+                        tokio::spawn(async move {
+                            handle_offline_agent_mention(&st, &mentioned_pk, &project).await;
+                        });
+                    }
+                }
+            }
         }
     }
     if outcome.wake_mentions {
         crate::tmux::ring_doorbells(state.clone());
+    }
+
+    // When a kind:39002 membership snapshot arrives, ensure we have a group
+    // subscription for any group a local agent just joined. `ensure_subscription`
+    // is idempotent for already-subscribed groups.
+    if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_GROUP_MEMBERS {
+        if let Some(project) = crate::fabric::nip29::nostr_tag(event, "d") {
+            let local_pks = state.hosted_pubkeys();
+            let is_member = event.tags.iter().any(|t| {
+                let s = t.as_slice();
+                s.first().map(String::as_str) == Some("p")
+                    && s.get(1).map(|pk| local_pks.contains(pk)).unwrap_or(false)
+            });
+            if is_member {
+                let st = state.clone();
+                let proj = project.to_string();
+                tokio::spawn(async move {
+                    let _ = ensure_subscription(&st, &proj).await;
+                });
+            }
+        }
     }
 
     // Subgroup orchestration (issue #3): a kind:9 carrying the add-agents op tag
@@ -3739,6 +3804,61 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
                 handle_orchestration(&st, &ev, op).await;
             });
         }
+    }
+}
+
+/// Spawn a local agent that was p-tagged in a kind:9 message but had no alive
+/// session. Idempotency: `first_sight` prevents duplicate spawns within a run;
+/// `has_alive` prevents re-spawn across restarts when the previous spawn registered.
+/// Delivery: `rpc_session_start` calls `ensure_subscription`, which triggers a
+/// relay replay of recent kind:9 events; those are re-materialized against the
+/// now-alive session and delivered via `ring_doorbells`.
+async fn handle_offline_agent_mention(
+    state: &Arc<DaemonState>,
+    mentioned_pk: &str,
+    project: &str,
+) {
+    let has_alive = state.with_store(|s| {
+        s.list_alive_sessions()
+            .unwrap_or_default()
+            .into_iter()
+            .any(|rec| rec.agent_pubkey == mentioned_pk && rec.route_scope() == project)
+    });
+    if has_alive {
+        return;
+    }
+
+    let edge = crate::config::edge_home();
+    let local_agents = crate::identity::list_local_agent_details(&edge);
+    let agent_slug = match local_agents.into_iter().find(|a| a.pubkey == mentioned_pk) {
+        Some(a) => a.slug,
+        None => return,
+    };
+
+    let is_member = state.with_store(|s| s.is_group_member(project, mentioned_pk).unwrap_or(false));
+    if !is_member {
+        let (_, _, members) = state.provider.fetch_group_state(project).await;
+        if !members.contains(mentioned_pk) {
+            eprintln!("[spawn-on-mention] {agent_slug} not a member of {project}, skip");
+            return;
+        }
+    }
+
+    let work_root = state.with_store(|s| {
+        s.work_root_for_scope(project).unwrap_or_else(|_| project.to_string())
+    });
+
+    let has_path = state.with_store(|s| s.get_project_path(&work_root).ok().flatten().is_some());
+    if !has_path {
+        eprintln!("[spawn-on-mention] no local path for {work_root}, cannot spawn");
+        return;
+    }
+
+    let group_arg: Option<&str> = if project != work_root { Some(project) } else { None };
+    eprintln!("[spawn-on-mention] spawning {agent_slug} into {project} (work_root={work_root})");
+    match crate::tmux::spawn_agent(state, &agent_slug, &work_root, Vec::new(), None, group_arg, None).await {
+        Ok(pane_id) => eprintln!("[spawn-on-mention] {agent_slug} spawned pane={pane_id}"),
+        Err(e) => eprintln!("[spawn-on-mention] spawn failed: {e:#}"),
     }
 }
 

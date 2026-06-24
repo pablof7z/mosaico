@@ -2627,6 +2627,14 @@ impl Store {
         Ok(())
     }
 
+    pub fn list_groups_for_member(&self, pubkey: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT project FROM group_members WHERE pubkey=?1")?;
+        let rows = stmt.query_map(params![pubkey], |r| r.get::<_, String>(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Return the `(harness_kind, anchor)` pair needed to re-derive a session's
     /// per-session keypair at crash-GC time (Stage 2 / Issue #2).
     ///

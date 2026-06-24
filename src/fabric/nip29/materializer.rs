@@ -169,7 +169,12 @@ impl Nip29Materializer {
             if rec.route_scope() != chat.project {
                 continue;
             }
-            if rec.created_at > created_at {
+            // Allow direct p-tagged mentions to reach sessions born after the
+            // event — a spawned-on-mention session is always newer than the
+            // triggering message. Ambient channel chat stays live-only.
+            let direct_to_rec = mentioned_session == rec.session_id
+                || chat.mentioned_pubkey.as_deref() == Some(rec.agent_pubkey.as_str());
+            if rec.created_at > created_at && !direct_to_rec {
                 continue;
             }
             // Skip sender's own session by session pubkey when available, then
