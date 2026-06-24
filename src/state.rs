@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS chat_inbox (
     created_at        INTEGER NOT NULL,
     delivered         INTEGER NOT NULL DEFAULT 0,
     delivered_at      INTEGER NOT NULL DEFAULT 0,
+    notified_at       INTEGER NOT NULL DEFAULT 0,
     from_session      TEXT NOT NULL DEFAULT '',
     mentioned_session TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (chat_event_id, target_session)
@@ -505,6 +506,10 @@ impl Store {
         // transcript (Claude Code writes the transcript after the stop hook fires).
         let _ = conn.execute(
             "ALTER TABLE sessions ADD COLUMN last_assistant_text_at_turn_start TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE chat_inbox ADD COLUMN notified_at INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // Session-state rearchitecture: the legacy `agent_status` / `session_status`
@@ -2674,6 +2679,22 @@ impl Store {
         Ok(rows)
     }
 
+    /// Read explicit mention rows not yet surfaced by hook fallback. They stay
+    /// undelivered so tmux / turn-start can still submit the actual prompt.
+    pub fn peek_unnotified_chat_mentions(&self, session_id: &str) -> Result<Vec<ChatInboxRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT chat_event_id, target_session, from_pubkey, from_slug, project, body, created_at, from_session, mentioned_session
+             FROM chat_inbox
+             WHERE target_session=?1 AND mentioned_session=?1 AND delivered=0 AND notified_at=0
+             ORDER BY created_at",
+        )?;
+        let rows: Vec<ChatInboxRow> = stmt
+            .query_map(params![session_id], row_to_chat)?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
     /// Return undelivered chat rows for a session and mark them delivered.
     pub fn drain_chat(&self, session_id: &str) -> Result<Vec<ChatInboxRow>> {
         let rows = self.peek_chat(session_id)?;
@@ -2697,6 +2718,23 @@ impl Store {
         )?;
         for event_id in event_ids {
             stmt.execute(params![session_id, event_id, delivered_at])?;
+        }
+        Ok(())
+    }
+
+    /// Mark direct mention rows as surfaced by a non-consuming hook fallback.
+    pub fn mark_chat_rows_notified(
+        &self,
+        session_id: &str,
+        event_ids: &[String],
+        notified_at: u64,
+    ) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            "UPDATE chat_inbox SET notified_at=?3
+             WHERE target_session=?1 AND chat_event_id=?2 AND delivered=0 AND notified_at=0",
+        )?;
+        for event_id in event_ids {
+            stmt.execute(params![session_id, event_id, notified_at])?;
         }
         Ok(())
     }

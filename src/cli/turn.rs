@@ -95,13 +95,20 @@ pub fn assemble_turn_start_context(
         let s = store.lock().expect("store mutex poisoned");
         s.drain_chat(&rec.session_id).unwrap_or_default()
     };
-    if !chat_rows.is_empty() {
-        blocks.push(render_chat_block(
-            "tenex-edge channel messages - reply with `tenex-edge chat write --message \"...\"`:",
-            &chat_rows,
-            &rec.session_id,
-            now_secs(),
-        ));
+    let (mentions, ambient) = crate::injection::split_direct_mentions(chat_rows, &rec.session_id);
+    let now = now_secs();
+    if let Some(block) =
+        crate::injection::render_direct_mention_prompt(&mentions, &rec.session_id, now)
+    {
+        blocks.push(block);
+    }
+    if let Some(block) = crate::injection::render_channel_chat_block(
+        "tenex-edge channel messages - reply with `tenex-edge chat write --message \"...\"`:",
+        &ambient,
+        &rec.session_id,
+        now,
+    ) {
+        blocks.push(block);
     }
 
     // Peer presence — full roster on the first turn; deltas on subsequent turns.
@@ -123,14 +130,17 @@ pub fn assemble_turn_start_context(
     }
 }
 
-/// Mid-turn context for the PostToolUse `turn_check` hook. Two independent
+/// Mid-turn context for the PostToolUse `turn_check` hook. Three independent
 /// blocks, each shown only when it has content:
-///   1. Project chat — ambient chat that arrived since the last check.
+///   1. Direct mentions — explicit p-tagged user messages, notified once even
+///      when the normal awareness delta window is closed.
+///   2. Project chat — ambient chat that arrived since the last check.
 ///      Delta-gated and debounced: shown once per arrival, not on every tool call.
-///   2. Sibling-session delta — project-scoped title/status changes since the
+///   3. Sibling-session delta — project-scoped title/status changes since the
 ///      last check, excluding this session.
-/// Both blocks are present only when `delta_since` is `Some` (the daemon's
-/// rate-limit floor passed) and there is something new past the cursor.
+/// Ambient chat and sibling deltas are present only when `delta_since` is
+/// `Some` (the daemon's rate-limit floor passed) and there is something new
+/// past the cursor.
 /// `now` is the shared timestamp.
 pub fn assemble_turn_check_context(
     store: &std::sync::Mutex<Store>,
@@ -147,7 +157,26 @@ pub fn assemble_turn_check_context(
     let scope = rec.route_scope().to_string();
     let channel = channel_label(&scope);
 
-    // Chat and sibling-delta — both gated by the daemon's rate-limit
+    let direct_mentions = {
+        let s = store.lock().expect("store mutex poisoned");
+        s.peek_unnotified_chat_mentions(&rec.session_id)
+            .unwrap_or_default()
+    };
+    if let Some(block) =
+        crate::injection::render_direct_mention_prompt(&direct_mentions, &rec.session_id, now)
+    {
+        let ids: Vec<String> = direct_mentions
+            .iter()
+            .map(|row| row.chat_event_id.clone())
+            .collect();
+        if !ids.is_empty() {
+            let s = store.lock().expect("store mutex poisoned");
+            s.mark_chat_rows_notified(&rec.session_id, &ids, now).ok();
+        }
+        blocks.push(block);
+    }
+
+    // Ambient chat and sibling-delta remain gated by the daemon's rate-limit
     // floor and cursored off the same `since` so nothing re-emits per tool call.
     if let Some(since) = delta_since {
         let chat_rows: Vec<_> = {
@@ -155,17 +184,18 @@ pub fn assemble_turn_check_context(
             s.peek_chat(&rec.session_id).unwrap_or_default()
         }
         .into_iter()
+        .filter(|r| r.mentioned_session != rec.session_id)
         // Only chat newer than the cursor is "new since the last check"; older
         // rows were already surfaced this turn (peek leaves them undelivered).
         .filter(|r| r.created_at > since)
         .collect();
-        if !chat_rows.is_empty() {
-            blocks.push(render_chat_block(
-                &format!("[tenex-edge] Messages on {channel} since your last check:"),
-                &chat_rows,
-                &rec.session_id,
-                now,
-            ));
+        if let Some(block) = crate::injection::render_channel_chat_block(
+            &format!("[tenex-edge] Messages on {channel} since your last check:"),
+            &chat_rows,
+            &rec.session_id,
+            now,
+        ) {
+            blocks.push(block);
         }
 
         let s = store.lock().expect("store mutex poisoned");
@@ -211,42 +241,6 @@ pub(super) fn turn_check(session: Option<String>, emit: EmitFormat) -> Result<Op
         return Ok(Some(ctx.to_string()));
     }
     Ok(None)
-}
-
-pub(crate) fn render_chat_block(
-    header: &str,
-    rows: &[crate::state::ChatInboxRow],
-    self_session: &str,
-    now: u64,
-) -> String {
-    let mut text = String::from(header);
-    for row in rows {
-        // Keep the chat sender in the same human-facing vocabulary as `who`:
-        // agent slug when known, short pubkey only for an unknown sender.
-        let from = if row.from_slug.is_empty() {
-            pubkey_short(&row.from_pubkey)
-        } else {
-            row.from_slug.clone()
-        };
-        let mention = if row.mentioned_session == self_session {
-            " mentioned you"
-        } else {
-            ""
-        };
-        let _ = write!(
-            text,
-            "\n\n{} ({})\n{}{}:\n{}",
-            format_local_datetime(row.created_at),
-            relative_time(row.created_at, now),
-            from,
-            mention,
-            row.body
-        );
-        if !row.chat_event_id.is_empty() {
-            let _ = write!(text, "\n(message id: {})", pubkey_short(&row.chat_event_id));
-        }
-    }
-    text
 }
 
 fn emit_context(content: &str, emit: EmitFormat) {

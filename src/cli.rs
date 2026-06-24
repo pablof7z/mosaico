@@ -36,7 +36,6 @@ pub use admin::render_fabric;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
 pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
-pub(crate) use turn::render_chat_block;
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub use who::load_who_snapshot;
 
@@ -967,6 +966,17 @@ mod turn_context_tests {
         }
     }
 
+    fn direct_mention_row(
+        session_id: &str,
+        eid: &str,
+        created_at: u64,
+    ) -> crate::state::ChatInboxRow {
+        let mut row = chat_row(session_id, eid, created_at);
+        row.body = "please review this now".to_string();
+        row.mentioned_session = session_id.to_string();
+        row
+    }
+
     /// Project chat is delta-gated: a row newer than the cursor surfaces once,
     /// but a row older than the cursor (already shown earlier this turn) does
     /// not re-emit on the next tool call. The peek never marks it delivered, so
@@ -1016,6 +1026,44 @@ mod turn_context_tests {
         assert!(
             ctx.is_none(),
             "chat must be suppressed when not due (no inbox to surface); got: {ctx:?}"
+        );
+    }
+
+    /// Direct mentions are different from ambient chat: if no tmux pane is
+    /// available, the next hook must surface them even when the normal
+    /// awareness/delta rate-limit is closed. Once surfaced, they are marked
+    /// notified so tool hooks do not repeat them, but they remain undelivered
+    /// for tmux / turn-start prompt delivery.
+    #[test]
+    fn turn_check_direct_mentions_surface_without_delta_window_and_notify() {
+        let store = Store::open_memory().unwrap();
+        store
+            .enqueue_chat(&direct_mention_row("sess-me", "mention-1", 120))
+            .unwrap();
+        let m = Mutex::new(store);
+
+        let ctx = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", None, 200)
+            .expect("direct mention must surface at the next available hook");
+        assert!(
+            ctx.contains("Incoming user message mentioning this agent"),
+            "direct mention must be labeled as user input; got: {ctx:?}"
+        );
+        assert!(ctx.contains("please review this now"));
+
+        let s = m.lock().unwrap();
+        assert!(
+            s.peek_unnotified_chat_mentions("sess-me").unwrap().is_empty(),
+            "direct mention should be marked notified after hook fallback"
+        );
+        assert!(
+            !s.peek_chat_mentions("sess-me").unwrap().is_empty(),
+            "notified direct mention must remain undelivered for tmux/turn-start"
+        );
+        assert!(
+            s.list_recently_delivered_chat_mentions("sess-me", 0)
+                .unwrap()
+                .is_empty(),
+            "hook notification must not count as prompt delivery"
         );
     }
 

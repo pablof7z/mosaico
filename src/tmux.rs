@@ -392,15 +392,7 @@ fn render_pending_message_prompt(
     rec: &crate::state::SessionRecord,
     now: u64,
 ) -> Option<String> {
-    if chat_rows.is_empty() {
-        return None;
-    }
-    Some(crate::cli::render_chat_block(
-        "tenex-edge project chat - write with `tenex-edge chat write < message.txt`; mention a session with `tenex-edge chat write --mention <session-id>`:",
-        chat_rows,
-        &rec.session_id,
-        now,
-    ))
+    crate::injection::render_direct_mention_prompt(chat_rows, &rec.session_id, now)
 }
 
 fn collect_pending_prompt(
@@ -1084,8 +1076,11 @@ mod resume_command_tests {
 
         let prompt = render_pending_message_prompt(&[row], &rec, 120).unwrap();
 
+        assert!(prompt.contains("Incoming user message mentioning this agent"));
+        assert!(prompt.contains("User message from codex mentioned you"));
         assert!(prompt.contains("please review the tmux delivery path"));
         assert!(!prompt.contains("tenex-edge inbox"));
+        assert!(!prompt.contains("project chat - write"));
     }
 }
 
