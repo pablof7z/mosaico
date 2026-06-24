@@ -11,6 +11,9 @@ fn who_params(project: &Option<String>, all_projects: bool) -> serde_json::Value
     serde_json::json!({
         "project": project,
         "all_projects": all_projects,
+        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
+        "agent": crate::cli::agent_env_slug(),
+        "group": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     })
 }
@@ -59,6 +62,7 @@ pub(super) async fn whoami(session: Option<String>, json: bool) -> Result<()> {
         "session": session,
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": crate::cli::agent_env_slug(),
+        "group": crate::cli::channel_env(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
     });
     let v = super::daemon_call_async("whoami", params).await?;
@@ -139,6 +143,10 @@ struct WhoRow {
     /// can be attached to via `tenex-edge tmux attach`.
     #[serde(default)]
     attachable: bool,
+    /// Top-level work-root project for UI grouping. `project` remains the live
+    /// routing scope (session room or task channel); this is the project tab.
+    #[serde(default)]
+    work_root: String,
     /// Hex pubkey others route to: the per-session pubkey when derived, else the
     /// durable agent pubkey.
     #[serde(default)]
@@ -220,6 +228,9 @@ pub fn load_who_snapshot(
                 rel_cwd: s.rel_cwd.clone(),
                 remote: false,
                 attachable: tmux_sessions.contains(sid),
+                work_root: store
+                    .work_root_for_scope(&s.project)
+                    .unwrap_or_else(|_| s.project.clone()),
                 // The durable agent key is the session's wire identity now;
                 // never prefer a stale per-session derived pubkey.
                 pubkey: s.agent_pubkey.clone(),
@@ -251,6 +262,9 @@ pub fn load_who_snapshot(
                 rel_cwd: p.rel_cwd.clone(),
                 remote: slugify_host(&p.host) != local_host,
                 attachable: false,
+                work_root: store
+                    .work_root_for_scope(&p.project)
+                    .unwrap_or_else(|_| p.project.clone()),
                 // Peer status is session-signed, so agent_pubkey IS the peer's
                 // session pubkey — the address to route to.
                 pubkey: p.agent_pubkey.clone(),

@@ -1,26 +1,38 @@
 #!/usr/bin/env bash
 # Wipe all runtime state (local + remote relay) without touching configs.
-# Usage: ./scripts/reset.sh --yes-i-know-this-wipes-the-relay
+# Usage:
+#   ./scripts/reset.sh --local-only
+#   ./scripts/reset.sh --yes-i-know-this-wipes-the-relay
 
 set -euo pipefail
 
 RELAY_HOST="pablo@157.180.102.242"
 EDGE_HOME="${TENEX_EDGE_HOME:-$HOME/.tenex-edge}"
 
-if [[ "${1:-}" != "--yes-i-know-this-wipes-the-relay" ]]; then
-  cat >&2 <<EOF
+LOCAL_ONLY=false
+case "${1:-}" in
+  --local-only)
+    LOCAL_ONLY=true
+    ;;
+  --yes-i-know-this-wipes-the-relay)
+    ;;
+  *)
+    cat >&2 <<EOF
 Refusing to reset without explicit confirmation.
 
 This deletes local runtime state under:
   $EDGE_HOME
 
-It also SSHes to $RELAY_HOST and wipes the nip29.f7z.io relay data.
+Options:
+  $0 --local-only
+      Wipe local state only (db, sessions, sockets). Relay untouched.
 
-Run:
   $0 --yes-i-know-this-wipes-the-relay
+      Wipe local state AND SSHes to $RELAY_HOST to wipe nip29.f7z.io relay data.
 EOF
-  exit 2
-fi
+    exit 2
+    ;;
+esac
 
 if [[ ! -d "$EDGE_HOME" ]]; then
   echo "EDGE_HOME does not exist: $EDGE_HOME" >&2
@@ -33,10 +45,15 @@ sleep 0.5
 
 echo "==> Wiping local state..."
 rm -f "$EDGE_HOME/state.db" "$EDGE_HOME/state.db-shm" "$EDGE_HOME/state.db-wal"
-rm -f "$EDGE_HOME/daemon.sock" "$EDGE_HOME/daemon.lock"
+rm -f "$EDGE_HOME/daemon.sock" "$EDGE_HOME/daemon.lock" "$EDGE_HOME/daemon.log"
 rm -rf "$EDGE_HOME/sessions"
 echo "    kept:"
 find "$EDGE_HOME" -mindepth 1 -maxdepth 1 -print | sed 's/^/      /'
+
+if [[ "$LOCAL_ONLY" == true ]]; then
+  echo "==> Done (local only). Run: tenex-edge daemon start"
+  exit 0
+fi
 
 echo "==> Wiping remote NIP-29 relay (nip29.f7z.io) on $RELAY_HOST..."
 ssh "$RELAY_HOST" bash <<'REMOTE'

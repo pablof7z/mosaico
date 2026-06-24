@@ -7,6 +7,7 @@ pub(super) async fn chat_write(message: String, session: Option<String>) -> Resu
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "group": crate::cli::channel_env(),
     });
     let v = daemon_call_async("chat_write", params).await?;
     let event_id = v["event_id"].as_str().unwrap_or("?");
@@ -28,14 +29,10 @@ pub(super) async fn chat_read(
     offset: Option<u64>,
     tail: bool,
     live: bool,
-    project: Option<String>,
+    channel: Option<String>,
 ) -> Result<()> {
     use std::io::IsTerminal as _;
 
-    let project = match project {
-        Some(p) => p,
-        None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
-    };
     let since_ts = since.as_deref().map(super::admin::parse_since);
     let effective_tail = tail || since.is_none();
     let effective_limit = limit.or_else(|| {
@@ -48,7 +45,11 @@ pub(super) async fn chat_read(
     let use_color = std::env::var("NO_COLOR").is_err() && std::io::stdout().is_terminal();
 
     let params = serde_json::json!({
-        "project": project,
+        "channel": channel,
+        "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
+        "agent": agent_env_slug(),
+        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "group": crate::cli::channel_env(),
         "since": since_ts,
         "limit": effective_limit,
         "offset": offset.unwrap_or(0),
@@ -113,6 +114,7 @@ pub(super) async fn publish(
         "env_session": std::env::var("TENEX_EDGE_SESSION").ok(),
         "agent": agent_env_slug(),
         "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+        "group": crate::cli::channel_env(),
         "d": d,
     });
     let v = daemon_call_async("publish", params).await?;

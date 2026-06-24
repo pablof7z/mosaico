@@ -90,6 +90,11 @@ pub fn materialize(
     // Decode via the NIP-29 wire codec.
     let codec = Nip29WireCodec;
     let Some(de) = codec.decode(env) else {
+        eprintln!(
+            "[demux] kind:{} id:{} decode→None (no handler)",
+            event.kind.as_u16(),
+            &event.id.to_hex()[..8],
+        );
         return MaterializationOutcome::default();
     };
 

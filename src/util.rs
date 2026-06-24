@@ -230,9 +230,9 @@ pub fn child_group_id(name: &str) -> String {
     format!("{slug}-{rand8}")
 }
 
-/// Deterministic id for a per-session room (issue #6): `session-<16hex>`, where
-/// the hex is a stable hash of the session's `anchor` (resume token / harness id
-/// / pid).
+/// Deterministic id for a per-session room (issue #6): six `[a-z0-9]` chars
+/// (base36) derived from a stable hash of the session's `anchor` (resume token /
+/// harness id / pid).
 ///
 /// The id does NOT prefix the work-root project name: a per-session room is
 /// already nested under its project via the NIP-29 `parent` tag, so repeating
@@ -240,18 +240,26 @@ pub fn child_group_id(name: &str) -> String {
 /// explicitly (`owned_groups.room_parent`) rather than inferred from the id, so
 /// host-side resolution doesn't depend on the id's shape.
 ///
-/// 16 hex chars (the full `u64` hash) because the id is no longer scoped by a
-/// project prefix, so it must stay globally unique on the relay across all
-/// projects. Deterministic (`DefaultHasher::new()` uses fixed keys) so a resumed
-/// session re-derives the same room; `anchor` is hashed, never embedded verbatim
-/// (no session_id on the wire, issue #5).
+/// Six base36 chars (~2.2 billion values) keep it short yet globally unique
+/// enough on the relay across all projects, since the id is no longer scoped by
+/// a project prefix. Deterministic (`DefaultHasher::new()` uses fixed keys) so a
+/// resumed session re-derives the same room; `anchor` is hashed, never embedded
+/// verbatim (no session_id on the wire, issue #5).
 pub fn session_room_id(anchor: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
+    const ALPHABET: &[u8; 36] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let mut hasher = DefaultHasher::new();
     anchor.hash(&mut hasher);
-    format!("session-{:016x}", hasher.finish())
+    let mut n = hasher.finish();
+    let mut id = [0u8; 6];
+    for slot in id.iter_mut() {
+        *slot = ALPHABET[(n % 36) as usize];
+        n /= 36;
+    }
+    // Safe: every byte is an ASCII char from ALPHABET.
+    String::from_utf8(id.to_vec()).unwrap()
 }
 
 #[cfg(test)]
@@ -314,12 +322,10 @@ mod tests {
     #[test]
     fn session_room_id_shape() {
         let id = session_room_id("sess-abc-123");
-        assert!(id.starts_with("session-"), "got {id}");
-        let suffix = id.strip_prefix("session-").unwrap();
-        assert_eq!(suffix.len(), 16, "got {id}");
+        assert_eq!(id.len(), 6, "got {id}");
         assert!(
-            suffix.chars().all(|c| c.is_ascii_hexdigit()),
-            "non-hex suffix in {id}"
+            id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+            "non-[a-z0-9] char in {id}"
         );
         // No project name anywhere in the id — the room is nested via parent.
         assert!(!session_room_id("my-repo-anchor").contains("my-repo"));

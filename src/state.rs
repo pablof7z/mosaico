@@ -597,9 +597,13 @@ impl Store {
             "INSERT INTO sessions
                (session_id, agent_slug, agent_pubkey, project, host, child_pid, watch_pid, created_at, alive, rel_cwd, channel)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
-             ON CONFLICT(session_id) DO UPDATE SET
-               agent_slug=?2, agent_pubkey=?3, project=?4, host=?5,
-               child_pid=?6, watch_pid=?7, alive=?9, rel_cwd=?10, channel=?11",
+	             ON CONFLICT(session_id) DO UPDATE SET
+	               agent_slug=?2, agent_pubkey=?3, project=?4, host=?5,
+	               child_pid=?6, watch_pid=?7, alive=?9, rel_cwd=?10,
+	               channel=CASE
+	                 WHEN sessions.channel<>'' THEN sessions.channel
+	                 ELSE excluded.channel
+	               END",
             params![
                 r.session_id, r.agent_slug, r.agent_pubkey, r.project, r.host,
                 r.child_pid, r.watch_pid, r.created_at, r.alive as i32, r.rel_cwd, r.channel
@@ -839,36 +843,51 @@ impl Store {
     /// is the new NIP-29 group id (channel); pass `""` to clear the binding and
     /// fall back to the per-session room (`sessions.project`).
     pub fn set_session_channel(&self, session_id: &str, scope: &str, ts: u64) -> Result<()> {
-        // The effective routing scope: the new channel when non-empty, else the
-        // per-session room (`sessions.project`) — `channels switch ""` reverts.
-        let effective: String = if scope.is_empty() {
-            self.conn
-                .query_row(
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> Result<()> {
+            // The effective routing scope: the new channel when non-empty, else the
+            // per-session room (`sessions.project`) — `channels switch ""` reverts.
+            let effective: String = if scope.is_empty() {
+                self.conn.query_row(
                     "SELECT project FROM sessions WHERE session_id=?1",
                     params![session_id],
                     |r| r.get::<_, String>(0),
-                )
-                .unwrap_or_default()
-        } else {
-            scope.to_string()
-        };
-        // sessions.channel tracks the user-facing channel binding (empty = none).
-        self.conn.execute(
-            "UPDATE sessions SET channel=?2 WHERE session_id=?1",
-            params![session_id, scope],
-        )?;
-        // session_state.project is the routing scope the drainer + who/turn
-        // deltas read; move it to the effective scope and bump the version so a
-        // fresh kind:30315 is enqueued for the new group.
-        let n = self.conn.execute(
-            "UPDATE session_state SET project=?2, state_version=state_version+1, updated_at=?3, last_seen=?3
-             WHERE session_id=?1",
-            params![session_id, effective, ts],
-        )?;
-        if n > 0 {
+                )?
+            } else {
+                scope.to_string()
+            };
+            // sessions.channel tracks the user-facing channel binding (empty = none).
+            let session_rows = self.conn.execute(
+                "UPDATE sessions SET channel=?2 WHERE session_id=?1",
+                params![session_id, scope],
+            )?;
+            if session_rows != 1 {
+                anyhow::bail!("unknown session {session_id}");
+            }
+            // session_state.project is the routing scope the drainer + who/turn
+            // deltas read; move it to the effective scope and bump the version so a
+            // fresh kind:30315 is enqueued for the new group.
+            let state_rows = self.conn.execute(
+                "UPDATE session_state SET project=?2, state_version=state_version+1, updated_at=?3, last_seen=?3
+                 WHERE session_id=?1",
+                params![session_id, effective, ts],
+            )?;
+            if state_rows != 1 {
+                anyhow::bail!("missing session_state row for session {session_id}");
+            }
             self.enqueue_status_outbox_current(session_id, ts)?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
         }
-        Ok(())
     }
 
     /// Record the host transcript path for a session (provided by the hook), so
@@ -2346,6 +2365,27 @@ impl Store {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Top-level project that owns `scope`. `scope` may already be a root
+    /// project, a per-session room, or a NIP-29 subgroup/task channel.
+    pub fn work_root_for_scope(&self, scope: &str) -> Result<String> {
+        let mut current = scope.to_string();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            if !seen.insert(current.clone()) {
+                break;
+            }
+            let parent = match self.session_room_parent(&current)? {
+                Some(parent) => Some(parent),
+                None => self.group_parent(&current)?,
+            };
+            match parent {
+                Some(parent) if !parent.is_empty() => current = parent,
+                _ => break,
+            }
+        }
+        Ok(current)
     }
 
     /// The display label for a channel: its kind:39000 `name`, falling back to
@@ -4047,6 +4087,20 @@ mod tests {
         s.upsert_group_metadata("proj-room", "Room", "proj", 100)
             .unwrap();
         assert_eq!(s.group_parent("proj-room").unwrap(), Some("proj".into()));
+    }
+
+    #[test]
+    fn work_root_for_scope_walks_owned_rooms_and_group_parents() {
+        let s = Store::open_memory().unwrap();
+        s.upsert_group_metadata("proj", "Proj", "", 100).unwrap();
+        s.upsert_group_metadata("task-room", "Task", "proj", 100)
+            .unwrap();
+        s.mark_session_room("session-room", "task-room", 100)
+            .unwrap();
+
+        assert_eq!(s.work_root_for_scope("proj").unwrap(), "proj");
+        assert_eq!(s.work_root_for_scope("task-room").unwrap(), "proj");
+        assert_eq!(s.work_root_for_scope("session-room").unwrap(), "proj");
     }
 
     // ── channel hierarchy helpers (channel-context block) ────────────────

@@ -666,6 +666,12 @@ struct WhoParams {
     all_projects: bool,
     #[serde(default)]
     cwd: Option<String>,
+    #[serde(default)]
+    env_session: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 /// `who`: build the snapshot with the SAME function the CLI used. The client
@@ -675,6 +681,21 @@ fn rpc_who(state: &Arc<DaemonState>, params: &serde_json::Value) -> Result<serde
     let p: WhoParams = serde_json::from_value(params.clone()).unwrap_or_default();
     let current_project = if p.all_projects {
         None
+    } else if p.project.is_none()
+        && (p.env_session.as_deref().filter(|s| !s.is_empty()).is_some()
+            || p.agent.as_deref().filter(|s| !s.is_empty()).is_some()
+            || p.group.as_deref().filter(|s| !s.is_empty()).is_some())
+    {
+        Some(resolve_session_inner(
+            state,
+            None,
+            p.env_session.as_deref(),
+            p.cwd.as_deref(),
+            p.agent.as_deref(),
+            p.group.as_deref(),
+            false,
+        )
+        .map(|rec| rec.route_scope().to_string())?)
     } else {
         Some(p.project.clone().unwrap_or_else(|| {
             let cwd = p
@@ -820,9 +841,7 @@ async fn rpc_session_start(
             crate::session::decide_session_room(p.channel.as_deref(), &work_root),
             anchor,
         ) {
-            (crate::session::RoomDecision::Mint { parent }, Some(anchor))
-                if state.cfg.management_nsec().is_some() =>
-            {
+            (crate::session::RoomDecision::Mint { parent }, Some(anchor)) => {
                 project = crate::util::session_room_id(anchor);
                 Some(parent)
             }
@@ -1207,6 +1226,8 @@ struct ChatWriteParams {
     cwd: Option<String>,
     #[serde(default)]
     agent: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1388,7 +1409,7 @@ async fn rpc_user_prompt(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        None,
+        p.group.as_deref(),
     )?;
 
     // Only mirror prompts into a per-session room. A human start with no resume
@@ -1643,6 +1664,8 @@ struct ProposeParams {
     cwd: Option<String>,
     #[serde(default)]
     agent: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
     /// Stable `d` identifier. When Some, the kind:30023 supersedes any prior
     /// proposal with the same (author, d) — a revision. When None, mint one.
     #[serde(default)]
@@ -1675,7 +1698,7 @@ async fn rpc_propose(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        None,
+        p.group.as_deref(),
     )
     .ok();
     let cwd = p
@@ -2012,6 +2035,8 @@ struct TurnCheckParams {
     cwd: Option<String>,
     #[serde(default)]
     agent: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 fn rpc_turn_check(
@@ -2025,7 +2050,7 @@ fn rpc_turn_check(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        None,
+        p.group.as_deref(),
     )?;
     let now = now_secs();
     // Rate-limit the sibling-session delta to at most once per 60s per session
@@ -2324,7 +2349,7 @@ fn rpc_statusline(
         p.env_session.as_deref(),
         p.cwd.as_deref(),
         p.agent.as_deref(),
-        None,
+        p.group.as_deref(),
     )?;
     let now = now_secs();
     let host = state.host.clone();
@@ -2364,12 +2389,8 @@ fn rpc_statusline(
         // hangs under, or the project itself for an ordinary project session.
         // This is the "Project" line in `who`, surfaced as `project-name`.
         let work_root = s
-            .session_room_parent(&rec.project)
-            .ok()
-            .flatten()
-            .or_else(|| s.group_parent(&scope).ok().flatten())
-            .or_else(|| s.group_parent(&rec.project).ok().flatten())
-            .unwrap_or_else(|| rec.project.clone());
+            .work_root_for_scope(&scope)
+            .unwrap_or_else(|_| rec.project.clone());
         let pending_chat = s.peek_chat_mentions(&rec.session_id).unwrap_or_default();
         let recent_since = now.saturating_sub(STATUSLINE_RECENT_SECS);
         let recent_chat = s
@@ -2584,9 +2605,8 @@ async fn rpc_project_remove(
 /// applies on the first try), owns+subscribes locally, and adds the agent's
 /// durable pubkey as a member.
 ///
-/// Best-effort and fail-open: a missing/invalid signing key or a relay
-/// rejection leaves the session running (it just won't have a relay-backed
-/// room), matching `open_project`'s contract. Returns true when the room was
+/// Best-effort and fail-open: a relay rejection leaves the session running
+/// (it just won't have a relay-backed room). Returns true when the room was
 /// created/confirmed on the relay.
 async fn ensure_session_room(
     state: &Arc<DaemonState>,
@@ -2676,10 +2696,22 @@ async fn ensure_session_room(
         ))
         .await;
     }
-    // Grant every whitelisted human pubkey the admin role in the room. The
-    // whitelist carries the user's own pubkey (the human behind `userNsec`),
-    // so this is what lets the user publish prompts into the closed room.
-    // Signed by `tenexPrivateKey` (the management signer). Best-effort.
+    // Copy parent project admins + whitelist + backend pubkey to the session
+    // room — same invariant as channels_create: authority flows downward so the
+    // operator can manage every room without being added to it explicitly.
+    let parent_roles = state.provider.fetch_group_roles(parent).await;
+    let mut admin_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (pk, role) in &parent_roles {
+        if role == "admin" {
+            log_nip29_role_decision(
+                room_h,
+                pk,
+                "admin",
+                "ensure_session_room copied parent admin",
+            );
+            admin_set.insert(pk.clone());
+        }
+    }
     for pk in &state.cfg.whitelisted_pubkeys {
         log_nip29_role_decision(
             room_h,
@@ -2687,6 +2719,18 @@ async fn ensure_session_room(
             "admin",
             "ensure_session_room whitelisted_pubkeys grant",
         );
+        admin_set.insert(pk.clone());
+    }
+    if let Some(bp) = state.backend_pubkey() {
+        log_nip29_role_decision(
+            room_h,
+            bp,
+            "admin",
+            "ensure_session_room backend pubkey grant",
+        );
+        admin_set.insert(bp.to_string());
+    }
+    for pk in &admin_set {
         if state.provider.nip29_add_admin(room_h, pk).await {
             state.with_store(|s| {
                 s.upsert_group_member(room_h, pk, "admin", now_secs()).ok();
@@ -3043,24 +3087,23 @@ async fn rpc_channels_switch(
     struct P {
         channel: String,
         #[serde(default)]
-        session: Option<String>,
-        #[serde(default)]
         env_session: Option<String>,
-        #[serde(default)]
-        cwd: Option<String>,
-        #[serde(default)]
-        agent: Option<String>,
     }
     let p: P = serde_json::from_value(params.clone()).context("channels_switch params")?;
     if p.channel.trim().is_empty() {
         anyhow::bail!("channel h must not be empty");
     }
+    let env_session = p
+        .env_session
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .context("channels switch must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)")?;
     let rec = resolve_session(
         state,
-        p.session.as_deref(),
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
+        None,
+        Some(env_session),
+        None,
+        None,
         None,
     )?;
     let new_channel = p.channel.clone();
@@ -3070,6 +3113,21 @@ async fn rpc_channels_switch(
     if !exists {
         anyhow::bail!("channel {:?} does not exist", new_channel);
     }
+    refresh_project_members_cache(state, &new_channel).await;
+    let is_member = state.with_store(|s| {
+        Ok::<bool, anyhow::Error>(
+            s.is_group_member(&new_channel, &rec.agent_pubkey)
+                .unwrap_or(false),
+        )
+    })?;
+    if !is_member {
+        anyhow::bail!(
+            "agent {} is not a member of channel {:?}",
+            rec.agent_slug,
+            new_channel
+        );
+    }
+    ensure_subscription(state, &new_channel).await?;
     let prev_channel = rec.channel.clone();
     // Apply the switch in ONE store transaction: update `sessions.channel`,
     // move `session_state.project` to the new scope (so the status drainer, who
@@ -3227,7 +3285,17 @@ async fn resolve_pubkey_hex(input: &str) -> Result<String> {
 #[derive(serde::Deserialize, Default)]
 struct ChatReadParams {
     #[serde(default)]
-    project: Option<String>,
+    channel: Option<String>,
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    env_session: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
     #[serde(default)]
     since: Option<u64>,
     #[serde(default)]
@@ -3247,13 +3315,24 @@ async fn handle_chat_read<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
 ) -> Result<()> {
     let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let project = p.project.unwrap_or_else(|| {
-        crate::project::resolve(&std::env::current_dir().unwrap_or_default()).unwrap_or_default()
-    });
+    let scope = match p.channel.filter(|s| !s.trim().is_empty()) {
+        Some(channel) => channel,
+        None => resolve_session_inner(
+            state,
+            p.session.as_deref(),
+            p.env_session.as_deref(),
+            p.cwd.as_deref(),
+            p.agent.as_deref(),
+            p.group.as_deref(),
+            false,
+        )?
+        .route_scope()
+        .to_string(),
+    };
     let since = p.since.unwrap_or(0);
     let offset = p.offset.unwrap_or(0);
 
-    let _ = ensure_subscription(state, &project).await;
+    let _ = ensure_subscription(state, &scope).await;
     let mut rx = if p.live {
         Some(state.tail_subscribe())
     } else {
@@ -3262,7 +3341,7 @@ async fn handle_chat_read<W: AsyncWriteExt + Unpin>(
     let live_started_at = now_secs();
 
     let rows = state.with_store(|s| {
-        s.list_chat_messages(&project, since, p.limit, offset, p.tail)
+        s.list_chat_messages(&scope, since, p.limit, offset, p.tail)
             .unwrap_or_default()
     });
     let mut seen: std::collections::HashSet<String> =
@@ -3293,9 +3372,9 @@ async fn handle_chat_read<W: AsyncWriteExt + Unpin>(
             Ok(TailEvent::Msg {
                 project: ev_project,
                 ..
-            }) if ev_project == project => {
+            }) if ev_project == scope => {
                 let rows = state.with_store(|s| {
-                    s.list_chat_messages(&project, cursor, None, 0, false)
+                    s.list_chat_messages(&scope, cursor, None, 0, false)
                         .unwrap_or_default()
                 });
                 for row in rows {
@@ -3554,6 +3633,12 @@ fn spawn_demux(state: Arc<DaemonState>) {
 /// Thin dispatch to `provider.materialize` (Phase 5), then derives TailEvents
 /// from the domain event using the in-memory tracking maps.
 fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
+    eprintln!(
+        "[demux] incoming kind:{} id:{} from:{}",
+        event.kind.as_u16(),
+        &event.id.to_hex()[..8],
+        crate::util::pubkey_short(&event.pubkey.to_hex()),
+    );
     let env = crate::fabric::RawEnvelope::Nostr(event.clone());
     // Stage 3: expand the hosted set to include live per-session derived pubkeys.
     // This makes `is_self` (Profile/Status self-skip), the routing gate

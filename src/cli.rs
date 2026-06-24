@@ -321,9 +321,9 @@ enum ChatAction {
         /// Keep the chat reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Project slug; defaults to the project resolved from the current directory.
-        #[arg(long, hide = true)]
-        project: Option<String>,
+        /// Channel id to read; defaults to the current agent session's active channel.
+        #[arg(long)]
+        channel: Option<String>,
     },
 }
 
@@ -588,8 +588,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 offset,
                 tail,
                 live,
-                project,
-            } => messaging::chat_read(since, limit, offset, tail, live, project).await,
+                channel,
+            } => messaging::chat_read(since, limit, offset, tail, live, channel).await,
         },
         Cmd::Statusline {
             session,

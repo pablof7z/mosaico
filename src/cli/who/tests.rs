@@ -324,6 +324,7 @@ fn live_renderer_same_as_once_with_hint() {
             rel_cwd: String::new(),
             remote: false,
             attachable: false,
+            work_root: "proj".to_string(),
             pubkey: String::new(),
         }],
         other_projects: vec![],
@@ -381,6 +382,7 @@ fn who_all_projects_includes_project_in_agent_names() {
             rel_cwd: String::new(),
             remote: false,
             attachable: false,
+            work_root: "other".to_string(),
             pubkey: String::new(),
         }],
         other_projects: vec![],
@@ -412,6 +414,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
             rel_cwd: "worktree".to_string(),
             remote: true,
             attachable: false,
+            work_root: "proj".to_string(),
             pubkey: String::new(),
         }],
         other_projects: vec![OtherProjectSummary {
@@ -465,6 +468,7 @@ fn agent_renderer_disambiguates_duplicate_slugs_as_agent_names() {
                 rel_cwd: String::new(),
                 remote: false,
                 attachable: false,
+                work_root: "proj".to_string(),
                 pubkey: String::new(),
             },
             WhoRow {
@@ -481,6 +485,7 @@ fn agent_renderer_disambiguates_duplicate_slugs_as_agent_names() {
                 rel_cwd: String::new(),
                 remote: true,
                 attachable: false,
+                work_root: "proj".to_string(),
                 pubkey: String::new(),
             },
         ],
@@ -524,6 +529,27 @@ fn render_labels_session_room_as_channel_with_parent_project() {
         !out.contains("Project: session-a1b2c3d4e5f60718"),
         "got: {out}"
     );
+}
+
+#[test]
+fn who_snapshot_exposes_work_root_for_session_room_rows() {
+    let store = Store::open_memory().unwrap();
+    store.mark_session_room("session-room", "proj", 1_000).unwrap();
+    register_local(
+        &store,
+        "coder",
+        "pk-coder",
+        "session-room",
+        "laptop",
+        "",
+        "sid-coder",
+        1_000,
+    );
+
+    let snapshot = load_who_snapshot(&store, Some("session-room"), 1_000, "laptop").unwrap();
+    let row = snapshot.rows.first().expect("session-room row");
+    assert_eq!(row.project, "session-room");
+    assert_eq!(row.work_root, "proj");
 }
 
 #[test]

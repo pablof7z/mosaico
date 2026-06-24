@@ -288,10 +288,15 @@ pub(super) fn rpc_tmux_resumable(state: &Arc<DaemonState>) -> Result<serde_json:
                 .with_store(|s| s.local_session_snapshot(&rec.session_id).ok().flatten())
                 .map(|snap| snap.title)
                 .unwrap_or_default();
+            let work_root = state.with_store(|s| {
+                s.work_root_for_scope(rec.route_scope())
+                    .unwrap_or_else(|_| rec.route_scope().to_string())
+            });
             Some(serde_json::json!({
                 "session_id": rec.session_id,
                 "slug": rec.agent_slug,
                 "project": rec.route_scope(),
+                "work_root": work_root,
                 "rel_cwd": rec.rel_cwd,
                 "alive": rec.alive,
                 "created_at": rec.created_at,

@@ -10,8 +10,11 @@ use std::fmt::Write as _;
 
 /// Prefix every fabric-injected prompt carries. The daemon pastes these envelopes
 /// into a pane as a real harness prompt; the resulting `user-prompt-submit` hook
-/// must NOT republish them (they are already kind:9 events in the room). A real
-/// human prompt never starts with this marker, so it is a reliable discriminator.
+/// must NOT republish them (they are already kind:9 events in the room). A human
+/// could in principle type a prompt starting with this tool-namespaced marker,
+/// but that is vanishingly rare and only costs the echo of one prompt — an
+/// acceptable trade for breaking the injection echo loop without per-message
+/// bookkeeping.
 pub(crate) const FABRIC_INJECTION_MARKER: &str = "[tenex-edge]";
 
 /// True when `prompt` is a daemon-injected fabric envelope rather than human
@@ -103,5 +106,41 @@ fn channel_label(project: &str) -> String {
         project.to_string()
     } else {
         format!("#{project}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(body: &str) -> ChatInboxRow {
+        ChatInboxRow {
+            chat_event_id: "abcdef123456".into(),
+            target_session: "sess".into(),
+            from_pubkey: "pk-sender".into(),
+            from_slug: "codex".into(),
+            project: "proj".into(),
+            body: body.into(),
+            created_at: 100,
+            from_session: "sender-session".into(),
+            mentioned_session: "sess".into(),
+        }
+    }
+
+    /// The envelope the daemon pastes into a pane must be recognised as a fabric
+    /// injection so `rpc_user_prompt` suppresses it instead of echoing it back
+    /// into the room. This pins the round-trip: what we inject is what we detect.
+    #[test]
+    fn rendered_mention_is_detected_as_fabric_injection() {
+        let prompt = render_direct_mention_prompt(&[row("hey there")], 120).unwrap();
+        assert!(is_fabric_injection(&prompt));
+        // Leading whitespace (some harnesses prepend a newline) must not defeat it.
+        assert!(is_fabric_injection(&format!("\n  {prompt}")));
+    }
+
+    #[test]
+    fn human_prompt_is_not_suppressed() {
+        assert!(!is_fabric_injection("explain this codebase"));
+        assert!(!is_fabric_injection("  fix the [tenex-edge] integration"));
     }
 }

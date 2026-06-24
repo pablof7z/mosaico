@@ -183,19 +183,18 @@ pub(super) async fn channels(action: ChannelsAction) -> Result<()> {
             }
         }
         ChannelsAction::Switch { channel } => {
-            match daemon_call_async(
+            let env_session = std::env::var("TENEX_EDGE_SESSION")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .context("channels switch must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)")?;
+            daemon_call_async(
                 "channels_switch",
                 serde_json::json!({
                     "channel": channel,
-                    "agent": crate::cli::agent_env_slug(),
-                    "cwd": std::env::current_dir()?.to_string_lossy(),
+                    "env_session": env_session,
                 }),
             )
-            .await
-            {
-                Ok(_) => {}
-                Err(e) => eprintln!("warning: daemon channels_switch failed ({})", e),
-            }
+            .await?;
             println!("switched to channel {}", channel);
         }
     }

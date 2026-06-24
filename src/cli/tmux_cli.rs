@@ -268,6 +268,15 @@ fn filter_resumable<'a>(
         .collect()
 }
 
+fn row_project_for_tabs(row: &serde_json::Value) -> String {
+    row["work_root"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .or_else(|| row["project"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 fn update_tabs_after_refresh(data: &TuiData, pt: &mut ProjectTabs, tab_idx: &mut usize) {
     let mut new_pt = compute_project_tabs(data);
     // Preserve the currently-selected project tab even if it became "hidden"
@@ -918,7 +927,7 @@ fn fetch_tui_data() -> Result<TuiData> {
             LiveRow {
                 slug: r["slug"].as_str().unwrap_or("").to_string(),
                 host: r["host"].as_str().unwrap_or("").to_string(),
-                project: r["project"].as_str().unwrap_or("").to_string(),
+                project: row_project_for_tabs(r),
                 session_id: raw_id,
                 session_codename,
                 status: r["status"].as_str().unwrap_or("").to_string(),
@@ -951,7 +960,7 @@ fn fetch_tui_data() -> Result<TuiData> {
             let session_codename = SessionId::from(raw_id.as_str()).to_string();
             ResumeRow {
                 slug: r["slug"].as_str().unwrap_or("").to_string(),
-                project: r["project"].as_str().unwrap_or("").to_string(),
+                project: row_project_for_tabs(r),
                 session_id: raw_id,
                 session_codename,
                 title: r["title"].as_str().unwrap_or("").to_string(),
@@ -1489,3 +1498,6 @@ fn attach_pane(pane_id: &str) -> Result<()> {
         .exec(); // replaces this process; only returns on error
     anyhow::bail!("exec tmux attach-session: {err}");
 }
+
+#[cfg(test)]
+mod tests;

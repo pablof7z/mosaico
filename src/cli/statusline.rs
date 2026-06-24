@@ -72,6 +72,7 @@ pub(super) fn statusline(
         "env_session": env_session,
         "cwd": cwd,
         "agent": agent,
+        "group": crate::cli::channel_env(),
     });
     // Fail open on ANY failure (no daemon, no session yet, protocol skew): a
     // status bar with a missing segment beats a status bar with an error in it.
