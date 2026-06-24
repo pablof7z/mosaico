@@ -114,6 +114,8 @@ pub fn assemble_turn_start_context(
         now_secs(),
         &rec.host,
         &rec.session_id,
+        &rec.agent_slug,
+        &rec.agent_pubkey,
     );
 
     if blocks.is_empty() {

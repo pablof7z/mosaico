@@ -542,17 +542,16 @@ fn turn_start_fabric_block_renders_channel_context() {
         1_000,
         "laptop",
         "sid-coder",
+        "coder",
+        "pk-coder",
     );
 
     let block = blocks.join("\n\n");
     // The first-turn block is now the channel-hierarchy context.
-    assert!(block.contains("part of a team of agents"), "got: {block}");
-    assert!(block.contains("(coder)"), "got: {block}");
-    assert!(block.contains("Current channel: #proj"), "got: {block}");
-    assert!(
-        block.contains("To message another agent"),
-        "got: {block}"
-    );
+    assert!(block.contains("You are coder on #proj"), "got: {block}");
+    assert!(!block.contains("[session"), "got: {block}");
+    assert!(block.contains("Channel: #proj"), "got: {block}");
+    assert!(block.contains("mention its `@name`"), "got: {block}");
 }
 
 #[test]
@@ -574,11 +573,12 @@ fn render_channel_context_shows_breadcrumb_members_and_subchannels() {
     // A live local session for the agent in the current channel.
     register_local(&store, "coder", "pk-coder", "proj", "laptop", "", "sid-coder", 1_000);
 
-    let block = render_channel_context(&store, "proj", 1_000, "sid-coder").expect("context");
+    let block = render_channel_context(&store, "proj", 1_000, "coder", "pk-coder").expect("context");
 
-    assert!(block.contains("(coder)"), "got: {block}");
+    assert!(block.contains("You are coder on #myproject"), "got: {block}");
+    assert!(!block.contains("[session"), "must not expose a session code; got: {block}");
     assert!(block.contains("Project: myproject"), "got: {block}");
-    assert!(block.contains("Current channel: #myproject"), "got: {block}");
+    assert!(block.contains("Channel: #myproject"), "got: {block}");
     assert!(block.contains("Description: The root project channel"), "got: {block}");
     // Members: the agent is "you" and idle; the admin with no session is a human.
     assert!(block.contains("@coder (you) - idle"), "got: {block}");
@@ -601,7 +601,7 @@ fn build_status_delta_includes_subchannels_with_channel_suffix() {
     record_peer(&store, "pk-b", "bravo", "child", "nb", "tower", "", "", false, 2_000);
 
     // `now` within the liveness window of the appearances so they read as joins.
-    let delta = build_status_delta(&store, 1_000, "proj", 2_030, None);
+    let delta = build_status_delta(&store, 1_000, "proj", 2_030, "laptop", None);
 
     // The current-channel appearance has no channel suffix; the subchannel one is
     // tagged with the subchannel's display name.

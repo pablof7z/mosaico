@@ -359,7 +359,8 @@ pub(super) fn render_channel_context(
     store: &Store,
     project: &str,
     now: u64,
-    self_session: &str,
+    self_slug: &str,
+    self_pubkey: &str,
 ) -> Option<String> {
     use std::fmt::Write as _;
 
@@ -367,16 +368,13 @@ pub(super) fn render_channel_context(
     if breadcrumb.is_empty() {
         return None;
     }
-    let me = store.get_session(self_session).ok().flatten();
-    let my_pubkey = me.as_ref().map(|r| r.agent_pubkey.clone()).unwrap_or_default();
-    let my_slug = me
-        .as_ref()
-        .map(|r| r.agent_slug.clone())
-        .or_else(crate::cli::agent_env_slug)
-        .unwrap_or_default();
-    let my_codename = crate::util::session_codename(self_session);
-
+    let my_pubkey = self_pubkey;
+    let my_slug = self_slug;
     let root_label = &breadcrumb[0].1;
+    let leaf_label = breadcrumb
+        .last()
+        .map(|(_, label)| label.clone())
+        .unwrap_or_default();
     let crumb = breadcrumb
         .iter()
         .map(|(_, label)| format!("#{label}"))
@@ -384,13 +382,15 @@ pub(super) fn render_channel_context(
         .join(" > ");
 
     let mut out = String::new();
+    // Intro names the agent and its current channel (no session code — codenames
+    // are an internal handle, not the agent's identity); the hierarchy follows.
     let _ = writeln!(
         out,
-        "[tenex-edge] You are `{my_codename} ({my_slug})`, part of a team of agents."
+        "[tenex-edge] You are {my_slug} on #{leaf_label} — the channel hierarchy is shown below."
     );
     let _ = writeln!(out);
     let _ = writeln!(out, "Project: {root_label}");
-    let _ = writeln!(out, "Current channel: {crumb}");
+    let _ = writeln!(out, "Channel: {crumb}");
     if let Some(about) = store
         .get_project_meta(project)
         .ok()
@@ -406,7 +406,7 @@ pub(super) fn render_channel_context(
         let status_map = channel_status_map(store, project, now);
         let mut parts: Vec<String> = Vec::new();
         for (pubkey, role) in &members {
-            let you = if pubkey == &my_pubkey { " (you)" } else { "" };
+            let you = if pubkey.as_str() == my_pubkey { " (you)" } else { "" };
             let label = match status_map.get(pubkey) {
                 Some(ds) if ds.busy && !ds.activity.is_empty() => ds.activity.clone(),
                 Some(_) => "idle".to_string(),
@@ -463,10 +463,9 @@ pub(super) fn render_channel_context(
     let _ = writeln!(out);
     let _ = write!(
         out,
-        "To message another agent, write `@<codename>` inline in a `tenex-edge chat write` \
-         body (run `tenex-edge chat write` whenever asked to contact/notify another agent — \
-         do not say you cannot). Your own identity: `tenex-edge whoami`; the full roster: \
-         `tenex-edge who`."
+        "To reach another agent, mention its `@name` (as listed above) in a \
+         `tenex-edge chat write --message \"...\"` — run `tenex-edge chat write` whenever asked \
+         to contact or notify another agent; do not say you cannot."
     );
     Some(out)
 }
@@ -484,13 +483,15 @@ pub(super) fn push_turn_fabric_block(
     now: u64,
     daemon_host: &str,
     self_session: &str,
+    self_slug: &str,
+    self_pubkey: &str,
 ) {
     let store = store.lock().expect("store mutex poisoned");
     if first_turn {
         // The channel-hierarchy context: where the agent sits in the channel
         // tree, who shares its channel, the subchannels beneath, and a pointer
         // to the rest of the fabric.
-        if let Some(block) = render_channel_context(&store, project, now, self_session) {
+        if let Some(block) = render_channel_context(&store, project, now, self_slug, self_pubkey) {
             blocks.push(block);
         }
     } else {
