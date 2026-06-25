@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality-gate:
+    name: fmt · lint · loc · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      # Each gate mirrors a justfile recipe so CI and local runs stay identical.
+      - name: Formatting (just fmt-check)
+        run: just fmt-check
+
+      - name: LOC ratchet (just loc-check)
+        run: just loc-check
+
+      - name: Clippy (just lint)
+        run: just lint
+
+      # Unit tests only: the integration tests under tests/ require a live `nak`
+      # relay and a local NIP-29 (croissant) relay binary not available on CI.
+      # Those run locally via `just test`. Relay-backed CI is a follow-up.
+      - name: Unit tests (just test-unit)
+        run: just test-unit

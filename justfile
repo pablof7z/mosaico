@@ -13,6 +13,12 @@ lint:
 test:
     cargo test
 
+# Hermetic unit tests only (no external relays). This is what CI runs: the
+# integration tests under tests/ require a live `nak` relay and a local NIP-29
+# relay (croissant) binary that aren't provisioned on CI runners.
+test-unit:
+    cargo test --lib
+
 fmt-check:
     cargo fmt --check
 
