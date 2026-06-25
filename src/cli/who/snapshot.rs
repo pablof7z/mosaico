@@ -1,12 +1,12 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct OtherProjectSummary {
-    pub project: String,
-    pub agent_count: usize,
+pub(super) struct OtherProjectSummary {
+    pub(super) project: String,
+    pub(super) agent_count: usize,
     #[serde(default)]
-    pub agents: Vec<String>,
-    pub about: Option<String>,
+    pub(super) agents: Vec<String>,
+    pub(super) about: Option<String>,
 }
 
 // The daemon serializes a WhoSnapshot and the thin `who` client renders it with
@@ -29,58 +29,58 @@ pub struct WhoSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SpawnableRow {
-    pub host: String,
-    pub slug: String,
-    pub command: String,
+pub(super) struct SpawnableRow {
+    pub(super) host: String,
+    pub(super) slug: String,
+    pub(super) command: String,
     /// Optional one-line "when to use this agent" note from the agent file.
     #[serde(default)]
-    pub byline: Option<String>,
+    pub(super) byline: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WhoRow {
-    pub source: WhoSource,
-    pub fresh: bool,
-    pub slug: String,
-    pub project: String,
+pub(super) struct WhoRow {
+    pub(super) source: WhoSource,
+    pub(super) fresh: bool,
+    pub(super) slug: String,
+    pub(super) project: String,
     /// Persistent session title (what the session is about); survives idle turns.
-    pub status: String,
+    pub(super) status: String,
     /// Live "doing now" line, distilled alongside the title. Shown after the
     /// title while mid-turn; empty (and not rendered) when idle.
     #[serde(default)]
-    pub activity: String,
+    pub(super) activity: String,
     /// Whether the session is mid-turn. Drives the idle marker independently of
     /// the title, which is retained while idle.
     #[serde(default)]
-    pub active: bool,
-    pub host: String,
-    pub session_id: String,
-    pub age_secs: Option<u64>,
+    pub(super) active: bool,
+    pub(super) host: String,
+    pub(super) session_id: String,
+    pub(super) age_secs: Option<u64>,
     /// Project-relative working dir (§8e). Empty or "." → rendered without a
     /// `[dir]` bracket; otherwise shown so worktrees render distinctly.
     #[serde(default)]
-    pub rel_cwd: String,
+    pub(super) rel_cwd: String,
     /// True only for a peer whose host differs from the daemon/viewer's host.
     /// Local sessions and same-machine peers are never remote (the §8e fix).
     #[serde(default)]
-    pub remote: bool,
+    pub(super) remote: bool,
     /// True when this session has a live tmux endpoint registered — i.e. it
     /// can be attached to via `tenex-edge tmux attach`.
     #[serde(default)]
-    pub attachable: bool,
+    pub(super) attachable: bool,
     /// Top-level work-root project for UI grouping. `project` remains the live
     /// routing scope (session room or task channel); this is the project tab.
     #[serde(default)]
-    pub work_root: String,
+    pub(super) work_root: String,
     /// Hex pubkey others route to: the per-session pubkey when derived, else the
     /// durable agent pubkey.
     #[serde(default)]
-    pub pubkey: String,
+    pub(super) pubkey: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum WhoSource {
+pub(super) enum WhoSource {
     Local,
     Peer,
 }
