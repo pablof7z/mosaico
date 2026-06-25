@@ -150,7 +150,6 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         Some(a) => a.slug,
         None => return,
     };
-
     let is_member = state.with_store(|s| s.is_group_member(project, mentioned_pk).unwrap_or(false));
     if !is_member {
         let (_, _, members) = state.provider.fetch_group_state(project).await;
@@ -164,7 +163,6 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         s.work_root_for_scope(project)
             .unwrap_or_else(|_| project.to_string())
     });
-
     let has_path = state.with_store(|s| s.get_project_path(&work_root).ok().flatten().is_some());
     if !has_path {
         eprintln!("[spawn-on-mention] no local path for {work_root}, cannot spawn");
@@ -205,7 +203,6 @@ pub(super) async fn handle_orchestration(
     use crate::fabric::nip29::orchestration::{adds_for_backend, is_authorized};
 
     let event_id = event.id.to_hex();
-
     // Only agents addressed to THIS backend's identity concern us. (Checked BEFORE
     // claiming so a foreign event never burns this backend's idempotency slot.)
     let Some(backend_pk) = state.backend_pubkey().map(|s| s.to_string()) else {
@@ -455,7 +452,6 @@ fn derive_and_emit_tail_events(
                 });
             }
         }
-
         DomainEvent::Profile(pf) => {
             let is_new = {
                 let mut set = state.seen_profiles.lock().unwrap();
@@ -470,7 +466,6 @@ fn derive_and_emit_tail_events(
                 });
             }
         }
-
         DomainEvent::ChatMessage(chat) => {
             // Local publishes emit their own outbound tail line in rpc_chat_write.
             if hosted.contains(&chat.from.pubkey) {
@@ -496,7 +491,6 @@ fn derive_and_emit_tail_events(
                 body: chat.body.chars().take(200).collect(),
             });
         }
-
         DomainEvent::Activity(_) => {
             // Activity events are not emitted on the tail (they're durable
             // narrative, not real-time transitions).
