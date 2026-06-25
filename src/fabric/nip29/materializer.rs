@@ -130,6 +130,15 @@ impl Nip29Materializer {
         let from_session = store
             .session_pubkey_info(&from_pubkey)
             .map(|(sid, _, _)| sid)
+            .filter(|sid| !sid.is_empty())
+            // Operator-signed user prompts carry no session pubkey, so the
+            // signer can't be mapped to a session and the self-skip below would
+            // miss — re-injecting the operator's own prompt back into the very
+            // session that produced it. Recover the originating session recorded
+            // locally at publish time so the echo is suppressed for that session
+            // while channel siblings still receive it. Resolved before host
+            // resolution so all downstream row data uses the effective origin.
+            .or_else(|| store.chat_origin_session(&event.id.to_hex()))
             .unwrap_or_default();
         let mentioned_session = chat
             .mentioned_pubkey
@@ -212,5 +221,140 @@ impl Nip29Materializer {
             }
         }
         routed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AgentRef, DomainEvent};
+    use crate::fabric::nip29::wire::Nip29WireCodec;
+    use crate::state::SessionRecord;
+    use nostr_sdk::Keys;
+
+    fn alive_session(store: &Store, session_id: &str, agent_pubkey: &str, project: &str) {
+        store
+            .upsert_session(&SessionRecord {
+                session_id: session_id.into(),
+                agent_slug: "agent".into(),
+                agent_pubkey: agent_pubkey.into(),
+                project: project.into(),
+                host: "host".into(),
+                child_pid: None,
+                watch_pid: None,
+                created_at: 100,
+                alive: true,
+                rel_cwd: String::new(),
+                channel: String::new(),
+            })
+            .unwrap();
+    }
+
+    fn sign_chat(signer: &Keys, chat: &ChatMessage) -> Event {
+        let builder = Nip29WireCodec
+            .encode_event(&DomainEvent::ChatMessage(chat.clone()))
+            .expect("encode");
+        builder.sign_with_keys(signer).expect("sign")
+    }
+
+    // The reported bug: a prompt the operator typed into a session comes straight
+    // back to that session as an injected "message since your last check". The
+    // operator key maps to no session, so the signer-pubkey self-skip misses;
+    // the origin recorded locally at publish time must be recovered to suppress it.
+    #[test]
+    fn operator_prompt_is_not_echoed_back_to_origin_session() {
+        let store = Store::open_memory().unwrap();
+        let operator = Keys::generate();
+        let origin_agent = Keys::generate();
+        let sibling_agent = Keys::generate();
+        let project = "session-room";
+
+        alive_session(&store, "origin", &origin_agent.public_key().to_hex(), project);
+        alive_session(&store, "sibling", &sibling_agent.public_key().to_hex(), project);
+
+        let chat = ChatMessage {
+            from: AgentRef::new(operator.public_key().to_hex(), "operator"),
+            project: project.into(),
+            body: "plan this".into(),
+            mentioned_pubkey: None,
+        };
+        let event = sign_chat(&operator, &chat);
+
+        // publish_chat_checked records the origin session before the wire send.
+        store
+            .record_chat(&ChatLogRow {
+                chat_event_id: event.id.to_hex(),
+                from_pubkey: operator.public_key().to_hex(),
+                from_slug: "operator".into(),
+                host: "host".into(),
+                project: project.into(),
+                body: "plan this".into(),
+                created_at: 150,
+                from_session: "origin".into(),
+                mentioned_session: String::new(),
+            })
+            .unwrap();
+
+        let routed = Nip29Materializer::materialize_chat_message(&store, &chat, &event);
+
+        assert!(routed, "should still reach the sibling session");
+        assert!(
+            store.peek_chat("origin").unwrap().is_empty(),
+            "origin session must not receive its own prompt back"
+        );
+        let sibling = store.peek_chat("sibling").unwrap();
+        assert_eq!(sibling.len(), 1, "sibling in same scope still gets the prompt");
+        assert_eq!(sibling[0].body, "plan this");
+        assert_eq!(sibling[0].from_session, "origin");
+    }
+
+    // Without a local origin record (e.g. the operator published from another
+    // machine), there is nothing to suppress: it is not a self-echo for any
+    // local session, so every session in scope receives it.
+    #[test]
+    fn remote_operator_prompt_routes_to_all_local_sessions() {
+        let store = Store::open_memory().unwrap();
+        let operator = Keys::generate();
+        let project = "session-room";
+        alive_session(&store, "a", &Keys::generate().public_key().to_hex(), project);
+        alive_session(&store, "b", &Keys::generate().public_key().to_hex(), project);
+
+        let chat = ChatMessage {
+            from: AgentRef::new(operator.public_key().to_hex(), "operator"),
+            project: project.into(),
+            body: "hi".into(),
+            mentioned_pubkey: None,
+        };
+        let event = sign_chat(&operator, &chat);
+
+        Nip29Materializer::materialize_chat_message(&store, &chat, &event);
+
+        assert_eq!(store.peek_chat("a").unwrap().len(), 1);
+        assert_eq!(store.peek_chat("b").unwrap().len(), 1);
+    }
+
+    // Regression: agent-signed chat is still self-skipped by signer pubkey and
+    // routes to the other session in scope.
+    #[test]
+    fn agent_signed_chat_skips_own_session_by_pubkey() {
+        let store = Store::open_memory().unwrap();
+        let sender_agent = Keys::generate();
+        let other_agent = Keys::generate();
+        let project = "session-room";
+        alive_session(&store, "sender", &sender_agent.public_key().to_hex(), project);
+        alive_session(&store, "other", &other_agent.public_key().to_hex(), project);
+
+        let chat = ChatMessage {
+            from: AgentRef::new(sender_agent.public_key().to_hex(), "agent"),
+            project: project.into(),
+            body: "hello".into(),
+            mentioned_pubkey: None,
+        };
+        let event = sign_chat(&sender_agent, &chat);
+
+        Nip29Materializer::materialize_chat_message(&store, &chat, &event);
+
+        assert!(store.peek_chat("sender").unwrap().is_empty());
+        assert_eq!(store.peek_chat("other").unwrap().len(), 1);
     }
 }

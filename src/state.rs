@@ -2509,6 +2509,25 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// The originating session recorded locally for a chat event, if any.
+    ///
+    /// User prompts are signed by the *operator* key, which maps to no session,
+    /// so the relay echo can't recover the origin from the signer pubkey. But
+    /// `publish_chat_checked`/`rpc_user_prompt` write the origin session into
+    /// `chat_messages` synchronously *before* the wire send, so the local row
+    /// always precedes the echo. The materializer reads it back here to suppress
+    /// self-delivery to the session that produced the prompt.
+    pub fn chat_origin_session(&self, chat_event_id: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT from_session FROM chat_messages WHERE chat_event_id=?1",
+                params![chat_event_id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|s| !s.is_empty())
+    }
+
     pub fn list_chat_messages(
         &self,
         project: &str,
