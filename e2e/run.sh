@@ -152,7 +152,8 @@ fi
 # Independent confirmation the group really landed on the relay: query the relay
 # directly for the relay-authored kind:39000 metadata event with d=<project>.
 log "4a-relay: querying the relay directly for kind:39000 d=${E2E_PROJECT}"
-if nak req -k 39000 -d "${E2E_PROJECT}" "${RELAY_WS}" 2>/dev/null | grep -q '"kind":39000'; then
+if wait_for_soft "relay kind:39000 metadata for ${E2E_PROJECT}" 20 \
+     "nak_req_contains '\"kind\":39000' -k 39000 -d '${E2E_PROJECT}' '${RELAY_WS}'"; then
   ok "relay holds kind:39000 metadata for '${E2E_PROJECT}' (group exists on the relay)"
 else
   warn "no kind:39000 yet on the relay for '${E2E_PROJECT}':"

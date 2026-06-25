@@ -11,7 +11,7 @@ use crate::session::{
 };
 use crate::util::SessionId;
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -119,6 +119,22 @@ pub struct StatusOutboxItem {
     pub state_version: i64,
     pub retries: i64,
     pub snapshot: SessionSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusOutboxDebugRow {
+    pub session_id: String,
+    pub state_version: i64,
+    pub publish_state: String,
+    pub retries: i64,
+    pub native_event_id: Option<String>,
+    pub last_error: Option<String>,
+    pub enqueued_at: u64,
+    pub agent_slug: String,
+    pub project: String,
+    pub title: String,
+    pub activity: String,
+    pub busy: bool,
 }
 
 // ── ID generation ────────────────────────────────────────────────────────────
@@ -286,6 +302,39 @@ CREATE TABLE IF NOT EXISTS peer_session_state (
 );
 CREATE INDEX IF NOT EXISTS idx_peer_session_state_project_seen
     ON peer_session_state(project, last_seen);
+-- Relay-confirmed published actor presence. This is the cohesive read model for
+-- kind:30315 status events observed on or accepted by the relay. Local runtime
+-- tables keep only local process/draft state; consumers that need published
+-- peer/echo state read this projection instead of a peer-specific table.
+CREATE TABLE IF NOT EXISTS presence_state (
+    pubkey          TEXT NOT NULL,
+    project         TEXT NOT NULL,
+    local_session_id TEXT NOT NULL DEFAULT '',
+    agent_slug      TEXT NOT NULL DEFAULT '',
+    host            TEXT NOT NULL DEFAULT '',
+    rel_cwd         TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    title_source    TEXT NOT NULL DEFAULT 'peer',
+    activity        TEXT NOT NULL DEFAULT '',
+    busy            INTEGER NOT NULL DEFAULT 0,
+    phase           TEXT NOT NULL DEFAULT 'idle',
+    turn_id         INTEGER NOT NULL DEFAULT 0,
+    turn_started_at INTEGER NOT NULL DEFAULT 0,
+    last_distill_at INTEGER NOT NULL DEFAULT 0,
+    last_seen       INTEGER NOT NULL DEFAULT 0,
+    resume_id       TEXT NOT NULL DEFAULT '',
+    state_version   INTEGER NOT NULL DEFAULT 0,
+    lifecycle       TEXT NOT NULL DEFAULT 'active',
+    first_seen      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0,
+    native_event_id TEXT NOT NULL DEFAULT '',
+    confirmed_at    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (pubkey, project)
+);
+CREATE INDEX IF NOT EXISTS idx_presence_state_project_seen
+    ON presence_state(project, last_seen);
+CREATE INDEX IF NOT EXISTS idx_presence_state_project_updated
+    ON presence_state(project, updated_at);
 -- Desired kind:30315 publications. One row per (session_id, state_version): the
 -- daemon drainer publishes it via Nip29Provider::set_status, records the
 -- native event id, and retries on failure. Only versioned CONTENT changes land
@@ -1903,20 +1952,16 @@ impl Store {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
-    /// Peer-mirror sessions seen at or after `since`. `project=None` = all.
+    /// Relay-confirmed published presence seen at or after `since`.
+    /// `project=None` = all. Historically this was backed by
+    /// `peer_session_state`; it now reads the cohesive `presence_state`
+    /// projection so the source distinction stays in data, not schema shape.
     pub fn peer_session_snapshots(
         &self,
         project: Option<&str>,
         since: u64,
     ) -> Result<Vec<SessionSnapshot>> {
-        let sql = format!(
-            "SELECT {PEER_STATE_COLS} FROM peer_session_state
-             WHERE last_seen>=?1 AND (?2 IS NULL OR project=?2)
-             ORDER BY last_seen DESC"
-        );
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![since, project], row_to_peer_session_state)?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        self.presence_snapshots(project, since)
     }
 
     /// The shared delta query backing turn-start (subsequent turns) and the
@@ -1978,30 +2023,18 @@ impl Store {
             }
         }
 
-        let peer_sql = format!(
-            "SELECT {PEER_STATE_COLS} FROM peer_session_state
-             WHERE project=?1
-               AND (first_seen>=?2 OR updated_at>=?2 OR (last_seen < ?3 AND last_seen+?4 >= ?2))"
-        );
-        {
-            let mut stmt = self.conn.prepare(&peer_sql)?;
-            let rows = stmt.query_map(
-                params![project, since, now_minus_ttl, ttl],
-                row_to_peer_session_state,
-            )?;
-            for snap in rows.filter_map(|r| r.ok()) {
-                // exclude is a local session_id (te-*); peer snapshot uses pubkey
-                // as session_id, so this guard only fires for the exact exclude match.
-                if exclude == Some(snap.session_id.as_str()) {
-                    continue;
-                }
-                // Dedup: skip peer echoes of our own sessions (keyed by pubkey).
-                if local_pubkeys.contains(&snap.agent_pubkey) {
-                    continue;
-                }
-                if let Some(item) = classify_delta(snap, since, now) {
-                    out.push(item);
-                }
+        for snap in self.presence_delta_snapshots(project, since, now_minus_ttl, ttl)? {
+            // exclude is a local session_id (te-*); relay presence usually uses
+            // pubkey as session_id unless it is our own confirmed publish.
+            if exclude == Some(snap.session_id.as_str()) {
+                continue;
+            }
+            // Dedup: skip relay echoes of our own sessions (keyed by pubkey).
+            if local_pubkeys.contains(&snap.agent_pubkey) {
+                continue;
+            }
+            if let Some(item) = classify_delta(snap, since, now) {
+                out.push(item);
             }
         }
         Ok(out)
@@ -2028,100 +2061,15 @@ impl Store {
 
     // ── peer mirror write (kind:30315 materializer surface) ───────────────────
 
-    /// Mirror an inbound kind:30315 into `peer_session_state`. Idempotent upsert
-    /// keyed by `(pubkey, project)` — one row per agent per group; a newer
+    /// Mirror an inbound kind:30315 into `presence_state`. Idempotent upsert
+    /// keyed by `(pubkey, project)` — one row per actor per group; a newer
     /// heartbeat from the same agent replaces the older one. Bumps `state_version`
     /// + `updated_at` only when public content changed (title/activity/busy/host/
     ///   rel_cwd/slug); advances `last_seen` only on a newer `emitted_at` so
-    ///   out-of-order refetches never resurrect a finished peer. `first_seen` is set
-    ///   once on insert. No native_session_id (issue #5 §4).
+    ///   out-of-order refetches never resurrect a finished actor. `first_seen` is
+    ///   set once on insert.
     pub fn record_peer_status(&self, obs: &PeerStatusObservation) -> Result<()> {
-        #[allow(clippy::type_complexity)]
-        let existing: Option<(String, String, i64, String, String, String, u64, i64)> = self
-            .conn
-            .query_row(
-                "SELECT title, activity, busy, host, rel_cwd, agent_slug, last_seen, state_version
-                 FROM peer_session_state
-                 WHERE pubkey=?1 AND project=?2",
-                params![obs.agent_pubkey, obs.project],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, i64>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, String>(4)?,
-                        r.get::<_, String>(5)?,
-                        r.get::<_, u64>(6)?,
-                        r.get::<_, i64>(7)?,
-                    ))
-                },
-            )
-            .ok();
-        let busy_i = obs.busy as i64;
-        match existing {
-            None => {
-                self.conn.execute(
-                    "INSERT INTO peer_session_state
-                       (pubkey, project, agent_slug, host, rel_cwd,
-                        title, activity, busy, last_seen, state_version, lifecycle,
-                        first_seen, updated_at)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1,'active',?9,?10)",
-                    params![
-                        obs.agent_pubkey,
-                        obs.project,
-                        obs.agent_slug,
-                        obs.host,
-                        obs.rel_cwd,
-                        obs.title,
-                        obs.activity,
-                        busy_i,
-                        obs.emitted_at,
-                        obs.observed_at,
-                    ],
-                )?;
-            }
-            Some((title, activity, busy, host, rel_cwd, slug, last_seen, version)) => {
-                let content_changed = title != obs.title
-                    || activity != obs.activity
-                    || busy != busy_i
-                    || host != obs.host
-                    || rel_cwd != obs.rel_cwd
-                    || (!obs.agent_slug.is_empty() && slug != obs.agent_slug);
-                let new_seen = last_seen.max(obs.emitted_at);
-                let new_version = if content_changed {
-                    version + 1
-                } else {
-                    version
-                };
-                let new_updated = if content_changed {
-                    obs.observed_at
-                } else {
-                    last_seen
-                };
-                self.conn.execute(
-                    "UPDATE peer_session_state SET
-                       agent_slug=CASE WHEN ?3<>'' THEN ?3 ELSE agent_slug END,
-                       host=?4, rel_cwd=?5, title=?6, activity=?7, busy=?8,
-                       last_seen=?9, state_version=?10, updated_at=?11
-                     WHERE pubkey=?1 AND project=?2",
-                    params![
-                        obs.agent_pubkey,
-                        obs.project,
-                        obs.agent_slug,
-                        obs.host,
-                        obs.rel_cwd,
-                        obs.title,
-                        obs.activity,
-                        busy_i,
-                        new_seen,
-                        new_version,
-                        new_updated,
-                    ],
-                )?;
-            }
-        }
-        Ok(())
+        self.record_relay_presence(obs, None)
     }
 
     // ── status outbox (publish queue) ─────────────────────────────────────────
@@ -2250,6 +2198,22 @@ impl Store {
         Ok(row
             .map(|(name, about)| if !name.is_empty() { name } else { about })
             .unwrap_or_default())
+    }
+
+    /// Latest non-empty title for a local session whose routing room is `project`.
+    /// Used after an asynchronous per-session room create succeeds: the title may
+    /// have been seeded while the relay was still minting the group.
+    pub fn latest_session_title_for_project(&self, project: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT title FROM session_state
+                 WHERE project=?1 AND title <> ''
+                 ORDER BY updated_at DESC LIMIT 1",
+                params![project],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .context("querying latest session title for project")
     }
 
     /// Record a group's NIP-29 subgroup hierarchy (display `name` + `parent` id)
@@ -2516,7 +2480,7 @@ impl Store {
             "SELECT DISTINCT project FROM (
                SELECT project FROM session_state      WHERE last_seen>=?1
                UNION
-               SELECT project FROM peer_session_state WHERE last_seen>=?1
+               SELECT project FROM presence_state      WHERE last_seen>=?1
              )",
         )?;
         let excl: std::collections::HashSet<&str> = exclude.iter().map(|s| s.as_str()).collect();
@@ -3357,10 +3321,13 @@ impl Store {
 mod endpoints;
 pub use endpoints::SessionEndpoint;
 
+mod outbox;
+mod presence;
+
 mod quarantine;
 pub use quarantine::QuarantinedEnvelope;
 
-// ── canonical session_state / peer_session_state helpers ─────────────────────
+// ── canonical session_state helpers ──────────────────────────────────────────
 
 /// Canonical column order for `session_state` reads. Keep in lockstep with
 /// `row_to_session_state`.
@@ -3373,14 +3340,6 @@ const SESSION_STATE_COLS_PREFIXED: &str = "s.session_id, s.agent_slug, s.agent_p
      s.host, s.rel_cwd, s.title, s.title_source, s.activity, s.busy, s.phase, s.turn_id, \
      s.turn_started_at, s.last_distill_at, s.last_seen, s.resume_id, s.state_version, s.lifecycle, \
      s.first_seen, s.updated_at";
-
-/// Canonical column order for `peer_session_state` reads. Keep in lockstep with
-/// `row_to_peer_session_state`. Column indices (0-based):
-///   0=pubkey, 1=project, 2=agent_slug, 3=host, 4=rel_cwd, 5=title,
-///   6=activity, 7=busy, 8=last_seen, 9=state_version, 10=lifecycle,
-///   11=first_seen, 12=updated_at
-const PEER_STATE_COLS: &str = "pubkey, project, agent_slug, host, rel_cwd, \
-     title, activity, busy, last_seen, state_version, lifecycle, first_seen, updated_at";
 
 /// Mint a fresh canonical session id (daemon-owned, opaque).
 fn mint_session_id() -> String {
@@ -3420,49 +3379,6 @@ fn row_to_session_state_offset(
         lifecycle: Lifecycle::from_str(&row.get::<_, String>(base + 17)?),
         first_seen: row.get(base + 18)?,
         updated_at: row.get(base + 19)?,
-    })
-}
-
-/// Build a `SessionSnapshot` (Peer source) from a `peer_session_state` row. Peer
-/// rows carry no turn/distill/resume data, so those fields project as defaults.
-/// The PK is (pubkey, project) — `session_id` is synthesized as `pubkey` since
-/// there is no native_session_id (issue #5 §4).
-fn row_to_peer_session_state(row: &rusqlite::Row) -> rusqlite::Result<SessionSnapshot> {
-    // 0=pubkey, 1=project, 2=agent_slug, 3=host, 4=rel_cwd, 5=title,
-    // 6=activity, 7=busy, 8=last_seen, 9=state_version, 10=lifecycle,
-    // 11=first_seen, 12=updated_at
-    let busy = row.get::<_, i64>(7)? != 0;
-    Ok(SessionSnapshot {
-        source: SnapshotSource::Peer,
-        agent_pubkey: row.get(0)?,
-        project: row.get(1)?,
-        // No native session id: use pubkey as the stable per-agent identity.
-        session_id: SessionId::from(row.get::<_, String>(0)?),
-        agent_slug: row.get(2)?,
-        host: row.get(3)?,
-        rel_cwd: row.get(4)?,
-        title: row.get(5)?,
-        title_source: if row.get::<_, String>(5)?.is_empty() {
-            TitleSource::None
-        } else {
-            TitleSource::Peer
-        },
-        activity: row.get(6)?,
-        busy,
-        phase: if busy {
-            "working".into()
-        } else {
-            "idle".into()
-        },
-        turn_id: 0,
-        turn_started_at: 0,
-        last_distill_at: 0,
-        last_seen: row.get(8)?,
-        resume_id: String::new(),
-        state_version: row.get(9)?,
-        lifecycle: Lifecycle::from_str(&row.get::<_, String>(10)?),
-        first_seen: row.get(11)?,
-        updated_at: row.get(12)?,
     })
 }
 

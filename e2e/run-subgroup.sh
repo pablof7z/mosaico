@@ -35,8 +35,8 @@ sleep 1  # let the daemon come up and the tail attach
 
 # ── preconditions (from run.sh) ──────────────────────────────────────────────
 relay_up || die "relay not up — run ./e2e/run.sh first"
-nak req -k 39000 -d "${E2E_PROJECT}" "${RELAY_WS}" 2>/dev/null | grep -q '"kind":39000' \
-  || die "parent group '${E2E_PROJECT}' not on relay — run ./e2e/run.sh first"
+wait_for "parent kind:39000 metadata for ${E2E_PROJECT}" 20 \
+  "nak_req_contains '\"kind\":39000' -k 39000 -d '${E2E_PROJECT}' '${RELAY_WS}'"
 ok "parent '${E2E_PROJECT}' present; backends a=${A_PK:0:8} b=${B_PK:0:8}"
 
 # ── 1. backend-a creates the subgroup ────────────────────────────────────────
@@ -54,23 +54,23 @@ ok "child group id: ${CHILD_H}"
 # ── 2. child 39000 declares its parent ───────────────────────────────────────
 log "2: child kind:39000 carries parent=${E2E_PROJECT}"
 wait_for "child 39000 with a parent tag" 15 \
-  "nak req -k 39000 -d '${CHILD_H}' '${RELAY_WS}' 2>/dev/null | grep -q '\"parent\"'"
-nak req -k 39000 -d "${CHILD_H}" "${RELAY_WS}" 2>/dev/null | grep -q "\"${E2E_PROJECT}\"" \
+  "nak_req_contains '\"parent\"' -k 39000 -d '${CHILD_H}' '${RELAY_WS}'"
+nak_req_contains "\"${E2E_PROJECT}\"" -k 39000 -d "${CHILD_H}" "${RELAY_WS}" \
   || die "child 39000 parent tag is not ${E2E_PROJECT}"
 ok "child 39000 parent=${E2E_PROJECT}"
 
 # ── 3. parent admins copied down to the child ────────────────────────────────
 log "3: child kind:39001 admins include both backends"
 wait_for "child 39001 to list edge-a as admin" 15 \
-  "nak req -k 39001 -d '${CHILD_H}' '${RELAY_WS}' 2>/dev/null | grep -q '${A_PK}'"
+  "nak_req_contains '${A_PK}' -k 39001 -d '${CHILD_H}' '${RELAY_WS}'"
 wait_for "child 39001 to list edge-b as admin" 15 \
-  "nak req -k 39001 -d '${CHILD_H}' '${RELAY_WS}' 2>/dev/null | grep -q '${B_PK}'"
+  "nak_req_contains '${B_PK}' -k 39001 -d '${CHILD_H}' '${RELAY_WS}'"
 ok "child admins include edge-a and edge-b"
 
 # ── 4. the single orchestration kind:9 ───────────────────────────────────────
 log "4: orchestration kind:9 with te-op=subgroup.add-agents.v1"
 wait_for "kind:9 add-agents orchestration event" 15 \
-  "nak req -k 9 '${RELAY_WS}' 2>/dev/null | grep -q 'subgroup.add-agents.v1'"
+  "nak_req_contains 'subgroup.add-agents.v1' -k 9 '${RELAY_WS}'"
 ok "orchestration kind:9 present"
 
 # ── 5. CROSS-BACKEND PROOF: backend-b provisioned testing-lead ───────────────
@@ -85,7 +85,7 @@ ok "backend-b minted testing-lead ${B_ROLE_PK:0:8}"
 
 log "6: testing-lead is a MEMBER of the child group (added by backend-b)"
 wait_for "child 39002 to include testing-lead" 25 \
-  "nak req -k 39002 -d '${CHILD_H}' '${RELAY_WS}' 2>/dev/null | grep -q '${B_ROLE_PK}'"
+  "nak_req_contains '${B_ROLE_PK}' -k 39002 -d '${CHILD_H}' '${RELAY_WS}'"
 ok "testing-lead is a child member"
 
 # The NIP-29 relay is a PURE NIP-29 group relay: it stores group events only and drops
@@ -94,7 +94,7 @@ ok "testing-lead is a child member"
 # this is a soft check here — its absence reflects relay policy, not the feature.
 log "7: testing-lead kind:0 profile (soft — NIP-29 relay drops non-group kind:0)"
 if wait_for_soft "testing-lead kind:0 profile" 6 \
-     "nak req -k 0 -a '${B_ROLE_PK}' '${RELAY_WS}' 2>/dev/null | grep -q 'testing-lead'"; then
+     "nak_req_contains 'testing-lead' -k 0 -a '${B_ROLE_PK}' '${RELAY_WS}'"; then
   ok "testing-lead kind:0 published"
 else
   warn "no testing-lead kind:0 on NIP-29 relay (expected: this relay stores group events only)"
@@ -106,7 +106,7 @@ A_ROLE_JSON="$(backend_edge_home edge-a)/agents/research-lead.json"
 wait_for "backend-a to mint research-lead identity" 25 "[[ -s '${A_ROLE_JSON}' ]]"
 A_ROLE_PK="$(grep -oE '\"public_key\"[^0-9a-f]*[0-9a-f]{64}' "${A_ROLE_JSON}" | grep -oE '[0-9a-f]{64}')"
 wait_for "child 39002 to include research-lead" 25 \
-  "nak req -k 39002 -d '${CHILD_H}' '${RELAY_WS}' 2>/dev/null | grep -q '${A_ROLE_PK}'"
+  "nak_req_contains '${A_ROLE_PK}' -k 39002 -d '${CHILD_H}' '${RELAY_WS}'"
 ok "research-lead is a child member"
 
 # ── 9. channels list renders the hierarchy FROM LOCAL DAEMON STATE ────────────

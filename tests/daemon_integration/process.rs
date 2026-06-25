@@ -377,7 +377,7 @@ fn statusline_resolves_to_specific_session_when_session_id_is_supplied() {
     let home = Home::new();
 
     // Start two sessions with the same agent + cwd but distinct harness ids.
-    let (canon_a, canon_b) = rt().block_on(async {
+    rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let a = c
             .call(
@@ -393,15 +393,10 @@ fn statusline_resolves_to_specific_session_when_session_id_is_supplied() {
             )
             .await
             .expect("session_start b");
-        (
-            a["session_id"].as_str().unwrap().to_string(),
-            b["session_id"].as_str().unwrap().to_string(),
-        )
-    });
-    assert_ne!(canon_a, canon_b, "two sessions must mint distinct ids");
+        let canon_a = a["session_id"].as_str().unwrap().to_string();
+        let canon_b = b["session_id"].as_str().unwrap().to_string();
+        assert_ne!(canon_a, canon_b, "two sessions must mint distinct ids");
 
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
         // Statusline with session A's canonical id must show session A.
         let v = c
             .call(
@@ -428,9 +423,8 @@ fn statusline_resolves_to_specific_session_when_session_id_is_supplied() {
             canon_b,
             "statusline --session B must resolve to session B, not the latest"
         );
-        // Statusline with NO session (empty) falls back to agent+cwd. We don't
-        // assert WHICH of the two wins (both were minted in the same second, so
-        // `created_at DESC` is nondeterministic), only that it's one of them.
+        // Statusline with NO session (empty) fails open; harness statusline calls
+        // are expected to provide the explicit session id.
         let v = c
             .call(
                 "statusline",
@@ -438,10 +432,9 @@ fn statusline_resolves_to_specific_session_when_session_id_is_supplied() {
             )
             .await
             .expect("statusline fallback");
-        let fallback_id = v["session_id"].as_str().unwrap();
         assert!(
-            fallback_id == canon_a || fallback_id == canon_b,
-            "empty --session falls back to agent+cwd (one of the two): got {fallback_id}"
+            v["session_id"].as_str().is_none(),
+            "empty --session should not guess between sessions: got {v}"
         );
     });
 

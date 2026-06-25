@@ -5,9 +5,9 @@
 //! are no-ops beyond the stderr echo.
 //!
 //! ```text
-//! 2026-06-25 14:32  [→relay] kind:9000  put-user  h=my-project  p=abc12345  role=admin
-//! 2026-06-25 14:32  [→relay] kind:9007  create-group  h=session-xyz  parent=my-project
-//! 2026-06-25 14:32  [relay✗] rejected: blocked: unknown group member
+//! 2026-06-25 14:32:05.123  [→relay] kind:9000  put-user  h=my-project  p=abc12345  role=admin
+//! 2026-06-25 14:32:05.456  [→relay] kind:9007  create-group  h=session-xyz  parent=my-project
+//! 2026-06-25 14:32:05.789  [relay✗] rejected: blocked: unknown group member
 //! ```
 
 use nostr_sdk::prelude::Event;
@@ -33,7 +33,7 @@ fn log_file() -> Option<&'static Mutex<File>> {
 }
 
 fn log_entry(line: &str) {
-    let ts = crate::util::format_local_datetime(crate::util::now_secs());
+    let ts = crate::util::format_local_datetime_ms(crate::util::now_millis());
     let full = format!("{ts}  {line}");
     eprintln!("{full}");
     if let Some(mu) = log_file() {
@@ -76,14 +76,9 @@ pub(crate) fn log_outgoing_event(event: &Event) {
     let h = tv("h");
 
     let line = match k {
-        0 => {
-            let name = serde_json::from_str::<serde_json::Value>(&event.content)
-                .ok()
-                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(String::from))
-                .unwrap_or_default();
-            let author = &event.pubkey.to_hex()[..8];
-            format!("[→relay] kind:{k:<5}  profile  name={name:?}  author={author}")
-        }
+        // kind:0 is published to the indexer relay (purplepag.es) for profile
+        // discovery — not meaningful relay traffic for the configured relay log.
+        0 => return,
         9 => format!("[→relay] kind:{k:<5}  orchestration  h={h}  →{ps}"),
         9000 => {
             let role = event

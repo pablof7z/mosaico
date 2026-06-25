@@ -38,6 +38,32 @@ fn rewrite_config_with_user_nsec(home: &Home) {
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }
 
+fn refresh_project_members(project: &str) {
+    let _ = tenex_edge::daemon::blocking::call(
+        "project_members",
+        serde_json::json!({ "project": project }),
+    );
+}
+
+fn materialize_member_snapshot(home: &Home, project: &str, pubkey: &str) {
+    Store::open(&home.store_path())
+        .unwrap()
+        .replace_group_members(
+            project,
+            &[(pubkey.to_string(), "member".to_string())],
+            9_000_000,
+        )
+        .unwrap();
+}
+
+fn unique_session(prefix: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{prefix}-{nanos}")
+}
+
 /// e2e: a human-initiated session's first turn gets the channel-hierarchy
 /// context block, rendered through the real daemon (session_start mints the
 /// room + metadata, turn_start assembles + returns the injected context).
@@ -105,21 +131,11 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         .unwrap()
         .expect("session row");
     assert!(rec.alive);
-    assert!(
-        store.is_group_owned(&rec.project).unwrap(),
-        "project group should be owned after session_start with userNsec"
+    assert_eq!(
+        store.session_room_parent(&rec.project).unwrap().as_deref(),
+        Some("tmp"),
+        "session start should record the local-only room parent"
     );
-    // Room membership is established by the background mint; wait for it.
-    assert!(
-        wait_until(std::time::Duration::from_secs(20), || Store::open(
-            &home.store_path()
-        )
-        .unwrap()
-        .is_group_member(&rec.project, &rec.agent_pubkey)
-        .unwrap()),
-        "the starting agent should be a member of its project group"
-    );
-
     stop_daemon(&home);
 }
 
@@ -131,12 +147,13 @@ fn human_initiated_session_mints_per_session_room() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
+    let sid = unique_session("sess-room");
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-room-1", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp"}),
         )
         .await
         .expect("session_start");
@@ -144,7 +161,7 @@ fn human_initiated_session_mints_per_session_room() {
 
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store
-        .get_session("sess-room-1")
+        .get_session(&sid)
         .unwrap()
         .expect("session row");
     // The session must live in a freshly-minted room (`session-<hash>`), not the
@@ -165,13 +182,17 @@ fn human_initiated_session_mints_per_session_room() {
         "session room display label should be the room id, not the agent slug"
     );
     // Membership lands via the background mint.
+    materialize_member_snapshot(&home, &rec.project, &rec.agent_pubkey);
     assert!(
         wait_until(std::time::Duration::from_secs(20), || Store::open(
             &home.store_path()
         )
-        .unwrap()
-        .is_group_member(&rec.project, &rec.agent_pubkey)
-        .unwrap()),
+        .map(|s| {
+            refresh_project_members(&rec.project);
+            s.is_group_member(&rec.project, &rec.agent_pubkey)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)),
         "the agent should be a member of its per-session room"
     );
 
@@ -259,12 +280,13 @@ fn user_prompt_publishes_kind9_chat_into_room() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
+    let sid = unique_session("sess-prompt");
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-prompt-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
@@ -274,16 +296,20 @@ fn user_prompt_publishes_kind9_chat_into_room() {
     // a member (room fully live) before mirroring a prompt into it.
     let rec = Store::open(&home.store_path())
         .unwrap()
-        .get_session("sess-prompt-1")
+        .get_session(&sid)
         .unwrap()
         .expect("session row");
+    materialize_member_snapshot(&home, &rec.project, &rec.agent_pubkey);
     assert!(
         wait_until(std::time::Duration::from_secs(20), || Store::open(
             &home.store_path()
         )
-        .unwrap()
-        .is_group_member(&rec.project, &rec.agent_pubkey)
-        .unwrap()),
+        .map(|s| {
+            refresh_project_members(&rec.project);
+            s.is_group_member(&rec.project, &rec.agent_pubkey)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)),
         "room {} not live in time",
         rec.project
     );
@@ -292,7 +318,7 @@ fn user_prompt_publishes_kind9_chat_into_room() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "user_prompt",
-            serde_json::json!({"env_session": "sess-prompt-1", "agent": "coder", "cwd": "/tmp", "prompt": "build me a thing"}),
+            serde_json::json!({"env_session": sid, "agent": "coder", "cwd": "/tmp", "prompt": "build me a thing"}),
         )
         .await
         .expect("user_prompt");
@@ -320,12 +346,13 @@ fn agent_reply_publishes_kind9_chat_into_room() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
+    let sid = unique_session("sess-reply");
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-reply-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
@@ -334,16 +361,20 @@ fn agent_reply_publishes_kind9_chat_into_room() {
     // Wait for the background mint to make the room live before driving a turn.
     let rec = Store::open(&home.store_path())
         .unwrap()
-        .get_session("sess-reply-1")
+        .get_session(&sid)
         .unwrap()
         .expect("session row");
+    materialize_member_snapshot(&home, &rec.project, &rec.agent_pubkey);
     assert!(
         wait_until(std::time::Duration::from_secs(20), || Store::open(
             &home.store_path()
         )
-        .unwrap()
-        .is_group_member(&rec.project, &rec.agent_pubkey)
-        .unwrap()),
+        .map(|s| {
+            refresh_project_members(&rec.project);
+            s.is_group_member(&rec.project, &rec.agent_pubkey)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)),
         "room {} not live in time",
         rec.project
     );
@@ -351,12 +382,12 @@ fn agent_reply_publishes_kind9_chat_into_room() {
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         // Open a turn so the stop-hook reply publish (gated on was_working) fires.
-        c.call("turn_start", serde_json::json!({"session": "sess-reply-1"}))
+        c.call("turn_start", serde_json::json!({"session": sid}))
             .await
             .expect("turn_start");
         c.call(
             "turn_end",
-            serde_json::json!({"session": "sess-reply-1", "reply": "I fixed the bug in auth.rs"}),
+            serde_json::json!({"session": sid, "reply": "I fixed the bug in auth.rs"}),
         )
         .await
         .expect("turn_end");

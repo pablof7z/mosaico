@@ -6,6 +6,7 @@
 //!   Materializer (store writes)       ← materialize()
 //!   Transport                         ← (private detail of NostrDelivery)
 
+pub(crate) mod group_management;
 pub mod nip29;
 pub mod nostr_delivery;
 pub mod provider;

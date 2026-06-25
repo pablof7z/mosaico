@@ -22,8 +22,28 @@ use crate::fabric::provider::Nip29Provider;
 use crate::state::Store;
 use crate::util::now_secs;
 use anyhow::Result;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
+
+fn slog(session_id: &str, msg: &str) {
+    let log_dir = crate::config::edge_home().join("logs");
+    let _ = crate::config::ensure_dir(&log_dir);
+    let short = crate::util::session_codename(session_id);
+    let path = log_dir.join(format!("{short}.log"));
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let ts = crate::util::format_local_datetime_ms(ms);
+        let _ = writeln!(f, "{ts} {msg}");
+    }
+}
 
 pub struct EngineParams {
     pub agent_slug: String,
@@ -192,10 +212,9 @@ pub async fn run_session_in_daemon(
                 // duplicate runtime cannot flip the title.
                 if distill_task.as_ref().is_some_and(|h| h.is_finished()) {
                     let (result, error) = distill_task.take().unwrap().await.ok().unwrap_or((None, None));
-                    eprintln!("[distill] task finished session={} result={} error={:?}",
-                        &p.session_id[..8.min(p.session_id.len())],
+                    slog(&p.session_id, &format!("[distill] task finished result={} error={:?}",
                         result.as_ref().map(|l| format!("title={:?} activity={:?}", l.title, l.activity)).unwrap_or_else(|| "None".into()),
-                        error);
+                        error));
                     if let Some(labels) = result {
                         // Capture the pre-apply title to decide whether to broadcast
                         // a new Activity note (a social kind:1, separate from status).
@@ -209,9 +228,8 @@ pub async fn run_session_in_daemon(
                             &labels.activity,
                             now,
                         )).ok().flatten();
-                        eprintln!("[distill] apply_distill_result session={} applied={}",
-                            &p.session_id[..8.min(p.session_id.len())],
-                            applied.as_ref().map(|s| format!("title={:?}", s.title)).unwrap_or_else(|| "stale/rejected".into()));
+                        slog(&p.session_id, &format!("[distill] apply result={}",
+                            applied.as_ref().map(|s| format!("title={:?}", s.title)).unwrap_or_else(|| "stale/rejected".into())));
                         if let Some(snap) = applied {
                             if !snap.title.is_empty() && snap.title != prev_title {
                                 publish_de(DomainEvent::Activity(Activity {
@@ -224,12 +242,17 @@ pub async fn run_session_in_daemon(
                                 // signed by the provider's operator key; the relay
                                 // re-emits kind:39000). Gated to per-session rooms so
                                 // a shared task room is never renamed by one member.
-                                // Only publishes on an actual title change (above), so
-                                // this stays low-churn — no debounce needed.
-                                let is_room = st!(|s: &Store| s.is_session_room(&p.project)).unwrap_or(false);
-                                eprintln!("[distill] title changed {:?} → {:?} project={} is_room={is_room}",
-                                    prev_title, snap.title, p.project);
-                                if is_room {
+                                // Only publishes on an actual title change (above), and
+                                // only after the async session-room create is confirmed
+                                // on the relay. If distill wins the race, the room-mint
+                                // path catches up from session_state after create/lock.
+                                let is_owned_room = st!(|s: &Store| {
+                                    s.is_session_room(&p.project).unwrap_or(false)
+                                        && s.is_group_owned(&p.project).unwrap_or(false)
+                                });
+                                slog(&p.session_id, &format!("[distill] title changed {:?} → {:?} project={} is_owned_room={is_owned_room}",
+                                    prev_title, snap.title, p.project));
+                                if is_owned_room {
                                     // Bounded: this runs in the engine loop that also
                                     // owns heartbeat/distill, so a relay stall must not
                                     // block it. Best-effort — the next title change retries.
@@ -237,7 +260,7 @@ pub async fn run_session_in_daemon(
                                     let renamed = tokio::time::timeout(std::time::Duration::from_secs(3), rename)
                                         .await
                                         .unwrap_or(false);
-                                    eprintln!("[distill] nip29 rename group={} title={:?} accepted={renamed}", p.project, snap.title);
+                                    slog(&p.session_id, &format!("[distill] nip29 rename group={} title={:?} accepted={renamed}", p.project, snap.title));
                                     if renamed {
                                         let parent = st!(|s: &Store| s.group_parent(&p.project)).ok().flatten().unwrap_or_default();
                                         st!(|s: &Store| s.upsert_group_metadata(&p.project, &snap.title, &parent, now).ok());
@@ -324,26 +347,31 @@ pub async fn run_session_in_daemon(
                             };
                             if due {
                                 let transcript_path = st!(|s: &Store| s.get_session_transcript(&p.session_id).ok().flatten());
-                                eprintln!("[distill] due session={} transcript_path={:?}",
-                                    &p.session_id[..8.min(p.session_id.len())], transcript_path);
+                                slog(&p.session_id, &format!("[distill] due transcript_path={:?}", transcript_path));
                                 let ctx = transcript_path.and_then(|path| {
                                     let result = crate::transcript::read_recent(std::path::Path::new(&path), 14, 2500);
                                     if result.is_none() {
-                                        eprintln!("[distill] read_recent returned None for path={path}");
+                                        slog(&p.session_id, &format!("[distill] read_recent returned None path={path}"));
                                     }
                                     result
                                 });
                                 if let Some(ctx) = ctx {
-                                    eprintln!("[distill] spawning task session={} ctx_len={} current_title={:?}",
-                                        &p.session_id[..8.min(p.session_id.len())], ctx.len(), snap.title);
-                                    let current = (!snap.title.trim().is_empty()).then(|| snap.title.clone());
+                                    // Only feed a prior title back to the model when it
+                                    // came from distillation — a seed title is the raw
+                                    // user prompt and nudge-to-keep would just preserve it
+                                    // verbatim instead of generating a real title.
+                                    let current = (snap.title_source == crate::session::TitleSource::Distill
+                                        && !snap.title.trim().is_empty())
+                                        .then(|| snap.title.clone());
+                                    slog(&p.session_id, &format!("[distill] spawning task ctx_len={} current_title={:?} source={:?}", ctx.len(), current, snap.title_source));
                                     last_distill_attempt = now;
                                     distill_task_turn_id = snap.turn_id;
                                     distill_task_base_version = snap.state_version;
+                                    let sid = p.session_id.clone();
                                     distill_task = Some(tokio::spawn(async move {
                                         match tokio::time::timeout(
                                             Duration::from_secs(20),
-                                            distill::distill_session(&ctx, current.as_deref()),
+                                            distill::distill_session(&ctx, current.as_deref(), &sid),
                                         )
                                         .await
                                         {

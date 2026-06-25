@@ -74,13 +74,15 @@ pub fn group_lock_closed_with_parent(
 /// presence/activity/mentions into the now-closed group.
 pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey])?]))
+        .tags([project_tag(project)?, tag(&["p", pubkey])?])
+        .allow_self_tagging())
 }
 
 /// kind:9001 remove-user removing `pubkey` from the group.
 pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_REMOVE_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey])?]))
+        .tags([project_tag(project)?, tag(&["p", pubkey])?])
+        .allow_self_tagging())
 }
 
 /// kind:9000 put-user adding `pubkey` with the `admin` role, granting it admin
@@ -90,14 +92,15 @@ pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
 /// "admin" is the role tenex-edge grants to every whitelisted human pubkey.
 pub fn group_put_admin(project: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey, "admin"])?]))
+        .tags([project_tag(project)?, tag(&["p", pubkey, "admin"])?])
+        .allow_self_tagging())
 }
 
 /// kind:9002 edit-metadata: set the group's `about` text. The relay validates
 /// admin rights and re-publishes kind:39000 signed by the relay key.
 pub fn group_edit_metadata(project: &str, about: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "")
-        .tags([tag(&["d", project])?, tag(&["about", about])?]))
+        .tags([project_tag(project)?, tag(&["about", about])?]))
 }
 
 /// kind:9002 edit-metadata: set the full `child` list on a PARENT group.
@@ -224,6 +227,19 @@ mod tests {
     }
 
     #[test]
+    fn group_edit_metadata_uses_h_not_d() {
+        let b = group_edit_metadata("myrepo-1a2b3c4d", "about text").unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
+        assert!(
+            has_tag(&ev, "h", "myrepo-1a2b3c4d"),
+            "must use h tag, not d"
+        );
+        assert!(!has_tag_name(&ev, "d"), "must NOT use d tag");
+        assert!(has_tag(&ev, "about", "about text"));
+    }
+
+    #[test]
     fn group_edit_name_sets_d_and_name() {
         let b = group_edit_name("myrepo-1a2b3c4d", "Fix the auth race").unwrap();
         let ev = b.sign_with_keys(&Keys::generate()).unwrap();
@@ -278,5 +294,34 @@ mod tests {
                 && s.get(1).map(String::as_str) == Some(pk.as_str())
                 && s.get(2).map(String::as_str) == Some("admin")
         }));
+    }
+
+    #[test]
+    fn group_management_preserves_self_p_tags() {
+        let keys = Keys::generate();
+        let pk = keys.public_key().to_hex();
+
+        let member = group_put_user("tenex-edge", &pk)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(has_tag(&member, "p", &pk));
+
+        let admin = group_put_admin("tenex-edge", &pk)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(admin.tags.iter().any(|t| {
+            let s = t.as_slice();
+            s.first().map(String::as_str) == Some("p")
+                && s.get(1).map(String::as_str) == Some(pk.as_str())
+                && s.get(2).map(String::as_str) == Some("admin")
+        }));
+
+        let remove = group_remove_user("tenex-edge", &pk)
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(has_tag(&remove, "p", &pk));
     }
 }

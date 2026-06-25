@@ -30,12 +30,7 @@ use super::*;
 const TITLE_MAX_CHARS: usize = 48;
 const ACTIVITY_MAX_CHARS: usize = 48;
 
-pub(super) fn statusline(
-    session: Option<String>,
-    agent_arg: Option<String>,
-    cwd_arg: Option<String>,
-    tmux_fmt: bool,
-) -> Result<()> {
+pub(super) fn statusline(session: Option<String>, tmux_fmt: bool) -> Result<()> {
     // Harness payload on stdin (absent when invoked by hand from a terminal or
     // from the tmux status-format #(...) invocation).
     let raw: serde_json::Value = if io::stdin().is_terminal() {
@@ -45,39 +40,23 @@ pub(super) fn statusline(
         io::stdin().read_to_string(&mut buf).ok();
         serde_json::from_str(&buf).unwrap_or(serde_json::Value::Null)
     };
-    let env_session = raw
+    // Session ID from stdin payload (Claude Code harness) takes precedence over
+    // the explicit --session arg (tmux status-format invocation).
+    let session_id = raw
         .get("session_id")
         .and_then(|v| v.as_str())
-        .map(str::to_string);
-    // Explicit --cwd wins, then stdin payload, then process cwd.
-    let cwd = cwd_arg
-        .or_else(|| {
-            raw.pointer("/workspace/current_dir")
-                .or_else(|| raw.get("cwd"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-        });
-    // Explicit --agent wins over the env-var slug (the tmux status-format
-    // invocation passes --agent because TENEX_EDGE_AGENT is a pane env var
-    // not available in the tmux server's #(...) execution context).
-    let agent = agent_arg.or_else(agent_env_slug);
+        .map(str::to_string)
+        .or(session);
 
-    let params = serde_json::json!({
-        "session": session,
-        "env_session": env_session,
-        "cwd": cwd,
-        "agent": agent,
-        "group": crate::cli::channel_env(),
-    });
-    // Fail open on ANY failure (no daemon, no session yet, protocol skew): a
-    // status bar with a missing segment beats a status bar with an error in it.
-    let Ok(v) = crate::daemon::blocking::call_no_spawn("statusline", params) else {
-        return Ok(());
+    let params = serde_json::json!({ "session": session_id });
+    let v = match crate::daemon::blocking::call_no_spawn("statusline", params) {
+        Ok(v) => v,
+        Err(_) => {
+            // Daemon is not running — emit a visible indicator so the status bar
+            // shows WHY it's blank rather than silently displaying nothing.
+            println!("[te: down]");
+            return Ok(());
+        }
     };
     let Ok(view) = serde_json::from_value::<StatuslineView>(v) else {
         return Ok(());
@@ -138,6 +117,11 @@ pub struct StatuslineView {
     activity: String,
     #[serde(default)]
     distill_error: Option<String>,
+    /// Populated by the daemon when the session ID is known but can't be
+    /// resolved (stale after DB wipe, etc.). Rendered visibly so the user
+    /// can see WHY the status bar is broken instead of getting a blank bar.
+    #[serde(default)]
+    error: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -233,6 +217,12 @@ fn render_statusline_inner(v: &StatuslineView, color: bool, tmux_fmt: bool) -> S
         ));
     }
 
+    // Daemon-reported error (e.g. stale session ID that wasn't found in the DB).
+    // Short and visible — the user needs to know WHY the bar is broken.
+    if let Some(ref err) = v.error {
+        return paint(format!("[te: {err}]"), "1;31");
+    }
+
     segs.join(" ")
 }
 
@@ -264,6 +254,7 @@ mod tests {
             title: "Refactoring the inbox".into(),
             activity: "writing tests".into(),
             distill_error: None,
+            error: None,
         }
     }
 

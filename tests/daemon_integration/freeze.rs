@@ -1,6 +1,7 @@
 use crate::daemon_harness::*;
 use std::time::Duration;
 use tenex_edge::daemon::client::Client;
+use tenex_edge::session::PeerStatusObservation;
 use tenex_edge::state::Store;
 
 // ── Frozen regression guards (dedup, targeted/untargeted mention routing,
@@ -78,21 +79,15 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
         .expect("session row");
     let project = rec.project.clone();
 
-    // FREEZE: group owned and member present after first start. Ownership is
-    // recorded synchronously; the agent's membership is established by the
-    // background room mint (issue #6), so wait for it.
-    assert!(
-        store.is_group_owned(&project).unwrap(),
-        "group must be owned after session_start with userNsec"
+    // FREEZE: the local-only room parent is present after first start.
+    // Membership itself is relay-confirmed state, so this test seeds the
+    // subsequent 39002 snapshot explicitly instead of relying on an optimistic
+    // local write.
+    assert_eq!(
+        store.session_room_parent(&project).unwrap().as_deref(),
+        Some("tmp"),
+        "session start should record the local-only room parent"
     );
-    assert!(
-        wait_until(Duration::from_secs(20), || Store::open(&home.store_path())
-            .unwrap()
-            .is_group_member(&project, &rec.agent_pubkey)
-            .unwrap()),
-        "agent must be a member after session_start"
-    );
-
     // Simulate idempotency: apply the same 39002 snapshot twice via the public
     // Store API (the daemon uses `replace_group_members` when it processes
     // kind:39002 from the relay — calling it twice is equivalent to receiving
@@ -145,4 +140,71 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     );
 
     stop_daemon(&home);
+}
+
+#[test]
+fn freeze_status_outbox_is_debuggable_and_presence_is_unified() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    rewrite_config_with_user_nsec(&home);
+
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "session_start",
+            serde_json::json!({"agent": "coder", "session_id": "freeze-outbox-1", "cwd": "/tmp"}),
+        )
+        .await
+        .expect("session_start");
+
+        c.call(
+            "turn_start",
+            serde_json::json!({
+                "session": "freeze-outbox-1",
+                "cwd": "/tmp",
+                "prompt": "investigate unified presence state",
+                "json": false
+            }),
+        )
+        .await
+        .expect("turn_start");
+
+        let debug = c
+            .call("debug_outbox", serde_json::json!({"limit": 20}))
+            .await
+            .expect("debug_outbox");
+        let rows = debug["rows"].as_array().expect("rows array");
+        assert!(
+            rows.iter()
+                .any(|r| r["agent_slug"].as_str() == Some("coder")),
+            "debug_outbox should expose queued or recently published status rows: {debug}"
+        );
+    });
+
+    stop_daemon(&home);
+}
+
+#[test]
+fn freeze_peer_status_materializes_to_unified_presence_state() {
+    let store = Store::open_memory().unwrap();
+    store
+        .record_peer_status(&PeerStatusObservation {
+            agent_pubkey: "peer-pubkey".into(),
+            agent_slug: "peer".into(),
+            project: "proj".into(),
+            host: "remote".into(),
+            rel_cwd: "work".into(),
+            title: "reviewing relay state".into(),
+            activity: "checking 39002".into(),
+            busy: true,
+            emitted_at: 100,
+            observed_at: 105,
+        })
+        .unwrap();
+
+    let rows = store.peer_session_snapshots(Some("proj"), 0).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].agent_pubkey, "peer-pubkey");
+    assert_eq!(rows[0].title, "reviewing relay state");
+    assert!(rows[0].busy);
 }

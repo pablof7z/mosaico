@@ -182,18 +182,9 @@ enum Cmd {
     /// prints one line, and always exits 0 — fails open when the daemon is down
     /// (and never spawns one).
     Statusline {
-        /// Session id; if omitted, taken from the stdin payload or resolved from cwd.
+        /// Session id; if omitted, taken from the stdin payload.
         #[arg(long)]
         session: Option<String>,
-        /// Agent slug to resolve when no session id is available (used by the
-        /// tmux status-format invocation, which has no stdin payload).
-        #[arg(long)]
-        agent: Option<String>,
-        /// Working directory override for project resolution (used by the tmux
-        /// status-format invocation, which runs in the server's cwd, not the
-        /// pane's project directory).
-        #[arg(long)]
-        cwd: Option<String>,
         /// Emit tmux #[style] format strings instead of ANSI codes. Required
         /// when the output is consumed by tmux's status-format (#(...)).
         #[arg(long)]
@@ -518,6 +509,18 @@ enum DebugAction {
         #[arg(long, default_value = "1000")]
         refresh_ms: u64,
     },
+    /// Inspect the status publish outbox.
+    Outbox {
+        /// Keep printing the outbox state until interrupted.
+        #[arg(long)]
+        live: bool,
+        /// Maximum rows to show.
+        #[arg(long, default_value = "50")]
+        limit: u64,
+        /// Refresh interval in milliseconds when --live is set.
+        #[arg(long, default_value = "1000")]
+        refresh_ms: u64,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -601,10 +604,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         },
         Cmd::Statusline {
             session,
-            agent,
-            cwd,
             tmux,
-        } => statusline::statusline(session, agent, cwd, tmux),
+        } => statusline::statusline(session, tmux),
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Channels { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
@@ -621,6 +622,11 @@ pub async fn run(cli: Cli) -> Result<()> {
                 panes,
                 refresh: Duration::from_millis(refresh_ms.max(100)),
             }),
+            DebugAction::Outbox {
+                live,
+                limit,
+                refresh_ms,
+            } => debug::outbox(live, limit, Duration::from_millis(refresh_ms.max(100))).await,
         },
         Cmd::Hook { host, hook_type } => hooks::hook_run(host, hook_type).await,
         Cmd::Tmux { action, popup } => match action {

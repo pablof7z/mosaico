@@ -214,6 +214,9 @@ impl Transport {
     /// state on a publish actually landing (NIP-29 group create/membership,
     /// long-form proposals) need that distinction, so this surfaces the relay's
     /// rejection reason as an error instead of swallowing it.
+    ///
+    /// No hidden retry is queued here. A checked publish is a verdict; the caller
+    /// owns any domain-specific retry policy.
     pub async fn publish_signed_checked(
         &self,
         builder: EventBuilder,
@@ -228,10 +231,7 @@ impl Transport {
             .send_event(&signed)
             .await
             .context("publishing signed event")?;
-        if let Err(e) = assert_relay_accepted(&out) {
-            self.retry_queue.push_failed(signed);
-            return Err(e);
-        }
+        assert_relay_accepted(&out)?;
         Ok(out.val)
     }
 
@@ -262,7 +262,8 @@ impl Transport {
     /// would mask a silently-dropped event. Use this whenever a reported event id
     /// must mean the event is actually on the relay — the canonical case is
     /// `channels_create`, which returns `orchestration_event_id` to the operator
-    /// and drives a local fast-path handler off the same event.
+    /// and drives a local fast-path handler off the same event. The caller owns
+    /// any retry policy; this function reports the relay verdict once.
     pub async fn publish_event_checked(&self, signed: &Event) -> Result<EventId> {
         crate::relay_log::log_outgoing_event(signed);
         let out = self
@@ -270,10 +271,7 @@ impl Transport {
             .send_event(signed)
             .await
             .context("publishing signed event")?;
-        if let Err(e) = assert_relay_accepted(&out) {
-            self.retry_queue.push_failed(signed.clone());
-            return Err(e);
-        }
+        assert_relay_accepted(&out)?;
         Ok(out.val)
     }
 

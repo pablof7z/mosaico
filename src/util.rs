@@ -10,6 +10,14 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Current unix time in milliseconds.
+pub fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Format a unix timestamp as local-time `YYYY-MM-DD HH:MM` (via `localtime_r`,
 /// so it honors the daemon machine's timezone — the wall-clock an agent expects).
 pub fn format_local_datetime(unix_secs: u64) -> String {
@@ -27,6 +35,30 @@ pub fn format_local_datetime(unix_secs: u64) -> String {
             tm.tm_mday,
             tm.tm_hour,
             tm.tm_min,
+        )
+    }
+}
+
+/// Format a unix timestamp (milliseconds) as local-time `YYYY-MM-DD HH:MM:SS.mmm`.
+pub fn format_local_datetime_ms(unix_millis: u64) -> String {
+    let secs = unix_millis / 1000;
+    let ms = unix_millis % 1000;
+    // SAFETY: `localtime_r` writes into a zeroed `tm` we own; no shared state.
+    unsafe {
+        let t = secs as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return "unknown".to_string();
+        }
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec,
+            ms,
         )
     }
 }

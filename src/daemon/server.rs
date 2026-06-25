@@ -582,6 +582,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_members" => rpc_project_members(state, &req.params).await,
         "project_add" => rpc_project_add(state, &req.params).await,
         "project_remove" => rpc_project_remove(state, &req.params).await,
+        "debug_outbox" => rpc_debug_outbox(state, &req.params),
         "channels_create" => rpc_channels_create(state, &req.params).await,
         "channels_list" => rpc_channels_list(state, &req.params),
         "channels_switch" => rpc_channels_switch(state, &req.params).await,
@@ -1028,12 +1029,23 @@ async fn rpc_session_start(
     });
 
     // Stamp the canonical session id onto the tmux session owning this pane so
-    // the status-format `#(...)` can read it via `#{q:@te_session}` and pass
+    // the status-format `#(...)` can read it via `#{@te_session}` and pass
     // `--session` to `tenex-edge statusline`. Without this, two panes of the
     // same agent in the same project collapse to a single status bar (the
     // `#(...)` runs in the tmux server's env, which can't see the pane's
     // TENEX_EDGE_SESSION). Best-effort and deliberately outside the store lock.
-    if let Some(ref pane) = tmux_pane {
+    //
+    // When the re-registration arrives without TMUX_PANE (e.g. a reassert from
+    // a non-tmux context after a daemon restart), fall back to the session's
+    // existing tmux endpoint so @te_session is never left stale.
+    let effective_pane = tmux_pane.clone().or_else(|| {
+        state
+            .with_store(|s| s.get_session_endpoint(&session_id, "tmux"))
+            .ok()
+            .flatten()
+            .map(|ep| ep.target)
+    });
+    if let Some(ref pane) = effective_pane {
         crate::tmux::set_pane_session_id(pane, &session_id, p.tmux_socket.as_deref());
     }
 
@@ -1078,19 +1090,9 @@ async fn rpc_session_start(
             prog.emit("nip29", format!("minting per-session room {project}"));
         }
         let now = now_secs();
-        let can_manage_room = state.cfg.management_nsec().is_some();
         state.with_store(|s| {
-            if can_manage_room {
-                s.mark_group_owned(&project, now).ok();
-            }
             s.mark_session_room(&project, parent, now).ok();
             s.upsert_group_metadata(&project, &project, parent, now)
-                .ok();
-            // Session rooms are fail-open local routing scopes first; relay
-            // membership converges asynchronously below. Record the durable
-            // agent as a local member immediately so prompts/replies can use the
-            // room without racing NIP-29 admin reflection.
-            s.upsert_group_member(&project, &id.pubkey_hex(), "member", now)
                 .ok();
         });
         // ALL relay work (subgroup create, admin poll, member-add, subscription)
@@ -1474,17 +1476,42 @@ fn spawn_retry_drainer(state: Arc<DaemonState>) {
     });
 }
 
-fn spawn_group_name_retry(state: Arc<DaemonState>, group: String, title: String) {
+fn nip29_retry_delay(attempt: u32) -> std::time::Duration {
+    let exponent = attempt.min(4);
+    let delay_ms = 500_u64.saturating_mul(2_u64.saturating_pow(exponent));
+    std::time::Duration::from_millis(delay_ms.min(8_000))
+}
+
+async fn apply_room_name_update(state: &Arc<DaemonState>, room: &str, title: &str) -> bool {
+    let title = title.trim();
+    if title.is_empty() {
+        return false;
+    }
+    let should_publish = state.with_store(|s| {
+        let owned =
+            s.is_session_room(room).unwrap_or(false) && s.is_group_owned(room).unwrap_or(false);
+        let current = s.group_display_name(room).unwrap_or_default();
+        owned && current.trim() != title
+    });
+    if !should_publish {
+        return false;
+    }
+    let renamed = state.provider.nip29_set_group_name(room, title).await;
+    if renamed {
+        let parent = state
+            .with_store(|s| s.session_room_parent(room).ok().flatten())
+            .unwrap_or_default();
+        state.with_store(|s| {
+            s.upsert_group_metadata(room, title, &parent, now_secs())
+                .ok();
+        });
+    }
+    renamed
+}
+
+fn spawn_room_name_update(state: Arc<DaemonState>, room: String, title: String) {
     tokio::spawn(async move {
-        for attempt in 0..60 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-            if state.provider.nip29_set_group_name(&group, &title).await {
-                return;
-            }
-        }
-        eprintln!("[daemon] session room rename retry exhausted for {group}");
+        apply_room_name_update(&state, &room, &title).await;
     });
 }
 
@@ -1605,14 +1632,12 @@ async fn rpc_user_prompt(
         return Ok(serde_json::json!({ "skipped": "session not in a room" }));
     }
 
-    // SessionStart can only name a just-minted room with the harness agent slug
-    // because the user prompt has not arrived yet. The room name must NOT have
-    // a parallel naming pipeline: it follows the same `session_state.title` that
-    // feeds kind:30315 status. Seed that title via the canonical store
-    // transition when it is still empty, then mirror the stored title to the
-    // room metadata. The runtime's distillation path later renames the room
-    // again when the LLM title replaces the seed.
-    let title_for_room = state
+    // Seed the canonical session title once, from the real user prompt, so the
+    // status pipeline has an immediate title before the runtime transcript read
+    // catches up. Room metadata is a consequence of a title transition, not a
+    // per-hook mirror: publish a room-name update only when this call actually
+    // changed session_state.
+    let seeded_title = state
         .with_store(|s| s.local_session_snapshot(&rec.session_id).ok().flatten())
         .and_then(|snap| {
             if snap.title_source == crate::session::TitleSource::None {
@@ -1631,20 +1656,12 @@ async fn rpc_user_prompt(
                         (!title.is_empty()).then(|| title.to_string())
                     })
             } else {
-                let title = snap.title.trim();
-                (!title.is_empty()).then(|| title.to_string())
+                None
             }
         });
-    if let Some(room_title) = title_for_room {
-        let room = rec.project.clone();
-        let parent = state
-            .with_store(|s| s.session_room_parent(&room).ok().flatten())
-            .unwrap_or_default();
-        state.with_store(|s| {
-            s.upsert_group_metadata(&room, &room_title, &parent, now_secs())
-                .ok();
-        });
-        spawn_group_name_retry(state.clone(), room, room_title);
+    if let Some(room_title) = seeded_title {
+        state.status_outbox_notify.notify_waiters();
+        spawn_room_name_update(state.clone(), rec.project.clone(), room_title);
     }
 
     // Publish into the session's CURRENT routing scope — its channel when set
@@ -2450,15 +2467,12 @@ async fn rpc_project_edit(
     let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&p.project, &p.description)?;
     let event_id = state.transport.publish_signed(builder, &user_keys).await?;
 
-    // Optimistically update local cache; the relay will also push kind:39000.
-    let now = now_secs();
-    state.with_store(|s| {
-        s.upsert_project_meta(&p.project, &p.description, now).ok();
-    });
+    let confirmed = wait_for_project_meta(state, &p.project, &p.description).await;
 
     Ok(serde_json::json!({
         "event_id": event_id.to_hex(),
         "project": p.project,
+        "confirmed": confirmed,
     }))
 }
 
@@ -2491,7 +2505,7 @@ async fn rpc_project_members(
     }))
 }
 
-async fn refresh_project_members_cache(state: &Arc<DaemonState>, project: &str) {
+async fn refresh_project_members_cache(state: &Arc<DaemonState>, project: &str) -> bool {
     use crate::fabric::nip29::wire::{kind, KIND_GROUP_MEMBERS};
     use nostr_sdk::prelude::Filter;
 
@@ -2500,10 +2514,10 @@ async fn refresh_project_members_cache(state: &Arc<DaemonState>, project: &str) 
         .identifier(project)
         .limit(5);
     let Ok(events) = state.transport.fetch(filter, Duration::from_secs(5)).await else {
-        return;
+        return false;
     };
     let Some(ev) = events.iter().max_by_key(|e| e.created_at.as_secs()) else {
-        return;
+        return false;
     };
     let members = ev
         .tags
@@ -2521,6 +2535,38 @@ async fn refresh_project_members_cache(state: &Arc<DaemonState>, project: &str) 
     state.with_store(|s| {
         s.replace_group_members(project, &members, now_secs()).ok();
     });
+    true
+}
+
+async fn wait_for_project_member_cache(
+    state: &Arc<DaemonState>,
+    project: &str,
+    pubkey: &str,
+    present: bool,
+) -> bool {
+    for _ in 0..20 {
+        let refreshed = refresh_project_members_cache(state, project).await;
+        let has = state.with_store(|s| s.is_group_member(project, pubkey).unwrap_or(false));
+        if refreshed && has == present {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    false
+}
+
+async fn wait_for_project_meta(state: &Arc<DaemonState>, project: &str, description: &str) -> bool {
+    for _ in 0..20 {
+        state.provider.refresh_project_list().await.ok();
+        let matches = state.with_store(|s| {
+            s.get_project_meta(project).ok().flatten().as_deref() == Some(description)
+        });
+        if matches {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    false
 }
 
 // ── statusline ───────────────────────────────────────────────────────────────
@@ -2552,30 +2598,21 @@ fn rpc_statusline(
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
     let p: StatuslineParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    // A stale @te_session (written at spawn time, orphaned after a daemon
-    // restart or state.db recovery) must fall through to agent+cwd resolution
-    // rather than erroring — otherwise the status bar goes blank until the
-    // session re-registers its session-start hook.
-    let explicit_exists = p
-        .session
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|id| {
-            state
-                .with_store(|s| s.get_session(id))
-                .ok()
-                .flatten()
-                .is_some()
-        })
-        .unwrap_or(false);
-    let rec = resolve_session(
-        state,
-        if explicit_exists { p.session.as_deref() } else { None },
-        p.env_session.as_deref(),
-        p.cwd.as_deref(),
-        p.agent.as_deref(),
-        None,
-    )?;
+    // Session ID is the only locator needed. Fail open (empty bar) when it is
+    // absent or stale — the next session_start reassert will refresh @te_session
+    // on the tmux session and the bar recovers on the next status-interval tick.
+    let session_id = p.session.as_deref().filter(|s| !s.is_empty());
+    let rec = match session_id {
+        Some(id) => match state.with_store(|s| s.get_session(id)).ok().flatten() {
+            Some(r) => r,
+            None => {
+                // ID present but not in the DB — stale @te_session (e.g. after a
+                // DB restore). Return a visible error instead of an empty bar.
+                return Ok(serde_json::json!({ "error": "stale" }));
+            }
+        },
+        None => return Ok(serde_json::json!({})),
+    };
     let now = now_secs();
     let host = state.host.clone();
     // Routing scope (channel when set, else the per-session room) — the member
@@ -2763,14 +2800,12 @@ async fn rpc_project_add(
         .publish_signed_checked(builder, &user_keys)
         .await?;
 
-    state.with_store(|s| {
-        s.upsert_group_member(&p.project, &pubkey_hex, "member", now_secs())
-            .ok();
-    });
+    let confirmed = wait_for_project_member_cache(state, &p.project, &pubkey_hex, true).await;
 
     Ok(serde_json::json!({
         "project": p.project,
         "pubkey": pubkey_hex,
+        "confirmed": confirmed,
     }))
 }
 
@@ -2805,16 +2840,52 @@ async fn rpc_project_remove(
         .publish_signed_checked(builder, &user_keys)
         .await?;
 
-    state.with_store(|s| {
-        let ts = now_secs();
-        s.remove_group_member(&p.project, &pubkey_hex).ok();
-        s.revoke_member(&p.project, &pubkey_hex, ts).ok();
-    });
+    let confirmed = wait_for_project_member_cache(state, &p.project, &pubkey_hex, false).await;
 
     Ok(serde_json::json!({
         "project": p.project,
         "pubkey": pubkey_hex,
+        "confirmed": confirmed,
     }))
+}
+
+fn rpc_debug_outbox(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct P {
+        #[serde(default = "default_debug_outbox_limit")]
+        limit: u64,
+    }
+    let p: P = serde_json::from_value(params.clone()).unwrap_or(P {
+        limit: default_debug_outbox_limit(),
+    });
+    let rows = state.with_store(|s| s.list_status_outbox_debug(p.limit))?;
+    let rows = rows
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "session_id": r.session_id,
+                "state_version": r.state_version,
+                "publish_state": r.publish_state,
+                "retries": r.retries,
+                "native_event_id": r.native_event_id,
+                "last_error": r.last_error,
+                "enqueued_at": r.enqueued_at,
+                "agent_slug": r.agent_slug,
+                "project": r.project,
+                "title": r.title,
+                "activity": r.activity,
+                "busy": r.busy,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "rows": rows }))
+}
+
+fn default_debug_outbox_limit() -> u64 {
+    50
 }
 
 // ── project create-group (NIP-29 subgroup task rooms, issue #3) ───────────────
@@ -2855,18 +2926,24 @@ async fn ensure_session_room(
     // The parent project group must exist before a child can be parented under it.
     state.provider.open_project(parent, agent_pubkey).await;
 
-    // Create + lock the child with its parent relationship.
+    // Create + lock the child with its parent relationship. Session room ids are
+    // deterministic, so a daemon restart or repeated test run may find the room
+    // already present on the relay. Treat that as success and rehydrate local
+    // ownership metadata instead of failing before `mark_group_owned`.
     log_nip29_role_decision(
         room_h,
         &mgmt_pk,
         "admin",
         "ensure_session_room subgroup create signer becomes relay admin",
     );
-    if !state
-        .provider
-        .nip29_create_subgroup(room_h, name, parent)
-        .await
-    {
+    let (exists_before, _, _) = state.provider.fetch_group_state(room_h).await;
+    let created_or_exists = exists_before
+        || state
+            .provider
+            .nip29_create_subgroup(room_h, name, parent)
+            .await
+        || state.provider.fetch_group_state(room_h).await.0;
+    if !created_or_exists {
         eprintln!("[daemon] session room {room_h} create/lock not accepted (best-effort)");
         return false;
     }
@@ -2884,6 +2961,11 @@ async fn ensure_session_room(
         s.upsert_group_metadata(room_h, name, parent, now_secs())
             .ok();
     });
+    let latest_title =
+        state.with_store(|s| s.latest_session_title_for_project(room_h).ok().flatten());
+    if let Some(title) = latest_title {
+        apply_room_name_update(state, room_h, &title).await;
+    }
     let _ = ensure_subscription(state, room_h).await;
 
     // Wait for the relay to reflect OUR admin status (recorded while processing
@@ -2911,18 +2993,24 @@ async fn ensure_session_room(
         "member",
         "ensure_session_room adds owning agent durable pubkey",
     );
-    for attempt in 0..40u32 {
-        if state.provider.nip29_add_member(room_h, agent_pubkey).await {
-            state.with_store(|s| {
-                s.upsert_group_member(room_h, agent_pubkey, "member", now_secs())
-                    .ok();
-            });
+    for attempt in 0..12u32 {
+        let outcome = state
+            .provider
+            .nip29_add_member_outcome(room_h, agent_pubkey)
+            .await;
+        if outcome.is_applied() {
+            if wait_for_project_member_cache(state, room_h, agent_pubkey, true).await {
+                break;
+            }
+        }
+        if outcome.is_rejected() {
+            eprintln!(
+                "[daemon] session-room member-add for {} in {room_h} rejected permanently",
+                crate::util::pubkey_short(agent_pubkey)
+            );
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(
-            500 * (attempt as u64 + 1).min(4),
-        ))
-        .await;
+        tokio::time::sleep(nip29_retry_delay(attempt)).await;
     }
     // Copy parent project admins + whitelist + backend pubkey to the session
     // room — same invariant as channels_create: authority flows downward so the
@@ -3127,15 +3215,20 @@ async fn rpc_channels_create(
     for pk in &admin_set {
         let mut confirmed = false;
         for attempt in 0..6u32 {
-            let added = state.provider.nip29_add_admin(&child_h, pk).await;
+            let outcome = state.provider.nip29_add_admin_outcome(&child_h, pk).await;
             let (_, roles, _) = state.provider.fetch_group_state(&child_h).await;
             // Confirm via the published 39001 roster OR a benign re-issue (attempt
             // > 0 accepted as "already a member" → the relay's authoritative state
             // already grants the role). Same stale-replaceable defense as the
             // member-add loop below: a same-second created_at collision can freeze
             // 39001, so the roster readback alone can deadlock the grant.
-            if roles.get(pk).map(String::as_str) == Some("admin") || (attempt > 0 && added) {
+            if roles.get(pk).map(String::as_str) == Some("admin")
+                || (attempt > 0 && outcome.is_applied())
+            {
                 confirmed = true;
+                break;
+            }
+            if outcome.is_rejected() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
@@ -4155,9 +4248,9 @@ async fn handle_orchestration(
         // events the relay rejects is worse than no harness).
         let mut confirmed = false;
         for attempt in 0..12u32 {
-            let added = state
+            let outcome = state
                 .provider
-                .nip29_add_member(&op.child_h, &agent_pk)
+                .nip29_add_member_outcome(&op.child_h, &agent_pk)
                 .await;
             let (_, _, members) = state.provider.fetch_group_state(&op.child_h).await;
             // Two independent confirmations, EITHER suffices:
@@ -4170,9 +4263,13 @@ async fn handle_orchestration(
             //      collision can freeze the public roster even though membership is
             //      applied), because every retry is then rejected-as-redundant and
             //      the agent never reappears in the readback. (b) breaks that tie.
-            let relay_confirms_member = members.contains(&agent_pk) || (attempt > 0 && added);
+            let relay_confirms_member =
+                members.contains(&agent_pk) || (attempt > 0 && outcome.is_applied());
             if relay_confirms_member {
                 confirmed = true;
+                break;
+            }
+            if outcome.is_rejected() {
                 break;
             }
             // Evenly spaced (not bursty) so two backends confirming at once don't
@@ -4479,7 +4576,13 @@ fn spawn_status_heartbeat_publisher(state: Arc<DaemonState>) {
                     None => continue,
                 };
                 let status = status_from_snapshot(&snap, now);
-                let _ = state.provider.set_status(&status, &keys).await;
+                if let Ok(eid) = state.provider.set_status(&status, &keys).await {
+                    let signer_pubkey = keys.public_key().to_hex();
+                    state.with_store(|s| {
+                        s.confirm_local_presence(&snap, &signer_pubkey, &eid.to_hex(), now)
+                            .ok();
+                    });
+                }
             }
         }
     });
@@ -4526,11 +4629,19 @@ fn spawn_status_outbox_drainer(state: Arc<DaemonState>) {
                     let status = status_from_snapshot(&item.snapshot, now);
                     match state.provider.set_status(&status, &keys).await {
                         Ok(eid) => {
+                            let signer_pubkey = keys.public_key().to_hex();
                             state.with_store(|s| {
                                 s.mark_status_published(
                                     &item.session_id,
                                     item.state_version,
                                     &eid.to_hex(),
+                                )
+                                .ok();
+                                s.confirm_local_presence(
+                                    &item.snapshot,
+                                    &signer_pubkey,
+                                    &eid.to_hex(),
+                                    now,
                                 )
                                 .ok();
                             });

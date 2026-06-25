@@ -9,6 +9,7 @@
 //!   methods, not stored; the provider owns only stable construction-time data.
 
 use crate::domain::DomainEvent;
+use crate::fabric::group_management::{classify_group_publish_error, GroupPublishOutcome};
 use crate::fabric::nip29::wire::Nip29WireCodec;
 use crate::fabric::nostr_delivery::NostrDelivery;
 use crate::fabric::{MaterializationOutcome, RawEnvelope, WireCodec};
@@ -647,26 +648,39 @@ impl Nip29Provider {
         keys: &nostr_sdk::prelude::Keys,
         label: &str,
     ) -> bool {
+        self.publish_group_management_outcome(builder, keys, label)
+            .await
+            .is_applied()
+    }
+
+    async fn publish_group_management_outcome(
+        &self,
+        builder: EventBuilder,
+        keys: &nostr_sdk::prelude::Keys,
+        label: &str,
+    ) -> GroupPublishOutcome {
         match self.transport.publish_signed_checked(builder, keys).await {
-            Ok(_) => true,
+            Ok(_) => GroupPublishOutcome::Applied,
             Err(e) => {
                 let s = e.to_string();
-                // Idempotent relay responses: the relay's in-memory state already
-                // reflects what we asked for, so treat as success.
-                // nip29.f7z.io phrases the put-user no-op as "all targets are members
-                // already" / "already a member"; create as "already exists"/"duplicate".
-                let benign = s.contains("already exists")
-                    || s.contains("duplicate")
-                    || s.contains("members already")
-                    || s.contains("already a member");
-                // On non-benign rejection the event was pushed to transport.retry_queue
-                // by publish_signed_checked; the retry drainer will re-attempt it.
-                if !benign && std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                    eprintln!(
-                        "[daemon] NIP-29 {label} rejected, queued for retry: {e:#}"
-                    );
+                let outcome = classify_group_publish_error(&s);
+                let log_dir = crate::config::edge_home().join("logs");
+                let _ = crate::config::ensure_dir(&log_dir);
+                let path = log_dir.join("group-mgmt.log");
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    use std::io::Write as _;
+                    let ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let ts = crate::util::format_local_datetime_ms(ms);
+                    let _ = writeln!(f, "{ts} {label} outcome={outcome:?} err={e:#}");
                 }
-                benign
+                outcome
             }
         }
     }
@@ -695,16 +709,26 @@ impl Nip29Provider {
     /// treated it as a benign duplicate ("already exists"). Returns `false`
     /// when `tenexPrivateKey` is absent, malformed, or the relay rejected.
     pub async fn nip29_add_member(&self, project: &str, pubkey_hex: &str) -> bool {
+        self.nip29_add_member_outcome(project, pubkey_hex)
+            .await
+            .is_applied()
+    }
+
+    pub(crate) async fn nip29_add_member_outcome(
+        &self,
+        project: &str,
+        pubkey_hex: &str,
+    ) -> GroupPublishOutcome {
         let Some(mgmt_keys) = self.parse_management_keys() else {
-            return false;
+            return GroupPublishOutcome::Rejected;
         };
         Self::log_group_role_decision(project, pubkey_hex, "member", "add member");
         match crate::fabric::nip29::lifecycle::group_put_user(project, pubkey_hex) {
             Ok(b) => {
-                self.publish_group_management(b, &mgmt_keys, "9000 put-user (session)")
+                self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (session)")
                     .await
             }
-            Err(_) => false,
+            Err(_) => GroupPublishOutcome::Rejected,
         }
     }
 
@@ -729,16 +753,26 @@ impl Nip29Provider {
     /// Admin-add `pubkey_hex` to `project` with the `admin` role. Best-effort,
     /// same accept/benign-duplicate semantics as [`nip29_add_member`].
     pub async fn nip29_add_admin(&self, project: &str, pubkey_hex: &str) -> bool {
+        self.nip29_add_admin_outcome(project, pubkey_hex)
+            .await
+            .is_applied()
+    }
+
+    pub(crate) async fn nip29_add_admin_outcome(
+        &self,
+        project: &str,
+        pubkey_hex: &str,
+    ) -> GroupPublishOutcome {
         let Some(mgmt_keys) = self.parse_management_keys() else {
-            return false;
+            return GroupPublishOutcome::Rejected;
         };
         Self::log_group_role_decision(project, pubkey_hex, "admin", "add admin");
         match crate::fabric::nip29::lifecycle::group_put_admin(project, pubkey_hex) {
             Ok(b) => {
-                self.publish_group_management(b, &mgmt_keys, "9000 put-user (admin)")
+                self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (admin)")
                     .await
             }
-            Err(_) => false,
+            Err(_) => GroupPublishOutcome::Rejected,
         }
     }
 
@@ -763,16 +797,15 @@ impl Nip29Provider {
         if !created {
             return false;
         }
-        let locked =
-            match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(
-                child_h, name, parent_h,
-            ) {
-                Ok(b) => {
-                    self.publish_group_management(b, &mgmt_keys, "9002 lock-with-parent")
-                        .await
-                }
-                Err(_) => false,
-            };
+        let locked = match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(
+            child_h, name, parent_h,
+        ) {
+            Ok(b) => {
+                self.publish_group_management(b, &mgmt_keys, "9002 lock-with-parent")
+                    .await
+            }
+            Err(_) => false,
+        };
         if !locked {
             return false;
         }

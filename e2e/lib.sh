@@ -79,6 +79,13 @@ require_nak() {
   command -v nak >/dev/null 2>&1 || die "nak (Nostr army knife) not found on PATH — install it or set up keys manually"
 }
 
+nak_req_contains() {
+  local needle="$1"; shift
+  local out
+  out="$(nak req "$@" 2>/dev/null || true)"
+  [[ "${out}" == *"${needle}"* ]]
+}
+
 # Mint a backend's identity key once and cache it under KEYS_DIR. Idempotent:
 # re-running run.sh reuses the same keys so group admin membership is stable.
 backend_seckey() {

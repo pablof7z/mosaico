@@ -1,9 +1,9 @@
-//! Background retry queue for relay-rejected Nostr events.
+//! Background retry queue for explicit relay-publish retries.
 //!
-//! When a checked publish (`publish_signed_checked` / `publish_event_checked`)
-//! returns `Err` due to a relay rejection, the signed `Event` is pushed here.
-//! A daemon background task (`spawn_retry_drainer`) drains due entries and
-//! retries with exponential backoff, giving up after `MAX_ATTEMPTS`.
+//! Checked publishes report one relay verdict and do not enqueue hidden retries.
+//! Callers that know a failed event is safe and useful to retry can push it here;
+//! the daemon background task (`spawn_retry_drainer`) drains due entries with
+//! exponential backoff and gives up after `MAX_ATTEMPTS`.
 
 use nostr_sdk::prelude::Event;
 use std::sync::Mutex;
@@ -39,18 +39,20 @@ impl RetryQueue {
             event.kind.as_u16(),
             BASE_DELAY_MS,
         );
-        self.inner
-            .lock()
-            .unwrap()
-            .push(PendingRetry { event, attempt: 0, retry_after });
+        self.inner.lock().unwrap().push(PendingRetry {
+            event,
+            attempt: 0,
+            retry_after,
+        });
     }
 
     /// Take all entries whose `retry_after` has passed, leaving the rest.
     pub fn drain_due(&self) -> Vec<PendingRetry> {
         let now = Instant::now();
         let mut q = self.inner.lock().unwrap();
-        let (due, pending): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut *q).into_iter().partition(|r| r.retry_after <= now);
+        let (due, pending): (Vec<_>, Vec<_>) = std::mem::take(&mut *q)
+            .into_iter()
+            .partition(|r| r.retry_after <= now);
         *q = pending;
         due
     }

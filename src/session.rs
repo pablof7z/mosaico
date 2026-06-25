@@ -7,10 +7,11 @@
 //! NO I/O — `state.rs` owns the SQLite side, `domain.rs` owns the wire-facing
 //! `Status`. Everything here is deterministic and table-testable.
 //!
-//! The single source of truth for a live local session is the `session_state`
-//! row (see `state.rs`); `SessionSnapshot` is its in-memory projection and is
-//! ALSO the projection of a `peer_session_state` row, so one `derive_status`
-//! serves local and peer readers identically.
+//! Local-only runtime truth lives in `sessions` / `session_state` (pid, harness
+//! ids, transcript, current draft status to publish). Published actor status is
+//! projected into `presence_state` from relay-confirmed kind:30315 events. A
+//! `SessionSnapshot` is the shared in-memory projection of both, so one
+//! `derive_status` serves local and relay-confirmed readers identically.
 
 use crate::domain::Lifecycle;
 
@@ -175,8 +176,8 @@ impl SessionObservation {
 }
 
 /// What `Store::record_peer_status` receives from the kind:30315 materializer.
-/// Mirrors a peer's self-contained per-session signal into `peer_session_state`.
-/// Keyed by `(agent_pubkey, project)` — one row per agent per group, no session_id.
+/// Mirrors a relay-confirmed self-contained status signal into `presence_state`.
+/// Keyed by `(agent_pubkey, project)` — one row per actor per group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerStatusObservation {
     pub agent_pubkey: String,
@@ -197,16 +198,16 @@ pub struct PeerStatusObservation {
 
 // ── snapshot (the complete public state) ─────────────────────────────────────
 
-/// Whether a snapshot came from this machine's authoritative `session_state` or
-/// the materialized `peer_session_state` mirror.
+/// Whether a snapshot came from this machine's local runtime draft or the
+/// relay-confirmed published presence projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotSource {
     Local,
     Peer,
 }
 
-/// The complete public state of ONE session — the unified projection of both a
-/// `session_state` row (Local) and a `peer_session_state` row (Peer). Every
+/// The complete public state of ONE actor — the unified projection of both a
+/// local `session_state` row and a relay-confirmed `presence_state` row. Every
 /// reader (`who`, statusline, turn deltas, the outbox drainer) consumes this
 /// exact shape and runs `derive_status` over it, so the busy/liveness fork is
 /// structurally impossible.

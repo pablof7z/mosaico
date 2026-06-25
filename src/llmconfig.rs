@@ -11,9 +11,10 @@
 //! `configurations[name]` → `{provider, model}` → creds from
 //! `providers.json["providers"][provider]["apiKey"]`.
 //!
-//! Only `openrouter` and `ollama` are supported for distillation; any other
-//! provider (acp/meta/anthropic/codex/…) resolves to `None` so the caller falls
-//! back to the heuristic distiller.
+//! `openrouter`, `ollama`, and `claude-cli` are supported for distillation; any
+//! other provider (acp/meta/anthropic/codex/…) resolves to `None` so the caller
+//! falls back to the heuristic distiller. `claude-cli` needs no entry in
+//! `providers.json` — the CLI binary handles its own auth.
 
 use serde_json::Value;
 use std::path::Path;
@@ -49,6 +50,16 @@ pub fn resolve_role_in(dir: &Path, role: &str) -> Option<ResolvedModel> {
     let conf = llms.get("configurations")?.get(config_name)?;
     let provider = conf.get("provider")?.as_str()?.to_string();
     let model = conf.get("model")?.as_str()?.to_string();
+
+    // claude-cli handles its own auth — no entry required in providers.json.
+    if provider == "claude-cli" {
+        return Some(ResolvedModel {
+            provider,
+            model,
+            api_key: String::new(),
+            base_url: String::new(),
+        });
+    }
 
     // provider -> apiKey (string or array; take first if array)
     let api_key_field = providers.get("providers")?.get(&provider)?.get("apiKey")?;
@@ -140,6 +151,24 @@ mod tests {
         }"#;
         let d = write_dir(PROVIDERS, llms);
         assert!(resolve_role_in(d.path(), "edge-distillation").is_none());
+    }
+
+    #[test]
+    fn claude_cli_resolves_without_providers_entry() {
+        // claude-cli needs no apiKey in providers.json — the CLI handles its own auth.
+        let llms = r#"{
+            "configurations": {
+                "claude-haiku": { "model": "claude-haiku-4-5-20251001", "provider": "claude-cli" }
+            },
+            "edge-distillation": "claude-haiku"
+        }"#;
+        let providers = r#"{ "providers": {} }"#;
+        let d = write_dir(providers, llms);
+        let r = resolve_role_in(d.path(), "edge-distillation").unwrap();
+        assert_eq!(r.provider, "claude-cli");
+        assert_eq!(r.model, "claude-haiku-4-5-20251001");
+        assert_eq!(r.api_key, "");
+        assert_eq!(r.base_url, "");
     }
 
     #[test]

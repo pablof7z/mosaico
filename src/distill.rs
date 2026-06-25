@@ -9,12 +9,28 @@
 //! agent is doing given the transcript.
 //!
 //! Ordering: `$TENEX_EDGE_DISTILL_CMD` (explicit external-command override) →
-//! the `edge-distillation` role in `~/.tenex-edge/llms.json` called natively via
-//! `rig` (openrouter/ollama) → `None`.
+//! the `edge-distillation` role in `~/.tenex-edge/llms.json` dispatched by
+//! provider: `claude-cli` → native `claude` CLI binary; `openrouter`/`ollama` →
+//! native `rig` → `None`.
 
 use anyhow::Result;
 use std::io::Write;
 use std::process::{Command, Stdio};
+
+fn dlog(session_id: &str, msg: &str) {
+    let log_dir = crate::config::edge_home().join("logs");
+    let _ = crate::config::ensure_dir(&log_dir);
+    let path = log_dir.join("distill.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let ts = crate::util::format_local_datetime_ms(ms);
+        let short = &session_id[..8.min(session_id.len())];
+        let _ = writeln!(f, "{ts} [{short}] {msg}");
+    }
+}
 
 /// Pipes a context string to an external command's stdin; its stdout (first
 /// non-empty line) is the distilled intent. This is the LLM seam — point
@@ -212,6 +228,55 @@ async fn complete_via_rig(
     }
 }
 
+/// Invoke the `claude` CLI binary in print-mode (`-p`) as the distillation LLM.
+/// The system prompt is written to a fixed temp path (content is invariant);
+/// the user context is piped to stdin. Returns the `result` field from the CLI's
+/// JSON output, or `Err` on spawn/parse failure.
+async fn complete_via_claude_cli(model: &str, context: &str) -> Result<Option<String>, String> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+
+    let sys_path = std::env::temp_dir().join("tenex-edge-distill-sys.txt");
+    std::fs::write(&sys_path, SESSION_SYSTEM_PROMPT)
+        .map_err(|e| format!("write distill system prompt: {e}"))?;
+
+    let mut child = tokio::process::Command::new("claude")
+        .args(["-p", "--no-session-persistence", "--output-format", "json", "--disallowedTools", "*"])
+        .arg("--model").arg(model)
+        .arg("--system-prompt-file").arg(&sys_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn claude CLI: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(context.as_bytes()).await;
+    }
+
+    let output = child.wait_with_output().await
+        .map_err(|e| format!("claude CLI wait: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    let v: serde_json::Value = serde_json::from_str(&stdout).map_err(|_| {
+        format!(
+            "parse claude CLI JSON; stdout=`{}` stderr=`{}`",
+            stdout.chars().take(400).collect::<String>(),
+            stderr.chars().take(400).collect::<String>(),
+        )
+    })?;
+
+    if v.get("is_error").and_then(|x| x.as_bool()).unwrap_or(false) {
+        let msg = v.get("result").and_then(|x| x.as_str()).unwrap_or(stderr.as_str());
+        return Err(format!("claude CLI error: {msg}"));
+    }
+
+    let text = v.get("result").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    Ok(if text.is_empty() { None } else { Some(text) })
+}
+
 /// Assemble a [`SessionLabels`] from parsed lines, applying nudge-to-keep: a
 /// missing/empty title falls back to `current_title`. Returns None only when
 /// there is no title at all (no parse, no current) — so the caller can try the
@@ -238,7 +303,9 @@ fn assemble(
 /// The `current_title` is fed back so the model keeps a still-accurate title
 /// (nudge-to-keep). Ordering:
 ///   (a) `$TENEX_EDGE_DISTILL_CMD` set → external command (explicit override);
-///   (b) else the `edge-distillation` role resolves → native rig (openrouter/ollama);
+///   (b) else the `edge-distillation` role resolves:
+///         – provider = `claude-cli` → native `claude` CLI binary;
+///         – provider = `openrouter`/`ollama` → native rig;
 ///   (c) else **nudge-to-keep**: retain the current title with an empty activity.
 ///
 /// Returns `(labels, error)`. `error` is `Some` only when the LLM was actually
@@ -247,6 +314,7 @@ fn assemble(
 pub async fn distill_session(
     transcript: &str,
     current_title: Option<&str>,
+    session_id: &str,
 ) -> (Option<SessionLabels>, Option<String>) {
     let ctx = transcript.trim();
     if ctx.is_empty() {
@@ -270,38 +338,42 @@ pub async fn distill_session(
     // (a) explicit external-command override. The command sees SESSION_SYSTEM_PROMPT
     // semantics by convention (it is the LLM seam); we parse its two-line output.
     if let Some(cmd) = CommandDistiller::resolve() {
-        eprintln!("[distill] using TENEX_EDGE_DISTILL_CMD override");
+        dlog(session_id, "using TENEX_EDGE_DISTILL_CMD override");
         if let Some(out) = cmd.summarize_full(&input) {
             if let Some(labels) = assemble(parse_labels(&out), current_title) {
                 return (Some(labels), None);
             }
         }
-        eprintln!("[distill] TENEX_EDGE_DISTILL_CMD produced no usable output");
+        dlog(session_id, "TENEX_EDGE_DISTILL_CMD produced no usable output");
     }
-    // (b) native rig via the edge-distillation role, with the combined preamble.
+    // (b) edge-distillation role — dispatch by provider.
     let mut rig_error: Option<String> = None;
     match crate::llmconfig::resolve_role("edge-distillation") {
-        None => eprintln!("[distill] edge-distillation role not resolved (check llms.json + providers.json)"),
+        None => dlog(session_id, "edge-distillation role not resolved (check llms.json + providers.json)"),
         Some(resolved) => {
-            eprintln!("[distill] calling {}/{}", resolved.provider, resolved.model);
-            match complete_via_rig(&resolved, &input).await {
+            dlog(session_id, &format!("calling {}/{}", resolved.provider, resolved.model));
+            let result = match resolved.provider.as_str() {
+                "claude-cli" => complete_via_claude_cli(&resolved.model, &input).await,
+                _ => complete_via_rig(&resolved, &input).await,
+            };
+            match result {
                 Ok(Some(out)) => {
-                    eprintln!("[distill] rig response: {out:?}");
+                    dlog(session_id, &format!("distill response: {out:?}"));
                     if let Some(labels) = assemble(parse_labels(&out), current_title) {
                         return (Some(labels), None);
                     }
-                    eprintln!("[distill] parse/assemble produced no labels from rig response");
+                    dlog(session_id, "parse/assemble produced no labels from response");
                 }
-                Ok(None) => eprintln!("[distill] rig returned empty output (unsupported provider or blank)"),
+                Ok(None) => dlog(session_id, "distiller returned empty output (unsupported provider or blank)"),
                 Err(e) => {
-                    eprintln!("[distill] rig error: {e}");
+                    dlog(session_id, &format!("distill error: {e}"));
                     rig_error = Some(e);
                 }
             }
         }
     }
     // (c) no model / empty output → keep the existing title (nudge-to-keep).
-    eprintln!("[distill] falling back to nudge-to-keep current_title={current_title:?}");
+    dlog(session_id, &format!("falling back to nudge-to-keep current_title={current_title:?}"));
     let labels = current_title
         .map(str::trim)
         .filter(|t| !t.is_empty())
@@ -376,7 +448,7 @@ mod tests {
             "TENEX_EDGE_DISTILL_CMD",
             "cat >/dev/null; printf 'TITLE: Fix GitHub issue 1\\nNOW: reading the issue tracker\\n'",
         );
-        let (got, err) = distill_session("user: fix github issue 1", None).await;
+        let (got, err) = distill_session("user: fix github issue 1", None, "test-session").await;
         assert!(err.is_none());
         let got = got.unwrap();
         assert_eq!(got.title, "Fix GitHub issue 1");
@@ -390,6 +462,7 @@ mod tests {
         let (got, err) = distill_session(
             "TRANSCRIPT:\nuser: keep going",
             Some("refactoring the auth flow"),
+            "test-session",
         )
         .await;
         std::env::remove_var("TENEX_EDGE_DISTILL_CMD");
@@ -402,7 +475,7 @@ mod tests {
     /// Empty transcript returns the current title (no activity) rather than re-distilling.
     #[tokio::test]
     async fn distill_session_empty_transcript_returns_current() {
-        let (got, err) = distill_session("   ", Some("writing the parser")).await;
+        let (got, err) = distill_session("   ", Some("writing the parser"), "test-session").await;
         assert!(err.is_none());
         let got = got.unwrap();
         assert_eq!(got.title, "writing the parser");
