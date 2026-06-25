@@ -2,11 +2,19 @@
 //! Mirrors the `pc install` surface: --all, --harness, --dry-run, --status,
 //! and --uninstall.
 
-use anyhow::{bail, Context, Result};
+mod config;
+mod hooks;
+mod io;
+
+use anyhow::{bail, Result};
+use config::Harness;
 use dialoguer::MultiSelect;
 use owo_colors::OwoColorize;
-use std::io::{self, IsTerminal as _};
-use std::path::{Path, PathBuf};
+use std::io::{self as stdio, IsTerminal as _};
+
+pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
+pub(super) use hooks::{is_installed, merge_hooks, migrate_codex_root_events};
+pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 
 pub(super) struct InstallOpts {
     pub all: bool,
@@ -14,277 +22,6 @@ pub(super) struct InstallOpts {
     pub dry_run: bool,
     pub status: bool,
     pub uninstall: bool,
-}
-
-// Embedded opencode plugin: the same file the source tree ships at
-// integrations/opencode/tenex-edge.ts.
-const OPENCODE_PLUGIN_TS: &str = include_str!("../../integrations/opencode/tenex-edge.ts");
-const CODEX_ROOT_HOOK_EVENTS: &[&str] =
-    &["SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"];
-
-#[derive(Debug)]
-struct Harness {
-    id: &'static str,
-    display: &'static str,
-    config_path: PathBuf,
-    detected: bool,
-}
-
-fn harnesses() -> Vec<Harness> {
-    let home = home_dir();
-    vec![
-        Harness {
-            id: "claude-code",
-            display: "Claude Code",
-            config_path: home.join(".claude/settings.json"),
-            detected: home.join(".claude").exists() || bin_on_path("claude"),
-        },
-        Harness {
-            id: "codex",
-            display: "Codex",
-            config_path: home.join(".codex/hooks.json"),
-            detected: home.join(".codex").exists() || bin_on_path("codex"),
-        },
-        Harness {
-            id: "opencode",
-            display: "opencode",
-            config_path: home.join(".config/opencode/plugin/tenex-edge.ts"),
-            detected: home.join(".config/opencode").exists() || bin_on_path("opencode"),
-        },
-        Harness {
-            id: "grok",
-            display: "Grok Build",
-            config_path: home.join(".grok/user-settings.json"),
-            detected: home.join(".grok").exists() || bin_on_path("grok"),
-        },
-    ]
-}
-
-fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
-}
-
-fn bin_on_path(bin: &str) -> bool {
-    let Ok(path) = std::env::var("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).any(|dir| dir.join(bin).is_file())
-}
-
-/// The hook signature we dedupe by: `tenex-edge hook --host <host> --type <type>`.
-fn sig(host: &str, ty: &str) -> String {
-    format!("tenex-edge hook --host {host} --type {ty}")
-}
-
-fn claude_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
-    let mk = |ty: &str, timeout: u64| {
-        serde_json::json!({
-            "hooks": [{
-                "type": "command",
-                "command": sig("claude-code", ty),
-                "timeout": timeout,
-            }]
-        })
-    };
-    vec![
-        ("SessionStart", mk("session-start", 10)),
-        ("SessionEnd", mk("session-end", 30)),
-        ("UserPromptSubmit", mk("user-prompt-submit", 30)),
-        ("PostToolUse", mk("post-tool-use", 10)),
-        ("Stop", mk("stop", 10)),
-    ]
-}
-
-fn codex_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
-    let mk = |ty: &str, timeout: u64, matcher: Option<&str>| {
-        let mut entry = serde_json::json!({
-            "hooks": [{
-                "type": "command",
-                "command": sig("codex", ty),
-                "timeout": timeout,
-            }]
-        });
-        if let Some(m) = matcher {
-            entry["matcher"] = serde_json::Value::String(m.into());
-        }
-        entry
-    };
-    vec![
-        (
-            "SessionStart",
-            mk("session-start", 30, Some("startup|resume")),
-        ),
-        ("UserPromptSubmit", mk("user-prompt-submit", 30, None)),
-        ("PostToolUse", mk("post-tool-use", 10, None)),
-        ("Stop", mk("stop", 30, None)),
-    ]
-}
-
-fn grok_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
-    let mk = |ty: &str, timeout: u64| {
-        serde_json::json!({
-            "hooks": [{
-                "type": "command",
-                "command": sig("grok", ty),
-                "timeout": timeout,
-            }]
-        })
-    };
-    vec![
-        ("SessionStart", mk("session-start", 10)),
-        ("SessionEnd", mk("session-end", 10)),
-        ("UserPromptSubmit", mk("user-prompt-submit", 30)),
-        ("PostToolUse", mk("post-tool-use", 10)),
-        ("Stop", mk("stop", 10)),
-    ]
-}
-
-fn hook_entries(h: &Harness) -> Vec<(&'static str, serde_json::Value)> {
-    match h.id {
-        "claude-code" => claude_hook_entries(),
-        "codex" => codex_hook_entries(),
-        "grok" => grok_hook_entries(),
-        _ => Vec::new(),
-    }
-}
-
-fn host_for_harness(h: &Harness) -> &'static str {
-    match h.id {
-        "claude-code" => "claude-code",
-        "codex" => "codex",
-        "grok" => "grok",
-        _ => h.id,
-    }
-}
-
-/// Does a hook group contain a tenex-edge command for `host`?
-fn group_is_ours(group: &serde_json::Value, host: &str) -> bool {
-    let needle = format!("tenex-edge hook --host {host} --type ");
-    group
-        .get("hooks")
-        .and_then(|h| h.as_array())
-        .map(|hooks| {
-            hooks.iter().any(|h| {
-                h.get("command")
-                    .and_then(|c| c.as_str())
-                    .is_some_and(|c| c.contains(&needle))
-            })
-        })
-        .unwrap_or(false)
-}
-
-fn ensure_object(v: &mut serde_json::Value) {
-    if !v.is_object() {
-        *v = serde_json::json!({});
-    }
-}
-
-fn ensure_hooks_object(
-    root: &mut serde_json::Value,
-) -> &mut serde_json::Map<String, serde_json::Value> {
-    ensure_object(root);
-    let root_obj = root.as_object_mut().expect("root forced to object");
-    let hooks = root_obj
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-    if !hooks.is_object() {
-        *hooks = serde_json::json!({});
-    }
-    hooks.as_object_mut().expect("hooks forced to object")
-}
-
-/// Codex used both root event keys and nested `hooks` JSON during the transition
-/// away from TOML. Keep user hooks by moving root event arrays under `hooks`.
-fn migrate_codex_root_events(root: &mut serde_json::Value) {
-    ensure_object(root);
-    let Some(root_obj) = root.as_object_mut() else {
-        return;
-    };
-    let mut moved = Vec::new();
-    for event in CODEX_ROOT_HOOK_EVENTS {
-        if let Some(value) = root_obj.remove(*event) {
-            moved.push(((*event).to_string(), value));
-        }
-    }
-    if moved.is_empty() {
-        return;
-    }
-
-    let hooks = ensure_hooks_object(root);
-    for (event, incoming) in moved {
-        match (hooks.get_mut(&event), incoming) {
-            (Some(serde_json::Value::Array(existing)), serde_json::Value::Array(mut incoming)) => {
-                existing.append(&mut incoming);
-            }
-            (None, value) => {
-                hooks.insert(event, value);
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Merge our hook entries into a `{"hooks": {<Event>: [...]}}` JSON object,
-/// replacing any existing groups that match our signature.
-fn merge_hooks(
-    root: &mut serde_json::Value,
-    entries: &[(&str, serde_json::Value)],
-    host: &str,
-    uninstall: bool,
-) -> usize {
-    let hooks_obj = ensure_hooks_object(root);
-    let mut removed = 0usize;
-    for (event, entry) in entries {
-        let slot = hooks_obj
-            .entry((*event).to_string())
-            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-        if !slot.is_array() {
-            *slot = serde_json::Value::Array(Vec::new());
-        }
-        let groups = slot.as_array_mut().expect("event forced to array");
-        let before = groups.len();
-        groups.retain(|g| !group_is_ours(g, host));
-        removed += before - groups.len();
-        if !uninstall {
-            groups.push(entry.clone());
-        }
-    }
-    hooks_obj.retain(|_, v| v.as_array().map(|a| !a.is_empty()).unwrap_or(true));
-    removed
-}
-
-fn is_json_harness_installed(h: &Harness) -> bool {
-    let Ok(content) = std::fs::read_to_string(&h.config_path) else {
-        return false;
-    };
-    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return false;
-    };
-    if h.id == "codex" {
-        migrate_codex_root_events(&mut v);
-    }
-    let host = host_for_harness(h);
-    hook_entries(h).iter().all(|(evt, _)| {
-        v.get("hooks")
-            .and_then(|h| h.get(evt))
-            .and_then(|a| a.as_array())
-            .is_some_and(|arr| arr.iter().any(|g| group_is_ours(g, host)))
-    })
-}
-
-fn is_installed(h: &Harness) -> bool {
-    match h.id {
-        "opencode" => {
-            h.config_path.exists()
-                && std::fs::read_to_string(&h.config_path)
-                    .map(|s| s.contains("tenex-edge") && s.contains("opencode"))
-                    .unwrap_or(false)
-        }
-        "claude-code" | "codex" | "grok" => is_json_harness_installed(h),
-        _ => false,
-    }
 }
 
 pub(super) async fn install(opts: InstallOpts) -> Result<()> {
@@ -387,7 +124,7 @@ fn resolve_selection<'a>(all: &'a [Harness], opts: &InstallOpts) -> Result<Vec<&
         return Ok(all.iter().filter(|h| h.detected).collect());
     }
 
-    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+    if stdio::stdin().is_terminal() && stdio::stdout().is_terminal() {
         return interactive_select(all);
     }
 
@@ -485,44 +222,11 @@ fn install_opencode(h: &Harness, opts: &InstallOpts) -> Result<()> {
     Ok(())
 }
 
-fn read_json_or_default(path: &Path) -> Result<serde_json::Value> {
-    let mut root = match std::fs::read_to_string(path) {
-        Ok(content) if content.trim().is_empty() => serde_json::json!({}),
-        Ok(content) => serde_json::from_str(&content)
-            .with_context(|| format!("{} is not valid JSON", path.display()))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
-    ensure_object(&mut root);
-    Ok(root)
-}
-
-fn print_json_preview(v: &serde_json::Value) -> Result<()> {
-    let pretty = serde_json::to_string_pretty(v)?;
-    for line in pretty.lines() {
-        println!("    {line}");
-    }
-    Ok(())
-}
-
-fn write_json(path: &Path, v: &serde_json::Value) -> Result<()> {
-    let pretty = serde_json::to_string_pretty(v)?;
-    write_text(path, &(pretty + "\n"))
-}
-
-fn write_text(path: &Path, text: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, text)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn harness(id: &'static str, path: PathBuf) -> Harness {
+    fn harness(id: &'static str, path: std::path::PathBuf) -> Harness {
         Harness {
             id,
             display: id,
@@ -554,7 +258,7 @@ mod tests {
             }
         });
 
-        merge_hooks(&mut root, &codex_hook_entries(), "codex", false);
+        merge_hooks(&mut root, &config::codex_hook_entries(), "codex", false);
 
         let groups = root
             .pointer("/hooks/UserPromptSubmit")
@@ -605,7 +309,7 @@ mod tests {
             }
         });
 
-        let removed = merge_hooks(&mut root, &codex_hook_entries(), "codex", true);
+        let removed = merge_hooks(&mut root, &config::codex_hook_entries(), "codex", true);
 
         assert_eq!(removed, 2);
         assert!(root.pointer("/hooks/Stop").is_none());
@@ -666,7 +370,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let h = harness("codex", temp.path().join("hooks.json"));
         let mut root = serde_json::json!({});
-        merge_hooks(&mut root, &codex_hook_entries(), "codex", false);
+        merge_hooks(&mut root, &config::codex_hook_entries(), "codex", false);
         write_json(&h.config_path, &root).unwrap();
 
         assert!(is_installed(&h));
