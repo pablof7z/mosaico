@@ -3,7 +3,7 @@ use anyhow::{Context as _, Result};
 
 // ── status ────────────────────────────────────────────────────────────────────
 
-pub async fn tmux_status() -> Result<()> {
+pub(super) async fn tmux_status() -> Result<()> {
     use owo_colors::OwoColorize as _;
 
     let v = crate::daemon::blocking::call("tmux_status", serde_json::json!({}))
@@ -40,7 +40,7 @@ pub async fn tmux_status() -> Result<()> {
 
 // ── send (manual doorbell) ────────────────────────────────────────────────────
 
-pub async fn tmux_send(session: String) -> Result<()> {
+pub(super) async fn tmux_send(session: String) -> Result<()> {
     let v = crate::daemon::blocking::call("tmux_send", serde_json::json!({ "session": session }))
         .context("tmux_send RPC")?;
 
@@ -56,7 +56,7 @@ pub async fn tmux_send(session: String) -> Result<()> {
 
 // ── spawn ─────────────────────────────────────────────────────────────────────
 
-pub async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
+pub(super) async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
     let project = match project {
         Some(p) => p,
         None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
@@ -85,7 +85,7 @@ pub async fn tmux_spawn(agent: String, project: Option<String>) -> Result<()> {
 /// `tmux_spawn` just prints the pane id. Both paths produce a session with the
 /// tmux chrome already hidden and the prefix key unbound, so no per-verb
 /// `hide_session_chrome` step is needed here.
-pub async fn launch(
+pub(crate) async fn launch(
     agent: String,
     project: Option<String>,
     channel: Option<String>,
@@ -217,13 +217,13 @@ async fn create_channel_interactive(
 
 // ── attach ────────────────────────────────────────────────────────────────────
 
-pub async fn tmux_attach(session: String) -> Result<()> {
+pub(super) async fn tmux_attach(session: String) -> Result<()> {
     super::attach::attach_session(&session)
 }
 
 // ── resume ────────────────────────────────────────────────────────────────────
 
-pub async fn tmux_resume(session: String) -> Result<()> {
+pub(super) async fn tmux_resume(session: String) -> Result<()> {
     let pane = super::attach::resume_to_pane(&session)?;
     match pane {
         Some(pane_id) => super::attach::attach_pane(&pane_id),
@@ -235,7 +235,7 @@ pub async fn tmux_resume(session: String) -> Result<()> {
 /// row (attachable or not: an in-tmux session can still be replayed) or any
 /// Resumable row. `None` for Spawnable rows. The daemon makes the final call on
 /// whether a token exists; this just maps cursor → session id.
-pub fn selected_resume_sid(
+pub(super) fn selected_resume_sid(
     live: &[&super::tui_model::LiveRow],
     spawnable_count: usize,
     resumable: &[&super::tui_model::ResumeRow],

@@ -3,50 +3,50 @@ use crate::util::SessionId;
 use anyhow::Result;
 use std::time::SystemTime;
 
-pub struct LiveRow {
-    pub slug: String,
-    pub host: String,
-    pub project: String,
-    pub session_id: String,       // full raw id for RPC calls
-    pub session_codename: String, // stable display codename (e.g. bravo4217)
-    pub status: String,
-    pub attachable: bool, // has a live tmux endpoint
+pub(super) struct LiveRow {
+    pub(super) slug: String,
+    pub(super) host: String,
+    pub(super) project: String,
+    pub(super) session_id: String,       // full raw id for RPC calls
+    pub(super) session_codename: String, // stable display codename (e.g. bravo4217)
+    pub(super) status: String,
+    pub(super) attachable: bool, // has a live tmux endpoint
 }
 
-pub struct SpawnRow {
-    pub slug: String,
-    pub host: String,
-    pub command: String,
+pub(super) struct SpawnRow {
+    pub(super) slug: String,
+    pub(super) host: String,
+    pub(super) command: String,
 }
 
 /// A pane to attach to once the event loop yields, plus the session to fall back
 /// to if attaching fails because the pane is stale/gone. Attaching is best-effort:
 /// the daemon's view of a live pane can be out of date, so a pane-not-found error
 /// should never surface to the user — we just resume the session instead.
-pub struct PendingAttach {
-    pub pane: String,
+pub(super) struct PendingAttach {
+    pub(super) pane: String,
     /// Session id to resume if attaching to `pane` fails. `None` for freshly
     /// spawned panes (nothing to resume — the spawn itself is the live session).
-    pub resume_sid: Option<String>,
+    pub(super) resume_sid: Option<String>,
 }
 
-pub struct ResumeRow {
-    pub slug: String,
-    pub project: String,
-    pub session_id: String,       // full raw id for RPC calls
-    pub session_codename: String, // stable display codename (e.g. bravo4217)
-    pub title: String,
-    pub created_at: u64,
+pub(super) struct ResumeRow {
+    pub(super) slug: String,
+    pub(super) project: String,
+    pub(super) session_id: String,       // full raw id for RPC calls
+    pub(super) session_codename: String, // stable display codename (e.g. bravo4217)
+    pub(super) title: String,
+    pub(super) created_at: u64,
 }
 
 /// Tabs computed from live data: visible projects ordered by activity (live
 /// first, then recently-active), plus hidden projects (>7 days inactive).
-pub struct ProjectTabs {
+pub(super) struct ProjectTabs {
     /// Projects shown in the tab bar. Order: projects with live sessions first
     /// (alphabetically), then recently-active projects (alphabetically).
-    pub visible: Vec<String>,
+    pub(super) visible: Vec<String>,
     /// Projects with no activity in the past 7 days. Only reachable via search.
-    pub hidden: Vec<String>,
+    pub(super) hidden: Vec<String>,
 }
 
 impl PartialEq for ProjectTabs {
@@ -55,20 +55,20 @@ impl PartialEq for ProjectTabs {
     }
 }
 
-pub enum TuiMode {
+pub(super) enum TuiMode {
     Normal,
     Search { query: String, sel: usize },
 }
 
-pub struct TuiData {
-    pub live: Vec<LiveRow>,
-    pub spawnable: Vec<SpawnRow>,
-    pub resumable: Vec<ResumeRow>,
+pub(super) struct TuiData {
+    pub(super) live: Vec<LiveRow>,
+    pub(super) spawnable: Vec<SpawnRow>,
+    pub(super) resumable: Vec<ResumeRow>,
 }
 
 const TWELVE_HOURS: u64 = 12 * 3600;
 
-pub fn compute_project_tabs(data: &TuiData) -> ProjectTabs {
+pub(super) fn compute_project_tabs(data: &TuiData) -> ProjectTabs {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -123,18 +123,18 @@ pub fn compute_project_tabs(data: &TuiData) -> ProjectTabs {
     ProjectTabs { visible, hidden }
 }
 
-pub fn tab_project(tabs: &[String], tab_idx: usize) -> Option<&str> {
+pub(super) fn tab_project(tabs: &[String], tab_idx: usize) -> Option<&str> {
     tabs.get(tab_idx).map(|s| s.as_str())
 }
 
-pub fn filter_live<'a>(data: &'a TuiData, project_filter: &str) -> Vec<&'a LiveRow> {
+pub(super) fn filter_live<'a>(data: &'a TuiData, project_filter: &str) -> Vec<&'a LiveRow> {
     data.live
         .iter()
         .filter(|r| r.project == project_filter)
         .collect()
 }
 
-pub fn filter_resumable<'a>(
+pub(super) fn filter_resumable<'a>(
     data: &'a TuiData,
     project_filter: &str,
     exited_hours: Option<u64>,
@@ -154,7 +154,7 @@ pub fn filter_resumable<'a>(
         .collect()
 }
 
-pub fn row_project_for_tabs(row: &serde_json::Value) -> String {
+pub(super) fn row_project_for_tabs(row: &serde_json::Value) -> String {
     row["work_root"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -163,7 +163,7 @@ pub fn row_project_for_tabs(row: &serde_json::Value) -> String {
         .to_string()
 }
 
-pub fn update_tabs_after_refresh(data: &TuiData, pt: &mut ProjectTabs, tab_idx: &mut usize) {
+pub(super) fn update_tabs_after_refresh(data: &TuiData, pt: &mut ProjectTabs, tab_idx: &mut usize) {
     let mut new_pt = compute_project_tabs(data);
     // Preserve the currently-selected project tab even if it became "hidden"
     // (e.g., selected via fuzzy search but older than 12h).
@@ -185,7 +185,7 @@ pub fn update_tabs_after_refresh(data: &TuiData, pt: &mut ProjectTabs, tab_idx: 
 
 /// Compute fuzzy matches for `query` across all projects (visible + hidden).
 /// Case-insensitive substring match; visible projects listed first.
-pub fn fuzzy_matches(pt: &ProjectTabs, query: &str) -> Vec<String> {
+pub(super) fn fuzzy_matches(pt: &ProjectTabs, query: &str) -> Vec<String> {
     let q = query.to_lowercase();
     pt.visible
         .iter()
@@ -195,7 +195,7 @@ pub fn fuzzy_matches(pt: &ProjectTabs, query: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn fetch_tui_data() -> Result<TuiData> {
+pub(super) fn fetch_tui_data() -> Result<TuiData> {
     let v = crate::daemon::blocking::call(
         "who",
         serde_json::json!({

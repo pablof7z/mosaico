@@ -30,7 +30,7 @@ fn resume_in_tui(session: &str) -> std::result::Result<String, String> {
 
 /// Interactive TUI for `tenex-edge tmux` (bare, no subcommand).
 /// Shows live sessions and spawnable agents; lets the user attach or spawn.
-pub fn tmux_tui(popup: bool) -> Result<()> {
+pub(crate) fn tmux_tui(popup: bool) -> Result<()> {
     let refresh = Duration::from_secs(2);
     let mut selected: usize = 0;
     let mut status_msg = String::new();

@@ -4,14 +4,14 @@ use anyhow::Context as _;
 // ── shared attach logic ───────────────────────────────────────────────────────
 
 /// Resolve a session id to its live tmux pane id via the daemon, or `None`.
-pub fn pane_for_session(session_id: &str) -> Option<String> {
+pub(super) fn pane_for_session(session_id: &str) -> Option<String> {
     let v =
         crate::daemon::blocking::call("tmux_attach", serde_json::json!({ "session": session_id }))
             .ok()?;
     v["pane_id"].as_str().map(str::to_string)
 }
 
-pub fn attach_session(session_id: &str) -> anyhow::Result<()> {
+pub(super) fn attach_session(session_id: &str) -> anyhow::Result<()> {
     let v =
         crate::daemon::blocking::call("tmux_attach", serde_json::json!({ "session": session_id }))
             .context("tmux_attach RPC")?;
@@ -30,7 +30,7 @@ pub fn attach_session(session_id: &str) -> anyhow::Result<()> {
 
 /// Resolve a pane id (e.g. "%7") to `(session_name, window_index)` by scanning
 /// every pane in every session. Returns `None` if the pane is gone.
-pub fn resolve_pane_location(pane_id: &str) -> Option<(String, String)> {
+pub(super) fn resolve_pane_location(pane_id: &str) -> Option<(String, String)> {
     let out = std::process::Command::new("tmux")
         .args([
             "list-panes",
@@ -56,7 +56,7 @@ pub fn resolve_pane_location(pane_id: &str) -> Option<(String, String)> {
 
 /// The tmux session that owns `pane_id` (one session per agent now), or `None`
 /// if the pane is gone.
-pub fn session_of_pane(pane_id: &str) -> Option<String> {
+pub(super) fn session_of_pane(pane_id: &str) -> Option<String> {
     resolve_pane_location(pane_id).map(|(session, _window)| session)
 }
 
@@ -66,7 +66,7 @@ pub fn session_of_pane(pane_id: &str) -> Option<String> {
 /// this is what lets the `tenex-edge tmux` TUI stay running underneath and be
 /// returned to afterward. No grouped "view" session is needed: each agent is its
 /// own single-window session, so there is no current-window pointer to mirror.
-pub fn attach_pane_blocking(pane_id: &str) -> anyhow::Result<()> {
+pub(super) fn attach_pane_blocking(pane_id: &str) -> anyhow::Result<()> {
     let Some(session) = session_of_pane(pane_id) else {
         anyhow::bail!("pane {pane_id} not found in any tmux session");
     };
@@ -81,7 +81,7 @@ pub fn attach_pane_blocking(pane_id: &str) -> anyhow::Result<()> {
 /// Attach by replacing this process (for the one-shot CLI verbs, where returning
 /// to a shell on detach is the right behavior). Inside tmux it switches the
 /// current client; outside it execs `attach-session`.
-pub fn attach_pane(pane_id: &str) -> anyhow::Result<()> {
+pub(super) fn attach_pane(pane_id: &str) -> anyhow::Result<()> {
     let Some(session) = session_of_pane(pane_id) else {
         eprintln!("Pane {pane_id} not found in any tmux session.");
         return Ok(());
@@ -110,7 +110,7 @@ pub fn attach_pane(pane_id: &str) -> anyhow::Result<()> {
 
 /// Ask the daemon to resume `session`, returning the new pane id (or `None`,
 /// after printing the error). Shared by the CLI verb and the TUI.
-pub fn resume_to_pane(session: &str) -> anyhow::Result<Option<String>> {
+pub(super) fn resume_to_pane(session: &str) -> anyhow::Result<Option<String>> {
     let v = crate::daemon::blocking::call("tmux_resume", serde_json::json!({ "session": session }))
         .context("tmux_resume RPC")?;
     match v["pane_id"].as_str() {

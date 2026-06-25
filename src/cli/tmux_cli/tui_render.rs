@@ -49,7 +49,7 @@ fn style_selected_bg() -> Style {
 // ── ratatui render functions ──────────────────────────────────────────────────
 
 /// Build a `Line` for a live-session row.
-pub fn live_row_line(row: &LiveRow, is_sel: bool) -> Line<'static> {
+pub(super) fn live_row_line(row: &LiveRow, is_sel: bool) -> Line<'static> {
     let cursor = if is_sel { "► " } else { "  " };
     let label = format!("{}@{}", row.slug, row.host);
     let session_tag = format!(" [session {}]", row.session_codename);
@@ -83,7 +83,7 @@ pub fn live_row_line(row: &LiveRow, is_sel: bool) -> Line<'static> {
 }
 
 /// Build a `Line` for a spawnable-agent row.
-pub fn spawn_row_line(row: &SpawnRow, is_sel: bool) -> Line<'static> {
+pub(super) fn spawn_row_line(row: &SpawnRow, is_sel: bool) -> Line<'static> {
     let cursor = if is_sel { "► " } else { "  " };
     let label = format!("{}@{}", row.slug, row.host);
     let tag = format!("  [{}]", row.command);
@@ -103,7 +103,7 @@ pub fn spawn_row_line(row: &SpawnRow, is_sel: bool) -> Line<'static> {
 }
 
 /// Build a `Line` for a resumable-session row.
-pub fn resume_row_line(row: &ResumeRow, is_sel: bool) -> Line<'static> {
+pub(super) fn resume_row_line(row: &ResumeRow, is_sel: bool) -> Line<'static> {
     let cursor = if is_sel { "► " } else { "  " };
     let label = row.slug.clone();
     let session_tag = format!(" [session {}]", row.session_codename);
@@ -130,7 +130,7 @@ pub fn resume_row_line(row: &ResumeRow, is_sel: bool) -> Line<'static> {
 }
 
 /// Render the main TUI into a ratatui `Frame`.
-pub fn render_main(
+pub(super) fn render_main(
     f: &mut Frame,
     data: &super::tui_model::TuiData,
     selected: usize,
@@ -248,7 +248,7 @@ pub fn render_main(
 /// Render the scrollable body section into `area`. Builds all content lines,
 /// computes scroll offset to keep `selected` in view, then renders via
 /// `Paragraph::scroll()`.
-pub fn render_scrolled_body(
+pub(super) fn render_scrolled_body(
     f: &mut Frame,
     data: &super::tui_model::TuiData,
     selected: usize,
@@ -341,7 +341,12 @@ pub fn render_scrolled_body(
 }
 
 /// Render the fuzzy project search overlay into a ratatui `Frame`.
-pub fn render_search(f: &mut Frame, pt: &super::tui_model::ProjectTabs, query: &str, sel: usize) {
+pub(super) fn render_search(
+    f: &mut Frame,
+    pt: &super::tui_model::ProjectTabs,
+    query: &str,
+    sel: usize,
+) {
     use super::tui_model::fuzzy_matches;
     let area = f.area();
 
@@ -440,7 +445,7 @@ pub fn render_search(f: &mut Frame, pt: &super::tui_model::ProjectTabs, query: &
 
 /// Compute a vertical scroll offset to keep `sel_line` in view within a viewport
 /// of `viewport` rows out of `total` content lines.
-pub fn compute_scroll(sel_line: Option<usize>, viewport: usize, total: usize) -> usize {
+pub(super) fn compute_scroll(sel_line: Option<usize>, viewport: usize, total: usize) -> usize {
     let mut scroll: usize = 0;
     if let Some(s) = sel_line {
         if s < scroll {
