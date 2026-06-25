@@ -124,7 +124,16 @@ pub(super) async fn launch(
     };
     // `--channel` with no value → open the interactive picker.
     let channel = match channel {
-        Some(ref s) if s.is_empty() => Some(pick_channel(&project, &agent).await?),
+        Some(ref s) if s.is_empty() => {
+            use std::io::IsTerminal;
+            if !std::io::stdin().is_terminal() {
+                anyhow::bail!(
+                    "--channel with no value opens an interactive picker that needs a TTY; \
+                     pass --channel <id> to scope into a specific channel non-interactively"
+                );
+            }
+            Some(pick_channel(&project, &agent).await?)
+        }
         other => other,
     };
     let cwd = std::env::current_dir()
