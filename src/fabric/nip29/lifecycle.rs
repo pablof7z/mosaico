@@ -19,6 +19,11 @@ fn project_tag(project: &str) -> Result<Tag> {
     tag(&["h", project])
 }
 
+fn picture_tag(seed: &str) -> Result<Tag> {
+    let url = format!("https://api.dicebear.com/9.x/stripes/svg?seed={seed}");
+    tag(&["picture", &url])
+}
+
 /// kind:9007 create-group with a client-chosen id (`h` == project slug). The
 /// signer becomes the group admin. NOTE: a fresh group is OPEN until locked.
 pub fn group_create(project: &str) -> Result<EventBuilder> {
@@ -34,6 +39,7 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
         tag(&["name", project])?,
         tag(&["closed"])?,
         tag(&["public"])?,
+        picture_tag(project)?,
     ]))
 }
 
@@ -67,6 +73,7 @@ pub fn group_lock_closed_with_parent(
         tag(&["parent", parent_h])?,
         tag(&["closed"])?,
         tag(&["public"])?,
+        picture_tag(child_h)?,
     ]))
 }
 
@@ -168,6 +175,11 @@ mod tests {
         assert!(has_tag_name(&ev, "public"));
         // Must NOT be private — would blind the non-member daemon connection.
         assert!(!has_tag_name(&ev, "private"));
+        assert!(has_tag(
+            &ev,
+            "picture",
+            "https://api.dicebear.com/9.x/stripes/svg?seed=tenex-edge"
+        ));
     }
 
     #[test]
@@ -198,6 +210,11 @@ mod tests {
         assert!(has_tag_name(&ev, "public"));
         // Must NOT be private — would blind the non-member daemon connection.
         assert!(!has_tag_name(&ev, "private"));
+        assert!(has_tag(
+            &ev,
+            "picture",
+            "https://api.dicebear.com/9.x/stripes/svg?seed=subgroup-support-a1b2c3d4"
+        ));
     }
 
     #[test]
