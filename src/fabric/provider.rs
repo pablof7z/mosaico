@@ -322,38 +322,6 @@ impl Nip29Provider {
         Ok(())
     }
 
-    /// The `child` group ids listed in `group`'s relay-authored kind:39000.
-    /// Returns the empty vec when the group has no metadata yet or carries no
-    /// `child` tags. Used to build the complete child set before publishing a
-    /// kind:9002 that confirms a new subgroup (read-modify-write).
-    pub async fn fetch_group_children(&self, group: &str) -> Vec<String> {
-        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        use nostr_sdk::prelude::Filter;
-        let filter = Filter::new()
-            .kind(crate::fabric::nip29::wire::kind(KIND_GROUP_METADATA))
-            .identifier(group);
-        let evs = self
-            .transport
-            .fetch(filter, Duration::from_secs(5))
-            .await
-            .unwrap_or_default();
-        let Some(newest) = evs.iter().max_by_key(|e| e.created_at.as_secs()) else {
-            return vec![];
-        };
-        newest
-            .tags
-            .iter()
-            .filter_map(|t| {
-                let s = t.as_slice();
-                if s.first().map(String::as_str) == Some("child") {
-                    s.get(1).cloned()
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
     /// The `parent` group id declared in `group`'s relay-authored kind:39000
     /// metadata, if any. `None` when the group has no metadata yet (brand-new,
     /// not echoed) or carries no `parent` tag. Used to verify a subgroup actually
@@ -442,6 +410,14 @@ impl Nip29Provider {
         F: FnMut(String),
     {
         use nostr_sdk::prelude::Keys;
+        // Fast path: channel already verified ready within READY_TTL_SECS.
+        // Both open_project and ensure_channel_ready share this cache, so a
+        // successful ensure_channel_ready heartbeat suppresses the next
+        // session_start relay round-trip entirely.
+        let (is_ready, _) = self.readiness.check(project, agent_pubkey);
+        if is_ready {
+            return;
+        }
         progress(format!("using project group {project}"));
         let nsec = match &self.management_nsec {
             Some(n) => n.clone(),
@@ -668,6 +644,13 @@ impl Nip29Provider {
                 crate::util::pubkey_short(agent_pubkey)
             ));
         }
+        // Cache the verified state so the next session_start and every
+        // ensure_channel_ready heartbeat within READY_TTL_SECS fast-paths
+        // without hitting the relay. Mark both the agent pubkey (for future
+        // open_project calls) and the mgmt pubkey (for ensure_channel_ready's
+        // recursive parent check, which always uses expect_member=mgmt_pubkey).
+        self.readiness.mark_ready(project, agent_pubkey);
+        self.readiness.mark_ready(project, &mgmt_pubkey);
     }
 
     async fn publish_group_management(
@@ -836,29 +819,6 @@ impl Nip29Provider {
         };
         if !locked {
             return false;
-        }
-        // Confirm the bidirectional relationship on the parent group. Relay
-        // behaviour for incremental child-tag additions is unspecified, so we
-        // do a read-modify-write: fetch the current child set, add the new one
-        // (dedup), and publish the full list. Safe whether the relay accumulates
-        // or replaces on each kind:9002.
-        let mut existing = self.fetch_group_children(parent_h).await;
-        if !existing.iter().any(|c| c == child_h) {
-            existing.push(child_h.to_string());
-        }
-        let all_children: Vec<&str> = existing.iter().map(String::as_str).collect();
-        match crate::fabric::nip29::lifecycle::group_set_children(parent_h, &all_children) {
-            Ok(b) => {
-                let confirmed = self
-                    .publish_group_management(b, &mgmt_keys, "9002 parent-set-children")
-                    .await;
-                if !confirmed {
-                    eprintln!(
-                        "[daemon] nip29 parent-set-children failed: parent={parent_h} child={child_h}"
-                    );
-                }
-            }
-            Err(_) => {}
         }
         true
     }
