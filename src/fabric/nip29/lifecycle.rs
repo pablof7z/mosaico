@@ -20,7 +20,7 @@ fn project_tag(project: &str) -> Result<Tag> {
 }
 
 fn picture_tag(seed: &str) -> Result<Tag> {
-    let url = format!("https://api.dicebear.com/9.x/stripes/svg?seed={seed}");
+    let url = format!("https://api.dicebear.com/10.x/stripes/svg?seed={seed}");
     tag(&["picture", &url])
 }
 
@@ -178,7 +178,7 @@ mod tests {
         assert!(has_tag(
             &ev,
             "picture",
-            "https://api.dicebear.com/9.x/stripes/svg?seed=tenex-edge"
+            "https://api.dicebear.com/10.x/stripes/svg?seed=tenex-edge"
         ));
     }
 
@@ -213,7 +213,7 @@ mod tests {
         assert!(has_tag(
             &ev,
             "picture",
-            "https://api.dicebear.com/9.x/stripes/svg?seed=subgroup-support-a1b2c3d4"
+            "https://api.dicebear.com/10.x/stripes/svg?seed=subgroup-support-a1b2c3d4"
         ));
     }
 
