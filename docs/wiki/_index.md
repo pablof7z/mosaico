@@ -163,7 +163,7 @@ Last updated: 2026-06-26
 | [tenex-edge-awareness-output](guides/tenex-edge-awareness-output.md) | tenex-edge Awareness Output | PostToolUse awareness output must be delta-gated, project-scoped, and self-excluded â only emitting sibling session changes in the current project since the l | capture | warm | 2026-06-15 | tenex-edge |
 | [tenex-edge-beachhead-user](guides/tenex-edge-beachhead-user.md) | tenex-edge Beachhead User | The beachhead user for tenex-edge is the solo agent-power-user running two or more agents (specifically Claude Code + Codex or Cursor) on the same repo, because | capture | warm | 2026-06-07 | tenex-edge |
 | [tenex-edge-channels](guides/tenex-edge-channels.md) | Tenex-Edge Channels | The channel server must be a thin stream-consumer that never independently writes state.db, avoiding re-introduction of multi-writer corruption. | capture | warm | 2026-06-09 | tenex-edge |
-| [tenex-edge-chat-commands](guides/tenex-edge-chat-commands.md) | tenex-edge Chat Commands | The CLI supports `tenex-edge chat write` to send chat messages in the NIP-29 codec and `tenex-edge chat read` with optional `--since <relative-time>`, `--limit` | capture | warm | 2026-06-16 | tenex-edge |
+| [tenex-edge-chat-commands](guides/tenex-edge-chat-commands.md) | tenex-edge Chat Commands | The CLI supports `tenex-edge chat write` with an optional `--channel` flag to send chat messages in the NIP-29 codec and `tenex-edge chat read` with optional `- | capture | warm | 2026-06-16 | tenex-edge |
 | [tenex-edge-codex-hook-integration](guides/tenex-edge-codex-hook-integration.md) | tenex-edge Codex Hook Integration | The claude/codex binary hooks use the tenex-edge binary found in $PATH rather than a hardcoded absolute path. | capture | warm | 2026-06-19 | tenex-edge |
 | [tenex-edge-configuration](guides/tenex-edge-configuration.md) | Tenex-Edge Configuration | The project slug defaults to the current directory's git repository name (to unify worktrees), or the basename of $PWD if no git repo exists; it can be overridd | capture | warm | 2026-06-08 | tenex-edge |
 | [tenex-edge-core-thesis](guides/tenex-edge-core-thesis.md) | tenex-edge Core Thesis | The core thesis of tenex-edge is the inversion of TENEX: instead of hosting agents, it connects agents that already run in their native homes, grafting a shared | capture | warm | 2026-06-07 | tenex-edge |
@@ -256,16 +256,17 @@ Last updated: 2026-06-26
 |------|-------|---------|------|------------|----------|-------|
 | [tenex-branch-management](guides/tenex-branch-management.md) | Branch Management | Divergent branches must be resolved through a proper merge that preserves all work from both sides, not via a force-push. | capture | warm | 2026-06-13 | version-control |
 
-## Research Records (4 records)
+## Research Records (5 records)
 
 | Record | Date | Finding | Agent |
 |--------|------|---------|-------|
 | [2026-06-12-1-review-of-fabric-architecture-branch-verdict](research/2026-06-12-1-review-of-fabric-architecture-branch-verdict.md) | 2026-06-12 | Review of fabric-architecture branch: verdict is refactor is complete, working, and well-tested but no longer cleanly mergeable due to master divergence (~29 conflict hunks) | main |
 | [2026-06-18-1-experiment-comparing-session-title-generation-with](research/2026-06-18-1-experiment-comparing-session-title-generation-with.md) | 2026-06-18 | Experiment comparing session title generation with vs without tool_use in distillation context, finding that stripping tool_use makes titles anchor on user intent instead of agent actions | main |
 | [2026-06-18-1-verification-and-severity-triaging-of-codex](research/2026-06-18-1-verification-and-severity-triaging-of-codex.md) | 2026-06-18 | Verification and severity-triaging of codex review findings on session-state rearchitecture, confirming critical harness-id vs canonical-id alias mismatch and heartbeat expiration bugs | main |
+| [2026-06-26-1-validation-report-of-nip-29-admin](research/2026-06-26-1-validation-report-of-nip-29-admin.md) | 2026-06-26 | Validation report of NIP-29 admin invariant implementation across three test scenarios: top-level channel creation, subgroup admin inheritance, multi-agent join | main |
 | [AGENTS](research/AGENTS.md) |  |  |  |
 
-## Episode Cards (217 cards)
+## Episode Cards (220 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
@@ -482,30 +483,56 @@ Last updated: 2026-06-26
 | [2026-06-17-2-strategy-reversal-replies-first-corpus-first](episodes/2026-06-17-2-strategy-reversal-replies-first-corpus-first.md) | 2026-06-17 | Strategy reversal: replies-first → corpus-first | reversal | active |
 | [2026-06-19-1-hook-binary-resolution-switched-from-hardcoded](episodes/2026-06-19-1-hook-binary-resolution-switched-from-hardcoded.md) | 2026-06-19 | Hook binary resolution switched from hardcoded path to PATH lookup | architecture | active |
 | [2026-06-19-1-session-display-identity-replaced-6-char](episodes/2026-06-19-1-session-display-identity-replaced-6-char.md) | 2026-06-19 | Session display identity replaced: 6-char hex hash → NATO phonetic codename | reversal | active |
+| [2026-06-26-1-chat-write-route-to-agent-s](episodes/2026-06-26-1-chat-write-route-to-agent-s.md) | 2026-06-26 | chat write: Route to agent's active channel, remove --session flag | product | active |
 | [2026-06-26-1-format-variable-quoting-mismatch-causes-silent](episodes/2026-06-26-1-format-variable-quoting-mismatch-causes-silent.md) | 2026-06-26 | Format variable quoting mismatch causes silent statusline failure when session identifier is unset | root-cause | active |
+| [2026-06-26-1-operator-signed-prompts-echo-suppression](episodes/2026-06-26-1-operator-signed-prompts-echo-suppression.md) | 2026-06-26 | operator-signed-prompts-echo-suppression | root-cause | active |
 | [2026-06-26-1-relay-rejection-logs-include-event-context](episodes/2026-06-26-1-relay-rejection-logs-include-event-context.md) | 2026-06-26 | Relay rejection logs include event context | product | active |
+| [2026-06-26-1-subscription-model-kind-specific-expansion-entity](episodes/2026-06-26-1-subscription-model-kind-specific-expansion-entity.md) | 2026-06-26 | Subscription model: kind-specific expansion → entity-based consolidation | architecture | active |
 | [2026-06-26-2-outgoing-relay-logs-include-event-id](episodes/2026-06-26-2-outgoing-relay-logs-include-event-id.md) | 2026-06-26 | Outgoing relay logs include event ID for server correlation | product | active |
 | [2026-06-26-3-channel-readiness-unified-into-publish-funnel](episodes/2026-06-26-3-channel-readiness-unified-into-publish-funnel.md) | 2026-06-26 | Channel readiness unified into publish-funnel gate | architecture | active |
 
-## Nouns (17 entities)
+## Nouns (40 entities)
 
 | Noun | Name | Origin | Definition |
 |------|------|--------|------------|
+| [activity](nouns/activity.md) | Activity | extracted | Used for social Activity notes (kind:1 without p tag) |
+| [backend-orchestration](nouns/backend-orchestration.md) | backend orchestration | extracted | kind:9 subscription p-tagged to the backend's identity, independent of any project, maintaining one global subscription per backend |
 | [channel-readiness-gate](nouns/channel-readiness-gate.md) | channel readiness gate | extracted | idempotent `ensure_channel_ready(ctx: ChannelCtx)` method on `Nip29Provider` in `src/fabric/nip29/readiness.rs` that all three domain publish methods (`publish`, `publish_checked`, `set_status`) converge on; uses TTL-cached fast path, per-channel single-flight mutex, local SQLite read-model checks, and recursive parent ensures before provisioning a channel |
+| [chatmessage](nouns/chatmessage.md) | ChatMessage | extracted | scoped to the project group by its `h` tag. It is ambient project context; live sessions see it going forward only. Chat fans out to every alive project session — routing is by pubkey + current channel, no session IDs on the wire. |
+| [distillation](nouns/distillation.md) | distillation | extracted | LLM-driven process triggered on each new user message (turn-start) that generates a session title and activity line |
 | [domain-publish](nouns/domain-publish.md) | domain publish | extracted | publish above the codec seam: DomainEvent publishes that converge on three methods (publish, publish_checked, set_status) on Nip29Provider and encode via the wire codec |
+| [domainevent](nouns/domainevent.md) | DomainEvent | extracted | The closed set of things that travel on the fabric. A codec encodes each of these to a wire envelope and decodes wire envelopes back into these. |
+| [explicit-channel-scope](nouns/explicit-channel-scope.md) | explicit channel scope | extracted | a session where project != work_root, created with the channel as a subgroup of the root project |
 | [h-tag](nouns/h-tag.md) | h tag | extracted | the NIP-29 group identifier, derived inside the codec from the DomainEvent's project field, which is always SessionRecord::route_scope() — either the channel (if set) or the per-session room |
 | [nip-29-channel](nouns/nip-29-channel.md) | NIP-29 channel | extracted | the NIP-29 group a session publishes to: for a subgroup task room, the child h supplied via TENEX_EDGE_CHANNEL; otherwise, the working-directory project |
 | [normalized-session-observation](nouns/normalized-session-observation.md) | normalized session observation | extracted | a hook observation describing the harness, harness-owned external ID, resume token, tmux pane, watched PID, and CWD, reported to the daemon which resolves the canonical session ID — minting new, reattaching via alias, or superseding stale |
+| [nostrdelivery](nouns/nostrdelivery.md) | NostrDelivery | extracted | raw Nostr delivery that subscribes to relay streams for a given Scope |
+| [ordinal-durable-pubkeys](nouns/ordinal-durable-pubkeys.md) | ordinal-durable pubkeys | extracted | durable keys keyed by (agent, ordinal); allocated as lowest ordinal not already live for agent in room; same pubkey reused across rooms |
+| [parent](nouns/parent.md) | parent | extracted | parent group id in project_meta from relay-authored kind:39000 'parent' tag, empty for top-level projects |
 | [per-session-room](nouns/per-session-room.md) | per-session room | extracted | a NIP-29 subgroup room_h parented under the work-root project that a human-initiated session lives in; minted idempotently per session |
+| [profile-identity-resolution](nouns/profile-identity-resolution.md) | profile/identity resolution | extracted | replaceable lookup data that should be performed on-demand via fetch and cache rather than maintained as a long-lived subscription |
 | [project-session-context](nouns/project-session-context.md) | project (session context) | extracted | For a subgroup task room, the child h supplied via TENEX_EDGE_CHANNEL; otherwise, the working-directory project |
 | [project-skill](nouns/project-skill.md) | project skill | extracted | a verified, committed record of what works to launch the app: exact package commands, environment variables, patches, and drivers |
+| [pubkey](nouns/pubkey.md) | pubkey | extracted | durable identifier created only when a second agent is added to a channel — no longer transient, not exploded per-session |
 | [rejection-log-format](nouns/rejection-log-format.md) | rejection log format | extracted | includes event context prefix `kind:N  id=<12-hex>  h=<group>  ` when event is available, enabling correlation with relay server logs |
+| [relay-connection](nouns/relay-connection.md) | relay connection | extracted | one per daemon; single nostr-sdk Client/pool that all agent identities' subscriptions multiplex onto |
 | [relay-log](nouns/relay-log.md) | relay log | extracted | persistent log of every outgoing relay event and every relay rejection, appended to ~/.tenex-edge/relay.log |
+| [route-scope](nouns/route-scope.md) | route_scope | extracted | The NIP-29 group id this session currently routes under — its channel when set, else its per-session room (`project`). All fabric publishing (chat/mentions/proposals), local chat routing, `who`/statusline scoping, and turn-context deltas key on this so `channels switch` actually moves the session to a different room without restarting. `project` alone is stale the moment `channel` is set. |
+| [routing-model](nouns/routing-model.md) | routing model | extracted | pubkey-based routing where p-tags carry the receiver's durable pubkey; no session-derived keys or session-specific wire tags |
+| [routing-scope](nouns/routing-scope.md) | routing scope | extracted | The NIP-29 group id this session currently routes under — its channel when set (a `channels switch` moved it to a subgroup), else its per-session room (`project`) |
 | [running](nouns/running.md) | Running | extracted | launching and interacting with the app as a user would (CLI at its command, server at its socket, GUI at its window), not just executing code |
+| [scope](nouns/scope.md) | Scope | extracted | subscription scope that Delivery implementations convert into wire-level |
+| [status](nouns/status.md) | Status | extracted | addressed by `(author pubkey, group id)` |
 | [statusline](nouns/statusline.md) | statusline | extracted | renders the awareness floor for a host status bar, displaying agent name, project name, session identifier, channel title, and live activity |
 | [subgroup-session](nouns/subgroup-session.md) | subgroup session | extracted | a session stored under its child group id (h), not the working-directory project |
+| [subscription-ceiling](nouns/subscription-ceiling.md) | subscription ceiling | extracted | the number of concurrent subscriptions (REQs) a relay allows per connection; acts as bottleneck limiting relay scalability |
+| [subscriptionid](nouns/subscriptionid.md) | SubscriptionId | extracted | deterministically derived from the filter's content; re-subscribing the same filter replaces the existing relay subscription instead of opening a new one |
 | [te-session](nouns/te-session.md) | @te_session | extracted | a tmux user option that stores the session identifier for tenex-edge statusline |
+| [tenex-edge-statusline](nouns/tenex-edge-statusline.md) | tenex-edge statusline | extracted | the one-line status bar rendering showing identity, project, session ID, channel title, and live activity; reads harness statusline JSON from stdin and fails open (exits 0 with empty output when daemon is down) |
+| [tmux](nouns/tmux.md) | $TMUX | extracted | environment variable containing three comma-separated values: socket_path,server_pid,session_id |
 | [tmux-pane](nouns/tmux-pane.md) | TMUX_PANE | extracted | a stable tmux pane ID from the $TMUX_PANE environment variable (e.g. "%5"), present only when the hook fires inside a tmux session |
 | [tmuxstatuscommand](nouns/tmuxstatuscommand.md) | tmuxStatusCommand | extracted | custom tmux status-format string for agent sessions that overrides the default tenex-edge statusline command, using tmux format variables #{q:@te_session}, #{@te_agent}, and #{q:@te_cwd} to reference session identity |
+| [transport](nouns/transport.md) | Transport | extracted | private implementation detail; fabric-layer boundary |
+| [work-root](nouns/work-root.md) | work_root | extracted | canonical root project in a hierarchy, resolved by walking up parent links in project_meta |
 | [working-directory-project](nouns/working-directory-project.md) | working-directory project | extracted | the repo this harness runs in (resolved from the current working directory) |
 

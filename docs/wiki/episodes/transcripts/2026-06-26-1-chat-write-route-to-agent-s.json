@@ -1,0 +1,18 @@
+[
+  [
+    "user",
+    "with a tmux-managed session, an agent used `tenex-edge chat write --message ....` and it got tenex-edge: relay rejected event: can't send message to the 'nostr' channel; timeout why would it use \"nostr\" as the channel where to publish?! is that some hardcoded stupid default? it should write to the channel where this agent is active on! [Image #1] also, there should be NO --session flag on tenex-edge chat at all! it's either a --channel or nothing, and this default channel should obviously have been the the one where this agent is active on -- there are multiple bugs here!"
+  ],
+  [
+    "assistant",
+    "Fixed two bugs: replaced `--session` with `--channel` (defaulting to `TENEX_EDGE_CHANNEL` env var) and added the missing `group` field to `ChatWriteParams` for correct session/channel resolution."
+  ],
+  [
+    "user",
+    "where did the \"nostr\" string come from?"
+  ],
+  [
+    "assistant",
+    "The \"nostr\" string is the relay's literal error message from relay.nostr.band when publishing to a non-existent or inaccessible NIP-29 group; the root cause was the missing `group` field in `ChatWriteParams`, which caused the wrong h-tag scope to be used."
+  ]
+]
