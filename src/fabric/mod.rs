@@ -10,6 +10,7 @@ pub(crate) mod group_management;
 pub mod nip29;
 pub mod nostr_delivery;
 pub mod provider;
+pub(crate) mod subscriptions;
 
 /// Raw wire envelope crossing the transport boundary. Phase 3 adds only the
 /// Nostr variant; additional transports (NMP, Marmot) add variants in Phase 5.

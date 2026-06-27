@@ -36,14 +36,50 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // one it minted at spawn.
     let scope = rec.route_scope().to_string();
 
+    // Explicit-destination redirect (issue #47): `chat write --channel #dst` from
+    // inside a session publishes INTO #dst even though `env_session` resolved the
+    // SENDER to its own room. `resolve_session` uses `group` only to LOCATE the
+    // sender (env_session wins); here it becomes the publish TARGET when it
+    // differs from the sender's own scope. The canonical case is the
+    // channel-switch redirect: a blocked instance messages the instance already
+    // active in #dst — accepted because it signs as the same ordinal pubkey,
+    // which IS a member there. The daemon injects an authoritative provenance
+    // prefix the agent cannot spoof (it is added here, not taken from content).
+    let explicit_dest = p
+        .group
+        .as_deref()
+        .filter(|g| !g.is_empty() && *g != scope.as_str())
+        .map(str::to_string);
+    // Body actually published/recorded: provenance-prefixed on a redirect.
+    let body_to_send = match &explicit_dest {
+        Some(_) => {
+            let label = state
+                .with_store(|s| s.identity_route_for_session(&rec.session_id))
+                .map(|r| r.label)
+                .unwrap_or_else(|| rec.agent_slug.clone());
+            format!("[from @{label} working in #{scope}]: {}", p.message)
+        }
+        None => p.message.clone(),
+    };
+    // Sessions to deliver to + the wire `h`: the explicit destination on a
+    // redirect, else the sender's own scope.
+    let deliver_scope = explicit_dest.clone().unwrap_or_else(|| scope.clone());
+
     // Mention target: the FIRST inline `@codename` found in the message body,
     // so `chat write "hey @bravo4217"` highlights that session. Only codename-
     // shaped tokens (`<nato-word><digits>`) are recognized — `@` means host in
     // every other tenex-edge identifier, so `@codex` / `@codex@laptop` are NOT
     // mentions. See `idref::extract_mentions`.
-    let mention_token: Option<String> = crate::idref::extract_mentions(&p.message)
-        .into_iter()
-        .next();
+    // A redirect (`--channel #dst`) is a plain channel post, not a mention — skip
+    // mention resolution so it can't rewrite the publish scope or fail
+    // cross-room validation.
+    let mention_token: Option<String> = if explicit_dest.is_some() {
+        None
+    } else {
+        crate::idref::extract_mentions(&p.message)
+            .into_iter()
+            .next()
+    };
     let mention = if let Some(raw) = mention_token {
         let target = state.with_store(|s| resolve_recipient(s, &scope, &state.host, &raw))?;
         let Some(session_id) = target.target_session else {
@@ -69,11 +105,13 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     };
     let mentioned_pubkey = mention.as_ref().map(|(pk, _, _)| pk.clone());
     let mentioned_session = mention.as_ref().map(|(_, sid, _)| sid.clone());
-    let publish_scope = mention
-        .as_ref()
-        .map(|(_, _, project)| project.as_str())
-        .unwrap_or(scope.as_str())
-        .to_string();
+    let publish_scope = explicit_dest.clone().unwrap_or_else(|| {
+        mention
+            .as_ref()
+            .map(|(_, _, project)| project.as_str())
+            .unwrap_or(scope.as_str())
+            .to_string()
+    });
 
     let chat_signing_keys = state
         .keys_for_session(&rec.session_id)
@@ -83,7 +121,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     let chat = ChatMessage {
         from: crate::domain::AgentRef::new(from_pubkey.clone(), rec.agent_slug.clone()),
         project: publish_scope.clone(),
-        body: p.message.clone(),
+        body: body_to_send.clone(),
         mentioned_pubkey: mentioned_pubkey.clone(),
     };
     let event_id = state
@@ -104,8 +142,8 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             from_pubkey: from_pubkey.clone(),
             from_slug: rec.agent_slug.clone(),
             host: state.host.clone(),
-            project: scope.clone(),
-            body: p.message.clone(),
+            project: deliver_scope.clone(),
+            body: body_to_send.clone(),
             created_at,
             from_session: rec.session_id.clone(),
             mentioned_session: mentioned_session.clone().unwrap_or_default(),
@@ -113,7 +151,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         let mut routed = false;
         for target in s.list_alive_sessions().unwrap_or_default() {
             let is_direct_target = mentioned_session.as_deref() == Some(target.session_id.as_str());
-            if !is_direct_target && target.route_scope() != scope {
+            if !is_direct_target && target.route_scope() != deliver_scope {
                 continue;
             }
             if target.created_at > created_at {
@@ -133,7 +171,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             let row_project = if is_direct_target {
                 target.route_scope().to_string()
             } else {
-                scope.clone()
+                deliver_scope.clone()
             };
             let row = ChatInboxRow {
                 chat_event_id: event_id.clone(),
@@ -141,7 +179,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
                 from_pubkey: from_pubkey.clone(),
                 from_slug: rec.agent_slug.clone(),
                 project: row_project,
-                body: p.message.clone(),
+                body: body_to_send.clone(),
                 created_at,
                 from_session: rec.session_id.clone(),
                 mentioned_session: row_mentioned,
@@ -158,7 +196,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
 
     state.emit_tail(TailEvent::Msg {
         ts: created_at,
-        project: scope.clone(),
+        project: deliver_scope.clone(),
         from: rec.agent_slug,
         from_session: Some(rec.session_id),
         to: mentioned_pubkey
@@ -166,7 +204,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             .map(pubkey_short)
             .unwrap_or_else(|| "project-chat".to_string()),
         to_session: mentioned_session.clone(),
-        body: p.message.chars().take(200).collect(),
+        body: body_to_send.chars().take(200).collect(),
     });
 
     Ok(serde_json::json!({

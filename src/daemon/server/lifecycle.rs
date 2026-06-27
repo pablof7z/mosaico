@@ -67,6 +67,7 @@ pub async fn run() -> Result<()> {
         hosted: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
         subscribed_projects: Mutex::new(Vec::new()),
+        subscriptions: Mutex::new(crate::fabric::subscriptions::SubscriptionRegistry::new()),
         tail_tx: tokio::sync::broadcast::channel(512).0,
         open_clients: Mutex::new(0),
         liveness_changed: Notify::new(),
@@ -151,25 +152,12 @@ pub async fn run() -> Result<()> {
             }
         }
 
-        // Standalone backend orchestration subscription (kind:9 p-tagged to this
-        // backend's identity), independent of any project — so a backend with no
-        // live sessions still receives subgroup add-agents requests (issue #3).
-        if let Some(bp) = relay_state.backend_pubkey() {
-            if let Err(e) = relay_state
-                .provider
-                .subscribe_backend_orchestration(bp)
-                .await
-            {
-                if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                    eprintln!("[daemon] backend orchestration subscription failed: {e:#}");
-                }
-            }
-        }
-
-        // Subscribe to groups where local agents are already members so kind:9
-        // chat arrives even when no session is alive (spawn-on-mention path).
-        // Each group gets its own #h-filtered subscription via ensure_subscription;
-        // new memberships discovered from 39002 events extend coverage dynamically.
+        // Discover groups where local agents are already members so kind:9 chat
+        // arrives even when no session is alive (spawn-on-mention path), and record
+        // them in `subscribed_projects`. We DON'T open a REQ per group here — the
+        // single `resubscribe` below folds all of them (plus owned groups and the
+        // backend identity) into the three stable aggregate REQs. New memberships
+        // discovered from 39002 events extend coverage via `ensure_subscription`.
         {
             let edge = crate::config::edge_home();
             let local_pks: Vec<String> = crate::identity::list_local_pubkeys(&edge);
@@ -184,14 +172,29 @@ pub async fn run() -> Result<()> {
                 groups.dedup();
                 groups
             });
-            for group in &member_groups {
-                let _ = ensure_subscription(&relay_state, group).await;
+            {
+                let mut projs = relay_state.subscribed_projects.lock().unwrap();
+                for group in &member_groups {
+                    if !projs.iter().any(|p| p == group) {
+                        projs.push(group.clone());
+                    }
+                }
             }
             eprintln!(
-                "[daemon] spawn-on-mention: {} local agents, {} member groups subscribed",
+                "[daemon] spawn-on-mention: {} local agents, {} member groups tracked",
                 local_pks.len(),
                 member_groups.len()
             );
+        }
+
+        // Seed the three stable aggregate REQs (#h / #p / group-state) once. This
+        // replaces both the per-member-group subscription loop and the standalone
+        // backend orchestration REQ (the backend pubkey is now in the #p aggregate).
+        // No kind:0 is subscribed — profiles resolve on demand via Transport::fetch.
+        if let Err(e) = resubscribe(&relay_state).await {
+            if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                eprintln!("[daemon] initial resubscribe failed: {e:#}");
+            }
         }
 
         // Revive sessions a previous daemon left behind + (re)open their project

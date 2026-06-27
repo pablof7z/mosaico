@@ -54,6 +54,10 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     let hosted: Vec<String> = {
         let mut h = state.hosted_pubkeys();
         h.extend(state.live_session_pubkeys());
+        // Durable ordinal pubkeys (issue #47) are local identities too: a mention
+        // p-tagged to e.g. `smith1` must be recognized as self so the routing gate
+        // and self-skip treat it like a hosted agent, not a foreign peer.
+        h.extend(state.with_store(|s| s.list_agent_ordinal_pubkeys()));
         h.sort_unstable();
         h.dedup();
         h
@@ -144,18 +148,61 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         return;
     }
 
+    // Resolve the mentioned pubkey to (agent_slug, ordinal). It may be a base
+    // agent key (ordinal 0, in the keystore) OR a durable ordinal key like
+    // `smith1` (issue #47), which lives in `agent_ordinals`, not the keystore —
+    // the old keystore-only lookup silently dropped mentions to ordinals.
     let edge = crate::config::edge_home();
     let local_agents = crate::identity::list_local_agent_details(&edge);
-    let agent_slug = match local_agents.into_iter().find(|a| a.pubkey == mentioned_pk) {
-        Some(a) => a.slug,
-        None => return,
+    let (agent_slug, ordinal) = match local_agents.iter().find(|a| a.pubkey == mentioned_pk) {
+        Some(a) => (a.slug.clone(), 0u32),
+        None => match state.with_store(|s| s.local_agent_ordinal_for_pubkey(mentioned_pk)) {
+            Some((_, slug, ord)) => (slug, ord),
+            None => return,
+        },
     };
+
+    // Resume vs fresh: if this ordinal previously ran in this room and left a
+    // bound native session, RESUME that harness (restores its conversation);
+    // otherwise spawn fresh with the exact ordinal.
+    let bound = state.with_store(|s| s.bound_identity_route(mentioned_pk, project));
+    if let Some(route) = bound.filter(|r| !r.native_id.is_empty()) {
+        eprintln!(
+            "[spawn-on-mention] resuming {} ({}) in {project} via native {}",
+            route.label, route.harness_kind, route.native_id
+        );
+        if let Err(e) = crate::tmux::resume_agent(state, &agent_slug, project, &route.native_id).await
+        {
+            eprintln!("[spawn-on-mention] resume failed ({e:#}); falling through to fresh spawn");
+        } else {
+            return;
+        }
+    }
+
     let is_member = state.with_store(|s| s.is_group_member(project, mentioned_pk).unwrap_or(false));
     if !is_member {
         let (_, _, members) = state.provider.fetch_group_state(project).await;
         if !members.contains(mentioned_pk) {
-            eprintln!("[spawn-on-mention] {agent_slug} not a member of {project}, skip");
-            return;
+            if ordinal == 0 {
+                // Base agent must already be a member to be mentioned here.
+                eprintln!("[spawn-on-mention] {agent_slug} not a member of {project}, skip");
+                return;
+            }
+            // Mention-driven ordinal (issue #47): the mgmt key provisions this
+            // ordinal's pubkey into the channel (kind:9000) before spawning, so a
+            // mention to `smithN` in a room it has never joined wakes it.
+            eprintln!(
+                "[spawn-on-mention] provisioning ordinal {} ({}) into {project} via mgmt key",
+                ordinal, agent_slug
+            );
+            if !state.provider.nip29_add_member(project, mentioned_pk).await {
+                eprintln!("[spawn-on-mention] mgmt-key add_member failed for {project}, skip");
+                return;
+            }
+            state.with_store(|s| {
+                s.upsert_group_member(project, mentioned_pk, "member", crate::util::now_secs())
+                    .ok()
+            });
         }
     }
 
@@ -170,7 +217,9 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
     }
 
     let group_arg = Some(project);
-    eprintln!("[spawn-on-mention] spawning {agent_slug} into {project} (work_root={work_root})");
+    eprintln!(
+        "[spawn-on-mention] spawning {agent_slug} (ordinal {ordinal}) into {project} (work_root={work_root})"
+    );
     match crate::tmux::spawn_agent(
         state,
         &agent_slug,
@@ -179,6 +228,7 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         None,
         group_arg,
         None,
+        Some(ordinal),
     )
     .await
     {
@@ -354,6 +404,7 @@ pub(super) async fn handle_orchestration(
             Vec::new(),
             None,
             Some(&op.child_h),
+            None,
             None,
         )
         .await

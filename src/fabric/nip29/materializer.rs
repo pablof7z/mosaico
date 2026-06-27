@@ -161,9 +161,23 @@ impl Nip29Materializer {
             chat.from.slug.clone()
         };
         let from_session = store
-            .session_pubkey_info(&from_pubkey)
-            .map(|(sid, _, _)| sid)
+            // Room-aware first (issue #47): a durable ordinal pubkey is REUSED
+            // across rooms, so the SAME signer maps to a DIFFERENT session per
+            // `h`. Key the resolution on `(pubkey, chat.project)` — `chat.project`
+            // IS the NIP-29 group id — so the self-skip below targets the session
+            // that actually occupies THIS room, not a same-pubkey session in
+            // another room.
+            .live_identity_route(&from_pubkey, &chat.project)
+            .map(|r| r.session_id)
             .filter(|sid| !sid.is_empty())
+            // Dual path: fall back to the bare-pubkey session map for legacy and
+            // transient (non-ordinal) sessions that have no route row yet.
+            .or_else(|| {
+                store
+                    .session_pubkey_info(&from_pubkey)
+                    .map(|(sid, _, _)| sid)
+                    .filter(|sid| !sid.is_empty())
+            })
             // Operator-signed user prompts carry no session pubkey, so the
             // signer can't be mapped to a session and the self-skip below would
             // miss — re-injecting the operator's own prompt back into the very
@@ -176,7 +190,16 @@ impl Nip29Materializer {
         let mentioned_session = chat
             .mentioned_pubkey
             .as_deref()
-            .and_then(|pk| store.session_pubkey_info(pk).map(|(sid, _, _)| sid))
+            .and_then(|pk| {
+                // Room-aware first (see above): resolve the mentioned ordinal
+                // pubkey to the session occupying THIS room, then fall back to
+                // the bare-pubkey session map for non-ordinal sessions.
+                store
+                    .live_identity_route(pk, &chat.project)
+                    .map(|r| r.session_id)
+                    .filter(|sid| !sid.is_empty())
+                    .or_else(|| store.session_pubkey_info(pk).map(|(sid, _, _)| sid))
+            })
             .unwrap_or_default();
         let host = store
             .resolve_chat_host(
@@ -262,8 +285,31 @@ mod tests {
     use super::*;
     use crate::domain::{AgentRef, DomainEvent};
     use crate::fabric::nip29::wire::Nip29WireCodec;
-    use crate::state::SessionRecord;
+    use crate::state::{IdentityRoute, SessionRecord};
     use nostr_sdk::Keys;
+
+    /// Bind a durable ordinal identity LIVE into room `h` as `session` (issue
+    /// #47). One row per `(pubkey, h)`, so the same `pubkey` can occupy several
+    /// rooms at once via distinct sessions.
+    fn ordinal_route(store: &Store, pubkey: &str, h: &str, session: &str) {
+        store
+            .upsert_identity_route(
+                &IdentityRoute {
+                    pubkey: pubkey.into(),
+                    h: h.into(),
+                    session_id: session.into(),
+                    base_pubkey: "base-smith".into(),
+                    agent_slug: "smith".into(),
+                    ordinal: 1,
+                    label: "smith1".into(),
+                    harness_kind: "claude-code".into(),
+                    native_id: format!("native-{session}"),
+                    alive: true,
+                },
+                100,
+            )
+            .unwrap();
+    }
 
     fn alive_session(store: &Store, session_id: &str, agent_pubkey: &str, project: &str) {
         store
@@ -418,5 +464,87 @@ mod tests {
 
         assert!(store.peek_chat("sender").unwrap().is_empty());
         assert_eq!(store.peek_chat("other").unwrap().len(), 1);
+    }
+
+    // Issue #47: a durable ordinal pubkey is REUSED across rooms, so resolving
+    // the FROM session by bare pubkey is ambiguous. The SAME signer must map to
+    // its `#a` session for an `#a` chat and its `#b` session for a `#b` chat —
+    // proven by the room-specific `from_session` stamped on the routed row.
+    #[test]
+    fn ordinal_chat_resolves_from_session_per_room() {
+        let store = Store::open_memory().unwrap();
+        let smith = Keys::generate();
+        let smith_pk = smith.public_key().to_hex();
+
+        // One ordinal pubkey, live in two rooms as two different sessions.
+        ordinal_route(&store, &smith_pk, "#a", "smith-a");
+        ordinal_route(&store, &smith_pk, "#b", "smith-b");
+        alive_session(&store, "smith-a", &smith_pk, "#a");
+        alive_session(&store, "smith-b", &smith_pk, "#b");
+        // A sibling recipient in each room so the message has somewhere to land.
+        alive_session(&store, "other-a", &Keys::generate().public_key().to_hex(), "#a");
+        alive_session(&store, "other-b", &Keys::generate().public_key().to_hex(), "#b");
+
+        let chat_a = ChatMessage {
+            from: AgentRef::new(smith_pk.clone(), "smith"),
+            project: "#a".into(),
+            body: "from a".into(),
+            mentioned_pubkey: None,
+        };
+        Nip29Materializer::materialize_chat_message(&store, &chat_a, &sign_chat(&smith, &chat_a));
+
+        // The signer's OWN #a session is self-skipped; the #a sibling gets it
+        // stamped with the #a-specific origin.
+        assert!(store.peek_chat("smith-a").unwrap().is_empty());
+        let inbox_a = store.peek_chat("other-a").unwrap();
+        assert_eq!(inbox_a.len(), 1);
+        assert_eq!(inbox_a[0].from_session, "smith-a");
+
+        let chat_b = ChatMessage {
+            from: AgentRef::new(smith_pk.clone(), "smith"),
+            project: "#b".into(),
+            body: "from b".into(),
+            mentioned_pubkey: None,
+        };
+        Nip29Materializer::materialize_chat_message(&store, &chat_b, &sign_chat(&smith, &chat_b));
+
+        // SAME pubkey, room #b → resolves to the #b session instead.
+        assert!(store.peek_chat("smith-b").unwrap().is_empty());
+        let inbox_b = store.peek_chat("other-b").unwrap();
+        assert_eq!(inbox_b.len(), 1);
+        assert_eq!(inbox_b[0].from_session, "smith-b");
+    }
+
+    // Issue #47: mentioning a durable ordinal pubkey must resolve to the session
+    // occupying THIS room. A mention in `#a` lands on the `#a` occupant and
+    // stamps that session id; the same-pubkey `#b` occupant is untouched.
+    #[test]
+    fn ordinal_mention_resolves_session_per_room() {
+        let store = Store::open_memory().unwrap();
+        let sender = Keys::generate();
+        let smith = Keys::generate();
+        let smith_pk = smith.public_key().to_hex();
+
+        ordinal_route(&store, &smith_pk, "#a", "smith-a");
+        ordinal_route(&store, &smith_pk, "#b", "smith-b");
+        alive_session(&store, "smith-a", &smith_pk, "#a");
+        alive_session(&store, "smith-b", &smith_pk, "#b");
+        alive_session(&store, "sender-a", &sender.public_key().to_hex(), "#a");
+
+        let chat = ChatMessage {
+            from: AgentRef::new(sender.public_key().to_hex(), "sender"),
+            project: "#a".into(),
+            body: "ping smith".into(),
+            mentioned_pubkey: Some(smith_pk.clone()),
+        };
+        Nip29Materializer::materialize_chat_message(&store, &chat, &sign_chat(&sender, &chat));
+
+        // The #a occupant of the ordinal receives the mention, stamped with the
+        // room-specific session id resolved through the route table.
+        let inbox = store.peek_chat("smith-a").unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0].mentioned_session, "smith-a");
+        // The #b occupant of the SAME pubkey is out of room and untouched.
+        assert!(store.peek_chat("smith-b").unwrap().is_empty());
     }
 }

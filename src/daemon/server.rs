@@ -76,6 +76,12 @@ pub struct DaemonState {
     hosted: Mutex<HashMap<String, HostedAgent>>,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     subscribed_projects: Mutex<Vec<String>>,
+    /// Plans the THREE stable aggregate REQs (`#h`, `#p`, group-state) plus any
+    /// narrow add-REQs. Replaces the old per-(project×kind) `Scope` expansion
+    /// (4 filters per project, including a kind:0 firehose) that blew the relay's
+    /// REQ ceiling. `resubscribe` seeds the aggregates; `ensure_subscription`
+    /// adds narrow deltas. See `crate::fabric::subscriptions`.
+    subscriptions: Mutex<crate::fabric::subscriptions::SubscriptionRegistry>,
     /// Structured tail event broadcast replacing the old DomainEvent bus.
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
     open_clients: Mutex<u64>,
@@ -162,21 +168,13 @@ impl DaemonState {
             .map(|k| k.public_key().to_hex())
             .collect()
     }
-    fn release_session_signer(
-        &self,
-        session_id: &str,
-        agent_pubkey: &str,
-        project: &str,
-    ) -> Option<Keys> {
+    /// Release a session's ordinal reservation + engine keys. Scans by session
+    /// id (the ordinal slot is keyed by base pubkey + room + ordinal, all of
+    /// which the reservation map already holds).
+    fn release_session_signer(&self, session_id: &str) -> Option<Keys> {
         let mut reservations = self.session_signers.lock().unwrap();
         let mut session_keys = self.session_keys.lock().unwrap();
-        session_signer::release(
-            &mut reservations,
-            &mut session_keys,
-            session_id,
-            agent_pubkey,
-            project,
-        )
+        session_signer::release(&mut reservations, &mut session_keys, session_id)
     }
 }
 
@@ -213,7 +211,8 @@ use diagnostics::{
     rpc_local_backend, wait_for_project_member_cache,
 };
 use engine_lifecycle::{
-    cancel_session, engine_params_for, ensure_subscription, reconcile_sessions, spawn_session,
+    cancel_session, engine_params_for, ensure_subscription, reconcile_sessions, replay_channel_chat,
+    resubscribe, spawn_session,
 };
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};

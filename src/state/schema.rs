@@ -324,4 +324,43 @@ CREATE TABLE IF NOT EXISTS session_pubkeys (
 );
 CREATE INDEX IF NOT EXISTS idx_session_pubkeys_session
     ON session_pubkeys(session_id);
+-- Durable ordinal identities (issue #47). A `(base_pubkey, ordinal)` pair maps
+-- to one stable pubkey reused across rooms; ordinal 0 is the base agent key.
+-- This is the local inventory of every ordinal ever allocated, so the
+-- subscription `#p` set is bounded by (agents × concurrency), not sessions.
+CREATE TABLE IF NOT EXISTS agent_ordinals (
+    base_pubkey TEXT NOT NULL,
+    agent_slug  TEXT NOT NULL,
+    ordinal     INTEGER NOT NULL,
+    pubkey      TEXT NOT NULL UNIQUE,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (base_pubkey, ordinal)
+);
+-- Route + resume binding (issue #47). The authoritative resume key is
+-- (pubkey, h), where h is route_scope (channel when set, else per-session room).
+-- The native harness session id is a STORED ATTRIBUTE here (inverting the old
+-- derive-keys-from-anchor model): a mention to an offline ordinal resumes its
+-- bound native session. The same ordinal pubkey may be live in several rooms
+-- (one row per (pubkey,h)) but never twice in one room. A row persists with
+-- alive=0 after the session dies so a future mention can resume it.
+CREATE TABLE IF NOT EXISTS session_identity_routes (
+    pubkey       TEXT NOT NULL,
+    h            TEXT NOT NULL,
+    session_id   TEXT NOT NULL,
+    base_pubkey  TEXT NOT NULL,
+    agent_slug   TEXT NOT NULL,
+    ordinal      INTEGER NOT NULL,
+    label        TEXT NOT NULL,
+    harness_kind TEXT NOT NULL DEFAULT '',
+    native_id    TEXT NOT NULL DEFAULT '',
+    alive        INTEGER NOT NULL DEFAULT 0,
+    bound_at     INTEGER NOT NULL,
+    released_at  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (pubkey, h),
+    UNIQUE (session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_routes_session
+    ON session_identity_routes(session_id);
+CREATE INDEX IF NOT EXISTS idx_identity_routes_base
+    ON session_identity_routes(base_pubkey, h);
 "#;

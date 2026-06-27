@@ -22,8 +22,10 @@ pub(in crate::daemon::server) fn rpc_session_end(
         // Release durable-slot reservation and any transient key before marking
         // the session dead. Fire-and-forget relay removal keeps session_end fast;
         // spawn_session cleanup will find the key gone and skip duplicate work.
-        let session_key =
-            state.release_session_signer(&rec.session_id, &rec.agent_pubkey, &rec.project);
+        let session_key = state.release_session_signer(&rec.session_id);
+        // Mark the (pubkey, h) route dead but KEEP the row: a later mention to
+        // this ordinal resumes its bound native session (issue #47).
+        state.with_store(|s| s.mark_identity_route_dead(&rec.session_id, now_secs()).ok());
         if let Some(sk) = session_key {
             let provider = state.provider.clone();
             let store = state.store.clone();

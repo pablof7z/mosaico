@@ -88,9 +88,20 @@ pub(in crate::daemon::server) fn rpc_whoami(
     // a stale membership in the room it minted at spawn.
     let scope = rec.route_scope().to_string();
     state.with_store(|s| {
-        let pubkey = s
-            .session_pubkey_for_session(&rec.session_id)
+        // Report the session's DURABLE ORDINAL identity (issue #47): its ordinal
+        // pubkey + label (`smith`, `smith1`, …) — that is the identity peers see
+        // on the wire. Falls back to the legacy session pubkey, then the base
+        // agent pubkey, for sessions predating the route table.
+        let route = s.identity_route_for_session(&rec.session_id);
+        let pubkey = route
+            .as_ref()
+            .map(|r| r.pubkey.clone())
+            .or_else(|| s.session_pubkey_for_session(&rec.session_id))
             .unwrap_or_else(|| rec.agent_pubkey.clone());
+        let label = route
+            .as_ref()
+            .map(|r| r.label.clone())
+            .unwrap_or_else(|| rec.agent_slug.clone());
         let npub = {
             use nostr_sdk::prelude::ToBech32;
             nostr_sdk::PublicKey::from_hex(&pubkey)
@@ -113,6 +124,7 @@ pub(in crate::daemon::server) fn rpc_whoami(
             .len();
         Ok(serde_json::json!({
             "agent": rec.agent_slug,
+            "label": label,
             "session_id": rec.session_id,
             "codename": crate::util::session_codename(&rec.session_id),
             "project": scope,

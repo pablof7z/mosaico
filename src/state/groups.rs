@@ -136,6 +136,17 @@ impl Store {
         Ok(())
     }
 
+    /// Every group id this daemon owns (`owns_group=1`). Feeds the aggregate
+    /// subscription registry's coverage so the daemon keeps live `#h`/group-state
+    /// REQs for groups it created even when no local agent is a cached member yet.
+    pub fn list_owned_groups(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT project FROM owned_groups WHERE owns_group=1")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     pub fn is_group_owned(&self, project: &str) -> Result<bool> {
         let n: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM owned_groups WHERE project=?1 AND owns_group=1",

@@ -324,6 +324,76 @@ impl Transport {
         Ok(())
     }
 
+    /// Subscribe a single filter under an EXPLICIT (caller-chosen, e.g. semantic)
+    /// [`SubscriptionId`]. Re-subscribing the same id REPLACES the existing relay
+    /// subscription in place (NIP-01: a REQ with a known id edits it), so the
+    /// caller can intentionally retire/replace a role.
+    ///
+    /// This differs from [`Transport::subscribe`] in WHERE the id comes from.
+    /// `subscribe` derives the id from filter CONTENT (a leak guard — identical
+    /// filters collapse to one subscription). Here the id is owned by the caller
+    /// (the subscription registry), which wants the opposite control: a *stable
+    /// name for a role* whose filter changes over time. Keying by content would
+    /// strand the old filter under a now-orphaned id every time the role's filter
+    /// shifted; keying by the registry's id lets a single CLOSE/replace swap it.
+    pub async fn subscribe_with_id(&self, id: SubscriptionId, filter: Filter) -> Result<()> {
+        self.client
+            .subscribe_with_id(id, filter, None)
+            .await
+            .context("subscribing")?;
+        Ok(())
+    }
+
+    /// Like [`Transport::subscribe_with_id`], but restricts the subscription to
+    /// `relays` (a subset of the connected pool). The registry uses this to keep
+    /// broad `#h`/`#p` live subscriptions on the main relays and OFF the profile
+    /// indexer relay — that relay is a one-shot `kind:0` resolution endpoint, and
+    /// pinning firehose filters there wastes its connection and pulls in noise.
+    ///
+    /// If `relays` is empty, this falls back to subscribing on ALL connected
+    /// relays (identical to `subscribe_with_id`) rather than silently
+    /// subscribing to nothing — an empty target set is a caller convenience
+    /// ("everywhere"), not an instruction to drop the subscription.
+    pub async fn subscribe_with_id_to(
+        &self,
+        relays: &[String],
+        id: SubscriptionId,
+        filter: Filter,
+    ) -> Result<()> {
+        if relays.is_empty() {
+            self.client
+                .subscribe_with_id(id, filter, None)
+                .await
+                .context("subscribing")?;
+        } else {
+            // Materialize an OWNED relay list before the await. Passing a borrowed
+            // iterator with a `|s| s.as_str()` closure (`&String -> &str`) into the
+            // async sdk call keeps a higher-ranked borrow alive across the await
+            // point; when this future is `tokio::spawn`ed (as it is from
+            // `resubscribe`/`ensure_subscription`), that trips the compiler's
+            // "implementation of Send/FnOnce is not general enough" limitation.
+            // An owned `Vec<String>` (String: TryIntoUrl) carries no borrow.
+            let urls: Vec<String> = relays.to_vec();
+            self.client
+                .subscribe_with_id_to(urls, id, filter, None)
+                .await
+                .context("subscribing to relays")?;
+        }
+        Ok(())
+    }
+
+    /// Close a subscription by id (sends a NIP-01 CLOSE to the relays). The
+    /// codebase had no unsubscribe path before — every subscription lived until
+    /// the client disconnected. The registry needs this to compact narrow REQs
+    /// and retire stale subscriptions as roles come and go, instead of letting
+    /// the relay-side subscription set grow monotonically. The sdk's
+    /// `unsubscribe` returns unit (best-effort fire-and-forget); we wrap it as
+    /// `Ok` so callers share one fallible signature across the registry surface.
+    pub async fn unsubscribe(&self, id: &SubscriptionId) -> Result<()> {
+        self.client.unsubscribe(id).await;
+        Ok(())
+    }
+
     pub fn notifications(&self) -> broadcast::Receiver<RelayPoolNotification> {
         self.client.notifications()
     }

@@ -406,6 +406,80 @@ pub fn derive_session_keys(
 }
 
 // ---------------------------------------------------------------------------
+// Durable ordinal identities (issue #47)
+// ---------------------------------------------------------------------------
+
+/// Display label for an agent's Nth concurrent identity. Ordinal 0 is the base
+/// agent itself (`smith`); higher ordinals append the number (`smith1`,
+/// `smith2`). This is the addressable identity peers see, NOT a transient
+/// per-session codename.
+pub fn agent_ordinal_label(agent_slug: &str, ordinal: u32) -> String {
+    if ordinal == 0 {
+        agent_slug.to_string()
+    } else {
+        format!("{agent_slug}{ordinal}")
+    }
+}
+
+/// Deterministically derive the keypair for an agent's Nth concurrent identity.
+///
+/// Replaces `derive_session_keys` for live signer selection (issue #47). The old
+/// model derived a fresh key per harness *session* (anchored to the native
+/// session id), so the set of live pubkeys churned with every session and leaked
+/// relay subscriptions. Ordinal keys are DURABLE: a `(agent, ordinal)` pair maps
+/// to one stable pubkey that is REUSED across rooms, so the subscription
+/// `#p`-set is bounded by (agents × concurrency high-water mark), not sessions.
+///
+/// - Ordinal `0` is exactly the base file-backed agent key — no derivation.
+/// - Ordinal `N > 0` is HKDF-SHA256 of the base agent secret. The base secret is
+///   already unique per `(agent, machine)`, so it alone keys the family; the
+///   base pubkey is folded into `info` only to make the derivation explicit and
+///   self-describing. There is deliberately NO project/room/session input — the
+///   same `smithN` must be the same pubkey everywhere.
+///
+/// # Info encoding
+///
+/// ```text
+/// base_pubkey_hex '\0' ordinal_be(4) '\0' counter
+/// ```
+///
+/// The trailing byte is a rejection-sampling counter (starts at 0x00), mutated
+/// in place on the astronomically improbable chance the raw HKDF output is not a
+/// valid secp256k1 scalar — same guard as `derive_session_keys`.
+pub fn derive_agent_ordinal_keys(base: &Keys, ordinal: u32) -> Keys {
+    if ordinal == 0 {
+        return base.clone();
+    }
+    const SALT: &[u8] = b"tenex-edge/agent-ordinal-key/v1";
+    let ikm = base.secret_key().as_secret_bytes();
+    let base_pub = base.public_key().to_hex();
+    let ord_be = ordinal.to_be_bytes();
+
+    let mut info: Vec<u8> = Vec::with_capacity(base_pub.len() + 1 + 4 + 1 + 1);
+    info.extend_from_slice(base_pub.as_bytes());
+    info.push(0x00);
+    info.extend_from_slice(&ord_be);
+    info.push(0x00);
+    info.push(0x00); // counter starts at 0
+
+    let counter_idx = info.len() - 1;
+    loop {
+        let okm = hkdf_sha256_32(ikm, SALT, &info);
+        match SecretKey::from_slice(&okm) {
+            Ok(sk) => return Keys::new(sk),
+            Err(_) => {
+                let counter = info[counter_idx];
+                assert!(
+                    counter < 255,
+                    "derive_agent_ordinal_keys: exhausted rejection counter (astronomically improbable)"
+                );
+                info[counter_idx] = counter + 1;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 /// Write via a temp file + rename so a crash never leaves a half-written key.
 fn atomic_write(path: &Path, body: &str) -> Result<()> {

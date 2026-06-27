@@ -41,7 +41,7 @@ pub(in crate::daemon::server) async fn spawn_session(
         // NIP-29 group. The Mutex pop is atomic: if rpc_session_end already
         // removed the key, this finds None and avoids a duplicate publish.
         {
-            let maybe_key = st.release_session_signer(&sid, &pubkey, &proj);
+            let maybe_key = st.release_session_signer(&sid);
             if let Some(sk) = maybe_key {
                 let session_pubkey = sk.public_key().to_hex();
                 st.provider
@@ -52,10 +52,12 @@ pub(in crate::daemon::server) async fn spawn_session(
                 });
             }
         }
-        // Clear the DB routing row regardless of whether the in-memory key was
-        // still present (graceful end clears it; self-exit may too).
+        // Clear the legacy DB routing row regardless of whether the in-memory key
+        // was still present, and mark the (pubkey, h) route dead but keep it for
+        // resume (issue #47).
         st.with_store(|s| {
             s.remove_session_pubkeys_for_session(&sid).ok();
+            s.mark_identity_route_dead(&sid, now_secs()).ok();
         });
         st.sessions.lock().unwrap().remove(&sid);
         prune_hosted(&st);
@@ -99,66 +101,169 @@ pub(in crate::daemon::server) async fn ensure_subscription(
             projs.push(project.to_string());
         }
     }
-    // Bounded: `resubscribe` opens a relay subscription, which can hang on a slow
-    // or unreachable relay. `ensure_subscription` is awaited on hook-critical
-    // paths (session_start, spawn_session), so a hang would block the editor.
-    // The intent (the project is in `subscribed_projects`) is recorded above; on
-    // timeout we fail open and the next session event re-runs resubscribe.
-    match tokio::time::timeout(std::time::Duration::from_secs(5), resubscribe(state)).await {
+    // Incremental add: plan only the NARROW deltas for this newly-tracked channel
+    // (one `#h` chat/status/long-form REQ + one group-state REQ), NOT a full
+    // aggregate rebuild. Mutating an aggregate makes the relay replay every stored
+    // event for every tracked entity; a narrow REQ scoped to just this channel
+    // avoids that. The deltas are empty when the channel is already covered (by an
+    // aggregate seeded at startup or an earlier narrow add), making this idempotent.
+    let reqs = state.subscriptions.lock().unwrap().add_channel(project);
+    if reqs.is_empty() {
+        return Ok(());
+    }
+    // Bounded: opening a relay subscription can hang on a slow/unreachable relay,
+    // and this is awaited on hook-critical paths (session_start, spawn_session),
+    // so a hang would block the editor. The intent (project recorded above +
+    // folded into the registry) survives a timeout; we fail open.
+    match tokio::time::timeout(std::time::Duration::from_secs(5), apply_plan(state, reqs)).await {
         Ok(r) => r,
         Err(_) => {
             if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                eprintln!("[daemon] resubscribe timed out for {project} (best-effort)");
+                eprintln!("[daemon] subscription apply timed out for {project} (best-effort)");
             }
             Ok(())
         }
     }
 }
 
-/// Rebuild and apply the union subscription across all hosted agents/projects.
-pub(in crate::daemon::server) async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
-    let hosted = state.hosted_pubkeys();
-    let session_pks = state.live_session_pubkeys();
+/// Open each planned REQ under its semantic [`SubscriptionId`], on the MAIN
+/// relays only. Broad `#h`/`#p` aggregate filters must NOT hit the kind:0 indexer
+/// relay — that relay is a one-shot profile-resolution endpoint, and pinning a
+/// firehose there wastes its connection and pulls in noise. Re-applying the same
+/// id REPLACES the relay-side REQ in place (NIP-01), which is exactly how `seed`
+/// compacts the three aggregates.
+pub(in crate::daemon::server) async fn apply_plan(
+    state: &Arc<DaemonState>,
+    reqs: Vec<crate::fabric::subscriptions::PlannedReq>,
+) -> Result<()> {
+    for req in reqs {
+        state
+            .transport
+            .subscribe_with_id_to(&state.cfg.relays, req.id, req.filter)
+            .await?;
+    }
+    Ok(())
+}
 
-    // Authors for kind:0 / kind:30315 include both durable agent keys and active
-    // transient session keys so peers receive session-signed presence.
-    let mut authors: Vec<String> = hosted.clone();
-    authors.extend(session_pks.clone());
-    authors.sort_unstable();
-    authors.dedup();
+/// Force the relay to replay channel `h`'s stored chat so a session that just
+/// became alive receives messages published BEFORE it existed (the spawn-on-
+/// mention case: the triggering kind:9 arrives, spawns the agent, but the live
+/// materialize path can only route to sessions already alive). Re-applying the
+/// channel's narrow `#h` REQ replaces it in place (NIP-01) and the relay
+/// re-streams the stored events, which `materialize_chat_message` then routes to
+/// the now-alive session. Best-effort: a replay failure just means the session
+/// relies on subsequent live chat. Bounded so a slow relay can't block the hook.
+pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonState>, h: &str) {
+    let req = crate::fabric::subscriptions::channel_chat_replay_req(h);
+    let fut = apply_plan(state, vec![req]);
+    if tokio::time::timeout(std::time::Duration::from_secs(5), fut)
+        .await
+        .is_err()
+        && std::env::var("TENEX_EDGE_DEBUG").is_ok()
+    {
+        eprintln!("[daemon] channel chat replay timed out for {h} (best-effort)");
+    }
+}
 
-    let projects = state.subscribed_projects.lock().unwrap().clone();
-    let owners = state.owners.clone();
+/// Close each subscription id (NIP-01 CLOSE). Used when compaction retires the
+/// narrow REQs now subsumed by a rebuilt aggregate. Best-effort per id.
+#[allow(dead_code)]
+pub(in crate::daemon::server) async fn close_subs(
+    state: &Arc<DaemonState>,
+    ids: Vec<nostr_sdk::prelude::SubscriptionId>,
+) -> Result<()> {
+    for id in ids {
+        state.transport.unsubscribe(&id).await?;
+    }
+    Ok(())
+}
 
-    // All pubkeys that should receive p-tagged mentions: durable + session.
-    let mut all_me: Vec<String> = hosted.clone();
-    all_me.extend(session_pks);
-    all_me.sort_unstable();
-    all_me.dedup();
+/// Compute the daemon's current subscription coverage from durable sources.
+///
+/// - `channels_h` / `group_state_d`: explicitly tracked projects, channels live
+///   sessions route under, groups any local/ordinal pubkey is a member of, and
+///   groups this daemon owns.
+/// - `addressed_pubkeys_p`: local durable + ordinal pubkeys, live transient
+///   session keys, and the backend identity (folds in the old standalone backend
+///   orchestration `#p` subscription).
+fn build_entity_coverage(
+    state: &Arc<DaemonState>,
+) -> crate::fabric::subscriptions::EntityCoverage {
+    use std::collections::BTreeSet;
 
-    for project in &projects {
-        if all_me.is_empty() {
-            let scope = crate::fabric::Scope {
-                authors: authors.clone(),
-                project: Some(project.clone()),
-                mentions_to: None,
-                owners: owners.clone(),
-            };
-            state.provider.subscribe(scope).await?;
-        } else {
-            for me in &all_me {
-                let scope = crate::fabric::Scope {
-                    authors: authors.clone(),
-                    project: Some(project.clone()),
-                    mentions_to: Some(me.clone()),
-                    owners: owners.clone(),
-                };
-                state.provider.subscribe(scope).await?;
+    let edge = crate::config::edge_home();
+    let local_pks = crate::identity::list_local_pubkeys(&edge);
+
+    let mut channels: BTreeSet<String> = state
+        .subscribed_projects
+        .lock()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect();
+    let mut pubkeys: BTreeSet<String> = local_pks.iter().cloned().collect();
+
+    state.with_store(|s| {
+        let ordinals = s.list_agent_ordinal_pubkeys();
+        pubkeys.extend(ordinals.iter().cloned());
+        // Groups any local/ordinal pubkey is a member of (spawn-on-mention path).
+        for pk in local_pks.iter().chain(ordinals.iter()) {
+            if let Ok(gs) = s.list_groups_for_member(pk) {
+                channels.extend(gs);
             }
         }
+        // Groups this daemon created.
+        if let Ok(owned) = s.list_owned_groups() {
+            channels.extend(owned);
+        }
+        // Channels live sessions currently route under (channel or per-session room).
+        for sess in s.list_alive_sessions().unwrap_or_default() {
+            channels.insert(sess.route_scope().to_string());
+        }
+    });
+
+    // Live transient session keys + backend identity round out the addressed set.
+    pubkeys.extend(state.live_session_pubkeys());
+    if let Some(bp) = state.backend_pubkey() {
+        pubkeys.insert(bp.to_string());
     }
 
-    Ok(())
+    crate::fabric::subscriptions::EntityCoverage {
+        channels_h: channels.clone(),
+        group_state_d: channels,
+        addressed_pubkeys_p: pubkeys,
+    }
+}
+
+/// Seed the THREE stable aggregate REQs from the daemon's current coverage. This
+/// REPLACES the whole aggregate (the compaction point) and applies exactly three
+/// REQs: `#h` (chat/status/long-form over all channels), `#p` (chat/long-form
+/// addressed to all durable pubkeys), and group-state (39000/39001/39002 over all
+/// group ids). It NO LONGER expands per-(project×kind) `Scope`s and NEVER
+/// subscribes kind:0 — profile resolution stays on the on-demand `Transport::fetch`
+/// + `profile.rs` cache.
+///
+/// An aggregate filter with an EMPTY coverage set degenerates to an unscoped
+/// firehose over its kinds; such a REQ is skipped (never opened) so a daemon with
+/// no channels/pubkeys yet does not pull the whole relay. The registry is still
+/// seeded so later narrow adds dedup correctly against the (empty) aggregate.
+pub(in crate::daemon::server) async fn resubscribe(state: &Arc<DaemonState>) -> Result<()> {
+    let coverage = build_entity_coverage(state);
+    // seed() returns the three aggregate REQs in the fixed, tested order
+    // [`#h`, `#p`, group-state]; pair each with its set's emptiness so we drop
+    // any that would be an unscoped firehose.
+    let empties = [
+        coverage.channels_h.is_empty(),
+        coverage.addressed_pubkeys_p.is_empty(),
+        coverage.group_state_d.is_empty(),
+    ];
+    let reqs = state.subscriptions.lock().unwrap().seed(coverage);
+    let reqs: Vec<_> = reqs
+        .into_iter()
+        .zip(empties)
+        .filter_map(|(req, empty)| (!empty).then_some(req))
+        .collect();
+    apply_plan(state, reqs).await
 }
 
 /// Revive sessions a previous daemon left behind (skew re-exec / crash),
@@ -247,16 +352,18 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             })
             .await;
 
-        let (harness_kind, anchor) =
+        let (harness_kind, native_id) =
             state.with_store(|s| s.get_session_derivation_anchor(&session_id));
         let signer = match select_session_signer(
             state,
             &session_id,
+            &id.keys,
             &id.pubkey_hex(),
             &snap.agent_slug,
             &snap.project,
             &harness_kind,
-            &anchor,
+            &native_id,
+            None,
         ) {
             Ok(signer) => signer,
             Err(e) => {
@@ -269,16 +376,19 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                 continue;
             }
         };
-        if let Some(session_pubkey) = signer.transient_pubkey() {
-            if let Err(e) = admit_transient_signer(state, &snap.project, session_pubkey).await {
+        if let Some(member_pubkey) = signer.member_pubkey_to_admit() {
+            if let Err(e) = admit_transient_signer(state, &snap.project, member_pubkey).await {
                 if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
                     eprintln!(
-                        "[daemon] transient signer admission failed while reconciling {}: {e:#}",
+                        "[daemon] ordinal signer admission failed while reconciling {}: {e:#}",
                         session_id
                     );
                 }
-                state.release_session_signer(&session_id, &id.pubkey_hex(), &snap.project);
-                state.with_store(|s| s.remove_session_pubkeys_for_session(&session_id).ok());
+                state.release_session_signer(&session_id);
+                state.with_store(|s| {
+                    s.remove_session_pubkeys_for_session(&session_id).ok();
+                    s.mark_identity_route_dead(&session_id, now_secs()).ok();
+                });
                 continue;
             }
         }

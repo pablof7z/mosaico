@@ -136,6 +136,7 @@ pub(super) async fn rpc_tmux_spawn(
         base_override,
         group,
         client_cwd,
+        None,
     )
     .await?;
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))

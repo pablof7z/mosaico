@@ -320,6 +320,23 @@ pub(in crate::daemon::server) async fn rpc_channels_switch(
             new_channel
         );
     }
+    // Occupancy reject (issue #47): a session's ordinal identity is fixed for
+    // life; it cannot switch INTO a room where another live session already holds
+    // the same ordinal pubkey. Redirect the agent to message that instance — the
+    // redirect lands in that instance's context because both sign as this pubkey.
+    let my_pubkey = state
+        .with_store(|s| s.identity_route_for_session(&rec.session_id))
+        .map(|r| r.pubkey)
+        .unwrap_or_else(|| rec.agent_pubkey.clone());
+    if let Some(occupant) = state.with_store(|s| s.live_identity_route(&my_pubkey, &new_channel)) {
+        if occupant.session_id != rec.session_id {
+            anyhow::bail!(
+                "Another instance of you is already active in #{new_channel}, so you cannot join it. \
+Send it a message instead: tenex-edge chat write --channel {new_channel} --message \"...\" \
+— it will arrive in the context of the instance working there."
+            );
+        }
+    }
     ensure_subscription(state, &new_channel).await?;
     let prev_channel = rec.channel.clone();
     // Apply the switch in ONE store transaction: update `sessions.channel`,
@@ -329,6 +346,9 @@ pub(in crate::daemon::server) async fn rpc_channels_switch(
     // Without this, `channels switch` only flipped a column and the session
     // kept routing into its old per-session room.
     state.with_store(|s| s.set_session_channel(&rec.session_id, &new_channel, now_secs()))?;
+    // Move the (pubkey, h) identity route to the new room — the ordinal pubkey is
+    // fixed, only `h` changes; `(pubkey, new_channel)` becomes the resume key.
+    state.with_store(|s| s.move_identity_route(&rec.session_id, &new_channel, now_secs()).ok());
     // Nudge the drainer so the scope-changed status publishes immediately
     // rather than waiting for the next heartbeat tick. The kind:30315 it
     // publishes carries the new `h` tag, so peers in the channel see the

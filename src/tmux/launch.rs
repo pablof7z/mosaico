@@ -60,6 +60,7 @@ async fn open_agent_session(
     abs_path: &str,
     command: &[String],
     group: Option<&str>,
+    ordinal: Option<u32>,
 ) -> Result<String> {
     let session_name = unique_session_name(slug);
     let agent_env = format!("TENEX_EDGE_AGENT={slug}");
@@ -73,6 +74,12 @@ async fn open_agent_session(
     }
     if let Some(g) = group.filter(|g| !g.is_empty()) {
         passthrough_env.push(format!("TENEX_EDGE_CHANNEL={g}"));
+    }
+    // Exact ordinal for a mention-driven spawn of a specific `smithN` (issue #47):
+    // the hook forwards TENEX_EDGE_ORDINAL so the daemon allocates that ordinal
+    // rather than the lowest-free one.
+    if let Some(ord) = ordinal {
+        passthrough_env.push(format!("TENEX_EDGE_ORDINAL={ord}"));
     }
 
     let mut cmd_args: Vec<&str> = vec![
@@ -185,6 +192,7 @@ fn make_session_transparent(
 
 /// Spawn a new tmux window running `slug`'s harness in `project`'s directory.
 /// Returns the new pane id (e.g. "%7") or an error.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_agent(
     state: &Arc<DaemonState>,
     slug: &str,
@@ -193,6 +201,7 @@ pub async fn spawn_agent(
     base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
+    ordinal: Option<u32>,
 ) -> Result<String> {
     if !tmux_available() {
         anyhow::bail!("tmux binary not found");
@@ -217,7 +226,7 @@ pub async fn spawn_agent(
     };
 
     let abs_path = project_abs_path(state, project, client_cwd);
-    open_agent_session(slug, window_name, &abs_path, &agent_command, group).await
+    open_agent_session(slug, window_name, &abs_path, &agent_command, group, ordinal).await
 }
 
 /// Resume a prior session by replaying its harness with the native resume token.
@@ -243,12 +252,16 @@ pub async fn resume_agent(
 
     let window_name = format!("{slug}·resume");
     let abs_path = project_abs_path(state, project, None);
+    // ordinal=None: a resumed claude/codex session re-registers under the SAME
+    // session_id, so select_session_signer recovers its ordinal from the existing
+    // (pubkey,h) route — no explicit hint needed.
     open_agent_session(
         slug,
         &window_name,
         &abs_path,
         &resume_command,
         Some(project),
+        None,
     )
     .await
 }

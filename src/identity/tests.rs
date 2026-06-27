@@ -248,6 +248,78 @@ fn ac3_same_harness_id_different_projects_isolate() {
     );
 }
 
+// -----------------------------------------------------------------------
+// derive_agent_ordinal_keys tests (issue #47)
+// -----------------------------------------------------------------------
+
+#[test]
+fn ordinal_zero_is_the_base_key() {
+    let base = Keys::generate();
+    let zero = derive_agent_ordinal_keys(&base, 0);
+    assert_eq!(zero.public_key().to_hex(), base.public_key().to_hex());
+    assert_eq!(
+        zero.secret_key().to_secret_hex(),
+        base.secret_key().to_secret_hex()
+    );
+}
+
+#[test]
+fn ordinal_derivation_is_deterministic_and_room_independent() {
+    // The function takes no room/project input, so determinism alone proves
+    // room-independence: smith1 is the same pubkey wherever it is used.
+    let base = Keys::new(test_tenex_secret());
+    let a = derive_agent_ordinal_keys(&base, 1);
+    let b = derive_agent_ordinal_keys(&base, 1);
+    assert_eq!(a.public_key().to_hex(), b.public_key().to_hex());
+    assert_eq!(
+        a.secret_key().to_secret_hex(),
+        b.secret_key().to_secret_hex()
+    );
+}
+
+#[test]
+fn distinct_ordinals_get_distinct_keys() {
+    let base = Keys::new(test_tenex_secret());
+    let zero = derive_agent_ordinal_keys(&base, 0).public_key().to_hex();
+    let one = derive_agent_ordinal_keys(&base, 1).public_key().to_hex();
+    let two = derive_agent_ordinal_keys(&base, 2).public_key().to_hex();
+    assert_ne!(zero, one);
+    assert_ne!(one, two);
+    assert_ne!(zero, two);
+}
+
+#[test]
+fn distinct_base_agents_get_distinct_ordinal_families() {
+    // smith1 and jones1 must differ — the base secret keys the family.
+    let smith = Keys::generate();
+    let jones = Keys::generate();
+    assert_ne!(
+        derive_agent_ordinal_keys(&smith, 1).public_key().to_hex(),
+        derive_agent_ordinal_keys(&jones, 1).public_key().to_hex()
+    );
+}
+
+#[test]
+fn ordinal_known_answer() {
+    // Pinned known-answer: base secret = [0x01;32], ordinal 1.
+    // Catches any change to the derivation spec; bump the salt version if
+    // the encoding ever changes intentionally.
+    let base = Keys::new(test_tenex_secret());
+    let k = derive_agent_ordinal_keys(&base, 1);
+    assert_eq!(
+        k.public_key().to_hex(),
+        "90ea491a638c1b58f05fd81b4005852aac8defccc1bbd473231fcbfa24589804",
+        "known-answer test: pinned ordinal-1 pubkey changed — was the derivation spec modified?"
+    );
+}
+
+#[test]
+fn ordinal_label_format() {
+    assert_eq!(agent_ordinal_label("smith", 0), "smith");
+    assert_eq!(agent_ordinal_label("smith", 1), "smith1");
+    assert_eq!(agent_ordinal_label("smith", 12), "smith12");
+}
+
 #[test]
 fn byline_reads_field_alias_and_falls_back_to_agent_description() {
     let dir = tempfile::tempdir().unwrap();

@@ -35,6 +35,11 @@ pub(in crate::daemon::server) struct SessionStartParams {
     /// directory remains the parent repo. Absent for ordinary project sessions.
     #[serde(default)]
     channel: Option<String>,
+    /// Exact ordinal to allocate for this session (issue #47), forwarded from
+    /// `TENEX_EDGE_ORDINAL` by a spawn-on-mention that targeted a specific
+    /// `smithN`. When present, the signer honors it instead of lowest-free.
+    #[serde(default)]
+    preferred_ordinal: Option<u32>,
 }
 
 pub(in crate::daemon::server) async fn rpc_session_start(
@@ -224,7 +229,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
                 // durable signer slot (now shared, since same-agent sessions land
                 // in the same project channel by default) instead of being forced
                 // onto a transient key.
-                state.release_session_signer(&rec.session_id, &rec.agent_pubkey, &rec.project);
+                state.release_session_signer(&rec.session_id);
                 stale_ids.push(rec.session_id.clone());
             }
         }
@@ -395,29 +400,36 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             eprintln!("[daemon] ensure_channel_ready({project}) timed out (best-effort)");
         }
     }
-    let (harness_kind, anchor) = state.with_store(|s| s.get_session_derivation_anchor(&session_id));
+    let (harness_kind, native_id) =
+        state.with_store(|s| s.get_session_derivation_anchor(&session_id));
     let signer = select_session_signer(
         state,
         &session_id,
+        &id.keys,
         &id.pubkey_hex(),
         &p.agent,
         &project,
         &harness_kind,
-        &anchor,
+        &native_id,
+        p.preferred_ordinal,
     )?;
-    if let Some(session_pubkey) = signer.transient_pubkey() {
+    if let Some(member_pubkey) = signer.member_pubkey_to_admit() {
         if let Some(prog) = &progress {
             prog.emit(
                 "nip29",
                 format!(
-                    "admitting transient signer {} before routing use",
-                    pubkey_short(session_pubkey)
+                    "admitting ordinal {} signer {} before routing use",
+                    signer.ordinal,
+                    pubkey_short(member_pubkey)
                 ),
             );
         }
-        if let Err(e) = admit_transient_signer(state, &project, session_pubkey).await {
-            state.release_session_signer(&session_id, &id.pubkey_hex(), &project);
-            state.with_store(|s| s.remove_session_pubkeys_for_session(&session_id).ok());
+        if let Err(e) = admit_transient_signer(state, &project, member_pubkey).await {
+            state.release_session_signer(&session_id);
+            state.with_store(|s| {
+                s.remove_session_pubkeys_for_session(&session_id).ok();
+                s.mark_identity_route_dead(&session_id, now_secs()).ok();
+            });
             return Err(e);
         }
     }
@@ -434,6 +446,17 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             "opening or refreshing project subscriptions",
         );
     }
+    // Was the channel already subscribed before this session? If so, a mention
+    // may have been published to it BEFORE this session existed (spawn-on-mention)
+    // and the live materialize path — which only routes to sessions already alive
+    // — never delivered it. We replay below once the session is alive. A channel
+    // about to be freshly subscribed needs no replay: the relay streams its
+    // backlog to this (already-alive) session as part of opening the new REQ.
+    let needs_chat_replay = state
+        .subscriptions
+        .lock()
+        .unwrap()
+        .covers_channel(&project);
     if let Err(e) = ensure_subscription(state, &project).await {
         if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
             eprintln!("[daemon] ensure_subscription({project}) failed: {e:#}");
@@ -446,6 +469,10 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         }
     } else if let Some(prog) = &progress {
         prog.emit("subscription", "project subscription is active");
+    }
+
+    if needs_chat_replay {
+        replay_channel_chat(state, &project).await;
     }
 
     let ep = engine_params_for(

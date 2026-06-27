@@ -65,6 +65,25 @@ pub struct PeerSession {
     pub rel_cwd: String,
 }
 
+/// A durable ordinal identity's binding to a room + (when live) a harness
+/// session (issue #47). One row per `(pubkey, h)`; the authoritative resume key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityRoute {
+    pub pubkey: String,
+    pub h: String,
+    pub session_id: String,
+    pub base_pubkey: String,
+    pub agent_slug: String,
+    pub ordinal: u32,
+    pub label: String,
+    /// Harness kind ("claude-code"/"codex"/"opencode") for the bound session;
+    /// drives the resume command shape. Empty when never bound to a harness.
+    pub harness_kind: String,
+    /// Native harness session id used for `--resume`. Empty when unknown.
+    pub native_id: String,
+    pub alive: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatInboxRow {
     pub chat_event_id: String,
@@ -162,6 +181,7 @@ mod chat;
 mod core;
 mod groups;
 mod local_sessions;
+mod ordinals;
 mod peers;
 mod read_models;
 mod session_registry;
@@ -330,3 +350,7 @@ mod tests_groups;
 #[cfg(test)]
 #[path = "state/tests_read_models.rs"]
 mod tests_read_models;
+
+#[cfg(test)]
+#[path = "state/tests_ordinals.rs"]
+mod tests_ordinals;

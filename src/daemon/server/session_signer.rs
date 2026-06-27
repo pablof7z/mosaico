@@ -1,264 +1,367 @@
 use crate::identity;
-use anyhow::{bail, Result};
-use nostr_sdk::prelude::{Keys, SecretKey};
+use anyhow::Result;
+use nostr_sdk::prelude::Keys;
 use std::collections::HashMap;
 
+/// A reserved ordinal slot (issue #47). At most one LIVE session per
+/// `(base agent pubkey, room h, ordinal)`. Replaces the old binary
+/// `(agent, project)` durable-vs-transient slot: instead of "first session gets
+/// the durable key, everyone else gets a per-session transient key", each
+/// concurrent session in a room takes the next free DURABLE ordinal identity
+/// (`smith`, `smith1`, `smith2`, …), reused across rooms.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct SignerSlot {
-    agent_pubkey: String,
-    project: String,
+pub(super) struct OrdinalSlot {
+    base_pubkey: String,
+    h: String,
+    ordinal: u32,
 }
 
-impl SignerSlot {
-    fn new(agent_pubkey: &str, project: &str) -> Self {
-        Self {
-            agent_pubkey: agent_pubkey.to_string(),
-            project: project.to_string(),
-        }
-    }
-}
-
-pub(super) type SignerReservations = HashMap<SignerSlot, String>;
+/// In-memory reservation map: slot → owning session id. Tracks which ordinals
+/// are live in each room so the allocator can pick the lowest free one and two
+/// concurrent spawns can't both claim the same ordinal.
+pub(super) type SignerReservations = HashMap<OrdinalSlot, String>;
 
 pub(super) struct SignerRequest<'a> {
     pub session_id: &'a str,
-    pub agent_pubkey: &'a str,
+    /// Durable base agent pubkey (the ordinal-0 identity).
+    pub base_pubkey: &'a str,
     pub agent_slug: &'a str,
-    pub project: &'a str,
-    pub harness_kind: &'a str,
-    pub anchor: &'a str,
-    pub existing_session_pubkey: Option<String>,
-    pub tenex_secret: Option<&'a SecretKey>,
+    /// The NIP-29 group id the session operates in (`route_scope`). Ordinals are
+    /// allocated per room; the same ordinal pubkey is reused across rooms.
+    pub h: &'a str,
+    /// Base agent keys — the HKDF derivation root for ordinals > 0.
+    pub base_keys: &'a Keys,
+    /// Honor this exact ordinal when free (resume of a known route, or a
+    /// mention-driven spawn naming a specific `smithN`). `None` → allocate the
+    /// lowest free ordinal in the room (birth).
+    pub preferred_ordinal: Option<u32>,
 }
 
-pub(super) enum SessionSigner {
-    Durable,
-    Transient { keys: Keys, pubkey: String },
+/// The identity selected for a session. Ordinal 0 signs with the base agent key
+/// (`keys` is `None`, so callers fall back to the durable key via
+/// `keys_for_session`); ordinal N>0 signs with a durable derived key and must be
+/// admitted to the group as a member before use.
+pub(super) struct SelectedSigner {
+    pub ordinal: u32,
+    pub pubkey: String,
+    pub label: String,
+    keys: Option<Keys>,
 }
 
-impl SessionSigner {
+impl SelectedSigner {
+    /// Engine signing keys: `None` for ordinal 0 (use the base agent key).
     pub(super) fn session_keys(&self) -> Option<Keys> {
-        match self {
-            Self::Durable => None,
-            Self::Transient { keys, .. } => Some(keys.clone()),
-        }
+        self.keys.clone()
     }
-
-    pub(super) fn transient_pubkey(&self) -> Option<&str> {
-        match self {
-            Self::Durable => None,
-            Self::Transient { pubkey, .. } => Some(pubkey.as_str()),
+    /// The pubkey that must be added as a NIP-29 member before use — only for
+    /// ordinals > 0. Ordinal 0 is the base agent, admitted by the normal
+    /// session-start membership flow.
+    pub(super) fn member_pubkey_to_admit(&self) -> Option<&str> {
+        if self.ordinal > 0 {
+            Some(&self.pubkey)
+        } else {
+            None
         }
     }
 }
 
+fn slot(base_pubkey: &str, h: &str, ordinal: u32) -> OrdinalSlot {
+    OrdinalSlot {
+        base_pubkey: base_pubkey.to_string(),
+        h: h.to_string(),
+        ordinal,
+    }
+}
+
+/// Construct the concrete signer for an ordinal: derive its durable keypair,
+/// label, and pubkey. Ordinal 0 carries no engine keys (base-key fallback).
+fn build(req: &SignerRequest<'_>, ordinal: u32) -> SelectedSigner {
+    let keys = identity::derive_agent_ordinal_keys(req.base_keys, ordinal);
+    let pubkey = keys.public_key().to_hex();
+    let label = identity::agent_ordinal_label(req.agent_slug, ordinal);
+    SelectedSigner {
+        ordinal,
+        pubkey,
+        label,
+        keys: if ordinal == 0 { None } else { Some(keys) },
+    }
+}
+
+/// Commit a chosen ordinal: record its engine keys (or clear them for ordinal 0)
+/// and return the signer. The reservation must already be inserted.
+fn finish(
+    session_keys: &mut HashMap<String, Keys>,
+    req: &SignerRequest<'_>,
+    ordinal: u32,
+) -> SelectedSigner {
+    let signer = build(req, ordinal);
+    match &signer.keys {
+        Some(k) => {
+            session_keys.insert(req.session_id.to_string(), k.clone());
+        }
+        None => {
+            session_keys.remove(req.session_id);
+        }
+    }
+    signer
+}
+
+fn is_taken(
+    r: &SignerReservations,
+    base: &str,
+    h: &str,
+    ordinal: u32,
+    except_session: &str,
+) -> bool {
+    r.get(&slot(base, h, ordinal))
+        .map(String::as_str)
+        .is_some_and(|owner| owner != except_session)
+}
+
+/// Lowest ordinal not currently reserved by a live session in `(base, h)`.
+fn lowest_free(r: &SignerReservations, base: &str, h: &str) -> u32 {
+    let mut n = 0u32;
+    while r.contains_key(&slot(base, h, n)) {
+        n += 1;
+    }
+    n
+}
+
+/// Select and reserve an ordinal identity for a session in room `h`.
+///
+/// - Reassert: if this session already owns a slot in this room, keep its ordinal.
+/// - `preferred_ordinal` (resume/mention): honor it when free.
+/// - Otherwise allocate the lowest free ordinal (birth).
+///
+/// Race-safe under the single-writer daemon: the caller holds the reservations +
+/// session_keys mutexes across this call, so two concurrent spawns serialize and
+/// cannot pick the same ordinal.
 pub(super) fn select_and_reserve(
     reservations: &mut SignerReservations,
     session_keys: &mut HashMap<String, Keys>,
     req: SignerRequest<'_>,
-) -> Result<SessionSigner> {
-    if req.existing_session_pubkey.is_some() {
-        return reserve_transient(session_keys, req);
+) -> Result<SelectedSigner> {
+    // Reassert: this session already holds an ordinal in this room.
+    if let Some(existing) = reservations.iter().find_map(|(s, owner)| {
+        (s.base_pubkey == req.base_pubkey && s.h == req.h && owner.as_str() == req.session_id)
+            .then_some(s.ordinal)
+    }) {
+        return Ok(finish(session_keys, &req, existing));
     }
 
-    let slot = SignerSlot::new(req.agent_pubkey, req.project);
-    match reservations.get(&slot) {
-        None => {
-            reservations.insert(slot, req.session_id.to_string());
-            Ok(SessionSigner::Durable)
-        }
-        Some(owner) if owner == req.session_id => Ok(SessionSigner::Durable),
-        Some(_) => reserve_transient(session_keys, req),
-    }
+    let ordinal = match req.preferred_ordinal {
+        Some(n) if !is_taken(reservations, req.base_pubkey, req.h, n, req.session_id) => n,
+        // Preferred ordinal is occupied by a different live session. Channel
+        // switch rejects this upstream; at birth it should not happen, but fall
+        // back to lowest-free to keep the session live rather than failing.
+        Some(_) => lowest_free(reservations, req.base_pubkey, req.h),
+        None => lowest_free(reservations, req.base_pubkey, req.h),
+    };
+    reservations.insert(
+        slot(req.base_pubkey, req.h, ordinal),
+        req.session_id.to_string(),
+    );
+    Ok(finish(session_keys, &req, ordinal))
 }
 
+/// Release a session's reservation + engine keys (session end / failure / GC).
+/// Scans by session id, so it does not need the room or ordinal.
 pub(super) fn release(
     reservations: &mut SignerReservations,
     session_keys: &mut HashMap<String, Keys>,
     session_id: &str,
-    agent_pubkey: &str,
-    project: &str,
 ) -> Option<Keys> {
-    let slot = SignerSlot::new(agent_pubkey, project);
-    if reservations.get(&slot).map(String::as_str) == Some(session_id) {
-        reservations.remove(&slot);
-    }
+    reservations.retain(|_, owner| owner != session_id);
     session_keys.remove(session_id)
-}
-
-fn reserve_transient(
-    session_keys: &mut HashMap<String, Keys>,
-    req: SignerRequest<'_>,
-) -> Result<SessionSigner> {
-    let Some(secret) = req.tenex_secret else {
-        bail!("cannot derive transient signer without tenexPrivateKey");
-    };
-    let keys = identity::derive_session_keys(
-        secret,
-        req.project,
-        req.agent_slug,
-        req.harness_kind,
-        req.anchor,
-    );
-    let pubkey = keys.public_key().to_hex();
-    if let Some(existing) = req.existing_session_pubkey.as_deref() {
-        if existing != pubkey {
-            bail!(
-                "stored session pubkey {} does not match rederived pubkey {}",
-                crate::util::pubkey_short(existing),
-                crate::util::pubkey_short(&pubkey)
-            );
-        }
-    }
-    session_keys.insert(req.session_id.to_string(), keys.clone());
-    Ok(SessionSigner::Transient { keys, pubkey })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn test_secret() -> SecretKey {
-        SecretKey::from_slice(&[0x22; 32]).unwrap()
+    fn base_keys() -> Keys {
+        Keys::new(nostr_sdk::prelude::SecretKey::from_slice(&[0x22; 32]).unwrap())
     }
 
     fn request<'a>(
         session_id: &'a str,
-        project: &'a str,
-        secret: &'a SecretKey,
+        h: &'a str,
+        base_pubkey: &'a str,
+        base_keys: &'a Keys,
+        preferred_ordinal: Option<u32>,
     ) -> SignerRequest<'a> {
         SignerRequest {
             session_id,
-            agent_pubkey: "durable-pubkey",
-            agent_slug: "claude",
-            project,
-            harness_kind: "codex",
-            anchor: session_id,
-            existing_session_pubkey: None,
-            tenex_secret: Some(secret),
+            base_pubkey,
+            agent_slug: "smith",
+            h,
+            base_keys,
+            preferred_ordinal,
         }
     }
 
     #[test]
-    fn first_session_in_group_uses_durable_signer() {
-        let secret = test_secret();
-        let mut reservations = SignerReservations::new();
-        let mut session_keys = HashMap::new();
-
-        let signer = select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            request("s1", "hello", &secret),
-        )
-        .unwrap();
-
-        assert!(matches!(signer, SessionSigner::Durable));
-        assert!(session_keys.is_empty());
+    fn first_session_in_room_is_ordinal_zero_base_key() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        let s = select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
+        assert_eq!(s.ordinal, 0);
+        assert_eq!(s.label, "smith");
+        assert_eq!(s.pubkey, bp); // ordinal 0 IS the base pubkey
+        assert!(s.session_keys().is_none()); // base-key fallback
+        assert!(s.member_pubkey_to_admit().is_none());
+        assert!(sk.is_empty());
     }
 
     #[test]
-    fn second_same_agent_same_group_uses_transient_signer() {
-        let secret = test_secret();
-        let mut reservations = SignerReservations::new();
-        let mut session_keys = HashMap::new();
-
-        select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            request("s1", "hello", &secret),
-        )
-        .unwrap();
-        let signer = select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            request("s2", "hello", &secret),
-        )
-        .unwrap();
-
-        assert!(matches!(signer, SessionSigner::Transient { .. }));
-        assert!(session_keys.contains_key("s2"));
-    }
-
-    #[test]
-    fn same_agent_in_different_groups_uses_durable_signer() {
-        let secret = test_secret();
-        let mut reservations = SignerReservations::new();
-        let mut session_keys = HashMap::new();
-
-        select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            request("s1", "hello", &secret),
-        )
-        .unwrap();
-        let signer = select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            request("s2", "other", &secret),
-        )
-        .unwrap();
-
-        assert!(matches!(signer, SessionSigner::Durable));
-        assert!(!session_keys.contains_key("s2"));
-    }
-
-    #[test]
-    fn resumed_transient_session_reuses_stored_pubkey() {
-        let secret = test_secret();
-        let mut reservations = SignerReservations::new();
-        let mut session_keys = HashMap::new();
-        let keys = identity::derive_session_keys(&secret, "hello", "claude", "codex", "s2");
-        let pubkey = keys.public_key().to_hex();
-        let mut req = request("s2", "hello", &secret);
-        req.existing_session_pubkey = Some(pubkey.clone());
-
-        let signer = select_and_reserve(&mut reservations, &mut session_keys, req).unwrap();
-
-        assert_eq!(signer.transient_pubkey(), Some(pubkey.as_str()));
+    fn second_same_agent_same_room_is_ordinal_one_durable() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
+        let s2 = select_and_reserve(&mut r, &mut sk, request("s2", "#a", &bp, &bk, None)).unwrap();
+        assert_eq!(s2.ordinal, 1);
+        assert_eq!(s2.label, "smith1");
+        assert_ne!(s2.pubkey, bp);
+        assert!(s2.session_keys().is_some());
+        assert_eq!(s2.member_pubkey_to_admit(), Some(s2.pubkey.as_str()));
+        // Durable: the same ordinal-1 key is reproducible (room-independent).
         assert_eq!(
-            session_keys.get("s2").unwrap().public_key().to_hex(),
-            pubkey
+            s2.pubkey,
+            identity::derive_agent_ordinal_keys(&bk, 1).public_key().to_hex()
         );
     }
 
     #[test]
-    fn reservation_mutex_shape_prevents_two_durable_winners() {
+    fn same_ordinal_pubkey_reused_in_different_room() {
+        // smith1 in #a and smith1 in #b are the SAME pubkey (room-independent).
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        // Fill ordinal 0 in both rooms, then ordinal 1 in both rooms.
+        select_and_reserve(&mut r, &mut sk, request("a0", "#a", &bp, &bk, None)).unwrap();
+        select_and_reserve(&mut r, &mut sk, request("b0", "#b", &bp, &bk, None)).unwrap();
+        let a1 = select_and_reserve(&mut r, &mut sk, request("a1", "#a", &bp, &bk, None)).unwrap();
+        let b1 = select_and_reserve(&mut r, &mut sk, request("b1", "#b", &bp, &bk, None)).unwrap();
+        assert_eq!(a1.ordinal, 1);
+        assert_eq!(b1.ordinal, 1);
+        assert_eq!(a1.pubkey, b1.pubkey);
+    }
+
+    #[test]
+    fn lowest_free_fills_gap_after_release() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        select_and_reserve(&mut r, &mut sk, request("s0", "#a", &bp, &bk, None)).unwrap();
+        select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
+        // Release ordinal 0; next allocation refills the gap at 0.
+        release(&mut r, &mut sk, "s0");
+        let s2 = select_and_reserve(&mut r, &mut sk, request("s2", "#a", &bp, &bk, None)).unwrap();
+        assert_eq!(s2.ordinal, 0);
+    }
+
+    #[test]
+    fn preferred_ordinal_is_honored_when_free() {
+        // Mention-driven / resume: honor the exact ordinal even if lower ones are
+        // free (a mention to smith1 in an empty room still spawns smith1).
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        let s = select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, Some(1))).unwrap();
+        assert_eq!(s.ordinal, 1);
+        assert_eq!(s.label, "smith1");
+    }
+
+    #[test]
+    fn reassert_keeps_same_ordinal() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        select_and_reserve(&mut r, &mut sk, request("s0", "#a", &bp, &bk, None)).unwrap();
+        let s1a = select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
+        // Reassert s1 (e.g. a second session_start hook) → same ordinal, no new slot.
+        let s1b = select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
+        assert_eq!(s1a.ordinal, s1b.ordinal);
+        assert_eq!(s1a.pubkey, s1b.pubkey);
+        assert_eq!(r.len(), 2); // s0 + s1, no duplicate slot
+    }
+
+    #[test]
+    fn different_agents_independent_ordinals() {
+        let smith = base_keys();
+        let jones = Keys::new(nostr_sdk::prelude::SecretKey::from_slice(&[0x33; 32]).unwrap());
+        let sp = smith.public_key().to_hex();
+        let jp = jones.public_key().to_hex();
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        let a = select_and_reserve(
+            &mut r,
+            &mut sk,
+            SignerRequest {
+                session_id: "s1",
+                base_pubkey: &sp,
+                agent_slug: "smith",
+                h: "#a",
+                base_keys: &smith,
+                preferred_ordinal: None,
+            },
+        )
+        .unwrap();
+        let b = select_and_reserve(
+            &mut r,
+            &mut sk,
+            SignerRequest {
+                session_id: "s2",
+                base_pubkey: &jp,
+                agent_slug: "jones",
+                h: "#a",
+                base_keys: &jones,
+                preferred_ordinal: None,
+            },
+        )
+        .unwrap();
+        // Both get ordinal 0 in the same room — independent per agent.
+        assert_eq!(a.ordinal, 0);
+        assert_eq!(b.ordinal, 0);
+        assert_ne!(a.pubkey, b.pubkey);
+    }
+
+    #[test]
+    fn reservation_mutex_shape_prevents_two_same_ordinal_winners() {
         use std::sync::{Arc, Mutex};
         use std::thread;
-
+        let bk = Arc::new(base_keys());
+        let bp = Arc::new(bk.public_key().to_hex());
         let reservations = Arc::new(Mutex::new(SignerReservations::new()));
         let session_keys = Arc::new(Mutex::new(HashMap::new()));
-        let winners = Arc::new(Mutex::new(Vec::new()));
-
+        let ordinals = Arc::new(Mutex::new(Vec::new()));
         thread::scope(|scope| {
-            for session_id in ["s1", "s2"] {
+            for sid in ["s1", "s2"] {
                 let reservations = Arc::clone(&reservations);
                 let session_keys = Arc::clone(&session_keys);
-                let winners = Arc::clone(&winners);
+                let ordinals = Arc::clone(&ordinals);
+                let bk = Arc::clone(&bk);
+                let bp = Arc::clone(&bp);
                 scope.spawn(move || {
-                    let secret = test_secret();
-                    let mut reservations = reservations.lock().unwrap();
-                    let mut session_keys = session_keys.lock().unwrap();
-                    let signer = select_and_reserve(
-                        &mut reservations,
-                        &mut session_keys,
-                        request(session_id, "hello", &secret),
-                    )
-                    .unwrap();
-                    winners
-                        .lock()
-                        .unwrap()
-                        .push(matches!(signer, SessionSigner::Durable));
+                    let mut r = reservations.lock().unwrap();
+                    let mut sk = session_keys.lock().unwrap();
+                    let s =
+                        select_and_reserve(&mut r, &mut sk, request(sid, "#a", &bp, &bk, None))
+                            .unwrap();
+                    ordinals.lock().unwrap().push(s.ordinal);
                 });
             }
         });
-
-        let durable_count = winners
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|durable| **durable)
-            .count();
-        assert_eq!(durable_count, 1);
+        let mut got = ordinals.lock().unwrap().clone();
+        got.sort();
+        assert_eq!(got, vec![0, 1]); // two distinct ordinals, never both 0
     }
 }
