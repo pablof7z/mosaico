@@ -1,8 +1,12 @@
 //! `tenex-edge statusline` — the fabric, one line at a time.
 //!
 //! Renders the awareness floor for a host status bar:
-//!   claude@kubrick tenex-edge #bravo4217 [Refactoring the inbox] [writing tests]
-//!   └ identity ┘  └ project┘  └ session ┘  └ channel title┘   └ live activity ┘
+//!   claude@kubrick tenex-edge support [Refactoring the inbox] [writing tests]
+//!   └ identity ┘  └ project┘  └channel┘ └ distilled title ┘   └ live activity ┘
+//!
+//! The channel segment is the channel's human NAME (kind:39000 `name`), falling
+//! back to its raw id only when no name is cached — the opaque id is never shown
+//! when a name exists.
 //!
 //! `agentName` is exactly what the session published in its kind:0 profile
 //! (the `name` field). `host` is the slugified machine host. `project-name` is
@@ -131,11 +135,9 @@ pub struct StatuslineView {
     #[serde(default)]
     working: bool,
     /// The persistent distilled session title (carried on kind:30315 as the
-    /// `title` tag). Retained across idle turns and after exit. Surfaced
-    /// indirectly via `channel_title` for a per-session room; kept here for
-    /// the fallback when the channel has no relay-echoed name yet.
+    /// `title` tag). Retained across idle turns and after exit. Rendered as the
+    /// `[title]` segment when it differs from the channel name.
     #[serde(default)]
-    #[allow(dead_code)]
     title: String,
     /// The live "doing now" line from kind:30315 (empty when idle). This is
     /// what `[status]` renders when busy; idle renders `[idle]` instead.
@@ -194,18 +196,23 @@ fn render_statusline_inner(v: &StatuslineView, color: bool, tmux_fmt: bool) -> S
     // Project: the work-root project the session's room hangs under.
     segs.push(paint(v.work_root.clone(), "2"));
 
-    // Session: the channel the session is currently on (its `channel` when
-    // set, else its per-session room). Rendered as `#<channel-id>` so a
-    // `channels switch` is reflected immediately — matches what the relay
-    // shows as the room's `h` tag.
-    segs.push(paint(format!("#{}", v.channel), "2"));
+    // Session: the channel the session is currently on (its `channel` when set,
+    // else its per-session room). Rendered by its human NAME (kind:39000 `name`),
+    // falling back to the raw id only when no name is cached — the opaque id is
+    // never shown when a name exists. Reflects a `channels switch` immediately.
+    let channel_disp = if v.channel_title.trim().is_empty() {
+        v.channel.clone()
+    } else {
+        v.channel_title.clone()
+    };
+    segs.push(paint(truncate_chars(&channel_disp, TITLE_MAX_CHARS), "2"));
 
-    // Title: the channel's title on the relay (== the channel's display name
-    // from kind:39000, == the distilled session title for a per-session room).
-    // Omitted when empty (brand-new session before any distill).
-    if !v.channel_title.is_empty() {
+    // Title: the distilled session title (kind:30315), shown while it differs
+    // from the channel name. Omitted when empty (brand-new session before any
+    // distill) or identical to the channel label already shown.
+    if !v.title.trim().is_empty() && v.title != channel_disp {
         segs.push(paint(
-            format!("[{}]", truncate_chars(&v.channel_title, TITLE_MAX_CHARS)),
+            format!("[{}]", truncate_chars(&v.title, TITLE_MAX_CHARS)),
             "2",
         ));
     }
@@ -230,7 +237,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool, tmux_fmt: bool) -> S
     // Only when the roster is non-empty (otherwise unknown, not a problem).
     if !v.is_member && v.member_count > 0 {
         segs.push(paint(
-            format!("⚠ not in channel {}", v.channel),
+            format!("⚠ not in channel {channel_disp}"),
             "1;31", // bold red
         ));
     }
@@ -272,8 +279,11 @@ mod tests {
             host: "Kubrick's Mac".into(),
             session_id: "some-long-uuid".into(),
             work_root: "tenex-edge".into(),
-            channel: "session-a1b2c3d4e5f60718".into(),
-            channel_title: "Refactoring the inbox".into(),
+            // New model: `channel` is the opaque NIP-29 id (never shown when a
+            // name is cached), `channel_title` is the channel's human NAME, and
+            // `title` is the distilled session title — three distinct values.
+            channel: "41yh4c028b76a".into(),
+            channel_title: "support".into(),
             member_count: 4,
             is_member: true,
             working: true,
@@ -287,9 +297,11 @@ mod tests {
     #[test]
     fn renders_identity_project_session_title_status() {
         let s = render_statusline(&view(), false);
+        // Channel segment renders the human NAME (`support`), never the opaque
+        // id; the distilled session title follows in its own `[…]` segment.
         assert_eq!(
             s,
-            "claude@kubrick-s-mac tenex-edge #session-a1b2c3d4e5f60718 \
+            "claude@kubrick-s-mac tenex-edge support \
              [Refactoring the inbox] [writing tests]"
         );
     }
@@ -325,10 +337,7 @@ mod tests {
         let mut v = view();
         v.is_member = false;
         let s = render_statusline(&v, false);
-        assert!(
-            s.contains("⚠ not in channel session-a1b2c3d4e5f60718"),
-            "got: {s}"
-        );
+        assert!(s.contains("⚠ not in channel support"), "got: {s}");
 
         // Unknown roster (count 0) → no warning (unknown, not a problem).
         v.member_count = 0;

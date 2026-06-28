@@ -134,15 +134,19 @@ pub fn assemble_turn_start_context(
         let ambient = ambient_chat(&s, &scope, rec.seen_cursor, &rec.agent_pubkey);
         (mentions, ambient)
     };
-    if let Some(block) = crate::injection::render_direct_mention_prompt(&mentions, now) {
-        blocks.push(block);
-    }
-    if let Some(block) = crate::injection::render_channel_chat_block(
-        "tenex-edge channel messages - reply with `tenex-edge chat write --message \"...\"`:",
-        &ambient,
-        now,
-    ) {
-        blocks.push(block);
+    {
+        let s = store.lock().expect("store mutex poisoned");
+        if let Some(block) = crate::injection::render_direct_mention_prompt(&s, &mentions, now) {
+            blocks.push(block);
+        }
+        if let Some(block) = crate::injection::render_channel_chat_block(
+            &s,
+            "tenex-edge channel messages - reply with `tenex-edge chat write --message \"...\"`:",
+            &ambient,
+            now,
+        ) {
+            blocks.push(block);
+        }
     }
 
     let awareness = {
@@ -202,10 +206,10 @@ pub fn assemble_turn_check_context(
     // key on this so mid-turn context reflects the channel the session is
     // actually publishing into after a switch.
     let scope = rec.channel_h.clone();
-    let channel = if scope.starts_with('#') {
-        scope.clone()
-    } else {
-        format!("#{scope}")
+    // The channel's human NAME (never the raw opaque id) for agent-facing labels.
+    let channel = {
+        let s = store.lock().expect("store mutex poisoned");
+        crate::injection::channel_display(&s, &scope)
     };
 
     // Mentions that arrived mid-turn land as fresh pending inbox rows. Draining
@@ -215,18 +219,21 @@ pub fn assemble_turn_check_context(
         let s = store.lock().expect("store mutex poisoned");
         take_inbox(&s, &rec.session_id, now)
     };
-    if let Some(block) = crate::injection::render_direct_mention_prompt(&direct_mentions, now) {
-        blocks.push(block);
+    {
+        let s = store.lock().expect("store mutex poisoned");
+        if let Some(block) = crate::injection::render_direct_mention_prompt(&s, &direct_mentions, now)
+        {
+            blocks.push(block);
+        }
     }
 
     // Ambient chat and sibling-delta remain gated by the daemon's rate-limit
     // floor and cursored off the same `since` so nothing re-emits per tool call.
     if let Some(since) = delta_since {
-        let chat_rows = {
-            let s = store.lock().expect("store mutex poisoned");
-            ambient_chat(&s, &scope, since, &rec.agent_pubkey)
-        };
+        let s = store.lock().expect("store mutex poisoned");
+        let chat_rows = ambient_chat(&s, &scope, since, &rec.agent_pubkey);
         if let Some(block) = crate::injection::render_channel_chat_block(
+            &s,
             &format!("[tenex-edge] Messages on {channel} since your last check:"),
             &chat_rows,
             now,
@@ -234,7 +241,6 @@ pub fn assemble_turn_check_context(
             blocks.push(block);
         }
 
-        let s = store.lock().expect("store mutex poisoned");
         if let Some(block) =
             render_awareness_update_since_check(&s, since, &scope, now, Some(&rec.agent_pubkey))
         {

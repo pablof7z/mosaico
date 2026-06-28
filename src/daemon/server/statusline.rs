@@ -53,20 +53,17 @@ pub(in crate::daemon::server) fn rpc_statusline(
         let working = rec.working;
         let title = rec.title.clone();
         let activity = rec.activity.clone();
-        // `channel_title` is the display name of the channel from the
-        // relay-authored kind:39000 metadata cache (relay_channels). The
-        // session's distilled title wins when available — it is more up to date
-        // than the relay-authored channel name; fall back to the channel name
-        // only when no title has been produced yet.
-        let channel_title = if !title.is_empty() {
-            title.clone()
-        } else {
-            s.get_channel(&scope)
-                .ok()
-                .flatten()
-                .map(|c| c.name)
-                .unwrap_or_default()
-        };
+        // `channel_title` is the channel's human handle from the relay-authored
+        // kind:39000 metadata cache (relay_channels `name`). The channel name is
+        // set only at create/edit now — never from the distilled session title —
+        // so it is the durable display label for this scope (the distilled
+        // `title` is carried separately for the live status segment).
+        let channel_title = s
+            .get_channel(&scope)
+            .ok()
+            .flatten()
+            .map(|c| c.name)
+            .unwrap_or_default();
         // `work_root` is the parent project a task channel hangs under, or the
         // channel itself for a top-level project session ('' parent). This is
         // the "Project" line in `who`, surfaced as `project-name`.

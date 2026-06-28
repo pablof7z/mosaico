@@ -25,6 +25,7 @@ fn live_renderer_same_as_once_with_hint() {
         other_projects: vec![],
         spawnable: vec![],
         channel_parent: None,
+        project_display: "proj".to_string(),
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
@@ -92,6 +93,7 @@ fn who_all_projects_includes_project_in_agent_names() {
         other_projects: vec![],
         spawnable: vec![],
         channel_parent: None,
+        project_display: "*".to_string(),
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
@@ -134,6 +136,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
             byline: Some("Use for autonomous coding tasks".to_string()),
         }],
         channel_parent: None,
+        project_display: "proj".to_string(),
     };
 
     let out = render_who_plain(&snapshot);
@@ -195,6 +198,7 @@ fn agent_renderer_disambiguates_duplicate_slugs_as_agent_names() {
         other_projects: vec![],
         spawnable: vec![],
         channel_parent: None,
+        project_display: "proj".to_string(),
     };
 
     let out = render_who_plain(&snapshot);
@@ -218,6 +222,7 @@ fn render_labels_session_room_as_channel_with_parent_project() {
         other_projects: vec![],
         spawnable: vec![],
         channel_parent: Some("lsjkd".to_string()),
+        project_display: "session-a1b2c3d4e5f60718".to_string(),
     };
     let out = render_who_plain(&snapshot);
     assert!(

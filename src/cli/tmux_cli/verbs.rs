@@ -120,6 +120,30 @@ pub(crate) async fn launch(
     } else {
         channel
     };
+    // Resolve a channel NAME (or a literal id) to its opaque `channel_h` BEFORE
+    // spawning, so TENEX_EDGE_CHANNEL and provisioning both see ONE id (creating
+    // it if absent). A picker selection is already an id and round-trips unchanged.
+    let channel = match channel {
+        Some(name) if !name.is_empty() => {
+            let v = super::super::daemon_call_async(
+                "channels_resolve",
+                serde_json::json!({
+                    "project": project.clone(),
+                    "name": name,
+                    "agent": agent.clone(),
+                    "create_if_absent": true,
+                }),
+            )
+            .await?;
+            Some(
+                v["channel_h"]
+                    .as_str()
+                    .context("channels_resolve did not return channel_h")?
+                    .to_string(),
+            )
+        }
+        other => other,
+    };
     let cwd = std::env::current_dir()
         .ok()
         .map(|p| p.to_string_lossy().to_string());

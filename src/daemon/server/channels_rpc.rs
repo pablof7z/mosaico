@@ -37,17 +37,8 @@ pub(in crate::daemon::server) async fn ensure_session_room(
         .await;
     let _ = ensure_subscription(state, room_h).await;
 
-    // Name the room after a live session's distilled title, if one exists.
-    let latest_title = state.with_store(|s| {
-        s.list_alive_sessions()
-            .unwrap_or_default()
-            .into_iter()
-            .find(|r| r.channel_h == room_h && !r.title.trim().is_empty())
-            .map(|r| r.title)
-    });
-    if let Some(title) = latest_title {
-        apply_room_name_update(state, room_h, &title).await;
-    }
+    // The channel `name` is set ONLY at create (or explicit edit) — never from a
+    // session's distilled title — so there is no room auto-rename here.
 
     !matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded)
 }
@@ -72,8 +63,24 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
         agents: Vec<AgentSpec>,
         #[serde(default)]
         brief: String,
+        /// Durable channel description, published to the relay as kind:39000
+        /// `about`. Set at creation; never derived from the name.
+        #[serde(default)]
+        about: String,
     }
     let p: P = serde_json::from_value(params.clone()).context("channels_create params")?;
+
+    // Dedupe on the `(parent, name)` identity: a repeat `create --name X` returns
+    // the existing opaque id rather than minting a twin (enforces the
+    // name-uniqueness-per-parent rule).
+    if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&p.parent, &p.name))? {
+        return Ok(serde_json::json!({
+            "child_h": existing,
+            "display_path": format!("{} > {}", p.parent, p.name),
+            "deduped": true,
+        }));
+    }
+
     if p.agents.is_empty() {
         anyhow::bail!("at least one agent (slug@backend) is required");
     }
@@ -89,8 +96,9 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
     let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
     let mgmt_pk = mgmt_keys.public_key().to_hex();
 
-    // Short child id; hierarchy lives in metadata, not the id.
-    let child_h = crate::util::child_group_id(&p.name);
+    // Opaque random child id; the human handle lives in the kind:39000 `name`,
+    // never in the id, and the hierarchy lives in the `parent` metadata.
+    let child_h = crate::util::opaque_group_id();
 
     // Resolve each backend token to a hex pubkey. Accepts explicit
     // pubkey/npub/NIP-05 *and* host slugs as shown by `tenex-edge who`.
@@ -131,7 +139,7 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
     // names the new subgroup correctly when it creates it on the relay (it reads
     // the display name from the local store).
     state.with_store(|s| {
-        s.upsert_channel(&child_h, &p.name, "", &p.parent, now_secs()).ok();
+        s.upsert_channel(&child_h, &p.name, &p.about, &p.parent, now_secs()).ok();
     });
 
     // ONE shared primitive provisions EVERY channel — per-session rooms,
@@ -158,6 +166,15 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
         );
     }
     let _ = ensure_subscription(state, &child_h).await;
+
+    // Publish the durable `about` as kind:9002 edit-metadata so it reaches the
+    // relay's kind:39000 (not just the local cache), signed by the management key
+    // exactly like `rpc_project_edit` does. Best-effort: the channel exists either
+    // way; an unset `about` skips the publish.
+    if !p.about.trim().is_empty() {
+        let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&child_h, &p.about)?;
+        let _ = state.transport.publish_signed(builder, &mgmt_keys).await;
+    }
 
     // The confirmed admin roster, read back from the local cache the shared
     // primitive just populated (parent admins + whitelist + backend pubkey).
@@ -307,7 +324,23 @@ pub(in crate::daemon::server) async fn rpc_channels_switch(
         .filter(|s| !s.is_empty())
         .context("channels switch must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)")?;
     let rec = resolve_session(state, None, Some(env_session), None, None, None)?;
-    let new_channel = p.channel.clone();
+    // Resolve a channel NAME (or a literal id) to its opaque `channel_h` within
+    // the session's project scope before switching — never create on switch.
+    let parent = state.with_store(|s| {
+        s.channel_parent(&rec.channel_h)
+            .ok()
+            .flatten()
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| rec.channel_h.clone())
+    });
+    let new_channel = super::resolve_channel(
+        state,
+        &parent,
+        &p.channel,
+        Some(&rec.agent_slug),
+        false,
+    )
+    .await?;
     // Validate the channel exists in local state before switching.
     let exists = state
         .with_store(|s| s.get_channel(&new_channel))

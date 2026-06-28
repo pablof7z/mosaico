@@ -109,11 +109,12 @@ struct TmuxSpawnParams {
     /// `project_roots` row so subsequent spawns without `cwd` still find it.
     #[serde(default)]
     cwd: Option<String>,
-    /// NIP-29 channel (group h-value) to scope the spawned session into.
-    /// Forwarded from `tenex-edge launch --channel <id>`.  Sets
+    /// The RESOLVED opaque channel id to scope the spawned session into (the CLI
+    /// launch path already converted any `--channel <name>` to its id via
+    /// `channels_resolve`, so no literal-name path reaches here). Sets
     /// `TENEX_EDGE_CHANNEL` in the pane env so the session publishes into this
-    /// group instead of its per-session room.  The daemon's tenexPrivateKey
-    /// adds the agent as a member on session-start via `open_project`.
+    /// group instead of its per-session room. The daemon's tenexPrivateKey adds
+    /// the agent as a member on session-start.
     #[serde(default)]
     channel: Option<String>,
 }

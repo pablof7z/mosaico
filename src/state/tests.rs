@@ -203,6 +203,31 @@ fn channels_root_vs_subchannel() {
 }
 
 #[test]
+fn channel_id_for_name_resolves_within_parent() {
+    let s = Store::open_memory().unwrap();
+    // Opaque id, human name "support" under project "proj".
+    s.upsert_channel("ab12cd34", "support", "", "proj", 10).unwrap();
+    assert_eq!(
+        s.channel_id_for_name("proj", "support").unwrap().as_deref(),
+        Some("ab12cd34")
+    );
+    // Unknown name → None.
+    assert_eq!(s.channel_id_for_name("proj", "nope").unwrap(), None);
+    // Same name under a DIFFERENT parent is a distinct channel (allowed).
+    s.upsert_channel("ff99ff99", "support", "", "other", 10).unwrap();
+    assert_eq!(
+        s.channel_id_for_name("other", "support").unwrap().as_deref(),
+        Some("ff99ff99")
+    );
+    // Legacy duplicate (parent, name): most-recently-updated wins.
+    s.upsert_channel("zz000000", "support", "", "proj", 20).unwrap();
+    assert_eq!(
+        s.channel_id_for_name("proj", "support").unwrap().as_deref(),
+        Some("zz000000")
+    );
+}
+
+#[test]
 fn identities_bind_and_resolve() {
     let s = Store::open_memory().unwrap();
     let sid = s.register_session(&reg("claude-code", "x", "h1")).unwrap();

@@ -180,9 +180,10 @@ pub(super) enum Cmd {
         /// Project slug; defaults to project resolved from current directory.
         #[arg(long)]
         project: Option<String>,
-        /// NIP-29 channel (group h-value) to scope this agent into. Omit the
-        /// value (`--channel` with no argument) to open an interactive fuzzy
-        /// picker over all known rooms for the project. When per-session rooms
+        /// Channel name to scope this agent into; resolved to its opaque id and
+        /// created if absent. Omit the value (`--channel` with no argument) to
+        /// open an interactive fuzzy picker over all known rooms for the project.
+        /// When per-session rooms
         /// are disabled (the default), omitting `--channel` entirely also opens
         /// the picker; with per-session rooms enabled, omitting it mints a fresh
         /// per-session room instead. The daemon's tenexPrivateKey adds the agent
@@ -239,8 +240,9 @@ pub(super) enum ChatAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Channel (NIP-29 group h-value) to write to; defaults to this
-        /// agent's active channel (TENEX_EDGE_CHANNEL → TENEX_EDGE_SESSION → cwd).
+        /// Channel name (or id) to write to; resolved to its opaque id within
+        /// the sender's project scope. Defaults to this agent's active channel
+        /// (TENEX_EDGE_CHANNEL → TENEX_EDGE_SESSION → cwd).
         #[arg(long)]
         channel: Option<String>,
     },
@@ -261,7 +263,8 @@ pub(super) enum ChatAction {
         /// Keep the chat reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Channel id to read; defaults to the current agent session's active channel.
+        /// Channel name (or id) to read; defaults to the current agent session's
+        /// active channel.
         #[arg(long, alias = "project")]
         channel: Option<String>,
     },
@@ -401,10 +404,15 @@ pub(super) enum ChannelsAction {
     /// orchestration event asking the named backends to add their agents. The
     /// agent that runs this command is auto-added to the new channel.
     Create {
-        /// Human-readable channel name, e.g. "support". The child group id
-        /// (NIP-29 `h` value) becomes "<slugified-name>-<random8>".
+        /// Human-readable channel name, e.g. "support". The channel id (NIP-29
+        /// `h` value) is an opaque random value, never derived from the name;
+        /// the name is the durable human handle. Unique per parent project.
         #[arg(long)]
         name: String,
+        /// Durable channel description, published to the relay as the kind:39000
+        /// `about`. Optional.
+        #[arg(long)]
+        about: Option<String>,
         /// Repeatable `slug@backend`, where `slug` is the agent identity (the
         /// `~/.tenex-edge/agents/*.json` filename stem, e.g. `developer`, `alice`)
         /// and `backend` is a hex pubkey or npub of the target backend (the pubkey

@@ -41,6 +41,23 @@ impl Store {
         Ok(())
     }
 
+    /// The opaque `channel_h` for a `name` within `parent`. The identity of a
+    /// channel is the `(parent, name)` pair; the `channel_h` is the durable key.
+    /// When pre-existing duplicate rows share that pair, the most-recently-updated
+    /// wins (the tiebreaker only matters for legacy dupes — new creates dedupe on
+    /// `(parent, name)`). `None` when no channel by that name exists under `parent`.
+    pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT channel_h FROM relay_channels WHERE parent=?1 AND name=?2 \
+                 ORDER BY updated_at DESC LIMIT 1",
+                params![parent, name],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?)
+    }
+
     /// Fetch one channel's metadata.
     pub fn get_channel(&self, channel_h: &str) -> Result<Option<Channel>> {
         Ok(self

@@ -99,6 +99,7 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
     match action {
         ChannelsAction::Create {
             name,
+            about,
             agents,
             project,
             message,
@@ -126,6 +127,7 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
                 serde_json::json!({
                     "parent": parent,
                     "name": name,
+                    "about": about.unwrap_or_default(),
                     "agents": parsed,
                     "brief": brief,
                     // Caller identity so the daemon auto-adds the creating agent
@@ -174,11 +176,15 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
                 let depth = r["depth"].as_u64().unwrap_or(0) as usize;
                 // depth 0 = direct child of the project root → one level of indent.
                 let indent = "  ".repeat(depth + 1);
-                let id_c = id.if_supports_color(Stdout, |s| s.cyan());
+                // Name-first: the human handle is primary; the opaque id is shown
+                // dimmed only as a secondary locator, and alone only when the
+                // channel has no name yet.
                 if name.is_empty() {
-                    println!("{indent}{id_c}");
+                    println!("{indent}{}", id.if_supports_color(Stdout, |s| s.cyan()));
                 } else {
-                    println!("{indent}{id_c}  — {name}");
+                    let name_c = name.if_supports_color(Stdout, |s| s.bold());
+                    let id_c = id.if_supports_color(Stdout, |s| s.cyan());
+                    println!("{indent}{name_c}  ({id_c})");
                 }
             }
         }

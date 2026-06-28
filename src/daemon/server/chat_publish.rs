@@ -87,60 +87,6 @@ pub(in crate::daemon::server) fn spawn_retry_drainer(state: Arc<DaemonState>) {
     });
 }
 
-pub(in crate::daemon::server) async fn apply_room_name_update(
-    state: &Arc<DaemonState>,
-    room: &str,
-    title: &str,
-) -> bool {
-    let title = title.trim();
-    if title.is_empty() {
-        return false;
-    }
-    // Manageability is relay-materialized authority: the backend must be an admin
-    // of the channel. Only sub-channels (a task/session room, i.e. parent set) are
-    // renamed after their distilled title; a top-level project channel keeps its
-    // operator-chosen name.
-    let backend = state.backend_pubkey().map(|s| s.to_string());
-    let should_publish = state.with_store(|s| {
-        let manage = backend
-            .as_deref()
-            .map(|pk| s.is_channel_admin(room, pk).unwrap_or(false))
-            .unwrap_or(false);
-        let is_sub = !s.is_root_channel(room).unwrap_or(true);
-        let current = s
-            .get_channel(room)
-            .ok()
-            .flatten()
-            .map(|c| c.name)
-            .unwrap_or_default();
-        manage && is_sub && current.trim() != title
-    });
-    if !should_publish {
-        return false;
-    }
-    let renamed = state.provider.nip29_set_group_name(room, title).await;
-    if renamed {
-        state.with_store(|s| {
-            let existing = s.get_channel(room).ok().flatten();
-            let parent = existing.as_ref().map(|c| c.parent.clone()).unwrap_or_default();
-            let about = existing.as_ref().map(|c| c.about.clone()).unwrap_or_default();
-            let created = existing.map(|c| c.created_at).unwrap_or_else(now_secs);
-            s.upsert_channel(room, title, &about, &parent, created).ok();
-        });
-    }
-    renamed
-}
-
-pub(in crate::daemon::server) fn spawn_room_name_update(
-    state: Arc<DaemonState>,
-    room: String,
-    title: String,
-) {
-    tokio::spawn(async move {
-        apply_room_name_update(&state, &room, &title).await;
-    });
-}
-
 /// Publish the agent's completed-turn output as kind:9 chat into the session's
 /// room (issue #6). Signed by the agent via `keys_for_session`, which falls
 /// back to the durable agent key (#5). Mirrors `rpc_chat_write`'s publish +
@@ -257,10 +203,10 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
 
     // Seed the local pre-publish title once, from the real user prompt, so the
     // status pipeline has an immediate title before the runtime transcript read
-    // catches up. Room metadata is a consequence of a title transition: publish a
-    // room-name update only when this call actually set the title.
+    // catches up. The title feeds the agent's kind:30315 status only — it never
+    // renames the CHANNEL (the channel `name` is set at create/edit alone).
     let session_id = rec.session_id.clone();
-    let seeded_title = state.with_store(|s| {
+    let seeded = state.with_store(|s| {
         let sess = s.get_session(&session_id).ok().flatten()?;
         if !sess.title.trim().is_empty() {
             return None;
@@ -273,9 +219,8 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
             .ok()?;
         Some(seed)
     });
-    if let Some(room_title) = seeded_title {
+    if seeded.is_some() {
         state.outbox_notify.notify_waiters();
-        spawn_room_name_update(state.clone(), rec.channel_h.clone(), room_title);
     }
 
     // Publish into the session's CURRENT channel so the prompt lands where the

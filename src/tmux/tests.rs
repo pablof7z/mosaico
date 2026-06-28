@@ -113,10 +113,13 @@ fn pending_message_prompt_contains_the_actual_message_body() {
         delivered_at: 0,
     };
 
-    let prompt = crate::injection::render_direct_mention_prompt(&[row], 120).unwrap();
+    // The channel label renders the human NAME; with no channel record cached it
+    // falls back to the raw `channel_h` ("proj") — never a `#`-prefixed id.
+    let store = crate::state::Store::open_memory().unwrap();
+    let prompt = crate::injection::render_direct_mention_prompt(&store, &[row], 120).unwrap();
 
     assert!(prompt.contains("Incoming message mentioning this agent"));
-    assert!(prompt.contains("Mention in #proj from pk-sende"));
+    assert!(prompt.contains("Mention in proj from pk-sende"));
     assert!(prompt.contains("please review the tmux delivery path"));
     assert!(!prompt.contains("tenex-edge inbox"));
     assert!(!prompt.contains("project chat - write"));

@@ -63,7 +63,9 @@ async fn collect_pending_prompt(
     crate::profile::label_chat_senders(state, &mut chat_rows).await;
 
     let now = now_secs();
-    let Some(text) = crate::injection::render_direct_mention_prompt(&chat_rows, now) else {
+    let rendered =
+        state.with_store(|s| crate::injection::render_direct_mention_prompt(s, &chat_rows, now));
+    let Some(text) = rendered else {
         return Ok(None);
     };
 

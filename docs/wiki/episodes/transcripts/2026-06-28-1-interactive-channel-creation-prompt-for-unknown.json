@@ -1,0 +1,26 @@
+[
+  [
+    "user",
+    "I ran `tenex-edge launch <agent> --channel new_channel` and NOTHING was created on the relay -- nothing at all... why is a new channel not immediately provisioned??"
+  ],
+  [
+    "assistant",
+    "The `--channel` flag only accepts existing group h-values and doesn't create new channels—use the interactive picker or two-step creation instead."
+  ],
+  [
+    "user",
+    "if it doesn't exist it should ask the user if theyu want to fucking create it -- we already have state of the fucking chnanels we know fucking exist!"
+  ],
+  [
+    "assistant",
+    "Restart the daemon to pick up the corrected configuration."
+  ],
+  [
+    "user",
+    "its 9888!"
+  ],
+  [
+    "assistant",
+    "Fixed. Now restart the daemon so it picks up the correct relay URL."
+  ]
+]

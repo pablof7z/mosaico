@@ -197,7 +197,7 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
         assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
             .expect("fresh chat past the cursor must surface");
     assert!(
-        text.contains("[tenex-edge] Messages on #proj since your last check:"),
+        text.contains("[tenex-edge] Messages on proj since your last check:"),
         "chat block expected; got: {text:?}"
     );
 

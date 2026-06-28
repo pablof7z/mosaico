@@ -26,6 +26,22 @@ pub struct WhoSnapshot {
     /// (distinct from the *project*). `None` when the scope is a plain project.
     #[serde(default)]
     pub(super) channel_parent: Option<String>,
+    /// The human DISPLAY label for `project`: its kind:39000 `name` when set, else
+    /// the raw scope id. Rendered in the `Channel:`/`Project:` headers so the
+    /// opaque channel id never surfaces when a name exists. `*` for all-projects.
+    #[serde(default)]
+    pub(super) project_display: String,
+}
+
+/// A channel's human display name: its kind:39000 `name`, else the raw id.
+fn display_name(store: &Store, id: &str) -> String {
+    store
+        .get_channel(id)
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| id.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -160,9 +176,11 @@ pub fn load_who_snapshot(
                 .flatten()
                 .map(|c| c.about)
                 .filter(|a| !a.is_empty());
+            // Show the project's human name; the raw id is only a fallback.
+            let display = display_name(store, &project);
             let agents: Vec<String> = agents.into_iter().collect();
             OtherProjectSummary {
-                project,
+                project: display,
                 agent_count: agents.len(),
                 agents,
                 about,
@@ -191,6 +209,10 @@ pub fn load_who_snapshot(
             .filter(|parent| !parent.is_empty())
     });
 
+    let project_display = current_project
+        .map(|p| display_name(store, p))
+        .unwrap_or_else(|| "*".to_string());
+
     Ok(WhoSnapshot {
         project: current_project.unwrap_or("*").to_string(),
         now,
@@ -198,6 +220,7 @@ pub fn load_who_snapshot(
         other_projects,
         spawnable,
         channel_parent,
+        project_display,
     })
 }
 

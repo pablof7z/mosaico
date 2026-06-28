@@ -9,7 +9,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let scope = if snapshot.project == "*" {
         "all projects".to_string()
     } else {
-        snapshot.project.clone()
+        snapshot.project_display.clone()
     };
     let _ = writeln!(out, "{}", scope.bold());
     let _ = writeln!(out);
@@ -148,10 +148,14 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     } else if let Some(parent) = &snapshot.channel_parent {
         // The current scope is this session's own room — show it as the channel,
         // with the work-root project it's nested under.
-        let _ = writeln!(out, "Channel: {} (your session room)", snapshot.project);
+        let _ = writeln!(
+            out,
+            "Channel: {} (your session room)",
+            snapshot.project_display
+        );
         let _ = writeln!(out, "Project: {parent}");
     } else {
-        let _ = writeln!(out, "Project: {}", snapshot.project);
+        let _ = writeln!(out, "Project: {}", snapshot.project_display);
     }
     let _ = writeln!(out);
 

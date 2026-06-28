@@ -180,6 +180,7 @@ impl DaemonState {
 
 // ── entry point ──────────────────────────────────────────────────────────────
 
+mod channel_resolve;
 mod channels_rpc;
 mod chat_publish;
 mod chat_read_tail;
@@ -198,12 +199,11 @@ mod statusline;
 mod turns;
 mod who;
 
+use channel_resolve::{resolve_channel, rpc_channels_resolve};
 use channels_rpc::{
     ensure_session_room, rpc_channels_create, rpc_channels_list, rpc_channels_switch,
 };
-use chat_publish::{
-    apply_room_name_update, publish_agent_reply, rpc_user_prompt, spawn_retry_drainer,
-};
+use chat_publish::{publish_agent_reply, rpc_user_prompt, spawn_retry_drainer};
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
 use diagnostics::{
@@ -251,6 +251,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_remove" => rpc::rpc_project_remove(state, &req.params).await,
         "debug_outbox" => rpc_debug_outbox(state, &req.params),
         "channels_create" => rpc_channels_create(state, &req.params).await,
+        "channels_resolve" => rpc_channels_resolve(state, &req.params).await,
         "channels_list" => rpc_channels_list(state, &req.params),
         "channels_switch" => rpc_channels_switch(state, &req.params).await,
         "publish_profile" => rpc_publish_profile(state, &req.params).await,

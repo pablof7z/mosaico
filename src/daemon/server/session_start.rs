@@ -80,13 +80,19 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     // The working-directory project (the repo this harness runs in).
     let work_root = crate::project::resolve(&cwd).unwrap_or_default();
-    // The channel this session belongs to: the child `h` supplied via
-    // TENEX_EDGE_CHANNEL for a task room, else the working-directory project.
-    let mut project = p
-        .channel
-        .clone()
-        .filter(|g| !g.is_empty())
-        .unwrap_or_else(|| work_root.clone());
+    // The channel this session belongs to: the channel named by TENEX_EDGE_CHANNEL
+    // for a task room, else the working-directory project. The daemon is a direct
+    // entry point (e2e drives `hook --type session-start` with a NAME in
+    // TENEX_EDGE_CHANNEL), so resolve the NAME→opaque id through the ONE shared
+    // resolver here. This is the single load-bearing conversion that kills the
+    // name-vs-id double-create: every downstream consumer shares one id, and the
+    // literal-name subgroup is never minted.
+    let mut project = match p.channel.clone().filter(|g| !g.is_empty()) {
+        Some(name) => {
+            super::resolve_channel(state, &work_root, &name, Some(&p.agent), true).await?
+        }
+        None => work_root.clone(),
+    };
     let rel_cwd = crate::project::rel_cwd(&cwd);
     let now = now_secs();
     if let Some(prog) = &progress {
@@ -306,9 +312,20 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         };
         // Stamp the parent relationship immediately so `work_root_for_scope`
         // resolves without waiting for the relay's kind:39000 with the parent tag.
+        // Preserve any existing human `name`/`about` (the resolver already stamped
+        // them for a named channel) — only fall back to the id when truly unknown.
         if let Some(parent) = &parent_hint {
             state
-                .with_store(|s| s.upsert_channel(&project, &project, "", parent, now_secs()))
+                .with_store(|s| {
+                    let existing = s.get_channel(&project).ok().flatten();
+                    let name = existing
+                        .as_ref()
+                        .map(|c| c.name.clone())
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| project.clone());
+                    let about = existing.map(|c| c.about).unwrap_or_default();
+                    s.upsert_channel(&project, &name, &about, parent, now_secs())
+                })
                 .ok();
         }
         let open = async {

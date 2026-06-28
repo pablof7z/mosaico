@@ -4,7 +4,7 @@
 //! can only emit through each host's hook context shape, so the text itself makes
 //! the role explicit and stays byte-identical across delivery paths.
 
-use crate::state::{InboxRow, RelayEvent};
+use crate::state::{InboxRow, RelayEvent, Store};
 use crate::util::{format_local_datetime, pubkey_short, relative_time};
 use std::fmt::Write as _;
 
@@ -59,7 +59,11 @@ impl<'a> From<&'a RelayEvent> for RenderRow<'a> {
     }
 }
 
-pub(crate) fn render_direct_mention_prompt(rows: &[InboxRow], now: u64) -> Option<String> {
+pub(crate) fn render_direct_mention_prompt(
+    store: &Store,
+    rows: &[InboxRow],
+    now: u64,
+) -> Option<String> {
     if rows.is_empty() {
         return None;
     }
@@ -75,11 +79,12 @@ pub(crate) fn render_direct_mention_prompt(rows: &[InboxRow], now: u64) -> Optio
          Treat the following as input addressed to you in this session:"
     );
     let render: Vec<RenderRow> = rows.iter().map(RenderRow::from).collect();
-    append_rows_with_kind(&mut text, &render, now, RowKind::DirectMention);
+    append_rows_with_kind(store, &mut text, &render, now, RowKind::DirectMention);
     Some(text)
 }
 
 pub(crate) fn render_channel_chat_block(
+    store: &Store,
     header: &str,
     rows: &[RelayEvent],
     now: u64,
@@ -89,7 +94,7 @@ pub(crate) fn render_channel_chat_block(
     }
     let mut text = String::from(header);
     let render: Vec<RenderRow> = rows.iter().map(RenderRow::from).collect();
-    append_rows_with_kind(&mut text, &render, now, RowKind::ChannelContext);
+    append_rows_with_kind(store, &mut text, &render, now, RowKind::ChannelContext);
     Some(text)
 }
 
@@ -98,19 +103,28 @@ enum RowKind {
     ChannelContext,
 }
 
-fn append_rows_with_kind(text: &mut String, rows: &[RenderRow], now: u64, kind: RowKind) {
+fn append_rows_with_kind(
+    store: &Store,
+    text: &mut String,
+    rows: &[RenderRow],
+    now: u64,
+    kind: RowKind,
+) {
     for row in rows {
         // Sender slug is no longer carried on the row; show the short pubkey. Body
         // `nostr:` mentions are rewritten to `@name` by the caller before render.
         let from = pubkey_short(row.sender_pubkey);
         // Sender-agnostic wording: a mention may come from a human OR another
         // agent, so never assume "user". A direct mention reads "Mention in
-        // #channel from <sender>"; sibling channel context stays "Channel
-        // message from <sender>".
+        // <channel> from <sender>"; sibling channel context stays "Channel
+        // message in <channel> from <sender>". The channel is shown by its human
+        // NAME (never the raw opaque id).
         let label = match kind {
-            RowKind::DirectMention => format!("Mention in {}", channel_label(row.channel_h)),
+            RowKind::DirectMention => {
+                format!("Mention in {}", channel_label(store, row.channel_h))
+            }
             RowKind::ChannelContext => {
-                format!("Channel message in {}", channel_label(row.channel_h))
+                format!("Channel message in {}", channel_label(store, row.channel_h))
             }
         };
         let _ = write!(
@@ -128,10 +142,19 @@ fn append_rows_with_kind(text: &mut String, rows: &[RenderRow], now: u64, kind: 
     }
 }
 
-fn channel_label(project: &str) -> String {
-    if project.starts_with('#') {
-        project.to_string()
-    } else {
-        format!("#{project}")
-    }
+/// The human display label for a channel: its kind:39000 `name` when set, else
+/// the raw `channel_h` as a genuine fallback. The opaque id must never appear in
+/// agent-facing text when a name exists.
+pub(crate) fn channel_display(store: &Store, channel_h: &str) -> String {
+    store
+        .get_channel(channel_h)
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| channel_h.to_string())
+}
+
+fn channel_label(store: &Store, channel_h: &str) -> String {
+    channel_display(store, channel_h)
 }

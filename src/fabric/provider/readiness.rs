@@ -7,6 +7,14 @@ use std::pin::Pin;
 impl Nip29Provider {
     /// Ensure `ctx.channel` exists on the relay and has `ctx.expect_member`.
     pub async fn ensure_channel_ready<'a>(&'a self, ctx: ChannelCtx<'a>) -> ChannelGate {
+        // Never provision an empty channel id: a 9007 create-group with an empty
+        // `h`/`d` mints a junk relay group (kind:39000 with d="") and a bogus
+        // empty-channel_h cache row. An empty scope means "no channel resolved",
+        // which is a caller bug, not a group to create — fail closed.
+        if ctx.channel.trim().is_empty() {
+            eprintln!("[daemon] ensure_channel_ready: refusing to provision an empty channel id");
+            return ChannelGate::Degraded;
+        }
         ensure_channel_ready_inner(self, ctx, 0).await
     }
 }

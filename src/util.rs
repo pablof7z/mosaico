@@ -245,21 +245,18 @@ pub fn slugify_host(host: &str) -> String {
     }
 }
 
-/// Derive a fresh child (sub-)group id of the shape `<slug>-<random8>`, where
-/// `<slug>` is [`slugify_host`] applied to the human display `name` and
-/// `<random8>` is 8 lowercase hex chars (4 random bytes). The random suffix keeps
-/// subgroup ids unique even when several share a name, so the relay's
-/// client-chosen group id never collides across creates.
+/// A fresh OPAQUE channel/group id: 8 lowercase hex chars (4 random bytes) from a
+/// freshly generated keypair's public key. NEVER derived from the channel's name —
+/// the human handle lives in the kind:39000 `name` tag, while this id is the
+/// durable, collision-resistant key the relay addresses (the NIP-29 `h`/`d`).
 ///
-/// Randomness is sourced from a freshly generated keypair's public key
-/// (a Schnorr x-coordinate, effectively uniform); we take its first 4 bytes.
-/// This avoids a direct `rand` dependency while staying cryptographically random.
-pub fn child_group_id(name: &str) -> String {
-    let slug = slugify_host(name);
+/// Randomness is sourced from a Schnorr x-coordinate (effectively uniform); we
+/// take its first 4 bytes. This avoids a direct `rand` dependency while staying
+/// cryptographically random.
+pub fn opaque_group_id() -> String {
     let pk = nostr_sdk::prelude::Keys::generate().public_key().to_hex();
     // First 8 hex chars == first 4 bytes; already lowercase from `to_hex`.
-    let rand8: String = pk.chars().take(8).collect();
-    format!("{slug}-{rand8}")
+    pk.chars().take(8).collect()
 }
 
 /// Deterministic id for a per-session room (issue #6): `session-` followed by
@@ -333,21 +330,20 @@ mod tests {
     }
 
     #[test]
-    fn child_group_id_shape() {
-        let id = child_group_id("Subgroup Support");
-        assert!(id.starts_with("subgroup-support-"), "got {id}");
-        let suffix = id.rsplit('-').next().unwrap();
-        assert_eq!(suffix.len(), 8, "got {id}");
+    fn opaque_group_id_is_8_hex() {
+        let id = opaque_group_id();
+        assert_eq!(id.len(), 8, "got {id}");
         assert!(
-            suffix.chars().all(|c| c.is_ascii_hexdigit()),
-            "non-hex suffix in {id}"
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "non-hex id {id}"
         );
     }
 
     #[test]
-    fn child_group_id_unique() {
-        let a = child_group_id("Subgroup Support");
-        let b = child_group_id("Subgroup Support");
+    fn opaque_group_id_unique_and_nameless() {
+        // Minted fresh each call (never derived from any name).
+        let a = opaque_group_id();
+        let b = opaque_group_id();
         assert_ne!(a, b);
     }
 

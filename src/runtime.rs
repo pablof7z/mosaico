@@ -8,10 +8,8 @@
 //!     NIP-40 `expiration` is re-armed (the outbox drainer publishes it),
 //!   - schedules background distillation; an applied distill writes
 //!     `sessions.title`/`activity` (`set_session_distill`) and enqueues a status
-//!     publish so the new title reaches the relay,
-//!   - broadcasts a social Activity note when a distill changes the title and,
-//!     when this agent is an admin of the route channel (`is_channel_admin`),
-//!     renames that channel (kind:9002 → relay re-emits kind:39000),
+//!     publish so the new title reaches the relay (the title feeds kind:30315
+//!     only — it never renames the route channel),
 //!   - watches the host PID and marks the session dead (`mark_dead`, title
 //!     retained on the relay until its status ages off) when it dies or on
 //!     `cancel` (the `session-end` path).
@@ -21,7 +19,7 @@
 //! `is_channel_admin`, never a local owns-group flag.
 
 use crate::distill;
-use crate::domain::{Activity, AgentRef, DomainEvent, Profile, Status, STATUS_TTL_SECS};
+use crate::domain::{AgentRef, DomainEvent, Profile, Status, STATUS_TTL_SECS};
 use crate::fabric::provider::Nip29Provider;
 use crate::state::{Session, Store};
 use crate::util::now_secs;
@@ -270,8 +268,6 @@ pub async fn run_session_in_daemon(
                         result.as_ref().map(|l| format!("title={:?} activity={:?}", l.title, l.activity)).unwrap_or_else(|| "None".into()),
                         error));
                     if let Some(labels) = result {
-                        let prev_title = st!(|s: &Store| s.get_session(&p.session_id))
-                            .ok().flatten().map(|s| s.title).unwrap_or_default();
                         st!(|s: &Store| s.set_session_distill(
                             &p.session_id, &labels.title, &labels.activity, now,
                         ).ok());
@@ -281,40 +277,9 @@ pub async fn run_session_in_daemon(
                         // Read back the freshly-applied draft and publish it.
                         if let Some(session) = st!(|s: &Store| s.get_session(&p.session_id).ok().flatten()) {
                             enqueue_status(&provider, &status_keys, &store, status_for(&p, &status_pubkey, &session, now), now).await;
-
-                            if !session.title.is_empty() && session.title != prev_title {
-                                publish_de(DomainEvent::Activity(Activity {
-                                    agent: aref.clone(),
-                                    project: p.project.clone(),
-                                    text: format!("{} #{}", session.title, p.project),
-                                })).await;
-
-                                // Rename the route channel to the new distilled
-                                // title — ONLY when this agent is an admin of that
-                                // channel (the relay enforces this too; the gate
-                                // avoids futile publishes). No per-session-room
-                                // branching: the channel's `parent` is irrelevant
-                                // to who may rename it.
-                                let channel = route_channel(&p, &session).to_string();
-                                let can_rename = st!(|s: &Store| s.is_channel_admin(&channel, &me).unwrap_or(false));
-                                slog(&p.session_id, &format!("[distill] title changed {:?} → {:?} channel={channel} can_rename={can_rename}",
-                                    prev_title, session.title));
-                                if can_rename {
-                                    let rename = provider.nip29_set_group_name(&channel, &session.title);
-                                    let renamed = tokio::time::timeout(Duration::from_secs(3), rename)
-                                        .await
-                                        .unwrap_or(false);
-                                    slog(&p.session_id, &format!("[distill] nip29 rename channel={channel} title={:?} accepted={renamed}", session.title));
-                                    if renamed {
-                                        let existing = st!(|s: &Store| s.get_channel(&channel).ok().flatten());
-                                        let about = existing.as_ref().map(|c| c.about.clone()).unwrap_or_default();
-                                        let parent = existing.map(|c| c.parent)
-                                            .or_else(|| st!(|s: &Store| s.channel_parent(&channel).ok().flatten()))
-                                            .unwrap_or_default();
-                                        st!(|s: &Store| s.upsert_channel(&channel, &session.title, &about, &parent, now).ok());
-                                    }
-                                }
-                            }
+                            // The distilled title feeds the kind:30315 status above;
+                            // it NEVER renames the route channel. A channel `name`
+                            // is set only at create (or an explicit edit).
                         }
                     } else if let Some(err_msg) = error {
                         // Append to the per-session log for post-mortem inspection.

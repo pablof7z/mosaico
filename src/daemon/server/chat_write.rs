@@ -63,15 +63,22 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // the new channel.
     let scope = rec.channel_h.clone();
 
-    // Explicit-destination redirect (issue #47): `chat write --channel #dst` from
-    // inside a session publishes INTO #dst even though `env_session` resolved the
-    // SENDER to its own channel. The daemon injects an authoritative provenance
-    // prefix the agent cannot spoof.
-    let explicit_dest = p
-        .group
-        .as_deref()
-        .filter(|g| !g.is_empty() && *g != scope.as_str())
-        .map(str::to_string);
+    // Explicit-destination redirect (issue #47): `chat write --channel test1` from
+    // inside a session publishes INTO that channel even though `env_session`
+    // resolved the SENDER to its own channel. Resolve the NAME (or literal id) to
+    // its opaque `channel_h` within the sender's project scope — erroring if
+    // unknown (never a silent literal-`h` send) — and treat it as a redirect only
+    // when it differs from the sender's own scope. The daemon injects an
+    // authoritative provenance prefix the agent cannot spoof.
+    let explicit_dest = match p.group.as_deref().filter(|g| !g.is_empty()) {
+        Some(name) => {
+            let parent = state.with_store(|s| work_root_for(s, &scope));
+            let id =
+                super::resolve_channel(state, &parent, name, Some(&rec.agent_slug), false).await?;
+            (id != scope).then_some(id)
+        }
+        None => None,
+    };
     let body_to_send = match &explicit_dest {
         Some(_) => format!("[from @{} working in #{scope}]: {}", rec.agent_slug, p.message),
         None => p.message.clone(),

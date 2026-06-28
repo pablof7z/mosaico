@@ -40,4 +40,6 @@ Chat is delivered live-only; sessions created after a chat event are not backfil
 
 ## Launch
 
-The `--channel` flag in `tenex-edge launch` accepts only existing NIP-29 group h-values and does not auto-create new channels. <!-- [^b07a5-9e4c3] -->
+The `--channel` flag in `tenex-edge launch` accepts channel names; when given a channel that doesn't exist in the known channels, tenex-edge prompts the user to create it. (Previously: did not auto-create new channels.)
+
+<!-- citations: [^b07a5-9e4c3] [^b07a5-45618] -->
