@@ -1,6 +1,0 @@
-{
-  "id": "019f0-53b46",
-  "ts": "2026-06-26T20:19:18Z",
-  "session": "019f058f-7ab2-7a13-bfbd-728e68beb774",
-  "text": "Desired change: make per-session rooms OPTIONAL (config flag), defaulting to DISABLED.\n1. When per-session rooms are DISABLED and the user runs `tenex-edge launch <agent>` (without --channel), it should open the interactive channel-selector TUI — equivalent to passing `--channel` with no argument.\n2. When per-session rooms are DISABLED and a session is running WITHOUT `tenex-edge launch` (e.g. plain `claude` under tenex-edge) and has no channel resolved, it should just use the PROJECT channel (the top-level project group), not mint a per-session subgroup.\n3. When ENABLED, keep current behavior (mint per-session subgroup)."
-}

@@ -1,6 +1,0 @@
-{
-  "id": "9b219-5818c",
-  "ts": "2026-06-26T10:44:06Z",
-  "session": "9b219490-9752-4956-ad2a-eb6b743b23dc",
-  "text": "also, there should be NO --session flag on tenex-edge chat at all! it's either a --channel or nothing, and this default channel should obviously have been the the one where this agent is active on -- there are multiple bugs here! [...] **Bug 1 — `--session` flag removed from `chat write`**: It's replaced with `--channel` (optional override). When omitted, the default is `TENEX_EDGE_CHANNEL` (the env var that holds the active NIP-29 subgroup), falling back to `TENEX_EDGE_SESSION` and cwd. [...] **Bug 2 — `group` was silently ignored**: `ChatWriteParams` was missing the `group` field entirely, so the daemon always called `resolve_session(..., None)` for the group — which made it ignore the channel the agent is in and resolve via cwd only. Now `group` is in the struct and passed through, so `resolve_session` finds the correct in-channel session and uses `route_scope()` to pick the right NIP-29 h-tag."
-}

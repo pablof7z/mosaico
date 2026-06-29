@@ -1,6 +1,0 @@
-{
-  "id": "019f0-2a222",
-  "ts": "2026-06-26T09:01:08Z",
-  "session": "019f031b-b7f7-7602-b6a4-e67e2bc3a6e2",
-  "text": "User: Review the channel readiness gate implementation in this repo. Focus on src/fabric/provider.rs (ensure_channel_ready_inner function) and src/fabric/nip29/readiness.rs. The invariant: every NIP-29 channel must have mgmt_pubkey + all whitelisted_pubkeys as admins unconditionally, and child channels must inherit all admins from their immediate parent. Check: 1) Is the invariant correctly implemented? 2) Race between ensure_channel_ready_inner and open_project? 3) TTL cache + inflight lock correct? 4) Any logic bugs? Report issues with file:line."
-}

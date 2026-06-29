@@ -1,6 +1,0 @@
-{
-  "id": "b07a5-9e4c3",
-  "ts": "2026-06-28T12:09:43Z",
-  "session": "b07a57a3-67a1-4c44-a8fc-58a1bb97860a",
-  "text": "Assistant: Found it. The `--channel` flag only accepts an **existing group h-value** — it passes the string straight through to `tmux_spawn` without any creation logic.\n\nHere's the path in `verbs.rs:109-122`:\n\n```rust\nlet want_picker =\n    matches!(channel, Some(ref s) if s.is_empty()) || (channel.is_none() && !per_session_rooms);\nlet channel = if want_picker {\n    // ...opens interactive picker, which includes \"＋ Create new channel…\"\n} else {\n    channel  // ← \"new_channel\" passes through as-is\n};\n```\n\nWhen you pass `--channel new_channel`, the string is non-empty so `want_picker` is `false`. The daemon receives `channel: \"new_channel\"` and treats it as a literal NIP-29 group h-value to join. No such group exists on the relay, so nothing is provisioned.\n\nThe only path that calls `channels_create` on the relay is `create_channel_interactive` (`verbs.rs:190`), which is only reachable through the picker."
-}

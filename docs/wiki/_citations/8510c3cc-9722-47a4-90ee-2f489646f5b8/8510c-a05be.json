@@ -1,6 +1,0 @@
-{
-  "id": "8510c-a05be",
-  "ts": "2026-06-26T20:23:56Z",
-  "session": "8510c3cc-9722-47a4-90ee-2f489646f5b8",
-  "text": "if its not enabled (and I want it disabled) it should open the channel selector tui (equivalent to using --channel with no arg) when using tenex-edge launch [...] when running without tenex-edge launch and we don't have a channel, just use the project channel [...] Assistant: Codex's design matches mine. One refinement it suggests: for `launch` + disabled + no-TTY, **fail loudly** (reuse the existing `--channel` error) rather than silently falling back — so automation must pass `--channel <id>` explicitly. I'll adopt that; it unifies both picker triggers. Let me update the launch path. [...] **Launch** (`src/cli/tmux_cli/verbs.rs`) — when the flag is off and `tenex-edge launch <agent>` is run **without** `--channel`, it opens the interactive channel picker (same as `--channel` with no value). In a non-TTY it bails loudly asking for `--channel <id>` (codex's recommendation — so automation never silently picks a scope)."
-}

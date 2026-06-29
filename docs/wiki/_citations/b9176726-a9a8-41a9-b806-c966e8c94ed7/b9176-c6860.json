@@ -1,6 +1,0 @@
-{
-  "id": "b9176-c6860",
-  "ts": "2026-06-28T10:06:43Z",
-  "session": "b9176726-a9a8-41a9-b806-c966e8c94ed7",
-  "text": "User: the database should JUST be a cache of the state we see from the relay... no tables/columns that deviate from the state we know from the relay -- that's it, whatever type of question like \"is pubkey x an admin\" should look at the state, not have a \"owns_group\" type of fucking table"
-}
