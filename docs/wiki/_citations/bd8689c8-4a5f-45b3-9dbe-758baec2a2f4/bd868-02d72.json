@@ -1,0 +1,6 @@
+{
+  "id": "bd868-02d72",
+  "ts": "2026-06-29T11:03:31Z",
+  "session": "bd8689c8-4a5f-45b3-9dbe-758baec2a2f4",
+  "text": "- **Deleted** `session_codename`/`CODENAME_WORDS`/`looks_like_codename`; `SessionId` Display now renders the raw id."
+}

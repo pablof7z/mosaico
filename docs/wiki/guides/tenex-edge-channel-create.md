@@ -13,6 +13,7 @@ verified: 2026-06-29
 compiled-from: conversation
 sources:
   - session:b20ef4ab-0b54-4770-a549-4ed195c0035e
+  - session:76eb2229-ffbb-4b24-84b9-7d9caabc93ca
 ---
 
 # Tenex-Edge Channel Create
@@ -31,3 +32,7 @@ The `--agent` flag is optional on `channels create`. When an agent creates a cha
 ## Duplicate Channel Handling
 
 `channels create` on an existing channel name errors out instead of silently deduping. The error message reads: channel "<name>" already exists under this parent (id <id>). Switch into it instead: tenex-edge channels switch <name>. The error propagates through the RPC layer to the CLI, which prints it and exits non-zero. <!-- [^b20ef-5f557] -->
+
+## Default Channel
+
+`tenex-edge launch` with no `--channel` argument defaults to the project root channel. Passing `--channel ""` explicitly opens the interactive channel picker. <!-- [^76eb2-2c62e] -->

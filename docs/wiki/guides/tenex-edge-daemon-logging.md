@@ -88,4 +88,4 @@ All previous `TENEX_EDGE_DEBUG`-gated `eprintln!` calls in the daemon are replac
 
 ## CLI Debug Actions
 
-CLI help text for DebugAction::HookTail.session reads 'Filter panes/events to a session id (or prefix).' with no codename clause. <!-- [^bd868-06e51] -->
+CLI help text for DebugAction::HookTail.session reads 'Filter panes/events to a session id (or prefix).' <!-- [^bd868-06e51] -->

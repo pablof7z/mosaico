@@ -28,12 +28,13 @@ Agent-to-agent mentions in tmux are pasted as real turns and auto-publish replie
 
 In a hooks-only session, a direct mention is rendered inside a `<tenex-edge>` wrapper with a reply CLI hint and no message id.
 
-When a hooks-only turn has both a direct mention and background chatter, the mention block and the activity block are emitted as two separate `<tenex-edge>` blocks — mention first, then activity — rather than merged. <!-- [^d39d3-7d6ac] -->
+When a hooks-only turn has both a direct mention and background chatter, the mention block and the activity block are emitted as two separate `<tenex-edge>` blocks — mention first, then activity — rather than merged.
 
+Chat mentions use `@<agent-instance-label>` (e.g. @haiku, @haiku1) instead of `@<codename>`. The `extract_mentions` tokenizer accepts any agent-slug-shaped token matching `[A-Za-z0-9._-]+` optionally host-qualified as `label@host`, not only NATO-codename-shaped tokens. Unresolvable mention tokens are silently treated as no-mention rather than blocking chat delivery. `resolve_agent_pubkey(slug, host)` is a Store function that reverse-looks-up relay_profiles by slug+host to return the selected pubkey for an agent-instance label. The obsolete concrete-session lookup (`find_session_by_codename`) and the bail requiring a mention to name a concrete session codename are removed from `chat_write.rs`.
 
-Chat mentions accept agent-instance labels (e.g. @haiku, @haiku1) that resolve to the instance's selected pubkey. The `extract_mentions` tokenizer keeps tokens matching `[A-Za-z0-9._-]+` optionally host-qualified as `label@host`. `resolve_agent_pubkey(slug, host)` resolves an agent-instance label to the selected pubkey via the relay_profiles kind:0 store. The obsolete concrete-session lookup and the bail requiring a mention to name a concrete session are removed from `chat_write.rs`. <!-- [^bd868-1c088] -->
+The chat-write confirmation line reads `mentioning @{label}` instead of `mentioning session {codename}`, driven by the RPC's `mentioned_label`, falling back to plain `sent chat {id}` when no mention is present. README.md chat-write documentation references `@<agent-label>` targeting.
 
-The chat-write confirmation line reads `mentioning @{label}`, driven by the RPC's `mentioned_label`, falling back to plain `sent chat {id}` when no mention is present. README.md chat-write documentation references `@<agent-label>` targeting. <!-- [^bd868-dce28] -->
+<!-- citations: [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] -->
 ## Ambient Chatter
 
 Ambient/background chatter is rendered inside a `<tenex-edge>` wrapper as a timeline with `<@name - Xm ago>` prefixes, identical for tmux and hooks sessions, with no reply hint.

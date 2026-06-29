@@ -1,0 +1,6 @@
+{
+  "id": "76eb2-2c62e",
+  "ts": "2026-06-29T11:11:28Z",
+  "session": "76eb2229-ffbb-4b24-84b9-7d9caabc93ca",
+  "text": "User: if I use tenex-edge launch with no channel it should default to the project channnel [...] Assistant: The fix is clear. Currently, no `--channel` with `per_session_rooms=false` (the default) opens the interactive picker. The new behavior: no `--channel` → default to the project root channel; only explicit `--channel \"\"` opens the picker. [...] Assistant: Clean. `tenex-edge launch <agent>` now defaults to the project root channel; only explicit `--channel \"\"` opens the picker."
+}

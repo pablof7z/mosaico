@@ -9,7 +9,7 @@ Last updated: 2026-06-29
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
 | [tenex-edge-citizen-skill](guides/tenex-edge-citizen-skill.md) | Tenex-Edge Citizen Skill | This skill teaches the mental model for inhabiting a tenex-edge fabric | capture | warm | 2026-06-29 | agent-skills |
-| [tenex-edge-skills](guides/tenex-edge-skills.md) | Tenex-Edge Skills | This guide governs the family of `tenex-edge` agent skills checked into `.agents/skills/tenex-edge` | capture | warm | 2026-06-29 | agent-skills |
+| [tenex-edge-skills](guides/tenex-edge-skills.md) | Tenex-Edge Skills | This guide governs the family of `tenex-edge` agent skills written to `./skills/tenex-edge/` with symlinks from `~/.agents/skills/tenex-edge` and `~/.claude/ski | capture | warm | 2026-06-29 | agent-skills |
 
 ## code-organization (3 guides)
 
@@ -24,16 +24,16 @@ Last updated: 2026-06-29
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
 | [github-issue-queue](guides/github-issue-queue.md) | GitHub Issue Queue | The repository has exactly one canonical tactical queue: GitHub Issues (`gh issue list`) | capture | warm | 2026-06-29 | repo-discipline |
-| [planning-vs-durable-docs](guides/planning-vs-durable-docs.md) | Planning vs Durable Docs | Plans are not durable understanding and must not survive as reference documentation after they have been implemented, executed, or invalidated | capture | warm | 2026-06-29 | repo-discipline |
+| [planning-vs-durable-docs](guides/planning-vs-durable-docs.md) | Planning vs Durable Docs | Scattered notes, ad-hoc `TODO.md`, `NOTES.md`, `ROADMAP.md`, `PLAN-foo.md` files, parallel planning docs, and inline `// TODO:` annotations used as a substitute | capture | warm | 2026-06-29 | repo-discipline |
 
 ## tenex-edge (10 guides)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
-| [tenex-edge-agent-identity](guides/tenex-edge-agent-identity.md) | Tenex-Edge Agent Identity | Sessions carry one authoritative agent-instance identity from creation | capture | warm | 2026-06-29 | tenex-edge |
+| [tenex-edge-agent-identity](guides/tenex-edge-agent-identity.md) | Tenex-Edge Agent Identity | Agent-instance identity is modeled as one first-class object carried from session birth through all downstream consumers, so that no callsite recomputes which p | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-architecture](guides/tenex-edge-architecture.md) | Tenex-Edge Architecture | The core implementation contract consists of pure domain types, a NIP-29 wire codec, a provider/materializer, a single-writer daemon, and a SQLite read model. | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-channel-create](guides/tenex-edge-channel-create.md) | Tenex-Edge Channel Create | `channels create` resolves the parent channel in this precedence: `--parent-channel <ref>`, then the creating agent's current channel (the default), then an exp | capture | warm | 2026-06-29 | tenex-edge |
-| [tenex-edge-channels](guides/tenex-edge-channels.md) | Tenex-Edge Channels | Agents are not removed from channels when a session ends | capture | warm | 2026-06-29 | tenex-edge |
+| [tenex-edge-channels](guides/tenex-edge-channels.md) | Tenex-Edge Channels | Agents are not removed from channels when a session ends. | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-daemon](guides/tenex-edge-daemon.md) | Tenex-Edge Daemon | Daemon `cleanup()` does not delete the lock file, so the flock persists on the same inode until the old daemon process exits | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-daemon-logging](guides/tenex-edge-daemon-logging.md) | Tenex-Edge Daemon Logging | The daemon logs comprehensive operational events including routing to sessions, starting new agents (with reasons), ordinal creation (with reasons), subscriptio | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-home-directory](guides/tenex-edge-home-directory.md) | Tenex-Edge Home Directory | The `edge_home()` function returns tenex-edge's data root â including `state.db`, agents, and logs â and is overridable via the `TENEX_EDGE_HOME` environmen | capture | warm | 2026-06-29 | tenex-edge |
@@ -47,11 +47,12 @@ Last updated: 2026-06-29
 |--------|------|---------|-------|
 | [AGENTS](research/AGENTS.md) |  |  |  |
 
-## Episode Cards (13 cards)
+## Episode Cards (15 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
 | [2026-06-29-1-channels-create-auto-switch-optional-agents](episodes/2026-06-29-1-channels-create-auto-switch-optional-agents.md) | 2026-06-29 | channels create: auto-switch, optional agents, current-channel parent, hard-error on duplicate | product | active |
+| [2026-06-29-1-daemon-inhibit-fail-open-path-produces](episodes/2026-06-29-1-daemon-inhibit-fail-open-path-produces.md) | 2026-06-29 | Daemon-inhibit fail-open path produces spurious 'no session_id' errors when agents launched without tenex-edge | root-cause | active |
 | [2026-06-29-1-daemon-observability-bare-eprintln-replaced-by](episodes/2026-06-29-1-daemon-observability-bare-eprintln-replaced-by.md) | 2026-06-29 | Daemon observability: bare eprintln replaced by structured tracing with custom colored formatter | product | active |
 | [2026-06-29-1-each-ordinal-agent-now-signs-its](episodes/2026-06-29-1-each-ordinal-agent-now-signs-its.md) | 2026-06-29 | Each ordinal agent now signs its own events with its own key | architecture | active |
 | [2026-06-29-1-edge-home-becomes-sole-path-authority](episodes/2026-06-29-1-edge-home-becomes-sole-path-authority.md) | 2026-06-29 | edge_home() becomes sole path authority — config_path() bypass and tenex_dir() eliminated | architecture | active |
@@ -59,13 +60,14 @@ Last updated: 2026-06-29
 | [2026-06-29-1-ordinal-identity-labels-flow-through-statusline](episodes/2026-06-29-1-ordinal-identity-labels-flow-through-statusline.md) | 2026-06-29 | Ordinal identity labels flow through statusline and kind:0 publish | product | superseded |
 | [2026-06-29-1-session-identity-model-from-patch-after](episodes/2026-06-29-1-session-identity-model-from-patch-after.md) | 2026-06-29 | Session identity model: from patch-after-birth to born-right ordinal pubkey | architecture | active |
 | [2026-06-29-1-skip-unnamed-channels-in-awareness-output](episodes/2026-06-29-1-skip-unnamed-channels-in-awareness-output.md) | 2026-06-29 | Skip unnamed channels in awareness output | product | active |
+| [2026-06-29-1-tenex-edge-launch-defaults-to-project](episodes/2026-06-29-1-tenex-edge-launch-defaults-to-project.md) | 2026-06-29 | tenex-edge launch defaults to project channel when no --channel given | product | active |
 | [2026-06-29-1-unify-tenex-edge-who-output-with](episodes/2026-06-29-1-unify-tenex-edge-who-output-with.md) | 2026-06-29 | Unify `tenex-edge who` output with hook injection fabric format | product | active |
 | [2026-06-29-2-agent-discovery-and-recruitment-via-agents](episodes/2026-06-29-2-agent-discovery-and-recruitment-via-agents.md) | 2026-06-29 | Agent discovery and recruitment via `agents` roster and `invite` command | product | active |
 | [2026-06-29-2-daemon-cleanup-lock-file-deletion-caused](episodes/2026-06-29-2-daemon-cleanup-lock-file-deletion-caused.md) | 2026-06-29 | Daemon cleanup() lock-file deletion caused two-daemon race on state.db | root-cause | active |
 | [2026-06-29-3-roster-change-delta-surface-new-agents](episodes/2026-06-29-3-roster-change-delta-surface-new-agents.md) | 2026-06-29 | Roster-change delta — surface new agents automatically in turn context | product | active |
 | [2026-06-29-4-channel-name-disambiguation-via-project-relative](episodes/2026-06-29-4-channel-name-disambiguation-via-project-relative.md) | 2026-06-29 | Channel name disambiguation via project-relative path resolution | product | active |
 
-## Nouns (51 entities)
+## Nouns (61 entities)
 
 | Noun | Name | Origin | Definition |
 |------|------|--------|------------|
@@ -79,6 +81,8 @@ Last updated: 2026-06-29
 | [channel-name](nouns/channel-name.md) | channel name | extracted | The durable human handle for a channel (e.g. "support"), unique per parent project; distinct from the opaque channel id. |
 | [channelctx](nouns/channelctx.md) | ChannelCtx | extracted | Context for a channel readiness check in the NIP-29 provider: holds the group h-tag to target, the pubkey that must be a member, and a soft parent hint for ensuring parent groups first. |
 | [daemon](nouns/daemon.md) | daemon | extracted | ONE daemon per machine is the sole owner of state.db, the single relay connection, the inbox, presence, membership cache, and peer pruning; every CLI invocation and every per-session engine becomes a thin client that talks to it over a Unix domain socket. |
+| [daemon-client](nouns/daemon-client.md) | daemon client | extracted | A thin client that connects to the per-machine daemon, spawning it if absent; on connect it tries the UDS, acquires a startup flock if no answer, re-checks for racers, reclaims stale sockets, and spawns a detached daemon. |
+| [daemon-inhibit](nouns/daemon-inhibit.md) | daemon.inhibit | extracted | A sentinel file ($TENEX_EDGE_HOME/daemon.inhibit) whose presence tells hook-path daemon calls to fail open (return Ok(Null)) rather than spawning or contacting the daemon; created by `tenex-edge stop`, cleared by non-hook commands. |
 | [echoguard](nouns/echoguard.md) | EchoGuard | extracted | A per-session hash ring (60s TTL) replacing the `[tenex-edge]` text marker for echo suppression. Records what the tmux paste path typed; `rpc_user_prompt` consumes the match to decide not to re-publish daemon-injected envelopes back into the channel. |
 | [edge-home](nouns/edge-home.md) | edge_home | extracted | tenex-edge's own writable root (state.db, agents, logs). Override with `$TENEX_EDGE_HOME`; default `~/.tenex-edge`. |
 | [emitformat](nouns/emitformat.md) | EmitFormat | extracted | How a context block is emitted to the harness on stdout. Selected per (host, hook-type): plain text is injected directly by Claude Code's UserPromptSubmit and opencode; Codex wraps every hook in `{systemMessage}`; Claude Code's PostToolUse only reads context from a `hookSpecificOutput` envelope. |
@@ -87,10 +91,13 @@ Last updated: 2026-06-29
 | [envelope-bare-direct-mention](nouns/envelope-bare-direct-mention.md) | envelope (bare direct mention) | extracted | tmux+human format: a mention injected as bare `@developer hey there` without wrapper or marker |
 | [envelope-framed-agent-mention](nouns/envelope-framed-agent-mention.md) | envelope (framed agent mention) | extracted | tmux+agent format: `[tenex-edge mention] <@agent1> Hello @developer` pasted as a real turn |
 | [envelope-hook-mention](nouns/envelope-hook-mention.md) | envelope (hook mention) | extracted | hooks-only format: wrapped in `<tenex-edge>` tags with a reply CLI hint and no message-id |
+| [harness-session-id](nouns/harness-session-id.md) | harness_session_id | extracted | The harness-owned external session id, present only for harnesses that own an id of their own (claude-code, codex); None for programmatic hosts (opencode). It is ONLY a locator for session_aliases, never the identity — the daemon resolves the canonical id. |
+| [harness-session-id-session-id-field-in-sessionstartparams](nouns/harness-session-id-session-id-field-in-sessionstartparams.md) | harness_session_id (session_id field in SessionStartParams) | extracted | The harness-native external session id sent by hooks; it is ONLY a locator for `session_aliases`, never the identity. It is Some for harnesses that own an id (claude-code, codex) and None for programmatic hosts (opencode) whose stable anchors are the resume token / tmux pane / watched pid. |
 | [identities-table](nouns/identities-table.md) | identities (table) | extracted | Derived signing keys the daemon publishes as. (base agent pubkey, ordinal) plus per-session pubkeys map to their owning agent/session and a resume binding. Bounds the #p subscription (the set of pubkeys the daemon listens for) and resumes the right session when a mention arrives for an offline agent. Ordinal 0 == the base agent key. |
 | [identity](nouns/identity.md) | Identity | extracted | an (agent, machine) pair — the same agent slug on another machine is a different identity |
 | [idle-exit-watcher](nouns/idle-exit-watcher.md) | idle-exit watcher | extracted | Background task that shuts the daemon down after it has had no open clients and no live sessions for a configurable grace period (default 120s, overridable via TENEX_EDGE_DAEMON_GRACE_S). |
 | [inbox](nouns/inbox.md) | inbox | extracted | The inbound routing ledger AND the idempotency record. One row per (inbound event, target local session). An event is "handled" because a row exists; there is no separate processed-orchestration table. A row starts `pending` and becomes `delivered` once injected into a live tmux pane. |
+| [inhibit-flag](nouns/inhibit-flag.md) | inhibit flag | extracted | The tenex-edge stop mechanism to prevent hooks from respawning a daemon the user explicitly killed; when set (stop-inhibit file exists), hook-path daemon calls return Ok(Null) so hooks fail open rather than spawning. |
 | [kind-0-profiles-table](nouns/kind-0-profiles-table.md) | kind:0 / profiles table | extracted | the single source of truth for display-name resolution — caches pubkey→slug mappings with TTL and fallback |
 | [kind-30315-ttl](nouns/kind-30315-ttl.md) | kind:30315 TTL | extracted | the only liveness signal |
 | [nip-29-membership](nouns/nip-29-membership.md) | NIP-29 membership | extracted | persistent channel membership ("belongs to this channel"), not ephemeral ("has an active session") |
@@ -98,15 +105,20 @@ Last updated: 2026-06-29
 | [orchestration-spawned-session](nouns/orchestration-spawned-session.md) | orchestration-spawned session | extracted | A session the backend launched with `TENEX_EDGE_CHANNEL` set to add an agent to a task subgroup; it joins that group as-is and does NOT mint a child room. |
 | [ordinalslot](nouns/ordinalslot.md) | OrdinalSlot | extracted | A reserved ordinal slot (issue #47). At most one LIVE session per (base agent pubkey, room h, ordinal). Replaces the old binary durable-vs-transient slot: each concurrent session in a room takes the next free durable ordinal identity (smith, smith1, smith2, …), reused across rooms. |
 | [profile](nouns/profile.md) | Profile | extracted | The agent's published identity card. Resolves pubkey to slug, tells a peer which machine the agent lives on, and declares the human owner(s) it belongs to (p-tagged), so a recipient can decide whether to authorize it. Encoded as kind:0 with content {"name": slug}. |
+| [profile-domain-event](nouns/profile-domain-event.md) | Profile (domain event) | extracted | The agent's published identity card: resolves pubkey to slug, tells a peer which machine the agent lives on, and declares the human owner(s) it belongs to (p-tagged). Encoded as kind:0 with content {"name": agent.slug}, a ["host", host] tag, p-tags for owners, and a ["backend"] tag when is_backend is true. |
 | [profile-domain-profile](nouns/profile-domain-profile.md) | Profile (domain::Profile) | extracted | The agent's published identity card: resolves pubkey→slug, tells a peer which machine the agent lives on, and declares the human owner(s) it belongs to (p-tagged) so a recipient can decide whether to authorize it. Encoded as kind:0 with content {"name": slug} and a ["host", host] tag. |
+| [project-channel](nouns/project-channel.md) | project channel | extracted | A top-level channel with no parent; contrasted with a task/session room, which is marked by a non-empty parent. |
 | [project-root](nouns/project-root.md) | project_root | extracted | The top-level project channel for a route scope: a channel's non-empty parent, else the scope itself (a root channel is its own work root). |
+| [publish-de](nouns/publish-de.md) | publish_de | extracted | A closure in runtime.rs that captures provider and p.keys (the base agent keypair), then publishes a DomainEvent signed with those keys. It was hardcoded to always sign with base keys regardless of ordinal, causing the ordinal kind:0-clobbering bug. |
 | [routing](nouns/routing.md) | routing | extracted | matching mentions by both the recipient's public key and the channel h-tag |
 | [session](nouns/session.md) | Session | extracted | A local agent process THIS daemon hosts. OS handles only (session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, transcript_path, alive, etc.) — never agent identity, which lives in relay_status/relay_profiles. |
-| [session-codename](nouns/session-codename.md) | session_codename | extracted | A stable, human-friendly codename for a session ID: a NATO phonetic word plus a four-digit number (e.g. bravo4217, echo0163), generated by session_codename() in util.rs. Being deleted as a product concept in issue #99. |
+| [session-codename](nouns/session-codename.md) | session_codename | extracted | A stable, human-friendly codename for a session ID: a NATO phonetic word plus a four-digit number, e.g. bravo4217. Generated by session_codename() in util.rs and surfaced via SessionId's Display impl. Now deleted as a product concept per issue #99. |
+| [session-id-sessionstartparams](nouns/session-id-sessionstartparams.md) | session_id (SessionStartParams) | extracted | The harness-native external session id, sent by hooks as harness_session_id or by the legacy/CLI path as session_id. Either alias is accepted; it is ONLY a locator for session_aliases, never the identity. |
 | [session-identity](nouns/session-identity.md) | session identity | extracted | the ordinal pubkey assigned at spawn time and persisted on the session row from creation, used for signing and routing to that specific instance |
+| [session-local-row](nouns/session-local-row.md) | Session (local row) | extracted | A local agent process this daemon hosts. OS handles only — never agent identity (that lives in relay_status/relay_profiles). Carries session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, transcript_path, alive, created_at, last_seen, working, title, activity, resume_id. |
 | [session-state-row](nouns/session-state-row.md) | Session (state row) | extracted | A local agent process THIS daemon hosts. OS handles only — never agent identity (that lives in relay_status/relay_profiles). |
 | [session-state-session](nouns/session-state-session.md) | Session (state::Session) | extracted | A local agent process this daemon hosts. OS handles only (session_id, pid, transcript_path, liveness) — never agent identity, which lives in relay_status/relay_profiles. |
-| [sessionid](nouns/sessionid.md) | SessionId | extracted | A newtype wrapping the canonical raw session id (serde-transparent). as_str() returns the raw id; its Display impl was the structural lever that routed every {session_id} format through session_codename — now flipped to render the raw id directly. |
+| [sessionid](nouns/sessionid.md) | SessionId | extracted | A newtype wrapping the canonical raw session id (serde-transparent). as_str() returns the raw id, and its Display impl renders the raw id directly. |
 | [signerreservations](nouns/signerreservations.md) | SignerReservations | extracted | In-memory reservation map from OrdinalSlot to owning session id. Tracks which ordinals are live in each room so the allocator can pick the lowest free one and two concurrent spawns can't both claim the same ordinal. |
 | [subgroup-task-channel](nouns/subgroup-task-channel.md) | subgroup task channel | extracted | NIP-29 child groups under a project; created via `channels create`, which publishes a kind:9 orchestration event asking named backends to add their agents. |
 | [task-session-room](nouns/task-session-room.md) | task/session room | extracted | A channel distinguished from a top-level project channel by having a non-empty `parent` value. |

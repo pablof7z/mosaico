@@ -1,0 +1,6 @@
+{
+  "id": "019f1-3e7ac",
+  "ts": "2026-06-29T11:07:55Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "What changed:\n- `who` now includes the current agent identity when run inside an agent session.\n- `whoami` CLI/RPC is removed.\n- Local mentions resolve through agent-instance labels like `@haiku` / `@haiku1`, and p-tag the selected instance pubkey.\n- Session codenames are gone from code paths: no generation, no session-start field, no resume-by-codename, no display/routing use.\n- Product docs/wiki no longer carry active `codename` / `whoami` vocabulary, except historical transcript/citation evidence.\n"
+}

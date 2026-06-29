@@ -1,0 +1,6 @@
+{
+  "id": "019f1-c8556",
+  "ts": "2026-06-29T11:08:33Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "Assistant: The failing branch is clear: `other_active_channel_lines` currently filters to named channels, which drops active session rooms that are intentionally supposed to render by their work title. I’m going to remove that filter and keep the raw IDs hidden through the existing unnamed-channel label path.\n\nAssistant: That was a small targeted fix: active unnamed session rooms are kept in the “other active channels” list, and the existing labeler still turns them into current work text instead of channel IDs. I’m formatting that file and rerunning the focused tests plus the broader library suite."
+}

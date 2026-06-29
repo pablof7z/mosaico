@@ -1,0 +1,6 @@
+{
+  "id": "019f1-81dae",
+  "ts": "2026-06-29T11:07:28Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "- **Never commit code reviews.** AI/codex review dumps and post-merge review notes must not be committed. Promote actionable findings into a GitHub issue or a durable doc, then discard the review.\n- **Retire executed plans.** A plan that has been implemented is no longer a source of truth — close the issue or delete the temporal detail; preserve durable lessons in the doc that owns that concept."
+}

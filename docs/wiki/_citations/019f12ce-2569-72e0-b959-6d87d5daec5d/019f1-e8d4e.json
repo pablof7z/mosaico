@@ -1,0 +1,6 @@
+{
+  "id": "019f1-e8d4e",
+  "ts": "2026-06-29T11:07:28Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "- **A `// TODO:` comment is not a plan.** If it represents work to be done, it belongs in a GitHub issue. If it represents a known limitation or durable decision, it belongs in the architecture/design doc or wiki article that owns the concept.\n- **Correct docs in place; do not layer superseding corrections.** When a doc is wrong, edit the authoritative document. Do not add an appendix or \"revision\" section whose job is to contradict the original while leaving the wrong text intact."
+}

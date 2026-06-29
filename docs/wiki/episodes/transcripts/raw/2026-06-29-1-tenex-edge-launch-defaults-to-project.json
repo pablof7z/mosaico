@@ -1,0 +1,10 @@
+[
+  [
+    "user",
+    "if I use tenex-edge launch with no channel it should default to the project channnel"
+  ],
+  [
+    "assistant",
+    "Clean. `tenex-edge launch <agent>` now defaults to the project root channel; only explicit `--channel \"\"` opens the picker."
+  ]
+]

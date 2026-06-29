@@ -1,0 +1,6 @@
+{
+  "id": "bd868-58e6d",
+  "ts": "2026-06-29T11:03:07Z",
+  "session": "bd8689c8-4a5f-45b3-9dbe-758baec2a2f4",
+  "text": "User: always commit docs/wiki -- ALWAYS\n\nAssistant: I'll commit the `docs/wiki/` changes now, and remember this rule going forward.\n\nAssistant: Committed and master fast-forwarded. Working tree is clean (0 changes). Now let me save this as a durable preference so I always do it. [...] - **Committed** `docs/wiki/` as `f47ae1c0` and fast-forwarded `master` to it. Working tree is clean (0 changes).\n- **Remembered the rule**: I'll always include `docs/wiki/` in commits here from now on (`git add -A`), never treat it as skippable.\n"
+}

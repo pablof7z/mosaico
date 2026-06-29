@@ -1,0 +1,6 @@
+{
+  "id": "bd868-40879",
+  "ts": "2026-06-29T11:03:31Z",
+  "session": "bd8689c8-4a5f-45b3-9dbe-758baec2a2f4",
+  "text": "Assistant: Now `hooks.rs` codename field:\n [...] - **session_start / hooks responses + logs** (me) ✅ — `codename` field & log dropped\n- **slog filename** (me) ✅ — raw `session_id` [...] - Module/`Ref::Token` doc comments rewritten: identity = agent-instance label; session_id is correlation-only, never a chat target.\n- `session_label` no longer renders `codename (agent@host)` — it returns the agent-instance label `agent@host` (degrading to the raw `session_id` only when slug is empty). This is what `format_envelope` consumes, so the envelope \"From\" line is now codename-free automatically.\n- Deleted `token_is_codename`; dropped the `looks_like_codename`/`session_codename` imports (now only `slugify_host`)."
+}

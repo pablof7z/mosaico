@@ -1,0 +1,6 @@
+{
+  "id": "019f1-106a9",
+  "ts": "2026-06-29T11:03:27Z",
+  "session": "019f12f9-8a0b-7012-ad2f-f4d0cb035d2b",
+  "text": "User: $skill-creator make the skill -- call it tenex-edge -- write it to ./skills/ and ln -sf to it from ~/.agents/skills and ~/.claude/skills afterwards [...] ```text\n~/.agents/skills/tenex-edge -> /Users/pablofernandez/src/tenex-edge/skills/tenex-edge\n~/.claude/skills/tenex-edge -> /Users/pablofernandez/src/tenex-edge/skills/tenex-edge"
+}

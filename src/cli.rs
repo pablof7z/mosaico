@@ -73,6 +73,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         let home = crate::config::edge_home();
         eprintln!("[tenex-edge] home={} relays={}", home.display(), relays);
     }
+    // Any explicit command (except `hook`) signals intent to use tenex-edge, so
+    // clear the stop-inhibit. Hooks honour the sentinel — they must never
+    // restart a daemon the operator explicitly stopped. `stop` re-arms it
+    // unconditionally, so clearing first is harmless.
+    if !matches!(cli.cmd, Cmd::Hook { .. }) && crate::daemon::is_inhibited() {
+        crate::daemon::clear_inhibit();
+        eprintln!("[tenex-edge] stop inhibit cleared");
+    }
     match cli.cmd {
         Cmd::Publish {
             title,
@@ -248,17 +256,11 @@ pub(super) fn session_end(session: String) -> Result<()> {
     Ok(())
 }
 
-/// Async daemon call for non-hook CLI verbs. Clears any stop inhibit so the
-/// daemon is restarted when needed — running a command like `who` or `chat`
-/// implicitly resumes after a `tenex-edge stop`.
+/// Async daemon call for non-hook CLI verbs.
 pub(super) async fn daemon_call_async(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    if crate::daemon::is_inhibited() {
-        crate::daemon::clear_inhibit();
-        eprintln!("[tenex-edge] stop inhibit cleared; restarting daemon...");
-    }
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     client.call(method, params).await
 }

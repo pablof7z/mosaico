@@ -1,0 +1,6 @@
+{
+  "id": "bd868-a51fb",
+  "ts": "2026-06-29T11:03:31Z",
+  "session": "bd8689c8-4a5f-45b3-9dbe-758baec2a2f4",
+  "text": "- `args.rs:318` → `/// Session id (prefix) to resume.` (drop the codename clause). Once tier-3 is deleted (see §1), codename is no longer a valid `--session` value. [...] Assistant: Now `hooks.rs` codename field:\n [...] Assistant: Now `tmux_rpc.rs` — delete `resume_by_codename` and its call:\n [...] - **session_start / hooks responses + logs** (me) ✅ — `codename` field & log dropped\n- **slog filename** (me) ✅ — raw `session_id`\n- **tmux resume** (me) ✅ — `resume_by_codename` deleted; raw-id exact+prefix only\n- **docs** (me) ✅ — README, daemon-rpc-surface, tail-v2-design"
+}

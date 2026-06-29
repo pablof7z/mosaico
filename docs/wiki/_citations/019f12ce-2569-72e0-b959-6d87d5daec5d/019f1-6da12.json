@@ -1,0 +1,6 @@
+{
+  "id": "019f1-6da12",
+  "ts": "2026-06-29T11:08:33Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "- **P1:** Fresh per-session room context can show `Project: (unnamed channel)` / `Channel: (unnamed channel)` and a repair command against an opaque `session-*` id. The room is only locally stamped as `name == id` at [src/daemon/server/session_start.rs](/Users/pablofernandez/src/tenex-edge/src/daemon/server/session_start.rs:331), then the first-turn warning reads membership immediately at [src/cli/turn.rs](/Users/pablofernandez/src/tenex-edge/src/cli/turn.rs:111), and display falls back to `(unnamed channel)` at [src/cli/who/awareness/summary.rs](/Users/pablofernandez/src/tenex-edge/src/cli/who/awareness/summary.rs:323). Stamp the parent/root and local membership synchronously, or suppress this warning for locally-managed rooms while provisioning converges.\n [...] - **P2:** `cargo fmt --check` fails on the current dirty tree, starting with [src/cli/admin/agent.rs](/Users/pablofernandez/src/tenex-edge/src/cli/admin/agent.rs:101) and many touched files. `git diff --check` passed."
+}

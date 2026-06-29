@@ -1,0 +1,10 @@
+[
+  [
+    "user",
+    "notice how almost all of these are complaining about \"no session id\" errors of some kind -- what's going on? I have the feeling this happens when I start claude or opencode or grok without running `tenex-edge launch` and instead launch directly In that case the first hook that runs in this session should organize the work under the session -- shouldn't it? dont fix anything - explain whats happening"
+  ],
+  [
+    "assistant",
+    "Explained two distinct failure modes: a malformed payload missing the session_id field, and the daemon returning Null when inhibited after `tenex-edge stop`, causing the session-start hook to bail immediately rather than organizing the session. Confirmed the user's hypothesis is correct — launching an agent directly without `tenex-edge launch` leaves the inhibit flag active, so the first hook does not organize the session."
+  ]
+]

@@ -1,0 +1,6 @@
+{
+  "id": "019f1-83994",
+  "ts": "2026-06-29T11:02:59Z",
+  "session": "019f12f9-8a0b-7012-ad2f-f4d0cb035d2b",
+  "text": "- **Do not create new top-level planning files.** No `PLAN.md`, `TODO.md`, `ROADMAP.md`, `NEXT.md`, or `STATUS.md` at the repo root or directly under `docs/`. New tactical detail belongs in a GitHub issue. [...] - **Do not duplicate state across files.** A violation or feature tracked in GitHub Issues is not also restated in a separate plan file. Single source of truth per fact. [...] - **Correct docs in place; do not layer superseding corrections.** When a doc is wrong, edit the authoritative document. Do not add an appendix or \"revision\" section whose job is to contradict the original while leaving the wrong text intact."
+}

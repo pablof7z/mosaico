@@ -1,0 +1,6 @@
+{
+  "id": "019f1-53558",
+  "ts": "2026-06-29T11:06:24Z",
+  "session": "019f12ce-2569-72e0-b959-6d87d5daec5d",
+  "text": "- Generated, vendored, lockfile (`Cargo.lock`), binary, and benchmark-output artifacts are exempt from the LOC ceiling, but keep their producers small and documented.\n"
+}

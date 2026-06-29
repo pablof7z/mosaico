@@ -2,7 +2,7 @@
 title: Tenex-Edge Channels
 slug: tenex-edge-channels
 topic: tenex-edge
-summary: Agents are not removed from channels when a session ends
+summary: Agents are not removed from channels when a session ends.
 tags:
   - capture
 volatility: warm
@@ -18,16 +18,20 @@ sources:
   - session:bd8689c8-4a5f-45b3-9dbe-758baec2a2f4
   - session:b20ef4ab-0b54-4770-a549-4ed195c0035e
   - session:c55adda0-b071-4b76-9d24-a0cbcb5b6e0c
+  - session:019f12ce-2569-72e0-b959-6d87d5daec5d
 ---
 
 # Tenex-Edge Channels
 
 ## Agent Retention
 
-Agents are not removed from channels when a session ends. <!-- [^3c769-6616d] -->
+Agents are not removed from channels when a session ends.
 
+Fresh per-session room context displays the project and channel labels, not `Project: (unnamed channel)` / `Channel: (unnamed channel)`, by synchronously stamping the parent/root and local membership or suppressing the warning for locally-managed rooms while provisioning converges.
 
-The chat_write bail requiring a concrete session id is removed; delivery routes by selected agent-instance pubkey alone. <!-- [^bd868-93a15] -->
+The chat_write bail requiring a concrete session id is removed; delivery routes by selected agent-instance pubkey alone.
+
+<!-- citations: [^3c769-6616d] [^bd868-93a15] [^019f1-6da12] -->
 ## Invite
 
 `tenex-edge invite <slug[@backend]>` spawns a fresh session for the invited agent in the current channel. It is an explicit command, not an auto-add side-effect of @-mention. <!-- [^661eb-712ca] -->
@@ -48,4 +52,6 @@ When an agent creates a channel, the daemon auto-switches the creating agent's s
 
 ## Channel Awareness
 
-Unnamed channels (channels whose name is empty or equals their own id) render in the "Other active channels" awareness block by current work title, never by raw channel id. <!-- [^c55ad-57ccb] -->
+Unnamed channels (channels whose name is empty or equals their own id) render in the "Other active channels" awareness block by current work title, never by raw channel id. Active unnamed session rooms appear in the `who` "other active channels" list, rendered by their work title through the existing unnamed-channel label path rather than being filtered out.
+
+<!-- citations: [^c55ad-57ccb] [^019f1-c8556] -->
