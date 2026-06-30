@@ -188,7 +188,11 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         s.list_alive_sessions()
             .unwrap_or_default()
             .into_iter()
-            .any(|rec| rec.agent_pubkey == mentioned_pk && rec.channel_h == project)
+            .any(|rec| {
+                rec.agent_pubkey == mentioned_pk
+                    && s.is_session_joined_channel(&rec.session_id, project)
+                        .unwrap_or(rec.channel_h == project)
+            })
     });
     if has_alive {
         tracing::debug!(

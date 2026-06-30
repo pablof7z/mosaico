@@ -1,4 +1,5 @@
 use super::*;
+use super::channel_membership_rpc::set_active_session_channel;
 
 pub(in crate::daemon::server) async fn ensure_session_room(
     state: &Arc<DaemonState>,
@@ -7,20 +8,6 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     parent: &str,
     agent_pubkey: &str,
 ) -> bool {
-    // Materialize the channel + its hierarchy in the local cache FIRST so the
-    // sub-channel gates (prompt+reply mirroring) and `channels list` recognize the
-    // room even before — or if — the relay mint lands. A non-empty `parent` is what
-    // marks this as a task/session room (vs a top-level project channel).
-    state.with_store(|s| {
-        let created = s
-            .get_channel(room_h)
-            .ok()
-            .flatten()
-            .map(|c| c.created_at)
-            .unwrap_or_else(now_secs);
-        s.upsert_channel(room_h, name, "", parent, created).ok();
-    });
-
     // Provision the room through the SAME shared primitive every channel uses
     // (per-session rooms, orchestration task rooms, operator-created channels):
     // ensure the parent project exists (recursively), create+lock the subgroup,
@@ -33,6 +20,9 @@ pub(in crate::daemon::server) async fn ensure_session_room(
             channel: room_h,
             expect_member: agent_pubkey,
             parent_hint: Some(parent),
+            // The intended room name rides on the create publish; the relay's
+            // kind:39000 echo is what lands it in the cache.
+            name: Some(name),
         })
         .await;
     let _ = ensure_subscription(state, room_h).await;
@@ -183,14 +173,6 @@ Switch into it instead: tenex-edge channels switch {}",
     // admin) is passed purely to provision the group.
     let creator: Option<String> = creator_rec.as_ref().map(|rec| rec.agent_pubkey.clone());
 
-    // Stamp the operator-chosen name + parent locally so the shared primitive
-    // names the new subgroup correctly when it creates it on the relay (it reads
-    // the display name from the local store).
-    state.with_store(|s| {
-        s.upsert_channel(&child_h, &p.name, &p.about, &parent, now_secs())
-            .ok();
-    });
-
     // ONE shared primitive provisions EVERY channel — per-session rooms,
     // orchestration task rooms, and operator-created channels are the same thing.
     // `ensure_channel_ready` ensures the parent project group exists (recursively),
@@ -205,6 +187,9 @@ Switch into it instead: tenex-edge channels switch {}",
             channel: &child_h,
             expect_member,
             parent_hint: Some(&parent),
+            // Operator-chosen name rides on the create publish; the relay's
+            // kind:39000 echo lands it in the cache (no local fabrication).
+            name: Some(&p.name),
         })
         .await;
     if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
@@ -222,6 +207,9 @@ Switch into it instead: tenex-edge channels switch {}",
     if !p.about.trim().is_empty() {
         let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&child_h, &p.about)?;
         let _ = state.transport.publish_signed(builder, &mgmt_keys).await;
+        // Re-read the relay's now-updated kind:39000 so the `about` lands in the
+        // cache from relay truth, not a local write.
+        let _ = state.provider.fetch_and_materialize_channel(&child_h).await;
     }
 
     // The confirmed admin roster, read back from the local cache the shared
@@ -269,13 +257,11 @@ Switch into it instead: tenex-edge channels switch {}",
         oid
     };
 
-    // Auto-switch: re-home the creating agent's session INTO the channel it just
-    // made, so the agent is immediately working there (mirrors `channels switch`).
-    // Safe without the switch-path's occupancy/membership checks: the room is
-    // brand new, the creator is its only member, and no other live session can
-    // already sign as this pubkey in a channel that did not exist a moment ago.
+    // Auto-focus: join the new room and make it the active publishing channel.
+    // Unlike `channels switch`, this preserves the parent as a passive joined
+    // channel so the creator can still see and receive mentions from it.
     let switched = if let Some(rec) = &creator_rec {
-        rehome_session_to_channel(state, &rec.session_id, &rec.agent_pubkey, &child_h);
+        set_active_session_channel(state, &rec.session_id, &rec.agent_pubkey, &child_h, false);
         true
     } else {
         false
@@ -364,116 +350,6 @@ pub(in crate::daemon::server) fn preorder_rooms(
     seen.insert(root.to_string());
     walk(children, root, 0, &mut seen, &mut out);
     out
-}
-
-/// `channels_switch`: move a running session to a different NIP-29 channel
-/// without restarting. Sets `sessions.channel_h` (the single route scope) and
-/// re-homes the session's identity at the new channel, then nudges the status
-/// drainer so a fresh kind:30315 publishes into the new channel. All fabric
-/// publishing (chat/mentions/proposals), local chat routing, and turn-context
-/// deltas follow the new scope via `channel_h`. Fails if the channel does not
-/// exist in local state.
-pub(in crate::daemon::server) async fn rpc_channels_switch(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        channel: String,
-        #[serde(default)]
-        env_session: Option<String>,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("channels_switch params")?;
-    if p.channel.trim().is_empty() {
-        anyhow::bail!("channel h must not be empty");
-    }
-    let env_session = p
-        .env_session
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .context("channels switch must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)")?;
-    let rec = resolve_session(state, None, Some(env_session), None, None, None)?;
-    // Resolve a PROJECT-RELATIVE reference (name, `parent/child` path, or `@<id>`
-    // escape hatch) to one opaque `channel_h` within this session's project
-    // subtree — never create on switch, never reach across projects. Ambiguity is
-    // returned to the agent as candidate paths to re-run with, not a prompt.
-    let root = state.with_store(|s| super::project_root(s, &rec.channel_h));
-    let new_channel = match state.with_store(|s| super::resolve_channel_ref(s, &root, &p.channel)) {
-        super::ChannelResolution::Unique(h) => h,
-        super::ChannelResolution::Ambiguous(refs) => {
-            return Ok(serde_json::json!({ "ambiguous": refs, "reference": p.channel }));
-        }
-        super::ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {:?} in this project", p.channel)
-        }
-    };
-    refresh_project_members_cache(state, &new_channel).await;
-    let is_member = state.with_store(|s| {
-        s.is_channel_member(&new_channel, &rec.agent_pubkey)
-            .unwrap_or(false)
-    });
-    if !is_member {
-        anyhow::bail!(
-            "agent {} is not a member of channel {:?}",
-            rec.agent_slug,
-            new_channel
-        );
-    }
-    // Occupancy reject (issue #47): a session's identity is fixed for life; it
-    // cannot switch INTO a channel where another live session already signs as the
-    // same pubkey. Redirect the agent to message that instance — the redirect lands
-    // in that instance's context because both sign as this pubkey.
-    let my_pubkey = rec.agent_pubkey.clone();
-    if let Some(occupant) = state.with_store(|s| {
-        s.resolve_identity_for_channel(&my_pubkey, &new_channel)
-            .ok()
-            .flatten()
-    }) {
-        if occupant.alive && occupant.session_id != rec.session_id {
-            anyhow::bail!(
-                "Another instance of you is already active in #{new_channel}, so you cannot join it. \
-Send it a message instead: tenex-edge chat write --channel {new_channel} --message \"...\" \
-— it will arrive in the context of the instance working there."
-            );
-        }
-    }
-    ensure_subscription(state, &new_channel).await?;
-    let prev_channel = rec.channel_h.clone();
-    rehome_session_to_channel(state, &rec.session_id, &rec.agent_pubkey, &new_channel);
-    Ok(serde_json::json!({
-        "session_id": rec.session_id,
-        "prev_channel": prev_channel,
-        "channel": new_channel,
-    }))
-}
-
-/// Move a resolved session onto `new_channel`: set the route scope and re-home
-/// the session's identity (the pubkey is fixed for life — only `channel_h`
-/// changes, so `(pubkey, new_channel)` becomes the resume key), then nudge the
-/// status drainer. Every fabric publish, local chat routing, status, and
-/// turn-context delta keys on `channel_h`, so this is the whole switch. Shared by
-/// `channels_switch` and the auto-switch on `channels_create`; both callers do
-/// their own resolution/membership/occupancy checks before re-homing.
-pub(in crate::daemon::server) fn rehome_session_to_channel(
-    state: &Arc<DaemonState>,
-    session_id: &str,
-    agent_pubkey: &str,
-    new_channel: &str,
-) {
-    state.with_store(|s| {
-        s.set_session_channel(session_id, new_channel).ok();
-        if let Some(mut idn) = s.get_identity(agent_pubkey).ok().flatten() {
-            idn.channel_h = new_channel.to_string();
-            idn.session_id = session_id.to_string();
-            idn.alive = true;
-            s.upsert_identity(&idn).ok();
-        }
-    });
-    // Nudge the drainer so the scope-changed status publishes immediately rather
-    // than waiting for the next heartbeat tick. The kind:30315 it publishes
-    // carries the new `h` tag, so peers in the channel see the session's presence
-    // without a separate profile push.
-    state.outbox_notify.notify_waiters();
 }
 
 /// Human-readable summary of the add-agents request, grouped per backend, e.g.

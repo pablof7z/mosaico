@@ -126,6 +126,9 @@ impl Store {
                 ],
             )?;
         }
+        if !r.channel_h.is_empty() {
+            self.join_session_channel_canonical(session_id, &r.channel_h, r.now)?;
+        }
         Ok(())
     }
 
@@ -317,7 +320,94 @@ impl Store {
             "UPDATE sessions SET channel_h=?2 WHERE session_id=?1",
             params![canonical, channel_h],
         )?;
+        if !channel_h.is_empty() {
+            self.join_session_channel_canonical(&canonical, channel_h, crate::util::now_secs())?;
+        }
         Ok(())
+    }
+
+    fn join_session_channel_canonical(
+        &self,
+        session_id: &str,
+        channel_h: &str,
+        joined_at: u64,
+    ) -> Result<()> {
+        if channel_h.trim().is_empty() {
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT OR IGNORE INTO session_channels (session_id, channel_h, joined_at)
+             VALUES (?1, ?2, ?3)",
+            params![session_id, channel_h, joined_at],
+        )?;
+        Ok(())
+    }
+
+    /// Join a channel for passive context and direct-mention delivery. The active
+    /// publishing channel remains `sessions.channel_h`.
+    pub fn join_session_channel(&self, id: &str, channel_h: &str, joined_at: u64) -> Result<()> {
+        let Some(canonical) = self.resolve_canonical_id(id)? else {
+            return Ok(());
+        };
+        self.join_session_channel_canonical(&canonical, channel_h, joined_at)
+    }
+
+    /// Leave a passively joined channel. Callers must not use this to orphan the
+    /// active publishing channel; `channels switch` handles active-channel moves.
+    pub fn leave_session_channel(&self, id: &str, channel_h: &str) -> Result<bool> {
+        let Some(canonical) = self.resolve_canonical_id(id)? else {
+            return Ok(false);
+        };
+        let n = self.conn.execute(
+            "DELETE FROM session_channels WHERE session_id=?1 AND channel_h=?2",
+            params![canonical, channel_h],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// True when the session listens to `channel_h`. The active route scope is
+    /// always considered joined, even if the join row predates this schema.
+    pub fn is_session_joined_channel(&self, id: &str, channel_h: &str) -> Result<bool> {
+        let Some(canonical) = self.resolve_canonical_id(id)? else {
+            return Ok(false);
+        };
+        if let Some(sess) = self.get_session(&canonical)? {
+            if sess.channel_h == channel_h {
+                return Ok(true);
+            }
+        }
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM session_channels WHERE session_id=?1 AND channel_h=?2",
+                params![canonical, channel_h],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    /// Joined channels for context/subscription coverage as `(channel_h,
+    /// joined_at)`. The active channel is included as a compatibility fallback.
+    pub fn list_session_joined_channels(&self, id: &str) -> Result<Vec<(String, u64)>> {
+        let Some(canonical) = self.resolve_canonical_id(id)? else {
+            return Ok(Vec::new());
+        };
+        let mut stmt = self.conn.prepare(
+            "SELECT channel_h, joined_at FROM session_channels
+             WHERE session_id=?1 ORDER BY joined_at ASC, channel_h ASC",
+        )?;
+        let rows = stmt.query_map(params![canonical.clone()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
+        })?;
+        let mut joined = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if let Some(sess) = self.get_session(&canonical)? {
+            if !sess.channel_h.is_empty() && !joined.iter().any(|(h, _)| h == &sess.channel_h) {
+                joined.push((sess.channel_h, sess.created_at));
+            }
+        }
+        joined.sort_by(|(a_h, a_t), (b_h, b_t)| a_t.cmp(b_t).then(a_h.cmp(b_h)));
+        Ok(joined)
     }
 
     /// Mark a session dead (process exited). Resolves the id first; clears the

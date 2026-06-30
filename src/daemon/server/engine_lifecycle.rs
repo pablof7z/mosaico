@@ -33,7 +33,6 @@ pub(in crate::daemon::server) async fn spawn_session(
             cancel: cancel.clone(),
         },
     );
-    state.liveness_changed.notify_waiters();
 
     let st = state.clone();
     let sid = session_id.clone();
@@ -61,12 +60,13 @@ pub(in crate::daemon::server) async fn spawn_session(
         }
         // Mark the bound identity dead but keep the row for resume (issue #47).
         st.with_store(|s| {
-            s.mark_identity_dead_for_session(&sid).ok();
+            if let Err(e) = s.mark_identity_dead_for_session(&sid) {
+                tracing::error!(session = %sid, error = %e, "failed to mark identity dead on session exit");
+            }
         });
         st.sessions.lock().unwrap().remove(&sid);
         prune_hosted(&st);
         tracing::info!(session = %sid, "session engine exited");
-        st.liveness_changed.notify_waiters();
     });
     Ok(())
 }
@@ -228,9 +228,15 @@ fn build_entity_coverage(state: &Arc<DaemonState>) -> crate::fabric::subscriptio
                 channels.extend(gs);
             }
         }
-        // Channels live sessions currently route under.
+        // Channels live sessions listen to. This includes the active publishing
+        // channel plus any passively joined channels.
         for sess in s.list_alive_sessions().unwrap_or_default() {
-            channels.insert(sess.channel_h.clone());
+            let joined = s
+                .list_session_joined_channels(&sess.session_id)
+                .unwrap_or_else(|_| vec![(sess.channel_h.clone(), sess.created_at)]);
+            for (channel, _) in joined {
+                channels.insert(channel);
+            }
         }
     });
 
@@ -304,8 +310,12 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             // pubkey (if any) to remove from the channel.
             let identity = state.with_store(|s| s.identity_for_session(&session_id).ok().flatten());
             state.with_store(|s| {
-                s.mark_dead(&session_id).ok();
-                s.mark_identity_dead_for_session(&session_id).ok();
+                if let Err(e) = s.mark_dead(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark session dead during reconcile");
+                }
+                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark identity dead during reconcile");
+                }
             });
             // Crash-GC: remove an ordinal (>0) member from the NIP-29 channel.
             // Membership is relay-materialized, so only the relay remove is issued.
@@ -337,14 +347,37 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         let parent_hint = state
             .with_store(|s| s.channel_parent(&snap.channel_h).ok().flatten())
             .filter(|p| !p.is_empty());
-        state
+        let gate = state
             .provider
             .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
                 channel: &snap.channel_h,
                 expect_member: &id.pubkey_hex(),
                 parent_hint: parent_hint.as_deref(),
+                name: None,
             })
             .await;
+        // `Degraded` means the channel was NOT verified ready on the relay.
+        // Respawning the engine against an unverified channel would publish into a
+        // phantom scope, so quarantine the session (mark it dead) instead of
+        // reviving it — loudly, since a revival that silently degrades hides relay
+        // breakage behind a "running" session.
+        if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
+            tracing::error!(
+                session = %session_id,
+                agent = %snap.agent_slug,
+                channel = %snap.channel_h,
+                "channel not verified ready on reconcile; quarantining session instead of respawning"
+            );
+            state.with_store(|s| {
+                if let Err(e) = s.mark_dead(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark session dead during reconcile quarantine");
+                }
+                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark identity dead during reconcile quarantine");
+                }
+            });
+            continue;
+        }
 
         let signer = match select_session_signer(
             state,
@@ -364,12 +397,20 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         };
         // Rebind the row to the selected ordinal pubkey (== base for ordinal 0) so
         // mention routing keys on this session's real identity, not the base.
-        state.with_store(|s| s.set_session_agent_pubkey(&session_id, &signer.pubkey).ok());
+        state.with_store(|s| {
+            if let Err(e) = s.set_session_agent_pubkey(&session_id, &signer.pubkey) {
+                tracing::error!(session = %session_id, error = %e, "failed to rebind session pubkey to selected ordinal during reconcile");
+            }
+        });
         if let Some(member_pubkey) = signer.member_pubkey_to_admit() {
             if let Err(e) = admit_transient_signer(state, &snap.channel_h, member_pubkey).await {
                 tracing::warn!(session = %session_id, error = %e, "ordinal signer admission failed during reconcile; skipping session");
                 state.release_session_signer(&session_id);
-                state.with_store(|s| s.mark_identity_dead_for_session(&session_id).ok());
+                state.with_store(|s| {
+                    if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
+                        tracing::error!(session = %session_id, error = %e, "failed to mark identity dead after admission failure during reconcile");
+                    }
+                });
                 continue;
             }
         }

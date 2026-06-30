@@ -8,6 +8,21 @@ use crate::state::{InboxRow, RelayEvent, Session};
 /// Cap on ambient channel-chat rows pulled from the relay-event log per turn.
 const AMBIENT_CHAT_LIMIT: u32 = 50;
 
+/// Walk `channel`'s NIP-29 `parent` links up to the top-level project root (the
+/// first channel whose parent is empty/unknown). Bounded against malformed
+/// cycles. Mirrors the daemon-side `project_root`, duplicated here because that
+/// helper is `pub(in crate::daemon::server)` and this module lives under `cli`.
+fn project_root_h(s: &Store, channel: &str) -> String {
+    let mut cur = channel.to_string();
+    for _ in 0..16 {
+        match s.channel_parent(&cur).ok().flatten() {
+            Some(p) if !p.is_empty() => cur = p,
+            _ => break,
+        }
+    }
+    cur
+}
+
 /// How a context block is emitted to the harness on stdout. Selected per
 /// (host, hook-type): plain text is injected directly by Claude Code's
 /// UserPromptSubmit and opencode; Codex wraps every hook in `{systemMessage}`;
@@ -22,10 +37,16 @@ pub(super) enum EmitFormat {
 
 // ── turn-start / turn-check / turn-end ───────────────────────────────────────
 
+/// `degraded_notice` is a visible marker the caller injects when the turn is
+/// already known to be degraded (e.g. the session could not be re-registered
+/// with the daemon). It is prepended to the daemon's assembled context — and
+/// emitted on its own when the daemon returns nothing — so a degraded turn shows
+/// a "fabric temporarily unavailable" marker rather than silent emptiness.
 pub(super) async fn turn_start(
     session: String,
     transcript: Option<String>,
     emit: EmitFormat,
+    degraded_notice: Option<String>,
 ) -> Result<Option<String>> {
     if session.is_empty() {
         return Ok(None);
@@ -35,9 +56,16 @@ pub(super) async fn turn_start(
         "transcript": transcript,
     });
     let v = super::daemon_call_hook_async("turn_start", params).await?;
-    if let Some(ctx) = v["context"].as_str() {
-        emit_context(ctx, emit);
-        return Ok(Some(ctx.to_string()));
+    let daemon_ctx = v["context"].as_str().map(str::to_string);
+    let combined = match (degraded_notice, daemon_ctx) {
+        (Some(notice), Some(ctx)) => Some(format!("{notice}\n\n{ctx}")),
+        (Some(notice), None) => Some(notice),
+        (None, Some(ctx)) => Some(ctx),
+        (None, None) => None,
+    };
+    if let Some(ctx) = combined {
+        emit_context(&ctx, emit);
+        return Ok(Some(ctx));
     }
     Ok(None)
 }
@@ -55,26 +83,101 @@ fn rewrite_inbox_bodies(s: &Store, rows: &mut [InboxRow]) {
 /// Drain the pending inbound routing ledger for this session and mark each row
 /// delivered (idempotency lives in the inbox row's state, not a separate
 /// processed table). Bodies get mention-rewritten before they reach the
-/// injector.
-fn take_inbox(s: &Store, session_id: &str, now: u64) -> Vec<InboxRow> {
+/// injector. Returns `Err` on a store failure so callers surface a visible
+/// "inbox read failed" marker instead of silently rendering an empty inbox —
+/// a dropped claim must never look like "no mentions".
+fn take_inbox(s: &Store, session_id: &str, now: u64) -> Result<Vec<InboxRow>> {
     // Atomic claim (pending → delivered in one statement). Whoever drains the
     // row first — this hook or the tmux paste path — wins; the other gets
     // nothing. The atomicity IS the dedup: no separate notified flag or gate.
-    let mut rows = s
-        .claim_pending_for_session(session_id, now)
-        .unwrap_or_default();
+    let mut rows = s.claim_pending_for_session(session_id, now)?;
     rewrite_inbox_bodies(s, &mut rows);
-    rows
+    Ok(rows)
 }
 
 /// Ambient channel chat from the relay-event log since `since`, oldest-first,
 /// excluding events authored by this agent. Replaces the old `peek_chat`
-/// inbox-derived ambient stream with the verbatim `relay_events` log.
-fn ambient_chat(s: &Store, scope: &str, since: u64, self_pubkey: &str) -> Vec<RelayEvent> {
-    s.chat_for_channel(scope, since, AMBIENT_CHAT_LIMIT)
-        .unwrap_or_default()
+/// inbox-derived ambient stream with the verbatim `relay_events` log. Returns
+/// `Err` on a store failure so a read error is never rendered as a quiet
+/// channel.
+fn ambient_chat(
+    s: &Store,
+    scope: &str,
+    since: u64,
+    self_pubkey: &str,
+) -> Result<Vec<RelayEvent>> {
+    Ok(s.chat_for_channel(scope, since, AMBIENT_CHAT_LIMIT)?
         .into_iter()
         .filter(|ev| ev.pubkey != self_pubkey)
+        .collect())
+}
+
+fn joined_channels(s: &Store, rec: &Session) -> Vec<(String, u64)> {
+    let mut channels = s
+        .list_session_joined_channels(&rec.session_id)
+        .unwrap_or_else(|_| vec![(rec.channel_h.clone(), rec.created_at)]);
+    if !rec.channel_h.is_empty() && !channels.iter().any(|(h, _)| h == &rec.channel_h) {
+        channels.push((rec.channel_h.clone(), rec.created_at));
+    }
+    channels.sort_by(|(a_h, a_t), (b_h, b_t)| {
+        let a_active = if a_h == &rec.channel_h { 0 } else { 1 };
+        let b_active = if b_h == &rec.channel_h { 0 } else { 1 };
+        a_active.cmp(&b_active).then(a_t.cmp(b_t)).then(a_h.cmp(b_h))
+    });
+    channels
+}
+
+/// Ambient chat grouped per joined channel. The `bool` is `true` when any
+/// per-channel read failed: a store error is logged loudly and the channel is
+/// dropped from the result, so the caller MUST surface a read-failure marker
+/// rather than let a failed read masquerade as a quiet channel.
+fn ambient_by_joined_channel(
+    s: &Store,
+    channels: &[(String, u64)],
+    since: u64,
+    self_pubkey: &str,
+) -> (Vec<(String, Vec<RelayEvent>)>, bool) {
+    let mut out = Vec::new();
+    let mut read_failed = false;
+    for (scope, joined_at) in channels {
+        match ambient_chat(s, scope, since.max(*joined_at), self_pubkey) {
+            Ok(rows) if !rows.is_empty() => out.push((scope.clone(), rows)),
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(
+                    channel = %scope,
+                    error = ?e,
+                    "turn: ambient chat read failed; channel may falsely appear quiet"
+                );
+                read_failed = true;
+            }
+        }
+    }
+    (out, read_failed)
+}
+
+fn render_mentions_by_channel(
+    s: &Store,
+    fallback_scope: &str,
+    mentions: &[InboxRow],
+    now: u64,
+) -> Vec<String> {
+    let mut grouped: std::collections::BTreeMap<String, Vec<InboxRow>> =
+        std::collections::BTreeMap::new();
+    for row in mentions {
+        let scope = if row.channel_h.is_empty() {
+            fallback_scope
+        } else {
+            &row.channel_h
+        };
+        grouped.entry(scope.to_string()).or_default().push(row.clone());
+    }
+    grouped
+        .into_iter()
+        .filter_map(|(scope, rows)| {
+            let name = crate::injection::channel_display(s, &scope);
+            crate::injection::render_hook_mention(s, &name, &rows, now)
+        })
         .collect()
 }
 
@@ -103,29 +206,67 @@ pub fn assemble_turn_start_context(
     let scope = rec.channel_h.clone();
     let now = now_secs();
     let mut blocks: Vec<String> = Vec::new();
+    let joined = {
+        let s = store.lock().expect("store mutex poisoned");
+        joined_channels(&s, rec)
+    };
 
     if first_turn {
         // Warn only when this daemon does not manage the channel. If it is an
         // admin, channel/room-minting is responsible for signing the member-add
         // itself; a cache miss here is transient local state, not a user action.
-        let should_warn_not_member = {
+        // Compute membership AND the names needed for the warning in one lock.
+        let warn = {
             let s = store.lock().expect("store mutex poisoned");
-            let not_member = !s
-                .is_channel_member(&scope, &rec.agent_pubkey)
-                .unwrap_or(true);
-            let locally_managed = s.is_channel_admin(&scope, backend_pubkey).unwrap_or(false);
-            not_member && !locally_managed
+            // A lookup error is NOT membership: treat an Err as "unknown" and
+            // fail loud rather than assuming the agent is a member (which would
+            // silently suppress the warning when the DB read actually failed).
+            let member = match s.is_channel_member(&scope, &rec.agent_pubkey) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!(
+                        channel = %scope,
+                        error = ?e,
+                        "turn_start: channel membership lookup failed; cannot confirm membership"
+                    );
+                    false
+                }
+            };
+            // Likewise, an admin-lookup error must not be read as "we manage it"
+            // — that would suppress a legitimate not-a-member warning.
+            let locally_managed = match s.is_channel_admin(&scope, backend_pubkey) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::error!(
+                        channel = %scope,
+                        error = ?e,
+                        "turn_start: channel admin lookup failed; cannot confirm management"
+                    );
+                    false
+                }
+            };
+            (!member && !locally_managed).then(|| {
+                let root = project_root_h(&s, &scope);
+                let channel_name = crate::injection::channel_display(&s, &scope);
+                let project_name = crate::injection::channel_display(&s, &root);
+                (root, channel_name, project_name)
+            })
         };
-        if should_warn_not_member {
+        if let Some((root, channel_name, project_name)) = warn {
+            // Name the scope precisely: a channel distinct from its project root
+            // gets both. When the scope IS the project root, the channel and
+            // project coincide and only the project is named.
+            let where_label = if root == scope {
+                format!("project \"{project_name}\"")
+            } else {
+                format!("channel \"{channel_name}\" (in project \"{project_name}\")")
+            };
             blocks.push(format!(
-                "<tenex-edge>\nWARNING: this agent ({slug}) \
-                 is not a member of the NIP-29 group for project \"{project}\". \
-                 Messages published by this session may be rejected by the relay. \
-                 Tell the user to run the following command from a machine that \
-                 has relay admin access (e.g. where this project was first set up):\n\
-                 \n  tenex-edge project add {project} {slug}\n</tenex-edge>",
+                "<tenex-edge>\nWARNING: this agent ({slug}) is not a member of the \
+                 NIP-29 group for {where_label}. Messages published by this session \
+                 may be rejected by the relay. Ask an operator with relay admin \
+                 access to add this agent to the channel.\n</tenex-edge>",
                 slug = rec.agent_slug,
-                project = scope,
             ));
         }
     }
@@ -140,44 +281,78 @@ pub fn assemble_turn_start_context(
     } else {
         rec.seen_cursor
     };
+    let mut read_failed = false;
     let (mentions, ambient, pre_history_notice) = {
         let s = store.lock().expect("store mutex poisoned");
-        let mentions = take_inbox(&s, &rec.session_id, now);
-        let ambient = ambient_chat(&s, &scope, ambient_since, &rec.agent_pubkey);
+        // A failed inbox claim must NOT render as an empty inbox: log loudly and
+        // flag the turn so a visible marker is injected below.
+        let mentions = match take_inbox(&s, &rec.session_id, now) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!(
+                    session = %rec.session_id,
+                    error = ?e,
+                    "turn_start: inbox claim failed; direct mentions may be dropped"
+                );
+                read_failed = true;
+                Vec::new()
+            }
+        };
+        let (ambient, ambient_failed) =
+            ambient_by_joined_channel(&s, &joined, ambient_since, &rec.agent_pubkey);
+        read_failed |= ambient_failed;
         let notice = if first_turn {
-            let n = s
-                .count_channel_events_before(&scope, rec.created_at)
-                .unwrap_or(0);
-            if n > 0 {
-                let name = crate::injection::channel_display(&s, &scope);
-                Some(format!(
-                    "<tenex-edge>\n{n} message(s) in #{name} before you joined this session. \
-                     Run `tenex-edge chat read` to see them.\n</tenex-edge>"
-                ))
-            } else {
-                None
+            match s.count_channel_events_before(&scope, rec.created_at) {
+                Ok(n) if n > 0 => {
+                    let name = crate::injection::channel_display(&s, &scope);
+                    Some(format!(
+                        "<tenex-edge>\n{n} message(s) in #{name} before you joined this session. \
+                         Run `tenex-edge chat read` to see them.\n</tenex-edge>"
+                    ))
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::error!(
+                        channel = %scope,
+                        error = ?e,
+                        "turn_start: pre-join history count failed"
+                    );
+                    read_failed = true;
+                    None
+                }
             }
         } else {
             None
         };
         (mentions, ambient, notice)
     };
+    if read_failed {
+        blocks.push(
+            "<tenex-edge>\n⚠ Fabric read failed while assembling this turn — your inbox \
+             and/or channel activity below may be incomplete. Do NOT assume the channel \
+             is quiet or that you have no mentions.\n</tenex-edge>"
+                .to_string(),
+        );
+    }
     if let Some(notice) = pre_history_notice {
         blocks.push(notice);
     }
     {
         let s = store.lock().expect("store mutex poisoned");
-        let name = crate::injection::channel_display(&s, &scope);
-        if let Some(block) = crate::injection::render_hook_mention(&s, &name, &mentions, now) {
+        for block in render_mentions_by_channel(&s, &scope, &mentions, now) {
             blocks.push(block);
         }
-        let ambient_header = if first_turn {
-            format!("Activity on #{name} since you joined:")
-        } else {
-            format!("Activity on #{name} since you last looked:")
-        };
-        if let Some(block) = crate::injection::render_ambient(&s, &ambient_header, &ambient, now) {
-            blocks.push(block);
+        for (channel_h, rows) in ambient {
+            let name = crate::injection::channel_display(&s, &channel_h);
+            let ambient_header = if first_turn {
+                format!("Activity on #{name} since you joined:")
+            } else {
+                format!("Activity on #{name} since you last looked:")
+            };
+            if let Some(block) = crate::injection::render_ambient(&s, &ambient_header, &rows, now)
+            {
+                blocks.push(block);
+            }
         }
     }
 
@@ -211,7 +386,13 @@ pub fn assemble_turn_start_context(
     // delta past what we just surfaced.
     {
         let s = store.lock().expect("store mutex poisoned");
-        s.set_seen_cursor(&rec.session_id, now).ok();
+        if let Err(e) = s.set_seen_cursor(&rec.session_id, now) {
+            tracing::error!(
+                session = %rec.session_id,
+                error = ?e,
+                "turn_start: failed to advance seen_cursor; next turn may re-inject already-seen activity"
+            );
+        }
     }
 
     if blocks.is_empty() {
@@ -246,24 +427,39 @@ pub fn assemble_turn_check_context(
     // key on this so mid-turn context reflects the channel the session is
     // actually publishing into after a switch.
     let scope = rec.channel_h.clone();
+    let joined = {
+        let s = store.lock().expect("store mutex poisoned");
+        joined_channels(&s, rec)
+    };
     // The channel's human NAME (never the raw opaque id) for agent-facing labels.
     let channel = {
         let s = store.lock().expect("store mutex poisoned");
         crate::injection::channel_display(&s, &scope)
     };
 
+    let mut read_failed = false;
     // Mentions that arrived mid-turn land as fresh pending inbox rows. Draining
     // them (and marking delivered) is the new "notify once" — there is no
-    // separate notified flag; the inbox state IS the idempotency record.
+    // separate notified flag; the inbox state IS the idempotency record. A
+    // failed claim must not silently look like "no mentions".
     let direct_mentions = {
         let s = store.lock().expect("store mutex poisoned");
-        take_inbox(&s, &rec.session_id, now)
+        match take_inbox(&s, &rec.session_id, now) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!(
+                    session = %rec.session_id,
+                    error = ?e,
+                    "turn_check: inbox claim failed; direct mentions may be dropped"
+                );
+                read_failed = true;
+                Vec::new()
+            }
+        }
     };
     {
         let s = store.lock().expect("store mutex poisoned");
-        if let Some(block) =
-            crate::injection::render_hook_mention(&s, &channel, &direct_mentions, now)
-        {
+        for block in render_mentions_by_channel(&s, &scope, &direct_mentions, now) {
             blocks.push(block);
         }
     }
@@ -272,14 +468,19 @@ pub fn assemble_turn_check_context(
     // floor and cursored off the same `since` so nothing re-emits per tool call.
     if let Some(since) = delta_since {
         let s = store.lock().expect("store mutex poisoned");
-        let chat_rows = ambient_chat(&s, &scope, since, &rec.agent_pubkey);
-        if let Some(block) = crate::injection::render_ambient(
-            &s,
-            &format!("Activity on #{channel} since your last check:"),
-            &chat_rows,
-            now,
-        ) {
-            blocks.push(block);
+        let (ambient, ambient_failed) =
+            ambient_by_joined_channel(&s, &joined, since, &rec.agent_pubkey);
+        read_failed |= ambient_failed;
+        for (channel_h, rows) in ambient {
+            let name = crate::injection::channel_display(&s, &channel_h);
+            if let Some(block) = crate::injection::render_ambient(
+                &s,
+                &format!("Activity on #{name} since your last check:"),
+                &rows,
+                now,
+            ) {
+                blocks.push(block);
+            }
         }
 
         if let Some(block) = render_awareness_update_since_check(
@@ -292,6 +493,15 @@ pub fn assemble_turn_check_context(
         ) {
             blocks.push(block);
         }
+    }
+
+    if read_failed {
+        blocks.insert(
+            0,
+            "<tenex-edge>\n⚠ Fabric read failed mid-turn — mentions and/or channel \
+             activity below may be incomplete.\n</tenex-edge>"
+                .to_string(),
+        );
     }
 
     if blocks.is_empty() {

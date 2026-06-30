@@ -7,7 +7,10 @@
 //!     connection) with a single union subscription across all hosted agents;
 //!   - run per-session engine tasks (the relocated `run_session_in_daemon`);
 //!   - demux incoming relay events once and route mentions to the right agent's
-//!     inbox (multi-agent aware); prune stale peers; serve RPCs; idle-exit.
+//!     inbox (multi-agent aware); prune stale peers; serve RPCs. The daemon is
+//!     resident: it stays up to keep the fabric live (presence heartbeats,
+//!     awareness, real-time receipt) and exits only on explicit `stop` or a
+//!     version-skew handshake — never on idleness.
 
 use super::client::StartupLock;
 use super::protocol::{
@@ -39,7 +42,7 @@ mod rpc;
 mod session_signer;
 mod tmux_rpc;
 
-use background::{spawn_idle_watcher, spawn_pruner};
+use background::spawn_pruner;
 use demux::{handle_orchestration, spawn_demux};
 
 const PRUNE_PEER_AFTER_SECS: u64 = 600;
@@ -85,7 +88,6 @@ pub struct DaemonState {
     /// Structured tail event broadcast replacing the old DomainEvent bus.
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
     open_clients: Mutex<u64>,
-    liveness_changed: Notify,
     shutdown: Notify,
     /// In-memory peer-session tracking for join/leave derivation.
     /// key = session_id. Populated on first-seen presence; cleared on leave.
@@ -188,9 +190,6 @@ impl DaemonState {
             crate::identity::AgentInstance::base(rec.agent_slug.clone(), rec.agent_pubkey.clone())
         })
     }
-    fn live_session_count(&self) -> usize {
-        self.sessions.lock().unwrap().len()
-    }
     /// Return live per-session derived pubkeys. Callers in `resubscribe` and
     /// `handle_incoming` extend their sets with this so transient duplicates are
     /// subscribed and recognized as local authors/recipients.
@@ -215,6 +214,7 @@ impl DaemonState {
 // ── entry point ──────────────────────────────────────────────────────────────
 
 mod channel_resolve;
+mod channel_membership_rpc;
 mod channels_rpc;
 mod chat_publish;
 mod chat_read_tail;
@@ -237,9 +237,8 @@ mod who;
 use channel_resolve::{
     project_root, resolve_channel, resolve_channel_ref, rpc_channels_resolve, ChannelResolution,
 };
-use channels_rpc::{
-    ensure_session_room, rpc_channels_create, rpc_channels_list, rpc_channels_switch,
-};
+use channel_membership_rpc::{rpc_channels_join, rpc_channels_leave, rpc_channels_switch};
+use channels_rpc::{ensure_session_room, rpc_channels_create, rpc_channels_list};
 use chat_publish::{publish_agent_reply, rpc_user_prompt, spawn_retry_drainer};
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
@@ -294,6 +293,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channels_create" => rpc_channels_create(state, &req.params).await,
         "channels_resolve" => rpc_channels_resolve(state, &req.params).await,
         "channels_list" => rpc_channels_list(state, &req.params),
+        "channels_join" => rpc_channels_join(state, &req.params).await,
+        "channels_leave" => rpc_channels_leave(state, &req.params).await,
         "channels_switch" => rpc_channels_switch(state, &req.params).await,
         "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),

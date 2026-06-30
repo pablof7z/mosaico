@@ -115,8 +115,15 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
                 }
                 Some((target.pubkey, target.target_session, target.project, raw))
             }
-            // Unresolvable mention token → treat the body as having no mention.
-            Err(_) => None,
+            // The mention token did not resolve. The contract is to treat the body
+            // as having no mention (never bail/block the chat), but the failure is
+            // no longer SILENT: surface it loudly so a store error can't masquerade
+            // as a genuinely-unknown handle. A real typo also logs here, which is
+            // the intended "your @mention didn't route" signal.
+            Err(e) => {
+                tracing::warn!(mention = %raw, error = %e, "mention token did not resolve; treating chat as having no mention");
+                None
+            }
         }
     } else {
         None
@@ -156,18 +163,23 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // connection that published it. Seed the verbatim log and park inbox rows for
     // sessions already alive in the same routing scope.
     let routed = state.with_store(|s| {
-        let _ = s.insert_event(&chat_relay_event(
+        if let Err(e) = s.insert_event(&chat_relay_event(
             &event_id,
             &from_pubkey,
             created_at,
             &deliver_scope,
             &body_to_send,
             mentioned_pubkey.as_deref(),
-        ));
+        )) {
+            tracing::error!(event_id = %event_id, channel = %deliver_scope, error = %e, "failed to seed local chat-log row");
+        }
         let mut routed = false;
         for target in s.list_alive_sessions().unwrap_or_default() {
             let is_direct_target = mentioned_session.as_deref() == Some(target.session_id.as_str());
-            if !is_direct_target && target.channel_h != deliver_scope {
+            let joined_target = s
+                .is_session_joined_channel(&target.session_id, &deliver_scope)
+                .unwrap_or(target.channel_h == deliver_scope);
+            if !is_direct_target && !joined_target {
                 continue;
             }
             if target.created_at > created_at {
@@ -184,16 +196,11 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             if !is_mentioned {
                 continue;
             }
-            let row_channel = if is_direct_target {
-                target.channel_h.clone()
-            } else {
-                deliver_scope.clone()
-            };
             if s.enqueue_inbox(
                 &event_id,
                 &target.session_id,
                 &from_pubkey,
-                &row_channel,
+                &deliver_scope,
                 &body_to_send,
                 created_at,
             )
@@ -387,12 +394,20 @@ fn find_session_by_agent_label(
         if instance.display_slug().to_ascii_lowercase() != wanted {
             continue;
         }
+        let joined_current = store
+            .is_session_joined_channel(&session.session_id, my_project)
+            .unwrap_or(session.channel_h == my_project);
+        let project = if joined_current {
+            my_project.to_string()
+        } else {
+            session.channel_h.clone()
+        };
         let matched = SessionMatch {
             pubkey: instance.pubkey,
             session_id: session.session_id.clone(),
-            project: session.channel_h.clone(),
+            project,
         };
-        if session.channel_h == my_project {
+        if joined_current {
             same_scope.push(matched.clone());
         } else if work_root_for(store, &session.channel_h) == my_root {
             same_root.push(matched.clone());

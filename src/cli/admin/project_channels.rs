@@ -96,6 +96,22 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
             None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default()),
         }
     }
+    fn resolve_env_session(verb: &str) -> Result<String> {
+        std::env::var("TENEX_EDGE_SESSION")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .with_context(|| format!("{verb} must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)"))
+    }
+    fn print_ambiguous(verb: &str, channel: &str, v: &serde_json::Value) -> ! {
+        let name = v["reference"].as_str().unwrap_or(channel);
+        eprintln!("'{name}' is ambiguous — re-run with an exact path:");
+        if let Some(refs) = v["ambiguous"].as_array() {
+            for r in refs.iter().filter_map(|r| r.as_str()) {
+                eprintln!("  tenex-edge channels {verb} {r}");
+            }
+        }
+        std::process::exit(2);
+    }
     match action {
         ChannelsAction::Create {
             name,
@@ -203,11 +219,38 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
                 }
             }
         }
+        ChannelsAction::Join { channel } => {
+            let env_session = resolve_env_session("channels join")?;
+            let v = daemon_call_async(
+                "channels_join",
+                serde_json::json!({
+                    "channel": channel.clone(),
+                    "env_session": env_session,
+                }),
+            )
+            .await?;
+            if v["ambiguous"].is_array() {
+                print_ambiguous("join", &channel, &v);
+            }
+            println!("joined channel {}", v["channel"].as_str().unwrap_or(&channel));
+        }
+        ChannelsAction::Leave { channel } => {
+            let env_session = resolve_env_session("channels leave")?;
+            let v = daemon_call_async(
+                "channels_leave",
+                serde_json::json!({
+                    "channel": channel.clone(),
+                    "env_session": env_session,
+                }),
+            )
+            .await?;
+            if v["ambiguous"].is_array() {
+                print_ambiguous("leave", &channel, &v);
+            }
+            println!("left channel {}", v["channel"].as_str().unwrap_or(&channel));
+        }
         ChannelsAction::Switch { channel } => {
-            let env_session = std::env::var("TENEX_EDGE_SESSION")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .context("channels switch must be run from within a tenex-edge agent session (TENEX_EDGE_SESSION is not set)")?;
+            let env_session = resolve_env_session("channels switch")?;
             let v = daemon_call_async(
                 "channels_switch",
                 serde_json::json!({
@@ -219,13 +262,8 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
             // Ambiguous reference: the daemon returns the candidate paths instead
             // of switching. Print them as copy-paste-ready re-runs and exit 2 so a
             // calling agent can branch on the code without parsing prose.
-            if let Some(refs) = v["ambiguous"].as_array() {
-                let name = v["reference"].as_str().unwrap_or(&channel);
-                eprintln!("'{name}' is ambiguous — re-run with an exact path:");
-                for r in refs.iter().filter_map(|r| r.as_str()) {
-                    eprintln!("  tenex-edge channels switch {r}");
-                }
-                std::process::exit(2);
+            if v["ambiguous"].is_array() {
+                print_ambiguous("switch", &channel, &v);
             }
             println!("switched to channel {}", channel);
         }

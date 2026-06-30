@@ -27,9 +27,13 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     let now = now_secs();
     state.with_store(|s| {
         // Canonical transition: working=1, turn_started_at=now (alias-resolving).
-        s.set_working(&p.session, true, now).ok();
+        if let Err(e) = s.set_working(&p.session, true, now) {
+            tracing::error!(session = %p.session, error = %e, "failed to set session working on turn start");
+        }
         if let Some(path) = p.transcript.as_deref().filter(|x| !x.is_empty()) {
-            s.set_session_transcript(&p.session, path).ok();
+            if let Err(e) = s.set_session_transcript(&p.session, path) {
+                tracing::error!(session = %p.session, error = %e, "failed to set session transcript on turn start");
+            }
         }
     });
     state.outbox_notify.notify_waiters();
@@ -60,8 +64,13 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
             v.push(r.from_pubkey);
             v.extend(crate::profile::body_mention_pubkeys(&r.body));
         }
-        for m in s.list_channel_members(&rec.channel_h).unwrap_or_default() {
-            v.push(m.pubkey);
+        let channels = s
+            .list_session_joined_channels(&rec.session_id)
+            .unwrap_or_else(|_| vec![(rec.channel_h.clone(), rec.created_at)]);
+        for (channel_h, _) in channels {
+            for m in s.list_channel_members(&channel_h).unwrap_or_default() {
+                v.push(m.pubkey);
+            }
         }
         v.sort();
         v.dedup();
@@ -190,7 +199,9 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
         .unwrap_or((false, 0));
     state.with_store(|s| {
         // Canonical transition: working=0 (alias-resolving). The TITLE is retained.
-        s.set_working(&p.session, false, 0).ok();
+        if let Err(e) = s.set_working(&p.session, false, 0) {
+            tracing::error!(session = %p.session, error = %e, "failed to clear session working on turn end");
+        }
     });
     state.outbox_notify.notify_waiters();
 

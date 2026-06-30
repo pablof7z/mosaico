@@ -6,14 +6,17 @@
 //!      identical for local and remote agents. Agent identity, status, channels,
 //!      and membership are NEVER authoritative local tables; they are caches.
 //!   2. local plumbing the relay can't carry — OS process handles (`sessions`),
-//!      external-id aliases (`session_aliases`), derived signing keys
-//!      (`identities`), the inbound routing ledger (`inbox`), the outbound
-//!      publish queue (`outbox`), and on-disk project paths (`project_roots`).
+//!      joined-channel state (`session_channels`), external-id aliases
+//!      (`session_aliases`), derived signing keys (`identities`), the inbound
+//!      routing ledger (`inbox`), the outbound publish queue (`outbox`), and
+//!      on-disk project paths (`project_roots`).
 //!
 //! A pubkey appears AT MOST ONCE per channel. Canonical session identity is
 //! daemon-minted and stable; harness-native ids are aliases that repoint to the
 //! newest live owner; every turn/session mutation resolves a raw external id to
-//! the canonical id BEFORE writing.
+//! the canonical id BEFORE writing. A session has one active publishing channel
+//! (`sessions.channel_h`) and may listen in additional joined channels
+//! (`session_channels`).
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -36,6 +39,26 @@ pub struct Channel {
     pub parent: String,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+impl Channel {
+    /// The channel's human display name, if it has one — the single source of
+    /// truth for "is this channel named?".
+    ///
+    /// A ROOT project (`parent` empty) uses its slug as BOTH its NIP-29 group id
+    /// and its `name` (`channel_h == name`), so the slug IS the human label.
+    /// A session/task room (`parent` set) whose `name` merely defaulted to its
+    /// opaque id is genuinely unnamed. An empty `name` is always unnamed.
+    pub fn human_name(&self) -> Option<&str> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        if !self.parent.is_empty() && name == self.channel_h {
+            return None;
+        }
+        Some(name)
+    }
 }
 
 /// kind:39001 (admins) / kind:39002 (members) row. `role` of `"admin"` is the

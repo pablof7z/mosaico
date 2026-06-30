@@ -1,7 +1,7 @@
 //! The single, fresh persistence schema (no backwards compat, no migrations).
 //!
-//! Eleven tables: five `relay_*` materialized caches (rebuildable from the relay)
-//! and six pieces of local plumbing the relay can't carry. See the design doc in
+//! Twelve tables: five `relay_*` materialized caches (rebuildable from the relay)
+//! and seven pieces of local plumbing the relay can't carry. See the design doc in
 //! the repo's persistence-rewrite target schema for the rationale behind every
 //! column. A pubkey appears AT MOST ONCE per channel (enforced via primary key).
 
@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_alive
     ON sessions(alive, channel_h);
+
+CREATE TABLE IF NOT EXISTS session_channels (
+    session_id   TEXT NOT NULL,
+    channel_h    TEXT NOT NULL,
+    joined_at    INTEGER NOT NULL,
+    PRIMARY KEY (session_id, channel_h)
+);
+CREATE INDEX IF NOT EXISTS idx_session_channels_channel
+    ON session_channels(channel_h, session_id);
 
 CREATE TABLE IF NOT EXISTS session_aliases (
     harness           TEXT NOT NULL,

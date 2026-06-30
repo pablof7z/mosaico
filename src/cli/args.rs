@@ -91,7 +91,7 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: ProjectAction,
     },
-    /// Manage NIP-29 subgroup task channels under a project (create, list, switch).
+    /// Manage NIP-29 subgroup task channels under a project (create, join, leave, list, switch).
     Channels {
         #[command(subcommand)]
         action: ChannelsAction,
@@ -393,23 +393,14 @@ pub(super) enum ProjectAction {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Edit the current project's local-agent membership, or add one local agent/pubkey.
-    Add {
-        /// Project slug. Omit to use the project resolved from the current directory.
-        project: Option<String>,
-        /// Local agent slug, hex pubkey, npub, or NIP-05 address. When omitted,
-        /// opens a picker of local agents and publishes the needed put-user/remove-user events.
-        #[arg(value_name = "AGENT_OR_PUBKEY")]
-        pubkey: Option<String>,
-    },
 }
 
 /// Subgroup task channels under a project (NIP-29 child groups).
 #[derive(Subcommand)]
 pub(super) enum ChannelsAction {
-    /// Create a subgroup task channel and switch into it. When run as an agent
+    /// Create a subgroup task channel and focus it. When run as an agent
     /// the new channel nests under your CURRENT channel by default, and the
-    /// running session auto-switches to it. If `--agent slug@backend` targets
+    /// running session auto-joins it. If `--agent slug@backend` targets
     /// are named, one kind:9 orchestration event asks those backends to add
     /// their agents.
     Create {
@@ -444,9 +435,19 @@ pub(super) enum ChannelsAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Join a channel for passive context and direct-mention delivery.
+    Join {
+        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        channel: String,
+    },
+    /// Stop listening to a passively joined channel.
+    Leave {
+        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        channel: String,
+    },
     /// Switch the active channel for the current tmux pane to a different NIP-29 subgroup.
     Switch {
-        /// The NIP-29 `h` value of the subgroup to switch to.
+        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
         channel: String,
     },
 }
