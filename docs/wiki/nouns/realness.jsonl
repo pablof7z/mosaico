@@ -1,5 +1,5 @@
 {"canonical":"haiku 1","name":"haiku1","signed":1,"status":"provisional"}
 {"canonical":"kind 0","name":"kind:0","signed":4,"status":"real"}
-{"canonical":"tenex edge daemon","name":"tenex-edge daemon","signed":2,"status":"provisional"}
+{"canonical":"tenex edge daemon","name":"tenex-edge daemon","signed":3,"status":"real"}
 {"canonical":"tenex edge launch","name":"tenex-edge launch","signed":1,"status":"provisional"}
 {"canonical":"tenex edge who","name":"tenex-edge who","signed":1,"status":"provisional"}

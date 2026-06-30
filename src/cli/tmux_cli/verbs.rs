@@ -96,18 +96,10 @@ pub(crate) async fn launch(
         Some(p) => p,
         None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
-    // When to open the interactive picker:
-    //   • `--channel` with no value (explicit `Some("")`), always; or
-    //   • no `--channel` at all while per-session rooms are disabled — the
-    //     default — so a bare `tenex-edge launch <agent>` scopes into a chosen
-    //     channel instead of minting a per-session room.
-    // With per-session rooms enabled, a bare launch passes `None` through and
-    // the daemon mints the per-session room as before.
-    let per_session_rooms = crate::config::Config::load()
-        .map(|c| c.per_session_rooms)
-        .unwrap_or(false);
-    let want_picker =
-        matches!(channel, Some(ref s) if s.is_empty()) || (channel.is_none() && !per_session_rooms);
+    // Show the interactive picker only when --channel "" is explicitly passed.
+    // A bare `tenex-edge launch <agent>` with no --channel defaults to the
+    // project root channel.
+    let want_picker = matches!(channel, Some(ref s) if s.is_empty());
     let channel = if want_picker {
         use std::io::IsTerminal;
         if !std::io::stdin().is_terminal() {
@@ -123,7 +115,9 @@ pub(crate) async fn launch(
     // Resolve a channel NAME (or a literal id) to its opaque `channel_h` BEFORE
     // spawning, so TENEX_EDGE_CHANNEL and provisioning both see ONE id (creating
     // it if absent). A picker selection is already an id and round-trips unchanged.
+    // When no channel was specified, default to the project root channel.
     let channel = match channel {
+        None => Some(project.clone()),
         Some(name) if !name.is_empty() => {
             let v = super::super::daemon_call_async(
                 "channels_resolve",
