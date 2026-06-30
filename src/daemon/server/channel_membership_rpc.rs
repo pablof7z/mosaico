@@ -60,11 +60,22 @@ async fn ensure_joinable(
         }
     });
     if !is_member {
-        anyhow::bail!(
-            "agent {} is not a member of channel {:?}",
-            rec.agent_slug,
-            channel_h
-        );
+        // Auto-add the agent via the management key — join/switch should be
+        // transparent; an agent targeting a channel it isn't yet a member of
+        // simply gets added silently rather than hitting an access error.
+        let added = state
+            .provider
+            .nip29_add_member(channel_h, &rec.agent_pubkey)
+            .await;
+        if !added {
+            anyhow::bail!(
+                "agent {} is not a member of channel {:?} and could not be auto-added \
+                 (is the management key an admin of that channel?)",
+                rec.agent_slug,
+                channel_h
+            );
+        }
+        refresh_project_members_cache(state, channel_h).await;
     }
 
     // A store error here MUST fail the switch — never read as "no occupant",
