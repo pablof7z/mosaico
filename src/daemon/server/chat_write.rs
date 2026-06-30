@@ -183,7 +183,22 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             );
         }
         let mut routed = false;
-        for target in s.list_alive_sessions().unwrap_or_default() {
+        // Best-effort local delivery (the publish already succeeded), but a store
+        // failure listing targets must not silently drop a direct mention — log it
+        // loudly and skip local routing this call rather than abort.
+        let targets = match s.list_alive_sessions() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(
+                    event_id = %event_id,
+                    channel = %deliver_scope,
+                    error = %e,
+                    "chat_write: listing live sessions for local delivery failed — direct mention may not reach a local inbox/doorbell"
+                );
+                Vec::new()
+            }
+        };
+        for target in targets {
             let is_direct_target = mentioned_session.as_deref() == Some(target.session_id.as_str());
             let joined_target = s
                 .is_session_joined_channel(&target.session_id, &deliver_scope)
@@ -205,16 +220,27 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             if !is_mentioned {
                 continue;
             }
-            if s.enqueue_inbox(
+            let enqueued = match s.enqueue_inbox(
                 &event_id,
                 &target.session_id,
                 &from_pubkey,
                 &deliver_scope,
                 &body_to_send,
                 created_at,
-            )
-            .unwrap_or(false)
-            {
+            ) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(
+                        event_id = %event_id,
+                        session = %target.session_id,
+                        channel = %deliver_scope,
+                        error = %e,
+                        "chat_write: enqueue_inbox failed — this direct mention may never reach the target's inbox/doorbell"
+                    );
+                    false
+                }
+            };
+            if enqueued {
                 routed = true;
             }
         }
@@ -326,11 +352,13 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     s.channel_h,
                 ));
             }
-            // 2. Local session id prefix.
+            // 2. Local session id prefix. A store error here must NOT collapse into
+            // "no such recipient" — propagate it so a DB failure is loud, not a
+            // silent unknown-mention.
             if tok.len() >= 6 {
                 if let Some(s) = store
                     .list_alive_sessions()
-                    .unwrap_or_default()
+                    .context("resolve_recipient: listing live sessions for id-prefix match")?
                     .into_iter()
                     .find(|s| s.session_id.starts_with(&tok))
                 {
@@ -389,7 +417,10 @@ fn find_session_by_agent_label(
     let mut same_root = Vec::new();
     let mut global = Vec::new();
 
-    for session in store.list_alive_sessions().unwrap_or_default() {
+    for session in store
+        .list_alive_sessions()
+        .context("find_session_by_agent_label: listing live sessions")?
+    {
         let instance = store
             .instance_identity_for_session(&session.session_id)
             .ok()

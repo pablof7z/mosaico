@@ -43,7 +43,21 @@ pub(super) async fn turn_start(
         "session": session,
         "transcript": transcript,
     });
-    let v = super::daemon_call_hook_async("turn_start", params).await?;
+    // The daemon RPC can itself fail (daemon down/restarting) — exactly the case a
+    // degradation marker exists for. If we have one, don't `?`-return and drop it:
+    // log the RPC error loudly and still surface the notice so the agent sees the
+    // "⚠ Fabric temporarily unavailable" marker instead of a silent un-aware turn.
+    let v = match super::daemon_call_hook_async("turn_start", params).await {
+        Ok(v) => v,
+        Err(e) => {
+            if let Some(notice) = degraded_notice {
+                tracing::error!(error = %format!("{e:#}"), "turn_start: daemon RPC failed; emitting degraded marker only");
+                emit_context(&notice, emit);
+                return Ok(Some(notice));
+            }
+            return Err(e);
+        }
+    };
     let combined = match (degraded_notice.as_deref(), v["context"].as_str()) {
         (Some(n), Some(c)) => Some(format!("{n}\n\n{c}")),
         (Some(n), None) => Some(n.to_string()),
