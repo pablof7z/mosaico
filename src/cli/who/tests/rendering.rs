@@ -287,12 +287,18 @@ fn render_self_header_names_self_by_label_without_session_code() {
         !out.contains("sess-abc"),
         "raw session id must not show: {out}"
     );
-    assert!(out.contains("deadbeef"), "fabric pubkey shown: {out}");
+    assert!(
+        !out.contains("deadbeef"),
+        "fabric pubkey must not be shown to the agent (render.rs drops it): {out}"
+    );
     assert!(
         out.contains("status Add self header"),
         "status title: {out}"
     );
-    assert!(out.contains("member yes"), "membership shown: {out}");
+    assert!(
+        !out.contains("not a member"),
+        "a member must not see the non-member note: {out}"
+    );
     assert!(out.contains("2 pending"), "pending count: {out}");
 }
 

@@ -8,3 +8,6 @@ __pycache__/
 *~
 node_modules/
 data/
+state.db
+state.db-wal
+state.db-shm
