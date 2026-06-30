@@ -121,7 +121,14 @@ fn ensure_channel_ready_inner<'a>(
                             .publish_group_management(b, &mgmt_keys, "9007 create-group")
                             .await
                     }
-                    Err(_) => false,
+                    Err(e) => {
+                        tracing::error!(
+                            channel = ctx.channel,
+                            error = %format!("{e:#}"),
+                            "ensure_channel_ready: group_create build failed — cannot provision root group"
+                        );
+                        false
+                    }
                 };
                 if ok {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -275,8 +282,18 @@ fn ensure_channel_ready_inner<'a>(
             }
         } else {
             let locally = provider.with_store(|s| {
-                s.is_channel_member(ctx.channel, ctx.expect_member)
-                    .unwrap_or(false)
+                match s.is_channel_member(ctx.channel, ctx.expect_member) {
+                    Ok(present) => present,
+                    Err(e) => {
+                        tracing::error!(
+                            channel = ctx.channel,
+                            pubkey = ctx.expect_member,
+                            error = %e,
+                            "ensure_channel_ready: is_channel_member probe failed — treating as not-mirrored and re-syncing"
+                        );
+                        false
+                    }
+                }
             });
             if !locally {
                 let role = roles

@@ -59,7 +59,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
             if created {
                 publish_profile(&slug).await;
             }
-            assign_to_projects(&id.pubkey_hex(), &projects).await;
+            assign_to_projects(&id.pubkey_hex(), &projects).await?;
         }
         AgentAction::Assign { slug, projects } => {
             let pubkey = crate::identity::list_local_agent_details(&edge_home)
@@ -72,7 +72,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     )
                 })?;
             println!("{} {}", slug.bold(), pubkey_short(&pubkey).cyan());
-            assign_to_projects(&pubkey, &projects).await;
+            assign_to_projects(&pubkey, &projects).await?;
         }
         AgentAction::Remove { slug } => {
             match crate::identity::remove_local_agent(&edge_home, &slug)? {
@@ -134,9 +134,12 @@ async fn publish_profile(slug: &str) {
 }
 
 /// Add `pubkey` to each project's NIP-29 group via the daemon's `project_add`
-/// RPC. Per-project failures (e.g. operator not a group admin) are reported but
-/// do not abort the remaining assignments.
-async fn assign_to_projects(pubkey: &str, projects: &[String]) {
+/// RPC. Per-project failures (e.g. operator not a group admin) are reported as
+/// they happen so the remaining assignments still run, but any failure makes the
+/// whole command exit non-zero — a partially-applied grant must not look like a
+/// clean success to a caller (or a script) that checks the exit code.
+async fn assign_to_projects(pubkey: &str, projects: &[String]) -> Result<()> {
+    let mut failures = 0usize;
     for project in projects {
         match daemon_call_async(
             "project_add",
@@ -145,7 +148,17 @@ async fn assign_to_projects(pubkey: &str, projects: &[String]) {
         .await
         {
             Ok(_) => println!("  assigned to {}", project.bold()),
-            Err(e) => eprintln!("  failed to assign to {}: {}", project.bold(), e),
+            Err(e) => {
+                eprintln!("  failed to assign to {}: {}", project.bold(), e);
+                failures += 1;
+            }
         }
     }
+    if failures > 0 {
+        anyhow::bail!(
+            "{failures} of {} project assignment(s) failed",
+            projects.len()
+        );
+    }
+    Ok(())
 }

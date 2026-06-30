@@ -135,16 +135,27 @@ async fn enqueue_status(
 ) {
     let builder = match provider.encode(&DomainEvent::Status(status)) {
         Ok(b) => b,
-        Err(_) => return,
+        Err(e) => {
+            tracing::error!(error = %format!("{e:#}"), "enqueue_status: encoding status event failed — skipping this heartbeat");
+            return;
+        }
     };
     let unsigned = builder.build(keys.public_key());
     let signed = match keys.sign_event(unsigned).await {
         Ok(s) => s,
-        Err(_) => return,
+        Err(e) => {
+            tracing::error!(error = %format!("{e:#}"), "enqueue_status: signing status event failed — skipping this heartbeat");
+            return;
+        }
     };
     let json = signed.as_json();
-    if let Ok(g) = store.lock() {
-        let _ = g.enqueue_outbox(&json, now);
+    match store.lock() {
+        Ok(g) => {
+            if let Err(e) = g.enqueue_outbox(&json, now) {
+                tracing::error!(error = %e, "enqueue_status: enqueue_outbox failed — status not published this cycle");
+            }
+        }
+        Err(_) => tracing::error!("enqueue_status: store mutex poisoned — status not published this cycle"),
     }
 }
 
@@ -183,7 +194,22 @@ pub async fn run_session_in_daemon(
         let provider = provider.clone();
         let keys = signing_keys.clone();
         async move {
-            let _ = provider.publish(&ev, &keys).await;
+            if let Err(e) = provider.publish(&ev, &keys).await {
+                tracing::error!(error = %format!("{e:#}"), "run_session_in_daemon: domain-event publish failed");
+            }
+        }
+    };
+
+    // Load the session row, distinguishing a genuine "no such session" (None) from
+    // a store error (loud): a swallowed Err here silently skips the heartbeat/distill
+    // cycle that depends on the row, masking DB corruption as an idle session.
+    let load_session = |label: &str| -> Option<Session> {
+        match st!(|s: &Store| s.get_session(&p.session_id)) {
+            Ok(row) => row,
+            Err(e) => {
+                tracing::error!(session = %p.session_id, error = %e, "{label}: get_session failed — skipping this cycle");
+                None
+            }
         }
     };
 
@@ -217,8 +243,10 @@ pub async fn run_session_in_daemon(
     let mut title_from_distill = false;
 
     // Assert liveness immediately and arm the first status.
-    st!(|s: &Store| s.touch_session(&p.session_id, now_secs()).ok());
-    if let Some(session) = st!(|s: &Store| s.get_session(&p.session_id).ok().flatten()) {
+    if let Err(e) = st!(|s: &Store| s.touch_session(&p.session_id, now_secs())) {
+        tracing::error!(session = %p.session_id, error = %e, "touch_session failed — liveness not bumped at startup");
+    }
+    if let Some(session) = load_session("startup-status") {
         let now = now_secs();
         enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, now), now).await;
     }
@@ -236,8 +264,10 @@ pub async fn run_session_in_daemon(
                 // relay event's NIP-40 expiration is pushed forward even for an
                 // idle session that produces no state change.
                 let now = now_secs();
-                st!(|s: &Store| s.touch_session(&p.session_id, now).ok());
-                if let Some(session) = st!(|s: &Store| s.get_session(&p.session_id).ok().flatten()) {
+                if let Err(e) = st!(|s: &Store| s.touch_session(&p.session_id, now)) {
+                    tracing::error!(session = %p.session_id, error = %e, "touch_session failed — liveness not re-armed this beat");
+                }
+                if let Some(session) = load_session("heartbeat-status") {
                     enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, now), now).await;
                 }
             }
@@ -251,14 +281,16 @@ pub async fn run_session_in_daemon(
                         result.as_ref().map(|l| format!("title={:?} activity={:?}", l.title, l.activity)).unwrap_or_else(|| "None".into()),
                         error));
                     if let Some(labels) = result {
-                        st!(|s: &Store| s.set_session_distill(
+                        if let Err(e) = st!(|s: &Store| s.set_session_distill(
                             &p.session_id, &labels.title, &labels.activity, now,
-                        ).ok());
+                        )) {
+                            tracing::error!(session = %p.session_id, error = %e, "set_session_distill failed — distilled title not persisted");
+                        }
                         title_from_distill = true;
                         slog(&p.session_id, &format!("[distill] applied title={:?}", labels.title));
 
                         // Read back the freshly-applied draft and publish it.
-                        if let Some(session) = st!(|s: &Store| s.get_session(&p.session_id).ok().flatten()) {
+                        if let Some(session) = load_session("distill-publish") {
                             enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, now), now).await;
                             // The distilled title feeds the kind:30315 status above;
                             // it NEVER renames the route channel. A channel `name`
@@ -271,7 +303,7 @@ pub async fn run_session_in_daemon(
                     }
                 }
 
-                let session = st!(|s: &Store| s.get_session(&p.session_id).ok().flatten());
+                let session = load_session("observe-tick");
                 let (working, turn_started_at) = session
                     .as_ref()
                     .map(|s| (s.working, s.turn_started_at))
@@ -375,7 +407,9 @@ pub async fn run_session_in_daemon(
     // Clean exit: mark the session dead (alive=0, working=0). The TITLE is retained
     // in the row; the relay status ages off as heartbeats stop (no fresh outbox
     // re-arm). Mention routing (list_alive_sessions) drops it immediately.
-    st!(|s: &Store| s.mark_dead(&p.session_id).ok());
+    if let Err(e) = st!(|s: &Store| s.mark_dead(&p.session_id)) {
+        tracing::error!(session = %p.session_id, error = %e, "mark_dead failed — session row left alive after clean exit");
+    }
     Ok(())
 }
 

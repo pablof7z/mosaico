@@ -11,6 +11,19 @@ use summary::{
 
 const RECENT_SEMANTIC_WINDOW_SECS: u64 = 10 * 60;
 
+/// `is_root_channel`, but a store error is logged loudly before defaulting to
+/// `true` (the safe choice: suppresses the `Subchannels:` section rather than
+/// fabricating one) instead of being silently swallowed by `unwrap_or(true)`.
+fn is_root_channel_loud(store: &Store, scope: &str) -> bool {
+    match store.is_root_channel(scope) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(channel = %scope, error = ?e, "who awareness: is_root_channel lookup failed; assuming root");
+            true
+        }
+    }
+}
+
 /// The HOOK first-turn snapshot: the fabric orientation block prefixed with the
 /// `[tenex-edge] Fabric context` label. Returns `None` when the channel is not
 /// materialized — the hook simply injects nothing in that case.
@@ -100,7 +113,7 @@ fn render_snapshot_body(
     // At the project root, the root's direct children ARE the "other channels"
     // (rendered below); a separate `Subchannels:` section would double-list them.
     // Inside a branch, `Subchannels:` shows that branch's own subtree.
-    if !store.is_root_channel(project).unwrap_or(true) {
+    if !is_root_channel_loud(store, project) {
         let subs = subchannels_of(store, project);
         if !subs.is_empty() {
             let lines = subs
@@ -172,7 +185,7 @@ fn render_awareness_update(
 ) -> Option<String> {
     // At the project root the direct children surface as "other channels", so the
     // `Subchannels:` delta is suppressed there (empty subs → no subchannel lines).
-    let subs = if store.is_root_channel(project).unwrap_or(true) {
+    let subs = if is_root_channel_loud(store, project) {
         Vec::new()
     } else {
         subchannels_of(store, project)

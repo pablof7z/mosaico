@@ -22,22 +22,51 @@ pub(super) enum EmitFormat {
 
 // ── turn-start / turn-check / turn-end ───────────────────────────────────────
 
+/// `degraded_notice` is a caller-supplied marker (e.g. a failed session reassert)
+/// that MUST reach the agent even when the daemon returns no other context — a
+/// silently-dropped reassert would leave the turn un-aware with no visible sign.
+/// It is prepended to whatever the daemon assembles.
 pub(super) async fn turn_start(
     session: String,
     transcript: Option<String>,
     emit: EmitFormat,
+    degraded_notice: Option<String>,
 ) -> Result<Option<String>> {
     if session.is_empty() {
+        if let Some(notice) = degraded_notice {
+            emit_context(&notice, emit);
+            return Ok(Some(notice));
+        }
         return Ok(None);
     }
     let params = serde_json::json!({
         "session": session,
         "transcript": transcript,
     });
-    let v = super::daemon_call_hook_async("turn_start", params).await?;
-    if let Some(ctx) = v["context"].as_str() {
-        emit_context(ctx, emit);
-        return Ok(Some(ctx.to_string()));
+    // The daemon RPC can itself fail (daemon down/restarting) — exactly the case a
+    // degradation marker exists for. If we have one, don't `?`-return and drop it:
+    // log the RPC error loudly and still surface the notice so the agent sees the
+    // "⚠ Fabric temporarily unavailable" marker instead of a silent un-aware turn.
+    let v = match super::daemon_call_hook_async("turn_start", params).await {
+        Ok(v) => v,
+        Err(e) => {
+            if let Some(notice) = degraded_notice {
+                tracing::error!(error = %format!("{e:#}"), "turn_start: daemon RPC failed; emitting degraded marker only");
+                emit_context(&notice, emit);
+                return Ok(Some(notice));
+            }
+            return Err(e);
+        }
+    };
+    let combined = match (degraded_notice.as_deref(), v["context"].as_str()) {
+        (Some(n), Some(c)) => Some(format!("{n}\n\n{c}")),
+        (Some(n), None) => Some(n.to_string()),
+        (None, Some(c)) => Some(c.to_string()),
+        (None, None) => None,
+    };
+    if let Some(ctx) = combined {
+        emit_context(&ctx, emit);
+        return Ok(Some(ctx));
     }
     Ok(None)
 }

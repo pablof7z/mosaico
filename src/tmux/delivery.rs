@@ -128,9 +128,7 @@ pub async fn inject_pending_messages_pub(
 pub fn ring_doorbells(state: Arc<DaemonState>) {
     tokio::spawn(async move {
         if let Err(e) = ring_doorbells_inner(&state).await {
-            if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                eprintln!("[tmux] pending message injection error: {e:#}");
-            }
+            tracing::error!(error = %format!("{e:#}"), "ring_doorbells: doorbell scan failed");
         }
     });
 }
@@ -141,15 +139,24 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
     }
 
     let sessions_with_chat: Vec<crate::state::Session> = state.with_store(|s| {
-        s.list_alive_sessions()
-            .unwrap_or_default()
+        let alive = match s.list_alive_sessions() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "ring_doorbells: list_alive_sessions failed — skipping doorbell scan this tick");
+                return Vec::new();
+            }
+        };
+        alive
             .into_iter()
             .filter(|rec| {
                 !rec.working
-                    && !s
-                        .drain_pending_for_session(&rec.session_id)
-                        .unwrap_or_default()
-                        .is_empty()
+                    && match s.drain_pending_for_session(&rec.session_id) {
+                        Ok(pending) => !pending.is_empty(),
+                        Err(e) => {
+                            tracing::error!(session_id = %rec.session_id, error = %e, "ring_doorbells: drain_pending_for_session failed — treating session as having no pending inbox");
+                            false
+                        }
+                    }
             })
             .collect()
     });
@@ -162,12 +169,15 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
 
         // The tmux pane is the session's `tmux_pane` alias (reused panes repoint to
         // the newest owner), so the alias IS the endpoint.
-        let pane_id = match state.with_store(|s| {
-            s.aliases_for_session(&sid)
-                .unwrap_or_default()
+        let pane_id = match state.with_store(|s| match s.aliases_for_session(&sid) {
+            Ok(aliases) => aliases
                 .into_iter()
                 .find(|a| a.external_id_kind == "tmux_pane")
-                .map(|a| a.external_id)
+                .map(|a| a.external_id),
+            Err(e) => {
+                tracing::error!(session_id = %sid, error = %e, "ring_doorbells: aliases_for_session failed — cannot resolve pane endpoint this tick");
+                None
+            }
         }) {
             Some(p) => p,
             None => continue,
@@ -177,7 +187,9 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
                 eprintln!("[tmux] pane {pane_id} gone; removing endpoint for {sid}");
             }
-            state.with_store(|s| s.clear_tmux_pane(&sid).ok());
+            if let Err(e) = state.with_store(|s| s.clear_tmux_pane(&sid)) {
+                tracing::error!(session_id = %sid, error = %e, "ring_doorbells: clear_tmux_pane failed — stale dead-pane endpoint retained");
+            }
             continue;
         }
 

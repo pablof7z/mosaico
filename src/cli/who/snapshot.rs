@@ -35,10 +35,14 @@ pub struct WhoSnapshot {
 
 /// A channel's human display name: its kind:39000 `name`, else the raw id.
 fn display_name(store: &Store, id: &str) -> String {
-    store
-        .get_channel(id)
-        .ok()
-        .flatten()
+    let channel = match store.get_channel(id) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(channel = %id, error = ?e, "who snapshot: get_channel failed resolving display name; falling back to raw id");
+            None
+        }
+    };
+    channel
         .map(|c| c.name)
         .filter(|n| !n.trim().is_empty())
         .unwrap_or_else(|| id.to_string())
@@ -219,11 +223,14 @@ pub fn load_who_snapshot(
     // renderer can label it as the channel (not the project). `parent` empty (or
     // unknown) ⇒ a top-level project, so `None`.
     let channel_parent = current_project.and_then(|p| {
-        store
-            .channel_parent(p)
-            .ok()
-            .flatten()
-            .filter(|parent| !parent.is_empty())
+        match store.channel_parent(p) {
+            Ok(parent) => parent,
+            Err(e) => {
+                tracing::error!(channel = %p, error = ?e, "who snapshot: channel_parent lookup failed resolving current-scope parent");
+                None
+            }
+        }
+        .filter(|parent| !parent.is_empty())
     });
 
     let project_display = current_project

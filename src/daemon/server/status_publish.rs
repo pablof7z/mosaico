@@ -77,9 +77,16 @@ pub(in crate::daemon::server) fn spawn_status_heartbeat_publisher(state: Arc<Dae
                 };
                 let keys = instance.signing_keys(&base.keys);
                 let status = status_from_session(&instance, &rec, &state.host, now);
-                if let Ok(_eid) = state.provider.set_status(&status, &keys).await {
-                    let signer = keys.public_key().to_hex();
-                    cache_status(&state, &status, &signer, now);
+                match state.provider.set_status(&status, &keys).await {
+                    Ok(_eid) => {
+                        let signer = keys.public_key().to_hex();
+                        cache_status(&state, &status, &signer, now);
+                    }
+                    Err(e) => tracing::error!(
+                        session = %rec.session_id,
+                        error = %format!("{e:#}"),
+                        "status_publish: set_status failed — presence not refreshed this tick"
+                    ),
                 }
             }
         }

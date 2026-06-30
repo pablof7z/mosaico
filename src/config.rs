@@ -188,13 +188,24 @@ fn home_dir() -> PathBuf {
 }
 
 pub fn hostname() -> String {
-    std::process::Command::new("hostname")
+    let resolved = std::process::Command::new("hostname")
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown-host".to_string())
+        .filter(|s| !s.is_empty());
+    match resolved {
+        Some(h) => h,
+        None => {
+            // The hostname feeds the backend identity component; sharing a
+            // sentinel silently would let multiple hosts collide under one name.
+            tracing::warn!(
+                "hostname(): could not resolve system hostname — falling back to \"unknown-host\" \
+                 (set backendName to avoid an identity collision)"
+            );
+            "unknown-host".to_string()
+        }
+    }
 }
 
 #[cfg(test)]

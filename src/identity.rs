@@ -139,13 +139,27 @@ pub fn list_local_pubkeys(edge_home: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {
-            if e.path().extension().and_then(|x| x.to_str()) != Some("json") {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(s) = std::fs::read_to_string(e.path()) {
-                if let Ok(k) = serde_json::from_str::<StoredKey>(&s) {
-                    out.push(k.public_key);
-                }
+            // This list is the self-trust whitelist: a key silently skipped here
+            // drops an agent's own fleet member out of the trusted set, so a
+            // read/parse failure is loud at error! before we skip it.
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
+                    Ok(k) => out.push(k.public_key),
+                    Err(e) => tracing::error!(
+                        path = %path.display(),
+                        error = %e,
+                        "list_local_pubkeys: skipping corrupt keystore file — agent dropped from self-trust whitelist"
+                    ),
+                },
+                Err(e) => tracing::error!(
+                    path = %path.display(),
+                    error = %e,
+                    "list_local_pubkeys: skipping unreadable keystore file — agent dropped from self-trust whitelist"
+                ),
             }
         }
     }
@@ -172,11 +186,23 @@ pub fn list_local_agents(
             if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(s) = std::fs::read_to_string(&path) {
-                if let Ok(k) = serde_json::from_str::<StoredKey>(&s) {
-                    let byline = k.effective_byline();
-                    out.push((k.slug, k.command, k.agent, byline));
-                }
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
+                    Ok(k) => {
+                        let byline = k.effective_byline();
+                        out.push((k.slug, k.command, k.agent, byline));
+                    }
+                    Err(e) => tracing::warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "list_local_agents: skipping corrupt keystore file"
+                    ),
+                },
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "list_local_agents: skipping unreadable keystore file"
+                ),
             }
         }
     }
@@ -207,11 +233,23 @@ pub fn list_invitable_agents(edge_home: &Path) -> Vec<(String, Option<String>, u
             if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(s) = std::fs::read_to_string(&path) {
-                if let Ok(k) = serde_json::from_str::<StoredKey>(&s) {
-                    let byline = k.effective_byline();
-                    out.push((k.slug, byline, k.created_at));
-                }
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
+                    Ok(k) => {
+                        let byline = k.effective_byline();
+                        out.push((k.slug, byline, k.created_at));
+                    }
+                    Err(e) => tracing::warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "list_invitable_agents: skipping corrupt keystore file"
+                    ),
+                },
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "list_invitable_agents: skipping unreadable keystore file"
+                ),
             }
         }
     }
@@ -229,14 +267,24 @@ pub fn list_local_agent_details(edge_home: &Path) -> Vec<LocalAgent> {
             if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(s) = std::fs::read_to_string(&path) {
-                if let Ok(k) = serde_json::from_str::<StoredKey>(&s) {
-                    out.push(LocalAgent {
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
+                    Ok(k) => out.push(LocalAgent {
                         slug: k.slug,
                         pubkey: k.public_key,
                         command: k.command,
-                    });
-                }
+                    }),
+                    Err(e) => tracing::warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "list_local_agent_details: skipping corrupt keystore file"
+                    ),
+                },
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "list_local_agent_details: skipping unreadable keystore file"
+                ),
             }
         }
     }

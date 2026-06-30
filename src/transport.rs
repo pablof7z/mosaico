@@ -26,32 +26,41 @@ pub struct Transport {
 
 static SCRUB_PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
 
+/// Credential-detection regexes, ordered most-specific first. A pattern that
+/// fails to compile silently disables scrubbing for that credential class (a
+/// fail-open leak risk), so the `all_scrub_patterns_compile` test asserts every
+/// source here compiles — a broken pattern fails the build loudly rather than
+/// at runtime.
+pub(crate) const SECRET_PATTERN_SOURCES: &[&str] = &[
+    // AWS access key IDs
+    r"(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|APKA)[0-9A-Z]{16}",
+    // GitHub tokens (classic PATs, fine-grained, OAuth, runner, server)
+    r"gh[pousr]_[A-Za-z0-9]{36,255}",
+    // Slack tokens
+    r"xox[baprs]-[A-Za-z0-9\-]{10,255}",
+    // Google API keys
+    r"AIza[0-9A-Za-z\-_]{35}",
+    // Anthropic API keys
+    r"sk-ant-[A-Za-z0-9\-_]{20,255}",
+    // OpenAI / generic sk- keys (after more-specific patterns)
+    r"sk-[A-Za-z0-9]{20,255}",
+    // Nostr secret keys (bech32 nsec)
+    r"nsec1[a-z0-9]{58}",
+    // Ollama cloud API keys: <32-hex>.<20-64 alphanumeric>
+    r"[a-f0-9]{32}\.[A-Za-z0-9]{20,64}",
+    // PEM private key blocks
+    r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----",
+];
+
 fn secret_patterns() -> &'static Vec<Regex> {
     SCRUB_PATTERNS.get_or_init(|| {
-        let raw: &[&str] = &[
-            // AWS access key IDs
-            r"(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|APKA)[0-9A-Z]{16}",
-            // GitHub tokens (classic PATs, fine-grained, OAuth, runner, server)
-            r"gh[pousr]_[A-Za-z0-9]{36,255}",
-            // Slack tokens
-            r"xox[baprs]-[A-Za-z0-9\-]{10,255}",
-            // Google API keys
-            r"AIza[0-9A-Za-z\-_]{35}",
-            // Anthropic API keys
-            r"sk-ant-[A-Za-z0-9\-_]{20,255}",
-            // OpenAI / generic sk- keys (after more-specific patterns)
-            r"sk-[A-Za-z0-9]{20,255}",
-            // Nostr secret keys (bech32 nsec)
-            r"nsec1[a-z0-9]{58}",
-            // Ollama cloud API keys: <32-hex>.<20-64 alphanumeric>
-            r"[a-f0-9]{32}\.[A-Za-z0-9]{20,64}",
-            // PEM private key blocks
-            r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----",
-        ];
-        raw.iter()
+        SECRET_PATTERN_SOURCES
+            .iter()
             .filter_map(|p| match Regex::new(p) {
                 Ok(re) => Some(re),
                 Err(e) => {
+                    // Runtime stays safe (we skip the broken pattern), but the
+                    // `all_scrub_patterns_compile` test guarantees we never ship one.
                     eprintln!("[tenex-edge] scrub: failed to compile pattern {p:?}: {e}");
                     None
                 }

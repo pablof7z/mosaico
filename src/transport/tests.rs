@@ -56,6 +56,21 @@ fn no_accept_no_reason_reports_timeout() {
 
 // ── scrub_secrets unit tests ────────────────────────────────────────────────
 
+/// Fail-loud guard: every credential pattern MUST compile. At runtime a broken
+/// pattern is silently skipped (fail-open), so this build-time assertion is the
+/// only thing standing between a typo and a disabled credential class.
+#[test]
+fn all_scrub_patterns_compile() {
+    for p in SECRET_PATTERN_SOURCES {
+        assert!(
+            regex::Regex::new(p).is_ok(),
+            "scrub pattern failed to compile: {p:?}"
+        );
+    }
+    // And the live set actually built one regex per source (no silent drops).
+    assert_eq!(secret_patterns().len(), SECRET_PATTERN_SOURCES.len());
+}
+
 #[test]
 fn redacts_aws_key() {
     let input = "my key is AKIAIOSFODNN7EXAMPLE right there";

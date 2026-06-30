@@ -46,8 +46,18 @@ async fn ensure_joinable(
 ) -> Result<()> {
     refresh_project_members_cache(state, channel_h).await;
     let is_member = state.with_store(|s| {
-        s.is_channel_member(channel_h, &rec.agent_pubkey)
-            .unwrap_or(false)
+        match s.is_channel_member(channel_h, &rec.agent_pubkey) {
+            Ok(present) => present,
+            Err(e) => {
+                tracing::error!(
+                    channel = channel_h,
+                    pubkey = %rec.agent_pubkey,
+                    error = %e,
+                    "ensure_joinable: is_channel_member probe failed — treating as not a member"
+                );
+                false
+            }
+        }
     });
     if !is_member {
         anyhow::bail!(

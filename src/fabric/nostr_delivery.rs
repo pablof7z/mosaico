@@ -41,7 +41,17 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
     let authors: Vec<PublicKey> = scope
         .authors
         .iter()
-        .filter_map(|h| PublicKey::from_hex(h).ok())
+        .filter_map(|h| match PublicKey::from_hex(h) {
+            Ok(pk) => Some(pk),
+            Err(e) => {
+                tracing::warn!(
+                    author = h.as_str(),
+                    error = %e,
+                    "scope_filters: dropping malformed author pubkey hex — subscription coverage thinned"
+                );
+                None
+            }
+        })
         .collect();
 
     let with_authors = |mut f: Filter| -> Filter {

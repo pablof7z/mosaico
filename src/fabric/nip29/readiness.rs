@@ -98,11 +98,10 @@ impl ChannelReadiness {
     /// Invalidate a channel+member pair (e.g. after an observed relay-side
     /// roster change), forcing a re-verify on the next publish.
     pub fn invalidate(&self, channel: &str, expect_member: &str) {
-        if let Ok(mut map) = self.inner.lock() {
-            let key = (channel.to_string(), expect_member.to_string());
-            if let Some(slot) = map.get_mut(&key) {
-                slot.verified_at = None;
-            }
+        let mut map = self.inner.lock().expect("readiness map poisoned");
+        let key = (channel.to_string(), expect_member.to_string());
+        if let Some(slot) = map.get_mut(&key) {
+            slot.verified_at = None;
         }
     }
 }

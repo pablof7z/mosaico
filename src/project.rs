@@ -107,7 +107,7 @@ pub fn register_project(cwd: &Path, force: bool) -> Result<(String, PathBuf)> {
     let abs = cwd
         .canonicalize()
         .with_context(|| format!("canonicalizing {}", cwd.display()))?;
-    let mut map = read_map();
+    let mut map = read_map()?;
     if let Some(existing) = map.get(&slug) {
         if Path::new(existing.as_str()) == abs.as_path() {
             // Already registered; no-op.
@@ -132,15 +132,22 @@ fn map_path() -> PathBuf {
     crate::config::edge_home().join("projects.json")
 }
 
-/// Read the slug→path map. Returns an empty map if the file is missing or
-/// malformed (callers treat missing as "no projects registered yet").
-fn read_map() -> std::collections::BTreeMap<String, String> {
+/// Read the slug→path map. A MISSING file is "no projects registered yet" (an
+/// empty map). A PRESENT-but-unparseable file is a hard error: defaulting to
+/// empty would silently drop every non-git project the user registered, so we
+/// surface the parse failure instead of guessing.
+fn read_map() -> Result<std::collections::BTreeMap<String, String>> {
     let p = map_path();
-    let Ok(s) = std::fs::read_to_string(&p) else {
-        return Default::default();
+    let s = match std::fs::read_to_string(&p) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(e) => {
+            return Err(e).with_context(|| format!("reading {}", p.display()));
+        }
     };
     // Tolerate either a bare object or any whitespace; serde_json handles both.
-    serde_json::from_str::<std::collections::BTreeMap<String, String>>(&s).unwrap_or_default()
+    serde_json::from_str::<std::collections::BTreeMap<String, String>>(&s)
+        .with_context(|| format!("parsing {} (corrupt projects.json)", p.display()))
 }
 
 /// Write the slug→path map, creating the parent dir if necessary.
@@ -157,7 +164,13 @@ fn write_map(obj: &std::collections::BTreeMap<String, String>) -> Result<()> {
 /// Look up `cwd` (or its nearest ancestor) in the map. Returns the slug for the
 /// nearest ancestor present, or `None` if no ancestor is registered.
 fn lookup_in_map(cwd: &Path) -> Option<String> {
-    let map = read_map();
+    let map = match read_map() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %format!("{e:#}"), "lookup_in_map: projects.json unreadable — treating as no registered projects");
+            return None;
+        }
+    };
     if map.is_empty() {
         return None;
     }
@@ -184,7 +197,13 @@ fn lookup_in_map(cwd: &Path) -> Option<String> {
 /// Like [`lookup_in_map`], but returns the project **root** dir (the ancestor
 /// that is registered), not the slug.
 fn project_root_from_map(cwd: &Path) -> Option<PathBuf> {
-    let map = read_map();
+    let map = match read_map() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %format!("{e:#}"), "project_root_from_map: projects.json unreadable — treating as no registered projects");
+            return None;
+        }
+    };
     if map.is_empty() {
         return None;
     }
@@ -363,7 +382,7 @@ mod tests {
         assert_eq!(slug, "the-proj");
         assert_eq!(written_path, std::fs::canonicalize(&proj_dir).unwrap());
         // The map now contains the entry.
-        let map = read_map();
+        let map = read_map().unwrap();
         assert_eq!(
             map.get("the-proj").map(|s| s.as_str()),
             Some(std::fs::canonicalize(&proj_dir).unwrap().to_str().unwrap())

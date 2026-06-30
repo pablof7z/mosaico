@@ -332,6 +332,7 @@ async fn hook_dispatch(
             // Reassert the session before the turn starts: if the daemon lost it
             // (restart, version-skew kill, crash), this re-registers the live
             // session instead of silently dropping awareness for the whole turn.
+            let mut degraded_notice: Option<String> = None;
             if !sid.is_empty() {
                 let watch_pid = obj
                     .and_then(|o| o.get("pid").or_else(|| o.get("watch_pid")))
@@ -352,9 +353,19 @@ async fn hook_dispatch(
                 .await
                 {
                     eprintln!("[tenex-edge] session reassert skipped: {e:#}");
+                    // Don't silently drop awareness for the turn: hand the turn a
+                    // visible degradation marker so the agent knows the fabric was
+                    // temporarily unavailable rather than assuming a quiet channel.
+                    degraded_notice = Some(
+                        "<tenex-edge>\n⚠ Fabric temporarily unavailable — this session could not be \
+                         reasserted with the daemon, so your inbox and channel awareness for this \
+                         turn may be incomplete. Do NOT assume the channel is quiet or that you have \
+                         no mentions.\n</tenex-edge>"
+                            .to_string(),
+                    );
                 }
             }
-            if let Some(ctx) = turn_start(sid.clone(), transcript, emit).await? {
+            if let Some(ctx) = turn_start(sid.clone(), transcript, emit, degraded_notice).await? {
                 call_log.note(
                     "context-injection",
                     serde_json::json!({

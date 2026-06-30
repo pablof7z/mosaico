@@ -118,7 +118,15 @@ impl Nip29Provider {
                 self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (session)")
                     .await
             }
-            Err(_) => GroupPublishOutcome::Rejected,
+            Err(e) => {
+                tracing::error!(
+                    group = project,
+                    pubkey = pubkey_hex,
+                    error = %format!("{e:#}"),
+                    "nip29_add_member: group_put_user build failed — failing closed"
+                );
+                GroupPublishOutcome::Rejected
+            }
         }
     }
 
@@ -133,7 +141,15 @@ impl Nip29Provider {
                 self.publish_group_management(b, &mgmt_keys, "9002 edit-metadata (name)")
                     .await
             }
-            Err(_) => false,
+            Err(e) => {
+                tracing::error!(
+                    group,
+                    name,
+                    error = %format!("{e:#}"),
+                    "nip29_set_group_name: group_edit_name build failed — failing closed"
+                );
+                false
+            }
         }
     }
 
@@ -158,7 +174,15 @@ impl Nip29Provider {
                 self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (admin)")
                     .await
             }
-            Err(_) => GroupPublishOutcome::Rejected,
+            Err(e) => {
+                tracing::error!(
+                    group = project,
+                    pubkey = pubkey_hex,
+                    error = %format!("{e:#}"),
+                    "nip29_add_admin: group_put_admin build failed — failing closed"
+                );
+                GroupPublishOutcome::Rejected
+            }
         }
     }
 
@@ -174,7 +198,15 @@ impl Nip29Provider {
                     self.publish_group_management(b, &mgmt_keys, "9007 create-subgroup")
                         .await
                 }
-                Err(_) => false,
+                Err(e) => {
+                    tracing::error!(
+                        child = child_h,
+                        parent = parent_h,
+                        error = %format!("{e:#}"),
+                        "nip29_create_subgroup: group_create_subgroup build failed — failing closed"
+                    );
+                    false
+                }
             };
         if !created {
             return false;
@@ -186,7 +218,15 @@ impl Nip29Provider {
                 self.publish_group_management(b, &mgmt_keys, "9002 lock-with-parent")
                     .await
             }
-            Err(_) => false,
+            Err(e) => {
+                tracing::error!(
+                    child = child_h,
+                    parent = parent_h,
+                    error = %format!("{e:#}"),
+                    "nip29_create_subgroup: group_lock_closed_with_parent build failed — failing closed"
+                );
+                false
+            }
         }
     }
 
@@ -204,7 +244,15 @@ impl Nip29Provider {
                 self.publish_group_management(b, &mgmt_keys, "9001 remove-user (session)")
                     .await
             }
-            Err(_) => false,
+            Err(e) => {
+                tracing::error!(
+                    group = project,
+                    pubkey = pubkey_hex,
+                    error = %format!("{e:#}"),
+                    "nip29_remove_member: group_remove_user build failed — failing closed"
+                );
+                false
+            }
         }
     }
 }

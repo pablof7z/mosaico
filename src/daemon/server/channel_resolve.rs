@@ -101,7 +101,13 @@ pub(in crate::daemon::server) async fn resolve_channel(
              its kind:39000 never materialized"
         );
     }
-    let _ = ensure_subscription(state, &child_h).await;
+    if let Err(e) = ensure_subscription(state, &child_h).await {
+        tracing::warn!(
+            channel = %child_h,
+            error = %format!("{e:#}"),
+            "resolve_channel: ensure_subscription failed — new channel events may not be delivered until the next resubscribe"
+        );
+    }
     Ok(child_h)
 }
 

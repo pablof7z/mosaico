@@ -37,17 +37,23 @@ fn project_abs_path(
 
 fn unique_session_name(slug: &str) -> String {
     let base = format!("te-{slug}");
-    let existing: std::collections::HashSet<String> = std::process::Command::new("tmux")
+    let existing: std::collections::HashSet<String> = match std::process::Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
-        .ok()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    {
+        // tmux exits non-zero with "no server running" when there are genuinely
+        // no sessions — that is a legitimate empty list, not a failure.
+        Ok(o) => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect(),
+        // The binary couldn't be spawned at all: treating that as "no sessions"
+        // risks colliding with a real session, so surface it loudly.
+        Err(e) => {
+            tracing::warn!(error = %e, "unique_session_name: failed to run `tmux list-sessions` — assuming no existing sessions (name collision possible)");
+            std::collections::HashSet::new()
+        }
+    };
     if !existing.contains(&base) {
         return base;
     }

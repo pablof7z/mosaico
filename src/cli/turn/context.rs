@@ -276,9 +276,21 @@ pub fn assemble_turn_start_context(
             ambient_by_joined_channel(&s, &joined, ambient_since, &rec.agent_pubkey);
         read_failed |= ambient_failed;
         let notice = if first_turn {
-            let n = s
-                .count_channel_events_before(&scope, rec.created_at)
-                .unwrap_or(0);
+            // A count failure must not silently render as "no prior history": log
+            // loudly and flag the turn so the read-failure marker fires instead of
+            // quietly hiding pre-join messages.
+            let n = match s.count_channel_events_before(&scope, rec.created_at) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::error!(
+                        channel = %scope,
+                        error = ?e,
+                        "turn_start: pre-join history count failed; prior messages may be hidden"
+                    );
+                    read_failed = true;
+                    0
+                }
+            };
             if n > 0 {
                 let name = crate::injection::channel_display(&s, &scope);
                 Some(format!(
@@ -353,7 +365,13 @@ pub fn assemble_turn_start_context(
     // delta past what we just surfaced.
     {
         let s = store.lock().expect("store mutex poisoned");
-        s.set_seen_cursor(&rec.session_id, now).ok();
+        if let Err(e) = s.set_seen_cursor(&rec.session_id, now) {
+            tracing::error!(
+                session = %rec.session_id,
+                error = ?e,
+                "turn_start: advancing seen_cursor failed; next turn may re-surface already-shown awareness"
+            );
+        }
     }
 
     if blocks.is_empty() {

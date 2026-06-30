@@ -144,11 +144,17 @@ impl Nip29Provider {
     pub async fn is_retrievable(&self, id: nostr_sdk::prelude::EventId, timeout: Duration) -> bool {
         use nostr_sdk::prelude::Filter;
         let f = Filter::new().id(id).limit(1);
-        self.transport
-            .fetch(f, timeout)
-            .await
-            .map(|evs| !evs.is_empty())
-            .unwrap_or(false)
+        match self.transport.fetch(f, timeout).await {
+            Ok(evs) => !evs.is_empty(),
+            Err(e) => {
+                tracing::error!(
+                    event_id = %id,
+                    error = %format!("{e:#}"),
+                    "is_retrievable: relay read-back failed — treating as not-retrievable"
+                );
+                false
+            }
+        }
     }
 
     /// Connectivity probe: publish a uniquely-tagged throwaway note and read it back.
