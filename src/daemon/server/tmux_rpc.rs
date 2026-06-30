@@ -245,7 +245,7 @@ async fn provision_before_spawn(
     let id = match crate::identity::load_or_create(&edge, slug, crate::util::now_secs()) {
         Ok(id) => id,
         Err(e) => {
-            tracing::warn!(slug, error = %e, "tmux_spawn: could not resolve identity");
+            tracing::warn!(slug, error = %e, "provision: could not resolve identity");
             return;
         }
     };
@@ -263,7 +263,7 @@ async fn provision_before_spawn(
             slug,
             scope,
             pubkey = %crate::util::pubkey_short(&pubkey),
-            "tmux_spawn: launching concurrent instance (agent already has live session)"
+            "provision: launching concurrent instance (agent already has live session)"
         );
     }
 
@@ -274,16 +274,24 @@ async fn provision_before_spawn(
     // admin invariants + membership either way, so the session-start that follows
     // finds the scope ready (with a valid parent when a per-session room is minted).
     let parent_hint = channel.filter(|g| !g.is_empty()).map(|_| project);
+    let channel_name = state
+        .with_store(|s| s.get_channel(scope))
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .unwrap_or_default();
     tracing::info!(
         slug,
-        scope,
+        channel = scope,
+        channel_name,
         pubkey = %crate::util::pubkey_short(&pubkey),
-        "tmux_spawn: pre-provisioning channel"
+        "provision: ensuring channel ready"
     );
     let ctx = crate::fabric::nip29::readiness::ChannelCtx {
         channel: scope,
         expect_member: &pubkey,
         parent_hint,
+        name: None,
     };
     if tokio::time::timeout(timeout, state.provider.ensure_channel_ready(ctx))
         .await
@@ -291,7 +299,7 @@ async fn provision_before_spawn(
     {
         tracing::warn!(
             scope,
-            "tmux_spawn: channel provisioning timed out; proceeding"
+            "provision: channel provisioning timed out; proceeding"
         );
     }
 }
