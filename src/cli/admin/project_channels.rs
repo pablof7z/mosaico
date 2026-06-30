@@ -124,21 +124,8 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
                 }
                 std::process::exit(2);
             }
-            let child = v["child_h"].as_str().unwrap_or("?");
-            let path = v["display_path"].as_str().unwrap_or("");
             let oid = v["orchestration_event_id"].as_str().unwrap_or("");
-            println!("created channel {} ({})", child.bold(), path);
-            if let Some(admins) = v["admins"].as_array() {
-                println!("  admins copied: {}", admins.len());
-            }
-            if let Some(joined) = v["creator"].as_str() {
-                if !joined.is_empty() {
-                    println!("  joined as {}", pubkey_short(joined).cyan());
-                }
-            }
-            if v["switched"].as_bool().unwrap_or(false) {
-                println!("  switched to it");
-            }
+            println!("#{} created and joined", name);
             if !oid.is_empty() {
                 println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
             }
