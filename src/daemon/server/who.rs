@@ -13,6 +13,8 @@ pub(in crate::daemon::server) struct WhoParams {
     #[serde(default)]
     tmux_pane: Option<String>,
     #[serde(default)]
+    watch_pid: Option<i32>,
+    #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
     group: Option<String>,
@@ -27,18 +29,29 @@ pub(in crate::daemon::server) fn rpc_who(
 ) -> Result<serde_json::Value> {
     let p: WhoParams = serde_json::from_value(params.clone()).unwrap_or_default();
     let anchor = CallerAnchor::from_params(params);
+    let caller_rec = if p.all_projects {
+        None
+    } else if p.tmux_pane.as_deref().filter(|s| !s.is_empty()).is_some()
+        || p.harness_session
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .is_some()
+        || p.watch_pid.is_some()
+    {
+        Some(resolve_session_inner(state, &anchor, ResolveScope::Strict)?)
+    } else if p.agent.as_deref().filter(|s| !s.is_empty()).is_some()
+        || p.group.as_deref().filter(|s| !s.is_empty()).is_some()
+    {
+        anyhow::bail!(
+            "who needs an exact live session anchor; agent/channel env alone is not session context"
+        );
+    } else {
+        None
+    };
     let current_project = if p.all_projects {
         None
-    } else if p.project.is_none()
-        && (p.tmux_pane.as_deref().filter(|s| !s.is_empty()).is_some()
-            || p.harness_session.as_deref().filter(|s| !s.is_empty()).is_some()
-            || p.agent.as_deref().filter(|s| !s.is_empty()).is_some()
-            || p.group.as_deref().filter(|s| !s.is_empty()).is_some())
-    {
-        Some(
-            resolve_session_inner(state, &anchor, ResolveScope::Project)
-                .map(|rec| rec.channel_h.clone())?,
-        )
+    } else if let Some(rec) = caller_rec.as_ref() {
+        Some(rec.channel_h.clone())
     } else {
         Some(p.project.clone().unwrap_or_else(|| {
             let cwd = p
@@ -60,13 +73,15 @@ pub(in crate::daemon::server) fn rpc_who(
     // scope, so it keeps the cross-project snapshot table. The caller (this session,
     // when run inside an agent) is marked `(you)` and excluded from peer echoes.
     if let Some(scope) = current_project.as_deref() {
-        // Resolve the caller's own session once; reuse it for both the fabric
+        // Reuse the exact caller session, when present, for both the fabric
         // `(you)` match and the folded-in `self` identity block (issue #99).
-        let rec = resolve_session_inner(state, &anchor, ResolveScope::Project).ok();
+        // Deliberately no project-scan fallback: `who` must not masquerade as a
+        // session just because some live sibling exists in the same repository.
+        let rec = caller_rec.as_ref();
         // Issue #98: the caller's ONE authoritative agent-instance identity — the
         // selected pubkey + ordinal label every publisher signs with. Computed
         // OUTSIDE `with_store` because `session_instance` locks the store itself.
-        let instance = rec.as_ref().map(|rec| state.session_instance(rec));
+        let instance = rec.map(|rec| state.session_instance(rec));
         let (self_slug, self_pubkey) = instance
             .as_ref()
             .map(|i| (i.display_slug(), i.pubkey.clone()))
@@ -90,7 +105,7 @@ pub(in crate::daemon::server) fn rpc_who(
         // with this session's own fabric identity, present only when `who` runs
         // inside an agent. `session_id` is raw internal correlation, not a
         // user-facing identity.
-        if let (Some(rec), Some(instance)) = (rec.as_ref(), instance.as_ref()) {
+        if let (Some(rec), Some(instance)) = (rec, instance.as_ref()) {
             let pending = state
                 .with_store(|s| s.drain_pending_for_session(&rec.session_id))
                 .map(|rows| rows.len())

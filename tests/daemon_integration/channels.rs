@@ -4,6 +4,8 @@ use tenex_edge::state::Store;
 
 #[path = "channels/launch_mentions.rs"]
 mod launch_mentions;
+#[path = "channels/native_context.rs"]
+mod native_context;
 #[path = "channels/replies.rs"]
 mod replies;
 #[path = "channels/session_rooms.rs"]

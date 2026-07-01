@@ -181,6 +181,8 @@ pub(super) async fn rpc_invite(
         #[serde(default)]
         tmux_pane: Option<String>,
         #[serde(default)]
+        watch_pid: Option<i32>,
+        #[serde(default)]
         cwd: Option<String>,
         /// The caller's TENEX_EDGE_AGENT slug, to disambiguate the session.
         #[serde(default)]
@@ -200,6 +202,7 @@ pub(super) async fn rpc_invite(
         &CallerAnchor {
             tmux_pane: p.tmux_pane.as_deref(),
             harness_session: p.harness_session.as_deref(),
+            watch_pid: p.watch_pid,
             harness: p.harness.as_deref(),
             cwd: p.cwd.as_deref(),
             agent: p.agent_slug.as_deref(),

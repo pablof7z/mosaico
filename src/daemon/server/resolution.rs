@@ -6,12 +6,14 @@ use crate::state::{Session, Store};
 /// way every time.
 ///
 /// The canonical session id is daemon-minted only AFTER the harness process
-/// starts, so it can never be a launch-time env var. The durable anchor is the
-/// tmux pane (`$TMUX_PANE`): present in the harness env from process birth, 1:1
-/// with the session, and recorded as a `tmux_pane` alias at session-start (which
-/// repoints to the newest owner on restart). `harness_session` covers
-/// harness-native ids (claude-code/codex report one via hooks; opencode does
-/// not). `cwd`+`agent`+`group` are the scan keys — used only outside `Strict`.
+/// starts, so it can never be a launch-time env var. The durable tmux anchor is
+/// `$TMUX_PANE`: present in the harness env from process birth, 1:1 with the
+/// session, and recorded as a `tmux_pane` alias at session-start (which repoints
+/// to the newest owner on restart). Native harness shells outside tenex-edge
+/// launch use the watched harness process (`watch_pid`) as their exact anchor.
+/// `harness_session` covers harness-native ids (claude-code/codex report one via
+/// hooks; opencode does not). `cwd`+`agent`+`group` are the scan keys — used only
+/// outside `Strict`.
 #[derive(Default, Clone, Copy)]
 pub(in crate::daemon::server) struct CallerAnchor<'a> {
     /// `--session` operator/host override (exact: canonical id or alias).
@@ -22,6 +24,9 @@ pub(in crate::daemon::server) struct CallerAnchor<'a> {
     /// Harness-native session id reported by a hook, resolved via its
     /// `harness_session` alias. Never the identity — only a locator.
     pub harness_session: Option<&'a str>,
+    /// Watched harness process recorded by session-start. This is the exact
+    /// native-harness-shell anchor when there is no tmux pane.
+    pub watch_pid: Option<i32>,
     /// The harness that owns `harness_session` (e.g. `claude-code`). The alias
     /// table is keyed by `(harness, kind, external_id)`, so this full-keys the
     /// harness-session lookup — a harness-native id is only unique WITHIN its
@@ -43,10 +48,18 @@ impl<'a> CallerAnchor<'a> {
     /// carries two agents and builds its anchor by hand.
     pub(in crate::daemon::server) fn from_params(p: &'a serde_json::Value) -> Self {
         let s = |k: &str| p.get(k).and_then(|v| v.as_str()).filter(|x| !x.is_empty());
+        let pid = |k: &str| {
+            p.get(k).and_then(|v| {
+                v.as_i64()
+                    .and_then(|n| i32::try_from(n).ok())
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
+        };
         CallerAnchor {
             explicit: s("session"),
             tmux_pane: s("tmux_pane"),
             harness_session: s("harness_session").or_else(|| s("env_session")),
+            watch_pid: pid("watch_pid"),
             harness: s("harness"),
             cwd: s("cwd"),
             agent: s("agent"),
@@ -88,7 +101,8 @@ pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> String
 ///   1. explicit `--session` (operator/host override; may name a dead session)
 ///   2. tmux pane alias  (live only)
 ///   3. harness-session alias  (live only)
-///   4. cwd+agent scan  (only outside `Strict`)
+///   4. watch pid alias  (live only)
+///   5. cwd+agent scan  (only outside `Strict`)
 ///
 /// The exact anchors (2,3) resolve through `alive_session_for_alias_kind`, which
 /// matches the alias KIND (not just the raw id) and never returns a dead row —
@@ -134,14 +148,27 @@ pub(in crate::daemon::server) fn resolve_session_inner(
             return Ok(rec);
         }
     }
+    // 4. Watched harness process — exact for native Claude/Codex/Grok shells
+    // that were not launched through tenex-edge and therefore lack `$TMUX_PANE`.
+    if let (Some(pid), Some(harness)) = (anchor.watch_pid, anchor.harness) {
+        let harness = crate::session::Harness::from_str(harness).as_str();
+        let pid = pid.to_string();
+        if let Some(rec) = state
+            .with_store(|s| s.alive_session_for_alias(Some(harness), "watch_pid", &pid))
+            .ok()
+            .flatten()
+        {
+            return Ok(rec);
+        }
+    }
     // Strict: exact anchors only. Never fall through to a sibling-binding scan.
     if scope == ResolveScope::Strict {
         anyhow::bail!(
             "must be run from within a tenex-edge agent session \
-             (no --session, tmux pane, or harness id resolved a live session)"
+             (no --session, tmux pane, harness id, or watch pid resolved a live session)"
         );
     }
-    // 4. Scan: cwd-derived project (or explicit group) + agent slug.
+    // 5. Scan: cwd-derived project (or explicit group) + agent slug.
     //    `list_alive_sessions` is newest-first, so the first match is the latest.
     //    LIMITATION: with no exact anchor (e.g. a non-tmux harness like opencode,
     //    which has neither a pane nor a harness-native id), this picks the latest

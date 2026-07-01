@@ -131,6 +131,13 @@ fn find_hook_host(name: &str) -> Option<&'static HostDef> {
     HOOK_HOSTS.iter().find(|h| h.name == name)
 }
 
+pub(super) fn caller_watch_pid_anchor() -> Option<(&'static str, i32)> {
+    HOOK_HOSTS
+        .iter()
+        .filter_map(|host| host.pid_search.map(|needle| (host.name, needle)))
+        .find_map(|(name, needle)| find_ancestor_pid(needle).map(|pid| (name, pid)))
+}
+
 // ── hook_run ──────────────────────────────────────────────────────────────────
 
 pub(super) async fn hook_run(host_name: String, hook_type: String) -> Result<()> {
