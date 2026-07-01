@@ -150,10 +150,22 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
         cwd: Option<String>,
         #[serde(default)]
         prompt: String,
+        #[serde(default)]
+        subagent_id: Option<String>,
     }
     let p: P = serde_json::from_value(params.clone()).context("parsing user_prompt params")?;
     if p.prompt.trim().is_empty() {
         return Ok(serde_json::json!({ "skipped": "empty prompt" }));
+    }
+
+    // Codex fires this same hook — on the same top-level session_id — when it
+    // dispatches a prompt to a subagent it spawned (spawn_agent/multi_agent_v1*),
+    // not just when the human types. That event carries a `subagent_id`; a
+    // genuine keystroke never does. Mirroring it would post the agent's own
+    // internal instructions to a subagent into the room as if the human said
+    // them (issue #102).
+    if p.subagent_id.is_some() {
+        return Ok(serde_json::json!({ "skipped": "subagent dispatch, not human input" }));
     }
 
     // No operator key → nothing to sign with; fail open (session still runs).

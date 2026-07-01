@@ -382,11 +382,19 @@ async fn hook_dispatch(
             // userNsec is absent or the relay is unreachable, the hook must not
             // block the editor.
             if let Some(prompt_text) = prompt {
+                // Codex re-fires this same hook, on the same top-level session_id,
+                // for a subagent's own turn (spawn_agent/multi_agent_v1*) — that
+                // event carries `agent_id`/`agent_type` alongside the payload,
+                // which a genuine human keystroke never does. Forward it so the
+                // daemon can tell "the human typed this" from "Codex dispatched
+                // this to a subagent" (issue #102).
+                let agent_id = obj.and_then(|o| o.get("agent_id")).and_then(|v| v.as_str());
                 let params = serde_json::json!({
                     "env_session": sid,
                     "agent": agent_env_slug(),
                     "cwd": cwd.to_string_lossy(),
                     "prompt": prompt_text,
+                    "subagent_id": agent_id,
                 });
                 if let Err(e) = daemon_call_hook_async("user_prompt", params).await {
                     eprintln!("[tenex-edge] user_prompt publish skipped: {e:#}");
