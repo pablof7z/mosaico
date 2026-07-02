@@ -8,6 +8,7 @@
 //! it to exit + re-exec rather than speak a stale protocol.
 
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// The compiled-in protocol version, bumped on any breaking RPC change.
 const PROTOCOL_VERSION_BASE: u32 = 4;
@@ -22,6 +23,57 @@ pub fn protocol_version() -> u32 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(PROTOCOL_VERSION_BASE)
+}
+
+/// Maximum time a spawning client waits for a daemon to become handshake-ready.
+pub(crate) const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+/// Per-connect/read timeout for the daemon hello/welcome handshake.
+pub(crate) const DAEMON_HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(2);
+/// Short grace period after asking an older daemon to exit before respawning.
+pub(crate) const DAEMON_RESPAWN_GRACE: Duration = Duration::from_millis(200);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HandshakeDecision {
+    Ready,
+    AskOlderDaemonToExit,
+    DaemonTooNew {
+        daemon_protocol: u32,
+        client_protocol: u32,
+    },
+}
+
+fn compare_protocols(daemon_protocol: u32, client_protocol: u32) -> HandshakeDecision {
+    match daemon_protocol.cmp(&client_protocol) {
+        std::cmp::Ordering::Equal => HandshakeDecision::Ready,
+        std::cmp::Ordering::Less => HandshakeDecision::AskOlderDaemonToExit,
+        std::cmp::Ordering::Greater => HandshakeDecision::DaemonTooNew {
+            daemon_protocol,
+            client_protocol,
+        },
+    }
+}
+
+pub(crate) fn handshake_decision(daemon_protocol: u32) -> HandshakeDecision {
+    compare_protocols(daemon_protocol, protocol_version())
+}
+
+pub(crate) fn client_hello() -> Hello {
+    Hello {
+        protocol: protocol_version(),
+        client_version: env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
+pub(crate) fn please_exit() -> PleaseExit {
+    PleaseExit {
+        protocol: protocol_version(),
+    }
+}
+
+pub(crate) fn daemon_too_new_message(daemon_protocol: u32, client_protocol: u32) -> String {
+    format!(
+        "daemon protocol {daemon_protocol} is newer than this binary's {client_protocol} — restart your tenex-edge session (or reinstall)"
+    )
 }
 
 // ── handshake ────────────────────────────────────────────────────────────────
@@ -123,3 +175,31 @@ pub const ERR_PROTOCOL_SKEW: &str = "protocol_skew";
 // The `who` snapshot DTO is `crate::cli::WhoSnapshot` itself (Serialize/
 // Deserialize): the daemon serializes the exact struct the CLI renderers
 // consume, so `who` output is byte-identical by construction.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_compare_covers_equal_older_and_newer_daemons() {
+        assert_eq!(compare_protocols(4, 4), HandshakeDecision::Ready);
+        assert_eq!(
+            compare_protocols(3, 4),
+            HandshakeDecision::AskOlderDaemonToExit
+        );
+        assert_eq!(
+            compare_protocols(5, 4),
+            HandshakeDecision::DaemonTooNew {
+                daemon_protocol: 5,
+                client_protocol: 4
+            }
+        );
+    }
+
+    #[test]
+    fn daemon_too_new_message_matches_client_paths() {
+        let msg = daemon_too_new_message(5, 4);
+        assert!(msg.contains("daemon protocol 5 is newer"));
+        assert!(msg.contains("restart your tenex-edge session"));
+    }
+}

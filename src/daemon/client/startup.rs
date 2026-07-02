@@ -1,9 +1,6 @@
 use super::super::spawn::spawn_detached_daemon;
 use super::*;
 
-const SPAWN_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-const HANDSHAKE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-
 // ── spawn-if-absent (race-safe via flock) ────────────────────────────────────
 
 /// Ensure a daemon is listening. Under the startup lock: re-check the socket,
@@ -12,7 +9,7 @@ pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
     config::ensure_dir(&config::edge_home())?;
 
     let mut noted_wait = false;
-    let wait_deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
+    let wait_deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < wait_deadline {
         if probe_handshake().await {
             return Ok(());
@@ -38,7 +35,7 @@ pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
 
     // Poll until the daemon accepts and answers handshakes.
     let mut noted_ready = false;
-    let deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
+    let deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < deadline {
         if probe_handshake().await {
             return Ok(());
@@ -49,33 +46,30 @@ pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    bail!("daemon did not answer handshakes within {SPAWN_CONNECT_TIMEOUT:?}")
+    bail!("daemon did not answer handshakes within {DAEMON_STARTUP_TIMEOUT:?}")
 }
 
 /// Liveness probe: can we complete the daemon hello/welcome handshake?
 async fn probe_handshake() -> bool {
-    let Ok(Ok(stream)) =
-        tokio::time::timeout(HANDSHAKE_PROBE_TIMEOUT, UnixStream::connect(socket_path())).await
+    let Ok(Ok(stream)) = tokio::time::timeout(
+        DAEMON_HANDSHAKE_IO_TIMEOUT,
+        UnixStream::connect(socket_path()),
+    )
+    .await
     else {
         return false;
     };
     let (rh, wh) = stream.into_split();
     let mut reader = BufReader::new(rh);
     let mut writer = wh;
-    if write_line(
-        &mut writer,
-        &Hello {
-            protocol: protocol_version(),
-            client_version: env!("CARGO_PKG_VERSION").to_string(),
-        },
-    )
-    .await
-    .is_err()
-    {
+    if write_line(&mut writer, &client_hello()).await.is_err() {
         return false;
     }
-    let Ok(Ok(Some(_welcome))) =
-        tokio::time::timeout(HANDSHAKE_PROBE_TIMEOUT, read_line::<Welcome>(&mut reader)).await
+    let Ok(Ok(Some(_welcome))) = tokio::time::timeout(
+        DAEMON_HANDSHAKE_IO_TIMEOUT,
+        read_line::<Welcome>(&mut reader),
+    )
+    .await
     else {
         return false;
     };

@@ -94,3 +94,16 @@ fn pre_request_failure_can_retry_non_idempotent_method() {
     assert_eq!(spawns, 1);
     assert_eq!(value, serde_json::json!({"sent": true}));
 }
+
+#[test]
+fn no_spawn_call_returns_pre_request_failure_without_retry() {
+    let mut attempts = 0;
+    let err = call_no_spawn_with_attempt("statusline", &serde_json::json!({}), |_, _| {
+        attempts += 1;
+        Err(TryCallFailure::before(anyhow!("connection refused")))
+    })
+    .expect_err("no-spawn call should surface the connection failure");
+
+    assert_eq!(attempts, 1);
+    assert!(err.to_string().contains("connection refused"));
+}

@@ -8,7 +8,11 @@
 //!   - handshake carries a protocol version; a newer client that finds an older
 //!     daemon asks it to exit, then respawns the new binary's daemon.
 
-use super::protocol::{protocol_version, Hello, PleaseExit, Request, Response, Welcome};
+use super::protocol::{
+    client_hello, daemon_too_new_message, handshake_decision, please_exit, HandshakeDecision,
+    Request, Response, Welcome, DAEMON_HANDSHAKE_IO_TIMEOUT, DAEMON_RESPAWN_GRACE,
+    DAEMON_STARTUP_TIMEOUT,
+};
 use super::{lock_path, socket_path};
 use crate::config;
 use anyhow::{bail, Context, Result};
@@ -47,7 +51,7 @@ impl Client {
                 Ok(ConnectOutcome::SkewExitRequested) => {
                     // The old daemon is exiting; let it release the socket, then
                     // (re)spawn the new binary's daemon.
-                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    tokio::time::sleep(DAEMON_RESPAWN_GRACE).await;
                     spawn_daemon_if_absent().await?;
                 }
                 Err(e) => {
@@ -169,56 +173,46 @@ impl Client {
     // ── handshake / connect ──────────────────────────────────────────────
 
     async fn try_connect_handshake() -> Result<ConnectOutcome> {
-        let stream =
-            tokio::time::timeout(Duration::from_secs(2), UnixStream::connect(socket_path()))
-                .await
-                .context("timed out connecting to daemon socket")?
-                .context("connecting to daemon socket")?;
+        let stream = tokio::time::timeout(
+            DAEMON_HANDSHAKE_IO_TIMEOUT,
+            UnixStream::connect(socket_path()),
+        )
+        .await
+        .context("timed out connecting to daemon socket")?
+        .context("connecting to daemon socket")?;
         let (rh, wh) = stream.into_split();
         let mut reader = BufReader::new(rh);
         let mut writer = wh;
 
         // Send hello, read welcome.
-        write_line(
-            &mut writer,
-            &Hello {
-                protocol: protocol_version(),
-                client_version: env!("CARGO_PKG_VERSION").to_string(),
-            },
-        )
-        .await?;
-        let welcome: Welcome = tokio::time::timeout(Duration::from_secs(2), read_line(&mut reader))
-            .await
-            .context("timed out waiting for daemon welcome")??
-            .context("daemon closed before welcome")?;
+        write_line(&mut writer, &client_hello()).await?;
+        let welcome: Welcome =
+            tokio::time::timeout(DAEMON_HANDSHAKE_IO_TIMEOUT, read_line(&mut reader))
+                .await
+                .context("timed out waiting for daemon welcome")??
+                .context("daemon closed before welcome")?;
 
-        if welcome.protocol == protocol_version() {
-            return Ok(ConnectOutcome::Ready(Client {
+        match handshake_decision(welcome.protocol) {
+            HandshakeDecision::Ready => Ok(ConnectOutcome::Ready(Client {
                 reader,
                 writer,
                 next_id: 0,
-            }));
+            })),
+            HandshakeDecision::AskOlderDaemonToExit => {
+                // Older daemon under a newer binary (the human cutover): ask it
+                // to exit so we can respawn the new binary's daemon.
+                write_line(&mut writer, &please_exit()).await?;
+                let _ = writer.flush().await;
+                Ok(ConnectOutcome::SkewExitRequested)
+            }
+            HandshakeDecision::DaemonTooNew {
+                daemon_protocol,
+                client_protocol,
+            } => bail!(
+                "{}",
+                daemon_too_new_message(daemon_protocol, client_protocol)
+            ),
         }
-        if welcome.protocol < protocol_version() {
-            // Older daemon under a newer binary (the human cutover): ask it to
-            // exit so we can respawn the new binary's daemon.
-            write_line(
-                &mut writer,
-                &PleaseExit {
-                    protocol: protocol_version(),
-                },
-            )
-            .await?;
-            let _ = writer.flush().await;
-            return Ok(ConnectOutcome::SkewExitRequested);
-        }
-        // Newer daemon, older client: don't bridge. Tell the human to restart.
-        bail!(
-            "daemon protocol {} is newer than this binary's {} — restart your tenex-edge session \
-             (or reinstall) so client and daemon match",
-            welcome.protocol,
-            protocol_version()
-        );
     }
 }
 

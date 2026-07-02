@@ -7,7 +7,10 @@
 //! minimal connect-or-spawn against the socket directly. Blocking I/O on a
 //! one-shot CLI invocation is fine.
 
-use super::protocol::{protocol_version, PleaseExit};
+use super::protocol::{
+    client_hello, daemon_too_new_message, handshake_decision, please_exit, HandshakeDecision,
+    DAEMON_HANDSHAKE_IO_TIMEOUT, DAEMON_RESPAWN_GRACE, DAEMON_STARTUP_TIMEOUT,
+};
 use super::socket_path;
 use super::spawn::spawn_detached_daemon;
 use crate::config;
@@ -17,7 +20,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
-const HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_RESPONSE_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const SLOW_RESPONSE_IO_TIMEOUT: Duration = Duration::from_secs(25);
 
@@ -43,7 +45,7 @@ where
             Ok(Outcome::Ok(v)) => return Ok(v),
             Ok(Outcome::Err(_code, msg)) => bail!("{msg}"),
             Ok(Outcome::SkewExit) => {
-                std::thread::sleep(Duration::from_millis(200));
+                std::thread::sleep(DAEMON_RESPAWN_GRACE);
                 spawn()?;
             }
             Err(e) => {
@@ -70,7 +72,18 @@ where
 /// surfaces (the statusline) that must render nothing when no daemon is running
 /// rather than booting one just to draw a line.
 pub fn call_no_spawn(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
-    match try_call(method, &params).map_err(TryCallFailure::into_error)? {
+    call_no_spawn_with_attempt(method, &params, try_call)
+}
+
+fn call_no_spawn_with_attempt<F>(
+    method: &str,
+    params: &serde_json::Value,
+    mut attempt: F,
+) -> Result<serde_json::Value>
+where
+    F: FnMut(&str, &serde_json::Value) -> std::result::Result<Outcome, TryCallFailure>,
+{
+    match attempt(method, params).map_err(TryCallFailure::into_error)? {
         Outcome::Ok(v) => Ok(v),
         Outcome::Err(_code, msg) => bail!("{msg}"),
         Outcome::SkewExit => bail!("daemon protocol skew; awaiting respawn"),
@@ -131,10 +144,10 @@ fn try_call(
         .context("connecting to daemon socket")
         .map_err(TryCallFailure::before)?;
     stream
-        .set_read_timeout(Some(HANDSHAKE_IO_TIMEOUT))
+        .set_read_timeout(Some(DAEMON_HANDSHAKE_IO_TIMEOUT))
         .map_err(|e| TryCallFailure::before(e.into()))?;
     stream
-        .set_write_timeout(Some(HANDSHAKE_IO_TIMEOUT))
+        .set_write_timeout(Some(DAEMON_HANDSHAKE_IO_TIMEOUT))
         .map_err(|e| TryCallFailure::before(e.into()))?;
     let mut w = stream
         .try_clone()
@@ -142,12 +155,9 @@ fn try_call(
     let mut r = BufReader::new(stream);
 
     // hello → welcome.
-    writeln!(
-        w,
-        "{}",
-        serde_json::json!({"protocol": protocol_version(), "client_version": env!("CARGO_PKG_VERSION")})
-    )
-    .map_err(|e| TryCallFailure::before(e.into()))?;
+    let hello =
+        serde_json::to_string(&client_hello()).map_err(|e| TryCallFailure::before(e.into()))?;
+    writeln!(w, "{hello}").map_err(|e| TryCallFailure::before(e.into()))?;
     let mut welcome_line = String::new();
     if r.read_line(&mut welcome_line)
         .map_err(|e| TryCallFailure::before(e.into()))?
@@ -160,21 +170,25 @@ fn try_call(
     let welcome: serde_json::Value =
         serde_json::from_str(welcome_line.trim()).map_err(|e| TryCallFailure::before(e.into()))?;
     let dproto = welcome["protocol"].as_u64().unwrap_or(0) as u32;
-    if dproto < protocol_version() {
-        // Older daemon under a newer binary: ask it to exit, then respawn.
-        let please_exit = serde_json::to_string(&PleaseExit {
-            protocol: protocol_version(),
-        })
-        .map_err(|e| TryCallFailure::before(e.into()))?;
-        writeln!(w, "{please_exit}").map_err(|e| TryCallFailure::before(e.into()))?;
-        let _ = w.flush();
-        return Ok(Outcome::SkewExit);
-    }
-    if dproto > protocol_version() {
-        let mine = protocol_version();
-        return Err(TryCallFailure::before(anyhow!(
-            "daemon protocol {dproto} is newer than this binary's {mine} — restart your tenex-edge session (or reinstall)"
-        )));
+    match handshake_decision(dproto) {
+        HandshakeDecision::Ready => {}
+        HandshakeDecision::AskOlderDaemonToExit => {
+            // Older daemon under a newer binary: ask it to exit, then respawn.
+            let exit_frame = serde_json::to_string(&please_exit())
+                .map_err(|e| TryCallFailure::before(e.into()))?;
+            writeln!(w, "{exit_frame}").map_err(|e| TryCallFailure::before(e.into()))?;
+            let _ = w.flush();
+            return Ok(Outcome::SkewExit);
+        }
+        HandshakeDecision::DaemonTooNew {
+            daemon_protocol,
+            client_protocol,
+        } => {
+            return Err(TryCallFailure::before(anyhow!(daemon_too_new_message(
+                daemon_protocol,
+                client_protocol
+            ))));
+        }
     }
 
     // request → response.
@@ -233,7 +247,7 @@ fn spawn_if_absent() -> Result<()> {
     config::ensure_dir(&config::edge_home())?;
 
     let mut noted_wait = false;
-    let wait_deadline = Instant::now() + Duration::from_secs(30);
+    let wait_deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < wait_deadline {
         if daemon_answers_ping() {
             return Ok(());
@@ -256,7 +270,7 @@ fn spawn_if_absent() -> Result<()> {
     }
 
     let mut noted_ready = false;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < deadline {
         if daemon_answers_ping() {
             return Ok(());
