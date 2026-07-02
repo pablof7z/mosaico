@@ -32,10 +32,14 @@ pub async fn run() -> Result<()> {
 
     // One relay connection. AUTH identity is irrelevant to delivery (verified:
     // an A-authed connection receives events p-tagged to B), so authenticate
-    // with a stable daemon key and sign each event with its true author.
-    let auth_keys = identity::load_or_create(&config::edge_home(), "tenex-edge-daemon", now_secs())
-        .map(|i| i.keys)
-        .unwrap_or_else(|_| Keys::generate());
+    // with the backend's own key (`tenexPrivateKey`) rather than minting a
+    // separate identity — a fresh keystore file would land in the same
+    // `agents/` directory as real agents and leak into `who`/invite listings
+    // as a phantom agent.
+    let auth_keys = cfg
+        .backend_nsec()
+        .and_then(|nsec| Keys::parse(nsec).ok())
+        .unwrap_or_else(Keys::generate);
     // The indexer relay is added to the pool as READ-only and targeted
     // explicitly for kind:0 profile publishes via `publish_event_to`. It MUST
     // NOT be in the WRITE relay set: the indexer (purplepag.es) rejects all
