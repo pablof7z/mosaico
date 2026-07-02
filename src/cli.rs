@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 mod admin;
 mod args;
+mod context;
 mod debug;
 mod hooks;
 mod install;
@@ -73,29 +74,11 @@ pub(crate) fn tmux_pane_env() -> Option<String> {
     std::env::var("TMUX_PANE").ok().filter(|s| !s.is_empty())
 }
 
-/// The caller-identity fields every in-session RPC sends so the daemon resolves
-/// "which session am I" identically (SSOT — the daemon mirror is
-/// `CallerAnchor::from_params`). One definition keeps senders from drifting (an
-/// earlier hand-rolled `invite` payload silently dropped `tmux_pane`). Merge
-/// call-specific fields on top with [`rpc_params`].
+/// Build the typed caller identity and project it into the daemon's stable RPC
+/// JSON shape. One definition keeps senders from drifting; merge call-specific
+/// fields on top with [`rpc_params`].
 pub(crate) fn caller_identity() -> serde_json::Value {
-    let tmux_pane = tmux_pane_env();
-    let watch_anchor = if tmux_pane.is_none() {
-        hooks::caller_watch_pid_anchor()
-    } else {
-        None
-    };
-    let (harness, watch_pid) = watch_anchor
-        .map(|(harness, pid)| (Some(harness), Some(pid)))
-        .unwrap_or((None, None));
-    serde_json::json!({
-        "tmux_pane": tmux_pane,
-        "harness": harness,
-        "watch_pid": watch_pid,
-        "agent": agent_env_slug(),
-        "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-        "group": channel_env(),
-    })
+    context::InvocationContext::from_current_process().to_rpc_json()
 }
 
 /// Build RPC params = the caller-identity fields plus `extra` (which wins on any
