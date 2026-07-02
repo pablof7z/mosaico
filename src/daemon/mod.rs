@@ -11,6 +11,7 @@ pub mod blocking;
 pub mod client;
 pub mod protocol;
 pub mod server;
+pub(crate) mod storage_paths;
 pub mod tail_event;
 
 mod spawn;

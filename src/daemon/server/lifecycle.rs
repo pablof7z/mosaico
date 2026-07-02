@@ -1,8 +1,9 @@
 use super::*;
 
 pub async fn run() -> Result<()> {
-    config::ensure_dir(&config::edge_home())?;
-    crate::logging::init_daemon_logging(&crate::daemon::log_path())?;
+    let storage = crate::daemon::storage_paths::StoragePaths::current();
+    config::ensure_dir(&storage.edge_home)?;
+    crate::logging::init_daemon_logging(&storage.daemon_log_path)?;
 
     let lock = match StartupLock::try_acquire()? {
         Some(l) => l,
@@ -12,6 +13,17 @@ pub async fn run() -> Result<()> {
         }
     };
     let listener = bind_socket()?;
+    tracing::info!(
+        edge_home = %storage.edge_home.display(),
+        config = %storage.config_path.display(),
+        socket = %storage.socket_path.display(),
+        state_db = %storage.state_db_path.display(),
+        daemon_log = %storage.daemon_log_path.display(),
+        lock = %storage.lock_path.display(),
+        tenex_edge_home_set = storage.tenex_edge_home_set,
+        edge_home_is_default = storage.edge_home_is_default,
+        "daemon storage paths"
+    );
     tracing::info!(socket = %socket_path().display(), "daemon listening");
 
     let cfg = Config::load().context("loading config")?;

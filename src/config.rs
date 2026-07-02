@@ -6,10 +6,15 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_RELAY: &str = "wss://nip29.f7z.io";
 pub const DEFAULT_INDEXER_RELAY: &str = "wss://purplepag.es";
+pub const ISOLATED_HOME_ACK_ENV: &str = "TENEX_EDGE_ISOLATED_HOME_OK";
+const MISSING_HOME_MESSAGE: &str =
+    "neither TENEX_EDGE_HOME nor HOME is set: refusing to relocate keystore/config/state.db \
+     under ./.tenex-edge (would mint new agent identities and empty the trust whitelist)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -156,13 +161,36 @@ pub fn config_path() -> PathBuf {
     edge_home().join("config.json")
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeHomeSelection {
+    pub edge_home: PathBuf,
+    pub default_edge_home: Option<PathBuf>,
+    pub tenex_edge_home_set: bool,
+    pub edge_home_is_default: bool,
+}
+
 /// tenex-edge's own writable root. Override with `$TENEX_EDGE_HOME` (tests use
 /// this for isolation). Default: `~/.tenex-edge`.
 pub fn edge_home() -> PathBuf {
-    if let Ok(p) = std::env::var("TENEX_EDGE_HOME") {
-        return PathBuf::from(p);
-    }
-    home_dir().join(".tenex-edge")
+    edge_home_selection().edge_home
+}
+
+pub fn edge_home_selection() -> EdgeHomeSelection {
+    select_edge_home(
+        std::env::var_os("TENEX_EDGE_HOME"),
+        std::env::var_os("HOME"),
+    )
+    .unwrap_or_else(|message| panic!("{message}"))
+}
+
+pub fn isolated_home_acknowledged() -> bool {
+    matches!(
+        std::env::var(ISOLATED_HOME_ACK_ENV)
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
 }
 
 pub fn ensure_dir(p: &Path) -> Result<()> {
@@ -170,17 +198,38 @@ pub fn ensure_dir(p: &Path) -> Result<()> {
     Ok(())
 }
 
-fn home_dir() -> PathBuf {
-    // Identity-root invariant. `edge_home` checks TENEX_EDGE_HOME first, so we
-    // only reach here when that override is absent. With HOME ALSO unset (a
-    // stripped launchd/cron env), defaulting to "." would relocate the keystore,
-    // config, and state.db under ./.tenex-edge — agents would mint NEW identities
-    // and the trust whitelist would empty. Refuse to run rather than guess.
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty()).expect(
-        "neither TENEX_EDGE_HOME nor HOME is set: refusing to relocate keystore/config/state.db \
-             under ./.tenex-edge (would mint new agent identities and empty the trust whitelist)",
-    );
-    PathBuf::from(home)
+fn select_edge_home(
+    tenex_edge_home: Option<OsString>,
+    home: Option<OsString>,
+) -> std::result::Result<EdgeHomeSelection, &'static str> {
+    let default_edge_home = home
+        .filter(|h| !h.as_os_str().is_empty())
+        .map(PathBuf::from)
+        .map(|h| h.join(".tenex-edge"));
+
+    if let Some(edge_home) = tenex_edge_home {
+        let edge_home = PathBuf::from(edge_home);
+        let edge_home_is_default = default_edge_home
+            .as_ref()
+            .map(|default| default == &edge_home)
+            .unwrap_or(false);
+        return Ok(EdgeHomeSelection {
+            edge_home,
+            default_edge_home,
+            tenex_edge_home_set: true,
+            edge_home_is_default,
+        });
+    }
+
+    let Some(edge_home) = default_edge_home.clone() else {
+        return Err(MISSING_HOME_MESSAGE);
+    };
+    Ok(EdgeHomeSelection {
+        edge_home,
+        default_edge_home,
+        tenex_edge_home_set: false,
+        edge_home_is_default: true,
+    })
 }
 
 pub fn hostname() -> String {
@@ -205,90 +254,4 @@ pub fn hostname() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_real_tenex_shape_with_camelcase() {
-        let json = r#"{
-            "version": 3,
-            "whitelistedPubkeys": ["aa", "bb"],
-            "backendName": "pablos' laptop",
-            "tenexPrivateKey": "deadbeef"
-        }"#;
-        let c = Config::from_json_str(json, "fallback").unwrap();
-        assert_eq!(c.whitelisted_pubkeys, vec!["aa", "bb"]);
-        assert_eq!(c.host, "pablos' laptop");
-        assert_eq!(c.relays, vec![DEFAULT_RELAY]); // defaulted
-        assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY); // defaulted
-        assert_eq!(c.tenex_private_key.as_deref(), Some("deadbeef"));
-        assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("deadbeef"));
-        assert_eq!(c.management_nsec().map(String::as_str), Some("deadbeef"));
-        assert_eq!(c.backend_nsec().map(String::as_str), Some("deadbeef"));
-        assert!(c.user_nsec().is_none());
-    }
-
-    #[test]
-    fn key_accessors_split_when_both_present() {
-        let json = r#"{
-            "whitelistedPubkeys": [],
-            "userNsec": "operatorkey",
-            "tenexPrivateKey": "backendkey"
-        }"#;
-        let c = Config::from_json_str(json, "host").unwrap();
-        // session derivation + management + backend identity all use the
-        // backend key; the operator key is only for user prompts + admin grant.
-        assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("backendkey"));
-        assert_eq!(c.management_nsec().map(String::as_str), Some("backendkey"));
-        assert_eq!(c.backend_nsec().map(String::as_str), Some("backendkey"));
-        assert_eq!(c.user_nsec().map(String::as_str), Some("operatorkey"));
-    }
-
-    #[test]
-    fn user_nsec_alone_is_not_a_management_key() {
-        let json = r#"{ "userNsec": "operatorkey" }"#;
-        let c = Config::from_json_str(json, "host").unwrap();
-        // No tenexPrivateKey → no management, session derivation, or backend.
-        assert!(c.management_nsec().is_none());
-        assert!(c.session_ikm_nsec().is_none());
-        assert!(c.backend_nsec().is_none());
-        // The operator key is still available for user prompts + admin grant.
-        assert_eq!(c.user_nsec().map(String::as_str), Some("operatorkey"));
-    }
-
-    #[test]
-    fn explicit_relays_win_and_host_falls_back() {
-        let json = r#"{"whitelistedPubkeys":[],"relays":["wss://r1","wss://r2"]}"#;
-        let c = Config::from_json_str(json, "fallback-host").unwrap();
-        assert_eq!(c.relays, vec!["wss://r1", "wss://r2"]);
-        assert_eq!(c.host, "fallback-host");
-        assert!(c.whitelisted_pubkeys.is_empty());
-        assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY);
-    }
-
-    #[test]
-    fn custom_indexer_relay() {
-        let json = r#"{"indexerRelay":"wss://my-indexer.example"}"#;
-        let c = Config::from_json_str(json, "host").unwrap();
-        assert_eq!(c.indexer_relay, "wss://my-indexer.example");
-    }
-
-    #[test]
-    fn per_session_rooms_defaults_off_and_parses_when_set() {
-        let off = Config::from_json_str(r#"{"whitelistedPubkeys":[]}"#, "host").unwrap();
-        assert!(!off.per_session_rooms);
-        let on = Config::from_json_str(
-            r#"{"whitelistedPubkeys":[],"perSessionRooms":true}"#,
-            "host",
-        )
-        .unwrap();
-        assert!(on.per_session_rooms);
-    }
-
-    #[test]
-    fn edge_home_honors_override() {
-        std::env::set_var("TENEX_EDGE_HOME", "/tmp/te-test-home");
-        assert_eq!(edge_home(), PathBuf::from("/tmp/te-test-home"));
-        std::env::remove_var("TENEX_EDGE_HOME");
-    }
-}
+mod tests;

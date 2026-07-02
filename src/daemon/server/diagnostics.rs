@@ -10,6 +10,7 @@ pub(in crate::daemon::server) async fn rpc_doctor(
     // The probe's wire shape lives in the provider; readers only see strings.
     let (publish, readback) = state.provider.doctor_probe().await;
     Ok(serde_json::json!({
+        "storage": crate::daemon::storage_paths::StoragePaths::current(),
         "relays": relays,
         "probe_pubkey": probe,
         "publish": publish,

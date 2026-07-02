@@ -39,6 +39,8 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: ProjectAction,
     },
+    /// Diagnose daemon relay and storage-path configuration.
+    Doctor,
     /// Manage NIP-29 subgroup task channels under a project (create, join, leave, list, switch).
     Channels {
         #[command(subcommand)]

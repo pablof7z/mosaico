@@ -177,6 +177,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             } => messaging::chat_read(id, since, limit, offset, tail, live, channel).await,
         },
         Cmd::Project { action } => admin::project(action).await,
+        Cmd::Doctor => admin::doctor().await,
         Cmd::Channels { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Agents { action } => admin::agents(action).await,
