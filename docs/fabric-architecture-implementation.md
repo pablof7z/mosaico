@@ -179,8 +179,6 @@ pub enum RawEnvelope {
 pub struct Scope {
     pub authors: Vec<String>,
     pub project: Option<String>,
-    pub mentions_to: Option<String>,
-    pub owners: Vec<String>,
 }
 
 pub trait Delivery {

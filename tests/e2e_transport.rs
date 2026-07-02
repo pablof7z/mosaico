@@ -32,8 +32,6 @@ async fn publishes_and_decodes_all_event_types() {
     let scope = Scope {
         authors: vec![agent_pk.clone()],
         project: Some(project.clone()),
-        mentions_to: Some(reader_pk.clone()),
-        owners: Vec::new(),
     };
     reader
         .subscribe(scope_filters(&scope))

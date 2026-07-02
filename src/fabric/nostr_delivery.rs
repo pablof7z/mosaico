@@ -35,7 +35,7 @@ impl Delivery for NostrDelivery {
 
 /// Build relay subscription filters for a given `Scope`.
 ///
-/// The test `filters_cover_all_kinds_and_mentions` directly exercises this
+/// The test `scope_filters_cover_project_kinds` directly exercises this
 /// function so subscription drift is caught at the delivery seam.
 pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
     let authors: Vec<PublicKey> = scope
@@ -107,13 +107,10 @@ mod tests {
     use nostr_sdk::prelude::Keys;
 
     #[test]
-    fn filters_cover_all_kinds_and_mentions() {
-        let me = Keys::generate().public_key().to_hex();
+    fn scope_filters_cover_project_kinds() {
         let scope = crate::fabric::Scope {
             authors: vec![Keys::generate().public_key().to_hex()],
             project: Some("tenex-edge".into()),
-            mentions_to: Some(me),
-            owners: vec![Keys::generate().public_key().to_hex()],
         };
         let filters = scope_filters(&scope);
         // profiles, presence/status, chat (kind:9), and NIP-29

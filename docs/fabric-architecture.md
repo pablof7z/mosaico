@@ -49,10 +49,10 @@ Two observations drive the whole design:
 
    **Principle:** the domain `is_member` gate is *always* consulted client-side;
    server/crypto enforcement is defense-in-depth, never a replacement. legacy-tag has
-   no server enforcement at all, and even nip29 has un-scoped inbound paths (a
-   direct p-tagged note reaches us via the `mentions_to` filter without the relay
-   ever checking group membership). So the gate can never be skipped — which is
-   exactly why it lives in the domain, above the provider seam.
+   no server enforcement at all, and even nip29 has inbound p-tag paths outside
+   the group `#h` stream: the daemon's aggregate `#p` subscription receives them
+   without a relay-side group-membership check. So the gate can never be skipped
+   — which is exactly why it lives in the domain, above the provider seam.
 
 2. **Lifecycle events have provider-specific side-effects.** "I run claude-code
    in a never-seen directory" is one domain event — `ProjectOpened` — that each
