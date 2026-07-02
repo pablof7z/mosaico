@@ -32,7 +32,7 @@ pub use admin::render_fabric;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
 pub use args::Cli;
-use args::{AgentAction, ChannelsAction, Cmd, DebugAction, HarnessAction, ProjectAction};
+use args::{AgentAction, ChannelsAction, Cmd, HarnessAction, ProjectAction};
 pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub(crate) use turn::{turn_check_audit, turn_start_audit};
@@ -162,24 +162,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             tmux_cli::launch(slug, project, channel, override_command, extra_args).await
         }
         Cmd::Stop => stop_daemon(),
-        Cmd::Debug { action } => match action {
-            DebugAction::HookTail {
-                projects,
-                session,
-                panes,
-                refresh_ms,
-            } => debug::hook_tail(debug::HookTailOpts {
-                projects,
-                session,
-                panes,
-                refresh: Duration::from_millis(refresh_ms.max(100)),
-            }),
-            DebugAction::Outbox {
-                live,
-                limit,
-                refresh_ms,
-            } => debug::outbox(live, limit, Duration::from_millis(refresh_ms.max(100))).await,
-        },
+        Cmd::Debug { action } => debug::debug(action).await,
         Cmd::Install {
             all,
             harness,

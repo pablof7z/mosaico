@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+use super::debug::DebugAction;
 use super::messaging::ChatAction;
 
 #[derive(Parser)]
@@ -318,37 +319,6 @@ pub(super) enum ChannelsAction {
     Switch {
         /// Channel name, project-relative path, or opaque NIP-29 `h` value.
         channel: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub(super) enum DebugAction {
-    /// Live TUI for hook injections and tenex-edge command invocations.
-    HookTail {
-        /// Filter panes/events to one or more projects (repeatable).
-        #[arg(long = "project")]
-        projects: Vec<String>,
-        /// Filter panes/events to a session id (or a unique prefix of it).
-        #[arg(long)]
-        session: Option<String>,
-        /// Maximum panes in the grid.
-        #[arg(long, default_value = "6")]
-        panes: usize,
-        /// Refresh interval in milliseconds.
-        #[arg(long, default_value = "1000")]
-        refresh_ms: u64,
-    },
-    /// Inspect the status publish outbox.
-    Outbox {
-        /// Keep printing the outbox state until interrupted.
-        #[arg(long)]
-        live: bool,
-        /// Maximum rows to show.
-        #[arg(long, default_value = "50")]
-        limit: u64,
-        /// Refresh interval in milliseconds when --live is set.
-        #[arg(long, default_value = "1000")]
-        refresh_ms: u64,
     },
 }
 

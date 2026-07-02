@@ -1,3 +1,4 @@
+mod args;
 mod data;
 mod loader;
 mod render;
@@ -5,6 +6,7 @@ mod state;
 mod util;
 
 // Re-export public items for cli.rs to use
+pub(super) use args::{debug, DebugAction};
 pub use data::HookTailOpts;
 
 // Wrapper to match the original signature
