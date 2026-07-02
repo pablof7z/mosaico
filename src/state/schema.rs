@@ -1,9 +1,12 @@
-//! The single, fresh persistence schema (no backwards compat, no migrations).
+//! The stamped persistence schema (no backwards-compatible migrations).
 //!
-//! Thirteen tables: six `relay_*` materialized caches (rebuildable from the relay)
-//! and seven pieces of local plumbing the relay can't carry. See the design doc in
-//! the repo's persistence-rewrite target schema for the rationale behind every
-//! column. A pubkey appears AT MOST ONCE per channel (enforced via primary key).
+//! Six `relay_*` tables are materialized caches and may be dropped/rebuilt from
+//! relay state. The remaining local tables are non-rebuildable daemon state:
+//! session bindings, aliases, derived identities, inbox/outbox ledgers, and
+//! project path mappings. A pubkey appears AT MOST ONCE per channel (enforced via
+//! primary key).
+
+pub(super) const SCHEMA_VERSION: u32 = 1;
 
 pub(super) const SCHEMA: &str = r#"
 -- ── relay_* materialized caches (drop & rebuild from relay anytime) ───────────

@@ -12,7 +12,19 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
         loop {
             tick.tick().await;
             let now = now_secs();
-            let before = now.saturating_sub(PRUNE_PEER_AFTER_SECS);
+            match state.with_store(|s| s.prune_retained_state(now)) {
+                Ok(report) if report.total() > 0 => tracing::debug!(
+                    relay_events = report.relay_events,
+                    delivered_inbox = report.delivered_inbox,
+                    published_outbox = report.published_outbox,
+                    "pruned retained state"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::error!(
+                    error = %format!("{e:#}"),
+                    "state retention prune failed"
+                ),
+            }
 
             // Identify which peer sessions will be pruned by checking the map
             // against sessions that are about to expire.
@@ -42,7 +54,6 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
                         .cloned()
                         .collect()
                 });
-            let _ = before;
 
             // Emit Leave for tuples that were in our map but are now expired.
             let to_leave: Vec<((String, String), PeerTracked)> = {

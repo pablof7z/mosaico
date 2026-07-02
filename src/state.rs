@@ -227,7 +227,7 @@ pub(super) fn mint_session_id() -> String {
 }
 
 mod schema;
-use schema::SCHEMA;
+use schema::{SCHEMA, SCHEMA_VERSION};
 
 mod aliases;
 mod channels;
@@ -239,6 +239,10 @@ mod members;
 mod outbox;
 mod profiles;
 mod project_roots;
+mod retention;
+pub use retention::{
+    RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
+};
 mod sessions;
 mod status;
 

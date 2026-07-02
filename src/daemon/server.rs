@@ -49,8 +49,6 @@ use background::spawn_pruner;
 use demux::spawn_demux;
 use orchestration_handler::handle_orchestration;
 
-const PRUNE_PEER_AFTER_SECS: u64 = 600;
-
 #[derive(Clone)]
 struct HostedAgent {
     keys: Keys,

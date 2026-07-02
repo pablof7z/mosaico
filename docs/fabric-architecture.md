@@ -125,12 +125,15 @@ holds a `Provider`, names a kind, or touches the wire. This is CQRS, and it is
 exactly why the daemon can solely own `state.db`: providers write, IPC clients
 read.
 
-This store already exists — `~/.tenex-edge/state.db`, with `profiles`,
-`peer_sessions`, `inbox`, `agent_status`, `project_meta`, … The architecture
-**extends** it; it does not define a new one. And the
-**single-writer materializer is the direct fix for the multi-writer `state.db`
-corruption** already hit when ~16 per-session processes wrote concurrently: one
-daemon owns the writer, every session/CLI is a read-only IPC client.
+This store already exists — `~/.tenex-edge/state.db`. Its `relay_*` tables are
+materialized projections that can be rebuilt from the fabric; its local tables
+(`sessions`, `session_channels`, `session_aliases`, `identities`, `inbox`,
+`outbox`, and `project_roots`) are non-rebuildable daemon state. The schema is
+stamped at open, so an incompatible or unstamped existing DB fails loudly instead
+of being partially interpreted. The **single-writer materializer is the direct
+fix for the multi-writer `state.db` corruption** already hit when ~16
+per-session processes wrote concurrently: one daemon owns the writer, every
+session/CLI is a read-only IPC client.
 
 ```mermaid
 flowchart LR
@@ -399,5 +402,6 @@ The behavior-preserving phase ladder and validation commands live in [fabric-arc
 - **Multi-fabric at once** — can a daemon run nip29 *and* legacy-tag providers
   concurrently (one project per fabric), and are rosters ever merged across
   providers or always partitioned by `project_id` / `project_origins`?
-- **Store schema versioning** — once the read model is the contract, migrations
-  need an explicit compatibility policy for older daemons and clients.
+- **Store schema evolution** — the current policy is fail-loud schema stamps, not
+  in-place migrations. A future migration system would need an explicit export /
+  transform / import story for non-rebuildable local state.
