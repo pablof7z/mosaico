@@ -113,15 +113,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         eprintln!("[tenex-edge] stop inhibit cleared");
     }
     match cli.cmd {
-        Cmd::Publish {
-            title,
-            message,
-            d,
-            session,
-        } => {
-            let body = messaging::resolve_send_message_body(message)?;
-            messaging::publish(title, body, d, session).await
-        }
+        Cmd::Publish(args) => messaging::publish(args).await,
         Cmd::Who(args) => who::who(args),
         Cmd::Chat { action } => messaging::chat(action).await,
         Cmd::Project { action } => admin::project(action).await,
