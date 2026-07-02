@@ -99,6 +99,7 @@ pub async fn run() -> Result<()> {
         seen_profiles: Mutex::new(std::collections::HashSet::new()),
         last_status: Mutex::new(HashMap::new()),
         outbox_notify: Notify::new(),
+        status_ttl: status_ttl_duration(),
         session_keys: Mutex::new(HashMap::new()),
         session_signers: Mutex::new(HashMap::new()),
         backend_pubkey,

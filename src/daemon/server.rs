@@ -116,6 +116,8 @@ pub struct DaemonState {
     last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
     /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
     outbox_notify: Notify,
+    /// Configured liveness window for kind:30315 NIP-40 expirations.
+    status_ttl: Duration,
     /// Per-session derived keypairs for duplicate live signers. The durable
     /// agent key remains the default; this map is populated only when a second
     /// live session of the same durable agent joins the same routing scope.
@@ -390,4 +392,11 @@ fn env_u64(key: &str, default: u64) -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+fn status_ttl_duration() -> Duration {
+    Duration::from_secs(env_u64(
+        "TENEX_EDGE_STATUS_TTL_S",
+        crate::domain::STATUS_TTL_SECS,
+    ))
 }

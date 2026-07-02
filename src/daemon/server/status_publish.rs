@@ -11,6 +11,7 @@ pub(in crate::daemon::server) fn status_from_session(
     host: &str,
     now: u64,
 ) -> crate::domain::Status {
+    let expires_at = now.saturating_add(state.status_ttl.as_secs());
     crate::domain::Status {
         agent: instance.agent_ref(),
         channels: status_channels(state, rec),
@@ -20,7 +21,7 @@ pub(in crate::daemon::server) fn status_from_session(
         activity: rec.activity.clone(),
         busy: rec.working,
         rel_cwd: String::new(),
-        expires_at: Some(now + crate::domain::STATUS_TTL_SECS),
+        expires_at: Some(expires_at),
     }
 }
 
@@ -44,6 +45,7 @@ fn status_channels(state: &Arc<DaemonState>, rec: &Session) -> Vec<String> {
 /// Reflect a just-published status into the local `relay_status` cache so liveness
 /// is visible immediately (without waiting for the relay to echo the 30315 back).
 fn cache_status(state: &Arc<DaemonState>, st: &crate::domain::Status, signer: &str, now: u64) {
+    let fallback_expiration = now.saturating_add(state.status_ttl.as_secs());
     state.with_store(|s| {
         for channel in &st.channels {
             let row = crate::state::Status {
@@ -56,9 +58,7 @@ fn cache_status(state: &Arc<DaemonState>, st: &crate::domain::Status, signer: &s
                 busy: st.busy,
                 last_seen: now,
                 updated_at: now,
-                expiration: st
-                    .expires_at
-                    .unwrap_or(now + crate::domain::STATUS_TTL_SECS),
+                expiration: st.expires_at.unwrap_or(fallback_expiration),
             };
             s.upsert_status(&row).ok();
         }
@@ -67,8 +67,8 @@ fn cache_status(state: &Arc<DaemonState>, st: &crate::domain::Status, signer: &s
 
 /// Heartbeat re-arm: every `HEARTBEAT_SECS`, re-publish the current kind:30315 for
 /// every live locally-hosted session so its NIP-40 `expiration` is pushed forward
-/// to `now + STATUS_TTL_SECS`. Without this a live-but-idle session's relay event
-/// would expire after `STATUS_TTL_SECS` and read as gone. This is the piece that
+/// to `now + status_ttl`. Without this a live-but-idle session's relay event
+/// would expire after the configured TTL and read as gone. This is the piece that
 /// turns store-side freshness into relay liveness.
 pub(in crate::daemon::server) fn spawn_status_heartbeat_publisher(state: Arc<DaemonState>) {
     tokio::spawn(async move {
@@ -76,7 +76,7 @@ pub(in crate::daemon::server) fn spawn_status_heartbeat_publisher(state: Arc<Dae
         loop {
             tick.tick().await;
             let now = now_secs();
-            let fresh_since = now.saturating_sub(crate::domain::STATUS_TTL_SECS);
+            let fresh_since = now.saturating_sub(state.status_ttl.as_secs());
             let sessions = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
             for rec in sessions {
                 // Skip sessions that haven't heartbeat locally within the TTL (and

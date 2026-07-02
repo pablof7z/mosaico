@@ -19,7 +19,7 @@
 //! `is_channel_admin`, never a local owns-group flag.
 
 use crate::distill;
-use crate::domain::{DomainEvent, Profile, Status, STATUS_TTL_SECS};
+use crate::domain::{DomainEvent, Profile, Status};
 use crate::fabric::provider::Nip29Provider;
 use crate::state::{Session, Store};
 use crate::util::now_secs;
@@ -93,7 +93,7 @@ impl EngineParams {
 
 /// Build the kind:30315 the engine publishes for the current local draft. Idle
 /// sessions clear the live activity line (only the persistent title survives);
-/// the NIP-40 `expiration` re-arms liveness to `now + STATUS_TTL_SECS`.
+/// the NIP-40 `expiration` re-arms liveness to `now + p.status_ttl`.
 fn status_for(p: &EngineParams, session: &Session, channels: Vec<String>, now: u64) -> Status {
     let busy = session.working;
     Status {
@@ -109,7 +109,7 @@ fn status_for(p: &EngineParams, session: &Session, channels: Vec<String>, now: u
         },
         busy,
         rel_cwd: p.rel_cwd.clone(),
-        expires_at: Some(now + STATUS_TTL_SECS),
+        expires_at: Some(now.saturating_add(p.status_ttl.as_secs())),
     }
 }
 
@@ -413,5 +413,51 @@ mod tests {
     #[test]
     fn current_pid_is_alive() {
         assert!(pid_alive(std::process::id() as i32));
+    }
+
+    #[test]
+    fn status_for_uses_configured_ttl() {
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        let params = EngineParams {
+            instance: crate::identity::AgentInstance::base("agent".to_string(), pubkey),
+            base_keys: keys,
+            project: "project".to_string(),
+            session_id: "session".to_string(),
+            host: "host".to_string(),
+            rel_cwd: ".".to_string(),
+            owners: Vec::new(),
+            relays: Vec::new(),
+            watch_pid: None,
+            store_path: PathBuf::from(":memory:"),
+            heartbeat: Duration::from_secs(30),
+            obs_interval: Duration::from_secs(5),
+            status_ttl: Duration::from_secs(7),
+            turn_first: Duration::from_secs(30),
+            turn_repeat: Duration::from_secs(0),
+        };
+        let session = Session {
+            session_id: "session".to_string(),
+            agent_pubkey: String::new(),
+            agent_slug: "agent".to_string(),
+            channel_h: "project".to_string(),
+            harness: "test".to_string(),
+            child_pid: None,
+            transcript_path: None,
+            alive: true,
+            created_at: 0,
+            last_seen: 0,
+            working: true,
+            turn_started_at: 0,
+            last_distill_at: 0,
+            seen_cursor: 0,
+            title: "title".to_string(),
+            activity: "activity".to_string(),
+            resume_id: String::new(),
+        };
+
+        let status = status_for(&params, &session, vec!["project".to_string()], 1_000);
+
+        assert_eq!(status.expires_at, Some(1_007));
     }
 }
