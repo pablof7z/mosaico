@@ -1,14 +1,17 @@
-//! `inbox` — the inbound routing ledger AND the idempotency record.
+//! `inbox` — the inbound routing ledger AND local inbound idempotency records.
 //!
 //! One row per (inbound event, target local session). An event is "handled"
-//! because a row exists; there is no separate processed-orchestration table. A
-//! row starts `pending` (parked for the next hook) and becomes `delivered` once
-//! injected into a live tmux.
+//! because a row exists. Direct-message rows start `pending` (parked for the next
+//! hook) and become `delivered` once injected into a live tmux. Orchestration
+//! target claims reuse the same ledger with synthetic `target_session` keys:
+//! `processing` while a backend is mutating that target, `pending` when it should
+//! be retried, and `delivered` once that exact target is complete.
 
 use super::*;
 
 const COLS: &str = "event_id, target_session, state, from_pubkey, channel_h, body, created_at, \
      delivered_at";
+const ORCHESTRATION_PROCESSING_LEASE_SECS: u64 = 10 * 60;
 
 fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
     Ok(InboxRow {
@@ -166,4 +169,70 @@ impl Store {
             .optional()?
             .is_some())
     }
+
+    /// Claim one backend orchestration target for processing. Returns `true`
+    /// only when the caller should process it now. Completed targets and live
+    /// in-flight claims return `false`; failed targets are returned to `pending`
+    /// by [`Store::retry_orchestration_target`] and can be claimed again.
+    pub fn claim_orchestration_target(
+        &self,
+        event_id: &str,
+        target_key: &str,
+        from_pubkey: &str,
+        channel_h: &str,
+        body: &str,
+        now: u64,
+    ) -> Result<bool> {
+        let stale_before = now.saturating_sub(ORCHESTRATION_PROCESSING_LEASE_SECS);
+        let n = self.conn.execute(
+            "INSERT INTO inbox
+                 (event_id, target_session, state, from_pubkey, channel_h, body, created_at, delivered_at)
+             VALUES (?1, ?2, 'processing', ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(event_id, target_session) DO UPDATE SET
+                 state='processing',
+                 from_pubkey=excluded.from_pubkey,
+                 channel_h=excluded.channel_h,
+                 body=excluded.body,
+                 delivered_at=excluded.delivered_at
+             WHERE inbox.state='pending'
+                OR (inbox.state='processing' AND inbox.delivered_at < ?7)",
+            params![
+                event_id,
+                target_key,
+                from_pubkey,
+                channel_h,
+                body,
+                now,
+                stale_before
+            ],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn complete_orchestration_target(
+        &self,
+        event_id: &str,
+        target_key: &str,
+        now: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE inbox SET state='delivered', delivered_at=?3
+             WHERE event_id=?1 AND target_session=?2",
+            params![event_id, target_key, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn retry_orchestration_target(&self, event_id: &str, target_key: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE inbox SET state='pending', delivered_at=0
+             WHERE event_id=?1 AND target_session=?2 AND state='processing'",
+            params![event_id, target_key],
+        )?;
+        Ok(())
+    }
 }
+
+#[cfg(test)]
+#[path = "inbox/tests.rs"]
+mod tests;

@@ -9,4 +9,4 @@ source_refs:
 
 # inbox
 
-The inbound routing ledger AND the idempotency record. One row per (inbound event, target local session). An event is "handled" because a row exists; there is no separate processed-orchestration table. A row starts `pending` and becomes `delivered` once injected into a live tmux pane.
+The inbound routing ledger and local idempotency record. Direct-message rows are keyed by inbound event and target local session; they start `pending` and become `delivered` once injected into a live tmux pane. Orchestration uses the same ledger with synthetic per-target keys so each add target can complete or retry independently.

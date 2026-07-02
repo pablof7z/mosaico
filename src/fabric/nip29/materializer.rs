@@ -3,9 +3,9 @@
 //! The single intake point for every relay event the daemon observes. Each event
 //! is routed by kind into exactly one of the `relay_*` caches (channels, members,
 //! profiles, status) or, for every other kind, the verbatim `relay_events` log.
-//! Chat (kind:9) is additionally routed into the `inbox` delivery ledger for the
-//! local sessions occupying the event's channel — the inbox row's existence IS
-//! the idempotency record (no `processed_orchestration` table).
+//! Chat (kind:9) is additionally routed into the `inbox` delivery ledger for
+//! local sessions occupying the event's channel. The same ledger stores
+//! per-target orchestration claims with synthetic target keys.
 //!
 //! None of these writes touch authoritative local truth: `relay_*` are caches,
 //! identical for local and remote agents, rebuildable from the relay at any time.

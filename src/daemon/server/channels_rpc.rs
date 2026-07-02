@@ -257,7 +257,7 @@ Switch into it instead: tenex-edge channels switch {}",
 
         // Local fast-path: relays don't reliably echo to the publishing connection,
         // so drive the same listener directly for roles targeted at THIS backend.
-        // Idempotency is enforced inside handle_orchestration via the inbox ledger.
+        // Idempotency is enforced per add-target inside handle_orchestration.
         if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
             handle_orchestration(state, &signed, op).await;
         }

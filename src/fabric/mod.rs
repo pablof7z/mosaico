@@ -66,8 +66,8 @@ pub struct MaterializationOutcome {
 ///   * 0 → relay_profiles, 30315 → relay_status,
 ///   * every other kind → relay_events (verbatim log, NIP-01 replacement).
 ///
-/// Chat (kind:9) is additionally routed into the inbox ledger for the local
-/// sessions in its channel — the inbox row is the idempotency record.
+/// Chat (kind:9) is additionally routed into the inbox ledger for local sessions
+/// in its channel. The same ledger stores per-target orchestration claims.
 ///
 /// Tail is emitted for every decoded domain event. `wake_mentions` is set only
 /// when a chat message is newly routed to a live local session.

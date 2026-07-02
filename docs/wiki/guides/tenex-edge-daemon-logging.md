@@ -76,7 +76,7 @@ Reconcile logs include session count on restart, each dead session at warn with 
 
 ## Orchestration
 
-Orchestration logs include auth rejection (warn), parent mismatch (warn), already-claimed (debug), identity mint (info), and spawn outcome (info/error). <!-- [^47f3c-4198f] -->
+Orchestration logs include auth rejection (warn), parent mismatch (warn), per-target already-complete or in-flight skips (debug), identity mint (info), and spawn outcome (info/error). <!-- [^47f3c-4198f] -->
 
 ## Idle Watcher
 
