@@ -41,7 +41,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
     if let Some(event_id) = p.id.as_deref().filter(|s| !s.trim().is_empty()) {
         let row = state
-            .with_store(|s| s.get_event(event_id))
+            .with_store(|s| s.get_event_by_prefix(event_id))
             .with_context(|| format!("reading chat message {event_id}"))?
             .with_context(|| format!("chat message not found: {event_id}"))?;
         if row.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 {

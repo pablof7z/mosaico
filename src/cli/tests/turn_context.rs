@@ -100,12 +100,13 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        // The current channel renders with both the opaque id and human name.
-        text.contains("<channel id=\"proj\" name=\"#main\" active=\"true\""),
+        // Only the human name renders — the opaque id is never useful to an
+        // agent, which always addresses channels by name.
+        text.contains("<channel name=\"#main\""),
         "awareness should name the channel; got: {text:?}"
     );
     assert!(
-        text.contains("<self agent=\"@coder\" backend=\"laptop\" session=\"sess-intro\" />"),
+        text.contains("You are @coder on laptop (session "),
         "awareness should identify this agent; got: {text:?}"
     );
     assert!(
@@ -165,11 +166,11 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("<self agent=\"@coder1\""),
+        text.contains("You are @coder1 on"),
         "snapshot must render the bound ordinal instance; got: {text:?}"
     );
     assert!(
-        !text.contains("<self agent=\"@coder\""),
+        !text.contains("You are @coder on"),
         "raw session slug must not override the bound instance; got: {text:?}"
     );
 }

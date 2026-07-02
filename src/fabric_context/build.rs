@@ -30,7 +30,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         project,
         agents: agents(input.edge_home, input.cursor, input.now),
         channels: Vec::new(),
-        inactive: inactive_channels(store, &root, &channels, input.now),
+        unjoined: unjoined_channels(store, &root, &channels, input.now),
         important: Vec::new(),
         warnings: input
             .warnings
@@ -62,10 +62,8 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         }
         let summary = channel_summary(store, &channel);
         view.channels.push(ChannelBlock {
-            id: channel.clone(),
             name: summary.name,
             about: summary.about,
-            active: channel == input.scope,
             members: if full {
                 member_rows(store, &channel, &input)
             } else {
@@ -135,21 +133,21 @@ fn subchannel_rows(store: &Store, channel: &str) -> Vec<ChannelSummaryRow> {
         .collect()
 }
 
-fn inactive_channels(
+fn unjoined_channels(
     store: &Store,
     root: &str,
-    active_channels: &[String],
+    joined_channels: &[String],
     now: u64,
-) -> Vec<InactiveChannelRow> {
-    let active = active_channels.iter().cloned().collect::<BTreeSet<_>>();
+) -> Vec<UnjoinedChannelRow> {
+    let joined = joined_channels.iter().cloned().collect::<BTreeSet<_>>();
     store
         .list_channels()
         .unwrap_or_default()
         .into_iter()
-        .filter(|c| c.parent == root && !active.contains(&c.channel_h))
+        .filter(|c| c.parent == root && !joined.contains(&c.channel_h))
         .filter_map(|c| {
             let name = c.human_name().unwrap_or(&c.channel_h).to_string();
-            (!name.is_empty()).then(|| InactiveChannelRow {
+            (!name.is_empty()).then(|| UnjoinedChannelRow {
                 name,
                 about: c.about,
                 last_active: relative_time(c.updated_at, now),

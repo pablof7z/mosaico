@@ -104,6 +104,29 @@ impl Store {
             .optional()?)
     }
 
+    /// Fetch one event by an unambiguous prefix of its id (agent-facing
+    /// surfaces show only a short prefix to save tokens; see
+    /// `crate::util::short_id`). `GLOB` (case-sensitive, index-friendly for a
+    /// no-wildcard-prefix pattern) rather than `LIKE` since event ids are
+    /// lowercase hex. Falls back to an exact match when `prefix` is already a
+    /// full id. Bails loud on an ambiguous prefix rather than silently
+    /// returning an arbitrary match.
+    pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
+        if prefix.len() >= 64 {
+            return self.get_event(prefix);
+        }
+        let pattern = format!("{prefix}*");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM relay_events WHERE id GLOB ?1 LIMIT 2"
+        ))?;
+        let mut rows = stmt.query_map(params![pattern], row_to_event)?;
+        let first = rows.next().transpose()?;
+        if rows.next().is_some() {
+            anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one message");
+        }
+        Ok(first)
+    }
+
     /// True if an event id is already cached.
     pub fn has_event(&self, id: &str) -> Result<bool> {
         Ok(self
