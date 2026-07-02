@@ -1,6 +1,7 @@
 //! SEED (ignored by default; run explicitly against the live NIP-29 relay):
 //!
-//!   cargo test --test seed_validation -- --ignored --nocapture
+//!   TE_NIP29_RELAY=wss://nip29.f7z.io \
+//!     cargo test --test seed_validation -- --ignored --nocapture
 //!
 //! Publishes ONE complete, self-contained agent session to the live relay so a
 //! reader app (tenex-off) can be validated end-to-end: a kind:30315 status that
@@ -16,6 +17,8 @@
 //!
 //! Prints the group slug, session id, agent npub, title and the seeded bodies so
 //! the simulator validation can locate the session and assert its messages.
+//! This is a manual reader-app seed, not a routine regression test; it leaves a
+//! validation group, status, and conversation events on the configured relay.
 
 use nostr_sdk::prelude::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

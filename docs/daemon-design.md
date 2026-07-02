@@ -27,9 +27,10 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 
 ## 2. Stages (sequenced, each independently reviewable)
 
-0. **Build/green baseline.** (Already green on disk; the broken state observed
-   mid-work was a Syncthing sync race that resolved.) `cargo test` = 54 unit + 1
-   e2e green.
+0. **Build/green baseline.** The implementation started from a green unit +
+   local-relay integration baseline. Current test tiers are documented in the
+   README: CI uses `just test-unit`; local relay integrations use `just test`;
+   public-relay probes are ignored and run only by explicit command.
 1. **WAL stopgap** — `src/state.rs` only. `journal_mode=WAL` (already present),
    add `synchronous=NORMAL`, keep `busy_timeout=5000`. No FK pragma (no FK
    constraints in the schema). This is the bandage so the *still-running*
@@ -285,7 +286,7 @@ The daemon hosts several agent identities at once (`claude@`, `codex@`,
 is a distinct pubkey). The whole premise of the migration is **one relay
 connection** for all of them. Two facts had to hold for that to be correct;
 both were probed against the live `relay.tenex.chat` (see
-`tests/relay_probe.rs`, run with `--ignored`):
+`tests/relay_probe.rs`; run explicitly with `TE_RELAY=<relay>` and `--ignored`):
 
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
    *does* receive events p-tagged to a different agent B. The relay does **not**
@@ -447,7 +448,8 @@ client-side.
   the RPC path; assert a single writer (one daemon pid) and `PRAGMA
   integrity_check = ok` afterward. Keep a direct-`Store` stress test as the
   original-corruption regression repro so the thing we're fixing stays asserted.
-- Keep the existing 54 unit + the live-relay e2e (`nak serve`) green.
+- Keep the unit and local-relay integration suites green. Public-relay probes
+  stay explicit because they publish disposable data to the configured relay.
 
 ## 11. Follow-ups (out of scope here, noted for the host adapters)
 

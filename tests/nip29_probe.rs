@@ -1,11 +1,14 @@
 //! PROBE (ignored by default; run explicitly against the live NIP-29 relay):
 //!
-//!   cargo test --test nip29_probe -- --ignored --nocapture
+//!   TE_NIP29_RELAY=<relay> cargo test --test nip29_probe -- --ignored --nocapture
 //!
 //! Gates the "daemon owns NIP-29 groups" feature. The relay's exact rules are the
 //! only real unknown and the codebase can't answer them — this asks the relay
 //! directly (default wss://nip29.f7z.io, or $TE_NIP29_RELAY). It walks the full
 //! create → add-member → write lifecycle and reports, in order:
+//!
+//! Publishes disposable `te-probe-*` groups and kind:1 events, can be
+//! rate-limited, and is not part of default CI or routine local regression tests.
 //!
 //!   1. Does 9007 honor a CLIENT-CHOSEN group id via the `h` tag, or does the
 //!      relay assign its own id? (Load-bearing: model assumes group id == slug.)
@@ -13,18 +16,15 @@
 //!   3. Ordering: does put-user (9000) need the group to exist first? What role
 //!      tag shape does the relay want?
 //!   4. Are `previous`/timeline-reference tags required on 9007/9000?
-//!   5. Default access mode: is a fresh group already closed (non-members
-//!      rejected), or must we 9002 it closed? Confirmed by posting a non-member
-//!      event after create+add and checking it is rejected.
-//!   6. After a `closed`+`public` 9002 lock, can a NON-member connection still
-//!      READ the group? (The daemon's shared connection authenticates as a
-//!      non-member key, so reads must stay open.)
+//!   5. Default access mode: is a fresh group already closed, or must we 9002 it
+//!      closed? Confirmed by posting a non-member event after create+add.
+//!   6. After a `closed`+`public` 9002 lock, can a NON-member daemon connection
+//!      still READ the group?
 //!
-//! VALIDATED FINDINGS (nip29.f7z.io, 2026-06-09): id honored ✓; no `previous`
-//! tags needed ✓; a fresh group is OPEN by default — membership is only enforced
-//! after a 9002 edit-metadata with `["closed"]`. Use `["public"]` (NOT
-//! `["private"]`) so the non-member daemon connection can still read. Recipe:
-//! 9007 create → 9002 closed+public → 9000 put-user per agent.
+//! VALIDATED FINDINGS (nip29.f7z.io, 2026-06-09): id honored ✓; no `previous` tags
+//! needed ✓; a fresh group is OPEN by default, so membership is enforced only
+//! after 9002 `["closed"]`; use `["public"]` so the non-member daemon connection
+//! can still read. Recipe: 9007 create → 9002 closed+public → 9000 put-user.
 //!
 //! Hard asserts: id honored, lock enforces membership (non-member write blocked),
 //! and non-member read stays open. Other answers are reported via eprintln.

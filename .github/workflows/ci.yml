@@ -42,8 +42,8 @@ jobs:
       - name: Clippy (just lint)
         run: just lint
 
-      # Unit tests only: the integration tests under tests/ require a live `nak`
-      # relay and a local NIP-29 (croissant) relay binary not available on CI.
-      # Those run locally via `just test`. Relay-backed CI is a follow-up.
+      # Unit tests only. Local relay-backed integration tests run through
+      # `just test` when nak/croissant are available. Ignored public-relay
+      # probes stay explicit and are never part of default CI.
       - name: Unit tests (just test-unit)
         run: just test-unit

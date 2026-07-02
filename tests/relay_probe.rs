@@ -1,6 +1,7 @@
-//! PROBE (ignored by default; run explicitly against the live relay):
+//! PROBE (ignored by default; run explicitly against the public relay):
 //!
-//!   cargo test --test relay_probe -- --ignored --nocapture
+//!   TE_RELAY=wss://relay.tenex.chat \
+//!     cargo test --test relay_probe -- --ignored --nocapture
 //!
 //! Load-bearing question for the per-machine-daemon design: if ONE connection
 //! authenticates (NIP-42) as key A, does it still receive events p-tagged to a
@@ -8,7 +9,9 @@
 //! identity, then collapsing N per-agent connections into one breaks mention
 //! delivery for every agent except the one the connection authed as.
 //!
-//! This talks to the real relay (default wss://relay.tenex.chat, or $TE_RELAY).
+//! This talks to a public relay (default wss://relay.tenex.chat, or $TE_RELAY)
+//! and publishes disposable kind:1 probe events. It is not part of default CI or
+//! routine local regression tests.
 
 use nostr_sdk::prelude::*;
 use std::time::Duration;

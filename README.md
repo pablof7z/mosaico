@@ -14,9 +14,11 @@ in [`docs/product-spec/`](docs/product-spec/).
 ## Status
 
 Working and tested for real:
-- **249 unit tests + 1 real-relay end-to-end test** (`cargo test`). The e2e test
-  publishes every event type through the transport to a live `nak serve` relay
-  and decodes them back.
+- **CI-safe gates**: formatting, LOC, clippy, and library tests run through the
+  `just fmt-check`, `just loc-check`, `just lint`, and `just test-unit` recipes.
+- **Local relay integration tests** (`just test`). These use local relay
+  processes, not production fabric state: `nak serve` for plain Nostr tests and
+  croissant for NIP-29 group semantics.
 - **Live multi-agent demo** (`scripts/demo.sh`): two agent processes exchange
   presence, distilled activity, and a session-targeted mention.
 - **Live real-agent demo** (`scripts/demo-claude.sh`): an actual `claude -p`
@@ -62,14 +64,43 @@ cli ── runtime ── { domain · fabric/nip29/wire · transport · state ·
 
 ## Try it
 
-Requires Rust (nightly ok) and [`nak`](https://github.com/fiatjaf/nak) for the
-local test relay.
+Requires Rust (nightly ok). Local relay integration tests need
+[`nak`](https://github.com/fiatjaf/nak); NIP-29 integration tests also need a
+croissant binary, defaulting to `~/Work/croissant/croissant` or
+`$NIP29_RELAY_BIN`.
 
 ```bash
-cargo test            # unit + real-relay e2e
+just test-unit        # CI-safe library tests
+just test             # unit + local relay integration tests
 bash scripts/demo.sh         # two agents: presence + activity + mention
 bash scripts/demo-claude.sh  # a real `claude -p` session on the fabric
 ```
+
+## Test tiers and live probes
+
+The default CI contract is hermetic: `just fmt-check`, `just loc-check`,
+`just lint`, and `just test-unit`. Use `just test` when local relay binaries are
+available and you want the full local integration suite.
+
+The ignored probe tests below are intentional public-relay checks. Run them only
+when validating relay behavior because they publish disposable events and groups
+to the configured relay, may trigger rate limits, and leave probe data behind.
+
+```bash
+TE_RELAY=wss://relay.tenex.chat \
+  cargo test --test relay_probe -- --ignored --nocapture
+
+TE_NIP29_RELAY=wss://nip29.f7z.io \
+  cargo test --test nip29_probe -- --ignored --nocapture
+
+TE_NIP29_RELAY=wss://nip29.f7z.io \
+  cargo test --test seed_validation -- --ignored --nocapture
+```
+
+`relay_probe` checks shared-connection AUTH behavior on a plain Nostr relay.
+`nip29_probe` checks create, membership, read, and write behavior for NIP-29
+groups. `seed_validation` writes one complete validation session for reader-app
+manual testing; it is not a routine regression test.
 
 ## Configuration
 

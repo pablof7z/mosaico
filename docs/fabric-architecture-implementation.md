@@ -350,14 +350,20 @@ not editing reader code or daemon routing logic.
 
 Run this after each phase, broadening only when the phase touches more surface:
 
-1. `cargo test`
-2. `cargo test --test daemon_mechanics`
-3. `cargo test --test daemon_integration`
-4. `cargo test --test e2e_transport -- --ignored --nocapture` when relay behavior
-   changes
-5. `cargo test --test nip29_probe -- --ignored --nocapture` when NIP-29 lifecycle
-   or membership materialization changes
-6. Manual smoke:
+1. CI-safe gates: `just fmt-check`, `just loc-check`, `just lint`, and
+   `just test-unit`.
+2. `just test` when local relay dependencies are available (`nak` for plain
+   relay tests; croissant via `$NIP29_RELAY_BIN` for NIP-29 group tests).
+3. `cargo test --test daemon_mechanics` for daemon/socket lifecycle changes.
+4. `cargo test --test daemon_integration` for daemon RPC, membership, routing,
+   and delivery changes.
+5. `TE_RELAY=<relay> cargo test --test relay_probe -- --ignored --nocapture`
+   only when validating public-relay shared-connection AUTH behavior.
+6. `TE_NIP29_RELAY=<relay> cargo test --test nip29_probe -- --ignored --nocapture`
+   only when validating live NIP-29 lifecycle or membership materialization.
+7. `TE_NIP29_RELAY=<relay> cargo test --test seed_validation -- --ignored --nocapture`
+   only when seeding a reader app with a complete validation session.
+8. Manual smoke:
    - start two sessions in the same project;
    - `tenex-edge who`;
    - send a chat mention with `tenex-edge chat write --message "@<agent> ..."`;
