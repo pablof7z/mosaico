@@ -1,5 +1,6 @@
 //! Harness discovery and hook entry configuration.
 
+use anyhow::{bail, Result};
 use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/tenex-edge.ts");
@@ -12,9 +13,9 @@ pub struct Harness {
     pub detected: bool,
 }
 
-pub fn harnesses() -> Vec<Harness> {
-    let home = home_dir();
-    vec![
+pub fn harnesses() -> Result<Vec<Harness>> {
+    let home = home_dir()?;
+    Ok(vec![
         Harness {
             id: "claude-code",
             display: "Claude Code",
@@ -39,17 +40,26 @@ pub fn harnesses() -> Vec<Harness> {
             config_path: home.join(".grok/user-settings.json"),
             detected: home.join(".grok").exists() || bin_on_path("grok"),
         },
-    ]
+    ])
 }
 
-pub(super) fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
+pub(super) fn home_dir() -> Result<PathBuf> {
+    home_dir_from_env(std::env::var("HOME").ok())
 }
 
-pub(super) fn claude_detected() -> bool {
-    home_dir().join(".claude").exists() || bin_on_path("claude")
+fn home_dir_from_env(home: Option<String>) -> Result<PathBuf> {
+    let Some(home) = home.filter(|h| !h.is_empty()) else {
+        bail!(
+            "HOME is not set: refusing to install harness hooks under the current directory. \
+             Set HOME to the real user home; TENEX_EDGE_HOME only controls tenex-edge daemon state."
+        );
+    };
+    Ok(PathBuf::from(home))
+}
+
+pub(super) fn claude_detected() -> Result<bool> {
+    let home = home_dir()?;
+    Ok(home.join(".claude").exists() || bin_on_path("claude"))
 }
 
 fn bin_on_path(bin: &str) -> bool {
@@ -142,5 +152,27 @@ pub fn host_for_harness(h: &Harness) -> &'static str {
         "codex" => "codex",
         "grok" => "grok",
         _ => h.id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_dir_uses_home_env() {
+        assert_eq!(
+            home_dir_from_env(Some("/Users/alice".to_string())).unwrap(),
+            PathBuf::from("/Users/alice")
+        );
+    }
+
+    #[test]
+    fn home_dir_refuses_absent_or_empty_home() {
+        for home in [None, Some(String::new())] {
+            let err = home_dir_from_env(home).unwrap_err().to_string();
+            assert!(err.contains("HOME is not set"));
+            assert!(err.contains("TENEX_EDGE_HOME only controls"));
+        }
     }
 }
