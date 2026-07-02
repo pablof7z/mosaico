@@ -6,9 +6,13 @@
 //! project path mappings. A pubkey appears AT MOST ONCE per channel (enforced via
 //! primary key).
 
-pub(super) const SCHEMA_VERSION: u32 = 1;
+use anyhow::{Context, Result};
+use rusqlite::Connection;
+use std::path::Path;
 
-pub(super) const SCHEMA: &str = r#"
+const SCHEMA_VERSION: u32 = 1;
+
+const SCHEMA: &str = r#"
 -- ── relay_* materialized caches (drop & rebuild from relay anytime) ───────────
 
 CREATE TABLE IF NOT EXISTS relay_channels (
@@ -174,3 +178,54 @@ CREATE TABLE IF NOT EXISTS project_roots (
     updated_at  INTEGER NOT NULL
 );
 "#;
+
+pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
+    check_schema_version(conn, path)?;
+    // Stamped schema. We still do not run ALTER TABLE migrations, but the DB is
+    // not blindly wipeable: relay_* rows are rebuildable projections while
+    // sessions, aliases, identities, inbox, outbox, and project_roots are local
+    // state. A missing/incompatible stamp fails loudly above.
+    conn.execute_batch(SCHEMA).context("creating schema")?;
+    stamp_schema_version(conn)
+}
+
+pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA)
+        .context("creating in-memory schema")?;
+    stamp_schema_version(conn)
+}
+
+fn stamp_schema_version(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .context("stamping schema version")
+}
+
+fn check_schema_version(conn: &Connection, path: &Path) -> Result<()> {
+    let version: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .context("reading schema user_version")?;
+    let has_tables = conn
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .context("checking for existing schema tables")?;
+    if version == 0 && has_tables {
+        anyhow::bail!(
+            "refusing to open {}: existing state.db has no schema version stamp; \
+             move it aside or export non-rebuildable local state before rebuilding",
+            path.display()
+        );
+    }
+    if version != 0 && version != SCHEMA_VERSION {
+        anyhow::bail!(
+            "refusing to open {}: schema version {version} is incompatible with expected {SCHEMA_VERSION}",
+            path.display()
+        );
+    }
+    Ok(())
+}

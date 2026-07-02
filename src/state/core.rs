@@ -1,4 +1,4 @@
-use super::*;
+use super::{schema, *};
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -38,21 +38,13 @@ impl Store {
             .context("setting synchronous=NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .context("setting busy_timeout")?;
-        check_schema_version(&conn, path)?;
-        // Stamped schema. We still do not run ALTER TABLE migrations, but the DB
-        // is not blindly wipeable: relay_* rows are rebuildable projections while
-        // sessions, aliases, identities, inbox, outbox, and project_roots are
-        // local state. A missing/incompatible stamp fails loudly above.
-        conn.execute_batch(SCHEMA).context("creating schema")?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)
-            .context("stamping schema version")?;
+        schema::initialize_file(&conn, path)?;
         Ok(Self { conn })
     }
 
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
-        conn.execute_batch(SCHEMA)?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        schema::initialize_memory(&conn)?;
         Ok(Self { conn })
     }
 
@@ -63,34 +55,4 @@ impl Store {
             .conn
             .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))?)
     }
-}
-
-fn check_schema_version(conn: &Connection, path: &Path) -> Result<()> {
-    let version: u32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .context("reading schema user_version")?;
-    let has_tables = conn
-        .query_row(
-            "SELECT EXISTS(
-                SELECT 1 FROM sqlite_master
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-            )",
-            [],
-            |row| row.get::<_, bool>(0),
-        )
-        .context("checking for existing schema tables")?;
-    if version == 0 && has_tables {
-        anyhow::bail!(
-            "refusing to open {}: existing state.db has no schema version stamp; \
-             move it aside or export non-rebuildable local state before rebuilding",
-            path.display()
-        );
-    }
-    if version != 0 && version != SCHEMA_VERSION {
-        anyhow::bail!(
-            "refusing to open {}: schema version {version} is incompatible with expected {SCHEMA_VERSION}",
-            path.display()
-        );
-    }
-    Ok(())
 }

@@ -227,7 +227,6 @@ pub(super) fn mint_session_id() -> String {
 }
 
 mod schema;
-use schema::{SCHEMA, SCHEMA_VERSION};
 
 mod aliases;
 mod channels;
