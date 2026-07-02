@@ -1,6 +1,9 @@
 use super::*;
 use crate::state::Session;
 
+#[cfg(test)]
+mod tests;
+
 /// Build the wire `domain::Status` for a locally-hosted session from its row.
 /// `title`/`activity`/`working` are the local pre-publish draft on the `sessions`
 /// row; publishing turns them into a kind:30315 read back into `relay_status`.
@@ -115,9 +118,10 @@ pub(in crate::daemon::server) fn spawn_status_heartbeat_publisher(state: Arc<Dae
 }
 
 /// Drain the generic outbox: publish each queued signed event JSON via the
-/// transport, marking it published (cleared from the drain set) or failed (kept
-/// pending for retry). Woken instantly by `outbox_notify` on every
-/// enqueue, and polled every 2s as a fallback.
+/// transport with a checked relay verdict, marking it published only after a
+/// relay accepts it. Failed attempts stay pending with an error and retry count.
+/// Woken instantly by `outbox_notify` on every enqueue, and polled every 2s as a
+/// fallback.
 pub(in crate::daemon::server) fn spawn_outbox_drainer(state: Arc<DaemonState>) {
     use nostr_sdk::prelude::{Event, JsonUtil};
     tokio::spawn(async move {
@@ -132,7 +136,7 @@ pub(in crate::daemon::server) fn spawn_outbox_drainer(state: Arc<DaemonState>) {
                 let mut progressed = false;
                 for item in items {
                     match Event::from_json(&item.event_json) {
-                        Ok(ev) => match state.transport.publish_event(&ev).await {
+                        Ok(ev) => match state.transport.publish_event_checked(&ev).await {
                             Ok(_) => {
                                 state.with_store(|s| s.mark_published(item.local_id).ok());
                                 progressed = true;

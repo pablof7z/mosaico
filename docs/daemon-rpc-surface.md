@@ -118,9 +118,10 @@ result: {"event_id": "hex", "project": "channel-h", "mentioned_pubkey": "hex"|nu
          "mentioned_session": "te-…"|null, "mentioned_label": "agent"|null}
 ```
 Publishes a NIP-29 kind:9 chat message from the caller's selected
-agent-instance key. Messages over the fabric render limit are rejected unless
-`long_message=true`. `channel` is destination targeting only; caller identity is
-resolved independently from the session anchors.
+agent-instance key and returns only after checked relay acceptance. Messages
+over the fabric render limit are rejected unless `long_message=true`. `channel`
+is destination targeting only; caller identity is resolved independently from
+the session anchors.
 
 ### `propose`
 ```jsonc

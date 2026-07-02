@@ -243,7 +243,7 @@ use channel_resolve::{
     project_root, resolve_channel, resolve_channel_ref, rpc_channels_resolve, ChannelResolution,
 };
 use channels_rpc::{ensure_session_room, rpc_channels_create, rpc_channels_list};
-use chat_publish::{publish_agent_reply, rpc_user_prompt, spawn_retry_drainer};
+use chat_publish::{publish_agent_reply, rpc_user_prompt};
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
 use diagnostics::{

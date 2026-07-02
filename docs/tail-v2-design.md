@@ -15,8 +15,8 @@ change across all agents + message traffic. Read-only; never mutates inbox/seen.
 ## 2. What it shows (categories)
 - **msg** (never suppressed): directed message/mention, with thread short-id,
   sender→recipient (+ session short-code when targeted), 72-col body snippet.
-- **sync**: outbound delivery lifecycle `published→accepted→delivered|failed`.
-  Show only terminal/notable (accepted/delivered/failed); suppress `published`.
+- **sync**: outbound delivery lifecycle `pending→accepted→delivered|failed`.
+  Show only terminal/notable (accepted/delivered/failed); suppress `pending`.
 - **turn**: working/idle transitions only (the working↔idle edge), with elapsed
   duration on idle.
 - **stat**: NIP-38 status text changes; suppress unchanged; debounce 2s per

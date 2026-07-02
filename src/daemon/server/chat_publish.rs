@@ -7,38 +7,45 @@ pub(in crate::daemon::server) struct ChatRecordDraft {
     body: String,
 }
 
-pub(in crate::daemon::server) async fn publish_chat_checked(
-    state: &Arc<DaemonState>,
-    chat: &ChatMessage,
-    signing: &Keys,
-    draft: &ChatRecordDraft,
-) -> Result<String> {
+async fn sign_chat(state: &Arc<DaemonState>, chat: &ChatMessage, signing: &Keys) -> Result<Event> {
     let builder = state
         .provider
         .encode(&DomainEvent::ChatMessage(chat.clone()))?;
-    let signed = state.transport.sign(builder, signing).await?;
+    state.transport.sign(builder, signing).await
+}
+
+pub(in crate::daemon::server) async fn publish_chat_checked(
+    state: &Arc<DaemonState>,
+    signed: &Event,
+    draft: &ChatRecordDraft,
+) -> Result<String> {
     let event_id = signed.id.to_hex();
-    let created_at = now_secs();
+    state.transport.publish_event_checked(signed).await?;
 
     state.with_store(|s| {
-        let _ = s.insert_event(&chat_relay_event(
+        if let Err(e) = s.insert_event(&chat_relay_event(
             &event_id,
             &draft.from_pubkey,
-            created_at,
+            signed.created_at.as_secs(),
             &draft.project,
             &draft.body,
             None,
-        ));
+        )) {
+            tracing::error!(
+                event_id = %event_id,
+                channel = %draft.project,
+                error = %e,
+                "chat_publish: caching relay-confirmed local chat failed"
+            );
+        }
     });
 
-    state.transport.publish_event(&signed).await?;
     Ok(event_id)
 }
 
 pub(in crate::daemon::server) fn spawn_chat_publish_retry(
     state: Arc<DaemonState>,
-    chat: ChatMessage,
-    signing: Keys,
+    signed: Event,
     draft: ChatRecordDraft,
     label: &'static str,
 ) {
@@ -48,38 +55,12 @@ pub(in crate::daemon::server) fn spawn_chat_publish_retry(
             if attempt > 0 {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
-            match publish_chat_checked(&state, &chat, &signing, &draft).await {
+            match publish_chat_checked(&state, &signed, &draft).await {
                 Ok(_) => return,
                 Err(e) => last_err = e.to_string(),
             }
         }
         eprintln!("[daemon] {label} kind:9 publish retry exhausted: {last_err}");
-    });
-}
-
-pub(in crate::daemon::server) fn spawn_retry_drainer(state: Arc<DaemonState>) {
-    let queue = state.transport.retry_queue.clone();
-    let transport = state.transport.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let due = queue.drain_due();
-            for retry in due {
-                let id_short = {
-                    let h = retry.event.id.to_hex();
-                    h[..8.min(h.len())].to_string()
-                };
-                let kind = retry.event.kind.as_u16();
-                if transport.retry_publish(&retry.event).await {
-                    eprintln!(
-                        "[retry] event {id_short} kind:{kind} accepted on attempt {}",
-                        retry.attempt + 1
-                    );
-                } else {
-                    queue.requeue(retry, "relay rejected on retry");
-                }
-            }
-        }
     });
 }
 
@@ -115,11 +96,12 @@ pub(in crate::daemon::server) async fn publish_agent_reply(
         project: scope,
         body: reply.to_string(),
     };
-    let publish = publish_chat_checked(state, &chat, &signing, &draft);
+    let signed = sign_chat(state, &chat, &signing).await?;
+    let publish = publish_chat_checked(state, &signed, &draft);
     match tokio::time::timeout(std::time::Duration::from_secs(3), publish).await {
         Ok(Ok(_)) => {}
         Ok(Err(_)) | Err(_) => {
-            spawn_chat_publish_retry(state.clone(), chat, signing, draft, "agent reply");
+            spawn_chat_publish_retry(state.clone(), signed, draft, "agent reply");
         }
     }
     Ok(())
@@ -229,11 +211,22 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
     // Try once synchronously so local chat history exists when the hook/RPC
     // returns. If relay membership is still converging, fall back to a daemon
     // retry without blocking the editor.
-    let publish = publish_chat_checked(state, &chat, &op_keys, &draft);
-    match tokio::time::timeout(std::time::Duration::from_secs(3), publish).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(_)) | Err(_) => {
-            spawn_chat_publish_retry(state.clone(), chat, op_keys, draft, "user prompt");
+    match sign_chat(state, &chat, &op_keys).await {
+        Ok(signed) => {
+            let publish = publish_chat_checked(state, &signed, &draft);
+            match tokio::time::timeout(std::time::Duration::from_secs(3), publish).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) | Err(_) => {
+                    spawn_chat_publish_retry(state.clone(), signed, draft, "user prompt");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                channel = %scope,
+                error = %format!("{e:#}"),
+                "user_prompt: failed to sign mirrored prompt — skipping fabric mirror"
+            );
         }
     }
 

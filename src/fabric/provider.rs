@@ -370,7 +370,7 @@ impl Nip29Provider {
             }
         }
         let builder = self.wire.encode(&DomainEvent::Status(status.clone()))?;
-        self.transport.publish_signed(builder, keys).await
+        self.transport.publish_signed_checked(builder, keys).await
     }
 
     /// Fetch the relay-authored kind:39000 for ONE `group` and materialize it into

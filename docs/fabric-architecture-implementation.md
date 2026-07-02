@@ -312,9 +312,11 @@ Steps:
 2. Build `SendIntent { from_agent, from_session, to_pubkey, project_id, body,
    target_session }` — `from_session` becomes the stored message's
    `author_session` (the return envelope), so inbound replies can address it.
-3. Provider signs first, returning the native event id.
+3. Provider signs first, returning the native event id for the exact event that
+   will be published or retried.
 4. Store inserts/updates:
-   - `messages.sync_state='published'` when publish returns without checked OK.
+   - `messages.sync_state='pending'` for explicit local optimistic UX before
+     relay acceptance.
    - `messages.sync_state='accepted'` when checked publish confirms relay OK.
    - `messages.sync_state='failed'` with `error` on rejection/timeout.
 5. Same-daemon hosted recipients are delivered by inserting message recipient

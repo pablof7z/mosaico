@@ -111,7 +111,6 @@ pub async fn run() -> Result<()> {
     spawn_pruner(state.clone());
     spawn_outbox_drainer(state.clone());
     spawn_status_heartbeat_publisher(state.clone());
-    spawn_retry_drainer(state.clone());
 
     let accept_state = state.clone();
     let accept = tokio::spawn(async move {

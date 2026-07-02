@@ -133,7 +133,8 @@ pub struct Proposal {
 /// ```ignore
 /// impl crate::fabric::provider::Nip29Provider {
 ///     /// Encode `status` to kind:30315 (NIP-40 expiration when `expires_at` is
-///     /// Some), sign with `keys`, publish. Returns the native event id.
+///     /// Some), sign with `keys`, and return only after checked relay
+///     /// acceptance. Returns the native event id.
 ///     pub async fn set_status(
 ///         &self,
 ///         status: &crate::domain::Status,
@@ -142,12 +143,11 @@ pub struct Proposal {
 /// }
 /// ```
 ///
-/// The daemon's outbox drainer builds a `Status` from each pending
-/// `SessionSnapshot` (setting `expires_at = now + STATUS_TTL_SECS`), calls
-/// `set_status`, then marks the `outbox` row published with the returned
-/// id. The per-heartbeat liveness re-arm re-publishes the latest snapshot the
-/// same way (it does NOT enqueue an outbox row). Nothing above the provider
-/// builds a kind:30315 event directly.
+/// The per-session engine encodes and signs a kind:30315 status into the
+/// durable `outbox`. The daemon drainer publishes that signed JSON with a
+/// checked relay verdict, then marks the row `published` only after acceptance.
+/// The heartbeat publisher that bypasses the outbox uses `set_status`, which
+/// applies the same checked verdict before refreshing the local status cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub agent: AgentRef,

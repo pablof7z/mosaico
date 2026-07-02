@@ -53,6 +53,17 @@ pub(in crate::daemon::server) fn chat_relay_event(
     }
 }
 
+fn chat_publish_scope(
+    current_scope: &str,
+    explicit_dest: Option<&str>,
+    mention_project: Option<&str>,
+) -> String {
+    explicit_dest
+        .or(mention_project)
+        .unwrap_or(current_scope)
+        .to_string()
+}
+
 pub(in crate::daemon::server) async fn rpc_chat_write(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -84,10 +95,6 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         ),
         None => p.message.clone(),
     };
-    // Sessions to deliver to + the wire `h`: the explicit destination on a
-    // redirect, else the sender's own scope.
-    let deliver_scope = explicit_dest.clone().unwrap_or_else(|| scope.clone());
-
     // Mention target: the FIRST inline `@<agent-instance-label>` in the body that
     // resolves to a known instance pubkey. A redirect is a plain channel post, not
     // a mention. An unresolvable token is silently treated as no mention — it must
@@ -127,13 +134,16 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     let mentioned_pubkey = mention.as_ref().map(|(pk, ..)| pk.clone());
     let mentioned_session = mention.as_ref().and_then(|(_, sid, ..)| sid.clone());
     let mentioned_label = mention.as_ref().map(|(.., raw)| raw.clone());
-    let publish_scope = explicit_dest.clone().unwrap_or_else(|| {
-        mention
-            .as_ref()
-            .map(|(_, _, project, _)| project.as_str())
-            .unwrap_or(scope.as_str())
-            .to_string()
-    });
+    let publish_scope = chat_publish_scope(
+        &scope,
+        explicit_dest.as_deref(),
+        mention.as_ref().map(|(_, _, project, _)| project.as_str()),
+    );
+    // Local visibility and inbox routing must use the same channel as the signed
+    // event's `h` tag. Otherwise relay readback of our own event can disagree
+    // with the locally-seeded row and the primary-key de-dupe preserves the wrong
+    // scope.
+    let deliver_scope = publish_scope.clone();
 
     // Issue #98: sign + label from the session's authoritative agent-instance
     // identity (selected pubkey + display label), never base-key fallback.

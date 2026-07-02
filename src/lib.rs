@@ -25,7 +25,6 @@ pub mod daemon;
 pub mod distill;
 pub mod fabric;
 pub mod relay_log;
-pub mod retry_queue;
 pub mod runtime;
 pub mod state;
 pub mod tmux;

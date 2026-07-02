@@ -93,3 +93,16 @@ fn mention_resolution_store_errors_are_visible() {
 fn mention_resolution_unknown_handles_remain_silent() {
     handle_mention_resolution_error("ghost", anyhow::anyhow!("can't resolve recipient")).unwrap();
 }
+
+#[test]
+fn local_chat_cache_scope_matches_signed_event_target() {
+    assert_eq!(chat_publish_scope("sender-room", None, None), "sender-room");
+    assert_eq!(
+        chat_publish_scope("sender-room", Some("explicit-room"), Some("mentioned-room")),
+        "explicit-room"
+    );
+    assert_eq!(
+        chat_publish_scope("sender-room", None, Some("mentioned-room")),
+        "mentioned-room"
+    );
+}

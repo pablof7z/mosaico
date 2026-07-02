@@ -244,8 +244,10 @@ flowchart LR
   them, who's online, and what they're doing.
   recipient of each.* All are `SELECT`s. None know the fabric.
 - **Intents** are writes: open a project, send a message, beat a heartbeat. The
-  provider encodes the intent to its wire shape and (optimistically, or on echo)
-  the materializer reflects it back as a row.
+  provider encodes the intent to its wire shape, publishes with a checked relay
+  verdict when callers need to report success, and only then reflects accepted
+  local writes into relay-derived read rows. Future optimistic UX must use an
+  explicit pending-outbound state, never fabricated relay cache rows.
 - **The admission gate lives on the write face, then becomes a read.** `is_member` is
   consulted *twice*: once at materialization time as an **admission predicate**
   (decode an inbound event → is the sender authorized → upsert or drop), and again
@@ -372,8 +374,9 @@ sequenceDiagram
     participant RD as Reader (CLI / hook)
 
     ME->>P: send(to = claude, project, body)
-    P->>FAB: publish (provider's wire shape)
-    P->>STORE: upsert message row (optimistic)
+    P->>FAB: publish (provider's wire shape, checked)
+    FAB-->>P: accepted
+    P->>STORE: materialize accepted local message
 
     Note over FAB,P: inbound side
     FAB-->>P: inbound event

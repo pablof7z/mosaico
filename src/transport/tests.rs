@@ -40,6 +40,12 @@ fn accepted_when_any_relay_succeeds() {
 }
 
 #[test]
+fn duplicate_response_counts_as_already_accepted() {
+    let out = output_with(&[], &[("wss://ok.relay", "duplicate: already have event")]);
+    assert!(assert_relay_accepted(&out, None).is_ok());
+}
+
+#[test]
 fn rejected_surfaces_relay_reason() {
     let out = output_with(&[], &[("wss://nip29.relay", "blocked: unknown member")]);
     let err = assert_relay_accepted(&out, None).unwrap_err().to_string();

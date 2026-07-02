@@ -12,14 +12,13 @@
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::*;
 use regex::Regex;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
 pub struct Transport {
     client: Client,
     pub pubkey: PublicKey,
-    pub retry_queue: Arc<crate::retry_queue::RetryQueue>,
     /// URL of the profile indexer relay (READ-only), if configured. kind:0
     /// profiles are routed here via [`Transport::publish_signed_to`]; all other
     /// events go to the WRITE relays (main NIP-29 relay) via `send_event`, which
@@ -112,12 +111,20 @@ pub(crate) fn scrub_unsigned(unsigned: &mut UnsignedEvent) {
 /// Fail unless at least one relay accepted the publish. `nostr-sdk`'s
 /// `send_event*` resolves `Ok` as long as the message was transmitted; the
 /// actual NIP-01 `["OK", id, true|false, reason]` verdict per relay lives in
-/// `output.success` / `output.failed`. An empty `success` set means every relay
-/// rejected the event (or the connection timed out before any OK arrived), so a
-/// caller reporting "published" off the bare `Ok` would be lying. This converts
-/// that into a hard error carrying the relay's stated reason.
+/// `output.success` / `output.failed`. An empty `success` set usually means every
+/// relay rejected the event (or the connection timed out before any OK arrived),
+/// so a caller reporting "published" off the bare `Ok` would be lying. A
+/// "duplicate" failure is the idempotent exception: the relay already has the
+/// signed event, so durability is satisfied.
 fn assert_relay_accepted(output: &Output<EventId>, event: Option<&Event>) -> Result<()> {
     if !output.success.is_empty() {
+        return Ok(());
+    }
+    if output
+        .failed
+        .values()
+        .any(|r| r.to_ascii_lowercase().contains("duplicate"))
+    {
         return Ok(());
     }
     let reasons: Vec<String> = output
@@ -181,7 +188,6 @@ impl Transport {
         Ok(Self {
             client,
             pubkey,
-            retry_queue: Arc::new(crate::retry_queue::RetryQueue::default()),
             indexer_url: indexer_url.filter(|s| !s.is_empty()).map(String::from),
         })
     }
@@ -343,22 +349,6 @@ impl Transport {
     /// The configured indexer relay URL, if any. kind:0 profiles route here.
     pub fn indexer_url(&self) -> Option<&str> {
         self.indexer_url.as_deref()
-    }
-
-    /// Retry a previously-failed signed event. Treats relay "duplicate" responses
-    /// as success (the event is already stored). Used exclusively by the retry
-    /// drainer — does NOT re-enqueue on failure so the drainer controls backoff.
-    pub async fn retry_publish(&self, event: &Event) -> bool {
-        crate::relay_log::log_outgoing_event(event);
-        let out = match self.client.send_event(event).await {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-        if !out.success.is_empty() {
-            return true;
-        }
-        // "duplicate" means the relay already has the event — treat as success.
-        out.failed.values().any(|r| r.contains("duplicate"))
     }
 
     /// One-shot query (used for resolution — e.g. fetch a `kind:0` profile).
