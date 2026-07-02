@@ -24,9 +24,14 @@ fn orchestration_session_uses_existing_group_without_minting() {
         .get_session("sess-orch-1")
         .unwrap()
         .expect("session row");
+    let channel = store
+        .get_channel(&rec.channel_h)
+        .unwrap()
+        .expect("channel row");
+    assert_eq!(channel.name, "issue-42");
     assert_eq!(
-        rec.channel_h, "issue-42",
-        "with a channel override the session joins it; it must not mint a child room"
+        channel.parent, "tmp",
+        "with a channel override the session joins the named task channel under the project root; it must not mint a per-session room"
     );
 
     stop_daemon(&home);

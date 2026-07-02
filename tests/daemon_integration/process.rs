@@ -5,7 +5,7 @@ use tenex_edge::state::Store;
 #[test]
 fn sixteen_concurrent_writers_no_corruption_single_writer() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     // Start one session, then 16 concurrent clients hammer write-RPCs
     // (turn_start/turn_end flip turn state; this is the corruption repro path,
@@ -68,7 +68,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     // exercises the opencode-only "no session id supplied → generate + print"
     // branch.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     // session-start with no id: the daemon generates one, the hook prints it.
     let out = run_cli_stdin(
@@ -154,7 +154,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
 #[test]
 fn invalid_cli_invocation_writes_command_log_only_when_enabled() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let args = &[
         "send-this-message",
@@ -226,7 +226,7 @@ fn invalid_cli_invocation_writes_command_log_only_when_enabled() {
 #[test]
 fn claude_user_prompt_submit_reasserts_missing_session() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let out = run_cli_stdin(
         &home,
@@ -262,7 +262,7 @@ fn version_skew_client_detects_and_respawns() {
     // the real `connect_or_spawn` must detect the skew, make the old daemon
     // exit, and respawn the (now "newer") daemon — transparently succeeding.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     // Start a daemon pinned to protocol 1 via a normal subprocess CLI call.
     let out = run_cli_proto(&home, &["who", "--all-projects"], Some("1"));
@@ -293,7 +293,7 @@ fn version_skew_client_detects_and_respawns() {
 #[test]
 fn turn_lifecycle_by_harness_alias_drives_canonical_row() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let canonical = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");

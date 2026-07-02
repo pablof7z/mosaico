@@ -149,7 +149,7 @@ fn ensure_channel_ready_inner<'a>(
                 // kind:39000 (await the echo) — never a local optimistic write. If
                 // it never materializes, fail loud and degrade.
                 let mut materialized = false;
-                for attempt in 0..6u32 {
+                for attempt in 0..12u32 {
                     if provider.fetch_and_materialize_channel(ctx.channel).await {
                         materialized = true;
                         break;

@@ -6,7 +6,7 @@ use tenex_edge::state::Store;
 #[test]
 fn session_start_runs_engine_and_records_alive_session() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let session_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -58,7 +58,7 @@ fn session_start_runs_engine_and_records_alive_session() {
 #[test]
 fn session_start_replaces_prior_session_for_same_host_pid() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
     let pid = std::process::id() as i32;
 
     let (old_canon, new_canon) = rt().block_on(async {
@@ -129,7 +129,7 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
 #[test]
 fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let (sender_canon, receiver_canon) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -180,16 +180,24 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         )
         .unwrap();
     let body = "hello @chat-receiver from redirected stdin".to_string();
-    let out = run_cli_stdin(&home, &["chat", "write"], &format!("{body}\n"));
+    let out = run_cli_stdin_with_env_in_dir(
+        &home,
+        &["chat", "write"],
+        &format!("{body}\n"),
+        &[("TENEX_EDGE_AGENT", "chat-sender")],
+        std::path::Path::new("/tmp"),
+    );
     assert!(
         out.status.success(),
         "chat write failed\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    let out = run_cli(
+    let out = run_cli_with_env_in_dir(
         &home,
         &["chat", "read", "--channel", &receiver_scope, "--limit", "1"],
+        &[("TENEX_EDGE_AGENT", "chat-sender")],
+        std::path::Path::new("/tmp"),
     );
     assert!(
         out.status.success(),
@@ -290,7 +298,7 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
 #[test]
 fn chat_commands_require_channel_when_session_joined_to_multiple_channels() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let store = Store::open(&home.store_path()).unwrap();
     let canonical = store
@@ -320,7 +328,7 @@ fn chat_commands_require_channel_when_session_joined_to_multiple_channels() {
             "chat_write",
             serde_json::json!({
                 "message": "ambiguous write",
-                "env_session": "multi-chat-session"
+                "session": &canonical
             }),
         )
         .await
@@ -337,7 +345,10 @@ fn chat_commands_require_channel_when_session_joined_to_multiple_channels() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.stream(
             "chat_read",
-            serde_json::json!({ "env_session": "multi-chat-session", "tail": true }),
+            serde_json::json!({
+                "session": &canonical,
+                "tail": true
+            }),
             |_| {},
         )
         .await
@@ -360,7 +371,7 @@ fn chat_commands_require_channel_when_session_joined_to_multiple_channels() {
 #[test]
 fn non_mention_chat_does_not_route_to_inbox() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
+    let home = Home::new().with_backend_key();
 
     let (sender_canon, receiver_canon) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -394,7 +405,13 @@ fn non_mention_chat_does_not_route_to_inbox() {
 
     // Write a plain channel message — no @mention in the body.
     let body = "no-mention ambient message for routing test";
-    let out = run_cli_stdin(&home, &["chat", "write"], &format!("{body}\n"));
+    let out = run_cli_stdin_with_env_in_dir(
+        &home,
+        &["chat", "write"],
+        &format!("{body}\n"),
+        &[("TENEX_EDGE_AGENT", "ambient-sender")],
+        std::path::Path::new("/tmp"),
+    );
     assert!(
         out.status.success(),
         "chat write failed: {}",

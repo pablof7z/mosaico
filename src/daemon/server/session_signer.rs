@@ -37,7 +37,9 @@ pub(super) struct SignerRequest<'a> {
     /// Pubkeys currently unavailable for reuse: live identities for the base
     /// agent plus pubkeys present in the target channel's active roster.
     pub occupied_pubkeys: Option<&'a HashSet<String>>,
-    /// Pubkey this same session already owns, if this is a reassert/revive.
+    /// Pubkey this same session or exact preferred route is allowed to reuse.
+    /// Generic births still treat roster membership as occupied; mention-driven
+    /// exact routes must keep the pubkey that was p-tagged so replay can deliver.
     pub owned_pubkey: Option<&'a str>,
 }
 

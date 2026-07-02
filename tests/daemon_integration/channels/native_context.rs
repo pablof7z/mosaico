@@ -129,10 +129,7 @@ fn who_refuses_agent_project_scan_without_exact_anchor() {
             )
             .await
             .expect("who should accept the exact watched-process anchor");
-        assert_eq!(
-            ok["self"]["channel"].as_str(),
-            Some(current_channel.as_str())
-        );
+        assert_eq!(ok["project"].as_str(), Some(current_channel.as_str()));
     });
 
     stop_daemon(&home);

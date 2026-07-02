@@ -153,24 +153,19 @@ pub(super) async fn rpc_tmux_spawn(
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))
 }
 
-/// Resolve the agent's durable pubkey and call `ensure_channel_ready` for the
-/// launch scope (the channel if given, else the project root) before the pane is
-/// opened.
+/// Call `ensure_channel_ready` for the launch scope (the channel if given, else
+/// the project root) before the pane is opened.
 ///
 /// If the same agent slug already has a live session in the scope, logs a note
-/// about the concurrent launch — ordinal-keyed second-instance pubkeys are a
-/// future extension; for now both instances share the same durable key.
+/// about the concurrent launch. The actual signer pubkey is selected and
+/// admitted by `session_start`; pre-provisioning with the base pubkey would make
+/// the first session look like a duplicate to the roster-aware ordinal allocator.
 pub(in crate::daemon::server) async fn provision_before_spawn(
     state: &Arc<DaemonState>,
     slug: &str,
     project: &str,
     channel: Option<&str>,
 ) -> Result<()> {
-    let edge = crate::config::edge_home();
-    let id = crate::identity::load_or_create(&edge, slug, crate::util::now_secs())
-        .with_context(|| format!("provision: could not resolve identity for {slug}"))?;
-    let pubkey = id.pubkey_hex();
-
     // Detect concurrent instances of the same agent in this scope.
     let scope = channel.filter(|g| !g.is_empty()).unwrap_or(project);
     let already_live = state
@@ -182,18 +177,18 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         tracing::info!(
             slug,
             scope,
-            pubkey = %crate::util::pubkey_short(&pubkey),
             "provision: launching concurrent instance (agent already has live session)"
         );
     }
 
     let timeout = std::time::Duration::from_secs(20);
     // One primitive provisions every channel: a top-level project is the ROOT
-    // channel (parent_hint None); an explicit channel is a subgroup under the
-    // project (parent_hint = project). `ensure_channel_ready` ensures existence +
-    // admin invariants + membership either way, so the session-start that follows
-    // finds the scope ready (with a valid parent when a per-session room is minted).
-    let parent_hint = channel.filter(|g| !g.is_empty()).map(|_| project);
+    // channel (parent_hint None); an explicit DIFFERENT channel is a subgroup
+    // under the project (parent_hint = project). `channel == project` is the
+    // launch API's root-channel spelling and must not recurse as its own parent.
+    let parent_hint = channel
+        .filter(|g| !g.is_empty() && *g != project)
+        .map(|_| project);
     let channel_name = state
         .with_store(|s| s.get_channel(scope))
         .ok()
@@ -204,15 +199,15 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         slug,
         channel = scope,
         channel_name,
-        pubkey = %crate::util::pubkey_short(&pubkey),
         "provision: ensuring channel ready"
     );
+    let expect_member = state.backend_pubkey().unwrap_or_default().to_string();
     let ctx = crate::fabric::nip29::readiness::ChannelCtx {
         channel: scope,
-        expect_member: &pubkey,
+        expect_member: &expect_member,
         parent_hint,
         name: None,
-        repair_whitelisted_admins: false,
+        repair_whitelisted_admins: true,
     };
     match tokio::time::timeout(timeout, state.provider.ensure_channel_ready(ctx)).await {
         Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded) => tracing::warn!(

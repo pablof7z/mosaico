@@ -24,7 +24,8 @@ fn rewrite_config_with_user_nsec(home: &Home) {
     let body = serde_json::json!({
         "whitelistedPubkeys": [user_pk],
         "backendName": "test-host",
-        "relays": [shared_relay_url()],
+        "relays": [shared_nip29_relay_url()],
+        "indexerRelay": shared_nip29_relay_url(),
         "userNsec": EXAMPLE_USER_NSEC,
         "tenexPrivateKey": EXAMPLE_BACKEND_SEC_HEX,
         // This test asserts the minted per-session room parent, so opt into the

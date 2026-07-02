@@ -27,6 +27,11 @@ pub(in crate::daemon::server) fn select_session_signer(
     // its durable identity survives.
     let existing_identity = state.with_store(|s| s.identity_for_session(session_id).ok().flatten());
     let preferred = hint_ordinal.or_else(|| existing_identity.as_ref().map(|i| i.ordinal));
+    let preferred_pubkey = hint_ordinal.map(|ordinal| {
+        crate::identity::derive_agent_ordinal_keys(base_keys, ordinal)
+            .public_key()
+            .to_hex()
+    });
     let occupied_pubkeys: std::collections::HashSet<String> = state.with_store(|s| {
         let mut occupied: std::collections::HashSet<String> = s
             .list_channel_members(h)
@@ -58,7 +63,10 @@ pub(in crate::daemon::server) fn select_session_signer(
                 base_keys,
                 preferred_ordinal: preferred,
                 occupied_pubkeys: Some(&occupied_pubkeys),
-                owned_pubkey: existing_identity.as_ref().map(|i| i.pubkey.as_str()),
+                owned_pubkey: existing_identity
+                    .as_ref()
+                    .map(|i| i.pubkey.as_str())
+                    .or(preferred_pubkey.as_deref()),
             },
         )?
     };

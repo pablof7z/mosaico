@@ -312,10 +312,11 @@ pub(in crate::daemon::server) fn rpc_channels_list(
         } else {
             ch.name.clone()
         };
-        children
-            .entry(ch.parent.clone())
-            .or_default()
-            .push((ch.channel_h.clone(), display, ch.about.clone()));
+        children.entry(ch.parent.clone()).or_default().push((
+            ch.channel_h.clone(),
+            display,
+            ch.about.clone(),
+        ));
     }
     for v in children.values_mut() {
         v.sort();

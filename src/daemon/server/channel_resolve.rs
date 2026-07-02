@@ -48,13 +48,15 @@ fn resolve_locally(
 /// it exactly like `channels_create` does (upsert + ready + sub); else bail — no
 /// silent literal-`h` mint.
 ///
-/// `agent` (a slug) names the member to admit when a channel is minted; when
-/// absent the management key (already the group admin) provisions it.
+/// Channel resolution provisions with the management key only. The eventual
+/// session signer is selected later by `session_start`; pre-adding the base
+/// agent pubkey here would make the roster-aware ordinal allocator think the
+/// first session is already occupied and incorrectly spawn `agent1`.
 pub(in crate::daemon::server) async fn resolve_channel(
     state: &Arc<DaemonState>,
     parent: &str,
     name: &str,
-    agent: Option<&str>,
+    _agent: Option<&str>,
     create_if_absent: bool,
 ) -> Result<String> {
     if let Some(h) = state.with_store(|s| resolve_locally(s, parent, name))? {
@@ -65,24 +67,12 @@ pub(in crate::daemon::server) async fn resolve_channel(
     }
 
     let child_h = crate::util::opaque_group_id();
-    let now = now_secs();
-
-    // The member to admit: the named agent's durable pubkey, else the management
-    // key (already an admin) purely to provision the group.
-    let member = match agent.filter(|a| !a.is_empty()) {
-        Some(slug) => crate::identity::load_or_create(&crate::config::edge_home(), slug, now)
-            .map(|id| id.pubkey_hex())
-            .ok(),
-        None => None,
-    }
-    .or_else(|| {
-        state
-            .cfg
-            .management_nsec()
-            .and_then(|n| nostr_sdk::prelude::Keys::parse(n).ok())
-            .map(|k| k.public_key().to_hex())
-    })
-    .unwrap_or_default();
+    let member = state
+        .cfg
+        .management_nsec()
+        .and_then(|n| nostr_sdk::prelude::Keys::parse(n).ok())
+        .map(|k| k.public_key().to_hex())
+        .unwrap_or_default();
 
     let gate = state
         .provider

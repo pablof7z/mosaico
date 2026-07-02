@@ -9,6 +9,8 @@ use super::abort_session_start;
 use anyhow::Result;
 use std::sync::Arc;
 
+const START_CHANNEL_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 pub(super) async fn ensure_start_channel_ready(
     state: &Arc<DaemonState>,
     project: &str,
@@ -40,7 +42,7 @@ async fn ensure_session_room_ready(
     }
     let provisioned = matches!(
         tokio::time::timeout(
-            std::time::Duration::from_secs(8),
+            START_CHANNEL_READY_TIMEOUT,
             ensure_session_room(state, project, project, parent, agent_pubkey),
         )
         .await,
@@ -75,12 +77,12 @@ async fn ensure_existing_channel_ready(
             expect_member: agent_pubkey,
             parent_hint: parent_hint.as_deref(),
             name: None,
-            repair_whitelisted_admins: false,
+            repair_whitelisted_admins: true,
         };
         state.provider.ensure_channel_ready(ctx).await
     };
 
-    match tokio::time::timeout(std::time::Duration::from_secs(8), open).await {
+    match tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open).await {
         Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded) => {
             abort_session_start(state, session_id);
             anyhow::bail!(

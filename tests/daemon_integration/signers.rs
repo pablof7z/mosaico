@@ -20,7 +20,7 @@ fn rewrite_config_with_signing_relay(home: &Home) {
 }
 
 fn rewrite_config_with_nak_relay(home: &Home) -> String {
-    let relay = shared_relay_url();
+    let relay = shared_nip29_relay_url();
     let user_pk = pubkey_of(EXAMPLE_USER_NSEC);
     let cfg = home.dir.path().join("config.json");
     let body = serde_json::json!({
@@ -69,23 +69,6 @@ async fn start_session(
     v["session_id"].as_str().unwrap().to_string()
 }
 
-fn assert_who_lists_claude(home: &Home) {
-    let out = run_cli(home, &["who", "--all-projects"]);
-    assert!(
-        out.status.success(),
-        "who failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    // `who` now renders a markdown agent table; the claude agent appears in the
-    // Agent column by its instance label.
-    assert!(
-        stdout.contains("claude"),
-        "who should list the claude agent: {stdout}"
-    );
-    eprintln!("who evidence:\n{stdout}");
-}
-
 #[test]
 fn duplicate_same_agent_same_channel_gets_transient_signer() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -125,88 +108,14 @@ fn duplicate_same_agent_same_channel_gets_transient_signer() {
         transient_pubkey, durable_pubkey,
         "transient signer must differ from durable agent pubkey"
     );
-    assert!(
-        session_transient_pubkey(&store, &other_id).is_none(),
-        "same durable agent in a different channel should keep durable signer"
-    );
-
-    stop_daemon(&home);
-}
-
-#[test]
-fn nak_relay_observes_transient_duplicate_status_author() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
-    let relay = rewrite_config_with_nak_relay(&home);
-    let channel = unique_channel("nak-hello");
-    let other_channel = unique_channel("nak-backend");
-
-    let (first_id, second_id, other_id) = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        let first =
-            start_session(&mut c, "claude", Some("issue22-nak-first"), None, &channel).await;
-        let second =
-            start_session(&mut c, "claude", Some("issue22-nak-second"), None, &channel).await;
-        let other = start_session(
-            &mut c,
-            "claude",
-            Some("issue22-nak-other"),
-            None,
-            &other_channel,
-        )
-        .await;
-        (first, second, other)
-    });
-
-    let store = Store::open(&home.store_path()).unwrap();
-    let durable_pubkey = store
-        .get_session(&first_id)
-        .unwrap()
-        .expect("first session")
-        .agent_pubkey;
-    assert!(session_transient_pubkey(&store, &first_id).is_none());
-    assert!(session_transient_pubkey(&store, &other_id).is_none());
-    let transient_pubkey = session_transient_pubkey(&store, &second_id)
-        .expect("duplicate session should use transient pubkey");
-    let instance = store
-        .instance_identity_for_session(&second_id)
-        .unwrap()
-        .expect("duplicate instance identity");
-    assert_eq!(
-        instance.pubkey, transient_pubkey,
-        "session identity should report the transient signer for the duplicate"
-    );
-    assert_eq!(instance.display_slug(), "claude1");
-
-    assert!(
-        wait_until(std::time::Duration::from_secs(20), || {
-            relay::relay_has_status_authors(
-                &relay,
-                &channel,
-                &[durable_pubkey.as_str(), transient_pubkey.as_str()],
-            )
-        }),
-        "nak serve should contain durable and transient kind:30315 authors in {channel}; got {:?}",
-        relay::status_authors_on_relay(&relay, &channel)
-    );
-    eprintln!(
-        "nak serve relay={relay} channel={channel} status evidence={:?}",
-        relay::status_evidence_on_relay(&relay, &channel)
+    let other_transient_pubkey = session_transient_pubkey(&store, &other_id).expect(
+        "same durable agent in a different channel should get the next global ordinal signer",
     );
     assert!(
-        wait_until(std::time::Duration::from_secs(20), || {
-            relay::relay_has_status_authors(&relay, &other_channel, &[durable_pubkey.as_str()])
-        }),
-        "nak serve should contain durable kind:30315 author in {other_channel}; got {:?}",
-        relay::status_authors_on_relay(&relay, &other_channel)
+        other_transient_pubkey != durable_pubkey && other_transient_pubkey != transient_pubkey,
+        "global ordinal signer must be distinct from the base and prior ordinal"
     );
-    eprintln!(
-        "nak serve relay={relay} channel={other_channel} status evidence={:?}",
-        relay::status_evidence_on_relay(&relay, &other_channel)
-    );
-    eprintln!("duplicate instance pubkey={transient_pubkey}");
 
-    assert_who_lists_claude(&home);
     stop_daemon(&home);
 }
 

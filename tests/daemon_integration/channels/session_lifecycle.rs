@@ -1,38 +1,36 @@
 use super::*;
 
 #[test]
-fn session_start_without_tenex_private_key_still_starts_unmanaged() {
+fn session_start_without_tenex_private_key_refuses_unverified_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new(); // default config has NO tenexPrivateKey
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-nogrp", "cwd": "/tmp"}),
-        )
-        .await
-        .expect("session_start must succeed even without tenexPrivateKey");
+        let err = c
+            .call(
+                "session_start",
+                serde_json::json!({"agent": "coder", "session_id": "sess-nogrp", "cwd": "/tmp"}),
+            )
+            .await
+            .expect_err("session_start must fail closed without tenexPrivateKey");
+        assert!(
+            format!("{err:#}").contains("not verified ready"),
+            "unexpected session_start error: {err:#}"
+        );
     });
 
-    // Fail-open: the session runs, but the group stays unmanaged (no ownership).
+    // Fail-closed: without tenexPrivateKey the daemon cannot sign or verify
+    // NIP-29 readiness, so it must not leave a live session pointed at phantom
+    // channel state.
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store
-        .get_session("sess-nogrp")
-        .unwrap()
-        .expect("session row");
-    assert!(rec.alive, "session must start even without tenexPrivateKey");
-    // Manageability is now "has an admin member" (relay_channel_members, role
-    // 'admin'); the old `is_group_owned` ownership flag no longer exists. Without
-    // tenexPrivateKey the daemon can't sign group management, so no admin is
-    // materialized -- the channel stays unmanaged.
     assert!(
         store
-            .list_channel_members(&rec.channel_h)
+            .get_session("sess-nogrp")
             .unwrap()
-            .iter()
-            .all(|m| m.role != "admin"),
-        "without tenexPrivateKey the daemon must not claim/own the group"
+            .map(|rec| !rec.alive)
+            .unwrap_or(true),
+        "failed readiness must not leave a live session row"
     );
 
     stop_daemon(&home);

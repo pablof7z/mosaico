@@ -345,7 +345,8 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     }
 
     // Make sure the channel exists + this agent is a member BEFORE the engine
-    // starts publishing. Best-effort: never block a session from starting.
+    // starts publishing. Session start fails closed when relay readiness cannot
+    // be verified; otherwise the engine could publish into phantom state.
     if let Some(prog) = &progress {
         prog.emit(
             "nip29",

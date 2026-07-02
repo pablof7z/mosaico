@@ -66,7 +66,8 @@ impl Home {
         let body = serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [shared_relay_url()],
+            "relays": [shared_nip29_relay_url()],
+            "indexerRelay": shared_nip29_relay_url(),
             "tenexPrivateKey": "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422",
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
@@ -121,6 +122,20 @@ pub(crate) fn run_cli_with_env(
     cmd.output().expect("run tenex-edge")
 }
 
+pub(crate) fn run_cli_with_env_in_dir(
+    home: &Home,
+    args: &[&str],
+    env: &[(&str, &str)],
+    cwd: &std::path::Path,
+) -> std::process::Output {
+    let mut cmd = cli_command(home, args);
+    cmd.current_dir(cwd);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    cmd.output().expect("run tenex-edge")
+}
+
 fn cli_command(home: &Home, args: &[&str]) -> std::process::Command {
     let mut cmd = std::process::Command::new(bin());
     cmd.args(args)
@@ -151,6 +166,34 @@ pub(crate) fn run_cli_stdin_with_env(
 ) -> std::process::Output {
     use std::io::Write as _;
     let mut cmd = cli_command(home, args);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    let mut child = cmd
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn tenex-edge");
+    child
+        .stdin
+        .take()
+        .expect("child stdin")
+        .write_all(stdin.as_bytes())
+        .expect("write stdin");
+    child.wait_with_output().expect("run tenex-edge")
+}
+
+pub(crate) fn run_cli_stdin_with_env_in_dir(
+    home: &Home,
+    args: &[&str],
+    stdin: &str,
+    env: &[(&str, &str)],
+    cwd: &std::path::Path,
+) -> std::process::Output {
+    use std::io::Write as _;
+    let mut cmd = cli_command(home, args);
+    cmd.current_dir(cwd);
     for (key, value) in env {
         cmd.env(key, value);
     }
