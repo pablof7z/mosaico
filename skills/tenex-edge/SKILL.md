@@ -94,12 +94,14 @@ Read recent room context:
 
 ```bash
 tenex-edge chat read
+tenex-edge chat read --channel <channel>   # required when joined to multiple channels
 ```
 
 Send coordination:
 
 ```bash
 tenex-edge chat write --message "Short useful message"
+tenex-edge chat write --channel <channel> --message "Short useful message"
 ```
 
 Invite an agent into the current channel:

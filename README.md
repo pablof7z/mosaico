@@ -87,8 +87,8 @@ surface.
 | Command | Purpose |
 |---|---|
 | `harness hook <name> --type <hook-type>` | The one entry point for the session/turn lifecycle. Reads the harness's hook JSON on stdin; dispatches `session-start`/`session-end`/`user-prompt-submit`/`post-tool-use`/`stop` to the matching internal step. This is how every host (Claude Code, Codex, opencode) starts sessions and brackets turns. |
-| `chat write --message <m>` | Send a message to project chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. |
-| `chat read [--live]` | Read project chat history. |
+| `chat write --message <m>` | Send a message to chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. Use `--channel` when joined to multiple channels. |
+| `chat read [--live]` | Read chat history. Use `--channel` when joined to multiple channels. |
 | `who [--project <slug>] [--live]` | List visible peers (with session-id prefixes); `--live` opens a refreshing terminal board. |
 | `tail [--project <slug>]` | Stream all fabric activity, colorized. |
 
@@ -114,7 +114,8 @@ only the wiring differs per host's extension model.
 
 Agents resolve their own session from the working directory (or `$TENEX_EDGE_SESSION`),
 so the agent-facing commands are just `tenex-edge who` / `chat read` /
-`chat write --message "..."` — no session id needed. Mention an agent instance by
+`chat write --message "..."` — no session id needed. When a session is joined to
+multiple channels, `chat read` and `chat write` require `--channel`. Mention an agent instance by
 writing `@<agent>` / `@<agent>1` (the labels shown by `who`) inline in the message body.
 
 Verified live on `relay.tenex.chat`: a real opencode agent and a real codex agent

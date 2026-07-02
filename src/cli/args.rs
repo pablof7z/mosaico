@@ -181,9 +181,9 @@ pub(super) enum ChatAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Channel name (or id) to write to; resolved to its opaque id within
-        /// the sender's project scope. Defaults to this agent's active channel
-        /// (TENEX_EDGE_CHANNEL → tmux pane session → cwd).
+        /// Project-relative channel name/path/id to write to. Required when
+        /// this session is joined to more than one channel; inferred only when
+        /// exactly one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
     },
@@ -204,8 +204,9 @@ pub(super) enum ChatAction {
         /// Keep the chat reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Channel name (or id) to read; defaults to the current agent session's
-        /// active channel.
+        /// Project-relative channel name/path/id to read. Required when this
+        /// session is joined to more than one channel; inferred only when exactly
+        /// one joined channel exists.
         #[arg(long, alias = "project")]
         channel: Option<String>,
     },

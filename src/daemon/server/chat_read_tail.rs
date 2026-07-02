@@ -1,3 +1,4 @@
+use super::chat_target::resolve_chat_target;
 use super::*;
 use crate::state::RelayEvent;
 
@@ -40,21 +41,18 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     writer: &mut W,
 ) -> Result<()> {
     let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let scope = match p.channel.filter(|s| !s.trim().is_empty()) {
-        Some(channel) => channel,
-        None => {
-            resolve_session_inner(
-                state,
-                &CallerAnchor::from_params(params),
-                ResolveScope::Project,
-            )?
-            .channel_h
-        }
-    };
+    let rec = resolve_session_inner(
+        state,
+        &CallerAnchor::from_params(params),
+        ResolveScope::Project,
+    )?;
+    let target = resolve_chat_target(state, &rec, p.channel.as_deref(), "chat read")?;
+    let scope = target.channel_h;
     let since = p.since.unwrap_or(0);
     let offset = p.offset.unwrap_or(0);
 
     let _ = ensure_subscription(state, &scope).await;
+    let read_scopes = chat_read_scopes(state, &scope);
     let mut rx = if p.live {
         Some(state.tail_subscribe())
     } else {
@@ -63,18 +61,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     let live_started_at = now_secs();
 
     let rows = state.with_store(|s| {
-        // A top-level project channel folds in chat from its sub-channels.
-        let mut scopes = vec![scope.clone()];
-        if s.is_root_channel(&scope).unwrap_or(true) {
-            scopes.extend(
-                s.list_channels()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|c| c.parent == scope)
-                    .map(|c| c.channel_h),
-            );
-        }
-        let mut rows: Vec<RelayEvent> = scopes
+        let mut rows: Vec<RelayEvent> = read_scopes
             .iter()
             .flat_map(|sc| {
                 s.chat_for_channel(sc, since, CHAT_READ_CAP)
@@ -129,9 +116,9 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
             Ok(TailEvent::Msg {
                 project: ev_project,
                 ..
-            }) if ev_project == scope => {
+            }) if read_scopes.contains(&ev_project) => {
                 let rows = state.with_store(|s| {
-                    s.chat_for_channel(&scope, cursor, CHAT_READ_CAP)
+                    s.chat_for_channel(&ev_project, cursor, CHAT_READ_CAP)
                         .unwrap_or_default()
                 });
                 for row in rows {
@@ -153,6 +140,24 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     }
     let _ = write_json(writer, &Response::end(id)).await;
     Ok(())
+}
+
+fn chat_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
+    state.with_store(|s| {
+        let mut scopes = vec![scope.to_string()];
+        if s.is_root_channel(scope).unwrap_or(true) {
+            scopes.extend(
+                s.list_channels()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|c| c.parent == scope)
+                    .map(|c| c.channel_h),
+            );
+        }
+        scopes.sort();
+        scopes.dedup();
+        scopes
+    })
 }
 
 /// Render a verbatim chat `RelayEvent` into the CLI's chat-line JSON, resolving

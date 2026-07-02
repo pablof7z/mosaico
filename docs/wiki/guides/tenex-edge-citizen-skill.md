@@ -61,9 +61,9 @@ The fabric is a shared-attention space with explicit rooms and lightweight coord
 
 When you need mechanics:
 
-- `tenex-edge chat read` — read recent messages in the current channel
+- `tenex-edge chat read` — read recent messages; pass `--channel` when joined to multiple channels
 - `tenex-edge who` — fabric snapshot and presence (only when the hook snapshot is missing or stale)
-- `tenex-edge chat write` — post a message to the current channel
+- `tenex-edge chat write` — post a message; pass `--channel` when joined to multiple channels
 - `tenex-edge invite` — invite or recruit an agent into a channel
 - `tenex-edge channels list` — list available channels
 - `tenex-edge channels switch` — switch to an existing channel

@@ -1,3 +1,4 @@
+use super::chat_target::resolve_chat_target;
 use super::resolution::work_root_for;
 use super::*;
 use crate::state::{RelayEvent, Store};
@@ -14,7 +15,7 @@ pub(in crate::daemon::server) struct ChatWriteParams {
     #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
-    group: Option<String>,
+    channel: Option<String>,
 }
 
 /// Build a verbatim kind:9 chat row for the `relay_events` log from the fields we
@@ -50,30 +51,19 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
 ) -> Result<serde_json::Value> {
     let p: ChatWriteParams =
         serde_json::from_value(params.clone()).context("parsing chat_write params")?;
-    let rec = resolve_session(state, &CallerAnchor::from_params(params))?;
+    let mut anchor = CallerAnchor::from_params(params);
+    anchor.group = None;
+    let rec = resolve_session(state, &anchor)?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
     let durable_pubkey = id.pubkey_hex();
-    // Routing scope: the channel this session currently publishes into. All chat
-    // routing + the wire `h` tag key on this so a switched session's chat lands in
-    // the new channel.
+    // Routing scope: the channel this session currently publishes into. Caller
+    // lookup is independent from destination targeting; `channel` below is a
+    // chat destination only, never a session-resolution hint.
     let scope = rec.channel_h.clone();
 
-    // Explicit-destination redirect (issue #47): `chat write --channel test1` from
-    // inside a session publishes INTO that channel even though `env_session`
-    // resolved the SENDER to its own channel. Resolve the NAME (or literal id) to
-    // its opaque `channel_h` within the sender's project scope — erroring if
-    // unknown (never a silent literal-`h` send) — and treat it as a redirect only
-    // when it differs from the sender's own scope. The daemon injects an
-    // authoritative provenance prefix the agent cannot spoof.
-    let explicit_dest = match p.group.as_deref().filter(|g| !g.is_empty()) {
-        Some(name) => {
-            let parent = state.with_store(|s| work_root_for(s, &scope));
-            let id =
-                super::resolve_channel(state, &parent, name, Some(&rec.agent_slug), false).await?;
-            (id != scope).then_some(id)
-        }
-        None => None,
-    };
+    let target = resolve_chat_target(state, &rec, p.channel.as_deref(), "chat write")?;
+    let explicit_dest =
+        (target.explicit && target.channel_h != scope).then_some(target.channel_h.clone());
     let body_to_send = match &explicit_dest {
         Some(_) => format!(
             "[from @{} working in #{scope}]: {}",
