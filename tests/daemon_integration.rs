@@ -8,6 +8,7 @@
 
 #[path = "daemon_integration/channels.rs"]
 mod channels;
+#[path = "common/mod.rs"]
 mod common;
 #[path = "daemon_integration/harness.rs"]
 mod daemon_harness;

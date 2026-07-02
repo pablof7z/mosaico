@@ -22,5 +22,9 @@ test-unit:
 fmt-check:
     cargo fmt --check
 
+helper-import-check:
+    bash scripts/check_integration_helpers.sh
+
 loc-check:
     bash scripts/check_loc.sh
+    bash scripts/check_integration_helpers.sh

@@ -2,6 +2,7 @@
 //! relay, and verify a subscriber decodes them back. Exercises NIP-29 wire
 //! encoding + transport + a live relay together.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::TestRelay;

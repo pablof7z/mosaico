@@ -8,6 +8,7 @@
 //! the live fabric). Each test isolates its daemon via a fresh temp
 //! `TENEX_EDGE_HOME`; env mutation is serialized with a mutex.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::TestRelay;
