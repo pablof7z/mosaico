@@ -15,19 +15,19 @@ struct SkillTarget {
     path: PathBuf,
 }
 
-fn skill_targets() -> Vec<SkillTarget> {
-    let home = home_dir();
+fn skill_targets() -> Result<Vec<SkillTarget>> {
+    let home = home_dir()?;
     let mut targets = vec![SkillTarget {
         label: "agents",
         path: home.join(".agents/skills/tenex-edge"),
     }];
-    if claude_detected() {
+    if claude_detected()? {
         targets.push(SkillTarget {
             label: "claude",
             path: home.join(".claude/skills/tenex-edge"),
         });
     }
-    targets
+    Ok(targets)
 }
 
 /// Resolve `skills/tenex-edge` inside the tenex-edge repo checkout.
@@ -65,7 +65,7 @@ fn is_skill_tree(path: &Path) -> bool {
             .unwrap_or(false)
 }
 
-pub(super) fn print_status() {
+pub(super) fn print_status() -> Result<()> {
     println!("{}", "tenex-edge skill status".bold());
     let source = skill_source_dir().ok();
     if let Some(src) = &source {
@@ -75,7 +75,7 @@ pub(super) fn print_status() {
             src.display().to_string().dimmed()
         );
     }
-    for target in skill_targets() {
+    for target in skill_targets()? {
         let installed = if is_installed(&target.path, source.as_deref()) {
             "installed".green().to_string()
         } else {
@@ -90,6 +90,7 @@ pub(super) fn print_status() {
             detail.dimmed()
         );
     }
+    Ok(())
 }
 
 pub(super) fn install(opts: &InstallOpts) -> Result<()> {
@@ -101,7 +102,7 @@ pub(super) fn install(opts: &InstallOpts) -> Result<()> {
     };
     let flag = if opts.dry_run { " (dry-run)" } else { "" };
 
-    for target in skill_targets() {
+    for target in skill_targets()? {
         println!("\n{} {}{flag}", verb.bold(), target.label.cyan().bold());
         if opts.uninstall {
             uninstall_target(&target, opts.dry_run)?;

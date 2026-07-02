@@ -26,11 +26,11 @@ pub(super) struct InstallOpts {
 }
 
 pub(super) async fn install(opts: InstallOpts) -> Result<()> {
-    let all = harnesses();
+    let all = harnesses()?;
 
     if opts.status {
         print_status(&all);
-        skills::print_status();
+        skills::print_status()?;
         return Ok(());
     }
 
