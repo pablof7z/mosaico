@@ -1,7 +1,7 @@
 use super::*;
 
 mod args;
-pub(super) use args::{chat, ChatAction};
+pub(super) use args::{chat, publish, ChatAction, PublishArgs};
 
 pub(super) async fn chat_write(
     message: String,
@@ -109,7 +109,7 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
 
 // ── publish ───────────────────────────────────────────────────────────────────
 
-pub(super) async fn publish(
+pub(super) async fn publish_proposal(
     title: String,
     body: String,
     d: Option<String>,

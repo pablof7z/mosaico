@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 use super::admin::{AgentAction, AgentsAction, ChannelsAction, ProjectAction};
 use super::debug::DebugAction;
-use super::messaging::ChatAction;
+use super::messaging::{ChatAction, PublishArgs};
 use super::tmux_cli::LaunchArgs;
 use super::who::WhoArgs;
 
@@ -76,22 +76,7 @@ pub(super) enum Cmd {
         action: HarnessAction,
     },
     /// Publish a long-form proposal (kind:30023) from this agent's session.
-    Publish {
-        /// Proposal title.
-        #[arg(long)]
-        title: String,
-        /// Proposal body (Markdown). Use "-" or omit to read from stdin.
-        #[arg(long = "message", value_name = "BODY")]
-        message: Option<String>,
-        /// Stable addressable identifier (the kind:30023 `d` tag). Reuse the same
-        /// value to publish a REVISION that supersedes a prior proposal at the
-        /// same address. Omit to mint a fresh id (a new proposal).
-        #[arg(long = "d", value_name = "IDENTIFIER")]
-        d: Option<String>,
-        /// My session id; if omitted, resolved from the current directory.
-        #[arg(long)]
-        session: Option<String>,
-    },
+    Publish(PublishArgs),
     /// Launch an agent harness in a new tmux session, with tmux chrome hidden.
     Launch(LaunchArgs),
     /// Stop the daemon and prevent hooks from restarting it.
