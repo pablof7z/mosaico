@@ -62,17 +62,18 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
 
 #[test]
 fn cli_subprocess_blocking_path_session_start_and_who() {
-    // The session/turn lifecycle is driven only through `hook` now (no bare
-    // verbs). Run the real binary the way the harnesses do — payload on stdin —
-    // and assert the blocking client + renderer behave. This also exercises the
-    // opencode-only "no session id supplied → generate + print" branch.
+    // The session/turn lifecycle is driven only through `harness hook` now (no
+    // bare verbs). Run the real binary the way the harnesses do — payload on
+    // stdin — and assert the blocking client + renderer behave. This also
+    // exercises the opencode-only "no session id supplied → generate + print"
+    // branch.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
 
     // session-start with no id: the daemon generates one, the hook prints it.
     let out = run_cli_stdin(
         &home,
-        &["hook", "--host", "opencode", "--type", "session-start"],
+        &["harness", "hook", "opencode", "--type", "session-start"],
         r#"{"cwd":"/tmp"}"#,
     );
     assert!(
@@ -129,7 +130,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     // turn end (stop hook) is a sync blocking write — must succeed, print nothing.
     let out = run_cli_stdin(
         &home,
-        &["hook", "--host", "opencode", "--type", "stop"],
+        &["harness", "hook", "opencode", "--type", "stop"],
         &format!(r#"{{"session_id":"{sid}"}}"#),
     );
     assert!(
@@ -141,7 +142,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     // session-end prints the confirmation to stderr.
     let out = run_cli_stdin(
         &home,
-        &["hook", "--host", "opencode", "--type", "session-end"],
+        &["harness", "hook", "opencode", "--type", "session-end"],
         &format!(r#"{{"session_id":"{sid}"}}"#),
     );
     assert!(out.status.success());
@@ -230,8 +231,8 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
     let out = run_cli_stdin(
         &home,
         &[
+            "harness",
             "hook",
-            "--host",
             "claude-code",
             "--type",
             "user-prompt-submit",

@@ -33,7 +33,7 @@ fn harness_command(native_session: &str, cwd: &Path, injected_log: &Path) -> Vec
     let hook_log = injected_log.with_extension("hook.log");
     let script = format!(
         "printf '{{\"session_id\":\"{}\",\"cwd\":{},\"pid\":%s}}\\n' \"$$\" \
-         | \"$TENEX_EDGE_BIN\" hook --host opencode --type session-start >{} 2>&1; \
+         | \"$TENEX_EDGE_BIN\" harness hook opencode --type session-start >{} 2>&1; \
          while IFS= read -r line; do printf '%s\\n' \"$line\" >> {}; done",
         native_session,
         cwd_json,
