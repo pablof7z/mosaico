@@ -121,11 +121,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Channels { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Agents { action } => admin::agents(action).await,
-        Cmd::Invite {
-            channel,
-            agent,
-            session,
-        } => admin::invite(channel, agent, session).await,
+        Cmd::Invite(args) => admin::invite(args).await,
         Cmd::Harness { action } => match action {
             HarnessAction::Hook { harness, hook_type } => hooks::hook_run(harness, hook_type).await,
             HarnessAction::Statusline { session, tmux } => statusline::statusline(session, tmux),

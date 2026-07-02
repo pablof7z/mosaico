@@ -1,4 +1,5 @@
-use clap::Subcommand;
+use anyhow::Result;
+use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum AgentAction {
@@ -60,6 +61,24 @@ pub(in crate::cli) enum AgentsAction {
         #[arg(long)]
         since: Option<String>,
     },
+}
+
+#[derive(Args)]
+pub(in crate::cli) struct InviteArgs {
+    /// Project-relative channel name/path/id to invite into.
+    #[arg(long)]
+    channel: String,
+    /// `slug` of a local agent, or `slug@backend-label` where `backend-label`
+    /// is the remote backend's config.json `backendName`.
+    #[arg(long, conflicts_with = "session", required_unless_present = "session")]
+    agent: Option<String>,
+    /// Prior session id to resume into the channel.
+    #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
+    session: Option<String>,
+}
+
+pub(in crate::cli) async fn invite(args: InviteArgs) -> Result<()> {
+    super::project_channels::invite_target(args.channel, args.agent, args.session).await
 }
 
 #[derive(Subcommand)]
@@ -144,6 +163,13 @@ mod tests {
     use super::*;
     use clap::Parser;
 
+    fn parse_err(args: &[&str]) -> clap::Error {
+        match crate::cli::args::Cli::try_parse_from(args) {
+            Ok(_) => panic!("expected parse failure for {args:?}"),
+            Err(err) => err,
+        }
+    }
+
     #[test]
     fn agents_list_sessions_filter_still_parses() {
         let cli = crate::cli::args::Cli::try_parse_from([
@@ -160,6 +186,46 @@ mod tests {
                 action: Some(AgentsAction::ListSessions { agent, since: None }),
             } => assert_eq!(agent.as_deref(), Some("claude@laptop")),
             _ => panic!("expected agents list-sessions command"),
+        }
+    }
+
+    #[test]
+    fn invite_requires_agent_or_session_and_preserves_xor() {
+        let missing = parse_err(&["tenex-edge", "invite", "--channel", "ops"]);
+        assert_eq!(
+            missing.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+
+        let both = parse_err(&[
+            "tenex-edge",
+            "invite",
+            "--channel",
+            "ops",
+            "--agent",
+            "claude",
+            "--session",
+            "s1",
+        ]);
+        assert_eq!(both.kind(), clap::error::ErrorKind::ArgumentConflict);
+
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "tenex-edge",
+            "invite",
+            "--channel",
+            "ops",
+            "--agent",
+            "claude@laptop",
+        ])
+        .expect("invite with agent parses");
+
+        match cli.cmd {
+            crate::cli::args::Cmd::Invite(args) => {
+                assert_eq!(args.channel, "ops");
+                assert_eq!(args.agent.as_deref(), Some("claude@laptop"));
+                assert_eq!(args.session, None);
+            }
+            _ => panic!("expected invite command"),
         }
     }
 }

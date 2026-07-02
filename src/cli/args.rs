@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use super::admin::{AgentAction, AgentsAction, ChannelsAction, ProjectAction};
+use super::admin::{AgentAction, AgentsAction, ChannelsAction, InviteArgs, ProjectAction};
 use super::debug::DebugAction;
 use super::messaging::{ChatAction, PublishArgs};
 use super::tmux_cli::LaunchArgs;
@@ -58,18 +58,7 @@ pub(super) enum Cmd {
     },
     /// Invite an agent or prior session into a channel. Use --agent for a fresh
     /// session, or --session to restore a prior context.
-    Invite {
-        /// Project-relative channel name/path/id to invite into.
-        #[arg(long)]
-        channel: String,
-        /// `slug` of a local agent, or `slug@backend-label` where `backend-label`
-        /// is the remote backend's config.json `backendName`.
-        #[arg(long, conflicts_with = "session", required_unless_present = "session")]
-        agent: Option<String>,
-        /// Prior session id to resume into the channel.
-        #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
-        session: Option<String>,
-    },
+    Invite(InviteArgs),
     /// Hook integration and statusline for any supported agent harness.
     Harness {
         #[command(subcommand)]

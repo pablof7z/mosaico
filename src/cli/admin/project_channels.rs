@@ -221,7 +221,11 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
 
 /// `tenex-edge invite --channel <channel> (--agent <slug[@backend]> | --session <id>)`
 /// spawns a fresh agent session or resumes a prior one into an existing channel.
-pub async fn invite(channel: String, agent: Option<String>, session: Option<String>) -> Result<()> {
+pub(super) async fn invite_target(
+    channel: String,
+    agent: Option<String>,
+    session: Option<String>,
+) -> Result<()> {
     let selector = agent
         .as_ref()
         .map(|a| format!("--agent {a}"))
