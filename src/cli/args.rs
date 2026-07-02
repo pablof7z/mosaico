@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 use super::admin::{AgentAction, AgentsAction, ChannelsAction, InviteArgs, ProjectAction};
 use super::debug::DebugAction;
+use super::install::InstallArgs;
 use super::messaging::{ChatAction, PublishArgs};
 use super::tmux_cli::LaunchArgs;
 use super::who::WhoArgs;
@@ -79,18 +80,7 @@ pub(super) enum Cmd {
     },
     /// Detect local agent harnesses and wire tenex-edge's hook entries into each.
     #[command(hide = true)]
-    Install {
-        #[arg(long)]
-        all: bool,
-        #[arg(long, value_name = "HARNESSES")]
-        harness: Option<String>,
-        #[arg(long)]
-        dry_run: bool,
-        #[arg(long)]
-        status: bool,
-        #[arg(long)]
-        uninstall: bool,
-    },
+    Install(InstallArgs),
     /// Start the per-machine daemon in the foreground.
     #[command(name = "daemon", alias = "__daemon", hide = true)]
     Daemon,

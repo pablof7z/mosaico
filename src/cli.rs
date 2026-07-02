@@ -129,22 +129,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Launch(args) => tmux_cli::launch(args).await,
         Cmd::Stop => stop_daemon(),
         Cmd::Debug { action } => debug::debug(action).await,
-        Cmd::Install {
-            all,
-            harness,
-            dry_run,
-            status,
-            uninstall,
-        } => {
-            install::install(install::InstallOpts {
-                all,
-                harness,
-                dry_run,
-                status,
-                uninstall,
-            })
-            .await
-        }
+        Cmd::Install(args) => install::install(args).await,
         Cmd::Daemon => crate::daemon::server::run().await,
     }
 }

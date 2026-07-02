@@ -2,6 +2,7 @@
 //! Mirrors the `pc install` surface: --all, --harness, --dry-run, --status,
 //! and --uninstall.
 
+mod args;
 mod config;
 mod hooks;
 mod io;
@@ -13,19 +14,13 @@ use dialoguer::MultiSelect;
 use owo_colors::OwoColorize;
 use std::io::{self as stdio, IsTerminal as _};
 
+use args::InstallOpts;
+pub(super) use args::{install, InstallArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
 pub(super) use hooks::{is_installed, merge_hooks, migrate_codex_root_events};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 
-pub(super) struct InstallOpts {
-    pub all: bool,
-    pub harness: Option<String>,
-    pub dry_run: bool,
-    pub status: bool,
-    pub uninstall: bool,
-}
-
-pub(super) async fn install(opts: InstallOpts) -> Result<()> {
+async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     let all = harnesses()?;
 
     if opts.status {
