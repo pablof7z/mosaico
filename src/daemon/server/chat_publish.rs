@@ -138,6 +138,7 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
 ) -> Result<serde_json::Value> {
     use nostr_sdk::prelude::Keys;
 
+    #[allow(dead_code)]
     #[derive(serde::Deserialize, Default)]
     struct P {
         #[serde(default)]

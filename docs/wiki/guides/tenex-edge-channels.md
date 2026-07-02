@@ -2,7 +2,7 @@
 title: Tenex-Edge Channels
 slug: tenex-edge-channels
 topic: tenex-edge
-summary: Agents are not removed from channels when a session ends.
+summary: Agent online presence is active channel membership; ended or stale local sessions are removed from channel membership.
 tags:
   - capture
 volatility: warm
@@ -23,9 +23,12 @@ sources:
 
 # Tenex-Edge Channels
 
-## Agent Retention
+## Agent Membership
 
-Agents are not removed from channels when a session ends.
+Agent online presence is active channel membership. When a locally managed
+session ends or is found stale, the local daemon removes that session's agent
+pubkey from each channel it had joined, including base/cardinal agents and
+ordinal instances.
 
 Fresh per-session room context displays the project and channel labels, not `Project: (unnamed channel)` / `Channel: (unnamed channel)`, by synchronously stamping the parent/root and local membership or suppressing the warning for locally-managed rooms while provisioning converges.
 
@@ -34,7 +37,7 @@ The chat_write bail requiring a concrete session id is removed; delivery routes 
 <!-- citations: [^3c769-6616d] [^bd868-93a15] [^019f1-6da12] -->
 ## Invite
 
-`tenex-edge invite <slug[@backend]>` spawns a fresh session for the invited agent in the current channel. It is an explicit command, not an auto-add side-effect of @-mention. <!-- [^661eb-712ca] -->
+`tenex-edge invite --channel <channel> --agent <slug[@backend-label]>` spawns a fresh local or remote session into an existing channel. `tenex-edge invite --channel <channel> --session <session-id>` restores an exact prior session when its context is useful. It is an explicit command, not an auto-add side-effect of @-mention. <!-- [^661eb-712ca] -->
 
 ## Channels Switch
 

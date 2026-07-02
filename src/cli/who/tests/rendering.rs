@@ -48,6 +48,7 @@ fn who_renderer_summarizes_other_projects() {
     store
         .upsert_status(&Status {
             pubkey: "pk-b".to_string(),
+            session_id: "sid-b".to_string(),
             channel_h: "other".to_string(),
             slug: "b".to_string(),
             title: String::new(),

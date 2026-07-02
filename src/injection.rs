@@ -10,6 +10,7 @@
 //!   3. **hook mention** — context the harness appends (never pasted, so it never
 //!      echoes); wrapped in `<tenex-edge>…</tenex-edge>` with an explicit
 //!      `chat write` reply hint, because a hooks-only agent must reply via CLI.
+//!
 //! Ambient channel activity is rendered by the unified fabric-awareness view,
 //! not by this envelope module.
 //!

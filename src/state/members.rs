@@ -147,6 +147,17 @@ impl Store {
         Ok(())
     }
 
+    /// Remove one cached channel membership. This is an optimistic local reflection
+    /// of a management-key removal; the next relay 39002 materialization remains the
+    /// source of truth.
+    pub fn remove_channel_member(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
+        let n = self.conn.execute(
+            "DELETE FROM relay_channel_members WHERE channel_h=?1 AND pubkey=?2",
+            params![channel_h, pubkey],
+        )?;
+        Ok(n > 0)
+    }
+
     /// Channels this pubkey can manage (every channel where it is an admin).
     pub fn list_channels_where_admin(&self, pubkey: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(

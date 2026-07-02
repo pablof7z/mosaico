@@ -2,7 +2,7 @@
 title: Tenex-Edge Presence
 slug: tenex-edge-presence
 topic: tenex-edge
-summary: "Agent liveness in channels is communicated solely via kind:30315 status event TTL (NIP-40 expiration)."
+summary: "Agent online presence is channel membership; kind:30315 carries per-session activity and resumable session history."
 tags:
   - capture
 volatility: warm
@@ -18,12 +18,18 @@ sources:
 
 # Tenex-Edge Presence
 
-## Agent Liveness
+## Agent Online Presence
 
-Agent liveness in channels is communicated solely via kind:30315 status event TTL (NIP-40 expiration). <!-- [^3c769-8e749] -->
+Agent online presence in a channel is the NIP-29 membership roster. A local
+daemon removes its locally managed agent pubkeys from membership when sessions
+end or become stale, so roster membership is the gate for whether an agent can
+be addressed in that channel.
 
+Kind:30315 is per-session activity and history: it is replaceable by
+`(author pubkey, d=session-id)` and carries one `h` tag for each joined channel.
+Its `title` and `session_id` are the source for `agents list-sessions`, not the
+definition of whether the agent is online. <!-- [^3c769-8e749] -->
 
-The `nak_relay_observes_transient_duplicate_status_author` integration test currently fails because zero kind:30315 statuses reach the test relay, a pre-existing status-delivery issue independent of the identity split. <!-- [^bd868-cb3cd] -->
 ## Agent-Context Fabric Output
 
 The agent-context fabric output includes a self-header line showing the caller's agent label, project/channel, host, pubkey, status, member, and pending counts. <!-- [^bd868-f4d1e] -->

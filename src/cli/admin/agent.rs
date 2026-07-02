@@ -1,4 +1,5 @@
 use super::*;
+use crate::cli::args::AgentsAction;
 
 // ── agent (local keystore) ────────────────────────────────────────────────────
 
@@ -97,7 +98,14 @@ pub async fn agent(action: AgentAction) -> Result<()> {
 /// `agent list` (a keystore-management view of pubkeys/commands): this is the
 /// recruiting screen an agent or human consults before an `invite`. Reads the
 /// local store directly — no daemon round-trip.
-pub async fn agents_roster() -> Result<()> {
+pub async fn agents(action: Option<AgentsAction>) -> Result<()> {
+    match action.unwrap_or(AgentsAction::List) {
+        AgentsAction::List => agents_roster().await,
+        AgentsAction::ListSessions { agent, since } => list_sessions(agent, since).await,
+    }
+}
+
+async fn agents_roster() -> Result<()> {
     let edge_home = crate::config::edge_home();
     let rows = crate::identity::list_local_agents(&edge_home);
     if rows.is_empty() {
@@ -108,14 +116,61 @@ pub async fn agents_roster() -> Result<()> {
         println!("Add one with: tenex-edge agent add <slug> [-- <command>]");
         return Ok(());
     }
-    println!("Agents you can invite (spawns a fresh session in your current channel):");
+    println!("Agents you can invite:");
     for (slug, _command, _agent_def, byline) in &rows {
         match byline.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
             Some(b) => println!("  @{} — {}", slug.bold(), b),
             None => println!("  @{}", slug.bold()),
         }
     }
-    println!("\nInvite one with: tenex-edge invite <slug>");
+    println!("\nInvite one with: tenex-edge invite --channel <channel> --agent <slug>");
+    Ok(())
+}
+
+async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<()> {
+    let since_ts = since.as_deref().map(parse_since).filter(|ts| *ts > 0);
+    let v = daemon_call_async(
+        "agents_list_sessions",
+        serde_json::json!({ "agent": agent, "since": since_ts }),
+    )
+    .await?;
+    let rows = v["sessions"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or(&[]);
+    if rows.is_empty() {
+        println!("No prior sessions found.");
+        return Ok(());
+    }
+
+    let now = now_secs();
+    let mut current = String::new();
+    for row in rows {
+        let channel = row["channel"].as_str().unwrap_or("");
+        if channel != current {
+            current = channel.to_string();
+            println!("#{}:", current);
+        }
+        let agent = row["agent"].as_str().unwrap_or("?");
+        let session_id = row["session_id"].as_str().unwrap_or("?");
+        let title = row["title"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("(untitled)");
+        let last_seen = row["last_seen"].as_u64().unwrap_or(0);
+        let seen = if last_seen == 0 {
+            "unknown".to_string()
+        } else {
+            relative_time(last_seen, now)
+        };
+        println!(
+            "  * {} [{}] - {} - last seen: {}",
+            agent.bold(),
+            session_id.dimmed(),
+            title,
+            seen
+        );
+    }
     Ok(())
 }
 

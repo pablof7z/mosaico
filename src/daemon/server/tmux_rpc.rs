@@ -1,3 +1,4 @@
+use super::resolution::work_root_for;
 use super::resolve_session;
 use super::*;
 
@@ -11,14 +12,6 @@ fn tmux_pane_for_session(state: &Arc<DaemonState>, session_id: &str) -> Option<S
         .into_iter()
         .find(|a| a.external_id_kind == "tmux_pane")
         .map(|a| a.external_id)
-}
-
-/// The parent project a channel hangs under ('' parent = the channel itself).
-fn work_root_for(state: &Arc<DaemonState>, scope: &str) -> String {
-    match state.with_store(|s| s.channel_parent(scope)).ok().flatten() {
-        Some(p) if !p.is_empty() => p,
-        _ => scope.to_string(),
-    }
 }
 
 // ── tmux_status ───────────────────────────────────────────────────────────────
@@ -160,94 +153,6 @@ pub(super) async fn rpc_tmux_spawn(
     Ok(serde_json::json!({ "pane_id": pane_id, "agent": p.agent, "project": p.project }))
 }
 
-/// `invite`: spawn a FRESH session for `agent` into the INVITER'S CURRENT channel
-/// (decision C — the explicit alternative to @-mentioning, which never auto-spawns).
-/// Resolves the caller's session to learn its `channel_h`, then spawns the invited
-/// agent scoped to that exact channel (not a new per-session room). `agent` is a
-/// bare `slug` or `slug@backend`; only the slug drives the LOCAL spawn — the
-/// backend is advisory (invite spawns on THIS machine, from this machine's
-/// keystore). To pull in an agent that only runs elsewhere, @-mention it instead.
-pub(super) async fn rpc_invite(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        agent: String,
-        #[serde(default, alias = "env_session")]
-        harness_session: Option<String>,
-        #[serde(default)]
-        harness: Option<String>,
-        #[serde(default)]
-        tmux_pane: Option<String>,
-        #[serde(default)]
-        watch_pid: Option<i32>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// The caller's TENEX_EDGE_AGENT slug, to disambiguate the session.
-        #[serde(default)]
-        agent_slug: Option<String>,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("invite params")?;
-    let slug = invite_slug(&p.agent).to_string();
-    if slug.trim().is_empty() {
-        anyhow::bail!("invite requires an agent slug");
-    }
-
-    // Resolve the inviter's OWN session (Strict) to pin the spawn to its channel —
-    // the caller's agent slug is `agent_slug` (`agent` is the invitee), so this
-    // anchor is built by hand rather than via `from_params`.
-    let rec = resolve_session_inner(
-        state,
-        &CallerAnchor {
-            tmux_pane: p.tmux_pane.as_deref(),
-            harness_session: p.harness_session.as_deref(),
-            watch_pid: p.watch_pid,
-            harness: p.harness.as_deref(),
-            cwd: p.cwd.as_deref(),
-            agent: p.agent_slug.as_deref(),
-            ..Default::default()
-        },
-        ResolveScope::Strict,
-    )
-    .context("invite must be run from within a tenex-edge agent session")?;
-    let channel_h = rec.channel_h.clone();
-    // The work-root project the spawn machinery wants (maps a sub-channel back to
-    // its top-level project for cwd/provisioning).
-    let project = work_root_for(state, &channel_h);
-
-    let client_cwd = p.cwd.as_deref().map(std::path::Path::new);
-    // Provision membership in the EXISTING channel, then spawn pinned to it.
-    provision_before_spawn(state, &slug, &project, Some(&channel_h)).await?;
-    let pane_id = crate::tmux::spawn_agent(
-        state,
-        &slug,
-        &project,
-        Vec::new(),
-        None,
-        Some(&channel_h),
-        client_cwd,
-        None,
-    )
-    .await?;
-    Ok(serde_json::json!({
-        "pane_id": pane_id,
-        "agent": slug,
-        "channel": channel_h,
-    }))
-}
-
-/// The local-keystore slug to spawn from an invite `agent` spec. Invite is a
-/// LOCAL spawn keyed on the local identity, so a `slug@backend` qualifier is
-/// advisory — only the slug (left of the last `@`) drives the spawn. A bare slug
-/// passes through unchanged.
-fn invite_slug(spec: &str) -> &str {
-    spec.rsplit_once('@')
-        .map(|(s, _)| s)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(spec)
-}
-
 /// Resolve the agent's durable pubkey and call `ensure_channel_ready` for the
 /// launch scope (the channel if given, else the project root) before the pane is
 /// opened.
@@ -255,7 +160,7 @@ fn invite_slug(spec: &str) -> &str {
 /// If the same agent slug already has a live session in the scope, logs a note
 /// about the concurrent launch — ordinal-keyed second-instance pubkeys are a
 /// future extension; for now both instances share the same durable key.
-async fn provision_before_spawn(
+pub(in crate::daemon::server) async fn provision_before_spawn(
     state: &Arc<DaemonState>,
     slug: &str,
     project: &str,
@@ -368,7 +273,7 @@ struct TmuxResumeParams {
 /// the session id, so it IS the resume token. Only our own synthetic `te-*` ids
 /// (generated when a host supplies none, e.g. opencode without a captured id)
 /// are not resume tokens, so those fall through to `None`.
-fn resume_token_for(rec: &crate::state::Session) -> Option<String> {
+pub(in crate::daemon::server) fn resume_token_for(rec: &crate::state::Session) -> Option<String> {
     if !rec.resume_id.is_empty() {
         return Some(rec.resume_id.clone());
     }
@@ -460,7 +365,7 @@ pub(super) fn rpc_tmux_resumable(state: &Arc<DaemonState>) -> Result<serde_json:
             if live_pane {
                 return None;
             }
-            let work_root = work_root_for(state, &rec.channel_h);
+            let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h));
             let slug = state.session_instance(&rec).display_slug();
             Some(serde_json::json!({
                 "session_id": rec.session_id,
@@ -476,20 +381,4 @@ pub(super) fn rpc_tmux_resumable(state: &Arc<DaemonState>) -> Result<serde_json:
         .collect();
 
     Ok(serde_json::json!({ "resumable": arr }))
-}
-
-#[cfg(test)]
-mod invite_tests {
-    use super::invite_slug;
-
-    #[test]
-    fn invite_slug_takes_slug_left_of_backend() {
-        // Bare slug passes through.
-        assert_eq!(invite_slug("copywriter"), "copywriter");
-        // `slug@backend` → just the slug (backend is advisory for a LOCAL spawn).
-        assert_eq!(invite_slug("developer@tower"), "developer");
-        assert_eq!(invite_slug("qa@deadbeef"), "qa");
-        // Trailing `@` (empty backend) still yields the non-empty slug.
-        assert_eq!(invite_slug("weird@"), "weird");
-    }
 }

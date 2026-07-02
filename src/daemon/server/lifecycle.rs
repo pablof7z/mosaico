@@ -148,6 +148,8 @@ pub async fn run() -> Result<()> {
             }
         }
 
+        membership_cleanup::cleanup_dead_local_sessions(&relay_state);
+
         // Discover groups where local agents are already members so kind:9 chat
         // arrives even when no session is alive (spawn-on-mention path), and record
         // them in `subscribed_projects`. We DON'T open a REQ per group here — the
@@ -296,7 +298,13 @@ pub(in crate::daemon::server) async fn serve_connection(
                 break; // tail owns the connection until the client disconnects
             }
             "chat_read" => {
-                handle_chat_read(&state, req.id, &req.params, &mut writer).await?;
+                if let Err(e) = handle_chat_read(&state, req.id, &req.params, &mut writer).await {
+                    write_json(
+                        &mut writer,
+                        &Response::err(req.id, "chat_read_failed", format!("{e:#}")),
+                    )
+                    .await?;
+                }
                 break; // chat_read may own the connection for --live
             }
             "session_start" => {

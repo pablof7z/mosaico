@@ -25,10 +25,14 @@ pub(in crate::daemon::server) fn select_session_signer(
     // Honor (in priority order): an explicit spawn hint (mention-driven exact
     // ordinal), then a session's already-bound ordinal (reassert / restart), so
     // its durable identity survives.
-    let preferred = hint_ordinal.or_else(|| {
-        state
-            .with_store(|s| s.identity_for_session(session_id).ok().flatten())
-            .map(|i| i.ordinal)
+    let existing_identity = state.with_store(|s| s.identity_for_session(session_id).ok().flatten());
+    let preferred = hint_ordinal.or_else(|| existing_identity.as_ref().map(|i| i.ordinal));
+    let occupied_pubkeys: std::collections::HashSet<String> = state.with_store(|s| {
+        s.list_channel_members(h)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.pubkey)
+            .collect()
     });
 
     let signer = {
@@ -44,6 +48,8 @@ pub(in crate::daemon::server) fn select_session_signer(
                 h,
                 base_keys,
                 preferred_ordinal: preferred,
+                occupied_pubkeys: Some(&occupied_pubkeys),
+                owned_pubkey: existing_identity.as_ref().map(|i| i.pubkey.as_str()),
             },
         )?
     };

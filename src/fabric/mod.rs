@@ -110,8 +110,8 @@ pub fn materialize(
     // Decode via the NIP-29 wire codec. Kinds the codec does not recognise are
     // still cached verbatim in relay_events (e.g. reactions, foreign kinds) —
     // EXCEPT the dedicated-cache kinds (0, 30315), which must never land in the
-    // verbatim log. A kind:30315 that fails to decode (e.g. malformed `d != h`) is
-    // simply dropped rather than cached as a generic event.
+    // verbatim log. A kind:30315 that fails to decode is simply dropped rather
+    // than cached as a generic event.
     let codec = Nip29WireCodec;
     let Some(de) = codec.decode(env) else {
         let k = event.kind.as_u16();

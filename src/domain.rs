@@ -112,9 +112,10 @@ pub struct Proposal {
 }
 
 /// The agent's complete live state for one local session. On the wire, NIP-29
-/// status is addressed by `(author pubkey, group id)`; the local `session_id`
-/// never rides as a tag. From this one value a reader knows
-/// everything: who/where (agent, project, host, session, rel_cwd), what the
+/// status is replaceable by `(author pubkey, session_id)`, and targets every
+/// channel the session is currently present in via repeated `h` tags. From this
+/// one value a reader knows everything: who/where (agent, channels, host,
+/// session, rel_cwd), what the
 /// session is about (the persistent `title`), what it is doing *right now* (the
 /// live `activity`), and whether it is mid-turn (`busy`). It is replaceable per
 /// session, so each session keeps its own title even while idle — and after it
@@ -150,8 +151,11 @@ pub struct Proposal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub agent: AgentRef,
-    pub project: String,
-    /// The local session this status belongs to. Not emitted on the wire.
+    /// NIP-29 channels this session is currently present in. Encoded as one
+    /// `h` tag per channel; materializers fan this single session status out to
+    /// per-channel read rows.
+    pub channels: Vec<String>,
+    /// The session this status belongs to. Encoded as the kind:30315 `d` tag.
     pub session_id: SessionId,
     /// The machine this session lives on.
     pub host: String,
@@ -178,6 +182,10 @@ pub struct Status {
 }
 
 impl Status {
+    pub fn primary_channel(&self) -> Option<&str> {
+        self.channels.first().map(String::as_str)
+    }
+
     /// Idle = not mid-turn. The `title` persists across idle turns, so idle is
     /// no longer "empty title".
     pub fn is_idle(&self) -> bool {
@@ -188,7 +196,8 @@ impl Status {
 /// A NIP-29 project chat line. On the wire this is a NIP-C7 `kind:9` event
 /// scoped to the project group by its `h` tag. It is ambient project context;
 /// live sessions see it going forward only. Chat fans out to every alive project
-/// session — routing is by pubkey + current channel, no session IDs on the wire.
+/// session by pubkey + channel membership; session ids are for lifecycle/status,
+/// not chat addressing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,
@@ -216,7 +225,7 @@ impl DomainEvent {
         match self {
             DomainEvent::Profile(_) => None,
             DomainEvent::Activity(a) => Some(&a.project),
-            DomainEvent::Status(s) => Some(&s.project),
+            DomainEvent::Status(s) => s.primary_channel(),
             DomainEvent::ChatMessage(m) => Some(&m.project),
             DomainEvent::Proposal(p) => Some(&p.project),
         }
@@ -233,7 +242,7 @@ mod tests {
         // A title is retained while idle: idle tracks `busy`, not the title.
         let idle = Status {
             agent: agent.clone(),
-            project: "p".into(),
+            channels: vec!["p".into()],
             session_id: "s1".into(),
             host: "laptop".into(),
             title: "fixing auth".into(),
@@ -244,7 +253,7 @@ mod tests {
         };
         let busy = Status {
             agent,
-            project: "p".into(),
+            channels: vec!["p".into()],
             session_id: "s1".into(),
             host: "laptop".into(),
             title: "fixing auth".into(),

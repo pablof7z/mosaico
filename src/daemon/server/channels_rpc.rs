@@ -156,8 +156,8 @@ Switch into it instead: tenex-edge channels switch {}",
     // never in the id, and the hierarchy lives in the `parent` metadata.
     let child_h = crate::util::opaque_group_id();
 
-    // Resolve each backend token to a hex pubkey. Accepts explicit
-    // pubkey/npub/NIP-05 *and* host slugs as shown by `tenex-edge who`.
+    // Resolve each backend label to the backend's pubkey. The label is the raw
+    // config.json `backendName`, not a pubkey, NIP-05, or OS/DNS hostname.
     let mut adds: Vec<AddTarget> = Vec::with_capacity(p.agents.len());
     for a in &p.agents {
         let backend_pubkey = resolve_backend_pubkey(state, &a.backend)
@@ -173,6 +173,7 @@ Switch into it instead: tenex-edge channels switch {}",
         adds.push(AddTarget {
             backend_pubkey,
             slug: a.slug.clone(),
+            session_id: None,
         });
     }
 

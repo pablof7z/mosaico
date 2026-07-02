@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod attach;
 #[cfg(test)]
 mod tests;

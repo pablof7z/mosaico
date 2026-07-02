@@ -28,8 +28,8 @@ context compression. The normal path is to rely on the injected snapshot.
   local step into chat.
 - Prefer short, useful chat messages: requests, decisions, handoffs, warnings,
   findings, and completion notes.
-- Treat presence as soft. An agent may be working, idle, stale, absent, or in a
-  different room.
+- Treat presence as active channel membership. An agent may still be idle or busy,
+  but once it leaves membership it is offline for that room.
 - Keep context scoped. Put focused work in the room that owns it instead of
   spraying every discussion into the main channel.
 
@@ -94,18 +94,29 @@ Read recent room context:
 
 ```bash
 tenex-edge chat read
+tenex-edge chat read --channel <channel>   # required when joined to multiple channels
 ```
 
 Send coordination:
 
 ```bash
 tenex-edge chat write --message "Short useful message"
+tenex-edge chat write --channel <channel> --message "Short useful message"
 ```
 
-Invite an agent into the current channel:
+List prior session ids when old context might matter:
 
 ```bash
-tenex-edge invite <agent>
+tenex-edge agents list-sessions
+tenex-edge agents list-sessions --agent <agent[@backend-label]>
+```
+
+Invite a fresh agent session, or restore an exact prior session only when its old
+context is useful:
+
+```bash
+tenex-edge invite --channel <channel> --agent <agent[@backend-label]>
+tenex-edge invite --channel <channel> --session <session-id>
 ```
 
 Navigate channels:

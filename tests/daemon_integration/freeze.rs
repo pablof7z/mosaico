@@ -227,6 +227,7 @@ fn freeze_peer_status_materializes_to_unified_presence_state() {
     store
         .upsert_status(&Status {
             pubkey: "peer-pubkey".into(),
+            session_id: "peer-session".into(),
             channel_h: "proj".into(),
             slug: "peer".into(),
             title: "reviewing relay state".into(),

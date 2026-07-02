@@ -344,28 +344,30 @@ impl Nip29Provider {
         self.delivery.subscribe(scope).await
     }
 
-    /// Publish ONE kind:30315 status for a session.
+    /// Publish ONE kind:30315 status for a session. The event is replaceable by
+    /// `(author pubkey, session_id)` and targets every channel in `status.channels`.
     pub async fn set_status(
         &self,
         status: &crate::domain::Status,
         keys: &nostr_sdk::prelude::Keys,
     ) -> Result<nostr_sdk::prelude::EventId> {
         let agent_pubkey = keys.public_key().to_hex();
-        let parent = self
-            .with_store(|s| s.channel_parent(&status.project).unwrap_or(None))
-            .filter(|p| !p.is_empty());
-        let ctx = ChannelCtx {
-            channel: &status.project,
-            expect_member: &agent_pubkey,
-            parent_hint: parent.as_deref(),
-            name: None,
-            repair_whitelisted_admins: true,
-        };
-        if matches!(self.ensure_channel_ready(ctx).await, ChannelGate::Degraded) {
-            anyhow::bail!(
-                "set_status: channel {} is not verified (ChannelGate::Degraded) — refusing to publish status into an unverified channel",
-                status.project
-            );
+        for channel in &status.channels {
+            let parent = self
+                .with_store(|s| s.channel_parent(channel).unwrap_or(None))
+                .filter(|p| !p.is_empty());
+            let ctx = ChannelCtx {
+                channel,
+                expect_member: &agent_pubkey,
+                parent_hint: parent.as_deref(),
+                name: None,
+                repair_whitelisted_admins: true,
+            };
+            if matches!(self.ensure_channel_ready(ctx).await, ChannelGate::Degraded) {
+                anyhow::bail!(
+                    "set_status: channel {channel} is not verified (ChannelGate::Degraded) — refusing to publish status into an unverified channel",
+                );
+            }
         }
         let builder = self.wire.encode(&DomainEvent::Status(status.clone()))?;
         self.transport.publish_signed(builder, keys).await

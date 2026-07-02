@@ -8,12 +8,12 @@ Coarse, lifecycle/intent-level — **not** fine-grained DB ops. The engine lives
 inside the daemon, so there is no per-DB-op RPC chatter; the surface is
 low-frequency lifecycle signals from hooks, CLI reads, and chat writes.
 
-All params/results are JSON. `session` fields are full session ids; the daemon
-resolves "my session from cwd/env" the same way the CLI does today
-(`resolve_session`: explicit → `$TENEX_EDGE_SESSION` → latest-alive-for-project).
-**The resolution stays daemon-side** so behavior is identical; the client passes
-the explicit `--session` if any, plus its `cwd` and the `TENEX_EDGE_SESSION`
-env value, and the daemon resolves.
+All params/results are JSON. `session` fields are full session ids. For
+agent-facing commands the daemon resolves the caller from the explicit session
+when present, then the tmux pane, harness-native session id, watched harness
+process, and finally the cwd+agent scan where that fallback is safe. **The
+resolution stays daemon-side** so every client path observes the same identity
+rules.
 
 ### `session_start`
 Spawns an in-daemon `SessionTask` (publishes profile, presence, subscribes,

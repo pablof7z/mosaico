@@ -19,8 +19,9 @@ pub(in crate::daemon::server) async fn rpc_doctor(
 
 // ── local_backend ────────────────────────────────────────────────────────────
 
-/// Return the local daemon's backend pubkey (hex) and host slug so callers can
-/// construct `slug@backend` agent specs without guessing the hostname format.
+/// Return the local daemon's backend pubkey and exact config `backendName` label
+/// so callers can construct `slug@backend-label` agent specs without guessing
+/// or deriving any machine hostname.
 pub(in crate::daemon::server) fn rpc_local_backend(
     state: &Arc<DaemonState>,
 ) -> Result<serde_json::Value> {
@@ -28,8 +29,7 @@ pub(in crate::daemon::server) fn rpc_local_backend(
         .backend_pubkey
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) configured"))?;
-    let host_slug = crate::util::slugify_host(&state.host);
-    Ok(serde_json::json!({ "pubkey": pubkey, "host_slug": host_slug }))
+    Ok(serde_json::json!({ "pubkey": pubkey, "backend_label": state.host.clone() }))
 }
 
 pub(in crate::daemon::server) async fn refresh_project_members_cache(

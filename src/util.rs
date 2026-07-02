@@ -165,9 +165,9 @@ impl AsRef<str> for SessionId {
     }
 }
 
-/// Convert a human-readable host label (e.g. "pablos' laptop") into a
-/// URL-safe slug (e.g. "pablos-laptop") suitable for use in `agent@host`
-/// addressing.
+/// Convert a human-readable host label (e.g. "pablos' laptop") into a URL-safe
+/// slug (e.g. "pablos-laptop"). This is only for legacy/local normalization
+/// needs; public agent/backend labels preserve config.json `backendName`.
 pub fn slugify_host(host: &str) -> String {
     let slug: String = host
         .to_lowercase()
@@ -238,8 +238,8 @@ pub fn is_opaque_group_id(s: &str) -> bool {
 /// The short hash keeps the room id readable while the `session-` prefix makes
 /// the scope explicit in prompts, status lines, and injected mentions.
 /// Deterministic (`DefaultHasher::new()` uses fixed keys) so a resumed session
-/// re-derives the same room; `anchor` is hashed, never embedded verbatim (no
-/// session_id on the wire, issue #5).
+/// re-derives the same room; `anchor` is hashed, never embedded verbatim in
+/// the channel id.
 pub fn session_room_id(anchor: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

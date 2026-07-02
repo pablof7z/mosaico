@@ -111,11 +111,10 @@ pub fn load_who_snapshot(
     now: u64,
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
-    // §8e: "remote" is computed DAEMON-side by comparing each peer's host to the
-    // daemon's own host, so all rendering stays client-side. Local sessions are
-    // on this machine by construction → never remote. A peer is remote ONLY when
-    // its host differs from ours.
-    let local_host = slugify_host(daemon_host);
+    // "Remote" is computed daemon-side by comparing each peer's exact backend
+    // label to the daemon's configured backend label. Local sessions are on this
+    // daemon by construction → never remote.
+    let local_host = daemon_host.trim().to_string();
 
     // Pubkeys this daemon signs as — used to drop our own relay echoes from the
     // peer set so a local session isn't double-counted as a remote one. A read
@@ -289,7 +288,7 @@ fn is_root_channel(store: &Store, scope: &str) -> bool {
 fn local_row(store: &Store, s: &crate::state::Session, local_host: &str, now: u64) -> WhoRow {
     let instance = local_instance(store, s);
     let live = store
-        .get_status(&instance.pubkey, &s.channel_h)
+        .get_status(&instance.pubkey, &s.session_id, &s.channel_h)
         .ok()
         .flatten()
         .filter(|st| st.expiration == 0 || st.expiration >= now);
@@ -349,7 +348,7 @@ fn peer_row(store: &Store, st: &crate::state::Status, local_host: &str, now: u64
         .map(|p| p.host)
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| local_host.to_string());
-    let remote = slugify_host(&host) != local_host;
+    let remote = host.trim() != local_host;
     WhoRow {
         source: WhoSource::Peer,
         fresh: true, // live_status_for_channel only returns unexpired rows
@@ -363,7 +362,7 @@ fn peer_row(store: &Store, st: &crate::state::Status, local_host: &str, now: u64
         },
         active: st.busy,
         host,
-        session_id: String::new(),
+        session_id: st.session_id.clone(),
         age_secs: Some(now.saturating_sub(st.last_seen)),
         rel_cwd: String::new(),
         remote,

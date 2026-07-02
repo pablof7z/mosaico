@@ -34,9 +34,9 @@ cli ── runtime ── { domain · fabric/nip29/wire · transport · state ·
 - `domain` — pure model (`Profile`, `Presence`, `Activity`, `Status`, `Mention`).
   Names no kind and no tag.
 - `fabric/nip29/wire` — maps every domain event ⇄ wire envelope + owns subscription filters.
-  The wire shapes are NIP-29-aware today (chat on kind:9, activity on kind:1,
-  status on kind:30315): project traffic is anchored with the `h` tag, using the
-  project slug as the group id.
+  The wire shapes are NIP-29-aware today: chat on kind:9, proposals on kind:30023,
+  and per-session status on kind:30315 with `d=<session-id>` plus one `h` tag for
+  each joined channel.
 - `transport` — thin adapter over `nostr-sdk` (publish/subscribe/AUTH/fetch).
 - `state` — SQLite: my sessions, the peer directory, per-session chat inbox rows.
   Opened by ONE process only — the daemon — so there is a single writer by construction.
@@ -87,8 +87,11 @@ surface.
 | Command | Purpose |
 |---|---|
 | `harness hook <name> --type <hook-type>` | The one entry point for the session/turn lifecycle. Reads the harness's hook JSON on stdin; dispatches `session-start`/`session-end`/`user-prompt-submit`/`post-tool-use`/`stop` to the matching internal step. This is how every host (Claude Code, Codex, opencode) starts sessions and brackets turns. |
-| `chat write --message <m>` | Send a message to project chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. |
-| `chat read [--live]` | Read project chat history. |
+| `chat write [--channel <channel>] --message <m>` | Send a message to chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. `--channel` is required when the session is joined to multiple channels. |
+| `chat read [--channel <channel>] [--live]` | Read chat history. `--channel` is required when the session is joined to multiple channels. |
+| `agents list-sessions [--agent <agent[@backend-label]>]` | List prior session ids and titles from kind:30315 history, grouped by channel. |
+| `invite --channel <channel> --agent <agent[@backend-label]>` | Invite a fresh local or remote agent session into an existing channel. |
+| `invite --channel <channel> --session <session-id>` | Resume an exact prior session into an existing channel when old context is useful. |
 | `who [--project <slug>] [--live]` | List visible peers (with session-id prefixes); `--live` opens a refreshing terminal board. |
 | `tail [--project <slug>]` | Stream all fabric activity, colorized. |
 
@@ -112,10 +115,12 @@ only the wiring differs per host's extension model.
   into context (automatic receive), and the plugin reports turn state to the
   distiller.
 
-Agents resolve their own session from the working directory (or `$TENEX_EDGE_SESSION`),
-so the agent-facing commands are just `tenex-edge who` / `chat read` /
-`chat write --message "..."` — no session id needed. Mention an agent instance by
-writing `@<agent>` / `@<agent>1` (the labels shown by `who`) inline in the message body.
+Agents resolve their own session from the tmux pane, harness process, or working
+directory, so the common agent-facing commands are `tenex-edge who`, `chat read`,
+and `chat write --message "..."` with no session id. When a session is joined to
+multiple channels, `chat read` and `chat write` require `--channel`. Mention an
+agent instance by writing `@<agent>` / `@<agent>1` (the labels shown by `who`)
+inline in the message body.
 
 Verified live on `relay.tenex.chat`: a real opencode agent and a real codex agent
 each messaged a `hub` via NIP-29 group chat; a real claude agent auto-received

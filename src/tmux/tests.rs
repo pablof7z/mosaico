@@ -1,4 +1,4 @@
-use super::registry::{ResumeShape, build_resume_command, resume_shape_for_bin};
+use super::registry::{build_resume_command, resume_shape_for_bin, ResumeShape};
 
 fn cmd(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()

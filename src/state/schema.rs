@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS relay_profiles (
 
 CREATE TABLE IF NOT EXISTS relay_status (
     pubkey       TEXT NOT NULL,
+    session_id   TEXT NOT NULL DEFAULT '',
     channel_h    TEXT NOT NULL,
     slug         TEXT NOT NULL DEFAULT '',
     title        TEXT NOT NULL DEFAULT '',
@@ -46,10 +47,12 @@ CREATE TABLE IF NOT EXISTS relay_status (
     last_seen    INTEGER NOT NULL DEFAULT 0,
     updated_at   INTEGER NOT NULL DEFAULT 0,
     expiration   INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (pubkey, channel_h)
+    PRIMARY KEY (pubkey, session_id, channel_h)
 );
 CREATE INDEX IF NOT EXISTS idx_relay_status_channel
     ON relay_status(channel_h, expiration);
+CREATE INDEX IF NOT EXISTS idx_relay_status_session
+    ON relay_status(pubkey, session_id);
 
 CREATE TABLE IF NOT EXISTS relay_events (
     id          TEXT PRIMARY KEY,

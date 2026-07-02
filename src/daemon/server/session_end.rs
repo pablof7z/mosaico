@@ -18,14 +18,12 @@ pub(in crate::daemon::server) fn rpc_session_end(
     if let Some(ref rec) = rec {
         cancel_session(state, &rec.session_id);
 
+        membership_cleanup::remove_session_memberships(state, &rec.session_id, "session-end");
         // Release the ordinal reservation + any derived signing key before marking
         // the session dead.
         let _session_key = state.release_session_signer(&rec.session_id);
         // Mark the bound identity dead but KEEP the row: a later mention to this
         // ordinal resumes its bound native session (issue #47).
-        // NIP-29 membership is NOT removed on session end: channel membership is
-        // persistent ("belongs to this channel"), not ephemeral ("has an active
-        // session"). kind:30315 expiry (NIP-40, TTL=90s) signals liveness.
         state.with_store(|s| s.mark_identity_dead_for_session(&rec.session_id).ok());
 
         // Mark the canonical session dead (alive=0, working=0). Its final published

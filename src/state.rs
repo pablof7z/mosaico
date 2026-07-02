@@ -82,11 +82,14 @@ pub struct Profile {
     pub updated_at: u64,
 }
 
-/// kind:30315 current activity for one agent in one channel. Liveness is freshness:
-/// a row with `now > expiration` is NOT live (NIP-40).
+/// kind:30315 current activity for one agent session in one channel. A single
+/// wire status may materialize to multiple rows when it carries multiple `h`
+/// tags. Liveness is freshness: a row with `now > expiration` is NOT live
+/// (NIP-40).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub pubkey: String,
+    pub session_id: String,
     pub channel_h: String,
     pub slug: String,
     pub title: String,

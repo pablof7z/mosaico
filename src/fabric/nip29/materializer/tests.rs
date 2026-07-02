@@ -123,7 +123,7 @@ fn status_materializes_and_reads_live() {
     if let Some(crate::domain::DomainEvent::Status(st)) = de {
         Nip29Materializer::materialize_status(&store, &st, event.created_at.as_secs());
     }
-    let raw = store.get_status(&pk, "proj").unwrap().unwrap();
+    let raw = store.get_status(&pk, "", "proj").unwrap().unwrap();
     assert_eq!(raw.title, "build");
     assert!(raw.busy);
     assert_eq!(

@@ -50,9 +50,8 @@ impl Store {
             .optional()?)
     }
 
-    /// Reverse lookup: the pubkey of an agent advertising `slug` on `host`.
-    /// `host` is matched either raw or via `slugify_host`, so callers can pass a
-    /// host slug (`agent@host`) or the raw host string. Non-backend profiles only.
+    /// Reverse lookup: the pubkey of an agent advertising `slug` on the exact
+    /// config.json `backendName` label. Non-backend profiles only.
     pub fn resolve_agent_pubkey(&self, slug: &str, host: &str) -> Result<Option<String>> {
         let mut stmt = self
             .conn
@@ -62,23 +61,24 @@ impl Store {
         })?;
         for row in rows {
             let (pk, h) = row?;
-            if h == host || crate::util::slugify_host(&h) == host {
+            if h == host {
                 return Ok(Some(pk));
             }
         }
         Ok(None)
     }
 
-    /// Reverse lookup: the pubkey of a backend whose host slugifies to
-    /// `host_slug` (how `who` renders backends — `slugify_host(host)`).
-    pub fn pubkey_for_host_slug(&self, host_slug: &str) -> Result<Option<String>> {
+    /// Reverse lookup: the pubkey of a backend with exactly this config
+    /// `backendName` label. Invite/orchestration surfaces do not accept OS/DNS
+    /// hostnames, pubkeys, NIP-05, or slugified display strings here.
+    pub fn pubkey_for_backend_label(&self, backend_label: &str) -> Result<Option<String>> {
         let mut stmt = self
             .conn
             .prepare("SELECT pubkey, host FROM relay_profiles WHERE is_backend=1")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         for row in rows {
             let (pk, h) = row?;
-            if crate::util::slugify_host(&h) == host_slug || h == host_slug {
+            if h == backend_label {
                 return Ok(Some(pk));
             }
         }

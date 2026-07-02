@@ -38,12 +38,16 @@ use tokio::sync::Notify;
 
 mod background;
 mod demux;
+mod invite_rpc;
+mod membership_cleanup;
+mod orchestration_handler;
 mod rpc;
 mod session_signer;
 mod tmux_rpc;
 
 use background::spawn_pruner;
-use demux::{handle_orchestration, spawn_demux};
+use demux::spawn_demux;
+use orchestration_handler::handle_orchestration;
 
 const PRUNE_PEER_AFTER_SECS: u64 = 600;
 
@@ -64,6 +68,9 @@ struct PeerTracked {
     slug: String,
     host: String,
 }
+
+type StatusTailKey = (String, String, String);
+type StatusTailSnapshot = (String, bool);
 
 /// Shared daemon state. The `Store` is behind an `Arc<Mutex<…>>` shared with
 /// session tasks; the guard is held only across synchronous rusqlite calls,
@@ -90,11 +97,10 @@ pub struct DaemonState {
     open_clients: Mutex<u64>,
     shutdown: Notify,
     /// In-memory peer-session tracking for join/leave derivation.
-    /// key = session_id. Populated on first-seen presence; cleared on leave.
-    /// Peer presence join/leave tracking, keyed by `(pubkey, project)` — peers
-    /// no longer carry a session id, and a durable agent can be present in
-    /// several projects at once, so identity is `(pubkey, group)`.
-    peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
+    /// Peer presence join/leave tracking, keyed by `(pubkey, session_id, channel)`.
+    /// A single session status can carry several `h` tags; each channel gets a
+    /// tail-facing presence row.
+    peer_sessions: Mutex<HashMap<(String, String, String), PeerTracked>>,
     /// Bounded first-sight tracking of native event ids: the relay pool
     /// notifies once per matching subscription, so the same event arrives many
     /// times. Set + insertion-order queue, capped at SEEN_EVENTS_CAP.
@@ -104,12 +110,10 @@ pub struct DaemonState {
     )>,
     /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
     seen_profiles: Mutex<std::collections::HashSet<String>>,
-    /// Last-seen (title, active) keyed by `(author_pubkey, group_id)` for tail
-    /// dedup. All sessions of a durable agent in one project sign with the same
-    /// key and address the same replaceable slot, so per-agent/group dedup is
-    /// correct. Tracking `active` too means an active→idle flip emits a tail
-    /// event even though the persistent title text is unchanged.
-    last_status: Mutex<HashMap<(String, String), (String, bool)>>,
+    /// Last-seen (title, active) keyed by `(author_pubkey, session_id, channel)`
+    /// for tail dedup. Tracking `active` too means an active→idle flip emits a
+    /// tail event even though the persistent title text is unchanged.
+    last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
     /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
     outbox_notify: Notify,
     /// Per-session derived keypairs for duplicate live signers. The durable
@@ -218,6 +222,7 @@ mod channel_resolve;
 mod channels_rpc;
 mod chat_publish;
 mod chat_read_tail;
+mod chat_target;
 mod chat_write;
 mod diagnostics;
 mod echo_guard;
@@ -289,6 +294,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_members" => rpc::rpc_project_members(state, &req.params).await,
         "project_add" => rpc::rpc_project_add(state, &req.params).await,
         "project_remove" => rpc::rpc_project_remove(state, &req.params).await,
+        "agents_list_sessions" => rpc::rpc_agents_list_sessions(state, &req.params),
         "debug_outbox" => rpc_debug_outbox(state, &req.params),
         "channels_create" => rpc_channels_create(state, &req.params).await,
         "channels_resolve" => rpc_channels_resolve(state, &req.params).await,
@@ -301,7 +307,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "tmux_status" => tmux_rpc::rpc_tmux_status(state),
         "tmux_send" => tmux_rpc::rpc_tmux_send(state, &req.params).await,
         "tmux_spawn" => tmux_rpc::rpc_tmux_spawn(state, &req.params).await,
-        "invite" => tmux_rpc::rpc_invite(state, &req.params).await,
+        "invite" => invite_rpc::rpc_invite(state, &req.params).await,
         "tmux_attach" => tmux_rpc::rpc_tmux_attach(state, &req.params),
         "tmux_resume" => tmux_rpc::rpc_tmux_resume(state, &req.params).await,
         "tmux_resumable" => tmux_rpc::rpc_tmux_resumable(state),

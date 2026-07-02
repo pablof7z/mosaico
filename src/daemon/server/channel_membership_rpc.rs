@@ -158,6 +158,15 @@ pub(in crate::daemon::server) async fn rpc_channels_leave(
         s.leave_session_channel(&rec.session_id, &channel)
             .unwrap_or(false)
     });
+    if left {
+        state.with_store(|s| {
+            s.remove_channel_member(&channel, &rec.agent_pubkey).ok();
+        });
+        state
+            .provider
+            .nip29_remove_member(&channel, &rec.agent_pubkey)
+            .await;
+    }
     Ok(serde_json::json!({
         "session_id": rec.session_id,
         "channel": channel,
@@ -189,6 +198,16 @@ pub(in crate::daemon::server) async fn rpc_channels_switch(
         &new_channel,
         true,
     )?;
+    if prev_channel != new_channel {
+        state.with_store(|s| {
+            s.remove_channel_member(&prev_channel, &rec.agent_pubkey)
+                .ok();
+        });
+        state
+            .provider
+            .nip29_remove_member(&prev_channel, &rec.agent_pubkey)
+            .await;
+    }
     Ok(serde_json::json!({
         "session_id": rec.session_id,
         "prev_channel": prev_channel,

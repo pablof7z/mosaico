@@ -161,6 +161,7 @@ fn nip40_expired_status_not_live() {
     let s = Store::open_memory().unwrap();
     let live = Status {
         pubkey: "pk1".into(),
+        session_id: "sid-1".into(),
         channel_h: "h1".into(),
         slug: "a".into(),
         title: "t".into(),

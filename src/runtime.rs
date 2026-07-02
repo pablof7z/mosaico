@@ -91,24 +91,14 @@ impl EngineParams {
     }
 }
 
-/// Route scope for this session: the session's current `channel_h` if set,
-/// otherwise the launch project channel.
-fn route_channel<'a>(p: &'a EngineParams, session: &'a Session) -> &'a str {
-    if session.channel_h.is_empty() {
-        &p.project
-    } else {
-        &session.channel_h
-    }
-}
-
 /// Build the kind:30315 the engine publishes for the current local draft. Idle
 /// sessions clear the live activity line (only the persistent title survives);
 /// the NIP-40 `expiration` re-arms liveness to `now + STATUS_TTL_SECS`.
-fn status_for(p: &EngineParams, session: &Session, now: u64) -> Status {
+fn status_for(p: &EngineParams, session: &Session, channels: Vec<String>, now: u64) -> Status {
     let busy = session.working;
     Status {
         agent: p.instance.agent_ref(),
-        project: route_channel(p, session).to_string(),
+        channels,
         session_id: p.session_id.clone().into(),
         host: p.host.clone(),
         title: session.title.clone(),
@@ -121,6 +111,27 @@ fn status_for(p: &EngineParams, session: &Session, now: u64) -> Status {
         rel_cwd: p.rel_cwd.clone(),
         expires_at: Some(now + STATUS_TTL_SECS),
     }
+}
+
+fn status_channels(p: &EngineParams, store: &Mutex<Store>, session: &Session) -> Vec<String> {
+    let mut channels = match store.lock() {
+        Ok(g) => g
+            .list_session_joined_channels(&session.session_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(channel, _)| channel)
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+    if !session.channel_h.is_empty() && !channels.iter().any(|c| c == &session.channel_h) {
+        channels.push(session.channel_h.clone());
+    }
+    if channels.is_empty() && !p.project.is_empty() {
+        channels.push(p.project.clone());
+    }
+    channels.sort();
+    channels.dedup();
+    channels
 }
 
 /// Encode + sign the status and park the signed JSON on the `outbox`. The drainer
@@ -251,7 +262,7 @@ pub async fn run_session_in_daemon(
             &provider,
             &signing_keys,
             &store,
-            status_for(&p, &session, now),
+            status_for(&p, &session, status_channels(&p, &store, &session), now),
             now,
         )
         .await;
@@ -274,7 +285,7 @@ pub async fn run_session_in_daemon(
                     tracing::error!(session = %p.session_id, error = %e, "touch_session failed — liveness not re-armed this beat");
                 }
                 if let Some(session) = load_session("heartbeat-status") {
-                    enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, now), now).await;
+                    enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, status_channels(&p, &store, &session), now), now).await;
                 }
             }
             _ = obs.tick() => {
@@ -296,7 +307,7 @@ pub async fn run_session_in_daemon(
 
                         // Read back the freshly-applied draft and publish it.
                         if let Some(session) = load_session("distill-publish") {
-                            enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, now), now).await;
+                            enqueue_status(&provider, &signing_keys, &store, status_for(&p, &session, status_channels(&p, &store, &session), now), now).await;
                             // The distilled title feeds the kind:30315 status above;
                             // it NEVER renames the route channel. A channel `name`
                             // is set only at create (or an explicit edit).
@@ -373,7 +384,7 @@ pub async fn run_session_in_daemon(
                     last_distill_attempt = 0;
                     distill_task = None;
                     if let Some(sess) = session.as_ref() {
-                        enqueue_status(&provider, &signing_keys, &store, status_for(&p, sess, now), now).await;
+                        enqueue_status(&provider, &signing_keys, &store, status_for(&p, sess, status_channels(&p, &store, sess), now), now).await;
                     }
                 }
                 prev_working = working;

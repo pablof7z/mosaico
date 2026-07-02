@@ -1,43 +1,45 @@
 //! The SINGLE canonical way to refer to agents and sessions across every
 //! tenex-edge interface (identifier standardization).
 //!
-//! Identity is the durable AGENT-INSTANCE = `(slug, machine)` → **`agent@host`**
-//! (e.g. `codex@laptop`, `haiku1@laptop`). A single run (SESSION) is only a
-//! correlation handle (the raw `session_id`); it is never a separate display name
-//! and is never accepted as a chat target.
+//! Identity is the durable AGENT-INSTANCE = `(slug, backend-label)` →
+//! **`agent@backend-label`** (e.g. `codex@laptop`, `haiku1@myBackend`). A single
+//! run (SESSION) is only a correlation handle (the raw `session_id`); it is never
+//! a separate display name and is never accepted as a chat target.
 //!
 //! Rules that hold EVERYWHERE:
-//!   - `@` always means HOST, never project. An agent is `(slug, machine)`;
-//!     project is only where a message goes, never who it is.
-//!   - `host` is ALWAYS slugified for display and matching (`slugify_host`).
+//!   - `@` always means backend label, never project. An agent is
+//!     `(slug, backend-label)`; project is only where a message goes, never who it
+//!     is.
+//!   - backend labels are config.json `backendName` values and are preserved
+//!     exactly after trimming. They are not DNS hostnames and are not slugified.
 //!   - identity is the agent-instance label, resolving to the instance's selected
 //!     pubkey; correlation is the raw `session_id`.
 //!
 //! Every renderer formats via [`agent_label`] / [`session_label`]; every input
 //! is classified via [`parse_ref`]. Nothing hand-rolls `format!("{slug}@…")`.
 
-use crate::util::slugify_host;
-
-/// Canonical label for a durable agent: `agent@host` (host slugified). When the
-/// host is unknown (empty), degrades to the bare `agent` rather than `agent@`.
+/// Canonical label for a durable agent: `agent@backend-label`. When the backend
+/// label is unknown (empty), degrades to the bare `agent` rather than `agent@`.
 pub fn agent_label(slug: &str, host: &str) -> String {
-    if host.trim().is_empty() {
+    let host = host.trim();
+    if host.is_empty() {
         slug.to_string()
     } else {
-        format!("{slug}@{}", slugify_host(host))
+        format!("{slug}@{host}")
     }
 }
 
-/// Host-aware agent reference as seen from `local_host`: bare `slug` when the
-/// agent is on the local machine (or its host is unknown), else `slug@host`.
+/// Backend-aware agent reference as seen from `local_host`: bare `slug` when the
+/// agent is on the local backend (or its backend label is unknown), else
+/// `slug@backend-label`.
 ///
 /// This is the token an operator/agent TYPES to address the peer: `developer`
-/// names the local developer, while `developer@tower` singles out a same-slug
-/// agent on another machine. Display layers add the `@` mention sigil on top
+/// names the local developer, while `developer@myBackend` singles out a same-slug
+/// agent on another backend. Display layers add the `@` mention sigil on top
 /// (`@developer` / `@developer@tower`).
 pub fn agent_ref_from(slug: &str, host: &str, local_host: &str) -> String {
     let host = host.trim();
-    if host.is_empty() || slugify_host(host) == slugify_host(local_host) {
+    if host.is_empty() || host == local_host.trim() {
         slug.to_string()
     } else {
         agent_label(slug, host)
@@ -45,8 +47,8 @@ pub fn agent_ref_from(slug: &str, host: &str, local_host: &str) -> String {
 }
 
 /// Display for a sender on an envelope "From" line: the agent-instance label
-/// `agent@host` (host slugified). When the agent slug is unknown, degrades to the
-/// raw `session_id` as a bare correlation handle.
+/// `agent@backend-label`. When the agent slug is unknown, degrades to the raw
+/// `session_id` as a bare correlation handle.
 pub fn session_label(session_id: &str, slug: &str, host: &str) -> String {
     if slug.is_empty() {
         session_id.to_string()
@@ -59,7 +61,7 @@ pub fn session_label(session_id: &str, slug: &str, host: &str) -> String {
 /// against the store happens in the daemon; this is the pure classification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ref {
-    /// `agent@host` — a durable agent on a specific machine (host slugified).
+    /// `agent@backend-label` — a durable agent on a specific backend.
     Agent { slug: String, host: String },
     /// A 64-char hex pubkey or `npub1…`.
     Pubkey(String),
@@ -69,14 +71,47 @@ pub enum Ref {
     Token(String),
 }
 
-/// Parse an identifier token into a syntactic [`Ref`]. `@` ALWAYS means host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentBackendRef {
+    pub slug: String,
+    /// Backend label from config.json `backendName`, never a DNS/OS hostname.
+    pub backend: Option<String>,
+}
+
+/// Parse `agent[@backend-label]` for invite/orchestration surfaces. Unlike
+/// display-oriented `agent@backend-label` parsing, the right side is a backend config
+/// label and is preserved exactly after trimming.
+pub fn parse_agent_backend_ref(spec: &str) -> Option<AgentBackendRef> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+    match spec.rsplit_once('@') {
+        Some((slug, backend)) if !slug.trim().is_empty() && !backend.trim().is_empty() => {
+            Some(AgentBackendRef {
+                slug: slug.trim().to_string(),
+                backend: Some(backend.trim().to_string()),
+            })
+        }
+        Some(_) => None,
+        None => Some(AgentBackendRef {
+            slug: spec.to_string(),
+            backend: None,
+        }),
+    }
+}
+
+/// Parse an identifier token into a syntactic [`Ref`]. `@` ALWAYS means backend
+/// label.
 pub fn parse_ref(token: &str) -> Ref {
     let t = token.trim();
     if let Some((slug, host)) = t.rsplit_once('@') {
+        let slug = slug.trim();
+        let host = host.trim();
         if !slug.is_empty() && !host.is_empty() {
             return Ref::Agent {
                 slug: slug.to_string(),
-                host: slugify_host(host),
+                host: host.to_string(),
             };
         }
     }
@@ -92,11 +127,12 @@ fn is_pubkey(s: &str) -> bool {
 
 /// Extract inline `@<agent-instance-label>` mentions from free chat text, in
 /// order of appearance, deduped. A mention is `@` followed by an agent-instance
-/// label token — a run of `[A-Za-z0-9._-]`, optionally host-qualified as
-/// `label@host` (so both `@haiku1` and `@haiku@laptop` are captured; the resolver
-/// understands `agent@host`). Used so `chat write "hey @haiku1"` routes to that
-/// instance. Trailing punctuation (`,`, `.` at the end of a word, `!`, `?`, `:`)
-/// is ignored. Tokens that don't resolve are silently treated as no mention.
+/// label token — a run of `[A-Za-z0-9._-]`, optionally backend-qualified as
+/// `label@backend-label` (so both `@haiku1` and `@haiku@laptop` are captured; the
+/// resolver understands `agent@backend-label`). Used so
+/// `chat write "hey @haiku1"` routes to that instance. Trailing punctuation (`,`,
+/// `.` at the end of a word, `!`, `?`, `:`) is ignored. Tokens that don't resolve
+/// are silently treated as no mention.
 pub fn extract_mentions(body: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in body.split(|c: char| c.is_whitespace()) {
@@ -129,33 +165,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_label_slugifies_host() {
-        assert_eq!(
-            agent_label("codex", "Pablo's Laptop"),
-            "codex@pablo-s-laptop"
-        );
+    fn agent_label_preserves_backend_label() {
+        assert_eq!(agent_label("codex", "myBackend"), "codex@myBackend");
         assert_eq!(agent_label("claude", "laptop"), "claude@laptop");
     }
 
     #[test]
     fn agent_ref_from_is_bare_local_and_qualified_remote() {
-        // Same host (after slugify) → bare slug; you'd type just `developer`.
+        // Same backend label → bare slug; you'd type just `developer`.
         assert_eq!(agent_ref_from("developer", "laptop", "laptop"), "developer");
-        assert_eq!(
-            agent_ref_from("developer", "Pablo's Laptop", "pablo-s-laptop"),
-            "developer"
-        );
-        // Unknown host → bare (can't qualify what we don't know).
+        // Unknown backend → bare (can't qualify what we don't know).
         assert_eq!(agent_ref_from("developer", "", "laptop"), "developer");
-        // Different host → host-qualified so a same-slug remote stays distinct.
+        // Different backend → backend-qualified so a same-slug remote stays distinct.
         assert_eq!(
-            agent_ref_from("developer", "tower", "laptop"),
-            "developer@tower"
+            agent_ref_from("developer", "myBackend", "laptop"),
+            "developer@myBackend"
         );
     }
 
     #[test]
-    fn session_label_is_agent_at_host() {
+    fn session_label_is_agent_at_backend_label() {
         // The sender's "From" identity is the agent-instance label.
         assert_eq!(session_label("te-abc-0", "codex", "laptop"), "codex@laptop");
         // Unknown slug degrades to the raw session id as a correlation handle.
@@ -163,19 +192,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_at_is_host_not_project() {
-        match parse_ref("codex@laptop") {
+    fn parse_at_is_backend_label_not_project() {
+        match parse_ref("codex@myBackend") {
             Ref::Agent { slug, host } => {
                 assert_eq!(slug, "codex");
-                assert_eq!(host, "laptop");
+                assert_eq!(host, "myBackend");
             }
             other => panic!("{other:?}"),
         }
-        // host gets slugified
-        match parse_ref("codex@Pablo's Laptop") {
-            Ref::Agent { host, .. } => assert_eq!(host, "pablo-s-laptop"),
-            other => panic!("{other:?}"),
-        }
+    }
+
+    #[test]
+    fn agent_backend_ref_preserves_backend_label() {
+        let r = parse_agent_backend_ref("claude@myBackend").unwrap();
+        assert_eq!(r.slug, "claude");
+        assert_eq!(r.backend.as_deref(), Some("myBackend"));
+
+        let local = parse_agent_backend_ref("codex").unwrap();
+        assert_eq!(local.slug, "codex");
+        assert_eq!(local.backend, None);
+
+        assert!(parse_agent_backend_ref("claude@").is_none());
+        assert!(parse_agent_backend_ref("@laptop").is_none());
     }
 
     #[test]

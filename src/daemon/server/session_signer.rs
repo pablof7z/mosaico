@@ -1,7 +1,7 @@
 use crate::identity;
 use anyhow::Result;
 use nostr_sdk::prelude::Keys;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A reserved ordinal slot (issue #47). At most one LIVE session per
 /// `(base agent pubkey, room h, ordinal)`. Replaces the old binary
@@ -35,6 +35,10 @@ pub(super) struct SignerRequest<'a> {
     /// mention-driven spawn naming a specific `smithN`). `None` → allocate the
     /// lowest free ordinal in the room (birth).
     pub preferred_ordinal: Option<u32>,
+    /// Pubkeys currently present in the target channel's active roster.
+    pub occupied_pubkeys: Option<&'a HashSet<String>>,
+    /// Pubkey this same session already owns, if this is a reassert/revive.
+    pub owned_pubkey: Option<&'a str>,
 }
 
 /// The identity selected for a session. Ordinal 0 signs with the base agent key
@@ -119,22 +123,24 @@ fn finish(
     signer
 }
 
-fn is_taken(
-    r: &SignerReservations,
-    base: &str,
-    h: &str,
-    ordinal: u32,
-    except_session: &str,
-) -> bool {
-    r.get(&slot(base, h, ordinal))
+fn is_taken(r: &SignerReservations, req: &SignerRequest<'_>, ordinal: u32) -> bool {
+    if r.get(&slot(req.base_pubkey, req.h, ordinal))
         .map(String::as_str)
-        .is_some_and(|owner| owner != except_session)
+        .is_some_and(|owner| owner != req.session_id)
+    {
+        return true;
+    }
+    let signer = build(req, ordinal);
+    req.occupied_pubkeys
+        .is_some_and(|pks| pks.contains(&signer.pubkey))
+        && req.owned_pubkey != Some(signer.pubkey.as_str())
 }
 
-/// Lowest ordinal not currently reserved by a live session in `(base, h)`.
-fn lowest_free(r: &SignerReservations, base: &str, h: &str) -> u32 {
+/// Lowest ordinal not currently reserved by a live session or visible in the
+/// channel's active roster.
+fn lowest_free(r: &SignerReservations, req: &SignerRequest<'_>) -> u32 {
     let mut n = 0u32;
-    while r.contains_key(&slot(base, h, n)) {
+    while is_taken(r, req, n) {
         n += 1;
     }
     n
@@ -170,7 +176,7 @@ pub(super) fn select_and_reserve(
     }
 
     let ordinal = match req.preferred_ordinal {
-        Some(n) if !is_taken(reservations, req.base_pubkey, req.h, n, req.session_id) => n,
+        Some(n) if !is_taken(reservations, &req, n) => n,
         // Preferred ordinal is occupied by a different live session. Channel
         // switch rejects this upstream; at birth it should not happen, but fall
         // back to lowest-free to keep the session live rather than failing.
@@ -182,9 +188,9 @@ pub(super) fn select_and_reserve(
                 preferred,
                 "preferred ordinal occupied by another session; falling back to lowest-free"
             );
-            lowest_free(reservations, req.base_pubkey, req.h)
+            lowest_free(reservations, &req)
         }
-        None => lowest_free(reservations, req.base_pubkey, req.h),
+        None => lowest_free(reservations, &req),
     };
     reservations.insert(
         slot(req.base_pubkey, req.h, ordinal),
@@ -243,6 +249,8 @@ mod tests {
             h,
             base_keys,
             preferred_ordinal,
+            occupied_pubkeys: None,
+            owned_pubkey: None,
         }
     }
 
@@ -328,6 +336,59 @@ mod tests {
     }
 
     #[test]
+    fn channel_roster_occupancy_blocks_reusing_released_ordinal() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut occupied = HashSet::new();
+        occupied.insert(bp.clone());
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        let s = select_and_reserve(
+            &mut r,
+            &mut sk,
+            SignerRequest {
+                session_id: "s1",
+                base_pubkey: &bp,
+                agent_slug: "smith",
+                h: "#a",
+                base_keys: &bk,
+                preferred_ordinal: None,
+                occupied_pubkeys: Some(&occupied),
+                owned_pubkey: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(s.ordinal, 1);
+        assert_eq!(s.label, "smith1");
+    }
+
+    #[test]
+    fn existing_session_can_reassert_its_roster_pubkey() {
+        let bk = base_keys();
+        let bp = bk.public_key().to_hex();
+        let mut occupied = HashSet::new();
+        occupied.insert(bp.clone());
+        let mut r = SignerReservations::new();
+        let mut sk = HashMap::new();
+        let s = select_and_reserve(
+            &mut r,
+            &mut sk,
+            SignerRequest {
+                session_id: "s1",
+                base_pubkey: &bp,
+                agent_slug: "smith",
+                h: "#a",
+                base_keys: &bk,
+                preferred_ordinal: Some(0),
+                occupied_pubkeys: Some(&occupied),
+                owned_pubkey: Some(&bp),
+            },
+        )
+        .unwrap();
+        assert_eq!(s.ordinal, 0);
+    }
+
+    #[test]
     fn preferred_ordinal_is_honored_when_free() {
         // Mention-driven / resume: honor the exact ordinal even if lower ones are
         // free (a mention to smith1 in an empty room still spawns smith1).
@@ -374,6 +435,8 @@ mod tests {
                 h: "#a",
                 base_keys: &smith,
                 preferred_ordinal: None,
+                occupied_pubkeys: None,
+                owned_pubkey: None,
             },
         )
         .unwrap();
@@ -387,6 +450,8 @@ mod tests {
                 h: "#a",
                 base_keys: &jones,
                 preferred_ordinal: None,
+                occupied_pubkeys: None,
+                owned_pubkey: None,
             },
         )
         .unwrap();

@@ -5,6 +5,7 @@ use crate::state::Session;
 /// `title`/`activity`/`working` are the local pre-publish draft on the `sessions`
 /// row; publishing turns them into a kind:30315 read back into `relay_status`.
 pub(in crate::daemon::server) fn status_from_session(
+    state: &Arc<DaemonState>,
     instance: &crate::identity::AgentInstance,
     rec: &Session,
     host: &str,
@@ -12,7 +13,7 @@ pub(in crate::daemon::server) fn status_from_session(
 ) -> crate::domain::Status {
     crate::domain::Status {
         agent: instance.agent_ref(),
-        project: rec.channel_h.clone(),
+        channels: status_channels(state, rec),
         session_id: crate::util::SessionId::new(rec.session_id.clone()),
         host: host.to_string(),
         title: rec.title.clone(),
@@ -23,24 +24,44 @@ pub(in crate::daemon::server) fn status_from_session(
     }
 }
 
+fn status_channels(state: &Arc<DaemonState>, rec: &Session) -> Vec<String> {
+    let mut channels: Vec<String> = state
+        .with_store(|s| {
+            s.list_session_joined_channels(&rec.session_id)
+                .unwrap_or_default()
+        })
+        .into_iter()
+        .map(|(channel, _)| channel)
+        .collect();
+    if !rec.channel_h.is_empty() && !channels.iter().any(|c| c == &rec.channel_h) {
+        channels.push(rec.channel_h.clone());
+    }
+    channels.sort();
+    channels.dedup();
+    channels
+}
+
 /// Reflect a just-published status into the local `relay_status` cache so liveness
 /// is visible immediately (without waiting for the relay to echo the 30315 back).
 fn cache_status(state: &Arc<DaemonState>, st: &crate::domain::Status, signer: &str, now: u64) {
-    let row = crate::state::Status {
-        pubkey: signer.to_string(),
-        channel_h: st.project.clone(),
-        slug: st.agent.slug.clone(),
-        title: st.title.clone(),
-        activity: st.activity.clone(),
-        busy: st.busy,
-        last_seen: now,
-        updated_at: now,
-        expiration: st
-            .expires_at
-            .unwrap_or(now + crate::domain::STATUS_TTL_SECS),
-    };
     state.with_store(|s| {
-        s.upsert_status(&row).ok();
+        for channel in &st.channels {
+            let row = crate::state::Status {
+                pubkey: signer.to_string(),
+                session_id: st.session_id.as_str().to_string(),
+                channel_h: channel.clone(),
+                slug: st.agent.slug.clone(),
+                title: st.title.clone(),
+                activity: st.activity.clone(),
+                busy: st.busy,
+                last_seen: now,
+                updated_at: now,
+                expiration: st
+                    .expires_at
+                    .unwrap_or(now + crate::domain::STATUS_TTL_SECS),
+            };
+            s.upsert_status(&row).ok();
+        }
     });
 }
 
@@ -76,7 +97,7 @@ pub(in crate::daemon::server) fn spawn_status_heartbeat_publisher(state: Arc<Dae
                     Err(_) => continue,
                 };
                 let keys = instance.signing_keys(&base.keys);
-                let status = status_from_session(&instance, &rec, &state.host, now);
+                let status = status_from_session(&state, &instance, &rec, &state.host, now);
                 match state.provider.set_status(&status, &keys).await {
                     Ok(_eid) => {
                         let signer = keys.public_key().to_hex();

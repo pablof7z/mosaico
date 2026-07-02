@@ -76,6 +76,7 @@ fn record_peer(
     store
         .upsert_status(&Status {
             pubkey: pubkey.to_string(),
+            session_id: format!("sid-{slug}"),
             channel_h: "proj".to_string(),
             slug: slug.to_string(),
             title: title.to_string(),

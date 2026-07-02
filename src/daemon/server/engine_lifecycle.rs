@@ -36,7 +36,6 @@ pub(in crate::daemon::server) async fn spawn_session(
 
     let st = state.clone();
     let sid = session_id.clone();
-    let proj = project.clone();
     let provider = state.provider.clone();
     let store = state.store.clone();
     tokio::spawn(async move {
@@ -44,20 +43,8 @@ pub(in crate::daemon::server) async fn spawn_session(
         if let Err(e) = res {
             tracing::warn!(session = %sid, error = %e, "session task exited with error");
         }
-        // Engine self-exit path: remove an ordinal (>0) signer from the NIP-29
-        // group. The Mutex pop is atomic: if rpc_session_end already removed the
-        // key, this finds None and avoids a duplicate publish. Membership is relay-
-        // materialized, so only the relay-side remove is issued.
-        {
-            let maybe_key = st.release_session_signer(&sid);
-            if let Some(sk) = maybe_key {
-                let session_pubkey = sk.public_key().to_hex();
-                tracing::debug!(session = %sid, ordinal_pubkey = %session_pubkey, "removing ordinal member from channel on session exit");
-                st.provider
-                    .nip29_remove_member(&proj, &session_pubkey)
-                    .await;
-            }
-        }
+        membership_cleanup::remove_session_memberships(&st, &sid, "engine-exit");
+        st.release_session_signer(&sid);
         // Mark the bound identity dead but keep the row for resume (issue #47).
         st.with_store(|s| {
             if let Err(e) = s.mark_identity_dead_for_session(&sid) {
@@ -310,9 +297,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                 pid = ?snap.child_pid,
                 "session process dead; marking dead and GC-ing ordinal membership"
             );
-            // Read the bound identity BEFORE marking dead so we know the ordinal
-            // pubkey (if any) to remove from the channel.
-            let identity = state.with_store(|s| s.identity_for_session(&session_id).ok().flatten());
             state.with_store(|s| {
                 if let Err(e) = s.mark_dead(&session_id) {
                     tracing::error!(session = %session_id, error = %e, "reconcile GC: failed to mark dead session dead; ghost-alive row may remain");
@@ -321,15 +305,11 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                     tracing::error!(session = %session_id, error = %e, "reconcile GC: failed to mark identity dead for dead session");
                 }
             });
-            // Crash-GC: remove an ordinal (>0) member from the NIP-29 channel.
-            // Membership is relay-materialized, so only the relay remove is issued.
-            if let Some(id) = identity.filter(|i| i.ordinal > 0) {
-                let provider = state.provider.clone();
-                let channel = snap.channel_h.clone();
-                tokio::spawn(async move {
-                    provider.nip29_remove_member(&channel, &id.pubkey).await;
-                });
-            }
+            membership_cleanup::remove_session_memberships(
+                state,
+                &session_id,
+                "reconcile-dead-pid",
+            );
             continue;
         }
         tracing::info!(

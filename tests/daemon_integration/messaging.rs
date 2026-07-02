@@ -287,6 +287,72 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
     stop_daemon(&home);
 }
 
+#[test]
+fn chat_commands_require_channel_when_session_joined_to_multiple_channels() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+
+    let store = Store::open(&home.store_path()).unwrap();
+    let canonical = store
+        .register_session(&tenex_edge::state::RegisterSession {
+            harness: "codex".to_string(),
+            external_id_kind: "harness_session".to_string(),
+            external_id: "multi-chat-session".to_string(),
+            agent_pubkey: "pk-multi-chat".to_string(),
+            agent_slug: "multi-chat".to_string(),
+            channel_h: "root-chat-channel".to_string(),
+            child_pid: None,
+            transcript_path: None,
+            resume_id: String::new(),
+            now: 1,
+        })
+        .unwrap();
+    store
+        .join_session_channel(&canonical, "root-chat-channel", 1)
+        .unwrap();
+    store
+        .join_session_channel(&canonical, "other-chat-channel", 2)
+        .unwrap();
+
+    let write_err = rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "chat_write",
+            serde_json::json!({
+                "message": "ambiguous write",
+                "env_session": "multi-chat-session"
+            }),
+        )
+        .await
+        .expect_err("chat write without --channel should fail")
+        .to_string()
+    });
+    assert!(
+        write_err.contains("chat write is ambiguous")
+            && write_err.contains("tenex-edge chat write --channel"),
+        "unexpected chat write error: {write_err}"
+    );
+
+    let read_err = rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.stream(
+            "chat_read",
+            serde_json::json!({ "env_session": "multi-chat-session", "tail": true }),
+            |_| {},
+        )
+        .await
+        .expect_err("chat read without --channel should fail")
+        .to_string()
+    });
+    assert!(
+        read_err.contains("chat read is ambiguous")
+            && read_err.contains("tenex-edge chat read --channel"),
+        "unexpected chat read error: {read_err}"
+    );
+
+    stop_daemon(&home);
+}
+
 /// A chat message with NO `@mention` (no p-tag) must NOT route to any session's
 /// inbox — it stays in relay_events as ambient context only, never ringing the
 /// doorbell. Guards the p-tag-gate behaviour introduced alongside the first-turn

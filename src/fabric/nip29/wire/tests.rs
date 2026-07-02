@@ -41,10 +41,8 @@ fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
     DomainEvent::Status(Status {
         // Slug is NOT on the wire; decoded status always has empty slug.
         agent: AgentRef::new(keys.public_key().to_hex(), String::new()),
-        project: "tenex-edge".into(),
-        // session_id is no longer on the kind:30315 wire; decode always
-        // yields "" here. Roundtrip tests must use "" to stay equal.
-        session_id: "".into(),
+        channels: vec!["tenex-edge".into()],
+        session_id: "sess-123".into(),
         host: "laptop".into(),
         title: "fixing the auth bug".into(),
         activity: if busy {
@@ -102,8 +100,8 @@ fn empty_rel_cwd_emits_no_tag_and_decodes_empty() {
 
 #[test]
 fn status_is_per_group_self_contained_signal() {
-    // The unified shape: `d == h == group_id` (the project slug), full tag
-    // set, content = live activity, title persisted as a tag even when busy.
+    // The unified shape: `d == session_id`, `h == group_id`, full tag set,
+    // content = live activity, title persisted as a tag even when busy.
     let keys = Keys::generate();
     let signed = Nip29WireCodec
         .encode_event(&status(&keys, true, "worktree1"))
@@ -111,10 +109,9 @@ fn status_is_per_group_self_contained_signal() {
         .sign_with_keys(&keys)
         .unwrap();
     assert_eq!(signed.kind.as_u16(), KIND_STATUS);
-    // Per-GROUP addressable: `d == h == project slug`.
-    assert!(has_tag(&signed, "d", "tenex-edge"));
+    assert!(has_tag(&signed, "d", "sess-123"));
     assert!(has_tag(&signed, "h", "tenex-edge"));
-    // d == h is the invariant; no local session id on kind:30315.
+    // The session id is the address, not a duplicate side tag.
     assert!(!has_tag_name(&signed, "session-id"));
     assert!(has_tag(&signed, "title", "fixing the auth bug"));
     assert!(has_tag(&signed, "status", "busy"));
@@ -175,9 +172,9 @@ fn status_expiration_roundtrips_and_emits_tag() {
 }
 
 #[test]
-fn status_old_d_shape_rejected_when_d_ne_h() {
-    // Old wire shape `d = "<project>:<session>"` produces d != h, so it must
-    // be rejected. This is the tombstone for the old fallback behaviour.
+fn status_session_address_can_differ_from_channel_h() {
+    // Status is addressed by session id and can be visible in one or more h-tagged
+    // channels; the session address is independent from each channel tag.
     let keys = Keys::generate();
     let event = EventBuilder::new(Kind::from(KIND_STATUS), "")
         .tags([
@@ -187,15 +184,18 @@ fn status_old_d_shape_rejected_when_d_ne_h() {
         ])
         .sign_with_keys(&keys)
         .unwrap();
-    assert!(
-        Nip29WireCodec.decode_event(&event).is_none(),
-        "d != h must be rejected (old <project>:<session> shape)"
-    );
+    match Nip29WireCodec.decode_event(&event) {
+        Some(DomainEvent::Status(s)) => {
+            assert_eq!(s.session_id.as_str(), "tenex-edge:sess-xyz");
+            assert_eq!(s.channels, vec!["tenex-edge"]);
+        }
+        other => panic!("expected status, got {other:?}"),
+    }
 }
 
 #[test]
-fn status_d_equals_h_is_accepted() {
-    // New canonical shape: `d == h == group_id`.
+fn status_session_id_d_is_accepted() {
+    // Canonical shape: `d` is the session id; `h` is the channel id.
     let keys = Keys::generate();
     let event = EventBuilder::new(Kind::from(KIND_STATUS), "working on tests")
         .tags([
@@ -209,7 +209,7 @@ fn status_d_equals_h_is_accepted() {
         .unwrap();
     match Nip29WireCodec.decode_event(&event) {
         Some(DomainEvent::Status(s)) => {
-            assert_eq!(s.project, "tenex-edge");
+            assert_eq!(s.channels, vec!["tenex-edge"]);
             assert_eq!(s.activity, "working on tests");
             assert_eq!(s.title, "codec refactor");
             assert!(s.busy);

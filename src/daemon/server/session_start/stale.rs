@@ -45,6 +45,11 @@ pub(super) fn cancel_stale_sessions_on_restart(
                 reason,
                 "cancelling stale session on harness restart"
             );
+            membership_cleanup::remove_session_memberships(
+                state,
+                &rec.session_id,
+                "harness-restart",
+            );
             state.release_session_signer(&rec.session_id);
             stale_ids.push(rec.session_id.clone());
         }

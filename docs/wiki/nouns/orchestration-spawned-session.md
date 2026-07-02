@@ -9,4 +9,5 @@ source_refs:
 
 # orchestration-spawned session
 
-A session the backend launched with `TENEX_EDGE_CHANNEL` set to add an agent to a task subgroup; it joins that group as-is and does NOT mint a child room.
+A session the backend launched or resumed with `TENEX_EDGE_CHANNEL` set to a
+target channel; it joins that channel as-is and does not mint a child room.

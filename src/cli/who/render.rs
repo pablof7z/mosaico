@@ -200,10 +200,11 @@ fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: boo
 }
 
 fn row_host_label(row: &WhoRow) -> String {
+    let host = row.host.trim();
     let host = if row.remote {
-        format!("{}, remote", crate::util::slugify_host(&row.host))
+        format!("{host}, remote")
     } else {
-        crate::util::slugify_host(&row.host)
+        host.to_string()
     };
     rel_cwd_bracket(&row.rel_cwd)
         .map(|dir| format!("{host} [{dir}]"))
@@ -257,10 +258,11 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
     };
     // Always show which host the agent runs on. A true remote peer is flagged so
     // cross-machine sessions stay distinguishable without exposing a session id.
+    let host = row.host.trim();
     let host = if row.remote {
-        format!("{}, remote", crate::util::slugify_host(&row.host))
+        format!("{host}, remote")
     } else {
-        crate::util::slugify_host(&row.host)
+        host.to_string()
     };
     let dir = rel_cwd_bracket(&row.rel_cwd)
         .map(|d| format!(" {}", format!("[{d}]").dimmed()))

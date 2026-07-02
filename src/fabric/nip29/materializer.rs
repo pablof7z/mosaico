@@ -104,9 +104,10 @@ impl Nip29Materializer {
     // ── relay_status (kind:30315) ────────────────────────────────────────────
 
     /// Materialise a decoded kind:30315 status into `relay_status`, one row per
-    /// `(pubkey, channel_h)`. Liveness is computed on READ from the NIP-40
-    /// `expiration`; the row is stored regardless of freshness (older `updated_at`
-    /// writes are dropped by the store).
+    /// `(pubkey, session_id, channel_h)`. A single status event may carry several
+    /// `h` tags; each becomes a channel row with the same session title/activity.
+    /// Liveness is computed on READ from the NIP-40 `expiration`; the row is stored
+    /// regardless of freshness (older `updated_at` writes are dropped by the store).
     pub fn materialize_status(store: &Store, st: &crate::domain::Status, updated_at: u64) {
         let slug = if !st.agent.slug.is_empty() {
             st.agent.slug.clone()
@@ -117,23 +118,27 @@ impl Nip29Materializer {
                 .flatten()
                 .unwrap_or_default()
         };
-        if let Err(e) = store.upsert_status(&crate::state::Status {
-            pubkey: st.agent.pubkey.clone(),
-            channel_h: st.project.clone(),
-            slug,
-            title: st.title.clone(),
-            activity: st.activity.clone(),
-            busy: st.busy,
-            last_seen: updated_at,
-            updated_at,
-            expiration: st.expires_at.unwrap_or(0),
-        }) {
-            tracing::error!(
-                pubkey = %st.agent.pubkey,
-                channel = %st.project,
-                error = %e,
-                "materialize_status: relay_status upsert failed — relay truth diverged from cache"
-            );
+        for channel in &st.channels {
+            if let Err(e) = store.upsert_status(&crate::state::Status {
+                pubkey: st.agent.pubkey.clone(),
+                session_id: st.session_id.as_str().to_string(),
+                channel_h: channel.clone(),
+                slug: slug.clone(),
+                title: st.title.clone(),
+                activity: st.activity.clone(),
+                busy: st.busy,
+                last_seen: updated_at,
+                updated_at,
+                expiration: st.expires_at.unwrap_or(0),
+            }) {
+                tracing::error!(
+                    pubkey = %st.agent.pubkey,
+                    session = %st.session_id,
+                    channel,
+                    error = %e,
+                    "materialize_status: relay_status upsert failed — relay truth diverged from cache"
+                );
+            }
         }
     }
 

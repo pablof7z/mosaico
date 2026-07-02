@@ -3,8 +3,8 @@ type: episode-card
 date: 2026-06-29
 session: 3c769f4a-9947-4d7b-a8f5-58355620b951
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/3c769f4a-9947-4d7b-a8f5-58355620b951.jsonl
-salience: reversal
-status: active
+salience: superseded-reversal
+status: superseded
 subjects:
   - nip29-removal
   - agent-lifecycle
@@ -21,7 +21,11 @@ source_lines:
 captured_at: 2026-06-29T09:54:59Z
 ---
 
-# Episode: NIP-29 membership persistence: agents remain in channels across sessions
+# Episode: Superseded — NIP-29 membership persistence
+
+This historical decision is superseded. Current doctrine is that online presence
+is active channel membership; local daemons remove locally managed agent pubkeys
+from channel membership when sessions end or become stale.
 
 ## Prior State
 
@@ -44,7 +48,7 @@ Remove nip29_remove_member call from session_end handler. Adopt persistent membe
 
 ## Open Tail
 
-*(none)*
+Superseded by the active-membership model.
 
 ## Evidence
 

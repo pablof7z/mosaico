@@ -1,5 +1,6 @@
 use super::*;
 
+mod channel_ready;
 mod stale;
 
 #[derive(serde::Deserialize, Default)]
@@ -245,6 +246,8 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             .ok();
     });
 
+    membership_cleanup::cleanup_dead_local_sessions(state);
+
     // A new logical session arriving on the SAME watched pid OR tmux pane (same
     // agent, same work root) means the harness restarted without a session-end.
     // Cancel its engine task, release its signer reservation, and mark it dead so
@@ -350,82 +353,17 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             "checking NIP-29 channel state and membership on the relay",
         );
     }
-    if let Some(parent) = &room_parent {
-        // Human-initiated session: mint its per-session room under the work-root,
-        // then AWAIT the relay's kind:39000 echo before opening gates. The room
-        // enters the cache from relay truth (materialization) — never a local
-        // optimistic write. Bounded so a hung relay can't wedge session start. The
-        // room's `name` is its own id (an unnamed session room until renamed).
-        if let Some(prog) = &progress {
-            prog.emit("nip29", format!("minting per-session room {project}"));
-        }
-        let agent_pubkey = id.pubkey_hex();
-        let provisioned = matches!(
-            tokio::time::timeout(
-                std::time::Duration::from_secs(8),
-                ensure_session_room(state, &project, &project, parent, &agent_pubkey),
-            )
-            .await,
-            Ok(true)
-        );
-        if !provisioned {
-            // The relay never confirmed the per-session room (timeout or degraded).
-            // `perSessionRooms` is on, so silently demoting to the parent project
-            // would misrepresent where the session runs against a work-root the relay
-            // never backed. Fail loud: roll back the half-started session and bail.
-            abort_session_start(state, &session_id);
-            anyhow::bail!(
-                "per-session room {project} (parent {parent}) was not provisioned on the relay; \
-                 refusing to start the session"
-            );
-        }
-    } else {
-        // Project / orchestration sessions: ensure the channel exists + the agent
-        // is a member, bounded so a hung relay can't block session start. A
-        // top-level project is the ROOT channel (parent_hint None); an explicit
-        // channel scope (project != work_root) is a subgroup whose parent project
-        // is ensured first (parent_hint = work_root). A named scope was already
-        // resolved + materialized by `resolve_channel` above, so no name is
-        // injected here; `ensure_channel_ready` reads parent/name back from the
-        // relay's kind:39000, never a local stash.
-        let parent_hint = if project != work_root && !work_root.is_empty() {
-            Some(work_root.clone())
-        } else {
-            None
-        };
-        let open = async {
-            let ctx = crate::fabric::nip29::readiness::ChannelCtx {
-                channel: &project,
-                expect_member: &id.pubkey_hex(),
-                parent_hint: parent_hint.as_deref(),
-                name: None,
-                repair_whitelisted_admins: false,
-            };
-            state.provider.ensure_channel_ready(ctx).await
-        };
-        // `Degraded` means the channel was NOT verified ready on the relay. Starting
-        // the engine against an unverified channel would publish into a phantom
-        // scope, so a degraded gate (or a timeout, which is equally unverified) fails
-        // the session start. Roll back the half-started session first.
-        match tokio::time::timeout(std::time::Duration::from_secs(8), open).await {
-            // Ready | Repaired: the channel is verified against relay truth.
-            Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded) => {
-                abort_session_start(state, &session_id);
-                anyhow::bail!(
-                    "channel {project} was not verified ready on the relay; \
-                     refusing to start the session"
-                );
-            }
-            Ok(_) => {}
-            Err(_) => {
-                abort_session_start(state, &session_id);
-                anyhow::bail!(
-                    "ensure_channel_ready timed out for channel {project}; \
-                     refusing to start the session"
-                );
-            }
-        }
-    }
+    let agent_pubkey = id.pubkey_hex();
+    channel_ready::ensure_start_channel_ready(
+        state,
+        &project,
+        &work_root,
+        room_parent.as_deref(),
+        &agent_pubkey,
+        &session_id,
+        progress.as_ref(),
+    )
+    .await?;
 
     // `signer` was selected above (before the row was written). Now that the
     // channel is ready, admit ordinals > 0 as NIP-29 members before routing use.

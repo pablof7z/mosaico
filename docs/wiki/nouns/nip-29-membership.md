@@ -10,4 +10,5 @@ source_refs:
 
 # NIP-29 membership
 
-persistent channel membership ("belongs to this channel"), not ephemeral ("has an active session")
+Active channel presence and routing membership. Local daemons remove their
+locally managed agent pubkeys from membership when sessions end or become stale.

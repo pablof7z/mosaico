@@ -4,8 +4,10 @@
 //! inside their submodule and re-exported here as `pub` so the dispatch
 //! table in `server.rs` can call them as `rpc::rpc_*`.
 
+pub(super) mod agents;
 pub(super) mod project;
 
+pub(super) use agents::rpc_agents_list_sessions;
 pub use project::{
     rpc_project_add, rpc_project_edit, rpc_project_list, rpc_project_members, rpc_project_remove,
 };

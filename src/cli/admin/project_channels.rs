@@ -84,15 +84,17 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
             parent_channel,
         } => {
             // `--agent` is optional: an agent may carve out an empty channel and
-            // populate it later. Each `slug@backend` splits on the LAST `@` (agent
-            // slugs never contain `@`).
+            // populate it later. Each target is `slug@backend-label`; the backend
+            // side is a tenex-edge config label, not a machine hostname.
             let mut parsed: Vec<serde_json::Value> = Vec::with_capacity(agents.len());
             for a in &agents {
-                let (slug, backend) = a
-                    .rsplit_once('@')
-                    .filter(|(s, b)| !s.is_empty() && !b.is_empty())
-                    .with_context(|| format!("malformed --agent {a:?}: expected slug@backend"))?;
-                parsed.push(serde_json::json!({ "slug": slug, "backend": backend }));
+                let target = crate::idref::parse_agent_backend_ref(a).with_context(|| {
+                    format!("malformed --agent {a:?}: expected slug@backend-label")
+                })?;
+                let backend = target.backend.with_context(|| {
+                    format!("malformed --agent {a:?}: expected slug@backend-label")
+                })?;
+                parsed.push(serde_json::json!({ "slug": target.slug, "backend": backend }));
             }
             let v = daemon_call_async(
                 "channels_create",
@@ -205,29 +207,42 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
     Ok(())
 }
 
-// ── invite (spawn a fresh session into the current channel) ──────────────────
+// ── invite (spawn/resume into an explicit channel) ───────────────────────────
 
-/// `tenex-edge invite <slug[@backend]>` — spawn a fresh session for an agent into
-/// the channel this command runs in. Forwards the caller's session-env signals so
-/// the daemon can pin the spawn to the inviter's current `channel_h`.
-pub async fn invite(agent: String) -> Result<()> {
+/// `tenex-edge invite --channel <channel> (--agent <slug[@backend]> | --session <id>)`
+/// spawns a fresh agent session or resumes a prior one into an existing channel.
+pub async fn invite(channel: String, agent: Option<String>, session: Option<String>) -> Result<()> {
+    let selector = agent
+        .as_ref()
+        .map(|a| format!("--agent {a}"))
+        .or_else(|| session.as_ref().map(|s| format!("--session {s}")))
+        .unwrap_or_default();
     let v = daemon_call_async(
         "invite",
-        serde_json::json!({
-            "agent": agent,
-            "tmux_pane": crate::cli::tmux_pane_env(),
-            "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
-            "agent_slug": crate::cli::agent_env_slug(),
-        }),
+        crate::cli::rpc_params(serde_json::json!({
+            "channel": channel,
+            "target_agent": agent,
+            "session": session,
+        })),
     )
     .await?;
-    let slug = v["agent"].as_str().unwrap_or(&agent);
-    let pane = v["pane_id"].as_str().unwrap_or("?");
-    // Never print the opaque channel_h (same no-leak rule as the fabric format).
-    println!(
-        "invited {} into your current channel — fresh session spawned (pane {})",
-        slug.bold(),
-        pane.dimmed()
-    );
+    if v["ambiguous"].is_array() {
+        let name = v["reference"].as_str().unwrap_or("");
+        eprintln!("'{name}' is ambiguous — re-run with an exact --channel:");
+        if let Some(refs) = v["ambiguous"].as_array() {
+            for r in refs.iter().filter_map(|r| r.as_str()) {
+                eprintln!("  tenex-edge invite --channel {r} {selector}");
+            }
+        }
+        std::process::exit(2);
+    }
+    let slug = v["agent"].as_str().unwrap_or("session");
+    let pane = v["pane_id"].as_str().unwrap_or("");
+    let online = v["online_agent"].as_str().unwrap_or(slug);
+    if pane.is_empty() {
+        println!("{} is now online", online.bold());
+    } else {
+        println!("{} is now online (pane {})", online.bold(), pane.dimmed());
+    }
     Ok(())
 }

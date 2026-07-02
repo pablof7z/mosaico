@@ -20,6 +20,7 @@ fn pub_status(
     store
         .upsert_status(&Status {
             pubkey: pubkey.to_string(),
+            session_id: format!("sid-{slug}"),
             channel_h: "proj".to_string(),
             slug: slug.to_string(),
             title: title.to_string(),
@@ -398,9 +399,9 @@ fn envelope_has_email_like_headers_then_body() {
 fn dirty_count_and_remote_host_annotate() {
     let mut v = view();
     v.dirty = 1;
-    v.host = "prod-01.example.com";
+    v.host = "prodBackend";
     let out = format_envelope(&v);
-    assert!(out.contains("From: codex@prod-01-example-com"));
+    assert!(out.contains("From: codex@prodBackend"));
     assert!(out.contains("Branch: features/oauth (a1b2c3d) [1 file dirty]"));
     v.dirty = 3;
     assert!(format_envelope(&v).contains("[3 files dirty]"));

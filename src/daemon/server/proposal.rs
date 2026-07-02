@@ -1,6 +1,7 @@
 use super::*;
 
 #[derive(serde::Deserialize, Default)]
+#[allow(dead_code)]
 pub(in crate::daemon::server) struct ProposeParams {
     title: String,
     body: String,

@@ -9,7 +9,7 @@
 //! when a name exists.
 //!
 //! `agentName` is exactly what the session published in its kind:0 profile
-//! (the `name` field). `host` is the slugified machine host. `project-name` is
+//! (the `name` field). `host` is the backend's exact config label. `project-name` is
 //! the work-root project the session room hangs under. `#session` is the
 //! channel the session is currently on (changes with `tenex-edge channels
 //! switch`). `[title]` is that channel's title on the relay (kind:39000 `name`
@@ -187,10 +187,14 @@ fn render_statusline_inner(v: &StatuslineView, color: bool, tmux_fmt: bool) -> S
     };
     let mut segs: Vec<String> = Vec::new();
 
-    // Identity: the agent's published kind:0 name @ the slugified host.
+    // Identity: the agent's published kind:0 name @ the backend label.
+    let ident = if v.host.trim().is_empty() {
+        v.agent.clone()
+    } else {
+        format!("{}@{}", v.agent, v.host.trim())
+    };
     segs.push(paint(
-        format!("{}@{}", v.agent, slugify_host(&v.host)),
-        "36", // cyan
+        ident, "36", // cyan
     ));
 
     // Project: the work-root project the session's room hangs under.
@@ -301,7 +305,7 @@ mod tests {
         // id; the distilled session title follows in its own `[…]` segment.
         assert_eq!(
             s,
-            "claude@kubrick-s-mac tenex-edge support \
+            "claude@Kubrick's Mac tenex-edge support \
              [Refactoring the inbox] [writing tests]"
         );
     }

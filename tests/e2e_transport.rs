@@ -56,7 +56,7 @@ async fn publishes_and_decodes_all_event_types() {
         }),
         DomainEvent::Status(Status {
             agent: aref.clone(),
-            project: project.clone(),
+            channels: vec![project.clone()],
             session_id: "sess-1".into(),
             host: "test-host".into(),
             title: "fixing the auth bug".into(),
@@ -89,9 +89,8 @@ async fn publishes_and_decodes_all_event_types() {
         }
     }
 
-    // Identify the status by its title: #5 drops session_id from the wire
-    // (presence is keyed by d == h == group), so the decoded Status carries no
-    // session id — the title round-trips instead.
+    // Identify the status by its title; the decoded status also carries its
+    // session id, but the title is the stable user-facing session summary.
     let has_status = seen
         .iter()
         .any(|e| matches!(e, DomainEvent::Status(s) if s.title == "fixing the auth bug"));

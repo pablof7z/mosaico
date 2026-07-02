@@ -164,8 +164,8 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 |--------|------------------|-------|--------|
 | project + metadata | `project_meta` (`project`, `about`, `updated_at`) | slug, `about` text | — |
 | agents + identity | `profiles` (`pubkey`,`slug`,`host`) | identity card (slug, host, owners) | — |
-| membership | `group_members`, canonical `membership` | which agents belong to a project | a project |
-| presence / status | `peer_sessions`, `agent_status` | who's online, what they're doing | a project |
+| membership | `group_members`, canonical `membership` | which agents are online/routable in a channel | a project/channel |
+| status | `peer_sessions`, `agent_status` | per-session activity, title, and history | a project/channel |
 
 Most rows already exist; the materializer reframing keeps membership explicit in
 the NIP-29 group/member tables.

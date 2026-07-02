@@ -250,6 +250,18 @@ pub async fn resume_agent(
     project: &str,
     resume_id: &str,
 ) -> Result<String> {
+    resume_agent_in_channel(state, slug, project, project, resume_id).await
+}
+
+/// Resume a prior session into an explicit channel while using `project` to
+/// resolve the working directory.
+pub async fn resume_agent_in_channel(
+    state: &Arc<DaemonState>,
+    slug: &str,
+    project: &str,
+    group: &str,
+    resume_id: &str,
+) -> Result<String> {
     if !tmux_available() {
         anyhow::bail!("tmux binary not found");
     }
@@ -274,7 +286,7 @@ pub async fn resume_agent(
         &window_name,
         &abs_path,
         &resume_command,
-        Some(project),
+        Some(group),
         None,
     )
     .await

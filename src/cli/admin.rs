@@ -6,7 +6,7 @@ mod render;
 mod tail;
 
 // Re-exports for cli.rs callers
-pub use agent::{agent, agents_roster};
+pub use agent::{agent, agents};
 pub use project_channels::{channels, invite, project};
 pub use render::render_fabric;
 #[allow(unused_imports)]

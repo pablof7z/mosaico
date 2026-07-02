@@ -2,9 +2,7 @@
 
 use crate::domain::DomainEvent;
 use crate::state::Store;
-use crate::util::{
-    dirty_label, format_local_datetime, now_secs, pubkey_short, relative_time, slugify_host,
-};
+use crate::util::{dirty_label, format_local_datetime, now_secs, pubkey_short, relative_time};
 use anyhow::{bail, Context, Result};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -34,7 +32,9 @@ pub use admin::render_fabric;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
 pub use args::Cli;
-use args::{AgentAction, ChannelsAction, ChatAction, Cmd, DebugAction, HarnessAction, ProjectAction};
+use args::{
+    AgentAction, ChannelsAction, ChatAction, Cmd, DebugAction, HarnessAction, ProjectAction,
+};
 pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub(crate) use turn::{turn_check_audit, turn_start_audit};
@@ -125,8 +125,12 @@ pub async fn run(cli: Cli) -> Result<()> {
     // clear the stop-inhibit. Hooks honour the sentinel — they must never
     // restart a daemon the operator explicitly stopped. `stop` re-arms it
     // unconditionally, so clearing first is harmless.
-    if !matches!(cli.cmd, Cmd::Harness { action: HarnessAction::Hook { .. } })
-        && crate::daemon::is_inhibited()
+    if !matches!(
+        cli.cmd,
+        Cmd::Harness {
+            action: HarnessAction::Hook { .. }
+        }
+    ) && crate::daemon::is_inhibited()
     {
         crate::daemon::clear_inhibit();
         eprintln!("[tenex-edge] stop inhibit cleared");
@@ -173,12 +177,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Channels { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
-        Cmd::Agents => admin::agents_roster().await,
-        Cmd::Invite { agent } => admin::invite(agent).await,
+        Cmd::Agents { action } => admin::agents(action).await,
+        Cmd::Invite {
+            channel,
+            agent,
+            session,
+        } => admin::invite(channel, agent, session).await,
         Cmd::Harness { action } => match action {
-            HarnessAction::Hook { harness, hook_type } => {
-                hooks::hook_run(harness, hook_type).await
-            }
+            HarnessAction::Hook { harness, hook_type } => hooks::hook_run(harness, hook_type).await,
             HarnessAction::Statusline { session, tmux } => statusline::statusline(session, tmux),
         },
         Cmd::Launch {

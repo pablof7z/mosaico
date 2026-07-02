@@ -4,19 +4,18 @@
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": slug}`, `["host", host]` |
 //! | Activity    | kind:1,     `["h", project]` — social narrative (no inbox routing) |
-//! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", group_id]`, `["h", group_id]` (`d == h == project slug`, the durable agent's group), `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
+//! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", session_id]`, one or more `["h", channel]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | Chat        | kind:9,     `["h", project]`, optional `["p", mentioned_pubkey]` |
 //!
-//! Status is the single self-contained per-group signal: ONE kind:30315 event
-//! per `(author_pubkey, group_id)` carries the whole live state (busy/idle, the
-//! live activity in the content, the persistent title, host, rel-cwd). It is
-//! replaceable PER GROUP via `d = group_id` (the project slug), with the hard
-//! invariant `d == h` enforced on both encode and decode. Events where `d != h`
-//! are rejected as malformed. Liveness IS the freshness of this event: the daemon
-//! re-arms a NIP-40 `["expiration", now + STATUS_TTL_SECS]` tag on every
-//! heartbeat, so a stopped session's event ages off the relay shortly after its
-//! last beat. A `Status` with `expires_at == None` publishes no expiration (tests
-//! / non-heartbeat contexts). There is no separate presence heartbeat.
+//! Status is the single self-contained per-session signal: ONE kind:30315 event
+//! per `(author_pubkey, session_id)` carries the whole live state (busy/idle, the
+//! live activity in the content, the persistent title, host, rel-cwd). It targets
+//! every channel the session is in with repeated `h` tags. Liveness IS the
+//! freshness of this event: the daemon re-arms a NIP-40 `["expiration", now +
+//! STATUS_TTL_SECS]` tag on every heartbeat, so a stopped session's event ages
+//! off the relay shortly after its last beat. A `Status` with `expires_at ==
+//! None` publishes no expiration (tests / non-heartbeat contexts). There is no
+//! separate presence heartbeat.
 //!
 //! Chat (kind:9) is the sole agent-to-agent messaging mechanism. Direct messaging
 //! uses an inline `@<agent-instance-label>` in the chat body, which adds a `p`
@@ -148,8 +147,8 @@ impl Nip29WireCodec {
             }
             DomainEvent::Status(Status {
                 agent,
-                project,
-                session_id: _session_id, // not emitted on kind:30315; d == h == project
+                channels,
+                session_id,
                 host,
                 title,
                 activity,
@@ -157,27 +156,18 @@ impl Nip29WireCodec {
                 rel_cwd,
                 expires_at,
             }) => {
-                // The single self-contained per-group signal. `d == h == group_id`
-                // (the project slug) makes the event addressable per
-                // (author_pubkey, group_id). Content is the live activity (empty
-                // when idle); the title always rides as a tag so it persists
-                // across idle turns AND after exit. Liveness IS the freshness of
-                // this event: when `expires_at` is Some, a NIP-40
-                // `["expiration", ts]` tag rides the wire, so a stopped session's
-                // event ages off the relay ~STATUS_TTL_SECS after its last
-                // heartbeat re-arm. `None` publishes no expiration (tests /
-                // non-heartbeat contexts).
-                //
-                // `d == h == project` — the invariant is enforced here and
-                // required on decode. No local session id rides the wire.
-                let d = project.as_str();
+                // The self-contained per-session signal. The replaceable address is
+                // `(author_pubkey, d=session_id)`; repeated h tags make the same
+                // status visible in every channel the session occupies.
                 let mut tags = vec![
-                    tag(&["d", d])?,
-                    project_tag(project)?,
+                    tag(&["d", session_id.as_str()])?,
                     tag(&["title", title])?,
                     tag(&["status", if *busy { "busy" } else { "idle" }])?,
                     tag(&["host", host])?,
                 ];
+                for channel in channels {
+                    tags.push(project_tag(channel)?);
+                }
                 // Carry the agent slug on the wire as a convenience hint. The
                 // durable agent key IS the author, so peers can resolve it via
                 // kind:0; the slug tag avoids that extra round-trip lookup and
@@ -241,14 +231,11 @@ impl Nip29WireCodec {
                 is_backend: has_bare_tag(event, "backend"),
             })),
             KIND_STATUS => {
-                // Per-group addressable status: d must equal h (the group_id).
-                // Events where d != h are malformed/foreign and are rejected.
                 let d = first_tag(event, "d")?;
-                let h = first_tag(event, "h")?;
-                if d != h {
+                let channels = all_tag_values(event, "h");
+                if channels.is_empty() {
                     return None;
                 }
-                let group_id = d.to_string();
                 Some(DomainEvent::Status(Status {
                     // Slug rides as a convenience tag (avoids a kind:0 lookup);
                     // empty on legacy emitters, resolved downstream from kind:0.
@@ -256,12 +243,8 @@ impl Nip29WireCodec {
                         pubkey,
                         first_tag(event, "slug").unwrap_or_default().to_string(),
                     ),
-                    project: group_id,
-                    // session_id is no longer carried on kind:30315. Field is
-                    // scheduled for removal from Status in domain.rs; callers
-                    // that relied on native_session_id from this decode path must
-                    // be updated by the integrator (see materializer.rs).
-                    session_id: SessionId::from(""),
+                    channels,
+                    session_id: SessionId::from(d),
                     host: first_tag(event, "host").unwrap_or_default().to_string(),
                     title: first_tag(event, "title").unwrap_or_default().to_string(),
                     // The live activity is the event content (empty when idle).

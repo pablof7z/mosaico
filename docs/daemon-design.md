@@ -337,11 +337,12 @@ rows are still `alive=1` in the db, and the new daemon's in-process
 `alive=1` session row,
 
 - `watch_pid` set and `pid_alive(watch_pid)` → respawn a `SessionTask` for it;
-- else → `mark_session_dead`.
+- else → remove that local agent pubkey from joined channel membership and
+  `mark_session_dead`.
 
-Without this, `who` / presence would lie after every daemon restart. (Idle-exit
-only fires at zero alive sessions, so it doesn't orphan; the skew re-exec can,
-hence reconciliation.)
+Without this, `who` and routing membership would lie after every daemon restart.
+(Idle-exit only fires at zero alive sessions, so it doesn't orphan; the skew
+re-exec can, hence reconciliation.)
 
 ## 8d. Clientful-but-sessionless connections vs idle-exit (§3)
 
@@ -355,9 +356,9 @@ killed by an idle-exit mid-stream.
 ## 8e. Working directory in presence/status + the `who` format  (IMPLEMENTED)
 
 > **Implemented.** The user explicitly authorized this change (overriding the
-> earlier byte-identical-`who` guardrail). The wire field, the `peer_sessions` +
-> `sessions` `rel_cwd` columns, the daemon-side `remote` computation, and the new
-> two-line `who` renderer are all in the codebase and live.
+> earlier byte-identical-`who` guardrail). The wire field, the `sessions` /
+> `relay_status` `rel_cwd` columns, the daemon-side `remote` computation, and the
+> new two-line `who` renderer are all in the codebase and live.
 >
 > **`who` stdout contract changed.** `who` now prints TWO lines per agent
 > (`agent@project [session <id>] [<rel_cwd>]` then an indented status line) plus
@@ -377,10 +378,10 @@ killed by an idle-exit mid-stream.
 > `projects.json` (via `tenex-edge project init`) so `project_root` resolves
 > there.
 
-Agents may run in different working dirs / git worktrees on the same machine
+Agents may run in different working dirs / git worktrees on the same backend
 (`$PROJECT/worktree1` vs `worktree2`). Peers must see *where* a peer is working
-so they don't fear colliding. This is additive: one new field on the
-presence/status event + the peer state + the `who` renderer.
+so they don't fear colliding. This is additive: one field on the status event,
+the materialized status row, and the `who` renderer.
 
 **Wire field — `rel_cwd` (relative cwd), not absolute.** Presence/status are
 **public** kinds on `relay.tenex.chat` (world-readable). Broadcasting an
@@ -393,11 +394,9 @@ the cwd **relative to the project root** and publishes only that:
   the absolute path); absolute only as a last resort if even basename is empty.
 
 `project_root` is the dir `project::resolve` walked up from (the nearest
-ancestor holding the project marker), available at `session-start`. The
-`Presence` domain struct and the `agent_status`/peer-session state gain a
-`rel_cwd: String` field; `Status` carries it too so mid-turn `who` reflects it.
-Peer state (`peer_sessions`) gains a `rel_cwd` column (migration: `ALTER TABLE
-… ADD COLUMN rel_cwd TEXT NOT NULL DEFAULT ''`).
+ancestor holding the project marker), available at `session-start`. `Status`
+carries `rel_cwd: String`, and relay materialization stores it with the status
+row so mid-turn `who` reflects it.
 
 **New `who` line format:**
 
@@ -407,19 +406,17 @@ agent@project [session <id>] [<rel_cwd>]
 ```
 
 - `rel_cwd` shown in brackets only when non-empty and not `.`.
-- **Host annotation:** if the peer is on the **same machine** as the viewer,
-  show **no** host annotation (drop today's `@<host>` and `(this machine)` for
-  local agents — local fleet renders clean). If the peer is on a **different**
-  host, annotate `(remote)`. ("Same machine" = peer's `host` equals our
-  `config::hostname()`/`host` label.)
+- **Host annotation:** `host` means the exact config.json `backendName` label,
+  not a DNS/OS hostname. Local agents can render bare; remote peers keep their
+  backend label and may be annotated `(remote)`.
 - This replaces the current `slug@host — status  project  session <id>
   (this machine)/(Ns ago)` line in both `render_who_once` and `render_who_plain`,
   and the `--live` table gains a `WHERE`/`DIR` column. Freshness dot (●/○),
   staleness, own-fleet, and owner-scoping behavior are unchanged.
 
-The `who` RPC result rows (§6) gain `rel_cwd: String` and a `remote: bool`
-(computed daemon-side by comparing the peer host to the daemon's host), so all
-rendering stays client-side.
+The `who` snapshot rows (§6) carry `rel_cwd: String` and `remote: bool`
+(computed daemon-side by comparing exact backend labels), so all rendering stays
+client-side.
 
 ## 9. Landmines preserved (must not regress)
 

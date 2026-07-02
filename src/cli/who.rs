@@ -40,7 +40,9 @@ fn invitable_section(edge_home: &std::path::Path) -> Option<String> {
     if roster.is_empty() {
         return None;
     }
-    let mut out = String::from("Agents you can invite (tenex-edge invite <slug>):");
+    let mut out = String::from(
+        "Agents you can invite (tenex-edge invite --channel <channel> --agent <slug>):",
+    );
     for (slug, byline, _) in roster {
         match byline.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
             Some(b) => {

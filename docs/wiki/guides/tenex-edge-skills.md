@@ -30,7 +30,7 @@ The `tenex-edge-host-integration` skill teaches hook wiring and debugging for Co
 
 The `tenex-edge-verification` skill teaches local gates and test tiers: `just fmt-check`, `just loc-check`, `just lint`, `just test-unit`, when to use `cargo test`, when relay/croissant/nak are required, and how to run e2e safely. Because command and docs drift is already visible, this skill includes small scripts/resources such as a command that prints current help, LOC offenders, and known test prerequisites.
 
-The `tenex-edge-docs-queue` skill teaches repository discipline: GitHub Issues are the tactical queue, no new planning files, correct docs in place, classify generated wiki output, and retire stale architecture-plan material. <!-- [^019f1-9c16f] -->
+The `tenex-edge-docs-queue` skill teaches repository discipline: GitHub Issues are the tactical queue, no new planning files, correct docs in place, classify generated wiki output, and retire stale planning material. <!-- [^019f1-9c16f] -->
 
 
 The `tenex-edge` skill itself is resource-free: no `reference/` files or scripts are included, only the mental-model guidance and a small mechanics appendix. <!-- [^019f1-f17ce] -->

@@ -95,7 +95,7 @@ fn render_join_no_color() {
     };
     let line = render_tail_event(&ev, false, false, false, false);
     assert!(line.contains("join"), "category");
-    assert!(line.contains("codex@tower"), "agent@host");
+    assert!(line.contains("codex@tower"), "agent@backend-label");
     assert!(line.contains("online"), "verb");
     assert!(line.contains("tenex-edge"), "project");
 }

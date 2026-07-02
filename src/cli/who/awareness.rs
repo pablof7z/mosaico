@@ -266,7 +266,9 @@ pub(crate) fn new_agent_block(
     if fresh.is_empty() {
         return None;
     }
-    let mut out = String::from("New agents available (invite with `tenex-edge invite <slug>`):");
+    let mut out = String::from(
+        "New agents available (invite with `tenex-edge invite --channel <channel> --agent <slug>`):",
+    );
     for (slug, byline, _) in fresh {
         match byline.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
             Some(b) => {

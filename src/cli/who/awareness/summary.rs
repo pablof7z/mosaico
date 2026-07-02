@@ -1,7 +1,9 @@
 use crate::session::DerivedStatus;
-use crate::state::{RelayEvent, Store};
-use crate::util::{pubkey_short, relative_time};
+use crate::state::Store;
 use std::collections::BTreeSet;
+
+mod helpers;
+use helpers::*;
 
 const ACTIVITY_LIMIT: u32 = 5;
 /// Max parent links to walk when building a channel breadcrumb (cycle guard).
@@ -290,40 +292,6 @@ pub(super) fn other_active_channel_lines(
         .collect()
 }
 
-/// Walk `parent` links up to the materialized project root. Returns the root's
-/// `channel_h` when the chain terminates at a channel whose parent is empty (a
-/// true root); `None` when an ancestor is unmaterialized (its parent is unknown)
-/// before a root is reached — such a channel can't be attributed to any project.
-fn resolve_root(store: &Store, channel: &str) -> Option<String> {
-    let mut cur = channel.to_string();
-    for _ in 0..MAX_BREADCRUMB_DEPTH {
-        match store.channel_parent(&cur).ok().flatten() {
-            Some(p) if p.is_empty() => return Some(cur),
-            Some(p) => cur = p,
-            None => return None,
-        }
-    }
-    None
-}
-
-/// The top-level branch (a direct child of `root`) that contains `channel`.
-/// `None` when `channel` IS the root, or when the chain to `root` can't be traced.
-/// Used to exclude the viewer's own branch from the "other channels" list.
-fn top_level_branch(store: &Store, channel: &str, root: &str) -> Option<String> {
-    if channel == root {
-        return None;
-    }
-    let mut cur = channel.to_string();
-    for _ in 0..MAX_BREADCRUMB_DEPTH {
-        match store.channel_parent(&cur).ok().flatten() {
-            Some(p) if p == root => return Some(cur),
-            Some(p) if !p.is_empty() => cur = p,
-            _ => return None,
-        }
-    }
-    None
-}
-
 pub(super) fn current_activity_lines(
     store: &Store,
     project: &str,
@@ -341,94 +309,6 @@ pub(super) fn current_activity_lines(
         .collect()
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/// Channels (other than `exclude`) whose status changed since `cutoff`.
-fn active_channels_since(store: &Store, cutoff: u64, exclude: &[String]) -> BTreeSet<String> {
-    let excl: BTreeSet<&str> = exclude.iter().map(String::as_str).collect();
-    store
-        .active_channels_since(cutoff)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|id| !excl.contains(id.as_str()))
-        .collect()
-}
-
-fn channel_about(store: &Store, id: &str) -> Option<String> {
-    store
-        .get_channel(id)
-        .ok()
-        .flatten()
-        .map(|c| c.about.trim().to_string())
-}
-
-/// A channel's `(reference_handle, optional_description)`:
-///   - named channel → (`#<name>`, its kind:39000 `about`)
-///   - unnamed channel (a session room whose name is empty or merely defaulted to
-///     its opaque id) → (the live work title of whoever is active there, else its
-///     `about`, else `(unnamed channel)`; no description).
-///
-/// Named-ness is decided by [`Channel::human_name`], so a root project (whose slug
-/// is both its id and its name) reads as named. The raw `channel_h` NEVER surfaces.
-fn channel_label(store: &Store, id: &str, now: u64) -> (String, Option<String>) {
-    if let Some(channel) = store.get_channel(id).ok().flatten() {
-        if let Some(name) = channel.human_name() {
-            let about = channel.about.trim();
-            return (
-                format!("#{name}"),
-                (!about.is_empty()).then(|| about.to_string()),
-            );
-        }
-    }
-    (unnamed_channel_label(store, id, now), None)
-}
-
-/// Bare handle used when joining a relative channel PATH: the kind:39000 name,
-/// else the unnamed-channel descriptive label. Never the raw opaque id.
-fn channel_name_bare(store: &Store, id: &str, now: u64) -> String {
-    if let Some(channel) = store.get_channel(id).ok().flatten() {
-        if let Some(name) = channel.human_name() {
-            return name.to_string();
-        }
-    }
-    unnamed_channel_label(store, id, now)
-}
-
-/// Descriptive label for an unnamed channel (a session room): the live work
-/// title of whoever is active, else its `about`, else a generic placeholder.
-fn unnamed_channel_label(store: &Store, id: &str, now: u64) -> String {
-    latest_channel_work_title(store, id, now)
-        .or_else(|| channel_about(store, id).filter(|s| !s.is_empty()))
-        .unwrap_or_else(|| "(unnamed channel)".to_string())
-}
-
-/// Most-recently-updated live status title in a channel (the agent's current work
-/// text), used as the channel's display title when it has no proper name.
-fn latest_channel_work_title(store: &Store, id: &str, now: u64) -> Option<String> {
-    store
-        .live_status_for_channel(id, now)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| s.title.trim().to_string())
-        .find(|t| !t.is_empty() && t != id)
-}
-
-fn channel_member_count(store: &Store, id: &str, now: u64) -> usize {
-    let n = store
-        .list_channel_members(id)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|m| !is_backend(store, &m.pubkey))
-        .count();
-    if n > 0 {
-        return n;
-    }
-    super::super::channel::channel_status_map(store, id, now)
-        .values()
-        .filter(|status| status.liveness.is_live())
-        .count()
-}
-
 fn member_count_label(count: usize) -> String {
     match count {
         1 => "1 member".to_string(),
@@ -442,62 +322,4 @@ fn offline_label(role: &str) -> String {
     } else {
         "offline".to_string()
     }
-}
-
-fn useful_work_text(item: &StatusChange) -> Option<String> {
-    if item.derived.title.is_empty() && item.derived.activity.is_empty() {
-        return None;
-    }
-    Some(super::super::render::status_plain(
-        &item.derived.title,
-        &item.derived.activity,
-        item.derived.busy,
-    ))
-}
-
-fn activity_line(store: &Store, row: RelayEvent, now: u64, local_host: &str) -> String {
-    let slug = slug_for_pubkey(store, &row.pubkey);
-    let host = host_for_pubkey(store, &row.pubkey);
-    let from = crate::idref::agent_ref_from(&slug, &host, local_host);
-    let content = crate::profile::rewrite_body_mentions(store, &row.content);
-    format!(
-        "[@{from}, {}] {}",
-        relative_time(row.created_at, now),
-        content
-    )
-}
-
-/// The agent's host from its cached kind:0 profile; empty when unknown (then the
-/// ref renderer treats it as local → bare slug).
-fn host_for_pubkey(store: &Store, pubkey: &str) -> String {
-    store
-        .get_profile(pubkey)
-        .ok()
-        .flatten()
-        .map(|p| p.host)
-        .unwrap_or_default()
-}
-
-fn is_backend(store: &Store, pubkey: &str) -> bool {
-    store
-        .get_profile(pubkey)
-        .ok()
-        .flatten()
-        .map(|p| p.is_backend)
-        .unwrap_or(false)
-}
-
-fn peer_slug(store: &Store, st: &crate::state::Status) -> String {
-    if !st.slug.is_empty() {
-        return st.slug.clone();
-    }
-    slug_for_pubkey(store, &st.pubkey)
-}
-
-fn slug_for_pubkey(store: &Store, pubkey: &str) -> String {
-    store
-        .resolve_slug_for_pubkey(pubkey)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| pubkey_short(pubkey))
 }

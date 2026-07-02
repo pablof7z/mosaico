@@ -51,7 +51,7 @@ tmux resume resolves sessions by exact raw session_id then session_id prefix onl
 <!-- citations: [^bd868-7dcbb] [^bd868-eafc6] [^bd868-a51fb] -->
 ## Operator Surface and Logging
 
-The TUI session row tag surfaces the raw session_id or agent-instance label. Tail session tags use the raw session_id for operator correlation. The slog per-session debug log filename uses the raw session_id. The session_label function in idref.rs renders 'agent@host' (degrading to raw session_id only when slug is empty), not a codename. The hook echo-session-id response emits only {"session_id": canonical}; the codename field is dropped from session-start and hook JSON responses. Session-start hook responses and logs do not expose extra display aliases.
+The TUI session row tag surfaces the raw session_id or agent-instance label. Tail session tags use the raw session_id for operator correlation. The slog per-session debug log filename uses the raw session_id. The session_label function in idref.rs renders 'agent@backend-label' (degrading to raw session_id only when slug is empty), not a codename. The hook echo-session-id response emits only {"session_id": canonical}; the codename field is dropped from session-start and hook JSON responses. Session-start hook responses and logs do not expose extra display aliases.
 
 <!-- citations: [^bd868-0f2b4] [^bd868-43382] [^bd868-40879] -->
 ## Documentation Updates

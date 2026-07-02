@@ -52,17 +52,24 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: AgentAction,
     },
-    /// List the agents you can invite into a channel — the local keystore, with
-    /// each agent's "when to use" byline. Pull one in with `tenex-edge invite
-    /// <slug>`, which spawns a fresh session for it in your current channel.
-    Agents,
-    /// Invite an agent into your CURRENT channel by spawning a fresh session for
-    /// it (the explicit alternative to @-mentioning, which never auto-spawns).
+    /// List invitable agents and prior session ids.
+    Agents {
+        #[command(subcommand)]
+        action: Option<AgentsAction>,
+    },
+    /// Invite an agent or prior session into a channel. Use --agent for a fresh
+    /// session, or --session to restore a prior context.
     Invite {
-        /// `slug` of a local agent, or `slug@backend` where `backend` is the hex
-        /// pubkey/npub of the target backend (defaults to the local backend).
-        /// List options with `tenex-edge agents`.
-        agent: String,
+        /// Project-relative channel name/path/id to invite into.
+        #[arg(long)]
+        channel: String,
+        /// `slug` of a local agent, or `slug@backend-label` where `backend-label`
+        /// is the remote backend's config.json `backendName`.
+        #[arg(long, conflicts_with = "session", required_unless_present = "session")]
+        agent: Option<String>,
+        /// Prior session id to resume into the channel.
+        #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
+        session: Option<String>,
     },
     /// Hook integration and statusline for any supported agent harness.
     Harness {
@@ -181,9 +188,9 @@ pub(super) enum ChatAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Channel name (or id) to write to; resolved to its opaque id within
-        /// the sender's project scope. Defaults to this agent's active channel
-        /// (TENEX_EDGE_CHANNEL → tmux pane session → cwd).
+        /// Project-relative channel name/path/id to write to. Required when
+        /// this session is joined to more than one channel; inferred only when
+        /// exactly one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
     },
@@ -204,8 +211,9 @@ pub(super) enum ChatAction {
         /// Keep the chat reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Channel name (or id) to read; defaults to the current agent session's
-        /// active channel.
+        /// Project-relative channel name/path/id to read. Required when this
+        /// session is joined to more than one channel; inferred only when exactly
+        /// one joined channel exists.
         #[arg(long, alias = "project")]
         channel: Option<String>,
     },
@@ -258,6 +266,22 @@ pub(super) enum AgentAction {
 }
 
 #[derive(Subcommand)]
+pub(super) enum AgentsAction {
+    /// List the agents this backend can spawn locally.
+    List,
+    /// List prior session ids grouped by channel.
+    ListSessions {
+        /// Filter to an agent label or pubkey. `agent@backend-label` preserves the
+        /// backend label exactly.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Only show sessions updated after this time (unix timestamp or duration like "2d").
+        #[arg(long)]
+        since: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 pub(super) enum ProjectAction {
     /// List all NIP-29 project groups on the relay.
     List,
@@ -286,7 +310,7 @@ pub(super) enum ProjectAction {
 pub(super) enum ChannelsAction {
     /// Create a subgroup task channel and focus it. When run as an agent
     /// the new channel nests under your CURRENT channel by default, and the
-    /// running session auto-joins it. If `--agent slug@backend` targets
+    /// running session auto-joins it. If `--agent slug@backend-label` targets
     /// are named, one kind:9 orchestration event asks those backends to add
     /// their agents.
     Create {
@@ -299,10 +323,9 @@ pub(super) enum ChannelsAction {
         /// `about`. Required.
         #[arg(long)]
         about: String,
-        /// Optional, repeatable `slug@backend`, where `slug` is the agent identity
-        /// (the `~/.tenex-edge/agents/*.json` filename stem, e.g. `developer`,
-        /// `alice`) and `backend` is a hex pubkey or npub of the target backend
-        /// (the pubkey of its tenexPrivateKey). Omit to create an empty channel.
+        /// Optional, repeatable `slug@backend-label`, where `backend-label` is
+        /// the target backend's config.json `backendName`. Omit to create an
+        /// empty channel.
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]
         agents: Vec<String>,
         /// Parent channel the new channel hangs under. Defaults to the channel

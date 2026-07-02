@@ -9,4 +9,6 @@ source_refs:
 
 # kind:30315 TTL
 
-the only liveness signal
+Per-session activity expiration. The event is replaceable by `(author pubkey,
+d=session-id)` and carries one `h` tag per joined channel. It feeds activity and
+session-history views; channel membership is the online-presence source.

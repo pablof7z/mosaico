@@ -168,7 +168,7 @@ async fn seed_session_with_thread_root_link() {
         &agent,
         &DomainEvent::Status(Status {
             agent: agent_ref.clone(),
-            project: project.clone(),
+            channels: vec![project.clone()],
             session_id: session_id.clone().into(),
             host: "seed-host".into(),
             title: title.into(),

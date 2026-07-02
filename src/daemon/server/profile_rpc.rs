@@ -29,36 +29,27 @@ pub(in crate::daemon::server) async fn rpc_publish_profile(
     }))
 }
 
-/// Resolve a backend token (from `slug@<token>`) to a hex pubkey.
-/// Accepts: explicit hex pubkey / npub / NIP-05 (via `resolve_pubkey_hex`),
-/// OR a host slug as shown by `who` (e.g. `laptop`).  The host-slug path
-/// checks the local machine first, then the state store for remote peers.
+/// Resolve a backend label (from `slug@backend-label`) to the backend's pubkey.
+/// The label is exactly config.json `backendName`; it is not an OS/DNS hostname,
+/// pubkey, npub, NIP-05 address, or slugified display string.
 pub(in crate::daemon::server) async fn resolve_backend_pubkey(
     state: &Arc<DaemonState>,
-    token: &str,
+    label: &str,
 ) -> Result<String> {
-    // Fast path: explicit pubkey / npub / NIP-05.
-    if let Ok(pk) = resolve_pubkey_hex(token).await {
-        return Ok(pk);
-    }
-
-    // Host-slug path: `who` renders backends as `slugify_host(backendName)`.
-    let local_slug = crate::util::slugify_host(&state.host);
-    if token == local_slug {
+    if label == state.host {
         return state.backend_pubkey.clone().ok_or_else(|| {
             anyhow::anyhow!(
-                "backend token {token:?} matches local host but no signing key is configured"
+                "backend label {label:?} matches local backend but no signing key is configured"
             )
         });
     }
 
-    // Remote peer: resolve host/slug against relay_profiles + relay_status.
-    if let Some(pk) = state.with_store(|s| s.pubkey_for_host_slug(token).ok().flatten()) {
+    if let Some(pk) = state.with_store(|s| s.pubkey_for_backend_label(label).ok().flatten()) {
         return Ok(pk);
     }
 
     anyhow::bail!(
-        "cannot resolve backend {token:?}: not a pubkey/npub/NIP-05 and no known peer with that host slug"
+        "cannot resolve backend label {label:?}: no backend profile advertises that config.json backendName"
     )
 }
 
