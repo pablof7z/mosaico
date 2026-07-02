@@ -33,7 +33,31 @@ base_line_count() {
     fi
 }
 
-git ls-files '*.rs' | grep -E '^(src|tests)/' > "$FILES" || true
+is_checked_file() {
+    case "$1" in
+        target/*|.git/*|*.lock|*.pyc) return 1 ;;
+        integrations/*/node_modules/*|integrations/*/__pycache__/*) return 1 ;;
+        docs/wiki/_citations/*|docs/wiki/_citations.log) return 1 ;;
+        docs/wiki/episodes/transcripts/*) return 1 ;;
+        *.rs|*.ts|*.js|*.py|*.sh|*.md|*.toml|*.json|*.jsonl|*.yml|*.yaml) return 0 ;;
+        scripts/*|justfile|AGENTS.md|README.md) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+known_hard_limit() {
+    awk -F: -v path="$1" '
+        $0 == "" || $0 ~ /^#/ { next }
+        $1 == path && $2 ~ /^[0-9]+$/ { print $2; exit }
+    ' "$RATCHET" 2>/dev/null
+}
+
+git ls-files src tests integrations scripts docs README.md AGENTS.md justfile .github/workflows \
+    | while IFS= read -r f; do
+        if is_checked_file "$f"; then
+            printf '%s\n' "$f"
+        fi
+    done > "$FILES"
 
 if [ -z "$BASE_COMMIT" ] && git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
     BASE_COMMIT=$(git merge-base "$BASE_REF" HEAD)
@@ -51,9 +75,13 @@ done < "$FILES"
 
 if [ -n "$BASE_COMMIT" ]; then
     {
-        git diff --name-only --diff-filter=ACMRT "$BASE_COMMIT"...HEAD -- '*.rs'
-        git diff --name-only --diff-filter=ACMRT HEAD -- '*.rs'
-    } | grep -E '^(src|tests)/' | sort -u > "$CHANGED" || true
+        git diff --name-only --diff-filter=ACMRT "$BASE_COMMIT"...HEAD
+        git diff --name-only --diff-filter=ACMRT HEAD
+    } | while IFS= read -r f; do
+        if is_checked_file "$f"; then
+            printf '%s\n' "$f"
+        fi
+    done | sort -u > "$CHANGED"
 
     while IFS= read -r f; do
         [ -n "$f" ] || continue
@@ -81,16 +109,19 @@ else
     NEW_HARD="$TMPDIR/new_hard"
     : > "$NEW_HARD"
     while read -r lc f; do
-        if ! grep -qx "$f" "$RATCHET" 2>/dev/null; then
+        known_limit=$(known_hard_limit "$f")
+        if [ -z "$known_limit" ]; then
             echo "$lc $f" >> "$NEW_HARD"
+        elif [ "$lc" -gt "$known_limit" ]; then
+            echo "$lc $f (ratchet $known_limit)" >> "$NEW_HARD"
         fi
     done < "$HARD"
 
     if [ -s "$NEW_HARD" ]; then
-        echo "loc-check: NEW hard violations (not in ratchet):"
+        echo "loc-check: hard-limit violations (new or over ratchet):"
         sort -nr "$NEW_HARD" | sed 's/^/  /'
         echo ""
-        echo "Reduce file size to <= $HARD_LIMIT LOC or add an intentional exemption to $RATCHET"
+        echo "Reduce file size to <= $HARD_LIMIT LOC or add an intentional path:max_lines exemption to $RATCHET"
         exit 1
     fi
 

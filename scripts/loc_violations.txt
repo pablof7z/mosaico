@@ -1,0 +1,2 @@
+# Known hard-limit exceptions, one per line:
+# path:max_lines
