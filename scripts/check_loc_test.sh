@@ -41,16 +41,22 @@ git init -q
 git config user.email loc-check@example.invalid
 git config user.name 'LOC Check Test'
 
-mkdir -p scripts src tests
+mkdir -p docs scripts src tests
 cp "$ROOT/scripts/check_loc.sh" scripts/check_loc.sh
 : > scripts/loc_violations.txt
 
 write_lines 301 src/legacy.rs
+write_lines 501 scripts/known-tool
+echo "scripts/known-tool:501" > scripts/loc_violations.txt
 git add .
 git commit -qm baseline
 BASE_COMMIT=$(git rev-parse HEAD)
 
 expect_success "unchanged baseline soft-limit file is reported but allowed"
+
+write_lines 502 scripts/known-tool
+expect_failure "known hard-limit exception cannot grow" "scripts/known-tool (ratchet 501)"
+git checkout -q -- scripts/known-tool
 
 write_lines 302 src/legacy.rs
 expect_failure "growing an existing soft-limit file fails" "src/legacy.rs:302 (baseline 301)"
@@ -61,9 +67,19 @@ git add tests/new_case.rs
 expect_failure "new tracked soft-limit file fails" "tests/new_case.rs:301 (baseline 0)"
 
 git rm -fq tests/new_case.rs
+write_lines 301 docs/new_doc.md
+git add docs/new_doc.md
+expect_failure "new durable doc soft-limit file fails" "docs/new_doc.md:301 (baseline 0)"
+
+git rm -fq docs/new_doc.md
 write_lines 300 src/legacy.rs
 expect_success "shrinking a soft-limit file to target passes"
 
 write_lines 501 src/huge.rs
 git add src/huge.rs
 expect_failure "new hard-limit file fails" "src/huge.rs"
+
+git rm -fq src/huge.rs
+write_lines 501 scripts/new-tool
+git add scripts/new-tool
+expect_failure "new hard-limit script file fails" "scripts/new-tool"
