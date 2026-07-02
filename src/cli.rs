@@ -11,7 +11,6 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use owo_colors::OwoColorize;
-use shlex;
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal as _, Read as _, Write as _};
 use std::time::{Duration, Instant};
@@ -149,18 +148,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             HarnessAction::Hook { harness, hook_type } => hooks::hook_run(harness, hook_type).await,
             HarnessAction::Statusline { session, tmux } => statusline::statusline(session, tmux),
         },
-        Cmd::Launch {
-            slug,
-            project,
-            channel,
-            command_str,
-            extra_args,
-        } => {
-            let override_command = command_str
-                .map(|s| shlex::split(&s).unwrap_or_else(|| vec![s]))
-                .unwrap_or_default();
-            tmux_cli::launch(slug, project, channel, override_command, extra_args).await
-        }
+        Cmd::Launch(args) => tmux_cli::launch(args).await,
         Cmd::Stop => stop_daemon(),
         Cmd::Debug { action } => debug::debug(action).await,
         Cmd::Install {
