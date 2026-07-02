@@ -38,7 +38,7 @@ fn rewrite_config_with_user_nsec(home: &Home) {
 /// Behavior 3: 39000/39002 idempotency.
 ///
 /// Applying the same NIP-29 group-metadata (kind 39000) and members-snapshot
-/// (kind 39002) events TWICE must be stable: project_meta and group_members
+/// (kind 39002) events TWICE must be stable: relay cache rows
 /// converge to the same state and members are not duplicated.
 ///
 /// We exercise this through the `session_start` path (which causes the daemon
@@ -50,7 +50,7 @@ fn rewrite_config_with_user_nsec(home: &Home) {
 /// FREEZE-NOTE: the daemon applies 39000/39002 only when they arrive from the
 /// relay subscription. We cannot inject raw relay events through the public
 /// RPC path, so we verify idempotency via the Store methods that 39000/39002
-/// handlers call: `upsert_project_meta` and `replace_group_members`.
+/// handlers call: `upsert_channel` and `replace_channel_members`.
 /// The integration layer here tests that the Store semantics survive repeated
 /// application (the daemon uses these same methods).
 #[test]
@@ -133,9 +133,8 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // FREEZE: channel-metadata upsert is idempotent (39000 handler →
     // `upsert_channel`). Use a dedicated channel id with an explicit created_at so
-    // the monotonic created_at guard admits the overwrite. (`upsert_project_meta`/
-    // `get_project_meta` → `upsert_channel`/`get_channel`; metadata is the
-    // channel's `about`.)
+    // the monotonic created_at guard admits the overwrite. Metadata is the
+    // channel's `about`.
     let meta_h = "freeze-39000-meta";
     store
         .upsert_channel(meta_h, "", "about text v1", "tmp", ts)
