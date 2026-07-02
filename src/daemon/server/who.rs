@@ -89,9 +89,9 @@ pub(in crate::daemon::server) fn rpc_who(
             .unwrap_or_default();
         let edge = crate::config::edge_home();
         let fabric = state.with_store(|s| {
-            crate::cli::render_fabric_context(
+            crate::fabric_context::render_fabric_context(
                 s,
-                crate::cli::FabricContextInput {
+                crate::fabric_context::FabricContextInput {
                     session: rec,
                     scope,
                     cursor: rec.map(|r| r.seen_cursor).unwrap_or(0),

@@ -11,6 +11,7 @@
 pub mod command_forensics;
 pub mod config;
 pub mod domain;
+mod fabric_context;
 pub mod identity;
 pub mod idref;
 pub mod injection;

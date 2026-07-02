@@ -37,7 +37,6 @@ use args::{
 pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub(crate) use turn::{turn_check_audit, turn_start_audit};
-pub(crate) use who::{render_fabric_context, FabricContextInput};
 
 pub(crate) fn select_agent_env(active: Option<String>, fallback: Option<String>) -> Option<String> {
     active

@@ -1,7 +1,7 @@
-use super::model::*;
+use crate::fabric_context::model::*;
 use std::fmt::Write as _;
 
-pub(super) fn render_view(view: &FabricView) -> String {
+pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<tenex-edge>");
     render_self(&mut out, view.self_row.as_ref());
     let _ = write!(

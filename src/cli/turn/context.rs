@@ -4,8 +4,8 @@
 //! awareness) — kept apart from the thin hook clients in [`super`] so neither
 //! file grows past the LOC ceiling.
 
-use super::super::who::{inbox_seed, render_fabric_context, FabricContextInput};
 use super::*;
+use crate::fabric_context::{inbox_seed, render_fabric_context, FabricContextInput};
 use crate::state::{InboxRow, RelayEvent, Session};
 
 /// Cap on ambient channel-chat rows pulled from the relay-event log per turn.
