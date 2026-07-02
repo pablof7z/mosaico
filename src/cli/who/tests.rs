@@ -1,4 +1,4 @@
-use super::render::{render_self_header, render_who_once, render_who_plain};
+use super::render::{render_who_once, render_who_plain};
 use super::snapshot::{OtherProjectSummary, SpawnableRow, WhoRow, WhoSnapshot, WhoSource};
 use super::*;
 use crate::state::{Identity, RegisterSession, Status};

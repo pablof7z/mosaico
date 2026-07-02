@@ -59,42 +59,6 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     out
 }
 
-/// A concise self-identity header folded into `who` (issue #99): who you are on
-/// the fabric. Driven by `out["self"]`; `None` when `who` is not run inside an
-/// agent. The agent label is the user-facing identity.
-pub(super) fn render_self_header(v: &serde_json::Value) -> Option<String> {
-    let me = v.get("self")?;
-    let s = |k: &str| me.get(k).and_then(|x| x.as_str()).unwrap_or("");
-    let label = s("label");
-    if label.is_empty() {
-        return None;
-    }
-    let host = s("host");
-    let pubkey = s("pubkey");
-    let working = me.get("working").and_then(|x| x.as_bool()).unwrap_or(false);
-    let status = status_plain(s("status"), "", working);
-    let is_member = me
-        .get("is_member")
-        .and_then(|x| x.as_bool())
-        .unwrap_or(true);
-    let pending = me.get("pending").and_then(|x| x.as_u64()).unwrap_or(0);
-
-    let _ = pubkey; // not shown to the agent
-    let mut out = if host.is_empty() {
-        format!("You are **{label}**.")
-    } else {
-        format!("You are **{label}** on **{host}**.")
-    };
-    let _ = write!(out, "\nstatus {status}");
-    if !is_member {
-        let _ = write!(out, " · not a member of this channel");
-    }
-    if pending > 0 {
-        let _ = write!(out, " · {pending} pending");
-    }
-    Some(out)
-}
-
 pub(super) fn render_who_for_stdout(snapshot: &WhoSnapshot) -> String {
     if io::stdout().is_terminal() {
         render_who_once(snapshot)
@@ -328,25 +292,8 @@ pub(super) fn draw_who_live(snapshot: &WhoSnapshot, refresh: Duration) -> Result
     Ok(())
 }
 
-/// Plain (no-ANSI) status label: the persistent title, the live activity while
-/// mid-turn (`title — activity`), and an idle marker when not mid-turn. Used for
-/// injected context blocks where ANSI must not leak. Empty title falls back to
-/// the activity, then to a bare "working"/"idle" word.
-pub(super) fn status_plain(title: &str, activity: &str, active: bool) -> String {
-    let t = title.trim();
-    let a = activity.trim();
-    match (t.is_empty(), active) {
-        (true, true) if !a.is_empty() => a.to_string(),
-        (true, true) => "working".to_string(),
-        (true, false) => "idle".to_string(),
-        (false, true) if !a.is_empty() => format!("{t} — {a}"),
-        (false, true) => t.to_string(),
-        (false, false) => format!("{t} · idle"),
-    }
-}
-
-/// Terminal status label: like [`status_plain`] but dims the live activity and
-/// the idle marker so the persistent title stays prominent.
+/// Terminal status label: dims the live activity and idle marker so the
+/// persistent title stays prominent.
 fn status_colored(title: &str, activity: &str, active: bool) -> String {
     let t = title.trim();
     let a = activity.trim();

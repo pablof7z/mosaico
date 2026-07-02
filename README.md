@@ -38,7 +38,8 @@ cli ── runtime ── { domain · fabric/nip29/wire · transport · state ·
   and per-session status on kind:30315 with `d=<session-id>` plus one `h` tag for
   each joined channel.
 - `transport` — thin adapter over `nostr-sdk` (publish/subscribe/AUTH/fetch).
-- `state` — SQLite: my sessions, the peer directory, per-session chat inbox rows.
+- `state` — SQLite: my sessions, the peer directory, relay chat, and the
+  per-session inbox ledger for directed mentions.
   Opened by ONE process only — the daemon — so there is a single writer by construction.
 - `distill` — recent conversation transcript → one-line intent. LLM-based via
   the shared `~/.tenex` provider/model config.
@@ -73,7 +74,7 @@ bash scripts/demo-claude.sh  # a real `claude -p` session on the fabric
 ## Configuration
 
 Reads the shared `~/.tenex/config.json` (only `whitelistedPubkeys`, optional
-`relays`, `backendName`); keeps its own writable state under `~/.tenex/edge`
+`relays`, `backendName`); keeps its own writable state under `~/.tenex-edge`
 (override with `$TENEX_EDGE_HOME`), never touching TENEX/pc data.
 
 ## Commands
@@ -87,8 +88,8 @@ surface.
 | Command | Purpose |
 |---|---|
 | `harness hook <name> --type <hook-type>` | The one entry point for the session/turn lifecycle. Reads the harness's hook JSON on stdin; dispatches `session-start`/`session-end`/`user-prompt-submit`/`post-tool-use`/`stop` to the matching internal step. This is how every host (Claude Code, Codex, opencode) starts sessions and brackets turns. |
-| `chat write [--channel <channel>] --message <m>` | Send a message to chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. `--channel` is required when the session is joined to multiple channels. |
-| `chat read [--channel <channel>] [--live]` | Read chat history. `--channel` is required when the session is joined to multiple channels. |
+| `chat write [--channel <channel>] [--long-message] --message <m>` | Send a message to chat. Mention an agent instance inline with `@<agent>` / `@<agent>1` in the body. `--channel` is required when the session is joined to multiple channels; messages over 300 words require `--long-message`. |
+| `chat read [--channel <channel>] [--id <message-id>] [--live]` | Read chat history, or recover one full message by event id when fabric context truncates it. `--channel` is required when the session is joined to multiple channels, except for exact `--id` reads. |
 | `agents list-sessions [--agent <agent[@backend-label]>]` | List prior session ids and titles from kind:30315 history, grouped by channel. |
 | `invite --channel <channel> --agent <agent[@backend-label]>` | Invite a fresh local or remote agent session into an existing channel. |
 | `invite --channel <channel> --session <session-id>` | Resume an exact prior session into an existing channel when old context is useful. |
@@ -107,20 +108,22 @@ only the wiring differs per host's extension model.
 - **Codex** — [`integrations/codex/`](integrations/codex/): Codex hook
   dispatcher `te-hook.py` + `[[hooks.*]]` config, trusted via `/hooks`.
   SessionStart creates presence, UserPromptSubmit starts turn tracking, and
-  UserPromptSubmit injects pending mentions plus the available-agent list.
+  UserPromptSubmit injects the relevant fabric context.
   Codex does not currently document SessionEnd, so the hook passes Codex's PID
   to the tenex-edge liveness reaper.
 - **OpenCode** — [`integrations/opencode/`](integrations/opencode/): a TS plugin
   (`~/.config/opencode/plugin/tenex-edge.ts`) — `transform` injects peer mentions
-  into context (automatic receive), and the plugin reports turn state to the
-  distiller.
+  and recent fabric context (automatic receive), and the plugin reports turn
+  state to the distiller.
 
 Agents resolve their own session from the tmux pane, harness process, or working
 directory, so the common agent-facing commands are `tenex-edge who`, `chat read`,
 and `chat write --message "..."` with no session id. When a session is joined to
 multiple channels, `chat read` and `chat write` require `--channel`. Mention an
 agent instance by writing `@<agent>` / `@<agent>1` (the labels shown by `who`)
-inline in the message body.
+inline in the message body. Hook-injected fabric context truncates long chat rows;
+use the shown `tenex-edge chat read --id <message-id>` command to recover the full
+message when needed.
 
 Verified live on `relay.tenex.chat`: a real opencode agent and a real codex agent
 each messaged a `hub` via NIP-29 group chat; a real claude agent auto-received

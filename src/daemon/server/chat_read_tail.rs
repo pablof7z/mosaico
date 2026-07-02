@@ -1,6 +1,11 @@
 use super::chat_target::resolve_chat_target;
 use super::*;
 use crate::state::RelayEvent;
+use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
+use anyhow::bail;
+
+#[cfg(test)]
+mod tests;
 
 /// Upper bound on chat-log rows pulled per channel for a read (the slicing below
 /// narrows to the requested window).
@@ -9,6 +14,8 @@ const CHAT_READ_CAP: u32 = 10_000;
 #[derive(serde::Deserialize, Default)]
 #[allow(dead_code)]
 pub(in crate::daemon::server) struct ChatReadParams {
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     channel: Option<String>,
     #[serde(default)]
@@ -42,6 +49,21 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     writer: &mut W,
 ) -> Result<()> {
     let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
+    if let Some(event_id) = p.id.as_deref().filter(|s| !s.trim().is_empty()) {
+        let row = state
+            .with_store(|s| s.get_event(event_id))
+            .with_context(|| format!("reading chat message {event_id}"))?
+            .with_context(|| format!("chat message not found: {event_id}"))?;
+        if row.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 {
+            bail!("event is not a chat message: {event_id}");
+        }
+        let json = chat_row_to_json(state, &row, false);
+        if write_json(writer, &Response::item(id, json)).await.is_ok() {
+            let _ = write_json(writer, &Response::end(id)).await;
+        }
+        return Ok(());
+    }
+
     let rec = resolve_session_inner(
         state,
         &CallerAnchor::from_params(params),
@@ -100,7 +122,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
         .unwrap_or(live_started_at.max(since));
 
     for row in rows {
-        let json = chat_row_to_json(state, &row);
+        let json = chat_row_to_json(state, &row, true);
         if write_json(writer, &Response::item(id, json)).await.is_err() {
             let _ = write_json(writer, &Response::end(id)).await;
             return Ok(());
@@ -127,7 +149,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
                         continue;
                     }
                     cursor = cursor.max(row.created_at);
-                    let json = chat_row_to_json(state, &row);
+                    let json = chat_row_to_json(state, &row, true);
                     if write_json(writer, &Response::item(id, json)).await.is_err() {
                         let _ = write_json(writer, &Response::end(id)).await;
                         return Ok(());
@@ -163,26 +185,38 @@ fn chat_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
 
 /// Render a verbatim chat `RelayEvent` into the CLI's chat-line JSON, resolving
 /// the author's slug from the materialized profile cache.
-fn chat_row_to_json(state: &Arc<DaemonState>, row: &RelayEvent) -> serde_json::Value {
+fn chat_row_to_json(
+    state: &Arc<DaemonState>,
+    row: &RelayEvent,
+    truncate: bool,
+) -> serde_json::Value {
     let from_slug = state
         .with_store(|s| s.resolve_slug_for_pubkey(&row.pubkey))
         .ok()
         .flatten()
         .unwrap_or_else(|| pubkey_short(&row.pubkey));
-    chat_log_row_to_json(row, &from_slug)
+    chat_log_row_to_json(row, &from_slug, truncate)
 }
 
 pub(in crate::daemon::server) fn chat_log_row_to_json(
     row: &RelayEvent,
     from_slug: &str,
+    truncate: bool,
 ) -> serde_json::Value {
+    let (body, truncated) = if truncate {
+        truncate_words(&row.content, CHAT_RENDER_WORD_LIMIT)
+    } else {
+        (row.content.trim().to_string(), false)
+    };
     serde_json::json!({
         "event_id": &row.id,
+        "full_event_id": &row.id,
         "from_pubkey": &row.pubkey,
         "from_slug": from_slug,
         "host": "",
         "project": &row.channel_h,
-        "body": &row.content,
+        "body": body,
+        "truncated": truncated,
         "created_at": row.created_at,
         "from_session": "",
         "mentioned_session": "",

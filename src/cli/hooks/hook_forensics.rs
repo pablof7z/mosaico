@@ -311,7 +311,7 @@ mod tests {
             "user-prompt-submit",
             Some("sess-1"),
             serde_json::json!({ "kind": "turn_start" }),
-            Some("[tenex-edge] Fabric context"),
+            Some("<tenex-edge>"),
         );
 
         let raw = std::fs::read_to_string(path).unwrap();
@@ -323,10 +323,7 @@ mod tests {
         assert_eq!(rows[0]["detail"]["output"]["emitted"], false);
         assert_eq!(rows[0]["detail"]["audit"]["kind"], "turn_check");
         assert_eq!(rows[1]["note"], "context-audit");
-        assert_eq!(
-            rows[1]["detail"]["output"]["text"],
-            "[tenex-edge] Fabric context"
-        );
+        assert_eq!(rows[1]["detail"]["output"]["text"], "<tenex-edge>");
         assert_eq!(rows[2]["note"], "context-injection");
     }
 }

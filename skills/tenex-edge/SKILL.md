@@ -95,6 +95,7 @@ Read recent room context:
 ```bash
 tenex-edge chat read
 tenex-edge chat read --channel <channel>   # required when joined to multiple channels
+tenex-edge chat read --id <message-id>     # recover a truncated message in full
 ```
 
 Send coordination:
@@ -102,6 +103,7 @@ Send coordination:
 ```bash
 tenex-edge chat write --message "Short useful message"
 tenex-edge chat write --channel <channel> --message "Short useful message"
+tenex-edge chat write --long-message --message "..."   # only when length is necessary
 ```
 
 List prior session ids when old context might matter:

@@ -110,36 +110,12 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &state.host,
         prev_started,
     );
-    // Surface newly-available invitable agents (decision D) on a DELTA turn only
-    // (never the first turn), keyed off the same per-session high-water mark so a
-    // given new agent is announced once.
-    let merged = if rec.seen_cursor != 0 {
-        merge_new_agents(base, rec.seen_cursor, now)
-    } else {
-        base
-    };
     let audit =
-        crate::cli::turn_start_audit(&state.store, &rec, prev_started, now, merged.as_deref());
-    let context = merged
+        crate::cli::turn_start_audit(&state.store, &rec, prev_started, now, base.as_deref());
+    let context = base
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context, "audit": audit }))
-}
-
-/// Append the "new agents available" delta section (decision D) to an assembled
-/// context. Reads the LOCAL keystore (daemon-only — never on a unit-tested code
-/// path) and surfaces agents created in `(since, now]`. Standalone → labelled
-/// with the `[tenex-edge]` prefix; folded into an existing delta as a section.
-fn merge_new_agents(base: Option<String>, since: u64, now: u64) -> Option<String> {
-    let edge = crate::config::edge_home();
-    let roster = crate::identity::list_invitable_agents(&edge);
-    let section = crate::cli::new_agent_block(&roster, since, now);
-    match (base, section) {
-        (Some(b), Some(s)) => Some(format!("{b}\n\n{s}")),
-        (Some(b), None) => Some(b),
-        (None, Some(s)) => Some(format!("[tenex-edge] {s}")),
-        (None, None) => None,
-    }
 }
 
 pub(in crate::daemon::server) fn rpc_turn_check(
@@ -165,20 +141,15 @@ pub(in crate::daemon::server) fn rpc_turn_check(
     };
     let base =
         crate::cli::assemble_turn_check_context(&state.store, &rec, &state.host, delta_since, now);
-    // Same roster-on-change surfacing as turn_start, gated on the delta window.
-    let merged = match delta_since {
-        Some(since) => merge_new_agents(base, since, now),
-        None => base,
-    };
     let audit = crate::cli::turn_check_audit(
         &state.store,
         &rec,
         delta_since,
         cursor_advanced,
         now,
-        merged.as_deref(),
+        base.as_deref(),
     );
-    let context = merged
+    let context = base
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context, "audit": audit }))

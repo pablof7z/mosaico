@@ -74,7 +74,7 @@ pub(in crate::daemon::server) fn rpc_who(
     // when run inside an agent) is marked `(you)` and excluded from peer echoes.
     if let Some(scope) = current_project.as_deref() {
         // Reuse the exact caller session, when present, for both the fabric
-        // `(you)` match and the folded-in `self` identity block (issue #99).
+        // `(you)` match and the folded-in `<self />` row (issue #99).
         // Deliberately no project-scan fallback: `who` must not masquerade as a
         // session just because some live sibling exists in the same repository.
         let rec = caller_rec.as_ref();
@@ -88,43 +88,36 @@ pub(in crate::daemon::server) fn rpc_who(
             .unwrap_or_default();
         let edge = crate::config::edge_home();
         let fabric = state.with_store(|s| {
-            crate::cli::render_fabric_snapshot(
+            crate::cli::render_fabric_context(
                 s,
-                scope,
-                now,
-                &self_slug,
-                &self_pubkey,
-                &host,
-                &edge,
+                crate::cli::FabricContextInput {
+                    session: rec,
+                    scope,
+                    cursor: rec.map(|r| r.seen_cursor).unwrap_or(0),
+                    now,
+                    self_slug: &self_slug,
+                    self_pubkey: &self_pubkey,
+                    local_host: &host,
+                    edge_home: Some(&edge),
+                    forced_messages: &[],
+                    warnings: &[],
+                    force: true,
+                },
             )
         });
         if let Some(fabric) = fabric {
             out["fabric"] = serde_json::Value::String(fabric);
-        }
-        // Fold the current agent identity into `who` (issue #99): a `self` object
-        // with this session's own fabric identity, present only when `who` runs
-        // inside an agent. `session_id` is raw internal correlation, not a
-        // user-facing identity.
-        if let (Some(rec), Some(instance)) = (rec, instance.as_ref()) {
-            let pending = state
-                .with_store(|s| s.drain_pending_for_session(&rec.session_id))
-                .map(|rows| rows.len())
-                .unwrap_or(0);
-            let is_member = state
-                .with_store(|s| s.is_channel_member(&rec.channel_h, &instance.pubkey))
-                .unwrap_or(true);
-            out["self"] = serde_json::json!({
-                "label": instance.display_slug(),
-                "pubkey": instance.pubkey,
-                "channel": rec.channel_h,
-                "host": host,
-                "is_member": is_member,
-                "working": rec.working,
-                "status": rec.title,
-                "pending": pending,
-                "created_at": rec.created_at,
-                "session_id": rec.session_id,
-            });
+            if let Some(rec) = rec {
+                state.with_store(|s| {
+                    if let Err(e) = s.set_seen_cursor(&rec.session_id, now) {
+                        tracing::error!(
+                            session = %rec.session_id,
+                            error = ?e,
+                            "who: advancing session fabric cursor failed"
+                        );
+                    }
+                });
+            }
         }
     }
     Ok(out)

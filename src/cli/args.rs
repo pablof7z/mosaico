@@ -193,9 +193,15 @@ pub(super) enum ChatAction {
         /// exactly one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
+        /// Allow publishing a message longer than the default fabric context cap.
+        #[arg(long)]
+        long_message: bool,
     },
     /// Read project chat history.
     Read {
+        /// Read one exact message by event id; returns the full untruncated body.
+        #[arg(long = "id")]
+        id: Option<String>,
         /// Only show messages after this time (unix timestamp or duration like "1h").
         #[arg(long)]
         since: Option<String>,

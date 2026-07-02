@@ -69,16 +69,13 @@ fn first_turn_injects_channel_context_block() {
             .to_string()
     });
 
-    assert!(
-        ctx.contains("[tenex-edge] Fabric context"),
-        "context was: {ctx}"
-    );
+    assert!(ctx.contains("<tenex-edge>"), "context was: {ctx}");
     assert!(
         !ctx.contains("[session"),
         "must not expose a session code; context was: {ctx}"
     );
-    assert!(ctx.contains("Channel: #"), "context was: {ctx}");
-    assert!(ctx.contains("@coder (you)"), "context was: {ctx}");
+    assert!(ctx.contains("<channel "), "context was: {ctx}");
+    assert!(ctx.contains("<self agent=\"@coder\""), "context was: {ctx}");
 
     stop_daemon(&home);
 }
@@ -131,7 +128,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
     });
 
     assert!(
-        ctx.contains(&format!("@{remote_name} - offline")),
+        ctx.contains(&format!("ref=\"@{remote_name}\" status=\"offline\"")),
         "member roster should resolve kind:0 profile; context was: {ctx}"
     );
     assert!(

@@ -2,6 +2,11 @@ use super::chat_target::resolve_chat_target;
 use super::resolution::work_root_for;
 use super::*;
 use crate::state::{RelayEvent, Store};
+use crate::util::{word_count, CHAT_RENDER_WORD_LIMIT};
+use anyhow::bail;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(serde::Deserialize, Default)]
 #[allow(dead_code)]
@@ -17,6 +22,8 @@ pub(in crate::daemon::server) struct ChatWriteParams {
     agent: Option<String>,
     #[serde(default)]
     channel: Option<String>,
+    #[serde(default)]
+    long_message: bool,
 }
 
 /// Build a verbatim kind:9 chat row for the `relay_events` log from the fields we
@@ -52,6 +59,11 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
 ) -> Result<serde_json::Value> {
     let p: ChatWriteParams =
         serde_json::from_value(params.clone()).context("parsing chat_write params")?;
+    if long_message_requires_override(&p) {
+        bail!(
+            "your message is too long; keep it under {CHAT_RENDER_WORD_LIMIT} words or pass --long-message"
+        );
+    }
     let mut anchor = CallerAnchor::from_params(params);
     anchor.group = None;
     let rec = resolve_session(state, &anchor)?;
@@ -257,6 +269,10 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         "mentioned_session": mentioned_session,
         "mentioned_label": mentioned_label,
     }))
+}
+
+fn long_message_requires_override(p: &ChatWriteParams) -> bool {
+    !p.long_message && word_count(&p.message) > CHAT_RENDER_WORD_LIMIT
 }
 
 pub(in crate::daemon::server) struct ResolvedRecipient {

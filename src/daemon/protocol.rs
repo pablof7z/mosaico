@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The compiled-in protocol version, bumped on any breaking RPC change.
-const PROTOCOL_VERSION_BASE: u32 = 3;
+const PROTOCOL_VERSION_BASE: u32 = 4;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →

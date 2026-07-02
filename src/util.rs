@@ -98,6 +98,21 @@ pub fn pubkey_short(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
+pub const CHAT_RENDER_WORD_LIMIT: usize = 300;
+
+pub fn word_count(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+pub fn truncate_words(text: &str, limit: usize) -> (String, bool) {
+    let mut words = text.split_whitespace();
+    let kept: Vec<&str> = words.by_ref().take(limit).collect();
+    if words.next().is_none() {
+        return (text.trim().to_string(), false);
+    }
+    (format!("{}...", kept.join(" ")), true)
+}
+
 /// True when `text`, trimmed, starts with `<` — the shape of harness-injected
 /// control content (task-completion notifications, system reminders,
 /// command-output wrappers, ...) as opposed to text a human actually typed.

@@ -1,8 +1,13 @@
 use super::*;
 
-pub(super) async fn chat_write(message: String, channel: Option<String>) -> Result<()> {
+pub(super) async fn chat_write(
+    message: String,
+    channel: Option<String>,
+    long_message: bool,
+) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "message": message,
+        "long_message": long_message,
         // Explicit `--channel` is destination targeting only. Caller identity
         // still comes from the session anchors added by `rpc_params`.
         "channel": channel,
@@ -18,6 +23,7 @@ pub(super) async fn chat_write(message: String, channel: Option<String>) -> Resu
 }
 
 pub(super) async fn chat_read(
+    id: Option<String>,
     since: Option<String>,
     limit: Option<u64>,
     offset: Option<u64>,
@@ -39,6 +45,7 @@ pub(super) async fn chat_read(
     let use_color = std::env::var("NO_COLOR").is_err() && std::io::stdout().is_terminal();
 
     let params = crate::cli::rpc_params(serde_json::json!({
+        "id": id,
         "channel": channel,
         "since": since_ts,
         "limit": effective_limit,
@@ -69,7 +76,15 @@ fn render_chat_read_row(item: &serde_json::Value, use_color: bool) -> String {
     let sender = color_by_pubkey(&sender, pubkey, use_color);
     let body = item["body"].as_str().unwrap_or_default().trim_end();
     let ts = item["created_at"].as_u64().unwrap_or(0);
-    format!("{sender} {body} [{}]", format_local_datetime(ts))
+    let mut text = format!("{sender} {body}");
+    if item["truncated"].as_bool().unwrap_or(false) {
+        if let Some(id) = item["event_id"].as_str().filter(|s| !s.is_empty()) {
+            text.push_str(&format!(
+                "\n[message truncated; run `tenex-edge chat read --id {id}`]"
+            ));
+        }
+    }
+    format!("{text} [{}]", format_local_datetime(ts))
 }
 
 fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
@@ -249,4 +264,25 @@ pub fn format_envelope(e: &EnvelopeView) -> String {
     let _ = write!(s, "\nID: {}", e.id);
     let _ = write!(s, "\n--\n{}", e.body);
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_read_row_prints_truncation_recovery_command() {
+        let item = serde_json::json!({
+            "event_id": "event-123",
+            "from_pubkey": "pubkey-1",
+            "from_slug": "writer",
+            "host": "laptop",
+            "body": "word0 word1...",
+            "truncated": true,
+            "created_at": 1_000,
+        });
+        let text = render_chat_read_row(&item, false);
+        assert!(text.contains("<writer@laptop> word0 word1..."));
+        assert!(text.contains("tenex-edge chat read --id event-123"));
+    }
 }

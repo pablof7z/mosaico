@@ -74,7 +74,7 @@ fn test_session(id: &str) -> Session {
 fn turn_start_context_returns_none_when_empty_non_first_turn() {
     let store = Store::open_memory().unwrap();
     let mut rec = test_session("sess-freeze-2");
-    rec.seen_cursor = 42;
+    rec.seen_cursor = crate::util::now_secs();
     let m = Mutex::new(store);
 
     let ctx = assemble_turn_start_context(
@@ -96,17 +96,16 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
     let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("[tenex-edge] Fabric context"),
+        text.contains("<tenex-edge>"),
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        // The current channel renders as a bare project-relative path (no `#`),
-        // by its human name — never the opaque id.
-        text.contains("Channel: main"),
+        // The current channel renders with both the opaque id and human name.
+        text.contains("<channel id=\"proj\" name=\"#main\" active=\"true\""),
         "awareness should name the channel; got: {text:?}"
     );
     assert!(
-        text.contains("@coder (you)"),
+        text.contains("<self agent=\"@coder\" backend=\"laptop\" session=\"sess-intro\" />"),
         "awareness should identify this agent; got: {text:?}"
     );
     assert!(
@@ -166,11 +165,11 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("@coder1 (you) - Ordinal instance — checking hook context"),
+        text.contains("<self agent=\"@coder1\""),
         "snapshot must render the bound ordinal instance; got: {text:?}"
     );
     assert!(
-        !text.contains("@coder (you)"),
+        !text.contains("<self agent=\"@coder\""),
         "raw session slug must not override the bound instance; got: {text:?}"
     );
 }
@@ -200,15 +199,15 @@ fn ended_turn_with_cursor_uses_delta_not_snapshot() {
     )
     .expect("fresh chat past the cursor must surface");
     assert!(
-        text.contains("[tenex-edge] Fabric updates since your last turn"),
+        text.contains("<tenex-edge>") && text.contains("<chatter>"),
         "ended turn should render a delta, got: {text:?}"
     );
     assert!(
-        !text.contains("[tenex-edge] Fabric context"),
+        !text.contains("<members>"),
         "static fabric snapshot must not repeat after the cursor advanced; got: {text:?}"
     );
     assert!(
-        !text.contains("Fabric updates since you joined"),
+        !text.contains("since you joined"),
         "post-first-turn chat must not be labelled as join-time context; got: {text:?}"
     );
 }
@@ -258,11 +257,11 @@ fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
     let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
         .expect("delta block expected when a sibling changed");
     assert!(
-        text.contains("[tenex-edge] Fabric updates since your last check"),
+        text.contains("<recent-presence>"),
         "awareness update header expected; got: {text:?}"
     );
     assert!(
-        text.contains("@sib - Refactor tmux — editing hooks.rs"),
+        text.contains("text=\"editing hooks.rs\""),
         "sibling activity expected as a member work line; got: {text:?}"
     );
     assert!(
@@ -311,11 +310,11 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
     let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
         .expect("fresh chat past the cursor must surface");
     assert!(
-        text.contains("[tenex-edge] Fabric updates since your last check"),
+        text.contains("<chatter>"),
         "chat should render inside the unified fabric update; got: {text:?}"
     );
     assert!(
-        text.contains("Activity in #main:"),
+        text.contains("ambient chatter"),
         "chat activity section expected; got: {text:?}"
     );
     assert!(

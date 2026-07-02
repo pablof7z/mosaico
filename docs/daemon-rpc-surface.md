@@ -43,29 +43,34 @@ produced client-side to match today's output.
 ### `who`
 ```jsonc
 params: {"project": "…"|null, "all": bool, "cwd": "/path"}
-result: {"now": u64, "rows": [ {source, fresh, slug, project, status, host,
-                                session_id, age_secs}, … ]}
+result: {"now": u64, "fabric": "<tenex-edge>…</tenex-edge>"|null,
+         "rows": [ {source, fresh, slug, project, status, host,
+                    session_id, age_secs}, … ]}
 ```
-Returns the `WhoSnapshot` rows (serializable mirror). **All rendering stays
-client-side** — `render_who_once` (colored), `render_who_plain`, and the
-`--live` terminal UI are unchanged and consume these rows. `who --live` just
-re-issues `who` each refresh tick (no streaming).
+Returns the unified fabric context when a single current channel resolves. The
+legacy `WhoSnapshot` rows remain the fallback for `--all-projects` and other
+views without one channel scope. Agent-scoped `who` advances that session's
+fabric cursor after rendering.
 
 ### `turn_start`
 ```jsonc
 params: {"session": "te-…", "transcript": "/path"|null, "json": bool, "cwd": "/path"}
 result: {"context": "…"|null}    // the assembled injection text, or null
 ```
-Daemon does everything `turn_start` does today (mark turn, set transcript,
-drain pending chat messages, full roster on first turn / deltas after). Client
-emits via `emit_context` (plain text or the host's hook-specific additional
-context envelope). Empty session id ⇒ no-op (returns `context: null`).
+Daemon marks the turn, records the transcript path, claims pending directed
+mentions from the inbox ledger, and returns the same unified fabric context that
+`who` uses. A first turn (`seen_cursor=0`) renders the relevant channel snapshot;
+later turns render only rows changed since the session cursor. The cursor
+advances after rendering. Empty session id ⇒ no-op (`context: null`).
 
 ### `turn_check`
 ```jsonc
 params: {"session": "te-…"|null, "json": bool, "cwd": "/path", "env_session": "…"|null}
-result: {"context": "…"|null}    // peek only; no chat drain, no writes
+result: {"context": "…"|null}
 ```
+Claims pending directed mentions once and uses a compare-and-swap cursor advance
+for rate-limited fabric deltas. Hooks that lose the CAS emit no duplicate delta;
+direct mentions still surface even when the delta window is closed.
 
 ### `turn_end`
 ```jsonc
@@ -96,17 +101,26 @@ a tail-scoped REQ for the duration of the connection.)
 
 ### `chat_read` (streaming)
 ```jsonc
-params: {"session": "te-…"|null, "cwd": "/path", "env_session": "…"|null}
-stream: {"item": { message fields }}
+params: {"id": "event-id"|null, "channel": "…"|null, "since": u64|null,
+         "limit": u64|null, "offset": u64, "tail": bool, "live": bool, ...}
+stream: {"item": {event_id, from_pubkey, from_slug, project, body,
+                  truncated, created_at, ...}}
 ```
-Streams unread chat-inbox messages for the session; used by the TUI reader.
+Streams channel chat from the relay-event cache. Normal history reads truncate
+bodies past the fabric render limit and include `truncated=true`; exact
+`--id`/`id` reads fetch one event by id and return the full body without channel
+inference.
 
 ### `chat_write`
 ```jsonc
-params: {"session": "te-…"|null, "cwd": "/path", "message": "…", "mention": "…"|null, ...}
-result: {"ok": true}
+params: {"message": "…", "channel": "…"|null, "long_message": bool, ...}
+result: {"event_id": "hex", "project": "channel-h", "mentioned_pubkey": "hex"|null,
+         "mentioned_session": "te-…"|null, "mentioned_label": "agent"|null}
 ```
-Publishes a chat message (NIP-C7 kind:9 event) from the session agent, optionally mentioning a specific peer session.
+Publishes a NIP-29 kind:9 chat message from the caller's selected
+agent-instance key. Messages over the fabric render limit are rejected unless
+`long_message=true`. `channel` is destination targeting only; caller identity is
+resolved independently from the session anchors.
 
 ### `propose`
 ```jsonc

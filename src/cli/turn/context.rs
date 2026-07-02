@@ -4,7 +4,7 @@
 //! awareness) — kept apart from the thin hook clients in [`super`] so neither
 //! file grows past the LOC ceiling.
 
-use super::super::who::{render_awareness_update_since_check, render_turn_awareness};
+use super::super::who::{inbox_seed, render_fabric_context, FabricContextInput};
 use super::*;
 use crate::state::{InboxRow, RelayEvent, Session};
 
@@ -138,34 +138,6 @@ fn ambient_by_joined_channel(
     (out, read_failed)
 }
 
-fn render_mentions_by_channel(
-    s: &Store,
-    fallback_scope: &str,
-    mentions: &[InboxRow],
-    now: u64,
-) -> Vec<String> {
-    let mut grouped: std::collections::BTreeMap<String, Vec<InboxRow>> =
-        std::collections::BTreeMap::new();
-    for row in mentions {
-        let scope = if row.channel_h.is_empty() {
-            fallback_scope
-        } else {
-            &row.channel_h
-        };
-        grouped
-            .entry(scope.to_string())
-            .or_default()
-            .push(row.clone());
-    }
-    grouped
-        .into_iter()
-        .filter_map(|(scope, rows)| {
-            let name = crate::injection::channel_display(s, &scope);
-            crate::injection::render_hook_mention(s, &name, &rows, now)
-        })
-        .collect()
-}
-
 /// The full turn-start context assembly, shared by the daemon's `turn_start` RPC
 /// (the only caller now). Mutating reads (drain inbox → mark delivered, advance
 /// `seen_cursor`) happen here under the shared store; the relay self-fetch is
@@ -193,7 +165,7 @@ pub fn assemble_turn_start_context(
     let self_slug = self_instance.display_slug();
     let self_pubkey = self_instance.pubkey.clone();
     let now = now_secs();
-    let mut blocks: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
     let (joined, joined_read_failed) = {
         let s = store.lock().expect("store mutex poisoned");
         joined_channels(&s, rec)
@@ -249,11 +221,11 @@ pub fn assemble_turn_start_context(
             } else {
                 format!("channel \"{channel_name}\" (in project \"{project_name}\")")
             };
-            blocks.push(format!(
-                "<tenex-edge>\nWARNING: this agent ({slug}) is not a member of the \
-                 NIP-29 group for {where_label}. Messages published by this session \
-                may be rejected by the relay. Ask an operator with relay admin \
-                 access to add this agent to the channel.\n</tenex-edge>",
+            warnings.push(format!(
+                "WARNING: this agent ({slug}) is not a member of the NIP-29 group \
+                 for {where_label}. Messages published by this session may be \
+                 rejected by the relay. Ask an operator with relay admin access \
+                 to add this agent to the channel.",
                 slug = self_slug,
             ));
         }
@@ -313,8 +285,8 @@ pub fn assemble_turn_start_context(
             if n > 0 {
                 let name = crate::injection::channel_display(&s, &scope);
                 Some(format!(
-                    "<tenex-edge>\n{n} message(s) in #{name} before you joined this session. \
-                     Run `tenex-edge chat read` to see them.\n</tenex-edge>"
+                    "{n} message(s) in #{name} before you joined this session. \
+                     Run `tenex-edge chat read` to see them."
                 ))
             } else {
                 None
@@ -325,39 +297,37 @@ pub fn assemble_turn_start_context(
         (mentions, notice)
     };
     if read_failed {
-        blocks.push(
-            "<tenex-edge>\n⚠ Fabric read failed while assembling this turn — your inbox \
-             and/or channel activity below may be incomplete. Do NOT assume the channel \
-             is quiet or that you have no mentions.\n</tenex-edge>"
+        warnings.push(
+            "Fabric read failed while assembling this turn; your inbox and/or \
+             channel activity below may be incomplete. Do NOT assume the channel \
+             is quiet or that you have no mentions."
                 .to_string(),
         );
     }
     if let Some(notice) = pre_history_notice {
-        blocks.push(notice);
-    }
-    {
-        let s = store.lock().expect("store mutex poisoned");
-        for block in render_mentions_by_channel(&s, &scope, &mentions, now) {
-            blocks.push(block);
-        }
+        warnings.push(notice);
     }
 
-    let awareness = {
+    let forced = mentions.iter().map(inbox_seed).collect::<Vec<_>>();
+    let fabric = {
         let s = store.lock().expect("store mutex poisoned");
-        render_turn_awareness(
+        render_fabric_context(
             &s,
-            rec.seen_cursor,
-            rec.created_at,
-            &scope,
-            now,
-            &self_slug,
-            &self_pubkey,
-            self_host,
+            FabricContextInput {
+                session: Some(rec),
+                scope: &scope,
+                cursor: rec.seen_cursor,
+                now,
+                self_slug: &self_slug,
+                self_pubkey: &self_pubkey,
+                local_host: self_host,
+                edge_home: Some(&crate::config::edge_home()),
+                forced_messages: &forced,
+                warnings: &warnings,
+                force: false,
+            },
         )
     };
-    if let Some(block) = awareness {
-        blocks.push(block);
-    }
 
     // Advance the awareness high-water mark so the next hook renders only the
     // delta past what we just surfaced.
@@ -372,11 +342,7 @@ pub fn assemble_turn_start_context(
         }
     }
 
-    if blocks.is_empty() {
-        None
-    } else {
-        Some(blocks.join("\n\n"))
-    }
+    fabric
 }
 
 /// Mid-turn context for the PostToolUse `turn_check` hook. Three independent
@@ -399,12 +365,14 @@ pub fn assemble_turn_check_context(
     delta_since: Option<u64>,
     now: u64,
 ) -> Option<String> {
-    let mut blocks: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
     // Routing scope is the session's `channel_h`. The status delta + chat label
     // key on this so mid-turn context reflects the channel the session is
     // actually publishing into after a switch.
     let scope = rec.channel_h.clone();
-    let self_pubkey = context_instance(store, rec).pubkey;
+    let self_instance = context_instance(store, rec);
+    let self_slug = self_instance.display_slug();
+    let self_pubkey = self_instance.pubkey;
     let (joined, joined_read_failed) = {
         let s = store.lock().expect("store mutex poisoned");
         joined_channels(&s, rec)
@@ -430,50 +398,48 @@ pub fn assemble_turn_check_context(
             }
         }
     };
-    {
-        let s = store.lock().expect("store mutex poisoned");
-        for block in render_mentions_by_channel(&s, &scope, &direct_mentions, now) {
-            blocks.push(block);
-        }
-    }
-
     // Fabric chat activity and sibling-delta remain gated by the daemon's
     // rate-limit floor and cursored off the same `since` so nothing re-emits
     // per tool call. The joined-channel read stays here only to surface a
     // visible read-failure marker; channel activity text itself is rendered by
-    // the unified awareness block below.
+    // the unified fabric context below.
     if let Some(since) = delta_since {
         let s = store.lock().expect("store mutex poisoned");
         let (_ambient, ambient_failed) =
             ambient_by_joined_channel(&s, &joined, since, &self_pubkey);
         read_failed |= ambient_failed;
-
-        if let Some(block) = render_awareness_update_since_check(
-            &s,
-            since,
-            &scope,
-            now,
-            Some(&self_pubkey),
-            self_host,
-        ) {
-            blocks.push(block);
-        }
     }
 
     if read_failed {
-        blocks.insert(
-            0,
-            "<tenex-edge>\n⚠ Fabric read failed mid-turn — mentions and/or channel \
-             activity below may be incomplete.\n</tenex-edge>"
+        warnings.push(
+            "Fabric read failed mid-turn; mentions and/or channel activity below \
+             may be incomplete."
                 .to_string(),
         );
     }
 
-    if blocks.is_empty() {
-        None
-    } else {
-        Some(blocks.join("\n\n"))
+    if delta_since.is_none() && direct_mentions.is_empty() && warnings.is_empty() {
+        return None;
     }
+    let forced = direct_mentions.iter().map(inbox_seed).collect::<Vec<_>>();
+    let cursor = delta_since.unwrap_or(now);
+    let s = store.lock().expect("store mutex poisoned");
+    render_fabric_context(
+        &s,
+        FabricContextInput {
+            session: Some(rec),
+            scope: &scope,
+            cursor,
+            now,
+            self_slug: &self_slug,
+            self_pubkey: &self_pubkey,
+            local_host: self_host,
+            edge_home: Some(&crate::config::edge_home()),
+            forced_messages: &forced,
+            warnings: &warnings,
+            force: false,
+        },
+    )
 }
 
 #[cfg(test)]

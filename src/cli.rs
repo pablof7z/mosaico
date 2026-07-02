@@ -39,7 +39,7 @@ pub use messaging::{format_envelope, mention_short_id, EnvelopeView};
 pub use turn::{assemble_turn_check_context, assemble_turn_start_context};
 pub(crate) use turn::{turn_check_audit, turn_start_audit};
 pub use who::load_who_snapshot;
-pub(crate) use who::{new_agent_block, render_fabric_snapshot};
+pub(crate) use who::{render_fabric_context, FabricContextInput};
 
 pub(crate) fn select_agent_env(active: Option<String>, fallback: Option<String>) -> Option<String> {
     active
@@ -161,18 +161,20 @@ pub async fn run(cli: Cli) -> Result<()> {
                 message,
                 message_flag,
                 channel,
+                long_message,
             } => {
                 let message = messaging::resolve_send_message_body(message_flag.or(message))?;
-                messaging::chat_write(message, channel).await
+                messaging::chat_write(message, channel, long_message).await
             }
             ChatAction::Read {
+                id,
                 since,
                 limit,
                 offset,
                 tail,
                 live,
                 channel,
-            } => messaging::chat_read(since, limit, offset, tail, live, channel).await,
+            } => messaging::chat_read(id, since, limit, offset, tail, live, channel).await,
         },
         Cmd::Project { action } => admin::project(action).await,
         Cmd::Channels { action } => admin::channels(action).await,

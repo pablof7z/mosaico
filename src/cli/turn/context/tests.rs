@@ -72,14 +72,15 @@ fn first_turn_pre_join_history_compact_notice() {
 fn first_turn_post_join_chat_shown_as_ambient() {
     let m = Mutex::new(Store::open_memory().unwrap());
     let ch = "ch-postjoin";
+    let now = crate::util::now_secs().saturating_sub(100);
     let rec = {
         let s = m.lock().unwrap();
-        let id = register(&s, SELF_PK, ch, 100); // session at t=100
+        let id = register(&s, SELF_PK, ch, now); // session starts inside the recent window
         s.get_session(&id).unwrap().unwrap()
     };
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, 110, "post-join-message"); // after t=100
+        insert_chat(&s, ch, OTHER_PK, now + 10, "post-join-message");
     }
     let ctx = super::assemble_turn_start_context(&m, &rec, "", "", 0).unwrap_or_default();
     assert!(
@@ -171,16 +172,9 @@ fn second_turn_ambient_gates_on_seen_cursor() {
         ctx2.contains("second-turn-event"),
         "second turn must show messages since cursor; got:\n{ctx2}"
     );
-    // The awareness/activity section independently queries all recent chat,
-    // so "pre-join-event" may appear there. Check only the ambient-chat block
-    // (the portion before the "[tenex-edge] Fabric updates" awareness header).
-    let ambient_portion = ctx2
-        .split("[tenex-edge] Fabric updates")
-        .next()
-        .unwrap_or(&ctx2);
     assert!(
-        !ambient_portion.contains("pre-join-event"),
-        "pre-cursor message must not appear in the ambient-chat block; got:\n{ambient_portion}"
+        !ctx2.contains("pre-join-event"),
+        "pre-cursor message must not appear in the fabric delta; got:\n{ctx2}"
     );
     assert!(
         !ctx2.contains("before you joined"),
@@ -211,26 +205,34 @@ fn inbox_mention_surfaces_in_turn_context() {
     );
 }
 
-/// Ambient channel chat (not in inbox) is shown alongside an inbox mention
-/// but is labelled as "since you joined", not as a direct mention.
+/// Ambient channel chat (not in inbox) is shown alongside an inbox mention in
+/// the same structured fabric context.
 #[test]
 fn ambient_and_mention_both_in_first_turn_context() {
     let m = Mutex::new(Store::open_memory().unwrap());
     let ch = "ch-dual";
+    let now = crate::util::now_secs().saturating_sub(100);
     let sid = {
         let s = m.lock().unwrap();
-        register(&s, SELF_PK, ch, 100)
+        register(&s, SELF_PK, ch, now)
     };
     // Ambient (non-mention) message arriving after session start.
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, 110, "ambient-background-chat");
+        insert_chat(&s, ch, OTHER_PK, now + 10, "ambient-background-chat");
     }
     // Direct mention in inbox.
     {
         let s = m.lock().unwrap();
-        s.enqueue_inbox("ev-dm-1", &sid, OTHER_PK, ch, "start working on X", 115)
-            .unwrap();
+        s.enqueue_inbox(
+            "ev-dm-1",
+            &sid,
+            OTHER_PK,
+            ch,
+            "start working on X",
+            now + 15,
+        )
+        .unwrap();
     }
     let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
     let ctx = super::assemble_turn_start_context(&m, &rec, "", "", 0).unwrap_or_default();
@@ -243,8 +245,8 @@ fn ambient_and_mention_both_in_first_turn_context() {
         "post-join ambient chat must also appear; got:\n{ctx}"
     );
     assert!(
-        ctx.contains("[tenex-edge] Fabric updates since you joined"),
-        "ambient chat must render as a fabric update; got:\n{ctx}"
+        ctx.contains("<chatter>") && ctx.contains("mention=\"true\""),
+        "ambient chat and mention must render in the fabric context; got:\n{ctx}"
     );
     assert!(
         !ctx.contains("Activity on #"),

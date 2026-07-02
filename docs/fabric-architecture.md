@@ -79,7 +79,7 @@ flowchart TD
     subgraph DOMAIN["Domain — abstract verbs & nouns (no kinds, no tags)"]
         direction LR
         PS["ProjectState plane<br/>roster · presence · status · project-meta"]
-        CM["Communications plane<br/>send · inbox"]
+        CM["Communications plane<br/>chat publish · delivery"]
         ADMIT["Admission / routing policy<br/>is_member? deliver? show?"]
     end
 
@@ -119,12 +119,13 @@ are already genuinely transport-agnostic.
 **All consumption reads from one unified local store; *how* the data got there is
 invisible to the reader.** A provider is a **write-side materializer** — it
 subscribes to its fabric, decodes, admits, and **upserts canonical rows**.
-Every consumer (CLI `who`/`inbox`/`list`, the channel adapter, hooks, context
-injection) reads only the store. No reader ever holds a `Provider`, names a kind,
-or touches the wire. This is CQRS, and it is exactly why the daemon can solely own
-`state.db`: providers write, IPC clients read.
+Every consumer (CLI `who`/`chat read`/`project list`/`channels list`, the
+channel adapter, hooks, context injection) reads only the store. No reader ever
+holds a `Provider`, names a kind, or touches the wire. This is CQRS, and it is
+exactly why the daemon can solely own `state.db`: providers write, IPC clients
+read.
 
-This store already exists — `~/.tenex/edge/state.db`, with `profiles`,
+This store already exists — `~/.tenex-edge/state.db`, with `profiles`,
 `peer_sessions`, `inbox`, `agent_status`, `project_meta`, … The architecture
 **extends** it; it does not define a new one. And the
 **single-writer materializer is the direct fix for the multi-writer `state.db`
@@ -142,7 +143,7 @@ flowchart LR
     MAT["Provider = materializer<br/>decode · admit · derive · upsert"]
     STORE[("Unified read model — SQLite / state.db<br/>projects · agents+membership")]
     subgraph READERS["Readers — never touch the wire"]
-        R1["CLI: who / inbox / list"]
+        R1["CLI: who / chat read / project list / channels list"]
         R2["channel adapter"]
         R3["hooks / context injection"]
     end
@@ -164,8 +165,8 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 |--------|------------------|-------|--------|
 | project + metadata | `project_meta` (`project`, `about`, `updated_at`) | slug, `about` text | — |
 | agents + identity | `profiles` (`pubkey`,`slug`,`host`) | identity card (slug, host, owners) | — |
-| membership | `group_members`, canonical `membership` | which agents are online/routable in a channel | a project/channel |
-| status | `peer_sessions`, `agent_status` | per-session activity, title, and history | a project/channel |
+| membership | `group_members`, canonical `membership` | which agents belong to a project/channel | a project/channel |
+| status | `peer_sessions`, `agent_status` | who's online, plus per-session activity, title, and history | a project/channel |
 
 Most rows already exist; the materializer reframing keeps membership explicit in
 the NIP-29 group/member tables.

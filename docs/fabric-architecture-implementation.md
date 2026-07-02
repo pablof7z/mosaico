@@ -13,8 +13,9 @@ legacy access once tests prove the projections are authoritative.
 ### Guardrails
 
 - Existing host adapters stay thin and keep their current CLI/RPC surface:
-  `who`, `inbox`, `send-message`, `turn-start`, `turn-check`, `tail`,
-  `project-list`, and `project-edit`.
+  `who`, `chat read/write`, `project list/init/edit`,
+  `channels create/list/join/leave/switch`, `agents`, `invite`,
+  `harness hook`, `harness statusline`, `publish`, and `launch`.
 - The daemon remains the only SQLite writer. New provider code must not open its
   own `rusqlite::Connection`.
 - Existing behavior is the regression oracle: same-machine local delivery,
@@ -37,13 +38,14 @@ Files:
 
 Coverage to pin:
 
-1. `send-message` to a hosted sibling session inserts one inbox row using the
-   signed event id, and relay echo/fetch does not duplicate it.
+1. `chat write` to a hosted sibling session inserts one inbox row using the
+   signed event id for directed delivery, and relay echo/fetch does not duplicate
+   it.
 2. A targeted session mention reaches only the target session; an untargeted
    mention reaches alive sessions for that recipient agent/project only.
 3. `handle_incoming` applies 39000 metadata and 39002 membership snapshots
    idempotently.
-4. `who` and turn-start context are rendered from store state only.
+4. `who` and hook-injected turn context are rendered from store state only.
 5. Delivered profile events enter `profiles`; local allow/block state is not
    part of the active NIP-29 path.
 6. `fetch_mentions_into_inbox` catches stored kind:1 mentions after startup.
@@ -356,9 +358,10 @@ Run this after each phase, broadening only when the phase touches more surface:
 6. Manual smoke:
    - start two sessions in the same project;
    - `tenex-edge who`;
-   - send by session prefix;
-   - drain `tenex-edge inbox`;
-   - verify no duplicate after a fetch/turn-start;
+   - send a chat mention with `tenex-edge chat write --message "@<agent> ..."`;
+   - verify the target receives the mention through its host hook or tmux
+     delivery path;
+   - verify no duplicate after a fetch or hook-injected turn context;
    - edit project metadata and confirm local read-model update.
 
 ---
