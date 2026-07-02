@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+capture_nak_kind() {
+  local kind="$1" out="$2" seconds="${TENEX_EDGE_DEV_NAK_SECONDS:-3}"
+  : >"${out}"
+  nak req -k "${kind}" "${RELAY_WS}" >"${out}" 2>&1 &
+  local pid=$!
+  sleep "${seconds}"
+  kill "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+}
+
+need curl
+need jq
+need nak
+need tmux
+
+ENV_FILE="${1:-${TENEX_EDGE_DEV_ENV:-}}"
+if [[ -z "${ENV_FILE}" || ! -f "${ENV_FILE}" ]]; then
+  echo "usage: $0 <lab.env> [tmux-session ...]" >&2
+  exit 2
+fi
+shift || true
+# shellcheck source=/dev/null
+source "${ENV_FILE}"
+
+OUT_DIR="${WORK_DIR}/probe-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "${OUT_DIR}"
+
+curl -fsS -H 'Accept: application/nostr+json' "${RELAY_HTTP}" | jq . >"${OUT_DIR}/nip11.json"
+tmux capture-pane -pt "${RELAY_TMUX}" -S -240 -e >"${OUT_DIR}/relay-pane.txt" || true
+
+for kind in 39000 39001 39002 30315 9; do
+  capture_nak_kind "${kind}" "${OUT_DIR}/kind-${kind}.jsonl"
+done
+
+for session in "$@"; do
+  safe="${session//[^A-Za-z0-9_.-]/_}"
+  tmux capture-pane -pt "${session}" -S -240 -e >"${OUT_DIR}/tmux-${safe}.txt" || true
+done
+
+echo "probe_dir=${OUT_DIR}"
+find "${OUT_DIR}" -maxdepth 1 -type f -print

@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+quote_env() {
+  local key="$1" value="$2"
+  printf '%s=%q\n' "$key" "$value"
+}
+
+bridge_host() {
+  ipconfig getifaddr bridge100 2>/dev/null || echo 192.168.64.1
+}
+
+wait_for_relay() {
+  local http="$1"
+  local timeout="${2:-20}"
+  local start now
+  start="$(date +%s)"
+  while true; do
+    if curl -fsS -H 'Accept: application/nostr+json' "$http" >/dev/null 2>&1; then
+      return 0
+    fi
+    now="$(date +%s)"
+    if (( now - start >= timeout )); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+need curl
+need go
+need jq
+need lsof
+need nak
+need tmux
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+RUN_ID="${TENEX_EDGE_DEV_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
+CROISSANT_DIR="${TENEX_EDGE_DEV_CROISSANT_DIR:-/Users/pablofernandez/Work/croissant}"
+RELAY_HOST="${TENEX_EDGE_DEV_RELAY_HOST:-$(bridge_host)}"
+RELAY_PORT="${TENEX_EDGE_DEV_RELAY_PORT:-9888}"
+RELAY_WS="ws://${RELAY_HOST}:${RELAY_PORT}"
+RELAY_HTTP="http://${RELAY_HOST}:${RELAY_PORT}"
+WORK_DIR="${TENEX_EDGE_DEV_WORK:-${TMPDIR:-/tmp}/tenex-edge-live-lab-${RUN_ID}}"
+RELAY_DATA="${WORK_DIR}/relay-data"
+RELAY_TMUX="${TENEX_EDGE_DEV_RELAY_TMUX:-te-relay-${RUN_ID}}"
+ENV_FILE="${WORK_DIR}/lab.env"
+
+if [[ ! -d "${CROISSANT_DIR}" ]]; then
+  echo "croissant checkout not found: ${CROISSANT_DIR}" >&2
+  exit 1
+fi
+
+if tmux has-session -t "${RELAY_TMUX}" 2>/dev/null; then
+  echo "tmux session already exists: ${RELAY_TMUX}" >&2
+  exit 1
+fi
+
+listener_pid="$(lsof -nP -tiTCP:"${RELAY_PORT}" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+if [[ -n "${listener_pid}" ]]; then
+  echo "port ${RELAY_PORT} is already held by pid ${listener_pid}" >&2
+  exit 1
+fi
+
+mkdir -p "${RELAY_DATA}" "${WORK_DIR}/keys"
+OWNER_SK_FILE="${WORK_DIR}/keys/relay-owner.nsec"
+if [[ ! -s "${OWNER_SK_FILE}" ]]; then
+  nak key generate >"${OWNER_SK_FILE}"
+  chmod 600 "${OWNER_SK_FILE}"
+fi
+OWNER_PK="$(nak key public "$(cat "${OWNER_SK_FILE}")")"
+
+if [[ ! -x "${CROISSANT_DIR}/croissant" || "${TENEX_EDGE_DEV_FORCE_RELAY_BUILD:-0}" == "1" ]]; then
+  (cd "${CROISSANT_DIR}" && CGO_ENABLED=1 go build -o ./croissant)
+fi
+
+tmux new-session -d -s "${RELAY_TMUX}" \
+  "cd $(printf '%q' "${CROISSANT_DIR}") && PORT=$(printf '%q' "${RELAY_PORT}") HOST=$(printf '%q' "${RELAY_HOST}") DATAPATH=$(printf '%q' "${RELAY_DATA}") OWNER_PUBLIC_KEY=$(printf '%q' "${OWNER_PK}") DOMAIN= ./croissant"
+
+if ! wait_for_relay "${RELAY_HTTP}" 20; then
+  tmux capture-pane -pt "${RELAY_TMUX}" -S -80 -e >&2 || true
+  echo "relay did not become ready: ${RELAY_HTTP}" >&2
+  exit 1
+fi
+
+{
+  quote_env RUN_ID "${RUN_ID}"
+  quote_env REPO_ROOT "${REPO_ROOT}"
+  quote_env CROISSANT_DIR "${CROISSANT_DIR}"
+  quote_env WORK_DIR "${WORK_DIR}"
+  quote_env RELAY_HOST "${RELAY_HOST}"
+  quote_env RELAY_PORT "${RELAY_PORT}"
+  quote_env RELAY_WS "${RELAY_WS}"
+  quote_env RELAY_HTTP "${RELAY_HTTP}"
+  quote_env RELAY_DATA "${RELAY_DATA}"
+  quote_env RELAY_TMUX "${RELAY_TMUX}"
+  quote_env OWNER_PUBLIC_KEY "${OWNER_PK}"
+  quote_env OWNER_SK_FILE "${OWNER_SK_FILE}"
+} >"${ENV_FILE}"
+
+echo "run_id=${RUN_ID}"
+echo "env=${ENV_FILE}"
+echo "relay=${RELAY_WS}"
+echo "relay_tmux=${RELAY_TMUX}"
+echo "owner_pubkey=${OWNER_PK:0:12}"

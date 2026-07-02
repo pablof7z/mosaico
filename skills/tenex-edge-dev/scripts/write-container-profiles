@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+need jq
+need nak
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+ENV_FILE="${1:-${TENEX_EDGE_DEV_ENV:-}}"
+if [[ -z "${ENV_FILE}" || ! -f "${ENV_FILE}" ]]; then
+  echo "usage: $0 <lab.env> [profile ...]" >&2
+  exit 2
+fi
+shift || true
+# shellcheck source=/dev/null
+source "${ENV_FILE}"
+
+if [[ $# -gt 0 ]]; then
+  PROFILES=("$@")
+else
+  PROFILES=(claude)
+fi
+
+KEY_DIR="${WORK_DIR}/keys"
+mkdir -p "${KEY_DIR}"
+
+declare -a PUBKEYS=()
+for profile in "${PROFILES[@]}"; do
+  key_file="${KEY_DIR}/${profile}.nsec"
+  if [[ ! -s "${key_file}" ]]; then
+    nak key generate >"${key_file}"
+    chmod 600 "${key_file}"
+  fi
+  PUBKEYS+=("$(nak key public "$(cat "${key_file}")")")
+done
+
+pubkeys_json="$(
+  printf '%s\n' "${PUBKEYS[@]}" | jq -R . | jq -s .
+)"
+
+for i in "${!PROFILES[@]}"; do
+  profile="${PROFILES[$i]}"
+  key_file="${KEY_DIR}/${profile}.nsec"
+  state_dir="${REPO_ROOT}/.container-state/${profile}"
+  cfg="${state_dir}/tenex/config.json"
+  mkdir -p "${state_dir}/tenex/edge" "${state_dir}/home"
+  jq -n \
+    --argjson whitelisted "${pubkeys_json}" \
+    --arg relay "${RELAY_WS}" \
+    --arg backend "${profile}" \
+    --rawfile secret "${key_file}" \
+    '{
+      whitelistedPubkeys: $whitelisted,
+      relays: [$relay],
+      indexerRelay: $relay,
+      backendName: $backend,
+      userNsec: ($secret | rtrimstr("\n")),
+      tenexPrivateKey: ($secret | rtrimstr("\n"))
+    }' >"${cfg}"
+  echo "profile=${profile} config=${cfg} pubkey=${PUBKEYS[$i]:0:12}"
+done

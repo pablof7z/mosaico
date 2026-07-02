@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+quote_cmd() {
+  printf '%q ' "$@"
+}
+
+need tmux
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+if [[ $# -lt 3 ]]; then
+  echo "usage: $0 <lab.env> <direct|launch> <profile> [agent args...]" >&2
+  exit 2
+fi
+
+ENV_FILE="$1"
+MODE="$2"
+PROFILE="$3"
+if [[ ! -f "${ENV_FILE}" ]]; then
+  echo "usage: $0 <lab.env> <direct|launch> <profile> [agent args...]" >&2
+  exit 2
+fi
+shift 3
+# shellcheck source=/dev/null
+source "${ENV_FILE}"
+
+SESSION="${TENEX_EDGE_DEV_AGENT_TMUX:-te-${MODE}-${PROFILE}-${RUN_ID}}"
+if tmux has-session -t "${SESSION}" 2>/dev/null; then
+  echo "tmux session already exists: ${SESSION}" >&2
+  exit 1
+fi
+
+case "${MODE}" in
+  direct)
+    cmd=(bash containers/tenex-edge/run --profile "${PROFILE}" "${PROFILE}" "$@")
+    ;;
+  launch)
+    cmd=(bash containers/tenex-edge/run --profile "${PROFILE}" tenex-edge launch "${PROFILE}" -- "$@")
+    ;;
+  *)
+    echo "unknown mode: ${MODE}" >&2
+    exit 2
+    ;;
+esac
+
+tmux new-session -d -s "${SESSION}" "cd $(printf '%q' "${REPO_ROOT}") && $(quote_cmd "${cmd[@]}")"
+echo "agent_tmux=${SESSION}"
+echo "mode=${MODE}"
+echo "profile=${PROFILE}"
