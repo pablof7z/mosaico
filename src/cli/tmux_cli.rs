@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod args;
 pub mod attach;
 #[cfg(test)]
 mod tests;
@@ -11,4 +12,4 @@ pub mod tui_terminal;
 pub mod verbs;
 
 // Re-export public items for external callers (cli.rs)
-pub(super) use verbs::launch;
+pub(super) use args::{launch, LaunchArgs};
