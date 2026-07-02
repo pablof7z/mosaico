@@ -105,11 +105,11 @@ Accessors to add first:
 
 Backfill rules:
 
-- For every existing `project_meta.project`, `sessions.project`,
-  `peer_sessions.project`, and `group_members.project`, create a project with
-  origin `(fabric='nip29', provider_instance=<relay set hash>,
+- For every existing `relay_channels.channel_h`, `sessions.channel_h`,
+  `relay_status.channel_h`, and `relay_channel_members.channel_h`, create a
+  project with origin `(fabric='nip29', provider_instance=<relay set hash>,
   native_project_key=<slug>)`.
-- Mirror existing `group_members` into `membership` with `source='nip29-39002'`.
+- Mirror `relay_channel_members` into `membership` with source by role.
 - Do not migrate historical `inbox` rows into `messages` yet unless tests need
   it; first dual-write new inbound/outbound mentions. When dual-writing, copy
   `inbox.from_session → messages.author_session` so the return envelope is never
@@ -125,7 +125,7 @@ Keep the concrete `Store` type, but narrow how callers use it.
 Add read-facing methods for host/RPC code:
 
 - `list_projects_read_model()`
-- `project_meta_read_model(project_id or slug)`
+- `channel_meta_read_model(channel_id or slug)`
 - `list_agents_read_model(project)`
 - `list_presence_read_model(project)`
 - `list_status_read_model(project)`
@@ -143,7 +143,7 @@ Add write-facing methods for provider/materializer code:
 
 Then move read assembly behind those methods:
 
-- `rpc_who` stops depending on legacy `profiles`/`peer_sessions` layout directly.
+- `rpc_who` stops depending on `relay_profiles`/`relay_status` layout directly.
 - `assemble_turn_start_context` and `assemble_turn_check_context` read through the
   read model.
 - `rpc_project_list` prefers local `projects` rows, using relay fetch only as a
@@ -337,8 +337,8 @@ Only after the cutover tests pass:
 - Remove `Codec::filters` from the public seam.
 - Move NIP-29 group builders out of `src/fabric/nip29/wire.rs`.
 - Delete direct fabric handling from `daemon/server.rs`.
-- Remove direct reader dependence on `profiles`, `peer_sessions`, `inbox`, and
-  `project_meta` table shape; keep tables only if they are compatibility views or
+- Remove direct reader dependence on `relay_profiles`, `relay_status`, `inbox`,
+  and `relay_channels`; keep tables only if they are compatibility views or
   deliberately retained storage.
 - Replace `SubScope` with `Scope` everywhere.
 - Update docs/wiki pages after the source doc is correct.

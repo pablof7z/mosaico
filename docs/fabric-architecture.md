@@ -166,14 +166,13 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 
 | Entity | Today's table(s) | Holds | Within |
 |--------|------------------|-------|--------|
-| project + metadata | `project_meta` (`project`, `about`, `updated_at`) | slug, `about` text | — |
-| agents + identity | `profiles` (`pubkey`,`slug`,`host`) | identity card (slug, host, owners) | — |
-| membership | `group_members`, canonical `membership` | which agents belong to a project/channel | a project/channel |
-| status | `peer_sessions`, `agent_status` | who's online, plus per-session activity, title, and history | a project/channel |
+| project/channel metadata | `relay_channels` | slug/name, about text, parent channel | — |
+| agents + identity | `relay_profiles`, `identities` | identity card and local ordinal binding | — |
+| membership | `relay_channel_members`, `relay_channel_member_sets` | which pubkeys belong to a channel | a project/channel |
+| status | `relay_status`, `sessions` | who's online, plus per-session activity, title, and history | a project/channel |
 
-Most rows already exist; the materializer reframing keeps membership explicit in
-the NIP-29 group/member tables.
-entity.
+The current schema stores provider-shaped projections here; future read-model
+work should wrap them rather than reintroduce parallel membership tables.
 
 **The message row must carry its own return envelope.** A reader that surfaces an
 inbound message has to know *who to reply to* — and that means the exact sender
@@ -223,7 +222,7 @@ to the wire and reflect back into the store).
 flowchart LR
     subgraph R["READS — query the store (provider-agnostic)"]
         r0["list_projects()"]
-        r1["project_meta(project)"]
+        r1["channel_meta(channel)"]
         r2["list_agents(project) + agent_meta"]
         r3["roster / is_member(project, pk)"]
         r4["presence / status(project)"]
@@ -258,8 +257,8 @@ flowchart LR
 ### 3a. Behind the materialization seam — the provenance axis
 
 Everything in this subsection happens **on the write face, invisible to readers**.
-It explains *how the materializer fills `project_meta` and `membership`* — the
-reader just sees the resulting row (or a `NULL`). Just as membership had an
+It explains *how the materializer fills `relay_channels` and membership rows* —
+the reader just sees the resulting row (or a `NULL`). Just as membership had an
 *enforcement-locus* axis, project metadata has a **provenance / authority** axis —
 *where the description comes from, and whether it is shared truth* — which differs
 per fabric:
@@ -358,7 +357,7 @@ sequenceDiagram
     Note over P,FAB: thereafter the materializer just keeps the store current
     P->>FAB: subscribe (membership, metadata, …)
     FAB-->>P: events
-    P->>STORE: upsert rows (members, project_meta)
+    P->>STORE: upsert rows (members, channel metadata)
 ```
 *(`STORE` = the unified read model; the host/CLI reads it directly, never `P`.)*
 
