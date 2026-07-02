@@ -168,9 +168,7 @@ fn make_session_transparent(
     let bin = tenex_bin.unwrap_or("tenex-edge");
     let statusline_cmd = status_cmd_override
         .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            format!("#({bin} statusline --tmux #{{?@te_session,--session #{{q:@te_session}},}})")
-        });
+        .unwrap_or_else(|| default_statusline_cmd(bin));
     let options: Vec<(&str, String)> = vec![
         ("@te_agent", slug.to_string()),
         ("@te_cwd", abs_path.to_string()),
@@ -200,6 +198,10 @@ fn make_session_transparent(
     }
 
     Ok(())
+}
+
+pub(super) fn default_statusline_cmd(bin: &str) -> String {
+    format!("#({bin} harness statusline --tmux #{{?@te_session,--session #{{q:@te_session}},}})")
 }
 
 /// Spawn a new tmux window running `slug`'s harness in `project`'s directory.

@@ -1,4 +1,4 @@
-use super::registry::{build_resume_command, resume_shape_for_bin, ResumeShape};
+use super::registry::{ResumeShape, build_resume_command, resume_shape_for_bin};
 
 fn cmd(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
@@ -73,6 +73,14 @@ fn shape_is_keyed_by_binary_not_slug() {
         Some(ResumeShape::AppendFlag("--resume"))
     ));
     assert!(resume_shape_for_bin("npx").is_none());
+}
+
+#[test]
+fn default_tmux_statusline_uses_harness_subcommand() {
+    let cmd = super::launch::default_statusline_cmd("/tmp/tenex-edge");
+    assert!(cmd.contains("/tmp/tenex-edge harness statusline --tmux"));
+    assert!(!cmd.contains("/tmp/tenex-edge statusline --tmux"));
+    assert!(cmd.contains("@te_session"));
 }
 
 fn sample_session() -> crate::state::Session {

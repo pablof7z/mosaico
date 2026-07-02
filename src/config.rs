@@ -97,7 +97,7 @@ struct RawConfig {
     #[serde(default, rename = "tenexPrivateKey")]
     tenex_private_key: Option<String>,
     /// Custom tmux status-format string for agent sessions. When set, overrides
-    /// the default `tenex-edge statusline` command. Use tmux format variables
+    /// the default `tenex-edge harness statusline` command. Use tmux format variables
     /// `#{q:@te_session}` (the canonical session id, stamped by the daemon once
     /// the session-start hook fires), `#{@te_agent}`, and `#{q:@te_cwd}` to
     /// reference the session's identity. `#{q:@te_session}` is the preferred key:
