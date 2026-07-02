@@ -75,7 +75,7 @@ fn first_turn_injects_channel_context_block() {
         "must not expose a session code; context was: {ctx}"
     );
     assert!(ctx.contains("<channel "), "context was: {ctx}");
-    assert!(ctx.contains("<self agent=\"@coder\""), "context was: {ctx}");
+    assert!(ctx.contains("You are @coder on"), "context was: {ctx}");
 
     stop_daemon(&home);
 }

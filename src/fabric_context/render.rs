@@ -17,7 +17,7 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     for channel in &view.channels {
         render_channel(&mut out, channel);
     }
-    render_inactive(&mut out, &view.inactive);
+    render_unjoined(&mut out, &view.unjoined);
     out.push_str("\n  </project>");
     render_important(&mut out, &view.important);
     render_warnings(&mut out, &view.warnings);
@@ -31,10 +31,10 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
     };
     let _ = write!(
         out,
-        "\n  <self agent=\"@{}\" backend=\"{}\" session=\"{}\" />",
-        esc_attr(&row.agent),
-        esc_attr(&row.backend),
-        esc_attr(&row.session_id)
+        "\n  You are @{} on {} (session {}).",
+        esc_text(&row.agent),
+        esc_text(&row.backend),
+        crate::util::friendly_short_code(&row.session_id)
     );
 }
 
@@ -56,10 +56,8 @@ fn render_agents(out: &mut String, agents: &[AgentRow]) {
 fn render_channel(out: &mut String, channel: &ChannelBlock) {
     let _ = write!(
         out,
-        "\n\n    <channel id=\"{}\" name=\"#{}\" active=\"{}\"",
-        esc_attr(&channel.id),
-        esc_attr(&channel.name),
-        channel.active
+        "\n\n    <channel name=\"#{}\"",
+        esc_attr(&channel.name)
     );
     if !channel.about.is_empty() {
         let _ = write!(out, " about=\"{}\"", esc_attr(&channel.about));
@@ -134,21 +132,26 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
         );
     }
     for m in &channel.messages {
+        out.push_str("\n        <message");
+        let short = crate::util::short_id(&m.id);
+        if m.truncated {
+            let _ = write!(out, " id=\"{}\"", esc_attr(&short));
+        }
         let _ = write!(
             out,
-            "\n        <message id=\"{}\" from=\"@{}\" age=\"{}\" mention=\"{}\" truncated=\"{}\">{}",
-            esc_attr(&m.id),
+            " from=\"@{}\" age=\"{}\">",
             esc_attr(&m.from),
-            esc_attr(&m.age),
-            m.mention,
-            m.truncated,
-            esc_text(&m.body)
+            esc_attr(&m.age)
         );
+        if m.mention {
+            out.push_str("[MENTIONS YOU] ");
+        }
+        out.push_str(&esc_text(&m.body));
         if m.truncated {
             let _ = write!(
                 out,
                 "\n          [message truncated; run `tenex-edge chat read --id {}`]",
-                esc_text(&m.id)
+                esc_text(&short)
             );
         }
         out.push_str("</message>");
@@ -156,12 +159,12 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
     out.push_str("\n      </chatter>");
 }
 
-fn render_inactive(out: &mut String, inactive: &[InactiveChannelRow]) {
-    if inactive.is_empty() {
+fn render_unjoined(out: &mut String, unjoined: &[UnjoinedChannelRow]) {
+    if unjoined.is_empty() {
         return;
     }
-    out.push_str("\n\n    <inactive-channels>");
-    for ch in inactive {
+    out.push_str("\n\n    <channels-not-joined>");
+    for ch in unjoined {
         let _ = write!(
             out,
             "\n      <channel name=\"#{}\" last_active=\"{}\"",
@@ -173,7 +176,7 @@ fn render_inactive(out: &mut String, inactive: &[InactiveChannelRow]) {
         }
         out.push_str(" />");
     }
-    out.push_str("\n    </inactive-channels>");
+    out.push_str("\n    </channels-not-joined>");
 }
 
 fn render_important(out: &mut String, rows: &[ImportantRow]) {
@@ -186,7 +189,7 @@ fn render_important(out: &mut String, rows: &[ImportantRow]) {
             out,
             "\n    <mention channel=\"#{}\" message_id=\"{}\" />",
             esc_attr(&row.channel),
-            esc_attr(&row.message_id)
+            esc_attr(&crate::util::short_id(&row.message_id))
         );
     }
     out.push_str("\n  </important>");

@@ -91,7 +91,7 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
 
     let agent = render_fabric_context(&store, input(Some(&rec), "root", 0, 1_000, false))
         .expect("session view should render");
-    assert!(agent.contains("<self agent=\"@coder\""));
+    assert!(agent.contains("You are @coder on laptop"));
     assert!(agent.contains("<chatter>"));
     assert!(agent.contains("post join context"));
     assert!(agent.contains("<subchannels>"));
@@ -99,7 +99,7 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
     let human = render_fabric_context(&store, input(None, "root", 0, 1_000, true))
         .expect("human who should render");
     assert!(human.contains("<tenex-edge>"));
-    assert!(!human.contains("<self "));
+    assert!(!human.contains("You are @"));
     assert!(!human.contains("<chatter>"));
 }
 
@@ -112,9 +112,9 @@ fn cursor_delta_only_renders_changed_joined_channel() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("changed task channel should render");
-    assert!(text.contains("id=\"task\""));
+    assert!(text.contains("name=\"#task\""));
     assert!(text.contains("new task message"));
-    assert!(!text.contains("id=\"root\""));
+    assert!(!text.contains("name=\"#main\""));
     assert!(!text.contains("old root message"));
 }
 
@@ -131,11 +131,12 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
-    assert!(text.contains("mention=\"true\""));
-    assert!(text.contains("truncated=\"true\""));
+    assert!(text.contains("[MENTIONS YOU]"));
+    assert!(!text.contains("mention=\"true\""));
+    assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("<important>"));
-    assert!(text.contains("message_id=\"mention-long\""));
-    assert!(text.contains("tenex-edge chat read --id mention-long"));
+    assert!(text.contains("message_id=\"mentio\""));
+    assert!(text.contains("tenex-edge chat read --id mentio"));
 }
 
 #[test]
@@ -151,7 +152,7 @@ fn empty_delta_is_silent_unless_forced() {
 
     let forced = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("explicit who context should still render");
-    assert!(forced.contains("<self agent=\"@coder\""));
+    assert!(forced.contains("You are @coder on laptop"));
 }
 
 #[test]

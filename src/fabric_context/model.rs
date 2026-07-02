@@ -4,7 +4,7 @@ pub(in crate::fabric_context) struct FabricView {
     pub(in crate::fabric_context) project: ProjectRow,
     pub(in crate::fabric_context) agents: Vec<AgentRow>,
     pub(in crate::fabric_context) channels: Vec<ChannelBlock>,
-    pub(in crate::fabric_context) inactive: Vec<InactiveChannelRow>,
+    pub(in crate::fabric_context) unjoined: Vec<UnjoinedChannelRow>,
     pub(in crate::fabric_context) important: Vec<ImportantRow>,
     pub(in crate::fabric_context) warnings: Vec<WarningRow>,
 }
@@ -27,10 +27,8 @@ pub(in crate::fabric_context) struct AgentRow {
 }
 
 pub(in crate::fabric_context) struct ChannelBlock {
-    pub(in crate::fabric_context) id: String,
     pub(in crate::fabric_context) name: String,
     pub(in crate::fabric_context) about: String,
-    pub(in crate::fabric_context) active: bool,
     pub(in crate::fabric_context) members: Vec<MemberRow>,
     pub(in crate::fabric_context) presence: Vec<PresenceRow>,
     pub(in crate::fabric_context) subchannels: Vec<ChannelSummaryRow>,
@@ -65,7 +63,9 @@ pub(in crate::fabric_context) struct MessageRow {
     pub(in crate::fabric_context) truncated: bool,
 }
 
-pub(in crate::fabric_context) struct InactiveChannelRow {
+/// A channel in the project this agent has not joined — not a dormant one;
+/// joined channels never appear here regardless of how quiet they are.
+pub(in crate::fabric_context) struct UnjoinedChannelRow {
     pub(in crate::fabric_context) name: String,
     pub(in crate::fabric_context) about: String,
     pub(in crate::fabric_context) last_active: String,
