@@ -200,9 +200,9 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
     if was_working {
         if let (Some(rec), Some(reply)) = (rec.as_ref(), p.reply.as_deref()) {
             let reply = reply.trim();
-            // Publish into non-root (per-session / task) channels only.
+            // Publish into known sub-channels (per-session / task channels) only.
             let publish_reply =
-                state.with_store(|s| !s.is_root_channel(&rec.channel_h).unwrap_or(true));
+                state.with_store(|s| matches!(s.is_subchannel(&rec.channel_h), Ok(true)));
             if !reply.is_empty() && publish_reply {
                 let publish = publish_agent_reply(state, rec, reply);
                 let debug = std::env::var("TENEX_EDGE_DEBUG").is_ok();

@@ -43,13 +43,12 @@ pub(in crate::daemon::server) struct SessionStartParams {
     preferred_ordinal: Option<u32>,
 }
 
-/// The top-level project channel for a route scope: a channel's non-empty parent,
-/// else the scope itself (a root channel is its own work root).
+/// The top-level project channel for a route scope.
 fn work_root_for_scope(s: &Store, scope: &str) -> String {
-    match s.channel_parent(scope).ok().flatten() {
-        Some(p) if !p.is_empty() => p,
-        _ => scope.to_string(),
-    }
+    s.channel_project_root(scope)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| scope.to_string())
 }
 
 /// The tmux pane id currently bound to a session, via its `tmux_pane` alias.

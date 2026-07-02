@@ -39,19 +39,29 @@ fn chat_log_json_keeps_exact_id_reads_full() {
 }
 
 #[test]
-fn root_chat_read_scopes_include_depth_two_descendants() {
+fn root_chat_read_backfill_and_live_scopes_include_nested_descendants() {
     let store = crate::state::Store::open_memory().unwrap();
     store.upsert_channel("root", "project", "", "", 1).unwrap();
     store.upsert_channel("task", "Task", "", "root", 2).unwrap();
     store.upsert_channel("deep", "Deep", "", "task", 3).unwrap();
-    store.upsert_channel("other", "Other", "", "", 4).unwrap();
+    store.upsert_channel("leaf", "Leaf", "", "deep", 4).unwrap();
+    store.upsert_channel("other", "Other", "", "", 5).unwrap();
 
     assert_eq!(
         chat_read_scopes_for_store(&store, "root"),
-        vec!["deep".to_string(), "root".to_string(), "task".to_string()]
+        vec![
+            "deep".to_string(),
+            "leaf".to_string(),
+            "root".to_string(),
+            "task".to_string()
+        ]
     );
     assert_eq!(
         chat_read_scopes_for_store(&store, "task"),
         vec!["task".to_string()]
+    );
+    assert_eq!(
+        chat_read_scopes_for_store(&store, "unknown"),
+        vec!["unknown".to_string()]
     );
 }

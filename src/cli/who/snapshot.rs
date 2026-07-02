@@ -137,7 +137,10 @@ pub fn load_who_snapshot(
         .context("who snapshot: failed to list live local sessions")?
     {
         let scope = s.channel_h.clone();
-        if current_project.map(|p| p == scope).unwrap_or(true) {
+        if current_project
+            .map(|p| scope_contains_channel(store, p, &scope))
+            .unwrap_or(true)
+        {
             rows.push(local_row(store, &s, &local_host, now));
         } else if is_root_channel(store, &scope) {
             other_agents
@@ -170,7 +173,9 @@ pub fn load_who_snapshot(
             if my_pubkeys.contains(&st.pubkey) {
                 continue;
             }
-            let in_scope = current_project.map(|p| p == ch.as_str()).unwrap_or(true);
+            let in_scope = current_project
+                .map(|p| scope_contains_channel(store, p, ch))
+                .unwrap_or(true);
             if in_scope {
                 rows.push(peer_row(store, &st, &local_host, now));
             } else if is_root_channel(store, ch) {
@@ -247,25 +252,26 @@ pub fn load_who_snapshot(
     })
 }
 
-/// Top-level work-root for `scope`: walk `parent` links up to the first channel
-/// whose parent is empty/unknown. Bounded to avoid cycles in malformed data.
+/// Top-level work-root for `scope`.
 fn work_root_for(store: &Store, scope: &str) -> String {
-    let mut cur = scope.to_string();
-    for _ in 0..16 {
-        match store.channel_parent(&cur) {
-            Ok(Some(parent)) if !parent.is_empty() => cur = parent,
-            Ok(_) => break,
-            Err(e) => {
-                tracing::error!(
-                    channel = %cur,
-                    error = ?e,
-                    "who snapshot: channel_parent lookup failed walking work-root"
-                );
-                break;
-            }
-        }
+    store
+        .channel_project_root(scope)
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                channel = %scope,
+                error = ?e,
+                "who snapshot: channel ancestry lookup failed walking work-root"
+            );
+            None
+        })
+        .unwrap_or_else(|| scope.to_string())
+}
+
+fn scope_contains_channel(store: &Store, current: &str, scope: &str) -> bool {
+    if current == scope {
+        return true;
     }
-    cur
+    matches!(store.is_root_channel(current), Ok(true)) && work_root_for(store, scope) == current
 }
 
 fn is_root_channel(store: &Store, scope: &str) -> bool {
@@ -275,9 +281,9 @@ fn is_root_channel(store: &Store, scope: &str) -> bool {
             tracing::error!(
                 channel = %scope,
                 error = ?e,
-                "who snapshot: is_root_channel lookup failed; assuming root"
+                "who snapshot: is_root_channel lookup failed; assuming non-root"
             );
-            true
+            false
         }
     }
 }

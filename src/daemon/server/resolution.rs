@@ -89,12 +89,12 @@ pub(in crate::daemon::server) fn resolve_session(
 }
 
 /// The project channel a routing scope belongs under: a top-level channel is its
-/// own work root; a sub-channel (task/session room) maps to its parent.
+/// own work root; sub-channels walk to the top-level project root.
 pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> String {
-    match s.channel_parent(scope).ok().flatten() {
-        Some(p) if !p.is_empty() => p,
-        _ => scope.to_string(),
-    }
+    s.channel_project_root(scope)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| scope.to_string())
 }
 
 /// Resolve the caller's session through the single priority order:
@@ -192,9 +192,7 @@ pub(in crate::daemon::server) fn resolve_session_inner(
             .into_iter()
             .find(|rec| {
                 let scope_ok = rec.channel_h == project
-                    || (work_root
-                        && s.channel_parent(&rec.channel_h).ok().flatten().as_deref()
-                            == Some(project.as_str()));
+                    || (work_root && work_root_for(s, &rec.channel_h) == project);
                 let agent_ok = want_agent.map(|a| rec.agent_slug == a).unwrap_or(true);
                 scope_ok && agent_ok
             })
@@ -210,4 +208,22 @@ pub(in crate::daemon::server) fn resolve_session_inner(
     anyhow::bail!(
         "no active tenex-edge session for project {project:?} (run session-start, or pass --session)"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::work_root_for;
+    use crate::state::Store;
+
+    #[test]
+    fn work_root_for_walks_to_top_level_project() {
+        let store = Store::open_memory().unwrap();
+        store.upsert_channel("root", "root", "", "", 1).unwrap();
+        store.upsert_channel("task", "Task", "", "root", 1).unwrap();
+        store.upsert_channel("deep", "Deep", "", "task", 1).unwrap();
+
+        assert_eq!(work_root_for(&store, "deep"), "root");
+        assert_eq!(work_root_for(&store, "root"), "root");
+        assert_eq!(work_root_for(&store, "unknown"), "unknown");
+    }
 }

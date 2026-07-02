@@ -205,10 +205,9 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
     // Only mirror prompts into a sub-channel (a task/session room). A human start
     // with no resume anchor keeps the session on the top-level project channel;
     // mirroring there would spam the bare project group, so skip it (fail-open).
-    // A sub-channel is one whose materialized 39000 carries a parent.
-    let is_room = !state
-        .with_store(|s| s.is_root_channel(&rec.channel_h))
-        .unwrap_or(true);
+    // A sub-channel is known channel ancestry whose top-level project root is a
+    // different channel; unknown ancestry is not a publishable room.
+    let is_room = state.with_store(|s| matches!(s.is_subchannel(&rec.channel_h), Ok(true)));
     if !is_room {
         return Ok(serde_json::json!({ "skipped": "session not in a room" }));
     }

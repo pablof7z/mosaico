@@ -65,13 +65,13 @@ pub(in crate::daemon::server) fn rpc_statusline(
             .flatten()
             .map(|c| c.name)
             .unwrap_or_default();
-        // `work_root` is the parent project a task channel hangs under, or the
-        // channel itself for a top-level project session ('' parent). This is
-        // the "Project" line in `who`, surfaced as `project-name`.
-        let work_root = match s.channel_parent(&scope).ok().flatten() {
-            Some(p) if !p.is_empty() => p,
-            _ => scope.clone(),
-        };
+        // `work_root` is the top-level project this channel belongs under.
+        // This is the "Project" line in `who`, surfaced as `project-name`.
+        let work_root = s
+            .channel_project_root(&scope)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| scope.clone());
         let pending_chat = s
             .peek_pending_for_session(&rec.session_id)
             .unwrap_or_default();

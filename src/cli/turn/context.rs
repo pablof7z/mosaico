@@ -26,19 +26,13 @@ fn context_instance(
         })
 }
 
-/// Walk `channel`'s NIP-29 `parent` links up to the top-level project root (the
-/// first channel whose parent is empty/unknown). Bounded against malformed
-/// cycles. Mirrors the daemon-side `project_root`, duplicated here because that
-/// helper is `pub(in crate::daemon::server)` and this module lives under `cli`.
+/// Resolve `channel` to the top-level project root through the store-owned
+/// channel ancestry helper.
 fn project_root_h(s: &Store, channel: &str) -> String {
-    let mut cur = channel.to_string();
-    for _ in 0..16 {
-        match s.channel_parent(&cur).ok().flatten() {
-            Some(p) if !p.is_empty() => cur = p,
-            _ => break,
-        }
-    }
-    cur
+    s.channel_project_root(channel)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| channel.to_string())
 }
 
 /// Resolve `nostr:npub1…` mentions in inbox bodies to `@<name>` from the warm

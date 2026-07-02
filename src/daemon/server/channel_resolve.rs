@@ -163,23 +163,22 @@ pub(in crate::daemon::server) enum ChannelResolution {
     NotFound,
 }
 
-/// Max parent links to walk when finding a project root (cycle guard).
-const MAX_CHANNEL_DEPTH: usize = 16;
-
-/// Walk `parent` links up from `channel` to the top-level project root (the first
-/// channel whose parent is empty/unknown). Bounded against malformed cycles.
+/// Walk `parent` links up from `channel` to the top-level project root.
 pub(in crate::daemon::server) fn project_root(
     store: &crate::state::Store,
     channel: &str,
 ) -> String {
-    let mut cur = channel.to_string();
-    for _ in 0..MAX_CHANNEL_DEPTH {
-        match store.channel_parent(&cur).ok().flatten() {
-            Some(parent) if !parent.is_empty() => cur = parent,
-            _ => break,
-        }
-    }
-    cur
+    store
+        .channel_project_root(channel)
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                channel = %channel,
+                error = %e,
+                "project_root: channel ancestry lookup failed"
+            );
+            None
+        })
+        .unwrap_or_else(|| channel.to_string())
 }
 
 /// Resolve a project-relative `reference` within `root`'s subtree. Forms:
@@ -305,7 +304,7 @@ fn path_ends_with(segs: &[String], want: &[String]) -> bool {
 
 #[cfg(test)]
 mod resolve_tests {
-    use super::{resolve_channel_ref, resolve_locally, ChannelResolution};
+    use super::{project_root, resolve_channel_ref, resolve_locally, ChannelResolution};
     use crate::state::Store;
 
     fn chan(store: &Store, id: &str, name: &str, parent: &str) {
@@ -427,6 +426,23 @@ mod resolve_tests {
         assert!(matches!(
             resolve_channel_ref(&store, "h-root", "nonexistent"),
             ChannelResolution::NotFound
+        ));
+    }
+
+    #[test]
+    fn nested_sender_explicit_channel_refs_resolve_from_project_root() {
+        let store = Store::open_memory().unwrap();
+        chan(&store, "h-root", "proj", "");
+        chan(&store, "h-epic", "epic", "h-root");
+        chan(&store, "h-plan", "planning", "h-epic");
+        chan(&store, "h-leaf", "leaf", "h-plan");
+        chan(&store, "h-review", "review", "h-epic");
+
+        let root = project_root(&store, "h-leaf");
+        assert_eq!(root, "h-root");
+        assert!(matches!(
+            resolve_channel_ref(&store, &root, "epic/review"),
+            ChannelResolution::Unique(ref id) if id == "h-review"
         ));
     }
 }

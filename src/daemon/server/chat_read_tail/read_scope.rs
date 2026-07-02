@@ -29,7 +29,7 @@ pub(in crate::daemon::server) fn chat_read_scopes_for_store(
     scope: &str,
 ) -> Vec<String> {
     let mut scopes = vec![scope.to_string()];
-    if store.is_root_channel(scope).unwrap_or(true) {
+    if store.is_root_channel(scope).unwrap_or(false) {
         use std::collections::BTreeMap;
         let mut by_parent: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for channel in store.list_channels().unwrap_or_default() {

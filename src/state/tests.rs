@@ -238,6 +238,44 @@ fn channels_root_vs_subchannel() {
     assert!(s.is_root_channel("proj").unwrap());
     assert!(!s.is_root_channel("task").unwrap());
     assert_eq!(s.channel_parent("task").unwrap().unwrap(), "proj");
+    assert_eq!(
+        s.channel_project_root("task").unwrap().as_deref(),
+        Some("proj")
+    );
+    assert!(s.is_subchannel("task").unwrap());
+    assert!(!s.is_subchannel("proj").unwrap());
+    assert_eq!(s.channel_project_root("missing").unwrap(), None);
+    assert!(!s.is_root_channel("missing").unwrap());
+    assert!(!s.is_subchannel("missing").unwrap());
+}
+
+#[test]
+fn channel_project_root_walks_nested_tree_strictly() {
+    let s = Store::open_memory().unwrap();
+    s.upsert_channel("proj", "P", "", "", 1).unwrap();
+    s.upsert_channel("epic", "Epic", "", "proj", 1).unwrap();
+    s.upsert_channel("plan", "Plan", "", "epic", 1).unwrap();
+    s.upsert_channel("leaf", "Leaf", "", "plan", 1).unwrap();
+
+    assert_eq!(
+        s.channel_project_root("leaf").unwrap().as_deref(),
+        Some("proj")
+    );
+    assert!(!s.is_root_channel("leaf").unwrap());
+    assert!(s.is_subchannel("leaf").unwrap());
+    assert!(s.is_root_channel("proj").unwrap());
+    assert!(!s.is_subchannel("proj").unwrap());
+}
+
+#[test]
+fn channel_project_root_refuses_unknown_ancestor() {
+    let s = Store::open_memory().unwrap();
+    s.upsert_channel("leaf", "Leaf", "", "missing-parent", 1)
+        .unwrap();
+
+    assert_eq!(s.channel_project_root("leaf").unwrap(), None);
+    assert!(!s.is_root_channel("leaf").unwrap());
+    assert!(!s.is_subchannel("leaf").unwrap());
 }
 
 #[test]

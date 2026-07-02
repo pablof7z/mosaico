@@ -411,14 +411,11 @@ fn agents(edge_home: Option<&Path>, cursor: u64, now: u64) -> Vec<AgentRow> {
 }
 
 fn project_root(store: &Store, channel: &str) -> String {
-    let mut cur = channel.to_string();
-    for _ in 0..16 {
-        match store.channel_parent(&cur).ok().flatten() {
-            Some(parent) if !parent.is_empty() => cur = parent,
-            _ => break,
-        }
-    }
-    cur
+    store
+        .channel_project_root(channel)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| channel.to_string())
 }
 
 fn channel_summary(store: &Store, channel: &str, now: u64) -> ProjectRow {
