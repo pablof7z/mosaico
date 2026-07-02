@@ -84,11 +84,9 @@ pub struct DaemonState {
     hosted: Mutex<HashMap<String, HostedAgent>>,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     subscribed_projects: Mutex<Vec<String>>,
-    /// Plans the THREE stable aggregate REQs (`#h`, `#p`, group-state) plus any
-    /// narrow add-REQs. Replaces the old per-(project×kind) `Scope` expansion
-    /// (4 filters per project, including a kind:0 firehose) that blew the relay's
-    /// REQ ceiling. `resubscribe` seeds the aggregates; `ensure_subscription`
-    /// adds narrow deltas. See `crate::fabric::subscriptions`.
+    /// Plans the THREE stable aggregate REQs plus narrow add-REQs, replacing the
+    /// old per-(project×kind) `Scope` expansion that blew the relay's REQ ceiling.
+    /// See `crate::fabric::subscriptions`.
     subscriptions: Mutex<crate::fabric::subscriptions::SubscriptionRegistry>,
     /// Structured tail event broadcast replacing the old DomainEvent bus.
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
@@ -236,6 +234,7 @@ mod session_signing;
 mod session_start;
 mod status_publish;
 mod statusline;
+mod subscriptions;
 mod turns;
 mod who;
 
@@ -251,10 +250,7 @@ use diagnostics::{
     log_nip29_role_decision, refresh_project_members_cache, rpc_debug_outbox, rpc_doctor,
     rpc_local_backend, wait_for_project_member_cache,
 };
-use engine_lifecycle::{
-    cancel_session, engine_params_for, ensure_subscription, reconcile_sessions,
-    replay_channel_chat, resubscribe, spawn_session,
-};
+use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
 use profile_rpc::{
@@ -268,6 +264,7 @@ use session_signing::{admit_ordinal_signer, select_session_signer};
 use session_start::rpc_session_start;
 use status_publish::{spawn_outbox_drainer, spawn_status_heartbeat_publisher};
 use statusline::rpc_statusline;
+use subscriptions::{ensure_subscription, replay_channel_chat, resubscribe};
 use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
 
