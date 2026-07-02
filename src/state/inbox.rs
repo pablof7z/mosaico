@@ -2,10 +2,12 @@
 //!
 //! One row per (inbound event, target local session). An event is "handled"
 //! because a row exists. Direct-message rows start `pending` (parked for the next
-//! hook) and become `delivered` once injected into a live tmux. Orchestration
-//! target claims reuse the same ledger with synthetic `target_session` keys:
-//! `processing` while a backend is mutating that target, `pending` when it should
-//! be retried, and `delivered` once that exact target is complete.
+//! hook), become `delivered` when surfaced by turn context, or `injected` when
+//! pasted into tmux as a prompt awaiting echo suppression. Consumed tmux echoes
+//! become `echo_consumed`. Orchestration target claims reuse the same ledger with
+//! synthetic `target_session` keys: `processing` while a backend is mutating that
+//! target, `pending` when it should be retried, and `delivered` once that exact
+//! target is complete.
 
 use super::*;
 
@@ -133,9 +135,9 @@ impl Store {
         Ok(())
     }
 
-    /// Delivered inbound rows for a session whose delivery is newer than `since`,
-    /// oldest-first. Powers the statusline "recently delivered" peek (read-only,
-    /// resolves the id first).
+    /// Completed inbound rows for a session whose delivery is newer than
+    /// `since`, oldest-first. Powers the statusline "recently delivered" peek
+    /// (read-only, resolves the id first).
     pub fn recently_delivered_for_session(
         &self,
         target_session: &str,
@@ -146,11 +148,57 @@ impl Store {
             .unwrap_or_else(|| target_session.to_string());
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE target_session=?1 AND state='delivered' AND delivered_at>=?2
+             WHERE target_session=?1
+               AND state IN ('delivered', 'injected', 'echo_consumed')
+               AND delivered_at>=?2
              ORDER BY created_at ASC"
         ))?;
         let rows = stmt.query_map(params![target, since], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Mark successfully tmux-pasted rows as awaiting user-prompt echo
+    /// suppression. These rows are no longer pending for turn context delivery,
+    /// but remain queryable as explicit injection records until consumed/pruned.
+    pub fn mark_injected_for_echo(&self, event_ids: &[String], target_session: &str) -> Result<()> {
+        let target = self
+            .resolve_canonical_id(target_session)?
+            .unwrap_or_else(|| target_session.to_string());
+        for id in event_ids {
+            self.conn.execute(
+                "UPDATE inbox SET state='injected'
+                 WHERE event_id=?1 AND target_session=?2 AND state='delivered'",
+                params![id, target],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn injected_for_session(&self, target_session: &str) -> Result<Vec<InboxRow>> {
+        let target = self
+            .resolve_canonical_id(target_session)?
+            .unwrap_or_else(|| target_session.to_string());
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM inbox
+             WHERE target_session=?1 AND state='injected'
+             ORDER BY delivered_at ASC, created_at ASC"
+        ))?;
+        let rows = stmt.query_map(params![target], row_to_inbox)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn consume_injected_echo(&self, event_ids: &[String], target_session: &str) -> Result<()> {
+        let target = self
+            .resolve_canonical_id(target_session)?
+            .unwrap_or_else(|| target_session.to_string());
+        for id in event_ids {
+            self.conn.execute(
+                "UPDATE inbox SET state='echo_consumed'
+                 WHERE event_id=?1 AND target_session=?2 AND state='injected'",
+                params![id, target],
+            )?;
+        }
+        Ok(())
     }
 
     /// True if this (event, target) pair has already been recorded — the

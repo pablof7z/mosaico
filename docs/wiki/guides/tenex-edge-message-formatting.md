@@ -51,7 +51,7 @@ The `(message id: …)` line is dropped from all envelope formats. <!-- [^d39d3-
 
 The `FABRIC_INJECTION_MARKER` constant `[tenex-edge]` is the prefix used on injected envelopes to prevent echo loops — the daemon checks `prompt.trim_start().starts_with(FABRIC_INJECTION_MARKER)` to skip re-publishing already-injected text.
 
-Echo suppression uses a per-session hash ring (EchoGuard) in DaemonState that records what the tmux paste path typed, replacing the `[tenex-edge]` text-prefix marker. The EchoGuard has a ~60s TTL. <!-- [^d39d3-39962] -->
+Echo suppression uses explicit inbox ledger states. When tmux pastes delivered mention rows as a prompt, those rows become `injected`; the later `user-prompt-submit` hook consumes the matching rendered event group into `echo_consumed` instead of relying on a short-lived text hash. <!-- [^d39d3-39962] -->
 
 ## Session Identity and Display
 

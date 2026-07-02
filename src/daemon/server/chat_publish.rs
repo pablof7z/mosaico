@@ -184,10 +184,10 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
     // A daemon-injected fabric envelope (a mention the tmux delivery path pasted
     // into this session's pane) is ALREADY a kind:9 event in the room. The
     // harness re-submits it as a prompt, firing user-prompt-submit; republishing
-    // it would echo the message back into the channel (twice, on a publish
-    // retry). The echo guard recognizes — and consumes — what we just pasted, so
-    // only genuine human keyboard input is mirrored.
-    if state.is_injection_echo(&rec.session_id, &p.prompt) {
+    // it would echo the message back into the channel. The inbox ledger records
+    // the exact delivered event ids that were pasted and consumes that record
+    // here, so delayed hooks do not rely on a short-lived text hash.
+    if consume_injected_prompt_echo(state, &rec.session_id, &p.prompt)? {
         return Ok(serde_json::json!({ "skipped": "fabric injection echo" }));
     }
 
@@ -239,3 +239,54 @@ pub(in crate::daemon::server) async fn rpc_user_prompt(
 
     Ok(serde_json::json!({ "queued": true, "project": scope }))
 }
+
+fn consume_injected_prompt_echo(
+    state: &Arc<DaemonState>,
+    session_id: &str,
+    prompt: &str,
+) -> Result<bool> {
+    let whitelisted = state.whitelisted_pubkeys().to_vec();
+    let now = now_secs();
+    state.with_store(|s| {
+        consume_injected_prompt_echo_in_store(s, session_id, prompt, &whitelisted, now)
+    })
+}
+
+fn consume_injected_prompt_echo_in_store(
+    store: &crate::state::Store,
+    session_id: &str,
+    prompt: &str,
+    whitelisted: &[String],
+    now: u64,
+) -> Result<bool> {
+    let mut rows = store.injected_for_session(session_id)?;
+    rows.sort_by_key(|r| (r.delivered_at, r.created_at, r.event_id.clone()));
+    let want = prompt.trim();
+    let mut start = 0;
+    while start < rows.len() {
+        let delivered_at = rows[start].delivered_at;
+        let mut end = start + 1;
+        while end < rows.len() && rows[end].delivered_at == delivered_at {
+            end += 1;
+        }
+        let group = &rows[start..end];
+        if let Some(rendered) =
+            crate::injection::render_tmux_mention(store, group, whitelisted, now)
+        {
+            if rendered.trim() == want {
+                let ids = group
+                    .iter()
+                    .map(|row| row.event_id.clone())
+                    .collect::<Vec<_>>();
+                store.consume_injected_echo(&ids, session_id)?;
+                return Ok(true);
+            }
+        }
+        start = end;
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+#[path = "chat_publish/tests.rs"]
+mod tests;

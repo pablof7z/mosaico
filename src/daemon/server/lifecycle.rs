@@ -103,7 +103,6 @@ pub async fn run() -> Result<()> {
         session_keys: Mutex::new(HashMap::new()),
         session_signers: Mutex::new(HashMap::new()),
         backend_pubkey,
-        echo_guard: Default::default(),
     });
 
     // These tolerate a not-yet-connected relay (demux just waits for events;

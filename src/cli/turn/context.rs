@@ -141,7 +141,7 @@ fn ambient_by_joined_channel(
 /// `backend_pubkey` is this daemon's signing pubkey, used to decide whether we
 /// manage (admin) the channel. `_prev_turn_started_at` is retained for the daemon
 /// call contract, but first-turn detection is based on `seen_cursor`: `turn_end`
-/// clears `turn_started_at`, while `seen_cursor` is the durable injection cursor.
+/// clears `turn_started_at`, while `seen_cursor` is the durable awareness cursor.
 pub fn assemble_turn_start_context(
     store: &std::sync::Mutex<Store>,
     rec: &Session,
@@ -230,9 +230,9 @@ pub fn assemble_turn_start_context(
     //   - First turn: only messages since this session started (pre-join history
     //     is announced as a compact count, not dumped inline).
     //   - Subsequent turns: messages since the last seen_cursor high-water mark.
-    // First turn uses session creation time as the ambient floor, but respects
-    // any cursor advance that tmux delivery may have written — so messages
-    // already injected as the pasted prompt are not re-shown in ambient chat.
+    // First turn uses session creation time as the ambient floor. Tmux-pasted
+    // direct mentions are tracked in the inbox ledger, not by advancing this
+    // awareness cursor, so first-turn orientation/pre-history still renders.
     let ambient_since = if first_turn {
         rec.created_at.max(rec.seen_cursor)
     } else {

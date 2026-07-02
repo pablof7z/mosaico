@@ -11,9 +11,9 @@
 //! Hook-delivered mentions and ambient channel activity are rendered by the
 //! unified fabric context view, not by this envelope module.
 //!
-//! Echo suppression no longer lives in this text (it moved to
-//! [`crate::daemon::server`]'s per-session echo guard), so envelopes are free to
-//! be bare. Message ids are intentionally absent: replies target `@name`.
+//! Echo suppression no longer lives in this text; tmux delivery records the
+//! pasted inbox event ids as explicit `injected` ledger rows. Envelopes are free
+//! to be bare. Message ids are intentionally absent: replies target `@name`.
 
 use crate::state::{InboxRow, Store};
 use crate::util::pubkey_short;
