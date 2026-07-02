@@ -11,7 +11,8 @@ use super::protocol::{protocol_version, PleaseExit};
 use super::socket_path;
 use super::spawn::spawn_detached_daemon;
 use crate::config;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
@@ -24,19 +25,41 @@ const SLOW_RESPONSE_IO_TIMEOUT: Duration = Duration::from_secs(25);
 /// request, and return the `ok` payload. Mirrors the async client's behavior
 /// including the version-skew exit+respawn, but synchronously.
 pub fn call(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    call_with_attempt(method, &params, try_call, spawn_if_absent)
+}
+
+fn call_with_attempt<F, S>(
+    method: &str,
+    params: &serde_json::Value,
+    mut attempt: F,
+    mut spawn: S,
+) -> Result<serde_json::Value>
+where
+    F: FnMut(&str, &serde_json::Value) -> std::result::Result<Outcome, TryCallFailure>,
+    S: FnMut() -> Result<()>,
+{
     for _ in 0..5 {
-        match try_call(method, &params) {
+        match attempt(method, params) {
             Ok(Outcome::Ok(v)) => return Ok(v),
             Ok(Outcome::Err(_code, msg)) => bail!("{msg}"),
             Ok(Outcome::SkewExit) => {
                 std::thread::sleep(Duration::from_millis(200));
-                spawn_if_absent()?;
+                spawn()?;
             }
             Err(e) => {
                 if e.to_string().contains("is newer than this binary") {
-                    return Err(e);
+                    return Err(e.into_error());
                 }
-                spawn_if_absent()?;
+                if e.phase == FailurePhase::RequestMayHaveBeenDelivered
+                    && !method_policy(method).retry_after_delivery
+                {
+                    bail!(
+                        "daemon call {method} may have been processed, but no response was \
+                         received ({e}). Not retrying automatically because the method is not \
+                         declared idempotent."
+                    );
+                }
+                spawn()?;
             }
         }
     }
@@ -47,7 +70,7 @@ pub fn call(method: &str, params: serde_json::Value) -> Result<serde_json::Value
 /// surfaces (the statusline) that must render nothing when no daemon is running
 /// rather than booting one just to draw a line.
 pub fn call_no_spawn(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
-    match try_call(method, &params)? {
+    match try_call(method, &params).map_err(TryCallFailure::into_error)? {
         Outcome::Ok(v) => Ok(v),
         Outcome::Err(_code, msg) => bail!("{msg}"),
         Outcome::SkewExit => bail!("daemon protocol skew; awaiting respawn"),
@@ -60,11 +83,62 @@ enum Outcome {
     SkewExit,
 }
 
-fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
-    let stream = UnixStream::connect(socket_path()).context("connecting to daemon socket")?;
-    stream.set_read_timeout(Some(HANDSHAKE_IO_TIMEOUT))?;
-    stream.set_write_timeout(Some(HANDSHAKE_IO_TIMEOUT))?;
-    let mut w = stream.try_clone()?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailurePhase {
+    BeforeRequest,
+    RequestMayHaveBeenDelivered,
+}
+
+#[derive(Debug)]
+struct TryCallFailure {
+    phase: FailurePhase,
+    error: anyhow::Error,
+}
+
+impl TryCallFailure {
+    fn before(error: anyhow::Error) -> Self {
+        Self {
+            phase: FailurePhase::BeforeRequest,
+            error,
+        }
+    }
+
+    fn after_request(error: anyhow::Error) -> Self {
+        Self {
+            phase: FailurePhase::RequestMayHaveBeenDelivered,
+            error,
+        }
+    }
+
+    fn into_error(self) -> anyhow::Error {
+        self.error
+    }
+}
+
+impl fmt::Display for TryCallFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for TryCallFailure {}
+
+fn try_call(
+    method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<Outcome, TryCallFailure> {
+    let stream = UnixStream::connect(socket_path())
+        .context("connecting to daemon socket")
+        .map_err(TryCallFailure::before)?;
+    stream
+        .set_read_timeout(Some(HANDSHAKE_IO_TIMEOUT))
+        .map_err(|e| TryCallFailure::before(e.into()))?;
+    stream
+        .set_write_timeout(Some(HANDSHAKE_IO_TIMEOUT))
+        .map_err(|e| TryCallFailure::before(e.into()))?;
+    let mut w = stream
+        .try_clone()
+        .map_err(|e| TryCallFailure::before(e.into()))?;
     let mut r = BufReader::new(stream);
 
     // hello → welcome.
@@ -72,45 +146,54 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
         w,
         "{}",
         serde_json::json!({"protocol": protocol_version(), "client_version": env!("CARGO_PKG_VERSION")})
-    )?;
+    )
+    .map_err(|e| TryCallFailure::before(e.into()))?;
     let mut welcome_line = String::new();
-    if r.read_line(&mut welcome_line)? == 0 {
-        bail!("daemon closed before welcome");
+    if r.read_line(&mut welcome_line)
+        .map_err(|e| TryCallFailure::before(e.into()))?
+        == 0
+    {
+        return Err(TryCallFailure::before(anyhow!(
+            "daemon closed before welcome"
+        )));
     }
-    let welcome: serde_json::Value = serde_json::from_str(welcome_line.trim())?;
+    let welcome: serde_json::Value =
+        serde_json::from_str(welcome_line.trim()).map_err(|e| TryCallFailure::before(e.into()))?;
     let dproto = welcome["protocol"].as_u64().unwrap_or(0) as u32;
     if dproto < protocol_version() {
         // Older daemon under a newer binary: ask it to exit, then respawn.
-        writeln!(
-            w,
-            "{}",
-            serde_json::to_string(&PleaseExit {
-                protocol: protocol_version()
-            })?
-        )?;
+        let please_exit = serde_json::to_string(&PleaseExit {
+            protocol: protocol_version(),
+        })
+        .map_err(|e| TryCallFailure::before(e.into()))?;
+        writeln!(w, "{please_exit}").map_err(|e| TryCallFailure::before(e.into()))?;
         let _ = w.flush();
         return Ok(Outcome::SkewExit);
     }
     if dproto > protocol_version() {
         let mine = protocol_version();
-        bail!(
+        return Err(TryCallFailure::before(anyhow!(
             "daemon protocol {dproto} is newer than this binary's {mine} — restart your tenex-edge session (or reinstall)"
-        );
+        )));
     }
 
     // request → response.
-    writeln!(
-        w,
-        "{}",
-        serde_json::json!({"id": 1, "method": method, "params": params})
-    )?;
+    let request = serde_json::json!({"id": 1, "method": method, "params": params}).to_string();
+    writeln!(w, "{request}").map_err(|e| TryCallFailure::after_request(e.into()))?;
     r.get_ref()
-        .set_read_timeout(Some(response_timeout(method)))?;
+        .set_read_timeout(Some(method_policy(method).response_timeout))
+        .map_err(|e| TryCallFailure::after_request(e.into()))?;
     let mut resp_line = String::new();
-    if r.read_line(&mut resp_line)? == 0 {
-        bail!("daemon closed the connection");
+    if r.read_line(&mut resp_line)
+        .map_err(|e| TryCallFailure::after_request(e.into()))?
+        == 0
+    {
+        return Err(TryCallFailure::after_request(anyhow!(
+            "daemon closed the connection"
+        )));
     }
-    let resp: serde_json::Value = serde_json::from_str(resp_line.trim())?;
+    let resp: serde_json::Value = serde_json::from_str(resp_line.trim())
+        .map_err(|e| TryCallFailure::after_request(e.into()))?;
     if let Some(err) = resp.get("error") {
         let code = err["code"].as_str().unwrap_or("error").to_string();
         let msg = err["message"].as_str().unwrap_or("").to_string();
@@ -121,13 +204,26 @@ fn try_call(method: &str, params: &serde_json::Value) -> Result<Outcome> {
     ))
 }
 
-fn response_timeout(method: &str) -> Duration {
+#[derive(Clone, Copy)]
+struct MethodPolicy {
+    response_timeout: Duration,
+    retry_after_delivery: bool,
+}
+
+fn method_policy(method: &str) -> MethodPolicy {
     match method {
-        // `tmux_spawn` may spend up to 20s provisioning the launch channel before
-        // returning. Keep handshake probes short, but do not make launch retry
-        // while the daemon is still doing the requested work.
-        "tmux_spawn" => SLOW_RESPONSE_IO_TIMEOUT,
-        _ => DEFAULT_RESPONSE_IO_TIMEOUT,
+        "ping" | "who" | "tmux_status" | "tmux_resumable" | "project_members" => MethodPolicy {
+            response_timeout: DEFAULT_RESPONSE_IO_TIMEOUT,
+            retry_after_delivery: true,
+        },
+        "tmux_spawn" => MethodPolicy {
+            response_timeout: SLOW_RESPONSE_IO_TIMEOUT,
+            retry_after_delivery: false,
+        },
+        _ => MethodPolicy {
+            response_timeout: DEFAULT_RESPONSE_IO_TIMEOUT,
+            retry_after_delivery: false,
+        },
     }
 }
 
@@ -179,12 +275,4 @@ fn daemon_answers_ping() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tmux_spawn_gets_slow_response_budget() {
-        assert!(response_timeout("tmux_spawn") > Duration::from_secs(20));
-        assert_eq!(response_timeout("ping"), DEFAULT_RESPONSE_IO_TIMEOUT);
-    }
-}
+mod tests;
