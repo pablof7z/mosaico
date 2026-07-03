@@ -4,12 +4,37 @@ Status: audit map for issue #203, part of epic #202. This document maps the
 current tenex-edge derived-resource surfaces to Trellis primitives before any
 effect path changes.
 
-## Boundary
+## Boundary And End-State
 
-Trellis is the private reconciliation engine. The daemon remains the owner of
-SQLite reads, relay I/O, signing keys, wall-clock sampling, and hook transport.
-The daemon feeds host-owned facts into Trellis `InputNode<T>` values with
-`tx.set_input(...)`; Trellis does not read SQLite or publish to relays.
+Trellis is the private reconciliation engine. tenex-edge owns observations and
+effects; Trellis owns decisions. Observed facts enter a host-owned input journal,
+a Trellis transaction computes the new derived shape, and the host applies the
+resulting inert frames or commands. Effect results then return as new observed
+facts. Trellis does not read SQLite, watch processes, call LLMs, sign events,
+publish to relays, or inject hook text.
+
+The long-term shape is one journal-fed graph, with SQLite acting as durable log
+and projection store. Later slices can keep using existing tables as the input
+adapter while moving toward this loop:
+
+1. observed fact enters the journal;
+2. the daemon converts journal facts into `InputNode<T>` updates;
+3. Trellis derives sessions, status, who/context views, outbox intent, and
+   subscription intent;
+4. the daemon applies DB-write frames, relay commands, and hook/output frames;
+5. apply success or failure enters the journal as the next observed fact.
+
+Host facts that may enter the graph include `SessionStarted`, `TurnStarted`,
+`TranscriptWindowCaptured`, `DistillCompleted`, `TurnEnded`,
+`RelayEventObserved`, `RelayPublishAccepted`, `ProcessExited`, `ClockTick`, and
+configuration changes. Trellis may derive projection writes for `sessions` and
+`relay_status`, current activity, kind:30315 status frames, `who` and hook
+context output frames, relay subscription open/close intent, stale-status
+filtering, and causal explanation.
+
+Large payloads stay outside the graph. Full transcripts, raw Nostr event bodies,
+long relay history, and logs should be represented by stable pointers, hashes,
+small summaries, or indexed facts before becoming Trellis inputs.
 
 Use the Trellis vocabulary this way:
 
@@ -30,7 +55,34 @@ Use the Trellis vocabulary this way:
 Shadow mode for later slices should compare desired state, not raw command
 streams. For resources, compare desired keys and owners. For outputs, compare
 materialized payloads. The existing path stays authoritative until the shadow
-path earns promotion.
+path earns promotion. Shadow mode has no split-brain risk because Trellis does
+not apply effects.
+
+Promotion has a stricter rule: each surface must have exactly one decider and
+one writer. When a slice promotes a surface, every existing writer for that
+surface must either become a journal input or be replaced by a Trellis-produced
+write intent in the same change. Running some subscription, status, or hook
+paths through Trellis while other paths still write directly is forbidden.
+
+## Retrospective Receipts
+
+Slice #210 should extend the same transaction path, not recreate a parallel
+audit system. Every projection write, resource command, and output frame should
+carry enough artifact metadata for `tenex-edge explain <handle>` to recover why
+the effect happened:
+
+- Trellis transaction id and input-journal range or cursor.
+- Stable surface key, such as status session id, hook call id, subscription key,
+  or outbox event id.
+- Hashes or pointers for large artifacts that stayed outside the graph.
+- The `TransactionResult` audit handle that can answer `why_changed`,
+  `why_resource_command`, `why_output_frame`, and dependency-path questions.
+
+LLM calls are host provenance, not graph computation. A `llm_calls` ledger should
+record model, provider, system prompt identity, transcript-slice pointer,
+request/response pointers or hashes, and the resulting `DistillCompleted` input
+fact. Trellis should depend on the distill fact, while `explain` can join back
+to the ledger when a status or hook output was caused by that distillation.
 
 ## Shared Inputs
 
