@@ -3,7 +3,7 @@ use super::resolution::work_root_for;
 use super::*;
 use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::state::Store;
-use crate::util::{word_count, CHAT_RENDER_WORD_LIMIT};
+use crate::util::CHAT_WRITE_CHAR_LIMIT;
 use anyhow::bail;
 
 #[cfg(test)]
@@ -46,7 +46,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         serde_json::from_value(params.clone()).context("parsing chat_write params")?;
     if long_message_requires_override(&p) {
         bail!(
-            "your message is too long; keep it under {CHAT_RENDER_WORD_LIMIT} words or pass --long-message"
+            "your message is too long; keep it under {CHAT_WRITE_CHAR_LIMIT} characters or pass --long-message"
         );
     }
     let mut anchor = CallerAnchor::from_params(params);
@@ -261,7 +261,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
 }
 
 fn long_message_requires_override(p: &ChatWriteParams) -> bool {
-    !p.long_message && word_count(&p.message) > CHAT_RENDER_WORD_LIMIT
+    !p.long_message && p.message.chars().count() > CHAT_WRITE_CHAR_LIMIT
 }
 
 fn handle_mention_resolution_error(raw: &str, e: anyhow::Error) -> Result<()> {

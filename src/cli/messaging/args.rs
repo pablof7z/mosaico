@@ -16,7 +16,7 @@ pub(in crate::cli) enum ChatAction {
         /// exactly one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
-        /// Allow publishing a message longer than the default fabric context cap.
+        /// Allow publishing a message longer than the default 600-character cap.
         #[arg(long)]
         long_message: bool,
     },

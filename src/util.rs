@@ -140,9 +140,9 @@ pub fn friendly_short_code(id: &str) -> String {
 
 pub const CHAT_RENDER_WORD_LIMIT: usize = 300;
 
-pub fn word_count(text: &str) -> usize {
-    text.split_whitespace().count()
-}
+/// `chat write` refuses to publish a message longer than this many characters
+/// unless the caller passes `--long-message`.
+pub const CHAT_WRITE_CHAR_LIMIT: usize = 600;
 
 pub fn truncate_words(text: &str, limit: usize) -> (String, bool) {
     let mut words = text.split_whitespace();
