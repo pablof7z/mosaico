@@ -1,9 +1,13 @@
-use crate::fabric_context::{inbox_seed, render_fabric_context, FabricContextInput};
+use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
+use crate::reconcile::HookContextReconciler;
 use crate::state::{Session, Store};
 
 use super::reads::{ambient_by_joined_channel, context_instance, joined_channels, take_inbox};
+use super::TurnContext;
 
-/// Mid-turn context for the PostToolUse `turn_check` hook.
+/// Text-only shim preserving the historical `Option<String>` contract for the
+/// hook-parity tests; the daemon calls [`assemble_turn_check`] for the receipt.
+#[cfg(test)]
 pub(crate) fn assemble_turn_check_context(
     store: &std::sync::Mutex<Store>,
     rec: &Session,
@@ -11,6 +15,17 @@ pub(crate) fn assemble_turn_check_context(
     delta_since: Option<u64>,
     now: u64,
 ) -> Option<String> {
+    assemble_turn_check(store, rec, self_host, delta_since, now).text
+}
+
+/// Mid-turn context for the PostToolUse `turn_check` hook.
+pub(crate) fn assemble_turn_check(
+    store: &std::sync::Mutex<Store>,
+    rec: &Session,
+    self_host: &str,
+    delta_since: Option<u64>,
+    now: u64,
+) -> TurnContext {
     let mut warnings: Vec<String> = Vec::new();
     let scope = rec.channel_h.clone();
     let self_instance = context_instance(store, rec);
@@ -52,26 +67,41 @@ pub(crate) fn assemble_turn_check_context(
         );
     }
 
-    if delta_since.is_none() && direct_mentions.is_empty() && warnings.is_empty() {
-        return None;
-    }
     let forced = direct_mentions.iter().map(inbox_seed).collect::<Vec<_>>();
     let cursor = delta_since.unwrap_or(now);
-    let s = store.lock().expect("store mutex poisoned");
-    render_fabric_context(
-        &s,
-        FabricContextInput {
-            session: Some(rec),
-            scope: &scope,
-            cursor,
-            now,
-            self_slug: &self_slug,
-            self_pubkey: &self_pubkey,
-            local_host: self_host,
-            edge_home: Some(&crate::config::edge_home()),
-            forced_messages: &forced,
-            warnings: &warnings,
-            force: false,
-        },
-    )
+    // Always derive through the graph so the receipt is produced even when the
+    // snapshot is empty; the empty-view gate suppresses the injected text exactly
+    // as the old early-return did (no delta, no mentions, no warnings → None).
+    let inputs = {
+        let s = store.lock().expect("store mutex poisoned");
+        capture_inputs(
+            &s,
+            &FabricContextInput {
+                session: Some(rec),
+                scope: &scope,
+                cursor,
+                now,
+                self_slug: &self_slug,
+                self_pubkey: &self_pubkey,
+                local_host: self_host,
+                edge_home: Some(&crate::config::edge_home()),
+                forced_messages: &forced,
+                warnings: &warnings,
+                force: false,
+            },
+        )
+    };
+    let outcome = HookContextReconciler::new()
+        .render_context(
+            &rec.session_id,
+            "turn_check",
+            cursor as i64,
+            now as i64,
+            inputs,
+        )
+        .expect("hook-context snapshot derivation");
+    TurnContext {
+        text: outcome.text,
+        receipt: outcome.receipt,
+    }
 }

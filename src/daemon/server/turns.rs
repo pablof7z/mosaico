@@ -100,23 +100,20 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     });
     crate::profile::warm(state, &to_warm).await;
 
-    // Assemble via the shared turn-context module so daemon and hook tests cannot drift.
+    // Assemble via the shared turn-context module so daemon and hook tests cannot
+    // drift. The receipt is the graph's OWN dependency trace — it replaces the
+    // hand-rolled turn_start_audit and is consistent with the render by construction.
     let backend_pubkey = state.backend_pubkey.clone().unwrap_or_default();
-    let base = crate::turn_context::assemble_turn_start_context(
+    let turn = crate::turn_context::assemble_turn_start(
         &state.store,
         &rec,
         &backend_pubkey,
         &state.host,
         prev_started,
     );
-    let audit = crate::turn_context::turn_start_audit(
-        &state.store,
-        &rec,
-        prev_started,
-        now,
-        base.as_deref(),
-    );
-    let context = base
+    let audit = turn.receipt.to_json();
+    let context = turn
+        .text
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context, "audit": audit }))
@@ -132,33 +129,20 @@ pub(in crate::daemon::server) fn rpc_turn_check(
     // (`seen_cursor`). We advance the cursor atomically — only the first of any
     // concurrent PostToolUse hooks wins the CAS; the rest get delta_since=None
     // and emit nothing, preventing duplicate injections from parallel tool calls.
-    let mut cursor_advanced = false;
     let delta_since = if rec.working {
         let old = rec.seen_cursor;
         let won = state
             .with_store(|s| s.try_advance_seen_cursor(&rec.session_id, old, now))
             .unwrap_or(false);
-        cursor_advanced = won;
         won.then_some(old)
     } else {
         None
     };
-    let base = crate::turn_context::assemble_turn_check_context(
-        &state.store,
-        &rec,
-        &state.host,
-        delta_since,
-        now,
-    );
-    let audit = crate::turn_context::turn_check_audit(
-        &state.store,
-        &rec,
-        delta_since,
-        cursor_advanced,
-        now,
-        base.as_deref(),
-    );
-    let context = base
+    let turn =
+        crate::turn_context::assemble_turn_check(&state.store, &rec, &state.host, delta_since, now);
+    let audit = turn.receipt.to_json();
+    let context = turn
+        .text
         .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({ "context": context, "audit": audit }))

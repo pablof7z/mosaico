@@ -1,7 +1,9 @@
 use crate::state::{InboxRow, Session, Store};
 use std::path::Path;
 
+pub(crate) mod assemble;
 mod build;
+pub(crate) mod capture;
 mod human_render;
 mod messages;
 mod model;
@@ -11,9 +13,22 @@ mod render;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use capture::{
+    capture_inputs, MembersInput, MessagesInput, MetaInput, PresenceInput, ViewInputs,
+};
+pub(crate) use model::FabricView;
+
 use build::build_view;
 use human_render::render_human_view;
 use render::render_view;
+
+/// Stringify an already-derived [`FabricView`] into the exact `<tenex-edge>`
+/// snapshot agents see. The Trellis reconciler derives the view from declared
+/// inputs and hands it here, so the "how it is produced" changes while the
+/// rendered bytes do not.
+pub(crate) fn render_view_text(view: &FabricView) -> String {
+    render_view(view)
+}
 
 pub(crate) struct FabricContextInput<'a> {
     pub(crate) session: Option<&'a Session>,

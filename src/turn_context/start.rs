@@ -6,7 +6,9 @@
 use super::reads::{
     ambient_by_joined_channel, context_instance, joined_channels, project_root_h, take_inbox,
 };
-use crate::fabric_context::{inbox_seed, render_fabric_context, FabricContextInput};
+use super::TurnContext;
+use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
+use crate::reconcile::HookContextReconciler;
 use crate::state::{Session, Store};
 use crate::util::now_secs;
 
@@ -20,13 +22,26 @@ use crate::util::now_secs;
 /// manage (admin) the channel. `_prev_turn_started_at` is retained for the daemon
 /// call contract, but first-turn detection is based on `seen_cursor`: `turn_end`
 /// clears `turn_started_at`, while `seen_cursor` is the durable awareness cursor.
+/// Text-only shim preserving the historical `Option<String>` contract for the
+/// hook-parity tests; the daemon calls [`assemble_turn_start`] for the receipt.
+#[cfg(test)]
 pub(crate) fn assemble_turn_start_context(
     store: &std::sync::Mutex<Store>,
     rec: &Session,
     backend_pubkey: &str,
     self_host: &str,
-    _prev_turn_started_at: u64,
+    prev_turn_started_at: u64,
 ) -> Option<String> {
+    assemble_turn_start(store, rec, backend_pubkey, self_host, prev_turn_started_at).text
+}
+
+pub(crate) fn assemble_turn_start(
+    store: &std::sync::Mutex<Store>,
+    rec: &Session,
+    backend_pubkey: &str,
+    self_host: &str,
+    _prev_turn_started_at: u64,
+) -> TurnContext {
     let first_turn = rec.seen_cursor == 0;
     // Routing scope is the session's `channel_h` — a project channel, or the
     // session/task channel a `channels switch` moved it into. All fabric
@@ -181,11 +196,14 @@ pub(crate) fn assemble_turn_start_context(
     }
 
     let forced = mentions.iter().map(inbox_seed).collect::<Vec<_>>();
-    let fabric = {
+    // Freeze the canonical inputs from the store, then derive the snapshot in the
+    // graph. The reconciler is the single authority that both PRODUCES the injected
+    // text and EXPLAINS it (the receipt), so the two cannot drift.
+    let inputs = {
         let s = store.lock().expect("store mutex poisoned");
-        render_fabric_context(
+        capture_inputs(
             &s,
-            FabricContextInput {
+            &FabricContextInput {
                 session: Some(rec),
                 scope: &scope,
                 cursor: rec.seen_cursor,
@@ -200,6 +218,15 @@ pub(crate) fn assemble_turn_start_context(
             },
         )
     };
+    let outcome = HookContextReconciler::new()
+        .render_context(
+            &rec.session_id,
+            "turn_start",
+            rec.seen_cursor as i64,
+            now as i64,
+            inputs,
+        )
+        .expect("hook-context snapshot derivation");
 
     // Advance the awareness high-water mark so the next hook renders only the
     // delta past what we just surfaced.
@@ -214,5 +241,8 @@ pub(crate) fn assemble_turn_start_context(
         }
     }
 
-    fabric
+    TurnContext {
+        text: outcome.text,
+        receipt: outcome.receipt,
+    }
 }

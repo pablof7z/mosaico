@@ -18,11 +18,15 @@
 //! of this spine later; nothing here changes existing daemon behavior yet.
 
 pub mod graph;
+pub mod hook_context;
 pub mod journal;
 pub mod status;
 pub mod subscriptions;
 
 pub use graph::{ReconcileCommand, Reconciler};
+pub use hook_context::{
+    FrameKind, HookContextOutcome, HookContextReceipt, HookContextReconciler, Shape,
+};
 pub use journal::InputFact;
 pub use status::{PublishReason, StatusCommand, StatusEffect, StatusOutcome, StatusReconciler};
 pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionReconciler};

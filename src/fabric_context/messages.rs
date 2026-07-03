@@ -55,7 +55,7 @@ pub(super) fn message_rows(
         .into_iter()
         .map(|ev| {
             let mention = forced.iter().any(|f| f.id == ev.id && f.mention)
-                || mentions_pubkey(&ev, input.self_pubkey);
+                || mentions_pubkey(&ev.tags_json, input.self_pubkey);
             message_row(store, &ev, input.now, input.local_host, mention)
         })
         .collect();
@@ -99,11 +99,11 @@ fn message_row(
     }
 }
 
-fn mentions_pubkey(ev: &RelayEvent, pubkey: &str) -> bool {
+pub(super) fn mentions_pubkey(tags_json: &str, pubkey: &str) -> bool {
     if pubkey.is_empty() {
         return false;
     }
-    let Ok(tags) = serde_json::from_str::<Vec<Vec<String>>>(&ev.tags_json) else {
+    let Ok(tags) = serde_json::from_str::<Vec<Vec<String>>>(tags_json) else {
         return false;
     };
     tags.iter()

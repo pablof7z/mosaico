@@ -1,0 +1,279 @@
+//! The PURE fabric-view derivation: a faithful port of `build_view`/`people`/
+//! `messages` that reads ONLY the frozen [`ViewInputs`] plus the two explicit
+//! inputs — the seen `cursor` and the wall-clock `now`. No store, no ambient
+//! time. This is the function the Trellis reconciler runs inside a derived node,
+//! so `why_changed`/`why_output_frame` attribute the snapshot to exactly these
+//! inputs and it replays byte-for-byte from the same inputs.
+//!
+//! The full-vs-delta SHAPE decision keys on `cursor` (`cursor == 0` → full
+//! `<members>`/`<subchannels>`; `cursor > 0` → delta `<recent-presence>` only);
+//! every time-relative string keys on `now`. Equivalence with the legacy
+//! `build_view` is asserted in the reconciler's regression test.
+
+use std::collections::{BTreeMap, HashSet};
+
+use super::capture::{EvCap, MsgBundle, StatusCap, ViewInputs};
+use super::model::*;
+use crate::util::relative_time;
+
+/// Chat lookback window used on the full (first-turn) render.
+const WINDOW_SECS: u64 = 4 * 60 * 60;
+const MAX_CLUSTER_GAP_SECS: u64 = 20 * 60;
+const MAX_CLUSTER_ROWS: usize = 30;
+
+/// Derive the fabric view from the canonical inputs + explicit `cursor`/`now`.
+pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> FabricView {
+    let meta = &inputs.meta;
+    let mut view = FabricView {
+        self_row: meta.self_row.as_ref().map(|s| SelfRow {
+            agent: s.agent.clone(),
+            backend: s.backend.clone(),
+            session_id: s.session_id.clone(),
+        }),
+        project: ProjectRow {
+            name: meta.project.name.clone(),
+            about: meta.project.about.clone(),
+        },
+        agents: agent_rows(inputs, cursor, now),
+        channels: Vec::new(),
+        unjoined: unjoined_rows(inputs, now),
+        important: Vec::new(),
+        warnings: meta
+            .warnings
+            .iter()
+            .cloned()
+            .map(|text| WarningRow { text })
+            .collect(),
+    };
+
+    let full = cursor == 0;
+    for chan in &meta.channels {
+        let (messages, omitted) = inputs
+            .messages
+            .channels
+            .get(&chan.h)
+            .map(|bundle| message_rows(bundle, cursor, now))
+            .unwrap_or_default();
+        let presence = presence_rows(inputs, &chan.h, cursor, now);
+        if !full && messages.is_empty() && presence.is_empty() {
+            continue;
+        }
+        for msg in &messages {
+            if msg.mention {
+                view.important.push(ImportantRow {
+                    channel: msg.channel.clone(),
+                    message_id: msg.id.clone(),
+                });
+            }
+        }
+        view.channels.push(ChannelBlock {
+            name: chan.name.clone(),
+            about: chan.about.clone(),
+            members: if full {
+                member_rows(inputs, &chan.h, now)
+            } else {
+                Vec::new()
+            },
+            presence,
+            subchannels: if full {
+                chan.subchannels
+                    .iter()
+                    .map(|s| ChannelSummaryRow {
+                        name: s.name.clone(),
+                        about: s.about.clone(),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            messages,
+            omitted,
+        });
+    }
+    view
+}
+
+fn agent_rows(inputs: &ViewInputs, cursor: u64, now: u64) -> Vec<AgentRow> {
+    inputs
+        .meta
+        .agents
+        .iter()
+        .filter(|a| cursor == 0 || (a.created_at > cursor && a.created_at <= now))
+        .map(|a| AgentRow {
+            reference: a.reference.clone(),
+            about: a.about.clone(),
+        })
+        .collect()
+}
+
+fn unjoined_rows(inputs: &ViewInputs, now: u64) -> Vec<UnjoinedChannelRow> {
+    inputs
+        .meta
+        .unjoined
+        .iter()
+        .map(|u| UnjoinedChannelRow {
+            name: u.name.clone(),
+            about: u.about.clone(),
+            last_active: relative_time(u.updated_at, now),
+        })
+        .collect()
+}
+
+/// Live (NIP-40 unexpired) statuses keyed by pubkey, preserving the updated_at
+/// DESC order so the last insert wins exactly as `people::status_map` does.
+fn live_status_map(statuses: &[StatusCap], now: u64) -> BTreeMap<String, &StatusCap> {
+    statuses
+        .iter()
+        .filter(|s| s.expiration >= now)
+        .map(|s| (s.pubkey.clone(), s))
+        .collect()
+}
+
+fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
+    let members = &inputs.members;
+    let self_pubkey = &inputs.meta.self_pubkey;
+    let statuses = inputs
+        .presence
+        .statuses
+        .get(channel)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let status_map = live_status_map(statuses, now);
+
+    let mut pubkeys = members.roster.get(channel).cloned().unwrap_or_default();
+    pubkeys.extend(status_map.keys().cloned());
+    if !self_pubkey.is_empty() {
+        pubkeys.insert(self_pubkey.clone());
+    }
+    pubkeys
+        .into_iter()
+        .filter(|pk| !members.backend.contains(pk))
+        .map(|pk| {
+            let status = status_map
+                .get(&pk)
+                .map(|s| status_text(s))
+                .unwrap_or_else(|| "offline".to_string());
+            let seen = status_map
+                .get(&pk)
+                .map(|s| relative_time(s.last_seen, now))
+                .unwrap_or_else(|| "unknown".to_string());
+            let reference = if pk == *self_pubkey {
+                inputs.meta.self_ref.clone()
+            } else {
+                members.refs.get(&pk).cloned().unwrap_or_default()
+            };
+            MemberRow {
+                reference,
+                status,
+                seen,
+            }
+        })
+        .collect()
+}
+
+fn presence_rows(inputs: &ViewInputs, channel: &str, cursor: u64, now: u64) -> Vec<PresenceRow> {
+    if cursor == 0 {
+        return Vec::new();
+    }
+    let self_pubkey = &inputs.meta.self_pubkey;
+    inputs
+        .presence
+        .statuses
+        .get(channel)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter(|s| s.expiration >= now)
+        .filter(|s| s.updated_at > cursor)
+        .filter(|s| &s.pubkey != self_pubkey)
+        .map(|s| PresenceRow {
+            reference: inputs
+                .members
+                .refs
+                .get(&s.pubkey)
+                .cloned()
+                .unwrap_or_default(),
+            status: status_text(s),
+            seen: relative_time(s.last_seen, now),
+        })
+        .collect()
+}
+
+fn status_text(status: &StatusCap) -> String {
+    if status.busy {
+        return non_empty(&status.activity)
+            .or_else(|| non_empty(&status.title))
+            .unwrap_or_else(|| "working".to_string());
+    }
+    non_empty(&status.title).unwrap_or_else(|| "idle".to_string())
+}
+
+fn non_empty(s: &str) -> Option<String> {
+    let s = s.trim();
+    (!s.is_empty()).then(|| s.to_string())
+}
+
+fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<MessageRow>, usize) {
+    let since = if cursor == 0 {
+        now.saturating_sub(WINDOW_SECS)
+    } else {
+        cursor
+    };
+    let mut events: Vec<EvCap> = bundle
+        .events
+        .iter()
+        .filter(|e| e.created_at > since)
+        .cloned()
+        .collect();
+    let omitted = if cursor == 0 {
+        let total = events.len();
+        events = recent_cluster(events);
+        total.saturating_sub(events.len())
+    } else {
+        0
+    };
+    let mut seen: HashSet<String> = events.iter().map(|e| e.id.clone()).collect();
+    for f in &bundle.forced {
+        if seen.insert(f.id.clone()) {
+            events.push(f.clone());
+        }
+    }
+    events.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+    let forced_mentions: HashSet<&str> = bundle
+        .forced
+        .iter()
+        .filter(|f| f.forced_mention)
+        .map(|f| f.id.as_str())
+        .collect();
+    let rows = events
+        .into_iter()
+        .map(|e| MessageRow {
+            mention: e.mentions_self || forced_mentions.contains(e.id.as_str()),
+            age: relative_time(e.created_at, now),
+            id: e.id,
+            channel: e.channel_display,
+            from: e.from_ref,
+            body: e.body,
+            truncated: e.truncated,
+        })
+        .collect();
+    (rows, omitted)
+}
+
+fn recent_cluster(mut events: Vec<EvCap>) -> Vec<EvCap> {
+    if events.len() <= MAX_CLUSTER_ROWS {
+        return events;
+    }
+    events.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+    let mut start = events.len().saturating_sub(1);
+    while start > 0 {
+        let gap = events[start]
+            .created_at
+            .saturating_sub(events[start - 1].created_at);
+        if gap > MAX_CLUSTER_GAP_SECS || events.len() - start >= MAX_CLUSTER_ROWS {
+            break;
+        }
+        start -= 1;
+    }
+    events.split_off(start)
+}
