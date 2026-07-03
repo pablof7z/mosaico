@@ -90,7 +90,7 @@ Last updated: 2026-07-03
 | [2026-07-03-2-reply-instruction-reminder-added-to-mention](episodes/2026-07-03-2-reply-instruction-reminder-added-to-mention.md) | 2026-07-03 | Reply-instruction reminder added to mention injection paths | product | active |
 | [2026-07-03-2-te-session-not-set-is-daemon](episodes/2026-07-03-2-te-session-not-set-is-daemon.md) | 2026-07-03 | @te_session not set is daemon/CLI version skew, not a repo bug | root-cause | active |
 
-## Nouns (94 entities)
+## Nouns (99 entities)
 
 | Noun | Name | Origin | Definition |
 |------|------|--------|------------|
@@ -104,6 +104,7 @@ Last updated: 2026-07-03
 | [agentinstance](nouns/agentinstance.md) | AgentInstance | extracted | The single authoritative identity value for a session, carrying base_slug, base_pubkey, ordinal, and pubkey, with methods display_slug(), agent_ref(), signing_keys(&base_keys). The single place base-vs-ordinal policy lives; created at session birth and threaded through EngineParams, replacing the distributed identity state across session rows, identity rows, and in-memory signer maps. |
 | [archived-channel](nouns/archived-channel.md) | archived channel | extracted | A channel whose about metadata is prefixed with [ARCHIVED]; non-admin members are removed and it is hidden from active surfaces (channels list, hook/fabric context, membership/subscription views). |
 | [awareness](nouns/awareness.md) | awareness | extracted | A first-class wire concept (Status.activity, kind:30315) where other agents can see what an agent is doing right now via LLM-distilled activity broadcast — distinct from mere presence; awareness over authority is a design law. |
+| [backend-nsec](nouns/backend-nsec.md) | backend_nsec | extracted | The backend's own identity key, always tenexPrivateKey with no fallback to userNsec — the operator key is a human identity, not a backend identity |
 | [byline](nouns/byline.md) | byline | extracted | A short description of 'when to use this agent' — part of the agent's profile/identity on the fabric. |
 | [channel](nouns/channel.md) | channel | extracted | A pure social/coordination construct: has members, messages, a name, a parent. Has no body. A NIP-29 group with a parent set; identity is (parent, name). |
 | [channel-h](nouns/channel-h.md) | channel_h | extracted | the relay group the session was actually in |
@@ -141,6 +142,8 @@ Last updated: 2026-07-03
 | [inhibit-flag](nouns/inhibit-flag.md) | inhibit flag | extracted | The tenex-edge stop mechanism to prevent hooks from respawning a daemon the user explicitly killed; when set (stop-inhibit file exists), hook-path daemon calls return Ok(Null) so hooks fail open rather than spawning. |
 | [kind-0-profiles-table](nouns/kind-0-profiles-table.md) | kind:0 / profiles table | extracted | the single source of truth for display-name resolution — caches pubkey→slug mappings with TTL and fallback |
 | [kind-30315-ttl](nouns/kind-30315-ttl.md) | kind:30315 TTL | extracted | Per-session activity expiration. The event is replaceable by `(author pubkey, |
+| [kind-9](nouns/kind-9.md) | kind:9 | extracted | The Nostr chat-message event kind used to publish session channel messages (both user prompts and agent replies) into a session's room |
+| [management-nsec](nouns/management-nsec.md) | management_nsec | extracted | The backend's own tenexPrivateKey used for group-management operations (put-admin/remove-user/edit-metadata); the operator's userNsec is no longer used for group management |
 | [mention-session-targeted](nouns/mention-session-targeted.md) | mention (session-targeted) | extracted | A p-tagged Nostr kind:9 event addressed to another agent's pubkey, server-side-routed into that specific session's inbox, and if the session has a live tmux pane, injected as a literal conversational turn — host-neutral delivery at the tmux-pane level, not via a host API. |
 | [nip-29-membership](nouns/nip-29-membership.md) | NIP-29 membership | extracted | Active channel presence and routing membership. Local daemons remove their |
 | [nip29provider](nouns/nip29provider.md) | Nip29Provider | extracted | The concrete fabric provider wrapping delivery, wire codec, materializer, and lifecycle in one place. Its fabric identifier (used in all canonical origin rows) is `"nip29"`. |
@@ -177,12 +180,14 @@ Last updated: 2026-07-03
 | [subgroup-task-channel](nouns/subgroup-task-channel.md) | subgroup task channel | extracted | NIP-29 child groups under a project; created via `channels create`, which publishes a kind:9 orchestration event asking named backends to add their agents. |
 | [task-session-room](nouns/task-session-room.md) | task/session room | extracted | A channel distinguished from a top-level project channel by having a non-empty `parent` value. |
 | [tenex-edge](nouns/tenex-edge.md) | tenex-edge | extracted | A host-neutral substrate providing durable agent identity, awareness, and messaging on the Nostr fabric; nothing in the core knows about any specific host (no pc, no claude). |
+| [tenex-edge-chat-write](nouns/tenex-edge-chat-write.md) | tenex-edge chat write | extracted | The canonical CLI command name for explicitly sending messages to a channel; after removing auto-publish it is the sole way agents or users publish chat |
 | [tenexprivatekey](nouns/tenexprivatekey.md) | tenexPrivateKey | extracted | A throwaway backend seckey (hex) distinct from the user's key; the backend's signing key, paired with userNsec as the human's key. |
 | [tmux-pane-sessionstartparams](nouns/tmux-pane-sessionstartparams.md) | tmux_pane (SessionStartParams) | extracted | Stable tmux pane id from $TMUX_PANE (e.g. %5), present only when the hook fires inside a tmux session. |
 | [tmux-socket-sessionstartparams](nouns/tmux-socket-sessionstartparams.md) | tmux_socket (SessionStartParams) | extracted | Value of $TMUX (socket path, session id, pane id) supplied by the hook environment. |
 | [tmux-wrapped-session](nouns/tmux-wrapped-session.md) | tmux-wrapped session | extracted | an agent session running in a live tmux pane where injected envelopes are pasted as real user prompts, auto-captured and published |
 | [transport](nouns/transport.md) | Transport | extracted | A thin adapter over `nostr-sdk` that speaks wire events only — connects to relays (with NIP-42 auto-AUTH), publishes signed events, subscribes with filters, does one-shot fetch. Knows nothing of domain meaning; the codec owns that. |
 | [unnamed-channel](nouns/unnamed-channel.md) | unnamed channel | extracted | A channel whose name is empty or equals its own id; in the awareness block it is a session room rendered as `(unnamed channel)` with no description. |
+| [user-nsec](nouns/user-nsec.md) | user_nsec | extracted | The human operator's Nostr secret key, used for signing user prompts as the operator and for group-admin bootstrapping; never used for group management, session-key derivation, or backend identity |
 | [usernsec](nouns/usernsec.md) | userNsec | extracted | A throwaway operator nsec for the local relay representing the HUMAN's key; used only to sign user-prompt events, with its pubkey whitelisted for admin in every group. |
 | [whitelisted-pubkeys](nouns/whitelisted-pubkeys.md) | whitelisted_pubkeys | extracted | A human operator's Nostr public keys, read from ~/.tenex-edge/config.json (JSON key `whitelistedPubkeys`). The source of truth for who is an admin in every project group via NIP-29 membership; distinct from the backend key, not derived from `user_nsec` or `tenex_private_key`. |
 | [whitelistedpubkey](nouns/whitelistedpubkey.md) | whitelistedPubkey | extracted | a human user (as distinguished from an agent) |
