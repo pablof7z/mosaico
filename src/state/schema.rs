@@ -218,6 +218,34 @@ CREATE TABLE IF NOT EXISTS project_roots (
     abs_path    TEXT NOT NULL,
     updated_at  INTEGER NOT NULL
 );
+
+-- ── retrospective instrumentation: llm_calls / receipts (Slice 8; additive) ──
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id       TEXT NOT NULL,
+    window_hash      TEXT NOT NULL,
+    provider         TEXT NOT NULL,
+    model            TEXT NOT NULL,
+    system_prompt    TEXT NOT NULL,
+    transcript_slice TEXT NOT NULL,
+    raw_response     TEXT NOT NULL,
+    parsed_title     TEXT, parsed_activity TEXT,
+    created_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_window_hash ON llm_calls(window_hash);
+CREATE TABLE IF NOT EXISTS receipts (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    surface          TEXT NOT NULL,
+    transaction_id   INTEGER NOT NULL,
+    revision         INTEGER NOT NULL,
+    changed_summary  TEXT NOT NULL,
+    commands         TEXT NOT NULL,
+    artifact_ref     TEXT,
+    created_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_receipts_surface ON receipts(surface, created_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_artifact_ref ON receipts(artifact_ref);
 "#;
 
 pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {

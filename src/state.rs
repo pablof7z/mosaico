@@ -279,6 +279,7 @@ mod core;
 mod events;
 mod identities;
 mod inbox;
+pub mod llm_calls;
 mod members;
 mod messages;
 mod outbox;
@@ -287,6 +288,7 @@ mod project_roots;
 mod quarantine;
 mod reader;
 pub(crate) use reader::StoreReader;
+pub mod receipts;
 mod retention;
 pub use retention::{
     RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
