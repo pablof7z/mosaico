@@ -10,8 +10,12 @@ use anyhow::Result;
 use inquire::{Confirm, Select, Text};
 use owo_colors::OwoColorize;
 
-const NEW_ROLE_SENTINEL: &str = "+ New role...";
-const DEFAULT_ROLE_SUGGESTION: &str = "edge-distillation";
+/// Roles actually read anywhere in tenex-edge (via
+/// `crate::llmconfig::resolve_role`) — keep this in sync with call sites
+/// (currently just `distill.rs`'s `edge-distillation` lookup). There's no
+/// free-text "new role" option: a role name the code never resolves does
+/// nothing, so inventing one is a dead end, not a feature.
+const KNOWN_ROLES: &[&str] = &["edge-distillation"];
 const CLAUDE_CLI_KEY: &str = "claude-cli";
 const CLAUDE_CLI_MODEL_SUGGESTIONS: &[&str] = &[
     "claude-sonnet-5",
@@ -70,29 +74,23 @@ fn print_roles(llms: &LlmsFile) {
     println!();
 }
 
+/// Offers only roles tenex-edge's own code resolves (`KNOWN_ROLES`), plus
+/// any already present in `llms.json` that aren't in that list (e.g. a role
+/// used by a sibling TENEX host sharing this file) — never a free-text
+/// entry, since an unresolved role name is inert.
 fn pick_role(llms: &LlmsFile) -> Result<Option<String>> {
-    let mut choices: Vec<String> = llms.roles().into_iter().map(|(role, _)| role).collect();
-    choices.push(NEW_ROLE_SENTINEL.to_string());
-
-    let Some(choice) = prompted(
-        Select::new("Which role?", choices)
-            .with_help_message("a role is a name your code resolves to a model, e.g. \"edge-distillation\"")
-            .prompt(),
-    )?
-    else {
-        return Ok(None);
-    };
-
-    if choice != NEW_ROLE_SENTINEL {
-        return Ok(Some(choice));
+    let mut choices: Vec<String> = KNOWN_ROLES.iter().map(|r| r.to_string()).collect();
+    for (role, _) in llms.roles() {
+        if !choices.contains(&role) {
+            choices.push(role);
+        }
     }
 
-    let role = prompted(
-        Text::new("New role name")
-            .with_default(DEFAULT_ROLE_SUGGESTION)
+    prompted(
+        Select::new("Which role?", choices)
+            .with_help_message("only roles tenex-edge's own code resolves are offered")
             .prompt(),
-    )?;
-    Ok(role.map(|r| r.trim().to_string()).filter(|r| !r.is_empty()))
+    )
 }
 
 /// Providers eligible to serve a role: everything with a `providers.json`
