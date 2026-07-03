@@ -3,10 +3,13 @@
 //! Two tmux envelope forms, chosen by `(sender, directedness)`:
 //!
 //!   1. **tmux + human mention** — pasted into the pane as a real turn, minimal
-//!      provenance: `<@pablo> @developer hey there`. The agent's reply is
-//!      auto-captured and published, so no reply instructions are needed.
+//!      provenance: `<@pablo> @developer hey there`.
 //!   2. **tmux + agent mention** — pasted as a turn, framed so the agent knows it
 //!      arrived via the fabric: `[tenex-edge mention] <@agent1> hi @developer`.
+//!
+//! Publishing no longer happens automatically on the agent's behalf — the
+//! envelope carries an explicit reminder to respond via `tenex-edge chat
+//! write`, since nothing mirrors the reply for it.
 //!
 //! Hook-delivered mentions and ambient channel activity are rendered by the
 //! unified fabric context view, not by this envelope module.
@@ -38,11 +41,19 @@ fn is_whitelisted(whitelisted: &[String], pubkey: &str) -> bool {
     whitelisted.iter().any(|w| w.eq_ignore_ascii_case(pubkey))
 }
 
+/// Reminder appended to every mention envelope: since nothing auto-publishes a
+/// reply on the agent's behalf, the agent must explicitly run `chat write` to
+/// be heard.
+const REPLY_REMINDER: &str =
+    "[reply via `tenex-edge chat write --message \"...\"` — replies do not auto-publish]";
+
 /// Form ① / ② — direct mentions pasted into a live tmux pane as a real turn.
 /// Human senders render bare with a `<@name>` prefix (it reads as a near-natural
 /// turn that still carries provenance); agent senders are prefixed
 /// `[tenex-edge mention]` so the agent knows it is a fabric relay, not its
-/// operator typing. No reply hint, no message id — the reply auto-publishes.
+/// operator typing. No message id — replies target `@name` — but every
+/// envelope carries an explicit reminder to reply via `chat write`, since
+/// replies no longer auto-publish.
 pub(crate) fn render_tmux_mention(
     store: &Store,
     rows: &[InboxRow],
@@ -52,7 +63,7 @@ pub(crate) fn render_tmux_mention(
     if rows.is_empty() {
         return None;
     }
-    let mut lines: Vec<String> = Vec::with_capacity(rows.len());
+    let mut lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
     for row in rows {
         let name = speaker_label(store, &row.from_pubkey);
         let chip = speaker_chip(&name);
@@ -62,6 +73,7 @@ pub(crate) fn render_tmux_mention(
             lines.push(format!("[tenex-edge mention] {chip} {}", row.body));
         }
     }
+    lines.push(REPLY_REMINDER.to_string());
     Some(lines.join("\n"))
 }
 

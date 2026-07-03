@@ -336,11 +336,6 @@ async fn hook_dispatch(
             }
         }
         "user-prompt-submit" => {
-            let prompt: Option<String> = obj
-                .and_then(|o| o.get("prompt"))
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
             // Reassert the session before the turn starts: if the daemon lost it
             // (restart, version-skew kill, crash), this re-registers the live
             // session instead of silently dropping awareness for the whole turn.
@@ -385,31 +380,6 @@ async fn hook_dispatch(
                 result.audit,
                 result.context.as_deref(),
             );
-            // Publish the user's prompt as kind:9 chat into the session's room
-            // (operator-signed; see daemon `rpc_user_prompt`). Fail open: if
-            // userNsec is absent or the relay is unreachable, the hook must not
-            // block the editor.
-            if let Some(prompt_text) = prompt {
-                // Codex re-fires this same hook, on the same top-level session_id,
-                // for a subagent's own turn (spawn_agent/multi_agent_v1*) — that
-                // event carries `agent_id`/`agent_type` alongside the payload,
-                // which a genuine human keystroke never does. Forward it so the
-                // daemon can tell "the human typed this" from "Codex dispatched
-                // this to a subagent" (issue #102).
-                let agent_id = obj.and_then(|o| o.get("agent_id")).and_then(|v| v.as_str());
-                let params = serde_json::json!({
-                    "harness_session": sid,
-                    "harness": host.name,
-                    "tmux_pane": crate::cli::tmux_pane_env(),
-                    "agent": agent_env_slug(),
-                    "cwd": cwd.to_string_lossy(),
-                    "prompt": prompt_text,
-                    "subagent_id": agent_id,
-                });
-                if let Err(e) = daemon_call_hook_async("user_prompt", params).await {
-                    eprintln!("[tenex-edge] user_prompt publish skipped: {e:#}");
-                }
-            }
         }
         "post-tool-use" => {
             let explicit = if sid.is_empty() { None } else { Some(sid) };
@@ -424,22 +394,7 @@ async fn hook_dispatch(
         }
         "stop" => {
             if !sid.is_empty() {
-                // The agent's turn output (last assistant text) is published as
-                // kind:9 chat into the session's room by the daemon. Codex
-                // includes the final assistant text directly on Stop; prefer
-                // that over rereading the transcript, which can lag or omit the
-                // just-finished turn. Other hosts keep the transcript fallback.
-                let reply = obj
-                    .and_then(|o| o.get("last_assistant_message"))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.trim().is_empty())
-                    .map(str::to_string)
-                    .or_else(|| {
-                        transcript.as_deref().and_then(|p| {
-                            crate::transcript::read_last_assistant_text(std::path::Path::new(p))
-                        })
-                    });
-                turn_end(sid, reply)?;
+                turn_end(sid)?;
             }
         }
         other => {

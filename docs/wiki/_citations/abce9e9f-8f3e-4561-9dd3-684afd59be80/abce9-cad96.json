@@ -1,0 +1,6 @@
+{
+  "id": "abce9-cad96",
+  "ts": "2026-07-03T10:33:39Z",
+  "session": "abce9e9f-8f3e-4561-9dd3-684afd59be80",
+  "text": "**Root cause of the missing colors:** in `src/tmux/launch.rs`, `open_agent_session()` ran `tmux new-session -d ... -- claude` *first*, then `make_session_transparent()` ran `tmux set-option -t <session> default-terminal tmux-256color` *afterward*. But tmux bakes `$TERM` into a pane's child process at fork time — a `set-option` after the process already exists never reaches it. I verified this mechanically (spawned a real tmux pane, confirmed `$TERM` stayed frozen at the pre-existing global default even after the session-level override ran) before touching any code. Fixed by setting `default-terminal`/`terminal-overrides` globally (`-g`) *before* `new-session` spawns the harness. Also fixed the malformed `terminal-overrides` value (`,*:Tc,RGB,extkeys` → `*:Tc:RGB:extkeys` — the old one had orphaned capability tokens with no term-pattern prefix)."
+}

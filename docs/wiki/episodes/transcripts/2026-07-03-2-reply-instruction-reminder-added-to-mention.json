@@ -1,0 +1,10 @@
+[
+  [
+    "user",
+    "I've changed my mind about the user hook auto-publishing kind:9s -- nothing should do that -- let's leave it as something that agents do explicitly or users do explicitly one thing though: when we bring in a mention into an agent's attention (whether via hook or via tmux-wrapped injection), let's explicitly add an instruction reminding the agent to respond via tenex-edge chat write"
+  ],
+  [
+    "assistant",
+    "Waiting on the code exploration to finish before filing the issue and implementing the changes — will proceed as soon as it completes."
+  ]
+]

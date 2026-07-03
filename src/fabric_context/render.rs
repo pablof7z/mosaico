@@ -154,6 +154,12 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
                 esc_text(&short)
             );
         }
+        if m.mention {
+            out.push_str(
+                "\n          [reply via `tenex-edge chat write --message \"...\"` \
+                 — replies do not auto-publish]",
+            );
+        }
         out.push_str("</message>");
     }
     out.push_str("\n      </chatter>");

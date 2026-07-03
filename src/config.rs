@@ -72,11 +72,12 @@ impl Config {
         self.tenex_private_key.as_ref()
     }
 
-    /// The human operator's Nostr secret key. Used in exactly one place:
-    /// `rpc_user_prompt` signs the user's prompt as the operator. The
-    /// operator's pubkey is NOT derived from this field for group admin grants —
-    /// it lives in `whitelisted_pubkeys` instead. Never used for group
-    /// management, session-key derivation, or backend identity.
+    /// The human operator's Nostr secret key. Used by
+    /// `try_grant_mgmt_admin_via_user_nsec` to sign the one-time grant of the
+    /// admin role to the backend's management key on a newly-opened group. The
+    /// operator's pubkey is NOT derived from this field for that grant — it
+    /// lives in `whitelisted_pubkeys` instead. Never used for session-key
+    /// derivation or backend identity.
     pub fn user_nsec(&self) -> Option<&String> {
         self.user_nsec.as_ref()
     }

@@ -216,7 +216,6 @@ impl DaemonState {
 mod channel_membership_rpc;
 mod channel_resolve;
 mod channels_rpc;
-mod chat_publish;
 mod chat_read_tail;
 mod chat_target;
 mod chat_write;
@@ -243,7 +242,6 @@ use channels_rpc::{
     ensure_session_room, rpc_channels_archive, rpc_channels_create, rpc_channels_edit,
     rpc_channels_list,
 };
-use chat_publish::{publish_agent_reply, rpc_user_prompt};
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
 use diagnostics::{
@@ -279,7 +277,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params),
         "chat_write" => rpc_chat_write(state, &req.params).await,
-        "user_prompt" => rpc_user_prompt(state, &req.params).await,
         "publish" => rpc_propose(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params),

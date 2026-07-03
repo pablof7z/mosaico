@@ -167,10 +167,6 @@ pub(in crate::daemon::server) fn rpc_turn_check(
 #[derive(serde::Deserialize)]
 pub(in crate::daemon::server) struct TurnEndParams {
     session: String,
-    /// The agent's turn output (last assistant text), read from the transcript by
-    /// the stop hook. Published as kind:9 chat into the session's channel.
-    #[serde(default)]
-    reply: Option<String>,
 }
 
 pub(in crate::daemon::server) async fn rpc_turn_end(
@@ -183,7 +179,7 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
         return Ok(serde_json::json!({ "ok": true }));
     }
     // Read working/turn_started_at BEFORE closing the turn so we can compute
-    // elapsed and gate the reply publish (alias-resolving read).
+    // elapsed (alias-resolving read).
     let pre = state.with_store(|s| s.get_session(&p.session).ok().flatten());
     let (was_working, turn_started_at) = pre
         .as_ref()
@@ -199,33 +195,7 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
 
     let rec = state.with_store(|s| s.get_session(&p.session).ok().flatten());
 
-    // Publish the agent's turn output as kind:9 chat into the channel where it
-    // worked: per-session channels and explicit task channels publish final
-    // replies; bare project sessions still do not spam the root group.
-    //
-    // Gated on `was_working` so it is IDEMPOTENT against duplicate stop hooks and
-    // client retries: the transition above clears the turn, so a second turn_end
-    // reads `was_working == false` and never republishes. Best-effort.
     if was_working {
-        if let (Some(rec), Some(reply)) = (rec.as_ref(), p.reply.as_deref()) {
-            let reply = reply.trim();
-            // Publish into known sub-channels (per-session / task channels) only.
-            let publish_reply =
-                state.with_store(|s| matches!(s.is_subchannel(&rec.channel_h), Ok(true)));
-            if !reply.is_empty() && publish_reply {
-                let publish = publish_agent_reply(state, rec, reply);
-                let debug = std::env::var("TENEX_EDGE_DEBUG").is_ok();
-                match tokio::time::timeout(std::time::Duration::from_millis(1500), publish).await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) if debug => {
-                        eprintln!("[daemon] agent reply publish skipped: {e:#}")
-                    }
-                    Err(_) if debug => eprintln!("[daemon] agent reply publish timed out"),
-                    _ => {}
-                }
-            }
-        }
-
         let now = now_secs();
         let elapsed_s = (turn_started_at > 0).then(|| now.saturating_sub(turn_started_at));
         if let Some(rec) = rec.as_ref() {

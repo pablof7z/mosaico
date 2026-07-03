@@ -145,14 +145,11 @@ fn render_context_output(content: &str, emit: EmitFormat) -> String {
     }
 }
 
-pub(super) fn turn_end(session: String, reply: Option<String>) -> Result<()> {
+pub(super) fn turn_end(session: String) -> Result<()> {
     if session.is_empty() || crate::daemon::is_inhibited() {
         return Ok(());
     }
-    crate::daemon::blocking::call(
-        "turn_end",
-        serde_json::json!({"session": session, "reply": reply}),
-    )?;
+    crate::daemon::blocking::call("turn_end", serde_json::json!({"session": session}))?;
     Ok(())
 }
 

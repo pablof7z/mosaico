@@ -16,69 +16,6 @@ use std::path::Path;
 
 const TAIL_BYTES: u64 = 96 * 1024;
 
-/// The text content of the last assistant message in the transcript (text blocks
-/// only — tool uses are excluded). Used to populate `TurnReply` body at stop time.
-/// Returns `None` if the file is unreadable or no assistant text is found.
-pub fn read_last_assistant_text(path: &Path) -> Option<String> {
-    let mut f = File::open(path).ok()?;
-    let len = f.metadata().ok()?.len();
-    let start = len.saturating_sub(TAIL_BYTES);
-    f.seek(SeekFrom::Start(start)).ok()?;
-    let mut bytes = Vec::new();
-    f.read_to_end(&mut bytes).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-
-    let mut lines: Vec<&str> = text.lines().collect();
-    if start > 0 && !lines.is_empty() {
-        lines.remove(0);
-    }
-
-    let mut last_text: Option<String> = None;
-    for line in lines {
-        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else {
-            continue;
-        };
-        let (role, content) = if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
-            if t != "assistant" {
-                continue;
-            }
-            (t, v.get("message").and_then(|m| m.get("content")))
-        } else if let Some(r) = v.get("role").and_then(|x| x.as_str()) {
-            if r != "assistant" {
-                continue;
-            }
-            (r, v.get("content"))
-        } else {
-            continue;
-        };
-        let text = extract_text_only(content);
-        if !text.trim().is_empty() {
-            last_text = Some(text.trim().to_string());
-        }
-        let _ = role;
-    }
-    last_text
-}
-
-/// Extract only text content blocks from an assistant message (no tool-use lines).
-fn extract_text_only(content: Option<&Value>) -> String {
-    match content {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(blocks)) => blocks
-            .iter()
-            .filter_map(|b| {
-                if b.get("type").and_then(|x| x.as_str()) == Some("text") {
-                    b.get("text").and_then(|x| x.as_str()).map(str::to_string)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
 /// A compact, chronological snippet of the last `max_msgs` user/assistant turns,
 /// capped at `max_chars`. `None` if the file is unreadable/empty.
 pub fn read_recent(path: &Path, max_msgs: usize, max_chars: usize) -> Option<String> {

@@ -2,8 +2,6 @@ use crate::daemon_harness::*;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
-#[path = "channels/chat_mirroring.rs"]
-mod chat_mirroring;
 #[path = "channels/create.rs"]
 mod create;
 #[path = "channels/edit.rs"]
@@ -16,8 +14,6 @@ mod launch_mentions;
 mod native_context;
 #[path = "channels/orchestration.rs"]
 mod orchestration;
-#[path = "channels/replies.rs"]
-mod replies;
 #[path = "channels/session_lifecycle.rs"]
 mod session_lifecycle;
 #[path = "channels/session_rooms.rs"]

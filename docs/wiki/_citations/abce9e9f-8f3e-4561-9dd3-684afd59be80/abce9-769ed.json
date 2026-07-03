@@ -1,0 +1,6 @@
+{
+  "id": "abce9-769ed",
+  "ts": "2026-07-03T10:33:34Z",
+  "session": "abce9e9f-8f3e-4561-9dd3-684afd59be80",
+  "text": "Assistant: We have a local NIP-29 relay binary (`croissant`) available. Let's spin it up for a fully isolated, writable test relay."
+}

@@ -16,6 +16,7 @@ sources:
   - session:bd8689c8-4a5f-45b3-9dbe-758baec2a2f4
   - session:bdb6c341-4dd4-48e7-9764-e80242beb005
   - session:75f62bb9-f564-4633-8741-997dfea1d0e7
+  - session:e0eba763-d227-40ca-a9d2-aaad5b192130
 ---
 
 # Tenex-Edge Message Formatting
@@ -30,9 +31,11 @@ When the sender is not a whitelisted pubkey (i.e. an agent) in a tmux-wrapped se
 
 Agent-to-agent mentions in tmux are pasted as real turns and auto-publish replies, with no gating or suppression. A soft consecutive-auto-turn depth limit is reserved as a future safety valve but is not implemented.
 
-In a hooks-only session, a direct mention is rendered inside a `<tenex-edge>` wrapper with a reply CLI hint and no message id.
+In a hooks-only session, a direct mention is rendered inside a `<tenex-edge>` wrapper with a reply CLI hint and no message id. User hooks do not auto-publish kind:9 events; publishing kind:9s is performed only by explicit agent or user action.
 
 When a hooks-only turn has both a direct mention and background chatter, the mention block and the activity block are emitted as two separate `<tenex-edge>` blocks — mention first, then activity — rather than merged.
+
+When a mention is brought into an agent's attention (via hook or tmux-wrapped injection), an explicit instruction is added reminding the agent to respond via tenex-edge chat write.
 
 Chat mentions use `@<agent-instance-label>` (e.g. @haiku, @haiku1) instead of `@<codename>`. The `extract_mentions` tokenizer accepts any agent-slug-shaped token matching `[A-Za-z0-9._-]+` optionally host-qualified as `label@host`, not only NATO-codename-shaped tokens. Unresolvable mention tokens are silently treated as no-mention rather than blocking chat delivery. `resolve_agent_pubkey(slug, host)` is a Store function that reverse-looks-up relay_profiles by slug+host to return the selected pubkey for an agent-instance label. The obsolete concrete-session lookup (`find_session_by_codename`) and the bail requiring a mention to name a concrete session codename are removed from `chat_write.rs`.
 
@@ -40,7 +43,7 @@ The chat-write confirmation line reads `mentioning @{label}` instead of `mention
 
 @-mentioning someone from a subchannel they are not in is a cross-channel mention using existing `@slug@backend` addressing, with no membership side-effects from mentions; replying or joining requires an explicit invite or switch.
 
-<!-- citations: [^bdb6c-1833e] [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] [^75f62-ebb61] -->
+<!-- citations: [^bdb6c-1833e] [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] [^75f62-ebb61] [^e0eba-b9cc1] -->
 ## Ambient Chatter
 
 Ambient/background chatter is rendered inside a `<tenex-edge>` wrapper as a timeline with `<@name - Xm ago>` prefixes, identical for tmux and hooks sessions, with no reply hint.
