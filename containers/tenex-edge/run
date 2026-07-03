@@ -205,6 +205,44 @@ with_tenex() {
   ' bash "${harness}" "$@"
 }
 
+# Same staging as with_tenex (build + hook install), but the final command runs
+# inside a local tmux session instead of as the container's bare foreground
+# process. `tenex-edge launch` (also routed through with_tenex, via the
+# `tenex-edge` command case below) anchors itself the same way already — it
+# opens its own tmux session via the tmux_spawn RPC and execs `tmux
+# attach-session` onto it (see src/cli/tmux_cli/verbs.rs::launch). A raw
+# backend CLI run in "direct" mode has no such wrapper: without it, the
+# process never has a real $TMUX_PANE, its session-start hook never registers
+# a tmux_pane alias, and the daemon has no live pane to push a proactive
+# mention into (GH #225) — the harness only sees a pending mention lazily, on
+# whatever its next turn happens to be. A real host session that runs a raw
+# `claude`/`codex`/`opencode` inside an ordinary tmux pane (not
+# `tenex-edge launch`) already has a real $TMUX_PANE for free; this makes the
+# "direct" dev-lab mode faithfully reproduce that instead of silently running
+# with no pane at all.
+with_tenex_direct() {
+  local harness="${1}"
+  shift
+  container_run readonly bash -c '
+    set -euo pipefail
+    cargo build >/dev/null
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "opencode" ]]; then
+      tenex-edge install --harness "$1" >/dev/null
+    fi
+    shift
+    # tmux new-session without -d attaches immediately, which needs a real
+    # terminal. A one-shot non-interactive prewarm/-p check (no tty on the
+    # host, so container_run did not request -i -t) has none — fall back to a
+    # bare exec for those; only an actually-interactive run gets the pane
+    # anchor, matching container_runs own -i -t decision.
+    if [[ -t 1 ]]; then
+      exec tmux new-session -s direct -- "$@"
+    else
+      exec "$@"
+    fi
+  ' bash "${harness}" "$@"
+}
+
 select_command_profile() {
   local default_profile="$1" agent="$2"
   AGENT="${agent}"
@@ -284,11 +322,11 @@ main() {
       ;;
     claude)
       select_command_profile claude claude
-      with_tenex claude-code claude "$@"
+      with_tenex_direct claude-code claude "$@"
       ;;
     codex)
       select_command_profile codex codex
-      with_tenex codex codex "$@"
+      with_tenex_direct codex codex "$@"
       ;;
     codex-login)
       select_command_profile codex codex
@@ -296,11 +334,11 @@ main() {
       ;;
     codex-ollama)
       select_command_profile codex-ollama codex
-      with_tenex codex codex --oss --local-provider ollama "$@"
+      with_tenex_direct codex codex --oss --local-provider ollama "$@"
       ;;
     opencode)
       select_command_profile opencode opencode
-      with_tenex opencode opencode "$@"
+      with_tenex_direct opencode opencode "$@"
       ;;
     opencode-auth)
       select_command_profile opencode opencode
@@ -310,7 +348,7 @@ main() {
       local model="${1:-${TENEX_EDGE_OPENCODE_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}}"
       if [[ $# -gt 0 ]]; then shift; fi
       select_command_profile opencode-ollama opencode
-      with_tenex opencode opencode -m "${model}" "$@"
+      with_tenex_direct opencode opencode -m "${model}" "$@"
       ;;
     tenex-edge)
       with_tenex "$(harness_for_agent "${AGENT}")" tenex-edge "$@"
