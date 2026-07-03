@@ -1,18 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-const CHANNEL_ABOUT_MAX_CHARS: usize = 80;
-
-fn channel_about(value: &str) -> std::result::Result<String, String> {
-    let len = value.chars().count();
-    if len > CHANNEL_ABOUT_MAX_CHARS {
-        return Err(format!(
-            "--about must be {CHANNEL_ABOUT_MAX_CHARS} characters or fewer (got {len})"
-        ));
-    }
-    Ok(value.to_string())
-}
-
 #[derive(Subcommand)]
 pub(in crate::cli) enum AgentAction {
     /// List the agents in this machine's local keystore (slug, pubkey, command).
@@ -132,7 +120,7 @@ pub(in crate::cli) enum ChannelsAction {
         #[arg(long)]
         name: String,
         /// Short, stable channel description (max 80 chars), not status text.
-        #[arg(long, value_parser = channel_about)]
+        #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
         /// Optional, repeatable `slug@backend-label`, where `backend-label` is
         /// the target backend's config.json `backendName`. Omit to create an
@@ -144,6 +132,14 @@ pub(in crate::cli) enum ChannelsAction {
         /// `planning` or `epic999/planning`) to nest it elsewhere in the project.
         #[arg(long = "parent-channel", value_name = "CHANNEL")]
         parent_channel: Option<String>,
+    },
+    /// Edit metadata on an existing subgroup task channel.
+    Edit {
+        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        channel: String,
+        /// New durable channel description.
+        #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
+        about: String,
     },
     /// List the subgroup task channels under a project.
     List {
@@ -170,102 +166,4 @@ pub(in crate::cli) enum ChannelsAction {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::{error::ErrorKind, Parser};
-
-    fn parse_err(args: &[&str]) -> clap::Error {
-        match crate::cli::args::Cli::try_parse_from(args) {
-            Ok(_) => panic!("expected parse failure for {args:?}"),
-            Err(err) => err,
-        }
-    }
-
-    #[test]
-    fn agents_list_sessions_filter_still_parses() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "tenex-edge",
-            "agents",
-            "list-sessions",
-            "--agent",
-            "claude@laptop",
-        ])
-        .expect("agents list-sessions parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Agents {
-                action: Some(AgentsAction::ListSessions { agent, since: None }),
-            } => assert_eq!(agent.as_deref(), Some("claude@laptop")),
-            _ => panic!("expected agents list-sessions command"),
-        }
-    }
-
-    #[test]
-    fn channels_create_help_shows_about_limit() {
-        let err = parse_err(&["tenex-edge", "channels", "create", "--help"]);
-        let help = err.to_string();
-
-        assert!(help.contains("Short, stable channel description (max 80 chars)"));
-    }
-
-    #[test]
-    fn channels_create_about_rejects_more_than_80_chars() {
-        let too_long = "a".repeat(CHANNEL_ABOUT_MAX_CHARS + 1);
-        let err = parse_err(&[
-            "tenex-edge",
-            "channels",
-            "create",
-            "--name",
-            "ops",
-            "--about",
-            &too_long,
-        ]);
-
-        assert_eq!(err.kind(), ErrorKind::ValueValidation);
-        assert!(
-            err.to_string()
-                .contains("--about must be 80 characters or fewer (got 81)"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn invite_requires_agent_or_session_and_preserves_xor() {
-        let missing = parse_err(&["tenex-edge", "invite", "--channel", "ops"]);
-        assert_eq!(
-            missing.kind(),
-            clap::error::ErrorKind::MissingRequiredArgument
-        );
-
-        let both = parse_err(&[
-            "tenex-edge",
-            "invite",
-            "--channel",
-            "ops",
-            "--agent",
-            "claude",
-            "--session",
-            "s1",
-        ]);
-        assert_eq!(both.kind(), clap::error::ErrorKind::ArgumentConflict);
-
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "tenex-edge",
-            "invite",
-            "--channel",
-            "ops",
-            "--agent",
-            "claude@laptop",
-        ])
-        .expect("invite with agent parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Invite(args) => {
-                assert_eq!(args.channel, "ops");
-                assert_eq!(args.agent.as_deref(), Some("claude@laptop"));
-                assert_eq!(args.session, None);
-            }
-            _ => panic!("expected invite command"),
-        }
-    }
-}
+mod tests;

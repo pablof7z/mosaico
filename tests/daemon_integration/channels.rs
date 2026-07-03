@@ -6,6 +6,8 @@ use tenex_edge::state::Store;
 mod chat_mirroring;
 #[path = "channels/create.rs"]
 mod create;
+#[path = "channels/edit.rs"]
+mod edit;
 #[path = "channels/launch_mentions.rs"]
 mod launch_mentions;
 #[path = "channels/native_context.rs"]

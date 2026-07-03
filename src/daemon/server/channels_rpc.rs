@@ -1,4 +1,6 @@
-use super::channel_membership_rpc::set_active_session_channel;
+use super::channel_membership_rpc::{
+    resolve_target_channel, set_active_session_channel, TargetChannel,
+};
 use super::*;
 
 pub(in crate::daemon::server) async fn ensure_session_room(
@@ -68,6 +70,7 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
         about: String,
     }
     let p: P = serde_json::from_value(params.clone()).context("channels_create params")?;
+    crate::channel_about::validate_channel_about(&p.about)?;
 
     // Resolve the creator agent (when invoked from a session) FIRST — both the
     // child-of-current-channel default and the auto-switch below need it. Strict
@@ -282,6 +285,76 @@ Switch into it instead: tenex-edge channels switch {}",
         "switched": switched,
         "orchestration_event_id": orchestration_event_id,
     }))
+}
+
+pub(in crate::daemon::server) async fn rpc_channels_edit(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    use nostr_sdk::prelude::Keys;
+
+    #[derive(serde::Deserialize)]
+    struct P {
+        channel: String,
+        about: String,
+    }
+    let p: P = serde_json::from_value(params.clone()).context("channels_edit params")?;
+    crate::channel_about::validate_channel_about(&p.about)?;
+
+    let rec = resolve_session_inner(
+        state,
+        &CallerAnchor::from_params(params),
+        ResolveScope::Strict,
+    )
+    .context("channels edit must be run from within a tenex-edge agent session")?;
+    let channel_h = match resolve_target_channel(state, &rec, &p.channel)? {
+        TargetChannel::Unique(h) => h,
+        TargetChannel::Ambiguous(v) => return Ok(v),
+    };
+
+    let nsec = state
+        .cfg
+        .management_nsec()
+        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
+    let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+    let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&channel_h, &p.about)?;
+    let event_id = state
+        .transport
+        .publish_signed_checked(builder, &mgmt_keys)
+        .await?;
+    let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
+    if !confirmed {
+        anyhow::bail!("relay did not confirm updated about for channel {channel_h}");
+    }
+
+    Ok(serde_json::json!({
+        "event_id": event_id.to_hex(),
+        "channel": channel_h,
+        "about": p.about,
+        "confirmed": confirmed,
+    }))
+}
+
+async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about: &str) -> bool {
+    for _ in 0..20 {
+        state
+            .provider
+            .fetch_and_materialize_channel(channel_h)
+            .await;
+        let matches = state.with_store(|s| {
+            s.get_channel(channel_h)
+                .ok()
+                .flatten()
+                .map(|c| c.about)
+                .as_deref()
+                == Some(about)
+        });
+        if matches {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    false
 }
 
 /// `channels list`: render the subgroup tree under `project` from LOCAL daemon

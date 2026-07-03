@@ -1,6 +1,6 @@
 use super::*;
 
-enum TargetChannel {
+pub(in crate::daemon::server) enum TargetChannel {
     Unique(String),
     Ambiguous(serde_json::Value),
 }
@@ -23,7 +23,7 @@ fn resolve_caller(
     .with_context(|| format!("{verb} must be run from within a tenex-edge agent session"))
 }
 
-fn resolve_target_channel(
+pub(in crate::daemon::server) fn resolve_target_channel(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     reference: &str,

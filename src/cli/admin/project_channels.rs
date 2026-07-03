@@ -76,6 +76,9 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
         }
         std::process::exit(2);
     }
+    fn shell_quote(s: &str) -> String {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
     match action {
         ChannelsAction::Create {
             name,
@@ -129,6 +132,38 @@ pub async fn channels(action: ChannelsAction) -> Result<()> {
             if !oid.is_empty() {
                 println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
             }
+        }
+        ChannelsAction::Edit { channel, about } => {
+            let v = daemon_call_async(
+                "channels_edit",
+                crate::cli::rpc_params(serde_json::json!({
+                    "channel": channel.clone(),
+                    "about": about.clone(),
+                })),
+            )
+            .await?;
+            if let Some(refs) = v["ambiguous"].as_array() {
+                let name = v["reference"].as_str().unwrap_or(&channel);
+                eprintln!("'{name}' is ambiguous — re-run with an exact path:");
+                for r in refs.iter().filter_map(|r| r.as_str()) {
+                    eprintln!(
+                        "  tenex-edge channels edit {} --about {}",
+                        shell_quote(r),
+                        shell_quote(&about)
+                    );
+                }
+                std::process::exit(2);
+            }
+            let event_id = v["event_id"].as_str().unwrap_or("");
+            let suffix = if event_id.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", &event_id[..event_id.len().min(8)])
+            };
+            println!(
+                "updated channel {}{suffix}",
+                v["channel"].as_str().unwrap_or(&channel)
+            );
         }
         ChannelsAction::List { project } => {
             use owo_colors::Stream::Stdout;

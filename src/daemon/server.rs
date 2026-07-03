@@ -239,7 +239,9 @@ use channel_membership_rpc::{rpc_channels_join, rpc_channels_leave, rpc_channels
 use channel_resolve::{
     project_root, resolve_channel, resolve_channel_ref, rpc_channels_resolve, ChannelResolution,
 };
-use channels_rpc::{ensure_session_room, rpc_channels_create, rpc_channels_list};
+use channels_rpc::{
+    ensure_session_room, rpc_channels_create, rpc_channels_edit, rpc_channels_list,
+};
 use chat_publish::{publish_agent_reply, rpc_user_prompt};
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
@@ -291,6 +293,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "agents_list_sessions" => rpc::rpc_agents_list_sessions(state, &req.params),
         "debug_outbox" => rpc_debug_outbox(state, &req.params),
         "channels_create" => rpc_channels_create(state, &req.params).await,
+        "channels_edit" => rpc_channels_edit(state, &req.params).await,
         "channels_resolve" => rpc_channels_resolve(state, &req.params).await,
         "channels_list" => rpc_channels_list(state, &req.params),
         "channels_join" => rpc_channels_join(state, &req.params).await,
