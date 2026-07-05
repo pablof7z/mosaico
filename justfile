@@ -10,6 +10,12 @@ install: build
 lint:
     cargo clippy --all-targets -- -D warnings
 
+# Install the repo's git hooks (currently: a pre-commit `cargo fmt --check`,
+# matching CI's fmt-check). Symlinked so `git pull` picks up hook updates.
+install-hooks:
+    ln -sf ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+    @echo "installed .git/hooks/pre-commit -> scripts/git-hooks/pre-commit"
+
 test: test-all-local
 
 test-all-local: test-unit test-local-relay test-local-nip29

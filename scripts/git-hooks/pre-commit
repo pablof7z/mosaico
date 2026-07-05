@@ -1,0 +1,10 @@
+#!/bin/sh
+# Enforce `cargo fmt` before every commit — the same check CI runs
+# (`just fmt-check`), so a commit that passes locally won't fail CI on
+# formatting. Install with `just install-hooks`.
+
+if ! cargo fmt --check; then
+    echo "" >&2
+    echo "pre-commit: cargo fmt --check failed — run \`cargo fmt\`, re-stage, and commit again." >&2
+    exit 1
+fi
