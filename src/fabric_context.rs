@@ -93,7 +93,12 @@ pub(crate) fn render_fabric_context_human(
 /// project block per root channel in `roots`. No single caller session exists
 /// across projects, so each block is built session-less (no self row, no
 /// chatter — `build_view` only pulls messages when a session is present).
-pub(crate) fn render_fabric_all_projects(store: &Store, roots: &[String], now: u64, local_host: &str) -> String {
+pub(crate) fn render_fabric_all_projects(
+    store: &Store,
+    roots: &[String],
+    now: u64,
+    local_host: &str,
+) -> String {
     let mut out = String::new();
     for root in roots {
         let view = build_view(store, project_input(root, now, local_host, None));

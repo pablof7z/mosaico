@@ -161,8 +161,9 @@ pub(in crate::daemon::server) fn rpc_who(
         // `who --all-projects` must not diverge in output format).
         let edge = crate::config::edge_home();
         let roots = state.with_store(project_roots)?;
-        let fabric =
-            state.with_store(|s| crate::fabric_context::render_fabric_all_projects(s, &roots, now, &host));
+        let fabric = state.with_store(|s| {
+            crate::fabric_context::render_fabric_all_projects(s, &roots, now, &host)
+        });
         out["fabric"] = serde_json::Value::String(fabric);
         let human = state.with_store(|s| {
             crate::fabric_context::render_fabric_all_projects_human(

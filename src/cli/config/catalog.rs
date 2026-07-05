@@ -108,7 +108,11 @@ pub(super) async fn openrouter_models(api_key: &str) -> Result<Vec<CatalogModel>
             if let Some(ctx) = m.context_length {
                 parts.push(format!("{}k ctx", ctx / 1000));
             }
-            if let Some(price) = m.pricing.and_then(|p| p.prompt).and_then(|p| p.parse::<f64>().ok()) {
+            if let Some(price) = m
+                .pricing
+                .and_then(|p| p.prompt)
+                .and_then(|p| p.parse::<f64>().ok())
+            {
                 parts.push(if price > 0.0 {
                     format!("${:.2}/M in", price * 1_000_000.0)
                 } else {

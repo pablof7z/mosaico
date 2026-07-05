@@ -1,2 +1,3 @@
 # Known hard-limit exceptions, one per line:
 # path:max_lines
+tests/daemon_integration/process.rs:523

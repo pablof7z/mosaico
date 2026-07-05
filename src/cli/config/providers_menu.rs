@@ -94,11 +94,8 @@ async fn add(existing: &[(String, String)]) -> Result<()> {
     };
 
     let key = if choice == OTHER {
-        let Some(name) = prompted(
-            Text::new("Provider name")
-                .with_help_message("lowercase slug, becomes the key in providers.json, e.g. \"my-proxy\"")
-                .prompt(),
-        )?
+        let help = "lowercase slug, becomes the key in providers.json, e.g. \"my-proxy\"";
+        let Some(name) = prompted(Text::new("Provider name").with_help_message(help).prompt())?
         else {
             return Ok(());
         };
@@ -116,7 +113,8 @@ async fn add(existing: &[(String, String)]) -> Result<()> {
         return Ok(());
     }
     if existing.iter().any(|(name, _)| name == &key) {
-        println!("  {}", format!("\"{key}\" already exists — pick it from the list to edit it").yellow());
+        let msg = format!("\"{key}\" already exists — pick it from the list to edit it");
+        println!("  {}", msg.yellow());
         return Ok(());
     }
 
@@ -211,7 +209,7 @@ async fn test_connection(file: &ProvidersFile, key: &str) {
                 return;
             }
         },
-        "openrouter" => catalog::openrouter_models(&file.get("openrouter").unwrap_or_default()).await,
+        "openrouter" => catalog::openrouter_models(&file.get(key).unwrap_or_default()).await,
         _ => return,
     };
 

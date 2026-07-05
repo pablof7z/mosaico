@@ -31,7 +31,8 @@ fn theme() -> RenderConfig<'static> {
         .with_answer(StyleSheet::new().with_fg(ACCENT))
         .with_canceled_prompt_indicator(Styled::new("(cancelled)").with_fg(MUTED))
         .with_error_message(
-            ErrorMessageRenderConfig::default_colored().with_prefix(Styled::new("✗").with_fg(ERROR)),
+            ErrorMessageRenderConfig::default_colored()
+                .with_prefix(Styled::new("✗").with_fg(ERROR)),
         );
     cfg.placeholder = StyleSheet::new().with_fg(MUTED);
     cfg

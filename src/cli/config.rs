@@ -11,8 +11,8 @@ mod theme;
 mod util;
 
 use anyhow::{bail, Result};
-pub use args::ConfigArgs;
 use args::ConfigAction;
+pub use args::ConfigArgs;
 use inquire::Select;
 use std::io::IsTerminal;
 use util::prompted;
@@ -32,12 +32,11 @@ pub async fn config(args: ConfigArgs) -> Result<()> {
 async fn top_menu() -> Result<()> {
     loop {
         let choice = prompted(
-            Select::new(
-                "tenex-edge config",
-                vec!["Providers", "Models", "Quit"],
-            )
-            .with_help_message("Providers: API keys/endpoints. Models: assign a model to a role.")
-            .prompt(),
+            Select::new("tenex-edge config", vec!["Providers", "Models", "Quit"])
+                .with_help_message(
+                    "Providers: API keys/endpoints. Models: assign a model to a role.",
+                )
+                .prompt(),
         )?;
 
         match choice {

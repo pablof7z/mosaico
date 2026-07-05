@@ -70,7 +70,11 @@ impl ProvidersFile {
     }
 
     pub(super) fn remove(&mut self, name: &str) {
-        if let Some(map) = self.root.get_mut("providers").and_then(Value::as_object_mut) {
+        if let Some(map) = self
+            .root
+            .get_mut("providers")
+            .and_then(Value::as_object_mut)
+        {
             map.remove(name);
         }
     }

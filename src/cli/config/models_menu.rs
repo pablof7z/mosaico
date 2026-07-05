@@ -124,7 +124,10 @@ async fn pick_provider(providers: &ProvidersFile) -> Result<Option<String>> {
 
     if choices.len() == 1 {
         let only = choices.into_iter().next().unwrap();
-        println!("  {}", format!("using {only} (only configured provider)").dimmed());
+        println!(
+            "  {}",
+            format!("using {only} (only configured provider)").dimmed()
+        );
         return Ok(Some(only));
     }
 
@@ -138,7 +141,10 @@ async fn pick_model(provider: &str, providers: &ProvidersFile) -> Result<Option<
                 println!("  {}", "ollama has no base URL configured".yellow());
                 return Ok(None);
             };
-            println!("  {}", format!("fetching models from {base_url}...").dimmed());
+            println!(
+                "  {}",
+                format!("fetching models from {base_url}...").dimmed()
+            );
             fetch_and_pick(catalog::ollama_models(&base_url).await, "ollama")
         }
         "openrouter" => {
@@ -151,7 +157,10 @@ async fn pick_model(provider: &str, providers: &ProvidersFile) -> Result<Option<
     }
 }
 
-fn fetch_and_pick(result: anyhow::Result<Vec<CatalogModel>>, provider: &str) -> Result<Option<String>> {
+fn fetch_and_pick(
+    result: anyhow::Result<Vec<CatalogModel>>,
+    provider: &str,
+) -> Result<Option<String>> {
     let models = match result {
         Ok(models) if models.is_empty() => {
             println!("  {}", format!("{provider} returned no models").yellow());
