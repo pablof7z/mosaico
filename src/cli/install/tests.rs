@@ -1,0 +1,191 @@
+use super::*;
+
+fn harness(id: &'static str, path: std::path::PathBuf) -> Harness {
+    Harness {
+        id,
+        display: id,
+        config_path: path,
+        detected: true,
+    }
+}
+
+fn opts(all: bool, harness: Option<&str>) -> InstallOpts {
+    InstallOpts {
+        all,
+        harness: harness.map(str::to_string),
+        dry_run: false,
+        status: false,
+        uninstall: false,
+    }
+}
+
+#[test]
+fn all_selection_includes_skill_and_detected_harnesses() {
+    let temp = tempfile::tempdir().unwrap();
+    let harnesses = vec![
+        harness("codex", temp.path().join("codex.json")),
+        Harness {
+            detected: false,
+            ..harness("opencode", temp.path().join("opencode.ts"))
+        },
+    ];
+
+    let selection = resolve_selection(&harnesses, &opts(true, None)).unwrap();
+
+    assert!(selection.skill);
+    assert_eq!(selection.harnesses.len(), 1);
+    assert_eq!(selection.harnesses[0].id, "codex");
+}
+
+#[test]
+fn explicit_harness_selection_includes_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let harnesses = vec![harness("codex", temp.path().join("codex.json"))];
+
+    let selection = resolve_selection(&harnesses, &opts(false, Some("codex"))).unwrap();
+
+    assert!(selection.skill);
+    assert_eq!(selection.harnesses.len(), 1);
+    assert_eq!(selection.harnesses[0].id, "codex");
+}
+
+#[test]
+fn merge_hooks_preserves_foreign_groups_and_replaces_ours() {
+    let mut root = serde_json::json!({
+        "hooks": {
+            "UserPromptSubmit": [
+                {
+                    "hooks": [{
+                        "type": "command",
+                        "command": "pc hook inject --harness codex",
+                        "timeout": 30
+                    }]
+                },
+                {
+                    "hooks": [{
+                        "type": "command",
+                        "command": "tenex-edge harness hook codex --type old",
+                        "timeout": 1
+                    }]
+                }
+            ]
+        }
+    });
+
+    merge_hooks(&mut root, &config::codex_hook_entries(), "codex", false);
+
+    let groups = root
+        .pointer("/hooks/UserPromptSubmit")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    assert_eq!(groups.len(), 2);
+    assert!(groups.iter().any(|g| {
+        g.pointer("/hooks/0/command")
+            .and_then(|v| v.as_str())
+            .is_some_and(|c| c == "pc hook inject --harness codex")
+    }));
+    assert!(groups.iter().any(|g| {
+        g.pointer("/hooks/0/command")
+            .and_then(|v| v.as_str())
+            .is_some_and(|c| c == "tenex-edge harness hook codex --type user-prompt-submit")
+    }));
+}
+
+#[test]
+fn uninstall_removes_ours_and_empty_events_only() {
+    let mut root = serde_json::json!({
+        "hooks": {
+            "Stop": [
+                {
+                    "hooks": [{
+                        "type": "command",
+                        "command": "tenex-edge harness hook codex --type stop",
+                        "timeout": 30
+                    }]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [{
+                        "type": "command",
+                        "command": "pc hook inject --harness codex",
+                        "timeout": 30
+                    }]
+                },
+                {
+                    "hooks": [{
+                        "type": "command",
+                        "command": "tenex-edge harness hook codex --type user-prompt-submit",
+                        "timeout": 30
+                    }]
+                }
+            ]
+        }
+    });
+
+    let removed = merge_hooks(&mut root, &config::codex_hook_entries(), "codex", true);
+
+    assert_eq!(removed, 2);
+    assert!(root.pointer("/hooks/Stop").is_none());
+    let groups = root
+        .pointer("/hooks/UserPromptSubmit")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(
+        groups[0]
+            .pointer("/hooks/0/command")
+            .and_then(|v| v.as_str()),
+        Some("pc hook inject --harness codex")
+    );
+}
+
+#[test]
+fn codex_root_events_are_migrated_under_hooks() {
+    let mut root = serde_json::json!({
+        "Stop": [{
+            "hooks": [{
+                "type": "command",
+                "command": "foreign stop",
+                "timeout": 1
+            }]
+        }],
+        "hooks": {
+            "Stop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "existing stop",
+                    "timeout": 1
+                }]
+            }]
+        }
+    });
+
+    migrate_codex_root_events(&mut root);
+
+    assert!(root.get("Stop").is_none());
+    let groups = root
+        .pointer("/hooks/Stop")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    assert_eq!(groups.len(), 2);
+}
+
+#[test]
+fn write_json_creates_parent_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("a/b/hooks.json");
+    write_json(&path, &serde_json::json!({"hooks": {}})).unwrap();
+    assert!(path.exists());
+}
+
+#[test]
+fn status_detects_installed_codex_hooks() {
+    let temp = tempfile::tempdir().unwrap();
+    let h = harness("codex", temp.path().join("hooks.json"));
+    let mut root = serde_json::json!({});
+    merge_hooks(&mut root, &config::codex_hook_entries(), "codex", false);
+    write_json(&h.config_path, &root).unwrap();
+
+    assert!(is_installed(&h));
+}

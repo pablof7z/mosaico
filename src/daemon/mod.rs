@@ -52,6 +52,33 @@ pub(crate) fn tail_daemon_log() -> String {
     }
 }
 
+/// Outcome of polling a daemon `Child` this process just spawned.
+pub(crate) enum SpawnedChildStatus {
+    /// Still running — keep polling for the handshake.
+    Running,
+    /// Exited successfully: `lifecycle::run` does this when another daemon
+    /// already held the startup lock, so this is a lost spawn race, not a
+    /// crash. The caller should stop watching this child and keep polling —
+    /// the winning daemon should still come up.
+    LostRace,
+    /// Exited with a failure — the message includes the `daemon.log` tail.
+    Crashed(String),
+}
+
+/// Non-blocking check of a spawned daemon child, shared by the sync and async
+/// spawn-if-absent paths so a crash is reported immediately instead of making
+/// the caller wait out the full startup timeout.
+pub(crate) fn poll_spawned_child(child: &mut std::process::Child) -> SpawnedChildStatus {
+    match child.try_wait() {
+        Ok(Some(status)) if status.success() => SpawnedChildStatus::LostRace,
+        Ok(Some(status)) => SpawnedChildStatus::Crashed(format!(
+            "daemon exited immediately ({status}); last daemon.log lines:\n{}",
+            tail_daemon_log()
+        )),
+        _ => SpawnedChildStatus::Running,
+    }
+}
+
 pub fn store_path() -> PathBuf {
     config::edge_home().join("state.db")
 }

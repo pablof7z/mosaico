@@ -99,8 +99,14 @@ pub(super) async fn turn_start(
 }
 
 /// Mid-turn check for PostToolUse hooks. Thin client: the daemon peeks the
-/// inbox and computes the rate-limited sibling-session delta.
-pub(super) fn turn_check(session: Option<String>, emit: EmitFormat) -> Result<HookContextResult> {
+/// inbox and computes the rate-limited sibling-session delta. Goes through
+/// the sync `daemon::blocking` client, so the actual RPC runs on a blocking
+/// thread under [`super::run_hook_blocking`]'s deadline rather than the async
+/// hook path's — hooks must never hang regardless of which client an RPC uses.
+pub(super) async fn turn_check(
+    session: Option<String>,
+    emit: EmitFormat,
+) -> Result<HookContextResult> {
     if crate::daemon::is_inhibited() {
         return Ok(HookContextResult {
             context: None,
@@ -111,19 +117,22 @@ pub(super) fn turn_check(session: Option<String>, emit: EmitFormat) -> Result<Ho
             }),
         });
     }
-    let params = crate::cli::rpc_params(serde_json::json!({ "session": session }));
-    let v = crate::daemon::blocking::call("turn_check", params)?;
-    if let Some(ctx) = v["context"].as_str() {
-        emit_context(ctx, emit);
-        return Ok(HookContextResult {
-            context: Some(ctx.to_string()),
+    super::run_hook_blocking(move || {
+        let params = crate::cli::rpc_params(serde_json::json!({ "session": session }));
+        let v = crate::daemon::blocking::call("turn_check", params)?;
+        if let Some(ctx) = v["context"].as_str() {
+            emit_context(ctx, emit);
+            return Ok(HookContextResult {
+                context: Some(ctx.to_string()),
+                audit: v["audit"].clone(),
+            });
+        }
+        Ok(HookContextResult {
+            context: None,
             audit: v["audit"].clone(),
-        });
-    }
-    Ok(HookContextResult {
-        context: None,
-        audit: v["audit"].clone(),
+        })
     })
+    .await
 }
 
 fn emit_context(content: &str, emit: EmitFormat) {
@@ -145,12 +154,15 @@ fn render_context_output(content: &str, emit: EmitFormat) -> String {
     }
 }
 
-pub(super) fn turn_end(session: String) -> Result<()> {
+pub(super) async fn turn_end(session: String) -> Result<()> {
     if session.is_empty() || crate::daemon::is_inhibited() {
         return Ok(());
     }
-    crate::daemon::blocking::call("turn_end", serde_json::json!({"session": session}))?;
-    Ok(())
+    super::run_hook_blocking(move || {
+        crate::daemon::blocking::call("turn_end", serde_json::json!({"session": session}))?;
+        Ok(())
+    })
+    .await
 }
 
 #[cfg(test)]

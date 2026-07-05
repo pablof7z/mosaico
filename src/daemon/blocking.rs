@@ -270,11 +270,6 @@ fn spawn_if_absent() -> Result<()> {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    // If *we* just spawned the daemon, also watch its exit status: a daemon
-    // that dies immediately (e.g. missing config.json) should be reported
-    // right away, with its own error from daemon.log, instead of making the
-    // caller sit through the full timeout only to see a generic "did not
-    // answer the handshake".
     let mut noted_ready = false;
     let deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < deadline {
@@ -282,19 +277,10 @@ fn spawn_if_absent() -> Result<()> {
             return Ok(());
         }
         if let Some(child) = spawned_child.as_mut() {
-            if let Ok(Some(status)) = child.try_wait() {
-                if status.success() {
-                    // Lost the startup-lock race: `lifecycle::run` exits `Ok(())`
-                    // when another daemon already holds the lock, so a clean exit
-                    // here means a concurrent spawner's daemon won, not a crash.
-                    // Stop watching this child and keep polling for the winner.
-                    spawned_child = None;
-                } else {
-                    bail!(
-                        "daemon exited immediately ({status}); last daemon.log lines:\n{}",
-                        super::tail_daemon_log()
-                    );
-                }
+            match super::poll_spawned_child(child) {
+                super::SpawnedChildStatus::LostRace => spawned_child = None,
+                super::SpawnedChildStatus::Crashed(msg) => bail!("{msg}"),
+                super::SpawnedChildStatus::Running => {}
             }
         }
         if !noted_ready {

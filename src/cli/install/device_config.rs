@@ -12,10 +12,25 @@ use dialoguer::{Confirm, Input};
 use owo_colors::OwoColorize;
 use std::io::{self, IsTerminal as _};
 
+/// Entry point called from `install_with_opts`. Skipped for `--uninstall`
+/// (bootstrapping config while tearing down doesn't make sense); `--dry-run`
+/// only reports what would happen.
+pub(super) fn run_if_needed(opts: &super::args::InstallOpts) -> Result<()> {
+    if opts.uninstall {
+        return Ok(());
+    }
+    if opts.dry_run {
+        note_if_missing();
+        Ok(())
+    } else {
+        ensure_device_config()
+    }
+}
+
 /// Runs the interactive bootstrap when `config.json` is missing. No-op if it
 /// already exists. Never fails the surrounding `install` command — worst case
 /// it prints guidance and leaves the file absent for the user to create later.
-pub(super) fn ensure_device_config() -> Result<()> {
+fn ensure_device_config() -> Result<()> {
     let path = crate::config::config_path();
     if path.exists() {
         return Ok(());
@@ -91,7 +106,7 @@ pub(super) fn ensure_device_config() -> Result<()> {
 }
 
 /// `--dry-run` variant: reports what would happen without prompting or writing.
-pub(super) fn note_if_missing() {
+fn note_if_missing() {
     let path = crate::config::config_path();
     if path.exists() {
         return;

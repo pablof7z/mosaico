@@ -34,11 +34,9 @@ pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // Poll until the daemon accepts and answers handshakes. If *we* just spawned
-    // it, also watch its exit status: a daemon that dies immediately (e.g.
-    // missing config.json) should be reported right away, with its own error
-    // from daemon.log, instead of making the caller sit through the full
-    // timeout only to see a generic "did not answer handshakes".
+    // Watch a child *we* just spawned: a daemon that dies immediately (e.g.
+    // missing config.json) is reported right away instead of waiting out the
+    // full timeout for a generic "did not answer handshakes".
     let mut noted_ready = false;
     let deadline = Instant::now() + DAEMON_STARTUP_TIMEOUT;
     while Instant::now() < deadline {
@@ -46,19 +44,10 @@ pub(super) async fn spawn_daemon_if_absent() -> Result<()> {
             return Ok(());
         }
         if let Some(child) = spawned_child.as_mut() {
-            if let Ok(Some(status)) = child.try_wait() {
-                if status.success() {
-                    // Lost the startup-lock race: `lifecycle::run` exits `Ok(())`
-                    // when another daemon already holds the lock, so a clean exit
-                    // here means a concurrent spawner's daemon won, not a crash.
-                    // Stop watching this child and keep polling for the winner.
-                    spawned_child = None;
-                } else {
-                    bail!(
-                        "daemon exited immediately ({status}); last daemon.log lines:\n{}",
-                        crate::daemon::tail_daemon_log()
-                    );
-                }
+            match crate::daemon::poll_spawned_child(child) {
+                crate::daemon::SpawnedChildStatus::LostRace => spawned_child = None,
+                crate::daemon::SpawnedChildStatus::Crashed(msg) => bail!("{msg}"),
+                crate::daemon::SpawnedChildStatus::Running => {}
             }
         }
         if !noted_ready {
