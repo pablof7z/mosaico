@@ -39,22 +39,27 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Mark a queued event as published (relay acked).
-    pub fn mark_published(&self, local_id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE outbox SET state='published', last_error=NULL WHERE local_id=?1",
-            params![local_id],
-        )?;
-        Ok(())
-    }
-
-    /// Mark a publish attempt failed: records the error and bumps the retry count.
-    /// The row stays `pending` so the drainer retries it.
-    pub fn mark_failed(&self, local_id: i64, error: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE outbox SET retries=retries+1, last_error=?2 WHERE local_id=?1",
-            params![local_id, error],
-        )?;
+    /// Apply a Trellis-derived publish result to the durable queue row.
+    pub fn apply_outbox_projection(
+        &self,
+        local_id: i64,
+        state: &str,
+        last_error: Option<&str>,
+        bump_retries: bool,
+    ) -> Result<()> {
+        if bump_retries {
+            self.conn.execute(
+                "UPDATE outbox
+                 SET state=?2, retries=retries+1, last_error=?3
+                 WHERE local_id=?1",
+                params![local_id, state, last_error],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE outbox SET state=?2, last_error=?3 WHERE local_id=?1",
+                params![local_id, state, last_error],
+            )?;
+        }
         Ok(())
     }
 }

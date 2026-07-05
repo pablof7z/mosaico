@@ -31,6 +31,7 @@ pub(super) fn simulate_value(state: &Arc<DaemonState>, params: &Value) -> Result
         "status" => simulate_status_fact(state, normalize_status_fact(fact)?),
         "turn_lifecycle" => simulate_turn_lifecycle_fact(state, fact),
         "cursor" => simulate_cursor_fact(state, fact),
+        "outbox" => simulate_outbox_fact(state, fact),
         "subscriptions" => simulate_subscription_fact(state, fact),
         other => Err(anyhow::anyhow!("probe simulate: unknown surface `{other}`")),
     }
@@ -89,6 +90,26 @@ fn simulate_cursor_fact(state: &Arc<DaemonState>, fact: InputFact) -> Result<Val
     let revision_after = r.revision();
     Ok(plan_value(PlanJson {
         surface: "cursor",
+        fact: serde_json::to_value(&fact).unwrap_or(Value::Null),
+        labels: &preview.labels,
+        plan: &preview.result,
+        revision_before,
+        revision_after,
+        wire_kind: None,
+        would_publish: None,
+    }))
+}
+
+fn simulate_outbox_fact(state: &Arc<DaemonState>, fact: InputFact) -> Result<Value> {
+    let mut r = state.outbox.lock().expect("outbox mutex poisoned");
+    let revision_before = r.revision();
+    let preview = r
+        .preview_fact(&fact)
+        .map_err(|e| anyhow::anyhow!("outbox preview failed: {e:?}"))?
+        .context("probe simulate: fact is not supported by outbox")?;
+    let revision_after = r.revision();
+    Ok(plan_value(PlanJson {
+        surface: "outbox",
         fact: serde_json::to_value(&fact).unwrap_or(Value::Null),
         labels: &preview.labels,
         plan: &preview.result,
@@ -170,6 +191,9 @@ fn infer_surface(fact: &InputFact) -> Option<&'static str> {
         | InputFact::TurnEnded { .. }
         | InputFact::TranscriptWindowCaptured { .. } => Some("turn_lifecycle"),
         InputFact::TurnCheckRequested { .. } => Some("cursor"),
+        InputFact::OutboxEnqueueApplied { .. } | InputFact::RelayPublishAccepted { .. } => {
+            Some("outbox")
+        }
         InputFact::SubscriptionSync { .. } => Some("subscriptions"),
         _ => None,
     }

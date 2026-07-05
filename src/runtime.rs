@@ -3,14 +3,12 @@
 //! Runs as a daemon-hosted task. It is a thin driver over the local `sessions`
 //! row (the canonical local process record). It:
 //!   - publishes the agent's `kind:0` profile once,
-//!   - feeds every kind:30315 status trigger (startup, TTL tick, distill, turn
-//!     edge, channel change, session-end) into the ONE status reconciler
+//!   - feeds every kind:30315 trigger into the ONE status reconciler
 //!     ([`crate::reconcile::status`]), which decides when to (re)publish; the
 //!     emitted effects are signed + parked on the `outbox` (the single executor),
 //!   - schedules background distillation (`set_session_distill`; the title feeds
-//!     kind:30315 only — it never renames the route channel),
-//!   - watches the host PID and marks the session dead (`mark_dead`) on pid death
-//!     or `cancel` (the `session-end` path).
+//!     kind:30315 only),
+//!   - watches the host PID and marks the session dead on pid death or `cancel`.
 
 use crate::distill;
 use crate::domain::{DomainEvent, Profile};
@@ -132,6 +130,7 @@ pub async fn run_session_in_daemon(
     store: std::sync::Arc<Mutex<Store>>,
     cancel: std::sync::Arc<tokio::sync::Notify>,
     status: std::sync::Arc<Mutex<crate::reconcile::StatusReconciler>>,
+    outbox: std::sync::Arc<Mutex<crate::reconcile::OutboxReconciler>>,
 ) -> Result<()> {
     let owners = p.owners.clone();
     let signing_keys = p.signing_keys();
@@ -192,6 +191,7 @@ pub async fn run_session_in_daemon(
                 &provider,
                 &signing_keys,
                 &store,
+                &outbox,
                 DriveMeta {
                     trigger: $trigger,
                     window_hash: $window_hash,

@@ -33,6 +33,9 @@ pub(super) fn infer_surface(fact: &InputFact) -> Option<&'static str> {
         | InputFact::TurnEnded { .. }
         | InputFact::TranscriptWindowCaptured { .. } => Some("turn_lifecycle"),
         InputFact::TurnCheckRequested { .. } => Some("cursor"),
+        InputFact::OutboxEnqueueApplied { .. } | InputFact::RelayPublishAccepted { .. } => {
+            Some("outbox")
+        }
         InputFact::SubscriptionSync { .. } => Some("subscriptions"),
         _ => None,
     }
@@ -43,6 +46,7 @@ pub(super) fn preview_artifact(state: &Arc<DaemonState>, fact: &InputFact) -> Re
         "status" => preview_status(state, &normalize_status_fact(fact.clone())?),
         "turn_lifecycle" => preview_turn_lifecycle(state, fact),
         "cursor" => preview_cursor(state, fact),
+        "outbox" => preview_outbox(state, fact),
         "subscriptions" => preview_subscriptions(state, fact),
         _ => unreachable!("surface inferred above"),
     }
@@ -108,6 +112,10 @@ fn preview_cursor(state: &Arc<DaemonState>, fact: &InputFact) -> Result<Artifact
     super::cursor_artifact::preview_cursor(state, fact)
 }
 
+fn preview_outbox(state: &Arc<DaemonState>, fact: &InputFact) -> Result<Artifact> {
+    super::outbox_artifact::preview_outbox(state, fact)
+}
+
 fn plan_artifact<C>(
     surface: &'static str,
     labels: &NodeLabels,
@@ -143,6 +151,7 @@ pub(super) fn replay_artifact(script: &DataTransactionScript<InputFact>) -> Resu
         "hook_context" => "hook_context",
         "turn_lifecycle" => "turn_lifecycle",
         "cursor" => "cursor",
+        "outbox" => "outbox",
         _ => "unknown",
     };
     Ok(hashed(

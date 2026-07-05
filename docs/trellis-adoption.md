@@ -97,4 +97,4 @@ keep on the derived-resource surfaces without that surgery. Cursor advancement
 is graph-owned: render requests enter as `InputFact::TurnCheckRequested`, the
 daemon-held cursor graph derives `HookFrame` or `NoFrame`, and the host only
 applies the resulting `sessions.seen_cursor` projection. Session start and the
-outbox drainer remain the explicit follow-ups.
+non-status direct publishers remain the explicit follow-ups.

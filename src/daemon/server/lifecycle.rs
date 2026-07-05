@@ -96,6 +96,7 @@ pub async fn run() -> Result<()> {
         status: Arc::new(Mutex::new(StatusReconciler::for_ttl(status_ttl_duration()))),
         turn_lifecycle: Mutex::new(crate::reconcile::TurnLifecycleReconciler::new()),
         cursor: Mutex::new(crate::reconcile::CursorReconciler::new()),
+        outbox: Arc::new(Mutex::new(crate::reconcile::OutboxReconciler::new())),
         hook_contexts: Mutex::new(HashMap::new()),
         tail_tx: tokio::sync::broadcast::channel(512).0,
         open_clients: Mutex::new(0),
@@ -139,8 +140,7 @@ pub async fn run() -> Result<()> {
         }
     });
 
-    // Relay-dependent startup runs off the accept path, so store-only RPCs
-    // respond immediately even when the relay is slow or unreachable. We warm up
+    // Relay startup runs off the accept path; store-only RPCs respond immediately. We warm up
     // the connection (await connectivity + NIP-42 auth) BEFORE opening any
     // subscription — a REQ opened pre-auth on an auth-gated relay never delivers.
     let relay_state = state.clone();

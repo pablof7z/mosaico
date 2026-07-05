@@ -13,9 +13,9 @@ fn frontier_modes_match_epic_baseline() {
     assert_eq!(modes["hook_context"], "authoritative");
     assert_eq!(modes["turn_lifecycle"], "authoritative");
     assert_eq!(modes["cursor"], "authoritative");
+    assert_eq!(modes["outbox"], "authoritative");
     assert_eq!(modes["session_start"], "imperative");
-    assert_eq!(modes["outbox"], "imperative");
-    assert_eq!(host_seam_coverage_percent(), 71);
+    assert_eq!(host_seam_coverage_percent(), 85);
 }
 
 #[test]
@@ -75,6 +75,10 @@ fn authoritative_effect_executors_require_preview_evidence() {
     let cursor = source("src/daemon/server/cursor.rs");
     assert!(cursor.contains("preview_request"));
     assert!(cursor.contains("command_plans_match"));
+
+    let outbox = source("src/outbox_seam.rs");
+    assert!(outbox.contains("preview_fact"));
+    assert!(outbox.contains("command_plans_match"));
 }
 
 #[test]
@@ -114,6 +118,16 @@ fn no_direct_cursor_mutation_outside_declared_cursor_seam() {
             "src/daemon/server/cursor.rs",
             "src/state/turn_projection.rs",
         ],
+    );
+}
+
+#[test]
+fn no_direct_outbox_result_mutation_outside_declared_outbox_seam() {
+    assert!(scan(["mark_published("]).is_empty());
+    assert!(scan(["mark_failed("]).is_empty());
+    assert_only_allowed(
+        scan(["apply_outbox_projection("]),
+        ["src/outbox_seam.rs", "src/state/outbox.rs"],
     );
 }
 

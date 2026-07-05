@@ -66,6 +66,7 @@ pub fn replay_script(
             super::turn_lifecycle::replay::replay_script(script, export_trace)
         }
         ReplaySurface::Cursor => super::cursor::replay::replay_script(script, export_trace),
+        ReplaySurface::Outbox => super::outbox::replay::replay_script(script, export_trace),
     })
 }
 
@@ -76,6 +77,7 @@ enum ReplaySurface {
     HookContext,
     TurnLifecycle,
     Cursor,
+    Outbox,
 }
 
 fn script_surface(script: &DataTransactionScript<InputFact>) -> Result<ReplaySurface> {
@@ -90,6 +92,9 @@ fn script_surface(script: &DataTransactionScript<InputFact>) -> Result<ReplaySur
                 | InputFact::TurnEnded { .. }
                 | InputFact::TranscriptWindowCaptured { .. } => ReplaySurface::TurnLifecycle,
                 InputFact::TurnCheckRequested { .. } => ReplaySurface::Cursor,
+                InputFact::OutboxEnqueueApplied { .. } | InputFact::RelayPublishAccepted { .. } => {
+                    ReplaySurface::Outbox
+                }
                 other => anyhow::bail!(
                     "replay capsule operation is not a supported surface drive fact: {other:?}"
                 ),
@@ -208,6 +213,37 @@ mod tests {
 
         let report = replay_script(&script, false).unwrap();
         assert_eq!(report.surface, "cursor");
+        assert_eq!(report.steps, 2);
+        assert_eq!(report.resource_commands, 2);
+    }
+
+    #[test]
+    fn outbox_replay_accepts_enqueue_and_publish_result_facts() {
+        let mut script = DataTransactionScript::new();
+        script
+            .step("enqueue")
+            .operation(InputFact::OutboxEnqueueApplied {
+                local_id: 7,
+                event_id: "ev7".into(),
+                event_hash: "sha256:event".into(),
+                source_surface: "status".into(),
+                source_ref: "status/s1#tx:1".into(),
+                at: 100,
+            })
+            .commit();
+        script
+            .step("accepted")
+            .operation(InputFact::RelayPublishAccepted {
+                local_id: 7,
+                event_id: "ev7".into(),
+                accepted: true,
+                error: None,
+                at: 120,
+            })
+            .commit();
+
+        let report = replay_script(&script, false).unwrap();
+        assert_eq!(report.surface, "outbox");
         assert_eq!(report.steps, 2);
         assert_eq!(report.resource_commands, 2);
     }

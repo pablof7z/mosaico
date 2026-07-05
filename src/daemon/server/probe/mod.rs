@@ -21,6 +21,8 @@ mod artifact;
 mod cursor_artifact;
 mod diff;
 mod oracle;
+mod outbox_acid;
+mod outbox_artifact;
 mod replay;
 mod seams;
 mod simulate;
@@ -32,12 +34,13 @@ pub(in crate::daemon::server) use oracle::oracle_report;
 
 /// The reconciler surfaces the ledger records; `stats` with no `--surface`
 /// reports all of them.
-pub(super) const SURFACES: [&str; 5] = [
+pub(super) const SURFACES: [&str; 6] = [
     "status",
     "subscriptions",
     "hook_context",
     "turn_lifecycle",
     "cursor",
+    "outbox",
 ];
 
 /// Route a `probe` RPC to its verb. `params` carries `{"verb": <str>, ...}`.

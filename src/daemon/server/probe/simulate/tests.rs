@@ -90,6 +90,31 @@ async fn simulate_cursor_accepts_input_fact_json_without_mutating() {
 }
 
 #[tokio::test]
+async fn simulate_outbox_accepts_input_fact_json_without_mutating() {
+    let state = DaemonState::new_for_test().await;
+    let fact = InputFact::OutboxEnqueueApplied {
+        local_id: 7,
+        event_id: "ev7".into(),
+        event_hash: "sha256:event".into(),
+        source_surface: "status".into(),
+        source_ref: "status/s1#tx:1".into(),
+        at: 100,
+    };
+
+    let out = simulate_value(&state, &json!({ "verb": "simulate", "fact": fact })).unwrap();
+
+    assert_eq!(out["surface"], "outbox");
+    assert_eq!(out["would_effect"], true);
+    assert_eq!(out["commands"][0]["op"], "Open");
+    assert!(out["changed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "outbox/7/event_id"));
+    assert_eq!(out["revision_before"], out["revision_after"]);
+}
+
+#[tokio::test]
 async fn simulate_new_status_session_labels_preview_only_nodes() {
     let state = DaemonState::new_for_test().await;
     let fact = InputFact::StatusDrive(StatusDrive::SessionStarted(StatusSessionStartedArgs {

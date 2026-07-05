@@ -4,7 +4,7 @@ fn outbox_failed_publish_stays_pending() {
     let id = store.enqueue_outbox("{\"kind\":30315}", 1).unwrap();
 
     store
-        .mark_failed(id, "relay rejected event: blocked")
+        .apply_outbox_projection(id, "pending", Some("relay rejected event: blocked"), true)
         .unwrap();
 
     let pending = store.peek_outbox(10).unwrap();

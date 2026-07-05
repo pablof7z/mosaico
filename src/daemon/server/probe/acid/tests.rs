@@ -158,3 +158,48 @@ async fn cursor_acid_verifies_observed_cursor_cause() {
     assert_eq!(v["necessary"], true);
     assert_eq!(v["unrelated_stable"], true);
 }
+
+#[tokio::test]
+async fn outbox_acid_verifies_relay_result_cause() {
+    let state = DaemonState::new_for_test().await;
+    {
+        let mut r = state.outbox.lock().unwrap();
+        r.drive(InputFact::OutboxEnqueueApplied {
+            local_id: 7,
+            event_id: "ev7".into(),
+            event_hash: "sha256:event".into(),
+            source_surface: "status".into(),
+            source_ref: "status/s1#tx:1".into(),
+            at: 100,
+        })
+        .unwrap();
+        r.drive(InputFact::RelayPublishAccepted {
+            local_id: 7,
+            event_id: "ev7".into(),
+            accepted: false,
+            error: Some("relay rejected".into()),
+            at: 110,
+        })
+        .unwrap();
+    }
+    let fact = InputFact::RelayPublishAccepted {
+        local_id: 7,
+        event_id: "ev7".into(),
+        accepted: true,
+        error: None,
+        at: 120,
+    };
+    let v = acid_value(
+        &state,
+        &json!({
+            "verb": "acid",
+            "handle": "outbox:7",
+            "cause": "outbox/7/result",
+            "fact": fact,
+        }),
+    )
+    .unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["necessary"], true);
+    assert_eq!(v["unrelated_stable"], true);
+}

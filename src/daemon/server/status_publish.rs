@@ -32,22 +32,36 @@ pub(in crate::daemon::server) fn spawn_outbox_drainer(state: Arc<DaemonState>) {
                     match Event::from_json(&item.event_json) {
                         Ok(ev) => match state.transport.publish_event_checked(&ev).await {
                             Ok(_) => {
-                                state.with_store(|s| s.mark_published(item.local_id).ok());
+                                let fact = crate::reconcile::InputFact::RelayPublishAccepted {
+                                    local_id: item.local_id,
+                                    event_id: ev.id.to_hex(),
+                                    accepted: true,
+                                    error: None,
+                                    at: now_secs(),
+                                };
+                                if let Err(e) = crate::outbox_seam::drive(
+                                    &state.outbox,
+                                    &state.store,
+                                    "relay_publish",
+                                    fact,
+                                ) {
+                                    tracing::error!(error = %e, "outbox publish ack was not applied");
+                                }
                                 progressed = true;
                             }
                             Err(e) => {
-                                state.with_store(|s| {
-                                    s.mark_failed(item.local_id, &format!("{e:#}")).ok()
-                                });
+                                apply_publish_failure(&state, item.local_id, &ev.id.to_hex(), e);
                             }
                         },
                         Err(e) => {
                             // A row we can never parse is dead; record the error.
                             // It stays pending but won't block other rows.
-                            state.with_store(|s| {
-                                s.mark_failed(item.local_id, &format!("bad event json: {e}"))
-                                    .ok()
-                            });
+                            apply_publish_failure(
+                                &state,
+                                item.local_id,
+                                "",
+                                anyhow::anyhow!("bad event json: {e}"),
+                            );
                         }
                     }
                 }
@@ -61,6 +75,25 @@ pub(in crate::daemon::server) fn spawn_outbox_drainer(state: Arc<DaemonState>) {
             }
         }
     });
+}
+
+fn apply_publish_failure(
+    state: &Arc<DaemonState>,
+    local_id: i64,
+    event_id: &str,
+    error: anyhow::Error,
+) {
+    let message = format!("{error:#}");
+    let fact = crate::reconcile::InputFact::RelayPublishAccepted {
+        local_id,
+        event_id: event_id.to_string(),
+        accepted: false,
+        error: Some(message),
+        at: now_secs(),
+    };
+    if let Err(e) = crate::outbox_seam::drive(&state.outbox, &state.store, "relay_publish", fact) {
+        tracing::error!(error = %e, "outbox publish failure was not applied");
+    }
 }
 
 // ── session lifecycle ─────────────────────────────────────────────────────────

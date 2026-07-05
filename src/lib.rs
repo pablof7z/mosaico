@@ -21,6 +21,7 @@ pub mod injection;
 pub mod instrument;
 pub mod llmconfig;
 pub mod logging;
+pub(crate) mod outbox_seam;
 pub mod profile;
 pub mod project;
 pub mod session;

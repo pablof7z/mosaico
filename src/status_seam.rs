@@ -1,11 +1,8 @@
 //! The status reconciler drive seam, extracted from the runtime engine.
 //!
-//! [`drive`] runs one status-reconciler method under the shared lock (never held
-//! across `.await`), signs + enqueues the emitted publish/expire effects onto the
-//! durable outbox, and — Slice 8 — records a flattened receipt of the commit
-//! keyed by the published kind:30315 event id. When the drive was a distill
-//! completion, the caller passes the distill's `window_hash`, threaded into the
-//! receipt so `explain event:<id>` rejoins the exact LLM inputs.
+//! [`drive`] runs one status-reconciler method under the shared lock, signs +
+//! enqueues publish effects, records receipts/commits, and threads distill
+//! `window_hash` values so `explain event:<id>` rejoins the exact LLM inputs.
 
 use std::sync::Mutex;
 
@@ -27,16 +24,13 @@ pub(crate) struct DriveMeta<'a> {
     pub replay_fact: Option<InputFact>,
 }
 
-/// Run one reconciler method, apply its effects, and record BOTH its receipt (for
-/// an effectful publish) and its all-commit ledger row (for EVERY commit, incl.
-/// no-ops) — the single status seam. `trigger` names the drive method (`"tick"`,
-/// `"distill"`, …) for the ledger. `window_hash` is `Some` only for a distill-
-/// completion drive, carrying the join key onto the published 30315's receipt.
+/// Run one status transaction, apply effects, and record receipt/commit evidence.
 pub(crate) async fn drive(
     status: &Mutex<StatusReconciler>,
     provider: &Nip29Provider,
     keys: &Keys,
     store: &Mutex<Store>,
+    outbox: &Mutex<crate::reconcile::OutboxReconciler>,
     meta: DriveMeta<'_>,
     f: impl FnOnce(&mut StatusReconciler) -> trellis_core::GraphResult<StatusOutcome>,
 ) {
@@ -86,6 +80,8 @@ pub(crate) async fn drive(
         provider,
         keys,
         store,
+        outbox,
+        &outcome.result,
         preview
             .as_ref()
             .expect("effectful status commit has preview"),
@@ -189,6 +185,8 @@ async fn apply_status_effects(
     provider: &Nip29Provider,
     keys: &Keys,
     store: &Mutex<Store>,
+    outbox: &Mutex<crate::reconcile::OutboxReconciler>,
+    result: &TransactionResult<StatusCommand>,
     _preview: &TransactionResult<StatusCommand>,
 ) -> Vec<String> {
     let mut ids = Vec::new();
@@ -196,7 +194,22 @@ async fn apply_status_effects(
         let status = match effect {
             StatusEffect::Publish { status, .. } | StatusEffect::Expire { status } => status,
         };
-        if let Some(id) = enqueue_status(provider, keys, store, status, now_secs()).await {
+        let source_ref = format!(
+            "status/{}#tx:{}",
+            status.session_id.as_str(),
+            result.transaction_id.get()
+        );
+        if let Some(id) = enqueue_status(
+            provider,
+            keys,
+            store,
+            outbox,
+            status,
+            source_ref,
+            now_secs(),
+        )
+        .await
+        {
             ids.push(id);
         }
     }
@@ -224,7 +237,9 @@ async fn enqueue_status(
     provider: &Nip29Provider,
     keys: &Keys,
     store: &Mutex<Store>,
+    outbox: &Mutex<crate::reconcile::OutboxReconciler>,
     status: Status,
+    source_ref: String,
     now: u64,
 ) -> Option<String> {
     let builder = match provider.encode(&DomainEvent::Status(status)) {
@@ -243,10 +258,32 @@ async fn enqueue_status(
         }
     };
     let json = signed.as_json();
+    let event_id = signed.id.to_hex();
+    let event_hash = crate::instrument::window_hash(&json);
     match store.lock() {
         Ok(g) => {
-            if let Err(e) = g.enqueue_outbox(&json, now) {
-                tracing::error!(error = %e, "enqueue_status: enqueue_outbox failed — status not published this cycle");
+            let local_id = match g.enqueue_outbox(&json, now) {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!(error = %e, "enqueue_status: enqueue_outbox failed — status not published this cycle");
+                    return None;
+                }
+            };
+            drop(g);
+            if let Err(e) = crate::outbox_seam::drive(
+                outbox,
+                store,
+                "enqueue",
+                InputFact::OutboxEnqueueApplied {
+                    local_id,
+                    event_id: event_id.clone(),
+                    event_hash,
+                    source_surface: "status".into(),
+                    source_ref,
+                    at: now,
+                },
+            ) {
+                tracing::error!(error = %e, "enqueue_status: outbox graph drive failed — status not published this cycle");
                 return None;
             }
         }
@@ -257,5 +294,5 @@ async fn enqueue_status(
             return None;
         }
     }
-    Some(signed.id.to_hex())
+    Some(event_id)
 }

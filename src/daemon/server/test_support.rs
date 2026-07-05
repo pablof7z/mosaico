@@ -44,6 +44,7 @@ impl DaemonState {
             ))),
             turn_lifecycle: Mutex::new(crate::reconcile::TurnLifecycleReconciler::new()),
             cursor: Mutex::new(crate::reconcile::CursorReconciler::new()),
+            outbox: Arc::new(Mutex::new(crate::reconcile::OutboxReconciler::new())),
             hook_contexts: Mutex::new(HashMap::new()),
             tail_tx: tokio::sync::broadcast::channel(512).0,
             open_clients: Mutex::new(0),

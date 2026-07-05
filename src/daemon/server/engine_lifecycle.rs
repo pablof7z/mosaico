@@ -39,8 +39,10 @@ pub(in crate::daemon::server) async fn spawn_session(
     let provider = state.provider.clone();
     let store = state.store.clone();
     let status = state.status.clone();
+    let outbox = state.outbox.clone();
     tokio::spawn(async move {
-        let res = runtime::run_session_in_daemon(params, provider, store, cancel, status).await;
+        let res =
+            runtime::run_session_in_daemon(params, provider, store, cancel, status, outbox).await;
         if let Err(e) = res {
             tracing::warn!(session = %sid, error = %e, "session task exited with error");
         }

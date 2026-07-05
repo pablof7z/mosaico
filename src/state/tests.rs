@@ -223,10 +223,12 @@ fn outbox_publish_and_retry() {
     let s = Store::open_memory().unwrap();
     let id = s.enqueue_outbox("{\"k\":1}", 100).unwrap();
     assert_eq!(s.peek_outbox(10).unwrap().len(), 1);
-    s.mark_failed(id, "relay down").unwrap();
+    s.apply_outbox_projection(id, "pending", Some("relay down"), true)
+        .unwrap();
     let pending = s.peek_outbox(10).unwrap();
     assert_eq!(pending[0].retries, 1);
-    s.mark_published(id).unwrap();
+    s.apply_outbox_projection(id, "published", None, false)
+        .unwrap();
     assert!(s.peek_outbox(10).unwrap().is_empty());
 }
 
@@ -276,8 +278,10 @@ fn retention_prune_preserves_pending_outbox() {
     let pending = s.enqueue_outbox("{\"pending\":true}", 1).unwrap();
     let old_done = s.enqueue_outbox("{\"old\":true}", 1).unwrap();
     let new_done = s.enqueue_outbox("{\"new\":true}", 10).unwrap();
-    s.mark_published(old_done).unwrap();
-    s.mark_published(new_done).unwrap();
+    s.apply_outbox_projection(old_done, "published", None, false)
+        .unwrap();
+    s.apply_outbox_projection(new_done, "published", None, false)
+        .unwrap();
 
     let report = s.prune_retained_state_before(0, 5).unwrap();
 
@@ -466,19 +470,15 @@ fn channel_human_name_distinguishes_root_slug_from_unnamed_session_room() {
         created_at: 1,
         updated_at: 1,
     };
-    // Root project: slug is both id and name → that slug IS the human label.
     assert_eq!(
         chan("tenex-edge", "tenex-edge", "").human_name(),
         Some("tenex-edge")
     );
-    // Named subchannel: name distinct from its opaque id → named.
     assert_eq!(
         chan("ab12cd34", "support", "proj").human_name(),
         Some("support")
     );
-    // Session room: name defaulted to its opaque id under a parent → unnamed.
     assert_eq!(chan("session-x1", "session-x1", "proj").human_name(), None);
-    // Empty name → always unnamed (covers the junk empty-id row too).
     assert_eq!(chan("", "", "").human_name(), None);
     assert_eq!(chan("ab12cd34", "   ", "proj").human_name(), None);
 }

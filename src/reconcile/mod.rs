@@ -23,6 +23,7 @@ pub mod graph;
 pub mod hook_context;
 pub mod journal;
 pub mod labels;
+pub mod outbox;
 pub(crate) mod preview;
 pub mod replay;
 pub mod status;
@@ -36,6 +37,7 @@ pub use hook_context::{
 };
 pub use journal::{HookContextRenderFact, InputFact, StatusDrive, StatusSessionStartedArgs};
 pub use labels::{CommitFacts, NodeLabels};
+pub use outbox::{OutboxEffect, OutboxReconciler};
 pub use status::{PublishReason, StatusCommand, StatusEffect, StatusOutcome, StatusReconciler};
 pub(crate) use subscriptions::SubCommand;
 pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionReconciler};

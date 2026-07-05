@@ -229,18 +229,22 @@ pub enum InputFact {
         at: Timestamp,
     },
 
-    /// A relay reported the outcome of an outbound publish.
-    ///
-    /// Replaces `state::outbox::Store::mark_published` (accepted = true) /
-    /// `mark_failed` (accepted = false).
-    RelayPublishAccepted {
-        /// Local outbox row id that was published.
+    /// A graph-derived publish intent was signed and inserted into `outbox`.
+    OutboxEnqueueApplied {
         local_id: i64,
-        /// Event id that was published.
         event_id: String,
-        /// Whether the relay accepted the publish.
+        event_hash: String,
+        source_surface: String,
+        source_ref: String,
+        at: Timestamp,
+    },
+
+    /// A relay reported the outcome of an outbound publish.
+    RelayPublishAccepted {
+        local_id: i64,
+        event_id: String,
         accepted: bool,
-        /// When the outcome was reported.
+        error: Option<String>,
         at: Timestamp,
     },
 
@@ -283,6 +287,7 @@ impl InputFact {
             | Self::DistillCompleted { at, .. }
             | Self::TurnEnded { at, .. }
             | Self::RelayEventObserved { at, .. }
+            | Self::OutboxEnqueueApplied { at, .. }
             | Self::RelayPublishAccepted { at, .. }
             | Self::ProcessExited { at, .. }
             | Self::ClockTick { at } => *at,

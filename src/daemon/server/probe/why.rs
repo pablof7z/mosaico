@@ -1,9 +1,9 @@
 //! `probe why <handle>` (§4.3): live causality for one handle, under the
 //! reconciler lock, from the dependency-path audit already computed on the last
 //! commit. Handles: `sub:<channel>`, `status:<session>`, `turn:<session>`,
-//! `cursor:<session>`, and `hook:<session>`. Everything is rendered through the
-//! label registry. When no live audit exists for a handle, that is reported
-//! cleanly rather than faked.
+//! `cursor:<session>`, `outbox:<local_id>`, and `hook:<session>`. Everything is
+//! rendered through the label registry. When no live audit exists for a handle,
+//! that is reported cleanly rather than faked.
 
 use super::{required_str, DaemonState};
 use anyhow::Result;
@@ -108,6 +108,32 @@ pub(super) fn why_value(state: &Arc<DaemonState>, params: &Value) -> Result<Valu
         });
     }
 
+    if let Some(raw) = handle.strip_prefix("outbox:") {
+        let local_id = raw
+            .parse::<i64>()
+            .map_err(|_| anyhow::anyhow!("probe why: invalid outbox local id `{raw}`"))?;
+        let r = state.outbox.lock().expect("outbox mutex poisoned");
+        return Ok(match r.explain_outbox(local_id) {
+            Some(why) => json!({
+                "verb": "why",
+                "handle": handle,
+                "kind": "outbox",
+                "resource_key": why.resource_key,
+                "last_kind": why.last_kind,
+                "cause": why.cause,
+                "input_causes": why.input_causes,
+                "found": true,
+            }),
+            None => json!({
+                "verb": "why",
+                "handle": handle,
+                "kind": "outbox",
+                "found": false,
+                "note": "no command emitted yet on this daemon graph",
+            }),
+        });
+    }
+
     if let Some(session) = handle
         .strip_prefix("hook:")
         .or_else(|| handle.strip_prefix("hook_context:"))
@@ -138,7 +164,7 @@ pub(super) fn why_value(state: &Arc<DaemonState>, params: &Value) -> Result<Valu
     }
 
     Err(anyhow::anyhow!(
-        "probe why: handle must be `sub:<channel>`, `status:<session>`, `turn:<session>`, `cursor:<session>`, or `hook:<session>`"
+        "probe why: handle must be `sub:<channel>`, `status:<session>`, `turn:<session>`, `cursor:<session>`, `outbox:<local_id>`, or `hook:<session>`"
     ))
 }
 
@@ -242,5 +268,23 @@ mod tests {
             .input_causes
             .iter()
             .any(|l| l == "cursor/s1/observed_cursor"));
+    }
+
+    #[test]
+    fn outbox_handle_explains_projection_cause() {
+        let mut r = crate::reconcile::OutboxReconciler::new();
+        r.drive(crate::reconcile::InputFact::OutboxEnqueueApplied {
+            local_id: 7,
+            event_id: "ev7".into(),
+            event_hash: "sha256:event".into(),
+            source_surface: "status".into(),
+            source_ref: "status/s1#tx:1".into(),
+            at: 100,
+        })
+        .unwrap();
+
+        let why = r.explain_outbox(7).unwrap();
+        assert_eq!(why.resource_key, "outbox/7");
+        assert!(why.input_causes.iter().any(|l| l == "outbox/7/event_id"));
     }
 }

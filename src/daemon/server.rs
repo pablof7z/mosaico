@@ -78,8 +78,8 @@ pub struct DaemonState {
     status: Arc<Mutex<crate::reconcile::StatusReconciler>>,
     turn_lifecycle: Mutex<crate::reconcile::TurnLifecycleReconciler>,
     cursor: Mutex<crate::reconcile::CursorReconciler>,
+    outbox: Arc<Mutex<crate::reconcile::OutboxReconciler>>,
     hook_contexts: crate::turn_context::HookContextGraphs,
-    /// Structured tail event broadcast replacing the old DomainEvent bus.
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
     open_clients: Mutex<u64>,
     shutdown: Notify,

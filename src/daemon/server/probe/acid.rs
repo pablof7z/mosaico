@@ -81,8 +81,11 @@ fn why_causes(state: &Arc<DaemonState>, handle: &str) -> Result<Vec<String>> {
             .map(|why| why.input_causes)
             .unwrap_or_default());
     }
+    if let Some(raw) = handle.strip_prefix("outbox:") {
+        return super::outbox_acid::causes(state, raw);
+    }
     Err(anyhow::anyhow!(
-        "probe acid: handle must be `status:<session>`, `sub:<channel>`, `turn:<session>`, or `cursor:<session>`"
+        "probe acid: handle must be `status:<session>`, `sub:<channel>`, `turn:<session>`, `cursor:<session>`, or `outbox:<local_id>`"
     ))
 }
 
@@ -185,9 +188,12 @@ fn remove_cause(state: &Arc<DaemonState>, fact: InputFact, cause: &str) -> Resul
                 at,
             })
         }
-        _ => Err(anyhow::anyhow!(
-            "probe acid: fact/cause combination is not supported"
-        )),
+        other => match super::outbox_acid::remove_cause(other, cause)? {
+            Some(fact) => Ok(fact),
+            None => Err(anyhow::anyhow!(
+                "probe acid: fact/cause combination is not supported"
+            )),
+        },
     }
 }
 
@@ -235,9 +241,8 @@ fn mutate_unrelated(fact: InputFact) -> Result<InputFact> {
             working,
             at,
         }),
-        _ => Err(anyhow::anyhow!(
-            "probe acid: no unrelated mutation for this fact"
-        )),
+        other => super::outbox_acid::mutate_unrelated(other)
+            .ok_or_else(|| anyhow::anyhow!("probe acid: no unrelated mutation for this fact")),
     }
 }
 

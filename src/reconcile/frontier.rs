@@ -150,14 +150,17 @@ static REGISTRATIONS: [SurfaceRegistration; 7] = [
     },
     SurfaceRegistration {
         name: "outbox",
-        mode: SurfaceMode::Imperative,
+        mode: SurfaceMode::Authoritative,
         facts: &[
-            "pending signed event",
+            "InputFact::OutboxEnqueueApplied",
             "RelayPublishAccepted",
             "RelayPublishFailed",
         ],
-        trellis_inputs: &["InputFact::RelayPublishAccepted"],
-        host_effects: &["relay publish", "outbox row state"],
-        bypass_risks: &["outbox publish"],
+        trellis_inputs: &[
+            "InputFact::OutboxEnqueueApplied",
+            "InputFact::RelayPublishAccepted",
+        ],
+        host_effects: &["outbox seam applies durable queue projection"],
+        bypass_risks: &[],
     },
 ];
