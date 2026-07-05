@@ -1,4 +1,5 @@
 use crate::common::TestRelay;
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -11,10 +12,19 @@ pub(crate) fn shared_relay_url() -> String {
 }
 
 /// A shared NIP-29 relay for tests that own groups / mint subgroups
-/// (nak can't do NIP-29). Spawned once per test binary.
+/// (nak can't do NIP-29). Shared only within one test thread, so relay state
+/// cannot leak between integration tests.
 pub(crate) fn shared_nip29_relay_url() -> String {
-    static RELAY: OnceLock<TestRelay> = OnceLock::new();
-    RELAY.get_or_init(TestRelay::start_nip29_relay).url.clone()
+    thread_local! {
+        static RELAY: RefCell<Option<TestRelay>> = const { RefCell::new(None) };
+    }
+    RELAY.with(|relay| {
+        let mut relay = relay.borrow_mut();
+        relay
+            .get_or_insert_with(TestRelay::start_nip29_relay)
+            .url
+            .clone()
+    })
 }
 
 pub(crate) fn bin() -> PathBuf {

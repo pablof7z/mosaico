@@ -169,13 +169,15 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
     assert_eq!(second_instance.pubkey, transient_pubkey);
     assert_eq!(second_instance.display_slug(), "claude1");
 
-    // kind:0 on the relay: each pubkey is named for ITS OWN instance — the base
-    // pubkey is "claude" (never clobbered to "claude1"), the ordinal is "claude1".
+    // kind:0 on the relay: each pubkey is named for ITS OWN backend-qualified
+    // instance — the base pubkey is "claude@test-host" (never clobbered to the
+    // ordinal label), the ordinal is "claude1@test-host".
     assert!(
         wait_until(std::time::Duration::from_secs(20), || {
-            relay::kind0_name_for_author(&relay, &durable_pubkey).as_deref() == Some("claude")
+            relay::kind0_name_for_author(&relay, &durable_pubkey).as_deref()
+                == Some("claude@test-host")
                 && relay::kind0_name_for_author(&relay, &transient_pubkey).as_deref()
-                    == Some("claude1")
+                    == Some("claude1@test-host")
         }),
         "kind:0 names must be self-consistent: base={:?} ordinal={:?}",
         relay::kind0_name_for_author(&relay, &durable_pubkey),
