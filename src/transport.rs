@@ -20,12 +20,24 @@ use scrub::scrub_unsigned;
 pub struct Transport {
     client: Client,
     pub pubkey: PublicKey,
-    /// URL of the profile indexer relay (READ-only), if configured. kind:0
-    /// profiles are routed here via [`Transport::publish_signed_to`]; all other
-    /// events go to the WRITE relays (main NIP-29 relay) via `send_event`, which
-    /// skips READ-only relays. This prevents the indexer from rejecting NIP-29
-    /// kinds ("blocked: kind 9000 is not allowed") and having that rejection
-    /// pollute `assert_relay_accepted`'s joined-reason verdict.
+    /// URLs of the main NIP-29 relay(s) — the explicit broadcast target for
+    /// every publish. `nostr-relay-pool` gates BOTH `send_event`'s implicit
+    /// "all WRITE-flagged relays" broadcast AND an explicitly-targeted
+    /// `send_event_to` by the SAME per-relay `WRITE` flag (there is no flag
+    /// combination meaning "writable only when explicitly addressed, excluded
+    /// from broadcast"). Since the indexer relay must carry `WRITE` (so the
+    /// explicit kind:0 publish below can reach it at all), publishing here
+    /// MUST target `write_relay_urls` explicitly rather than call the
+    /// pool's implicit broadcast — otherwise every publish would fan out to
+    /// the indexer too and it would reject non-kind:0 events.
+    write_relay_urls: Vec<String>,
+    /// URL of the profile indexer relay, if configured. kind:0 profiles are
+    /// routed here explicitly via [`Transport::publish_event_to`]; it is added
+    /// with full READ+WRITE flags (needed for that explicit publish to
+    /// succeed) but is deliberately excluded from `write_relay_urls`, so it
+    /// never receives the broadcast publishes above and therefore never
+    /// rejects NIP-29 kinds ("blocked: kind 9000 is not allowed") — which
+    /// would otherwise pollute `assert_relay_accepted`'s joined-reason verdict.
     indexer_url: Option<String>,
 }
 
@@ -73,11 +85,12 @@ impl Transport {
         Self::connect_with_indexer(relays, None, keys).await
     }
 
-    /// Connect to the configured main relays (READ+WRITE) plus an optional
-    /// indexer relay (READ-only). The indexer receives kind:0 profile publishes
-    /// via [`Transport::publish_signed_to`] and serves kind:0 lookups, but is
-    /// excluded from `send_event` broadcasts (which target WRITE relays only),
-    /// so it never sees — and therefore never rejects — NIP-29 group events.
+    /// Connect to the configured main relays plus an optional profile indexer
+    /// relay. The indexer is added with full READ+WRITE flags (both are needed:
+    /// READ for kind:0 lookups, WRITE for the explicit kind:0 publish), but
+    /// every broadcast publish below explicitly targets `write_relay_urls`
+    /// (the main relays only), so the indexer never receives — and therefore
+    /// never rejects — NIP-29 group events.
     pub async fn connect_with_indexer(
         relays: &[String],
         indexer_url: Option<&str>,
@@ -92,14 +105,17 @@ impl Transport {
                 .await
                 .with_context(|| format!("adding relay {r}"))?;
         }
-        // Add the indexer as READ-only so send_event (which targets WRITE relays)
-        // skips it. kind:0 profiles route to it explicitly via publish_signed_to.
+        // Full default flags (READ+WRITE+PING): READ so kind:0 lookups still
+        // resolve here, WRITE so the explicit publish_event_to below can reach
+        // it — `send_event_to` enforces the per-relay WRITE flag even when the
+        // caller names the relay explicitly, so a READ-only add would make
+        // every indexer publish fail with `write actions are disabled`.
         if let Some(url) = indexer_url {
             if !url.is_empty() {
                 client
-                    .add_read_relay(url)
+                    .add_relay(url)
                     .await
-                    .with_context(|| format!("adding indexer relay {url} (READ-only)"))?;
+                    .with_context(|| format!("adding indexer relay {url}"))?;
             }
         }
         // Kick off the connection in the BACKGROUND (non-blocking) and return
@@ -111,6 +127,7 @@ impl Transport {
         Ok(Self {
             client,
             pubkey,
+            write_relay_urls: relays.to_vec(),
             indexer_url: indexer_url.filter(|s| !s.is_empty()).map(String::from),
         })
     }
@@ -131,11 +148,13 @@ impl Transport {
             .await;
     }
 
-    /// Sign (with the connection's key) and publish an event template.
+    /// Sign (with the connection's key) and publish an event template to the
+    /// main relays (see [`Transport::write_relay_urls`] doc on why this can't
+    /// just call the pool's implicit broadcast).
     pub async fn publish_builder(&self, builder: EventBuilder) -> Result<EventId> {
         let out = self
             .client
-            .send_event_builder(builder)
+            .send_event_builder_to(self.write_relay_urls.iter().cloned(), builder)
             .await
             .context("publishing event")?;
         Ok(out.val)
@@ -150,7 +169,7 @@ impl Transport {
     pub async fn publish_builder_checked(&self, builder: EventBuilder) -> Result<EventId> {
         let out = self
             .client
-            .send_event_builder(builder)
+            .send_event_builder_to(self.write_relay_urls.iter().cloned(), builder)
             .await
             .context("publishing event")?;
         assert_relay_accepted(&out, None)?;
@@ -170,7 +189,7 @@ impl Transport {
         crate::relay_log::log_outgoing_event(&signed);
         let out = self
             .client
-            .send_event(&signed)
+            .send_event_to(self.write_relay_urls.iter().cloned(), &signed)
             .await
             .context("publishing signed event")?;
         Ok(out.val)
@@ -197,7 +216,7 @@ impl Transport {
         crate::relay_log::log_outgoing_event(&signed);
         let out = self
             .client
-            .send_event(&signed)
+            .send_event_to(self.write_relay_urls.iter().cloned(), &signed)
             .await
             .context("publishing signed event")?;
         assert_relay_accepted(&out, Some(&signed))?;
@@ -219,7 +238,7 @@ impl Transport {
         crate::relay_log::log_outgoing_event(signed);
         let out = self
             .client
-            .send_event(signed)
+            .send_event_to(self.write_relay_urls.iter().cloned(), signed)
             .await
             .context("publishing signed event")?;
         Ok(out.val)
@@ -237,7 +256,7 @@ impl Transport {
         crate::relay_log::log_outgoing_event(signed);
         let out = self
             .client
-            .send_event(signed)
+            .send_event_to(self.write_relay_urls.iter().cloned(), signed)
             .await
             .context("publishing signed event")?;
         assert_relay_accepted(&out, Some(signed))?;
@@ -245,17 +264,17 @@ impl Transport {
     }
 
     /// Publish an already-signed event to a specific relay subset (by URL).
-    /// Used by the indexer publish path: kind:0 profiles go to the READ-only
-    /// indexer relay, which is NOT in the WRITE set targeted by `send_event`.
-    /// Falls back to broadcasting on all WRITE relays when no indexer is
-    /// configured (preserves behavior for single-relay dev setups).
+    /// Used by the indexer publish path: kind:0 profiles go to the indexer
+    /// relay, which is deliberately NOT in `write_relay_urls` (see the
+    /// [`Transport`] field doc). Falls back to the main relays when no
+    /// explicit targets are given (preserves behavior for single-relay dev
+    /// setups with no indexer configured).
     pub async fn publish_event_to(&self, signed: &Event, urls: &[String]) -> Result<EventId> {
         crate::relay_log::log_outgoing_event(signed);
         if urls.is_empty() {
-            // No explicit targets — broadcast on WRITE relays (the default pool).
             let out = self
                 .client
-                .send_event(signed)
+                .send_event_to(self.write_relay_urls.iter().cloned(), signed)
                 .await
                 .context("publishing signed event")?;
             return Ok(out.val);

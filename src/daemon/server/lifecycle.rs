@@ -41,13 +41,15 @@ pub async fn run() -> Result<()> {
         .backend_nsec()
         .and_then(|nsec| Keys::parse(nsec).ok())
         .unwrap_or_else(Keys::generate);
-    // The indexer relay is added to the pool as READ-only and targeted
-    // explicitly for kind:0 profile publishes via `publish_event_to`. It MUST
-    // NOT be in the WRITE relay set: the indexer (purplepag.es) rejects all
-    // NIP-29 kinds ("blocked: kind 9000 is not allowed"), and that rejection
-    // would pollute `assert_relay_accepted`'s joined-reason verdict whenever
-    // the main relay also returned a benign rejection — turning recoverable
-    // NIP-29 states into permanent `ChannelGate::Degraded`.
+    // The indexer relay is added with full READ+WRITE flags (see
+    // `Transport::write_relay_urls` doc) and targeted explicitly for kind:0
+    // profile publishes via `publish_event_to`. It MUST stay OUT of
+    // `write_relay_urls` (the broadcast target for every other publish): the
+    // indexer (purplepag.es) rejects all NIP-29 kinds ("blocked: kind 9000 is
+    // not allowed"), and that rejection would pollute `assert_relay_accepted`'s
+    // joined-reason verdict whenever the main relay also returned a benign
+    // rejection — turning recoverable NIP-29 states into permanent
+    // `ChannelGate::Degraded`.
     let indexer = if cfg.relays.contains(&cfg.indexer_relay) {
         None
     } else {
