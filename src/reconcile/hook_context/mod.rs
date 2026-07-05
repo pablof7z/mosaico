@@ -6,6 +6,7 @@
 //! the same dependency trace.
 
 mod receipt;
+pub(crate) mod replay;
 #[cfg(test)]
 mod tests;
 

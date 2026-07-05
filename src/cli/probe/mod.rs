@@ -14,6 +14,7 @@ mod stats_render;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
+use std::path::PathBuf;
 
 #[derive(Args)]
 pub(in crate::cli) struct ProbeArgs {
@@ -48,6 +49,17 @@ enum ProbeAction {
     },
     /// Show the code-owned authority-frontier registrations and bypass risks.
     Seams,
+    /// Replay a stored input capsule by id; `--assert` checks deterministic replay.
+    Replay {
+        /// Capsule id from the replay-capsule store.
+        capsule: String,
+        /// Assert two independent replays match, including Trellis ledgers.
+        #[arg(long = "assert")]
+        assert_replay: bool,
+        /// Write a Flight Recorder SerializedScenario trace JSON to this path.
+        #[arg(long, value_name = "PATH")]
+        export_trace: Option<PathBuf>,
+    },
     /// Dry-run a fact against a surface via `tx.preview()` — nothing is applied.
     Simulate {
         /// The surface to simulate (`status`; `subscriptions` is a v2 follow-up).
@@ -90,6 +102,19 @@ impl ProbeAction {
                 json!({ "verb": "oracle", "surface": surface }),
             ),
             ProbeAction::Seams => ("seams".into(), json!({ "verb": "seams" })),
+            ProbeAction::Replay {
+                capsule,
+                assert_replay,
+                export_trace,
+            } => (
+                "replay".into(),
+                json!({
+                    "verb": "replay",
+                    "capsule": capsule,
+                    "assert": assert_replay,
+                    "export_trace": export_trace.is_some(),
+                }),
+            ),
             ProbeAction::Simulate {
                 surface,
                 session,
@@ -110,11 +135,32 @@ impl ProbeAction {
             ),
         }
     }
+
+    fn export_trace_path(&self) -> Option<PathBuf> {
+        match self {
+            ProbeAction::Replay { export_trace, .. } => export_trace.clone(),
+            _ => None,
+        }
+    }
 }
 
 pub(in crate::cli) async fn probe(args: ProbeArgs) -> Result<()> {
+    let export_trace_path = args.action.export_trace_path();
     let (verb, params) = args.action.to_rpc();
-    let v = super::daemon_call_async("probe", params).await?;
+    let mut v = super::daemon_call_async("probe", params).await?;
+    if let Some(path) = export_trace_path {
+        let trace = v
+            .get("trace_json")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("probe replay did not return trace_json"))?;
+        std::fs::write(&path, trace)?;
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert(
+                "trace_path".into(),
+                Value::String(path.display().to_string()),
+            );
+        }
+    }
     if args.json {
         println!("{}", serde_json::to_string_pretty(&v)?);
     } else {
@@ -138,6 +184,7 @@ fn render(verb: &str, v: &Value) -> String {
         "stats" => stats_render::render_stats(v),
         "oracle" => render::render_oracle(v),
         "seams" => render::render_seams(v),
+        "replay" => render::render_replay(v),
         "simulate" => render::render_simulate(v),
         "why" => render::render_why(v),
         "state" => render::render_state(v),
@@ -178,6 +225,20 @@ mod tests {
         let (verb, params) = ProbeAction::Seams.to_rpc();
         assert_eq!(verb, "seams");
         assert_eq!(params["verb"], "seams");
+    }
+
+    #[test]
+    fn replay_action_projects_rpc_params() {
+        let action = ProbeAction::Replay {
+            capsule: "42".into(),
+            assert_replay: true,
+            export_trace: Some(PathBuf::from("trace.json")),
+        };
+        let (verb, params) = action.to_rpc();
+        assert_eq!(verb, "replay");
+        assert_eq!(params["capsule"], "42");
+        assert_eq!(params["assert"], true);
+        assert_eq!(params["export_trace"], true);
     }
 
     #[test]

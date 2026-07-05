@@ -125,6 +125,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
 /// can replay it. Off the hot path — a failed insert is logged, never fatal.
 fn record_hook_receipt(state: &Arc<DaemonState>, turn: &crate::turn_context::TurnContext) {
     let r = &turn.receipt;
+    let created_at = crate::instrument::now_millis();
     let row = crate::state::receipts::NewReceipt {
         surface: "hook_context".into(),
         transaction_id: turn.transaction_id,
@@ -132,9 +133,21 @@ fn record_hook_receipt(state: &Arc<DaemonState>, turn: &crate::turn_context::Tur
         changed_summary: r.to_json().to_string(),
         commands: "[]".into(),
         artifact_ref: Some(format!("{}:{}:{}", r.session_id, r.kind, r.now)),
-        created_at: crate::instrument::now_millis(),
+        created_at,
     };
-    state.with_store(|s| crate::instrument::record_receipt(s, row));
+    state.with_store(|s| {
+        crate::instrument::record_receipt(s, row);
+        if let Some(fact) = turn.replay_fact.clone() {
+            crate::replay_capsules::record(
+                s,
+                "hook_context",
+                &r.kind,
+                Some(&r.session_id),
+                fact,
+                created_at,
+            );
+        }
+    });
 }
 
 pub(in crate::daemon::server) fn rpc_turn_check(

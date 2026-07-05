@@ -1,16 +1,14 @@
 //! The stamped persistence schema.
-//!
 //! Six `relay_*` tables are materialized caches and may be dropped/rebuilt from
 //! relay state. The remaining local tables are non-rebuildable daemon state:
-//! session bindings, aliases, derived identities, inbox/outbox ledgers, and
-//! project path mappings. A pubkey appears AT MOST ONCE per channel (enforced via
-//! primary key).
+//! session bindings, aliases, identities, inbox/outbox, and project roots.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
 mod trellis_commits;
+mod trellis_replay_capsules;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -254,6 +252,7 @@ pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
     check_schema_version(conn, path)?;
     conn.execute_batch(SCHEMA).context("creating schema")?;
     trellis_commits::ensure_columns(conn)?;
+    trellis_replay_capsules::ensure_table(conn)?;
     stamp_schema_version(conn)
 }
 
@@ -261,6 +260,7 @@ pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA)
         .context("creating in-memory schema")?;
     trellis_commits::ensure_columns(conn)?;
+    trellis_replay_capsules::ensure_table(conn)?;
     stamp_schema_version(conn)
 }
 

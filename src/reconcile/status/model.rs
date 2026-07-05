@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use trellis_core::{
     AuditExplanationLevel, DependencyList, Graph, GraphResult, InputNode, MapDiff, NodeId,
-    PlanContext, PlanError, ResourceKey, ResourcePlan, ScopeId, TransactionOptions,
+    PlanContext, PlanError, ResourceKey, ResourcePlan, ScopeId, Transaction, TransactionOptions,
     TransactionResult,
 };
 
@@ -128,6 +128,26 @@ pub(super) fn create_session(
     arm: u64,
 ) -> GraphResult<(SessionNodes, TransactionResult<StatusCommand>)> {
     let mut tx = graph.begin_transaction_with_options(opts())?;
+    let nodes = stage_session(
+        &mut tx, labels, id, info, channels, working, title, activity, arm,
+    )?;
+    let result = tx.commit()?;
+    drop(tx);
+    Ok((nodes, result))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn stage_session(
+    tx: &mut Transaction<'_, StatusCommand>,
+    labels: &mut NodeLabels,
+    id: &str,
+    info: StaticInfo,
+    channels: BTreeSet<String>,
+    working: bool,
+    title: &str,
+    activity: &str,
+    arm: u64,
+) -> GraphResult<SessionNodes> {
     let scope = tx.create_scope(format!("status-{id}"))?;
     let working_n = tx.input::<bool>(format!("status-{id}-working"))?;
     labels.record(working_n.id(), format!("status/{id}/working"));
@@ -187,19 +207,13 @@ pub(super) fn create_session(
     )?;
     labels.record(coll.id(), format!("status/{id}/coll"));
     tx.map_resource_planner(coll, scope, plan_status)?;
-
-    let result = tx.commit()?;
-    drop(tx);
-    Ok((
-        SessionNodes {
-            scope,
-            working: working_n,
-            title: title_n,
-            activity: activity_n,
-            channels: channels_n,
-            arm: arm_n,
-            activity_id: activity_n.id(),
-        },
-        result,
-    ))
+    Ok(SessionNodes {
+        scope,
+        working: working_n,
+        title: title_n,
+        activity: activity_n,
+        channels: channels_n,
+        arm: arm_n,
+        activity_id: activity_n.id(),
+    })
 }

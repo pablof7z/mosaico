@@ -11,16 +11,13 @@
 //!     kind:30315 only — it never renames the route channel),
 //!   - watches the host PID and marks the session dead (`mark_dead`) on pid death
 //!     or `cancel` (the `session-end` path).
-//!
-//! There is no per-session-room branching: the only channel distinction is
-//! `parent` (`is_root_channel`/`channel_parent`), and management authority is
-//! `is_channel_admin`, never a local owns-group flag.
 
 use crate::distill;
 use crate::domain::{DomainEvent, Profile};
 use crate::fabric::provider::Nip29Provider;
+use crate::replay_capsules::status_fact;
 use crate::state::{Session, Store};
-use crate::status_seam::drive;
+use crate::status_seam::{drive, DriveMeta};
 use crate::util::now_secs;
 use anyhow::Result;
 use nostr_sdk::prelude::Keys;
@@ -189,14 +186,17 @@ pub async fn run_session_in_daemon(
     let mut cur_turn_started: u64 = 0;
     let mut prev_working = false;
     macro_rules! drive_status {
-        ($trigger:expr, $window_hash:expr, $f:expr) => {
+        ($trigger:expr, $window_hash:expr, $fact:expr, $f:expr) => {
             drive(
                 &status,
                 &provider,
                 &signing_keys,
                 &store,
-                $trigger,
-                $window_hash,
+                DriveMeta {
+                    trigger: $trigger,
+                    window_hash: $window_hash,
+                    replay_fact: Some($fact),
+                },
                 $f,
             )
             .await
@@ -208,22 +208,26 @@ pub async fn run_session_in_daemon(
     }
     if let Some(session) = load_session("startup-status") {
         let now = now_secs();
-        // Seed the session in the ONE status authority (opening publish).
         let chans = channel_set(&p, &store, &session);
-        drive_status!("session_started", None, |r| {
-            r.on_session_started(
-                &p.session_id,
-                &p.host,
-                &aref.slug,
-                &aref.pubkey,
-                &p.rel_cwd,
-                chans,
-                session.working,
-                &session.title,
-                &session.activity,
-                now,
-            )
-        });
+        drive_status!(
+            "session_started",
+            None,
+            status_fact!(started, p, aref, session, chans, now),
+            |r| {
+                r.on_session_started(
+                    &p.session_id,
+                    &p.host,
+                    &aref.slug,
+                    &aref.pubkey,
+                    &p.rel_cwd,
+                    chans,
+                    session.working,
+                    &session.title,
+                    &session.activity,
+                    now,
+                )
+            }
+        );
     }
 
     let mut hb = tokio::time::interval(p.heartbeat);
@@ -235,14 +239,16 @@ pub async fn run_session_in_daemon(
                 if let Some(pid) = p.watch_pid {
                     if !pid_alive(pid) { break; }
                 }
-                // Liveness re-arm: bump last_seen, then the reconciler's TTL tick
-                // pushes the NIP-40 expiration forward. The SINGLE re-arm cadence —
-                // subsumes the old heartbeat enqueue AND the deleted global timer.
                 let now = now_secs();
                 if let Err(e) = st!(|s: &Store| s.touch_session(&p.session_id, now)) {
                     tracing::error!(session = %p.session_id, error = %e, "touch_session failed — liveness not re-armed this beat");
                 }
-                drive_status!("tick", None, |r| r.on_tick(&p.session_id, now));
+                drive_status!(
+                    "tick",
+                    None,
+                    status_fact!(tick, p.session_id, now),
+                    |r| r.on_tick(&p.session_id, now)
+                );
             }
             _ = obs.tick() => {
                 let now = now_secs();
@@ -261,9 +267,6 @@ pub async fn run_session_in_daemon(
                         }
                         slog(&p.session_id, &format!("[distill] applied title={:?}", labels.title));
 
-                        // Instrument the round-trip: hash the exact fed slice HERE,
-                        // record the llm_call, and carry the SAME window_hash onto the
-                        // status receipt so a published 30315 rejoins these inputs.
                         let window_hash = capture.as_ref().map(|c| crate::instrument::window_hash(&c.transcript_slice));
                         if let (Some(cap), Some(wh)) = (capture.as_ref(), window_hash.as_deref()) {
                             let created_at = crate::instrument::now_millis();
@@ -275,14 +278,12 @@ pub async fn run_session_in_daemon(
                             ));
                         }
 
-                        // The LLM output enters as a canonical input; the graph
-                        // republishes iff title/activity changed (title → 30315 only).
-                        drive_status!("distill", window_hash.as_deref(), |r| {
+                        drive_status!("distill", window_hash.as_deref(), status_fact!(
+                            distill, p.session_id, labels, window_hash, now
+                        ), |r| {
                             r.on_distill(&p.session_id, &labels.title, &labels.activity, now)
                         });
                     } else if let Some(err_msg) = error {
-                        // Append to the per-session log for post-mortem inspection.
-                        // (No DB error table in the new schema.)
                         slog(&p.session_id, &format!("[distill] ERROR: {err_msg}"));
                     }
                 }
@@ -293,15 +294,13 @@ pub async fn run_session_in_daemon(
                     .map(|s| (s.working, s.turn_started_at))
                     .unwrap_or((false, 0));
 
-                // Feed observed turn state + channel set into the ONE authority; it
-                // dedups (publishes only on a real busy/idle flip or channel change).
                 if working != prev_working {
-                    drive_status!("turn_edge", None, |r| {
+                    drive_status!("turn_edge", None, status_fact!(turn, p.session_id, working, now), |r| {
                         if working { r.on_turn_start(&p.session_id, now) } else { r.on_turn_end(&p.session_id, now) }
                     });
                 }
                 if let Some(chans) = session.as_ref().map(|s| channel_set(&p, &store, s)) {
-                    drive_status!("channels_changed", None, |r| {
+                    drive_status!("channels_changed", None, status_fact!(channels, p.session_id, chans, now), |r| {
                         r.on_channels_changed(&p.session_id, chans, now)
                     });
                 }
@@ -310,7 +309,6 @@ pub async fn run_session_in_daemon(
                     // ── rising edge / new user message ────────────────────
                     if turn_started_at != cur_turn_started {
                         cur_turn_started = turn_started_at;
-                        // Fresh turn → reset distill scheduling.
                         last_distill_attempt = 0;
                         distill_task = None;
                     }
@@ -371,14 +369,14 @@ pub async fn run_session_in_daemon(
         }
     }
 
-    // Deterministic teardown: close the status scope → the reconciler emits a
-    // FINAL, immediately-expiring kind:30315 so peers drop the session at once.
     let end_now = now_secs();
-    drive_status!("session_ended", None, |r| r
-        .on_session_ended(&p.session_id, end_now));
+    drive_status!(
+        "session_ended",
+        None,
+        status_fact!(ended, p.session_id, end_now),
+        |r| r.on_session_ended(&p.session_id, end_now)
+    );
 
-    // Clean exit: mark the session dead (alive=0, working=0). The TITLE is retained
-    // in the row; mention routing (list_alive_sessions) drops it immediately.
     if let Err(e) = st!(|s: &Store| s.mark_dead(&p.session_id)) {
         tracing::error!(session = %p.session_id, error = %e, "mark_dead failed — session row left alive after clean exit");
     }

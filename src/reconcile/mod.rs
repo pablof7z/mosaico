@@ -22,6 +22,7 @@ pub mod graph;
 pub mod hook_context;
 pub mod journal;
 pub mod labels;
+pub mod replay;
 pub mod status;
 pub mod subscriptions;
 
@@ -29,7 +30,7 @@ pub use graph::{ReconcileCommand, Reconciler};
 pub use hook_context::{
     FrameKind, HookContextOutcome, HookContextReceipt, HookContextReconciler, Shape,
 };
-pub use journal::InputFact;
+pub use journal::{HookContextRenderFact, InputFact, StatusDrive, StatusSessionStartedArgs};
 pub use labels::{CommitFacts, NodeLabels};
 pub use status::{PublishReason, StatusCommand, StatusEffect, StatusOutcome, StatusReconciler};
 pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionReconciler};
