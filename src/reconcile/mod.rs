@@ -26,6 +26,8 @@ pub mod labels;
 pub mod outbox;
 pub(crate) mod preview;
 pub mod replay;
+pub mod session_start;
+mod session_start_facts;
 pub mod status;
 pub mod subscriptions;
 pub mod turn_lifecycle;
@@ -38,6 +40,8 @@ pub use hook_context::{
 pub use journal::{HookContextRenderFact, InputFact, StatusDrive, StatusSessionStartedArgs};
 pub use labels::{CommitFacts, NodeLabels};
 pub use outbox::{OutboxEffect, OutboxReconciler};
+pub use session_start::{SessionStartCommand, SessionStartReconciler};
+pub use session_start_facts::{SessionStartFailedFact, SessionStartRequestFact};
 pub use status::{PublishReason, StatusCommand, StatusEffect, StatusOutcome, StatusReconciler};
 pub(crate) use subscriptions::SubCommand;
 pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionReconciler};

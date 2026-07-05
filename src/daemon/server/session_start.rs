@@ -1,47 +1,13 @@
 use super::*;
 
+mod abort;
+mod advisory;
 mod channel_ready;
+mod params;
 mod stale;
 
-#[derive(serde::Deserialize, Default)]
-pub(in crate::daemon::server) struct SessionStartParams {
-    agent: String,
-    /// The harness-native external session id. Hooks send it as
-    /// `harness_session_id`; the legacy/CLI path sends `session_id`. Either is
-    /// accepted — it is ONLY a locator for `session_aliases`, never the identity.
-    #[serde(default, alias = "harness_session_id")]
-    session_id: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    watch_pid: Option<i32>,
-    /// Stable tmux pane id from $TMUX_PANE (e.g. "%5"). Present only when the hook
-    /// fires inside a tmux session.
-    #[serde(default)]
-    tmux_pane: Option<String>,
-    /// Value of $TMUX (socket path, session id, pane id).
-    #[serde(default)]
-    tmux_socket: Option<String>,
-    /// Harness-native resume token, supplied explicitly by programmatic hosts
-    /// (opencode forwards its `ses_*` id here). For claude-code/codex this is
-    /// absent — their adopted `session_id` IS the resume token.
-    #[serde(default)]
-    resume_id: Option<String>,
-    /// Which harness produced this hook (`claude-code`|`codex`|`opencode`). When
-    /// absent, inferred from the id/resume shape for alias namespacing.
-    #[serde(default)]
-    harness: Option<String>,
-    /// NIP-29 channel (`h`) this pane was spawned into (from `TENEX_EDGE_CHANNEL`).
-    /// When present the session is scoped to this channel instead of the
-    /// working-directory project. The working directory remains the parent repo.
-    #[serde(default)]
-    channel: Option<String>,
-    /// Exact ordinal to allocate for this session (issue #47), forwarded from
-    /// `TENEX_EDGE_ORDINAL` by a spawn-on-mention that targeted a specific
-    /// `smithN`. When present the signer honors it instead of lowest-free.
-    #[serde(default)]
-    preferred_ordinal: Option<u32>,
-}
+use abort::abort_session_start;
+use params::SessionStartParams;
 
 /// The top-level project channel for a route scope.
 fn work_root_for_scope(s: &Store, scope: &str) -> String {
@@ -58,29 +24,6 @@ fn session_pane(s: &Store, session_id: &str) -> Option<String> {
         .into_iter()
         .find(|a| a.external_id_kind == "tmux_pane")
         .map(|a| a.external_id)
-}
-
-/// Roll back a half-started session before bailing out of `rpc_session_start`:
-/// release the reserved signer, mark the session ROW dead, and mark its bound
-/// identity dead, so a start that fails after the session row was written leaves
-/// no ghost-alive session/ordinal behind. Both death-marks are logged loudly (a
-/// failed mark would otherwise leave a stale alive row with no engine).
-fn abort_session_start(state: &Arc<DaemonState>, session_id: &str) {
-    state.release_session_signer(session_id);
-    if let Err(e) = state.with_store(|s| s.mark_dead(session_id)) {
-        tracing::error!(
-            session = %session_id,
-            error = %e,
-            "failed to mark session row dead while aborting session start (ghost-alive row may remain)"
-        );
-    }
-    if let Err(e) = state.with_store(|s| s.mark_identity_dead_for_session(session_id)) {
-        tracing::error!(
-            session = %session_id,
-            error = %e,
-            "failed to mark identity dead while aborting session start"
-        );
-    }
 }
 
 pub(in crate::daemon::server) async fn rpc_session_start(
@@ -283,6 +226,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         &native_id,
         p.preferred_ordinal,
     )?;
+    let already_running = state.sessions.lock().unwrap().contains_key(&session_id);
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
     // channel rather than stomping it with whatever TENEX_EDGE_CHANNEL the new
@@ -290,7 +234,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // overwrites channel_h transiently AND permanently adds a spurious passive
     // join to session_channels (INSERT OR IGNORE never cleans it up), causing
     // the session to receive inbox messages from the wrong channel.
-    let channel_for_upsert = if state.sessions.lock().unwrap().contains_key(&session_id) {
+    let channel_for_upsert = if already_running {
         state
             .with_store(|s| s.get_session(&session_id).ok().flatten())
             .map(|r| r.channel_h)
@@ -298,17 +242,47 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     } else {
         project.clone()
     };
-    let reg = crate::state::RegisterSession {
-        harness: harness_str.to_string(),
-        external_id_kind: ext_kind.to_string(),
-        external_id: ext_id.clone(),
-        agent_pubkey: signer.pubkey.clone(),
-        agent_slug: p.agent.clone(),
-        channel_h: channel_for_upsert,
-        child_pid: p.watch_pid,
-        transcript_path: None,
-        resume_id: native_id.clone(),
+    let effective_pane = tmux_pane
+        .clone()
+        .or_else(|| state.with_store(|s| session_pane(s, &session_id)));
+    let needs_chat_replay = state.subs.lock().unwrap().covers_channel(&project);
+    let base_pubkey = id.pubkey_hex();
+    let request = advisory::request_fact(
+        &session_id,
+        &p.agent,
+        harness_str,
+        ext_kind,
+        ext_id.clone(),
+        &native_id,
+        &work_root,
+        &project,
+        channel_for_upsert,
+        &rel_cwd,
+        room_parent.clone(),
+        p.watch_pid,
+        effective_pane.clone(),
+        tmux_pane.is_some(),
+        base_pubkey.clone(),
+        signer.pubkey.clone(),
+        signer.label.clone(),
+        signer.ordinal,
+        already_running,
+        needs_chat_replay,
         now,
+    );
+    let observed = advisory::observed_command(&request);
+    let plan = advisory::drive_request(state, request, &observed)?.plan;
+    let reg = crate::state::RegisterSession {
+        harness: plan.row.harness.clone(),
+        external_id_kind: plan.row.external_id_kind.clone(),
+        external_id: plan.row.external_id.clone(),
+        agent_pubkey: plan.row.agent_pubkey.clone(),
+        agent_slug: plan.row.agent_slug.clone(),
+        channel_h: plan.row.channel_h.clone(),
+        child_pid: plan.row.child_pid,
+        transcript_path: None,
+        resume_id: plan.row.resume_id.clone(),
+        now: plan.row.now,
     };
     state.with_store(|s| s.upsert_session_row(&session_id, &reg))?;
 
@@ -316,20 +290,17 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // status-format `#(...)` can read it via `#{@te_session}`. When the
     // re-registration arrives without TMUX_PANE, fall back to the session's stored
     // pane alias so @te_session is never left stale. Best-effort, off the store lock.
-    let effective_pane = tmux_pane
-        .clone()
-        .or_else(|| state.with_store(|s| session_pane(s, &session_id)));
-    if let Some(pane) = &effective_pane {
+    if let Some(pane) = &plan.tmux_pane {
         crate::tmux::set_pane_session_id(pane, &session_id, p.tmux_socket.as_deref());
     }
     // Ring on endpoint registration so delivery doesn't depend on the tmux TUI
     // running or on a later mention event.
-    if tmux_pane.is_some() {
+    if plan.ring_doorbell {
         crate::tmux::ring_doorbells(state.clone());
     }
 
     // Idempotent re-start (session reassert): the engine task already runs.
-    if state.sessions.lock().unwrap().contains_key(&session_id) {
+    if plan.reassert {
         tracing::info!(
             agent = %p.agent,
             session = %session_id,
@@ -339,6 +310,14 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         if let Some(prog) = &progress {
             prog.emit("session_start", "existing engine is already running");
         }
+        advisory::record_started(
+            state,
+            &session_id,
+            &plan.row.channel_h,
+            &plan.row.agent_pubkey,
+            plan.row.child_pid,
+            now_secs(),
+        );
         return Ok(serde_json::json!({
             "session_id": session_id,
         }));
@@ -353,21 +332,26 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             "checking NIP-29 channel state and membership on the relay",
         );
     }
-    let agent_pubkey = id.pubkey_hex();
-    channel_ready::ensure_start_channel_ready(
-        state,
-        &project,
-        &work_root,
-        room_parent.as_deref(),
-        &agent_pubkey,
-        &session_id,
-        progress.as_ref(),
-    )
-    .await?;
+    if let Some(check) = &plan.channel_ready {
+        if let Err(e) = channel_ready::ensure_start_channel_ready(
+            state,
+            &check.channel_h,
+            &check.work_root,
+            check.room_parent.as_deref(),
+            &check.base_pubkey,
+            &session_id,
+            progress.as_ref(),
+        )
+        .await
+        {
+            advisory::record_failed(state, &session_id, "channel_ready", &e, now_secs());
+            return Err(e);
+        }
+    }
 
     // `signer` was selected above (before the row was written). Now that the
     // channel is ready, admit ordinals > 0 as NIP-29 members before routing use.
-    if let Some(member_pubkey) = signer.member_pubkey_to_admit() {
+    if let Some(member_pubkey) = plan.admit_pubkey.as_deref() {
         if let Some(prog) = &progress {
             prog.emit(
                 "nip29",
@@ -380,13 +364,14 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         }
         if let Err(e) = admit_ordinal_signer(state, &project, member_pubkey).await {
             abort_session_start(state, &session_id);
+            advisory::record_failed(state, &session_id, "admit_ordinal", &e, now_secs());
             return Err(e);
         }
     }
 
-    // Nudge the drainer now that signer selection/admission is complete: the
-    // pending first kind:30315 must be signed by the selected identity.
-    state.outbox_notify.notify_waiters();
+    if plan.notify_outbox {
+        state.outbox_notify.notify_waiters();
+    }
 
     if let Some(prog) = &progress {
         prog.emit(
@@ -394,41 +379,43 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             "opening or refreshing project subscriptions",
         );
     }
-    // Was the channel already subscribed before this session? If so, a mention may
-    // have been published to it BEFORE this session existed (spawn-on-mention) and
-    // the live materialize path never delivered it. We replay below once alive. A
-    // freshly-subscribed channel needs no replay: opening the new REQ streams its
-    // backlog to this (already-alive) session.
-    let needs_chat_replay = state.subs.lock().unwrap().covers_channel(&project);
-    if let Err(e) = ensure_subscription(state, &project).await {
-        tracing::warn!(channel = %project, error = %e, "subscription setup failed (session will continue)");
-        if let Some(prog) = &progress {
-            prog.emit(
-                "subscription",
-                format!("subscription setup failed but session will continue: {e:#}"),
-            );
+    if plan.ensure_subscription {
+        if let Err(e) = ensure_subscription(state, &project).await {
+            tracing::warn!(channel = %project, error = %e, "subscription setup failed (session will continue)");
+            if let Some(prog) = &progress {
+                prog.emit(
+                    "subscription",
+                    format!("subscription setup failed but session will continue: {e:#}"),
+                );
+            }
+        } else if let Some(prog) = &progress {
+            prog.emit("subscription", "project subscription is active");
         }
-    } else if let Some(prog) = &progress {
-        prog.emit("subscription", "project subscription is active");
     }
 
-    if needs_chat_replay {
+    if plan.replay_chat {
         replay_channel_chat(state, &project).await;
     }
 
+    let Some(spawn) = &plan.spawn else {
+        anyhow::bail!("session_start advisory plan did not include spawn intent");
+    };
     let ep = engine_params_for(
         &state.cfg,
         &id,
         signer.instance(&p.agent, &id.pubkey_hex()),
-        &session_id,
-        &project,
-        &rel_cwd,
-        p.watch_pid,
+        &spawn.session_id,
+        &spawn.channel_h,
+        &spawn.rel_cwd,
+        spawn.watch_pid,
     );
     if let Some(prog) = &progress {
         prog.emit("engine", "starting session engine and initial publishers");
     }
-    spawn_session(state, ep).await?;
+    if let Err(e) = spawn_session(state, ep).await {
+        advisory::record_failed(state, &session_id, "spawn_engine", &e, now_secs());
+        return Err(e);
+    }
     tracing::info!(
         agent = %p.agent,
         channel = %project,
@@ -440,14 +427,25 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         prog.emit("engine", "session engine started");
     }
 
-    state.emit_tail(TailEvent::Sess {
-        ts: now_secs(),
-        project: project.clone(),
-        agent: p.agent.clone(),
-        session: session_id.clone(),
-        state: "start".into(),
-        rel_cwd: rel_cwd.clone(),
-    });
+    if plan.emit_tail {
+        state.emit_tail(TailEvent::Sess {
+            ts: now_secs(),
+            project: project.clone(),
+            agent: p.agent.clone(),
+            session: session_id.clone(),
+            state: "start".into(),
+            rel_cwd: rel_cwd.clone(),
+        });
+    }
+
+    advisory::record_started(
+        state,
+        &session_id,
+        &plan.row.channel_h,
+        &plan.row.agent_pubkey,
+        plan.row.child_pid,
+        now_secs(),
+    );
 
     Ok(serde_json::json!({
         "session_id": session_id,

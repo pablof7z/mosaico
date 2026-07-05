@@ -11,14 +11,14 @@
 //! (a stable content pointer), and a distillation enters as its short `title`
 //! and `activity` strings — never the transcript text or raw event body.
 //!
-//! Each variant's doc comment names the real tenex-edge writer it will
-//! eventually REPLACE, so the surface-implementation agents know exactly which
-//! bespoke `Store` call becomes a fact-plus-plan pair.
+//! Variant docs name the real writer they eventually replace, so surface agents
+//! know which bespoke `Store` call becomes a fact-plus-plan pair.
 
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use super::session_start_facts::{SessionStartFailedFact, SessionStartRequestFact};
 use super::subscriptions::CoverageSnapshot;
 
 /// A monotonic host timestamp (unix seconds), as tenex-edge already uses for
@@ -114,6 +114,7 @@ pub struct HookContextRenderFact {
 /// tests against the Trellis oracle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputFact {
+    SessionStartRequested(SessionStartRequestFact),
     /// Transitional replay fact for the current authoritative status surface.
     StatusDrive(StatusDrive),
 
@@ -248,6 +249,7 @@ pub enum InputFact {
         at: Timestamp,
     },
 
+    SessionStartFailed(SessionStartFailedFact),
     /// A watched host process exited.
     ///
     /// Replaces the `runtime` pid watcher (`pid_alive`) that calls
@@ -277,6 +279,7 @@ impl InputFact {
     /// The host timestamp carried by this fact.
     pub fn at(&self) -> Timestamp {
         match self {
+            Self::SessionStartRequested(fact) => fact.at,
             Self::StatusDrive(drive) => drive.at(),
             Self::SubscriptionSync { at, .. } => *at,
             Self::HookContextRender(fact) => fact.now.max(0) as Timestamp,
@@ -289,6 +292,7 @@ impl InputFact {
             | Self::RelayEventObserved { at, .. }
             | Self::OutboxEnqueueApplied { at, .. }
             | Self::RelayPublishAccepted { at, .. }
+            | Self::SessionStartFailed(SessionStartFailedFact { at, .. })
             | Self::ProcessExited { at, .. }
             | Self::ClockTick { at } => *at,
         }

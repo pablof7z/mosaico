@@ -151,6 +151,7 @@ pub(super) fn replay_artifact(script: &DataTransactionScript<InputFact>) -> Resu
         "hook_context" => "hook_context",
         "turn_lifecycle" => "turn_lifecycle",
         "cursor" => "cursor",
+        "session_start" => "session_start",
         "outbox" => "outbox",
         _ => "unknown",
     };

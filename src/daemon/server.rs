@@ -61,9 +61,8 @@ struct PeerTracked {
 type StatusTailKey = (String, String, String);
 type StatusTailSnapshot = (String, bool);
 
-/// Shared daemon state. The `Store` is behind an `Arc<Mutex<…>>` shared with
-/// session tasks; the guard is held only across synchronous rusqlite calls,
-/// NEVER across `.await`. One process + one connection = the single writer.
+/// Shared daemon state. Store guards are held only across synchronous rusqlite
+/// calls, never across `.await`. One process + one connection = one writer.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
     transport: Arc<Transport>,
@@ -78,6 +77,7 @@ pub struct DaemonState {
     status: Arc<Mutex<crate::reconcile::StatusReconciler>>,
     turn_lifecycle: Mutex<crate::reconcile::TurnLifecycleReconciler>,
     cursor: Mutex<crate::reconcile::CursorReconciler>,
+    session_start: Mutex<crate::reconcile::SessionStartReconciler>,
     outbox: Arc<Mutex<crate::reconcile::OutboxReconciler>>,
     hook_contexts: crate::turn_context::HookContextGraphs,
     tail_tx: tokio::sync::broadcast::Sender<TailEvent>,

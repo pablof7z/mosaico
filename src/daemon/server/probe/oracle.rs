@@ -2,7 +2,7 @@
 //! daemon-held reconciler graph, live, under its lock. This proves the graph's
 //! own bookkeeping is self-consistent — NOT that the host effects it drove are
 //! correct — so the render is scrupulously honest about what was and was not
-//! proven, and names the uncovered (imperative) surfaces.
+//! proven, and names uncovered/advisory host-effect boundaries.
 
 use super::DaemonState;
 use crate::reconcile::frontier;
@@ -44,6 +44,13 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
         let r = state.cursor.lock().expect("cursor mutex poisoned");
         r.clone()
     };
+    let session_start = {
+        let r = state
+            .session_start
+            .lock()
+            .expect("session_start mutex poisoned");
+        r.clone()
+    };
     let outbox = {
         let r = state.outbox.lock().expect("outbox mutex poisoned");
         r.clone()
@@ -79,6 +86,13 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
         cursor.graph_node_count(),
     );
     ok &= cursor_row.status == "green";
+    let session_start_row = check(
+        "session_start",
+        session_start.assert_oracle(),
+        session_start.revision(),
+        session_start.graph_node_count(),
+    );
+    ok &= session_start_row.status == "green";
     let outbox_row = check(
         "outbox",
         outbox.assert_oracle(),
@@ -95,6 +109,7 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
             subs_row,
             turn_row,
             cursor_row,
+            session_start_row,
             outbox_row,
             hook_context,
         ],
@@ -119,7 +134,7 @@ pub(super) fn oracle_value(state: &Arc<DaemonState>) -> Value {
         "surface_correctness_proven": false,
         "surface_correctness": "NOT PROVEN",
         "host_seam_coverage_percent": frontier::host_seam_coverage_percent(),
-        "covered": ["status", "subscriptions", "hook_context", "turn_lifecycle", "cursor", "outbox"],
+        "covered": ["status", "subscriptions", "hook_context", "turn_lifecycle", "cursor", "session_start", "outbox"],
         "uncovered": frontier::uncovered_bypass_risks(),
     })
 }
@@ -193,7 +208,7 @@ mod tests {
     use super::*;
 
     /// A freshly-driven daemon reconciler reports green for both live surfaces and
-    /// prints the honest uncovered list. Built directly (no live daemon) by driving
+    /// prints the honest boundary list. Built directly (no live daemon) by driving
     /// the same reconcilers the daemon holds.
     #[test]
     fn freshly_driven_reconcilers_report_green() {

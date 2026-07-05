@@ -132,21 +132,24 @@ static REGISTRATIONS: [SurfaceRegistration; 7] = [
     },
     SurfaceRegistration {
         name: "session_start",
-        mode: SurfaceMode::Imperative,
+        // Advisory is the intentional ceiling for this surface (#228 §8): Trellis
+        // can derive staged intents, but cannot prove DB/relay/spawn/tmux effects.
+        mode: SurfaceMode::Advisory,
         facts: &[
-            "session_start RPC",
-            "signer choice",
-            "relay readiness",
-            "tmux spawn",
+            "InputFact::SessionStartRequested",
+            "InputFact::SessionStarted",
+            "InputFact::SessionStartFailed",
         ],
-        trellis_inputs: &["InputFact::SessionStarted"],
+        trellis_inputs: &[
+            "InputFact::SessionStartRequested",
+            "InputFact::SessionStarted",
+            "InputFact::SessionStartFailed",
+        ],
         host_effects: &[
-            "session row",
-            "identity row",
-            "relay membership",
-            "tmux pane",
+            "rpc_session_start executes advisory staged intents",
+            "session_start advisory records request/outcome facts",
         ],
-        bypass_risks: &["rpc_session_start"],
+        bypass_risks: &[],
     },
     SurfaceRegistration {
         name: "outbox",

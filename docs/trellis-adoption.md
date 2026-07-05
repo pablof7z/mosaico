@@ -91,10 +91,18 @@ render regression fails the build.
 
 ## Adoption boundary left imperative
 
-`rpc_session_start` (interleaved DB writes, relay round-trips, spawns, tmux
-calls, inline rollback) was intentionally left imperative — Trellis earns its
-keep on the derived-resource surfaces without that surgery. Cursor advancement
-is graph-owned: render requests enter as `InputFact::TurnCheckRequested`, the
-daemon-held cursor graph derives `HookFrame` or `NoFrame`, and the host only
-applies the resulting `sessions.seen_cursor` projection. Session start and the
-non-status direct publishers remain the explicit follow-ups.
+`rpc_session_start` remains effect-imperative by design: it performs DB writes,
+relay checks, signer admission, tmux stamping, subscriptions, replay, and engine
+spawn. It is nevertheless advisory now: `InputFact::SessionStartRequested`
+derives the staged row/check/admit/subscription/spawn intents, the RPC executes
+that plan, and `SessionStarted`/`SessionStartFailed` outcome facts feed the graph
+back. Each request logs a one-request shadow comparison (`shadow_matches=1`,
+`shadow_total=1` when the derived plan matches the host-observed intent) and
+records replay capsules for the request/outcome facts. This surface is capped at
+advisory because Trellis can prove its graph bookkeeping, not the external
+effects themselves.
+
+Cursor advancement is graph-owned: render requests enter as
+`InputFact::TurnCheckRequested`, the daemon-held cursor graph derives `HookFrame`
+or `NoFrame`, and the host only applies the resulting `sessions.seen_cursor`
+projection. The non-status direct publishers remain explicit follow-ups.

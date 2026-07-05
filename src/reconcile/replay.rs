@@ -67,6 +67,9 @@ pub fn replay_script(
         }
         ReplaySurface::Cursor => super::cursor::replay::replay_script(script, export_trace),
         ReplaySurface::Outbox => super::outbox::replay::replay_script(script, export_trace),
+        ReplaySurface::SessionStart => {
+            super::session_start::replay::replay_script(script, export_trace)
+        }
     })
 }
 
@@ -78,6 +81,7 @@ enum ReplaySurface {
     TurnLifecycle,
     Cursor,
     Outbox,
+    SessionStart,
 }
 
 fn script_surface(script: &DataTransactionScript<InputFact>) -> Result<ReplaySurface> {
@@ -95,6 +99,9 @@ fn script_surface(script: &DataTransactionScript<InputFact>) -> Result<ReplaySur
                 InputFact::OutboxEnqueueApplied { .. } | InputFact::RelayPublishAccepted { .. } => {
                     ReplaySurface::Outbox
                 }
+                InputFact::SessionStartRequested(_)
+                | InputFact::SessionStartFailed(_)
+                | InputFact::SessionStarted { .. } => ReplaySurface::SessionStart,
                 other => anyhow::bail!(
                     "replay capsule operation is not a supported surface drive fact: {other:?}"
                 ),

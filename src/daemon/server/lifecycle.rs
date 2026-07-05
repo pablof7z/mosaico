@@ -75,9 +75,8 @@ pub async fn run() -> Result<()> {
         cfg.whitelisted_pubkeys.clone(),
         &cfg.relays, // provider_instance hashes main relays only, not indexer
     ));
-    // Backend identity: pubkey of `tenexPrivateKey` (no `userNsec` fallback —
-    // the operator key is a human identity, not a backend identity). Used as a
-    // copied admin on every group we create and as the orchestration matcher.
+    // Backend identity: pubkey of `tenexPrivateKey` (no `userNsec` fallback).
+    // Used as a copied admin on groups and as the orchestration matcher.
     let backend_pubkey: Option<String> = cfg
         .backend_nsec()
         .and_then(|n| Keys::parse(n).ok())
@@ -96,6 +95,7 @@ pub async fn run() -> Result<()> {
         status: Arc::new(Mutex::new(StatusReconciler::for_ttl(status_ttl_duration()))),
         turn_lifecycle: Mutex::new(crate::reconcile::TurnLifecycleReconciler::new()),
         cursor: Mutex::new(crate::reconcile::CursorReconciler::new()),
+        session_start: Mutex::new(crate::reconcile::SessionStartReconciler::new()),
         outbox: Arc::new(Mutex::new(crate::reconcile::OutboxReconciler::new())),
         hook_contexts: Mutex::new(HashMap::new()),
         tail_tx: tokio::sync::broadcast::channel(512).0,

@@ -32,7 +32,7 @@ enum ProbeAction {
     /// Aggregate value evidence per surface over the all-commit ledger:
     /// commits, effectful vs suppressed no-ops, command/output totals, latency.
     Stats {
-        /// One surface (`status` | `subscriptions` | `hook_context`); omit for all.
+        /// One surface (`status` | `subscriptions` | `session_start` | ...); omit for all.
         #[arg(long)]
         surface: Option<String>,
         /// Only count commits with `created_at` at/after this unix-millis stamp.
@@ -115,7 +115,7 @@ enum ProbeAction {
     },
     /// Explain the latest change to a handle (`sub:<channel>` | `status:<session>` | `hook:<session>`).
     Why { handle: String },
-    /// Live values for a surface (`status` | `subscriptions` | `hook_context`).
+    /// Live values for a surface (`status` | `subscriptions` | `session_start` | `hook_context`).
     State {
         surface: String,
         /// Surface-specific handle; for `hook_context`, this is the session id.

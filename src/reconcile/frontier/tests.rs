@@ -14,8 +14,24 @@ fn frontier_modes_match_epic_baseline() {
     assert_eq!(modes["turn_lifecycle"], "authoritative");
     assert_eq!(modes["cursor"], "authoritative");
     assert_eq!(modes["outbox"], "authoritative");
-    assert_eq!(modes["session_start"], "imperative");
+    assert_eq!(modes["session_start"], "advisory");
     assert_eq!(host_seam_coverage_percent(), 85);
+}
+
+#[test]
+fn session_start_is_capped_at_advisory() {
+    let reg = registrations()
+        .iter()
+        .find(|r| r.name == "session_start")
+        .expect("session_start registration");
+    assert_eq!(reg.mode, SurfaceMode::Advisory);
+    assert!(reg
+        .host_effects
+        .contains(&"rpc_session_start executes advisory staged intents"));
+    assert!(
+        !reg.mode.is_authoritative_plus(),
+        "session_start must not be promoted past advisory by frontier ratchets"
+    );
 }
 
 #[test]

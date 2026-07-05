@@ -123,6 +123,7 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     assert_surface_status(&oracle, "status", "green");
     assert_surface_status(&oracle, "turn_lifecycle", "green");
     assert_surface_status(&oracle, "cursor", "green");
+    assert_surface_status(&oracle, "session_start", "green");
     assert_surface_status(&oracle, "outbox", "green");
     assert_surface_status(&oracle, "hook_context", "green");
 
@@ -141,6 +142,7 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     assert_surface_mode(&seams, "status", "authoritative");
     assert_surface_mode(&seams, "turn_lifecycle", "authoritative");
     assert_surface_mode(&seams, "cursor", "authoritative");
+    assert_surface_mode(&seams, "session_start", "advisory");
     assert_surface_mode(&seams, "outbox", "authoritative");
     assert_surface_mode(&seams, "hook_context", "authoritative");
 
