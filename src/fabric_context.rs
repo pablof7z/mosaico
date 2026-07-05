@@ -20,7 +20,6 @@ pub(crate) use model::FabricView;
 
 use build::build_view;
 use human_render::render_human_view;
-use model::FabricView;
 use render::render_view;
 
 /// Stringify an already-derived [`FabricView`] into the exact `<tenex-edge>`
