@@ -31,6 +31,7 @@ pub mod daemon;
 pub mod distill;
 pub mod fabric;
 pub mod relay_log;
+pub mod replay_capsules;
 pub mod runtime;
 pub mod state;
 pub mod status_seam;

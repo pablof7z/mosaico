@@ -1,5 +1,4 @@
 //! Refcounted, per-entity relay-subscription reconciler.
-//!
 //! This is the honest-Trellis replacement for the retired aggregate
 //! `SubscriptionRegistry`. Each covered entity — a channel `#h`, a group-state
 //! `#d`, an addressed pubkey `#p` — is its OWN [`ResourceKey`] with its OWN
@@ -7,17 +6,17 @@
 //! ONCE and closed when the LAST owner stops needing it; it is never mutated, so
 //! the relay never replays a shrunk aggregate. That kills the unbounded-leak bug
 //! AND makes teardown correct.
-//! Trellis scopes carry the refcount; the host applies only the returned
-//! Open/Close/Replace effects.
 
 mod keys;
 pub(crate) mod probe;
+pub(crate) mod replay;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use nostr_sdk::prelude::{Filter, SubscriptionId};
+use serde::{Deserialize, Serialize};
 use trellis_core::{
     DependencyList, Graph, GraphResult, InputNode, ResourceCommand, ResourceCommandExplanation,
     ResourceCommandKind, ResourceKey, ScopeId, TransactionResult,
@@ -43,7 +42,7 @@ pub enum SubEffect {
 /// reconciler. This is the canonical input the graph derives every REQ from —
 /// exactly the data the old `build_entity_coverage` gathered, but split by owner
 /// so channels can refcount per session.
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoverageSnapshot {
     /// Explicitly subscribed projects + channels any local/ordinal pubkey manages
     /// or is a member of. Owned by the daemon scope.

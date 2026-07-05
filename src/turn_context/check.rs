@@ -92,6 +92,7 @@ pub(crate) fn assemble_turn_check(
         )
     };
     let render_start = std::time::Instant::now();
+    let replay_inputs = inputs.clone();
     let outcome = HookContextReconciler::new()
         .render_context(
             &rec.session_id,
@@ -114,10 +115,20 @@ pub(crate) fn assemble_turn_check(
             crate::instrument::now_millis(),
         );
     }
+    let replay_fact = super::hook_replay_fact(
+        &rec.session_id,
+        "turn_check",
+        cursor as i64,
+        now as i64,
+        false,
+        &replay_inputs,
+        outcome.text.as_deref(),
+    );
     TurnContext {
         text: outcome.text,
         receipt: outcome.receipt,
         transaction_id: outcome.transaction_id,
         revision: outcome.revision,
+        replay_fact,
     }
 }

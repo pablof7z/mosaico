@@ -1,6 +1,6 @@
 use super::*;
 use crate::fabric::subscriptions::{id_h_narrow, narrow_h_filter};
-use crate::reconcile::{CoverageSnapshot, SubEffect};
+use crate::reconcile::{CoverageSnapshot, InputFact, SubEffect};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Record `project` as an explicitly-subscribed channel and reconcile. The
@@ -63,6 +63,7 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
     // §4.1: record the all-commit ledger row for EVERY sync, incl. no-ops (which
     // record no receipt) — the suppression evidence `probe stats` reports.
     state.with_store(|s| {
+        let created_at = crate::instrument::now_millis();
         crate::instrument::record_commit(
             s,
             "subscriptions",
@@ -70,8 +71,19 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
             None,
             &facts,
             duration_us,
-            crate::instrument::now_millis(),
-        )
+            created_at,
+        );
+        crate::replay_capsules::record(
+            s,
+            "subscriptions",
+            "sync",
+            None,
+            InputFact::SubscriptionSync {
+                snapshot: snapshot.clone(),
+                at: created_at.max(0) as u64 / 1000,
+            },
+            created_at,
+        );
     });
     // Slice 8: record the drive-seam receipt (host-side, off the graph path) only
     // when the sync actually opened/closed a REQ — a no-op recompute leaves no noise.

@@ -16,13 +16,15 @@ mod read;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+
 use super::FabricContextInput;
 use crate::state::Store;
 
 /// The four canonical, replayable inputs the fabric view derives from. Each
 /// field is a distinct Trellis input node in the reconciler, so `why_changed`
 /// attributes a snapshot change to exactly the source that moved.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ViewInputs {
     pub(crate) meta: MetaInput,
     pub(crate) members: MembersInput,
@@ -53,7 +55,7 @@ impl ViewInputs {
 }
 
 /// Channel/subchannel metadata + per-render identity (all now/cursor-free).
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct MetaInput {
     pub(super) self_row: Option<SelfCap>,
     pub(super) project: SummaryCap,
@@ -68,7 +70,7 @@ pub(crate) struct MetaInput {
 
 /// The member roster union source: per-channel roster pubkeys, the resolved
 /// display ref for every pubkey that can appear, and the backend-pubkey set.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct MembersInput {
     pub(super) roster: BTreeMap<String, BTreeSet<String>>,
     pub(super) refs: BTreeMap<String, String>,
@@ -77,38 +79,38 @@ pub(crate) struct MembersInput {
 
 /// Presence/status rows (superset, updated_at DESC) with the fields the render
 /// keys on: busy/activity/title plus last_seen/updated_at/expiration.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PresenceInput {
     pub(super) statuses: BTreeMap<String, Vec<StatusCap>>,
 }
 
 /// Chat/mentions: per-channel captured events + forced (inbox) seeds.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct MessagesInput {
     pub(super) channels: BTreeMap<String, MsgBundle>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct SelfCap {
     pub(super) agent: String,
     pub(super) backend: String,
     pub(super) session_id: String,
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct SummaryCap {
     pub(super) name: String,
     pub(super) about: String,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct AgentCap {
     pub(super) reference: String,
     pub(super) about: String,
     pub(super) created_at: u64,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ChannelCap {
     pub(super) h: String,
     pub(super) name: String,
@@ -116,14 +118,14 @@ pub(super) struct ChannelCap {
     pub(super) subchannels: Vec<SummaryCap>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct UnjoinedCap {
     pub(super) name: String,
     pub(super) about: String,
     pub(super) updated_at: u64,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct StatusCap {
     pub(super) pubkey: String,
     pub(super) busy: bool,
@@ -134,13 +136,13 @@ pub(super) struct StatusCap {
     pub(super) expiration: u64,
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct MsgBundle {
     pub(super) events: Vec<EvCap>,
     pub(super) forced: Vec<EvCap>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct EvCap {
     pub(super) id: String,
     pub(super) channel_display: String,

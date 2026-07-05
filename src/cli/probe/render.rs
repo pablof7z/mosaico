@@ -98,6 +98,41 @@ pub(super) fn render_seams(v: &Value) -> String {
     out
 }
 
+/// `probe replay <capsule>` — stored input capsule metadata + replay result.
+pub(super) fn render_replay(v: &Value) -> String {
+    let mut out = String::new();
+    let capsule = v.get("capsule").unwrap_or(&Value::Null);
+    let id = i64_at(capsule, "id");
+    let surface = str_at(capsule, "surface");
+    let trigger = str_at(capsule, "trigger_kind");
+    let trigger_ref = str_at(capsule, "trigger_ref");
+    let _ = writeln!(
+        out,
+        "replay capsule {id}  ({surface}/{trigger} {trigger_ref})"
+    );
+    let _ = writeln!(
+        out,
+        "  stored:   {} bytes, trace format v{}",
+        i64_at(capsule, "script_bytes"),
+        i64_at(capsule, "format_version"),
+    );
+    if v.get("asserted").and_then(Value::as_bool) == Some(true) {
+        let _ = writeln!(
+            out,
+            "  assert:   ok  ({} steps, {} commands, {} frames)",
+            i64_at(v, "steps"),
+            i64_at(v, "resource_commands"),
+            i64_at(v, "output_frames"),
+        );
+    } else {
+        let _ = writeln!(out, "  assert:   not run");
+    }
+    if let Some(path) = v.get("trace_path").and_then(Value::as_str) {
+        let _ = writeln!(out, "  trace:    {path}");
+    }
+    out
+}
+
 /// `probe simulate status/<id>` — the would-be plan; nothing is applied.
 pub(super) fn render_simulate(v: &Value) -> String {
     let mut out = String::new();

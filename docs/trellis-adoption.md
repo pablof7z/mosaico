@@ -55,6 +55,12 @@ reconciler commit records a `receipts` row (surface, transaction, changed
 summary, commands, `artifact_ref` = the published event id). The same
 `window_hash` threads distill → status publish → receipt.
 
+Replay capsules live in `trellis_replay_capsules` as versioned
+`DataTransactionScript<InputFact>` JSON captured at the drive seam. Retention is
+bounded to the newest 512 capsules and 16 MiB of serialized script bytes; the
+same off-values used by `TENEX_EDGE_HOOK_CALL_LOG` also disable capsule capture
+unless `TENEX_EDGE_REPLAY_CAPSULES` overrides the gate.
+
 ```
 tenex-edge explain event:<30315-id>   # the receipt + the exact LLM inputs behind the activity
 tenex-edge explain hook:<session>[@ts] # why the injected snapshot had this shape

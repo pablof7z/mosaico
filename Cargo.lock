@@ -3423,6 +3423,8 @@ name = "trellis-testing"
 version = "0.2.1"
 source = "git+https://github.com/pablof7z/trellis?rev=60e759de65b929ab6671765e5ccf8d330c2bbed2#60e759de65b929ab6671765e5ccf8d330c2bbed2"
 dependencies = [
+ "serde",
+ "serde_json",
  "trellis-core",
 ]
 

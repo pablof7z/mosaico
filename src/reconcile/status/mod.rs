@@ -5,6 +5,7 @@
 
 mod model;
 pub(crate) mod probe;
+pub(crate) mod replay;
 #[cfg(test)]
 mod tests;
 

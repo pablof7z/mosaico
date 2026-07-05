@@ -15,11 +15,97 @@
 //! eventually REPLACE, so the surface-implementation agents know exactly which
 //! bespoke `Store` call becomes a fact-plus-plan pair.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
+
+use super::subscriptions::CoverageSnapshot;
 
 /// A monotonic host timestamp (unix seconds), as tenex-edge already uses for
 /// `enqueued_at`, `turn_started_at`, `last_seen`, etc.
 pub type Timestamp = u64;
+
+/// The status-surface drive inputs needed to replay one committed transaction.
+///
+/// These are intentionally the existing `StatusReconciler` entrypoints captured
+/// as data. They are not durable product doctrine; later frontier slices can
+/// replace them with the smaller canonical lifecycle/distill journal facts once
+/// those facts become the first writer for the status surface.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StatusDrive {
+    SessionStarted(StatusSessionStartedArgs),
+    TurnStarted {
+        session_id: String,
+        at: Timestamp,
+    },
+    TurnEnded {
+        session_id: String,
+        at: Timestamp,
+    },
+    DistillCompleted {
+        session_id: String,
+        title: String,
+        activity: String,
+        window_hash: Option<String>,
+        at: Timestamp,
+    },
+    ChannelsChanged {
+        session_id: String,
+        channels: BTreeSet<String>,
+        at: Timestamp,
+    },
+    Tick {
+        session_id: String,
+        at: Timestamp,
+    },
+    SessionEnded {
+        session_id: String,
+        at: Timestamp,
+    },
+}
+
+impl StatusDrive {
+    pub fn at(&self) -> Timestamp {
+        match self {
+            Self::SessionStarted(args) => args.at,
+            Self::TurnStarted { at, .. }
+            | Self::TurnEnded { at, .. }
+            | Self::DistillCompleted { at, .. }
+            | Self::ChannelsChanged { at, .. }
+            | Self::Tick { at, .. }
+            | Self::SessionEnded { at, .. } => *at,
+        }
+    }
+}
+
+/// Arguments for `StatusReconciler::on_session_started`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusSessionStartedArgs {
+    pub session_id: String,
+    pub host: String,
+    pub slug: String,
+    pub pubkey: String,
+    pub rel_cwd: String,
+    pub channels: BTreeSet<String>,
+    pub working: bool,
+    pub title: String,
+    pub activity: String,
+    pub at: Timestamp,
+}
+
+/// A frozen hook-context render input. `inputs_json` is the serde form of
+/// `fabric_context::ViewInputs`; it remains JSON here so the public `InputFact`
+/// type does not expose that private render-capture structure as API.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookContextRenderFact {
+    pub session_id: String,
+    pub hook_kind: String,
+    pub cursor: i64,
+    pub now: i64,
+    pub force: bool,
+    pub emitted_text_hash: Option<String>,
+    pub inputs_json: serde_json::Value,
+}
 
 /// One canonical world-fact, appended to the input journal by the host.
 ///
@@ -28,6 +114,19 @@ pub type Timestamp = u64;
 /// tests against the Trellis oracle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputFact {
+    /// Transitional replay fact for the current authoritative status surface.
+    StatusDrive(StatusDrive),
+
+    /// Transitional replay fact for the current authoritative subscriptions
+    /// surface: one complete coverage snapshot handed to the reconciler.
+    SubscriptionSync {
+        snapshot: CoverageSnapshot,
+        at: Timestamp,
+    },
+
+    /// Transitional replay fact for the current hook-context render surface.
+    HookContextRender(HookContextRenderFact),
+
     /// A new agent session became known to the daemon.
     ///
     /// Replaces `state::sessions::Store::register_session` /
@@ -160,6 +259,9 @@ impl InputFact {
     /// The host timestamp carried by this fact.
     pub fn at(&self) -> Timestamp {
         match self {
+            Self::StatusDrive(drive) => drive.at(),
+            Self::SubscriptionSync { at, .. } => *at,
+            Self::HookContextRender(fact) => fact.now.max(0) as Timestamp,
             Self::SessionStarted { at, .. }
             | Self::TurnStarted { at, .. }
             | Self::TranscriptWindowCaptured { at, .. }

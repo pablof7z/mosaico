@@ -6,6 +6,7 @@
 //! * `stats`    — aggregate value evidence over the all-commit ledger (§4.1).
 //! * `oracle`   — the incremental-equals-full correctness check, live (§4.6).
 //! * `seams`    — authority-frontier registrations + host-seam coverage (§4.5).
+//! * `replay`   — replay a stored input capsule and optionally export a trace (§4.4).
 //! * `simulate` — dry-run a fact via `tx.preview()`; the keystone (§3).
 //! * `why`      — live causality for a `sub:`/`status:` handle (§4.3).
 //! * `state`    — live values per surface: owners/refcounts, status inputs (§4.3).
@@ -16,6 +17,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 mod oracle;
+mod replay;
 mod seams;
 mod simulate;
 mod state;
@@ -45,6 +47,7 @@ pub(in crate::daemon::server) fn rpc_probe(
         }
         "oracle" => Ok(oracle::oracle_value(state)),
         "seams" => Ok(seams::seams_value()),
+        "replay" => replay::replay_value(state, params),
         "simulate" => simulate::simulate_value(state, params),
         "why" => why::why_value(state, params),
         "state" => state::state_value(state, params),
@@ -88,9 +91,10 @@ fn not_live_note() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reconcile::CoverageSnapshot;
+    use crate::reconcile::{CoverageSnapshot, InputFact, StatusDrive};
     use crate::state::trellis_commits::NewCommit;
     use std::collections::{BTreeMap, BTreeSet};
+    use trellis_testing::DataTransactionScript;
 
     /// End-to-end proof that the `probe` RPC — the lock/param/dispatch inch in
     /// `rpc_probe` — actually works over a REAL `DaemonState`, not merely that the
@@ -135,6 +139,15 @@ mod tests {
             .unwrap();
         }
         // Drive the ledger: one recorded status commit so `stats` counts it.
+        let mut replay_script = DataTransactionScript::new();
+        replay_script
+            .step("tick")
+            .operation(InputFact::StatusDrive(StatusDrive::Tick {
+                session_id: "missing".into(),
+                at: 1_700_000_010,
+            }))
+            .commit();
+        let replay_json = replay_script.to_json().unwrap();
         state.with_store(|s| {
             s.record_commit(&NewCommit {
                 surface: "status".into(),
@@ -158,6 +171,15 @@ mod tests {
                 duration_us: 100,
                 graph_nodes: 6,
                 graph_resources: 0,
+                created_at: 1_700_000_010,
+            })
+            .unwrap();
+            s.record_replay_capsule(&crate::state::trellis_replay_capsules::NewReplayCapsule {
+                surface: "status".into(),
+                trigger_kind: "tick".into(),
+                trigger_ref: "missing".into(),
+                script_json: replay_json,
+                format_version: 1,
                 created_at: 1_700_000_010,
             })
             .unwrap();
@@ -193,6 +215,15 @@ mod tests {
             .unwrap()
             .iter()
             .any(|r| r["surface"] == "status" && r["mode"] == "authoritative"));
+
+        // replay → the stored capsule runs through the Trellis replay harness.
+        let replay = rpc_probe(
+            &state,
+            &json!({ "verb": "replay", "capsule": "1", "assert": true }),
+        )
+        .unwrap();
+        assert_eq!(replay["asserted"], true);
+        assert_eq!(replay["steps"], 1);
 
         // simulate → a NEW activity would_publish (Replace) and the live graph is
         // untouched (revision unchanged).

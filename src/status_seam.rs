@@ -14,10 +14,18 @@ use trellis_core::{ResourceCommand, TransactionResult};
 
 use crate::domain::{DomainEvent, Status};
 use crate::fabric::provider::Nip29Provider;
-use crate::reconcile::{StatusCommand, StatusEffect, StatusOutcome, StatusReconciler};
+use crate::reconcile::{
+    InputFact, StatusCommand, StatusDrive, StatusEffect, StatusOutcome, StatusReconciler,
+};
 use crate::state::receipts::NewReceipt;
 use crate::state::Store;
 use crate::util::now_secs;
+
+pub(crate) struct DriveMeta<'a> {
+    pub trigger: &'a str,
+    pub window_hash: Option<&'a str>,
+    pub replay_fact: Option<InputFact>,
+}
 
 /// Run one reconciler method, apply its effects, and record BOTH its receipt (for
 /// an effectful publish) and its all-commit ledger row (for EVERY commit, incl.
@@ -29,14 +37,18 @@ pub(crate) async fn drive(
     provider: &Nip29Provider,
     keys: &Keys,
     store: &Mutex<Store>,
-    trigger: &str,
-    window_hash: Option<&str>,
+    meta: DriveMeta<'_>,
     f: impl FnOnce(&mut StatusReconciler) -> trellis_core::GraphResult<StatusOutcome>,
 ) {
     // Time the commit at the host boundary (the ledgers never read the clock).
     let start = std::time::Instant::now();
-    let (outcome, facts) = {
+    let (outcome, facts, replay_seed) = {
         let mut rec = status.lock().expect("status reconciler poisoned");
+        let replay_seed = meta
+            .replay_fact
+            .as_ref()
+            .and_then(status_replay_seed_session_id)
+            .and_then(|id| rec.replay_seed(id));
         let outcome = f(&mut rec).ok();
         // Flatten EVERY commit (incl. no-ops) through the surface's labels.
         let facts = outcome.as_ref().map(|o| {
@@ -48,24 +60,53 @@ pub(crate) async fn drive(
             facts.graph_resources = rec.state_rows().len() as i64;
             facts
         });
-        (outcome, facts)
+        (outcome, facts, replay_seed)
     };
     let duration_us = start.elapsed().as_micros() as i64;
     let Some(outcome) = outcome else { return };
     let event_ids = apply_status_effects(outcome.effects, provider, keys, store).await;
     let trigger_ref = status_session_id(&outcome.result);
-    record_status_receipt(store, window_hash, &outcome.result, &event_ids);
+    record_status_receipt(store, meta.window_hash, &outcome.result, &event_ids);
     if let Some(facts) = facts {
+        let created_at = crate::instrument::now_millis();
         let g = store.lock().expect("store mutex poisoned");
         crate::instrument::record_commit(
             &g,
             "status",
-            trigger,
+            meta.trigger,
             trigger_ref,
             &facts,
             duration_us,
-            crate::instrument::now_millis(),
+            created_at,
         );
+        if let Some(fact) = meta.replay_fact {
+            let mut replay_facts = Vec::new();
+            if let Some(seed) = replay_seed {
+                replay_facts.push(InputFact::StatusDrive(StatusDrive::SessionStarted(seed)));
+            }
+            replay_facts.push(fact);
+            crate::replay_capsules::record_many(
+                &g,
+                "status",
+                meta.trigger,
+                trigger_ref,
+                replay_facts,
+                created_at,
+            );
+        }
+    }
+}
+
+fn status_replay_seed_session_id(fact: &InputFact) -> Option<&str> {
+    match fact {
+        InputFact::StatusDrive(StatusDrive::SessionStarted(_)) => None,
+        InputFact::StatusDrive(StatusDrive::TurnStarted { session_id, .. })
+        | InputFact::StatusDrive(StatusDrive::TurnEnded { session_id, .. })
+        | InputFact::StatusDrive(StatusDrive::DistillCompleted { session_id, .. })
+        | InputFact::StatusDrive(StatusDrive::ChannelsChanged { session_id, .. })
+        | InputFact::StatusDrive(StatusDrive::Tick { session_id, .. })
+        | InputFact::StatusDrive(StatusDrive::SessionEnded { session_id, .. }) => Some(session_id),
+        _ => None,
     }
 }
 
