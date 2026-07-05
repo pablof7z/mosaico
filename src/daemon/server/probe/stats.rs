@@ -24,8 +24,11 @@ pub(super) fn stats_value(s: &Store, surface: Option<&str>, since: i64) -> Resul
             "noop": st.noop,
             "command_count_sum": st.command_count_sum,
             "output_count_sum": st.output_count_sum,
+            "effect_count_sum": st.effect_count_sum,
+            "suppressed_count_sum": st.suppressed_count_sum,
             "duration_us_sum": st.duration_us_sum,
             "max_graph_nodes": st.max_graph_nodes,
+            "max_graph_resources": st.max_graph_resources,
         }));
     }
     Ok(json!({ "verb": "stats", "since": since, "surfaces": rows }))
@@ -41,15 +44,24 @@ mod tests {
             surface: surface.into(),
             transaction_id: 1,
             revision: 1,
+            mode: "authoritative".into(),
             trigger_kind: "tick".into(),
+            trigger_ref: "test".into(),
             changed_inputs_json: "[]".into(),
             changed_derived_json: "[]".into(),
             changed_collections_json: "[]".into(),
+            resource_commands_json: "[]".into(),
+            output_frames_json: "[]".into(),
             command_count: commands,
             output_count: 0,
+            effect_count: commands,
+            suppressed_count: noop,
             noop,
+            oracle_status: None,
+            oracle_error: None,
             duration_us: 100,
             graph_nodes: 4,
+            graph_resources: 2,
             created_at: at,
         })
         .unwrap();
@@ -75,7 +87,10 @@ mod tests {
         assert_eq!(status["effectful"], 2);
         assert_eq!(status["noop"], 1);
         assert_eq!(status["command_count_sum"], 3);
+        assert_eq!(status["effect_count_sum"], 3);
+        assert_eq!(status["suppressed_count_sum"], 1);
         assert_eq!(status["max_graph_nodes"], 4);
+        assert_eq!(status["max_graph_resources"], 2);
 
         let hook = surfaces
             .iter()

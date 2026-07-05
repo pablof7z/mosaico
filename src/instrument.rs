@@ -101,6 +101,7 @@ pub fn record_commit(
     store: &Store,
     surface: &str,
     trigger_kind: &str,
+    trigger_ref: Option<&str>,
     facts: &CommitFacts,
     duration_us: i64,
     created_at: i64,
@@ -109,19 +110,36 @@ pub fn record_commit(
         surface: surface.to_string(),
         transaction_id: facts.transaction_id,
         revision: facts.revision,
+        mode: surface_mode(surface).to_string(),
         trigger_kind: trigger_kind.to_string(),
+        trigger_ref: trigger_ref.unwrap_or_default().to_string(),
         changed_inputs_json: json_labels(&facts.changed_inputs),
         changed_derived_json: json_labels(&facts.changed_derived),
         changed_collections_json: json_labels(&facts.changed_collections),
+        resource_commands_json: facts.resource_commands_json.clone(),
+        output_frames_json: facts.output_frames_json.clone(),
         command_count: facts.command_count,
         output_count: facts.output_count,
+        effect_count: facts.command_count + facts.output_count,
+        suppressed_count: facts.noop as i64,
         noop: facts.noop as i64,
+        oracle_status: None,
+        oracle_error: None,
         duration_us,
         graph_nodes: facts.graph_nodes,
+        graph_resources: facts.graph_resources,
         created_at,
     };
     if let Err(e) = store.record_commit(&row) {
         tracing::warn!(surface, error = %e, "record_commit failed — commit not ledgered");
+    }
+}
+
+fn surface_mode(surface: &str) -> &'static str {
+    match surface {
+        "status" | "subscriptions" => "authoritative",
+        "hook_context" => "advisory",
+        _ => "imperative",
     }
 }
 

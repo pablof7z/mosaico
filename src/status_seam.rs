@@ -40,17 +40,20 @@ pub(crate) async fn drive(
         let outcome = f(&mut rec).ok();
         // Flatten EVERY commit (incl. no-ops) through the surface's labels.
         let facts = outcome.as_ref().map(|o| {
-            crate::reconcile::CommitFacts::from_result(
+            let mut facts = crate::reconcile::CommitFacts::from_result(
                 rec.labels(),
                 &o.result,
                 rec.graph_node_count(),
-            )
+            );
+            facts.graph_resources = rec.state_rows().len() as i64;
+            facts
         });
         (outcome, facts)
     };
     let duration_us = start.elapsed().as_micros() as i64;
     let Some(outcome) = outcome else { return };
     let event_ids = apply_status_effects(outcome.effects, provider, keys, store).await;
+    let trigger_ref = status_session_id(&outcome.result);
     record_status_receipt(store, window_hash, &outcome.result, &event_ids);
     if let Some(facts) = facts {
         let g = store.lock().expect("store mutex poisoned");
@@ -58,11 +61,25 @@ pub(crate) async fn drive(
             &g,
             "status",
             trigger,
+            trigger_ref,
             &facts,
             duration_us,
             crate::instrument::now_millis(),
         );
     }
+}
+
+fn status_session_id(result: &TransactionResult<StatusCommand>) -> Option<&str> {
+    result
+        .resource_plan
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            ResourceCommand::Open { command, .. }
+            | ResourceCommand::Replace { command, .. }
+            | ResourceCommand::Refresh { command, .. } => Some(command.session_id.as_str()),
+            ResourceCommand::Close { .. } => None,
+        })
 }
 
 /// Flatten a committed status transaction into a receipt keyed by the published
@@ -77,16 +94,7 @@ fn record_status_receipt(
     let Some(artifact_ref) = event_ids.first().cloned() else {
         return;
     };
-    let session_id = result
-        .resource_plan
-        .commands()
-        .iter()
-        .find_map(|c| match c {
-            ResourceCommand::Open { command, .. }
-            | ResourceCommand::Replace { command, .. }
-            | ResourceCommand::Refresh { command, .. } => Some(command.session_id.as_str()),
-            ResourceCommand::Close { .. } => None,
-        });
+    let session_id = status_session_id(result);
     let row = NewReceipt {
         surface: "status".into(),
         transaction_id: result.transaction_id.get() as i64,

@@ -15,7 +15,9 @@
 
 use std::collections::BTreeMap;
 
-use trellis_core::{NodeId, ResourceKey, TransactionResult};
+use trellis_core::{
+    NodeId, OutputFrame, OutputFrameKind, ResourceCommand, ResourceKey, TransactionResult,
+};
 
 /// Render a [`ResourceKey`] as a human path (`status/s1`, `sub/h/general`) by
 /// joining its identity segments with `/`. The encoded `as_str()` form escapes
@@ -94,8 +96,15 @@ pub struct CommitFacts {
     pub command_count: i64,
     /// Number of materialized output frames this commit emitted.
     pub output_count: i64,
+    /// Payload-free resource command trace.
+    pub resource_commands_json: String,
+    /// Payload-free output frame trace.
+    pub output_frames_json: String,
     /// Total graph node count after the commit.
     pub graph_nodes: i64,
+    /// Surface-owned resource count after the commit; callers fill this when
+    /// they have a public inventory.
+    pub graph_resources: i64,
     /// True when the commit emitted no command and no output frame — it committed
     /// but changed nothing observable (a suppressed publish / no-op recompute).
     pub noop: bool,
@@ -118,12 +127,73 @@ impl CommitFacts {
             changed_inputs: labels.labels_for(&result.changed_inputs),
             changed_derived: labels.labels_for(&result.changed_derived_nodes),
             changed_collections: labels.labels_for(&result.changed_collection_nodes),
+            resource_commands_json: commands_json(result.resource_plan.commands()),
+            output_frames_json: output_frames_json(&result.output_frames),
             command_count,
             output_count,
             graph_nodes: graph_nodes as i64,
+            graph_resources: 0,
             noop: command_count == 0 && output_count == 0,
         }
     }
+}
+
+fn commands_json<C>(commands: &[ResourceCommand<C>]) -> String {
+    #[derive(serde::Serialize)]
+    struct Cmd<'a> {
+        kind: &'a str,
+        key: &'a str,
+        reason: &'a str,
+    }
+    let out: Vec<Cmd> = commands
+        .iter()
+        .map(|c| {
+            let kind = match c {
+                ResourceCommand::Open { .. } => "open",
+                ResourceCommand::Close { .. } => "close",
+                ResourceCommand::Replace { .. } => "replace",
+                ResourceCommand::Refresh { .. } => "refresh",
+            };
+            Cmd {
+                kind,
+                key: c.key().as_str(),
+                reason: kind,
+            }
+        })
+        .collect();
+    serde_json::to_string(&out).unwrap_or_else(|_| "[]".into())
+}
+
+fn output_frames_json(frames: &[OutputFrame]) -> String {
+    #[derive(serde::Serialize)]
+    struct Frame<'a> {
+        output_key: u64,
+        scope: u64,
+        transaction_id: u64,
+        revision: u64,
+        kind: &'a str,
+        reason: Option<&'a str>,
+    }
+    let out: Vec<Frame> = frames
+        .iter()
+        .map(|f| {
+            let (kind, reason) = match &f.kind {
+                OutputFrameKind::Baseline(_) => ("baseline", None),
+                OutputFrameKind::Delta(_) => ("delta", None),
+                OutputFrameKind::Clear(_) => ("clear", Some("scope_closed")),
+                OutputFrameKind::Rebaseline(_, _) => ("rebaseline", Some("requested")),
+            };
+            Frame {
+                output_key: f.output_key.get(),
+                scope: f.scope.get(),
+                transaction_id: f.transaction_id.get(),
+                revision: f.revision.get(),
+                kind,
+                reason,
+            }
+        })
+        .collect();
+    serde_json::to_string(&out).unwrap_or_else(|_| "[]".into())
 }
 
 #[cfg(test)]

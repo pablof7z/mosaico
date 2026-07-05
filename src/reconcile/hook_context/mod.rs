@@ -104,9 +104,11 @@ impl HookContextReconciler {
         tx.set_input(nodes.messages, inputs.messages)?;
         let result = tx.commit()?;
         drop(tx);
-        let commit = CommitFacts::from_result(&self.labels, &result, self.graph.nodes().count());
+        let mut commit =
+            CommitFacts::from_result(&self.labels, &result, self.graph.nodes().count());
         self.nodes = Some(nodes);
         let nodes = self.nodes.as_ref().expect("nodes present");
+        commit.graph_resources = 1;
 
         let output_key = nodes.output;
         let transaction_id = result.transaction_id.get() as i64;

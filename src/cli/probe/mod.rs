@@ -148,8 +148,8 @@ fn render_stats(v: &Value) -> String {
     let _ = writeln!(out, "probe stats  (since={since})\n");
     let _ = writeln!(
         out,
-        "{:<14} {:>7} {:>9} {:>6} {:>8} {:>8} {:>10} {:>6}",
-        "surface", "commits", "effectful", "noop", "cmds", "frames", "dur_us", "nodes",
+        "{:<14} {:>7} {:>9} {:>6} {:>7} {:>6} {:>10} {:>6} {:>5}",
+        "surface", "commits", "effectful", "noop", "effects", "supp", "dur_us", "nodes", "res",
     );
     let empty = Vec::new();
     let surfaces = v
@@ -161,15 +161,16 @@ fn render_stats(v: &Value) -> String {
         let n = |k| r.get(k).and_then(Value::as_i64).unwrap_or(0);
         let _ = writeln!(
             out,
-            "{:<14} {:>7} {:>9} {:>6} {:>8} {:>8} {:>10} {:>6}",
+            "{:<14} {:>7} {:>9} {:>6} {:>7} {:>6} {:>10} {:>6} {:>5}",
             s("surface"),
             n("commits"),
             n("effectful"),
             n("noop"),
-            n("command_count_sum"),
-            n("output_count_sum"),
+            n("effect_count_sum"),
+            n("suppressed_count_sum"),
             n("duration_us_sum"),
             n("max_graph_nodes"),
+            n("max_graph_resources"),
         );
     }
     out
@@ -186,10 +187,12 @@ mod tests {
             "surfaces": [
                 { "surface": "status", "commits": 3, "effectful": 2, "noop": 1,
                   "command_count_sum": 3, "output_count_sum": 0,
-                  "duration_us_sum": 750, "max_graph_nodes": 6 },
+                  "effect_count_sum": 3, "suppressed_count_sum": 1,
+                  "duration_us_sum": 750, "max_graph_nodes": 6, "max_graph_resources": 2 },
                 { "surface": "subscriptions", "commits": 1, "effectful": 1, "noop": 0,
                   "command_count_sum": 1, "output_count_sum": 0,
-                  "duration_us_sum": 100, "max_graph_nodes": 5 },
+                  "effect_count_sum": 1, "suppressed_count_sum": 0,
+                  "duration_us_sum": 100, "max_graph_nodes": 5, "max_graph_resources": 1 },
             ],
         })
     }

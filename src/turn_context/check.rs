@@ -108,6 +108,7 @@ pub(crate) fn assemble_turn_check(
             &s,
             "hook_context",
             "turn_check",
+            Some(&rec.session_id),
             &outcome.commit,
             render_start.elapsed().as_micros() as i64,
             crate::instrument::now_millis(),

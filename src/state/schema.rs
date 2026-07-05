@@ -1,4 +1,4 @@
-//! The stamped persistence schema (no backwards-compatible migrations).
+//! The stamped persistence schema.
 //!
 //! Six `relay_*` tables are materialized caches and may be dropped/rebuilt from
 //! relay state. The remaining local tables are non-rebuildable daemon state:
@@ -9,6 +9,8 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
+
+mod trellis_commits;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -245,22 +247,20 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_surface ON receipts(surface, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_artifact_ref ON receipts(artifact_ref);
-CREATE TABLE IF NOT EXISTS trellis_commits (id INTEGER PRIMARY KEY AUTOINCREMENT, surface TEXT NOT NULL, transaction_id INTEGER NOT NULL, revision INTEGER NOT NULL, trigger_kind TEXT NOT NULL, changed_inputs_json TEXT NOT NULL DEFAULT '[]', changed_derived_json TEXT NOT NULL DEFAULT '[]', changed_collections_json TEXT NOT NULL DEFAULT '[]', command_count INTEGER NOT NULL DEFAULT 0, output_count INTEGER NOT NULL DEFAULT 0, noop INTEGER NOT NULL DEFAULT 0, duration_us INTEGER NOT NULL DEFAULT 0, graph_nodes INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS trellis_commits (id INTEGER PRIMARY KEY AUTOINCREMENT, surface TEXT NOT NULL, transaction_id INTEGER NOT NULL, revision INTEGER NOT NULL, mode TEXT NOT NULL DEFAULT '', trigger_kind TEXT NOT NULL, trigger_ref TEXT NOT NULL DEFAULT '', changed_inputs_json TEXT NOT NULL DEFAULT '[]', changed_derived_json TEXT NOT NULL DEFAULT '[]', changed_collections_json TEXT NOT NULL DEFAULT '[]', resource_commands_json TEXT NOT NULL DEFAULT '[]', output_frames_json TEXT NOT NULL DEFAULT '[]', command_count INTEGER NOT NULL DEFAULT 0, output_count INTEGER NOT NULL DEFAULT 0, effect_count INTEGER NOT NULL DEFAULT 0, suppressed_count INTEGER NOT NULL DEFAULT 0, noop INTEGER NOT NULL DEFAULT 0, oracle_status TEXT, oracle_error TEXT, duration_us INTEGER NOT NULL DEFAULT 0, graph_nodes INTEGER NOT NULL DEFAULT 0, graph_resources INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_trellis_commits_surface ON trellis_commits(surface, created_at);
 "#;
 pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
     check_schema_version(conn, path)?;
-    // Stamped schema. We still do not run ALTER TABLE migrations, but the DB is
-    // not blindly wipeable: relay_* rows are rebuildable projections while
-    // sessions, aliases, identities, inbox, outbox, and project_roots are local
-    // state. A missing/incompatible stamp fails loudly above.
     conn.execute_batch(SCHEMA).context("creating schema")?;
+    trellis_commits::ensure_columns(conn)?;
     stamp_schema_version(conn)
 }
 
 pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA)
         .context("creating in-memory schema")?;
+    trellis_commits::ensure_columns(conn)?;
     stamp_schema_version(conn)
 }
 

@@ -236,6 +236,7 @@ pub(crate) fn assemble_turn_start(
             &s,
             "hook_context",
             "turn_start",
+            Some(&rec.session_id),
             &outcome.commit,
             render_start.elapsed().as_micros() as i64,
             crate::instrument::now_millis(),

@@ -13,71 +13,79 @@
 
 use super::*;
 
-const COLS: &str = "id, surface, transaction_id, revision, trigger_kind, \
+const COLS: &str = "id, surface, transaction_id, revision, mode, trigger_kind, trigger_ref, \
      changed_inputs_json, changed_derived_json, changed_collections_json, \
-     command_count, output_count, noop, duration_us, graph_nodes, created_at";
+     resource_commands_json, output_frames_json, command_count, output_count, \
+     effect_count, suppressed_count, noop, oracle_status, oracle_error, \
+     duration_us, graph_nodes, graph_resources, created_at";
 
 /// One persisted all-commit ledger row, flattened to plain fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitRow {
     pub id: i64,
-    /// Which surface committed: `"status"` | `"subscriptions"` | `"hook_context"`.
     pub surface: String,
     pub transaction_id: i64,
     pub revision: i64,
-    /// Which drive method / fact triggered the commit (e.g. `"tick"`, `"distill"`).
+    pub mode: String,
     pub trigger_kind: String,
-    /// JSON array of changed INPUT node labels (§4.2).
+    pub trigger_ref: String,
     pub changed_inputs_json: String,
-    /// JSON array of changed DERIVED node labels.
     pub changed_derived_json: String,
-    /// JSON array of changed COLLECTION node labels.
     pub changed_collections_json: String,
+    pub resource_commands_json: String,
+    pub output_frames_json: String,
     pub command_count: i64,
     pub output_count: i64,
-    /// 1 when the commit emitted no command and no frame (committed, changed
-    /// nothing observable); 0 otherwise.
+    pub effect_count: i64,
+    pub suppressed_count: i64,
     pub noop: i64,
+    pub oracle_status: Option<String>,
+    pub oracle_error: Option<String>,
     pub duration_us: i64,
     pub graph_nodes: i64,
+    pub graph_resources: i64,
     pub created_at: i64,
 }
 
-/// Input shape for recording a new commit. `id` is assigned by the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewCommit {
     pub surface: String,
     pub transaction_id: i64,
     pub revision: i64,
+    pub mode: String,
     pub trigger_kind: String,
+    pub trigger_ref: String,
     pub changed_inputs_json: String,
     pub changed_derived_json: String,
     pub changed_collections_json: String,
+    pub resource_commands_json: String,
+    pub output_frames_json: String,
     pub command_count: i64,
     pub output_count: i64,
+    pub effect_count: i64,
+    pub suppressed_count: i64,
     pub noop: i64,
+    pub oracle_status: Option<String>,
+    pub oracle_error: Option<String>,
     pub duration_us: i64,
     pub graph_nodes: i64,
+    pub graph_resources: i64,
     pub created_at: i64,
 }
 
 /// Aggregate value evidence for a surface over a window, powering `probe stats`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommitStats {
-    /// Total commits recorded (effectful + no-op).
     pub commits: i64,
-    /// Commits that emitted at least one command or frame.
     pub effectful: i64,
-    /// Commits that changed nothing observable (the suppression evidence).
     pub noop: i64,
-    /// Sum of resource commands across the window.
     pub command_count_sum: i64,
-    /// Sum of output frames across the window.
     pub output_count_sum: i64,
-    /// Sum of per-commit durations (µs) — the latency budget.
+    pub effect_count_sum: i64,
+    pub suppressed_count_sum: i64,
     pub duration_us_sum: i64,
-    /// Largest graph node count observed — the graph-size high-water mark.
     pub max_graph_nodes: i64,
+    pub max_graph_resources: i64,
 }
 
 fn row_to_commit(row: &rusqlite::Row) -> rusqlite::Result<CommitRow> {
@@ -86,16 +94,25 @@ fn row_to_commit(row: &rusqlite::Row) -> rusqlite::Result<CommitRow> {
         surface: row.get(1)?,
         transaction_id: row.get(2)?,
         revision: row.get(3)?,
-        trigger_kind: row.get(4)?,
-        changed_inputs_json: row.get(5)?,
-        changed_derived_json: row.get(6)?,
-        changed_collections_json: row.get(7)?,
-        command_count: row.get(8)?,
-        output_count: row.get(9)?,
-        noop: row.get(10)?,
-        duration_us: row.get(11)?,
-        graph_nodes: row.get(12)?,
-        created_at: row.get(13)?,
+        mode: row.get(4)?,
+        trigger_kind: row.get(5)?,
+        trigger_ref: row.get(6)?,
+        changed_inputs_json: row.get(7)?,
+        changed_derived_json: row.get(8)?,
+        changed_collections_json: row.get(9)?,
+        resource_commands_json: row.get(10)?,
+        output_frames_json: row.get(11)?,
+        command_count: row.get(12)?,
+        output_count: row.get(13)?,
+        effect_count: row.get(14)?,
+        suppressed_count: row.get(15)?,
+        noop: row.get(16)?,
+        oracle_status: row.get(17)?,
+        oracle_error: row.get(18)?,
+        duration_us: row.get(19)?,
+        graph_nodes: row.get(20)?,
+        graph_resources: row.get(21)?,
+        created_at: row.get(22)?,
     })
 }
 
@@ -104,23 +121,35 @@ impl Store {
     pub fn record_commit(&self, row: &NewCommit) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO trellis_commits
-                 (surface, transaction_id, revision, trigger_kind,
+                 (surface, transaction_id, revision, mode, trigger_kind, trigger_ref,
                   changed_inputs_json, changed_derived_json, changed_collections_json,
-                  command_count, output_count, noop, duration_us, graph_nodes, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                  resource_commands_json, output_frames_json,
+                  command_count, output_count, effect_count, suppressed_count, noop,
+                  oracle_status, oracle_error, duration_us, graph_nodes, graph_resources, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 row.surface,
                 row.transaction_id,
                 row.revision,
+                row.mode,
                 row.trigger_kind,
+                row.trigger_ref,
                 row.changed_inputs_json,
                 row.changed_derived_json,
                 row.changed_collections_json,
+                row.resource_commands_json,
+                row.output_frames_json,
                 row.command_count,
                 row.output_count,
+                row.effect_count,
+                row.suppressed_count,
                 row.noop,
+                row.oracle_status,
+                row.oracle_error,
                 row.duration_us,
                 row.graph_nodes,
+                row.graph_resources,
                 row.created_at,
             ],
         )?;
@@ -148,8 +177,11 @@ impl Store {
                  COALESCE(SUM(noop), 0),
                  COALESCE(SUM(command_count), 0),
                  COALESCE(SUM(output_count), 0),
+                 COALESCE(SUM(effect_count), 0),
+                 COALESCE(SUM(suppressed_count), 0),
                  COALESCE(SUM(duration_us), 0),
-                 COALESCE(MAX(graph_nodes), 0)
+                 COALESCE(MAX(graph_nodes), 0),
+                 COALESCE(MAX(graph_resources), 0)
              FROM trellis_commits
              WHERE surface=?1 AND created_at >= ?2",
             params![surface, since],
@@ -160,8 +192,11 @@ impl Store {
                     noop: r.get(2)?,
                     command_count_sum: r.get(3)?,
                     output_count_sum: r.get(4)?,
-                    duration_us_sum: r.get(5)?,
-                    max_graph_nodes: r.get(6)?,
+                    effect_count_sum: r.get(5)?,
+                    suppressed_count_sum: r.get(6)?,
+                    duration_us_sum: r.get(7)?,
+                    max_graph_nodes: r.get(8)?,
+                    max_graph_resources: r.get(9)?,
                 })
             },
         )?)
@@ -177,15 +212,24 @@ mod tests {
             surface: surface.into(),
             transaction_id: 42,
             revision: 7,
+            mode: "authoritative".into(),
             trigger_kind: "tick".into(),
+            trigger_ref: "s1".into(),
             changed_inputs_json: r#"["status/s1/activity"]"#.into(),
             changed_derived_json: r#"["status/s1/content"]"#.into(),
             changed_collections_json: "[]".into(),
+            resource_commands_json: "[]".into(),
+            output_frames_json: "[]".into(),
             command_count: commands,
             output_count: 0,
+            effect_count: commands,
+            suppressed_count: noop,
             noop,
+            oracle_status: None,
+            oracle_error: None,
             duration_us: 250,
             graph_nodes: 6,
+            graph_resources: 2,
             created_at,
         }
     }
@@ -204,6 +248,10 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].created_at, 3_000);
         assert_eq!(rows[0].noop, 1);
+        assert_eq!(rows[0].mode, "authoritative");
+        assert_eq!(rows[0].trigger_ref, "s1");
+        assert_eq!(rows[0].suppressed_count, 1);
+        assert_eq!(rows[0].graph_resources, 2);
         assert_eq!(rows[2].created_at, 1_000);
         assert_eq!(rows[0].changed_inputs_json, r#"["status/s1/activity"]"#);
     }
@@ -223,7 +271,10 @@ mod tests {
         assert_eq!(stats.effectful, 2);
         assert_eq!(stats.noop, 1);
         assert_eq!(stats.command_count_sum, 3);
+        assert_eq!(stats.effect_count_sum, 3);
+        assert_eq!(stats.suppressed_count_sum, 1);
         assert_eq!(stats.max_graph_nodes, 6);
+        assert_eq!(stats.max_graph_resources, 2);
         assert_eq!(stats.duration_us_sum, 750);
     }
 

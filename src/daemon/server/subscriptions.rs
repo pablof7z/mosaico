@@ -51,11 +51,12 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
             .sync(&snapshot)
             .map_err(|e| anyhow::anyhow!("subscription reconcile failed: {e:?}"))?;
         // Flatten EVERY commit (incl. no-op recomputes) through the surface labels.
-        let facts = crate::reconcile::CommitFacts::from_result(
+        let mut facts = crate::reconcile::CommitFacts::from_result(
             rec.labels(),
             &result,
             rec.graph_node_count(),
         );
+        facts.graph_resources = rec.state_rows().len() as i64;
         (effects, result, facts)
     };
     let duration_us = start.elapsed().as_micros() as i64;
@@ -66,6 +67,7 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
             s,
             "subscriptions",
             "sync",
+            None,
             &facts,
             duration_us,
             crate::instrument::now_millis(),
