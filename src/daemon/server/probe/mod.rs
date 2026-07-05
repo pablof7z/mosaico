@@ -5,6 +5,7 @@
 //!
 //! * `stats`    — aggregate value evidence over the all-commit ledger (§4.1).
 //! * `oracle`   — the incremental-equals-full correctness check, live (§4.6).
+//! * `seams`    — authority-frontier registrations + host-seam coverage (§4.5).
 //! * `simulate` — dry-run a fact via `tx.preview()`; the keystone (§3).
 //! * `why`      — live causality for a `sub:`/`status:` handle (§4.3).
 //! * `state`    — live values per surface: owners/refcounts, status inputs (§4.3).
@@ -15,6 +16,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 mod oracle;
+mod seams;
 mod simulate;
 mod state;
 mod stats;
@@ -42,6 +44,7 @@ pub(in crate::daemon::server) fn rpc_probe(
             state.with_store(|s| stats::stats_value(s, surface, since))
         }
         "oracle" => Ok(oracle::oracle_value(state)),
+        "seams" => Ok(seams::seams_value()),
         "simulate" => simulate::simulate_value(state, params),
         "why" => why::why_value(state, params),
         "state" => state::state_value(state, params),
@@ -181,6 +184,15 @@ mod tests {
             .expect("status stats row");
         assert_eq!(sstatus["commits"], 1);
         assert_eq!(sstatus["effectful"], 1);
+
+        // seams → the code-owned frontier table is reachable through probe.
+        let seams = rpc_probe(&state, &json!({ "verb": "seams" })).unwrap();
+        assert_eq!(seams["host_seam_coverage_percent"], 28);
+        assert!(seams["surfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["surface"] == "status" && r["mode"] == "authoritative"));
 
         // simulate → a NEW activity would_publish (Replace) and the live graph is
         // untouched (revision unchanged).

@@ -17,6 +17,7 @@
 //! surface reconcilers (real sessions/status/who/outbox planners) land on top
 //! of this spine later; nothing here changes existing daemon behavior yet.
 
+pub mod frontier;
 pub mod graph;
 pub mod hook_context;
 pub mod journal;

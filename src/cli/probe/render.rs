@@ -67,6 +67,37 @@ pub(super) fn render_oracle(v: &Value) -> String {
     out
 }
 
+/// `probe seams` — static authority-frontier registrations plus coverage.
+pub(super) fn render_seams(v: &Value) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "seams  (host-seam-coverage: {}%)",
+        i64_at(v, "host_seam_coverage_percent")
+    );
+    let _ = writeln!(out, "{:<16} {:<17} bypass risks", "surface", "mode");
+    let empty = Vec::new();
+    for row in v
+        .get("surfaces")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty)
+    {
+        let risks = strs(row, "bypass_risks").join(", ");
+        let _ = writeln!(
+            out,
+            "{:<16} {:<17} {}",
+            str_at(row, "surface"),
+            str_at(row, "mode"),
+            if risks.is_empty() {
+                "-"
+            } else {
+                risks.as_str()
+            },
+        );
+    }
+    out
+}
+
 /// `probe simulate status/<id>` — the would-be plan; nothing is applied.
 pub(super) fn render_simulate(v: &Value) -> String {
     let mut out = String::new();

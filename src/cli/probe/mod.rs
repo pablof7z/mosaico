@@ -4,9 +4,9 @@
 //! the raw daemon JSON instead of the human view.
 //!
 //! Verbs: `stats` (aggregate value evidence, §4.1), `oracle` (live
-//! incremental-equals-full correctness, §4.6), `simulate` (dry-run a fact via
-//! `tx.preview()`, the keystone, §3), `why` (live causality for a handle, §4.3),
-//! and `state` (live per-surface values, §4.3).
+//! incremental-equals-full correctness, §4.6), `seams` (frontier modes, §4.5),
+//! `simulate` (dry-run a fact via `tx.preview()`, the keystone, §3), `why` (live
+//! causality for a handle, §4.3), and `state` (live per-surface values, §4.3).
 
 mod render;
 mod stats_render;
@@ -46,6 +46,8 @@ enum ProbeAction {
         #[arg(long)]
         surface: Option<String>,
     },
+    /// Show the code-owned authority-frontier registrations and bypass risks.
+    Seams,
     /// Dry-run a fact against a surface via `tx.preview()` — nothing is applied.
     Simulate {
         /// The surface to simulate (`status`; `subscriptions` is a v2 follow-up).
@@ -87,6 +89,7 @@ impl ProbeAction {
                 "oracle".into(),
                 json!({ "verb": "oracle", "surface": surface }),
             ),
+            ProbeAction::Seams => ("seams".into(), json!({ "verb": "seams" })),
             ProbeAction::Simulate {
                 surface,
                 session,
@@ -134,6 +137,7 @@ fn render(verb: &str, v: &Value) -> String {
     match verb {
         "stats" => stats_render::render_stats(v),
         "oracle" => render::render_oracle(v),
+        "seams" => render::render_seams(v),
         "simulate" => render::render_simulate(v),
         "why" => render::render_why(v),
         "state" => render::render_state(v),
@@ -167,6 +171,13 @@ mod tests {
         assert_eq!(params["verb"], "stats");
         assert_eq!(params["surface"], "status");
         assert_eq!(params["since"], 42);
+    }
+
+    #[test]
+    fn seams_action_projects_rpc_params() {
+        let (verb, params) = ProbeAction::Seams.to_rpc();
+        assert_eq!(verb, "seams");
+        assert_eq!(params["verb"], "seams");
     }
 
     #[test]

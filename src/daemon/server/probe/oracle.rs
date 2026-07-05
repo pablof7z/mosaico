@@ -5,18 +5,9 @@
 //! proven, and names the uncovered (imperative) surfaces.
 
 use super::{not_live_note, DaemonState};
+use crate::reconcile::frontier;
 use serde_json::{json, Value};
 use std::sync::Arc;
-
-/// Surfaces whose correctness the oracle covers (they are live, daemon-held graphs).
-const COVERED: [&str; 2] = ["status", "subscriptions"];
-/// Imperative mutators with no host-seam oracle yet (frontier §2 table fallback).
-const UNCOVERED: [&str; 4] = [
-    "rpc_turn_start",
-    "cursor CAS",
-    "rpc_session_start",
-    "outbox publish",
-];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::daemon::server) struct OracleSurface {
@@ -83,9 +74,9 @@ pub(super) fn oracle_value(state: &Arc<DaemonState>) -> Value {
         // correctness, not host-effect correctness.
         "surface_correctness_proven": false,
         "surface_correctness": "NOT PROVEN",
-        "host_seam_coverage_percent": host_seam_coverage_percent(),
-        "covered": COVERED,
-        "uncovered": UNCOVERED,
+        "host_seam_coverage_percent": frontier::host_seam_coverage_percent(),
+        "covered": ["status", "subscriptions"],
+        "uncovered": frontier::uncovered_bypass_risks(),
     })
 }
 
@@ -122,11 +113,6 @@ fn surface_value(surface: &OracleSurface) -> Value {
         "nodes": surface.nodes,
         "error": surface.error,
     })
-}
-
-fn host_seam_coverage_percent() -> i64 {
-    let total = COVERED.len() + UNCOVERED.len();
-    ((COVERED.len() * 100) / total) as i64
 }
 
 #[cfg(test)]

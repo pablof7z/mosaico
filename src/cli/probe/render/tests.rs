@@ -12,7 +12,7 @@ fn oracle_render_is_honest_about_correctness() {
         ],
         "surface_correctness_proven": false,
         "surface_correctness": "NOT PROVEN",
-        "host_seam_coverage_percent": 33,
+        "host_seam_coverage_percent": 28,
         "oracle": "green",
         "covered": ["status","subscriptions"],
         "uncovered": ["rpc_turn_start","cursor CAS","rpc_session_start","outbox publish"]
@@ -21,8 +21,27 @@ fn oracle_render_is_honest_about_correctness() {
     assert!(text.contains("status          green    (rev 812, 6 nodes)"));
     assert!(text.contains("hook_context    —        not a live graph (advisory)"));
     assert!(text.contains("oracle: green / surface-correctness: NOT PROVEN"));
-    assert!(text.contains("host-seam-coverage: 33%"));
+    assert!(text.contains("host-seam-coverage: 28%"));
     assert!(text.contains("uncovered: rpc_turn_start, cursor CAS"));
+}
+
+#[test]
+fn seams_render_lists_modes_and_risks() {
+    let v = json!({
+        "verb": "seams",
+        "host_seam_coverage_percent": 28,
+        "surfaces": [
+            {"surface":"status","mode":"authoritative","bypass_risks":[]},
+            {"surface":"cursor","mode":"imperative","bypass_risks":["cursor CAS"]}
+        ]
+    });
+    let text = render_seams(&v);
+    assert!(text.contains("host-seam-coverage: 28%"));
+    assert!(text.contains("status"));
+    assert!(text.contains("authoritative"));
+    assert!(text.contains("cursor"));
+    assert!(text.contains("imperative"));
+    assert!(text.contains("cursor CAS"));
 }
 
 #[test]
