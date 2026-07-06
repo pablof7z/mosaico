@@ -153,6 +153,16 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             tokio::spawn(async move {
                 handle_orchestration(&st, &ev, op).await;
             });
+        } else if is_management_command_for_backend(state, event) {
+            tracing::info!(
+                event_id = %&event.id.to_hex()[..8],
+                "dispatching management command handler"
+            );
+            let st = state.clone();
+            let ev = event.clone();
+            tokio::spawn(async move {
+                handle_management_command(&st, &ev).await;
+            });
         }
     }
 }

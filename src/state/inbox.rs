@@ -279,6 +279,25 @@ impl Store {
         )?;
         Ok(())
     }
+
+    /// Claim one management command event for processing. Management commands
+    /// are addressed to the backend key, not a local session, but they need the
+    /// same durable replay guard as orchestration so a relay replay does not
+    /// spawn or kill twice.
+    pub fn claim_management_command(
+        &self,
+        event_id: &str,
+        from_pubkey: &str,
+        channel_h: &str,
+        body: &str,
+        now: u64,
+    ) -> Result<bool> {
+        self.claim_orchestration_target(event_id, "management", from_pubkey, channel_h, body, now)
+    }
+
+    pub fn complete_management_command(&self, event_id: &str, now: u64) -> Result<()> {
+        self.complete_orchestration_target(event_id, "management", now)
+    }
 }
 
 #[cfg(test)]

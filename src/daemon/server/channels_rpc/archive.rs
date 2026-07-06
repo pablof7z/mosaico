@@ -15,8 +15,15 @@ pub(in crate::daemon::server) async fn rpc_channels_archive(
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
 
+    archive_channel(state, &channel).await
+}
+
+pub(in crate::daemon::server) async fn archive_channel(
+    state: &Arc<DaemonState>,
+    channel: &str,
+) -> Result<serde_json::Value> {
     let current = state
-        .with_store(|s| s.get_channel(&channel))?
+        .with_store(|s| s.get_channel(channel))?
         .with_context(|| format!("resolved channel {channel:?} has no metadata row"))?;
     let archived_about = crate::state::archived_channel_about(&current.about);
 

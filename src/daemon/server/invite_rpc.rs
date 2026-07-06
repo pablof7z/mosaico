@@ -124,7 +124,7 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
     }
 }
 
-async fn invite_agent(
+pub(super) async fn invite_agent(
     state: &Arc<DaemonState>,
     channel_h: &str,
     work_root: &str,

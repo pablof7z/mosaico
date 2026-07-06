@@ -30,6 +30,7 @@ use tokio::sync::Notify;
 mod background;
 mod demux;
 mod invite_rpc;
+mod management_command;
 mod membership_cleanup;
 mod orchestration_handler;
 mod rpc;
@@ -38,6 +39,7 @@ mod tmux_rpc;
 
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
 use demux::spawn_demux;
+use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
 
 #[derive(Clone)]

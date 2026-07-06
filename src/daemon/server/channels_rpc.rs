@@ -346,7 +346,7 @@ async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about
 }
 
 mod archive;
-pub(in crate::daemon::server) use archive::rpc_channels_archive;
+pub(in crate::daemon::server) use archive::{archive_channel, rpc_channels_archive};
 
 mod list;
 pub(in crate::daemon::server) use list::rpc_channels_list;
