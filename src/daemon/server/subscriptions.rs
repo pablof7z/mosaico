@@ -274,7 +274,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     // Live transient session keys + backend identity round out the addressed set.
     pubkeys.extend(state.live_session_pubkeys());
     if let Some(bp) = state.backend_pubkey() {
-        pubkeys.insert(bp.to_string());
+        pubkeys.insert(bp);
     }
 
     CoverageSnapshot {

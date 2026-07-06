@@ -1,11 +1,7 @@
 //! First-run bootstrap for `~/.tenex-edge/config.json` — the file the daemon
-//! reads for `whitelistedPubkeys`/`relays`/`backendName`. Nothing else in the
-//! codebase writes it (see `crate::config::Config::load`), so a fresh machine
-//! has no daemon-startable config until something creates it. Before this,
-//! `tenex-edge install` never touched it, so a user could run the full install
-//! flow, believe they were set up, and only discover the daemon refuses to
-//! start (`loading config: reading .../config.json: No such file or
-//! directory`) later, from `tenex-edge launch`.
+//! reads for `whitelistedPubkeys`/`relays`/`backendName` and the daemon-owned
+//! `tenexPrivateKey`. The shared provisioning path also backfills a missing
+//! management key, but fresh bootstrap should write a complete config.
 
 use anyhow::Result;
 use dialoguer::{Confirm, Input};
@@ -27,12 +23,12 @@ pub(super) fn run_if_needed(opts: &super::args::InstallOpts) -> Result<()> {
     }
 }
 
-/// Runs the interactive bootstrap when `config.json` is missing. No-op if it
-/// already exists. Never fails the surrounding `install` command — worst case
-/// it prints guidance and leaves the file absent for the user to create later.
+/// Runs the interactive bootstrap when `config.json` is missing, and backfills
+/// `tenexPrivateKey` when an existing config predates the backend-key split.
 fn ensure_device_config() -> Result<()> {
     let path = crate::config::config_path();
     if path.exists() {
+        crate::config::ensure_tenex_private_key()?;
         return Ok(());
     }
 
@@ -88,13 +84,15 @@ fn ensure_device_config() -> Result<()> {
         .default(crate::config::DEFAULT_RELAY.to_string())
         .interact_text()?;
 
-    let doc = serde_json::json!({
-        "whitelistedPubkeys": whitelisted_pubkeys,
-        "relays": [relay],
-        "backendName": backend_name,
-    });
+    let doc = device_config_doc(
+        whitelisted_pubkeys.clone(),
+        relay,
+        backend_name,
+        crate::config::generate_tenex_private_key(),
+    );
     super::write_json(&path, &doc)?;
     println!("wrote {}", path.display());
+    println!("{}", "generated tenexPrivateKey for this backend".dimmed());
     if whitelisted_pubkeys.is_empty() {
         println!(
             "{}",
@@ -103,6 +101,20 @@ fn ensure_device_config() -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn device_config_doc(
+    whitelisted_pubkeys: Vec<String>,
+    relay: String,
+    backend_name: String,
+    tenex_private_key: String,
+) -> serde_json::Value {
+    serde_json::json!({
+        "whitelistedPubkeys": whitelisted_pubkeys,
+        "relays": [relay],
+        "backendName": backend_name,
+        "tenexPrivateKey": tenex_private_key,
+    })
 }
 
 /// `--dry-run` variant: reports what would happen without prompting or writing.
@@ -116,4 +128,24 @@ fn note_if_missing() {
         "No device config found at".bold(),
         path.display().to_string().cyan()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_device_config_includes_tenex_private_key() {
+        let doc = device_config_doc(
+            vec!["operator".to_string()],
+            "wss://relay.example".to_string(),
+            "test-host".to_string(),
+            "backend-secret".to_string(),
+        );
+
+        assert_eq!(
+            doc.get("tenexPrivateKey").and_then(|v| v.as_str()),
+            Some("backend-secret")
+        );
+    }
 }

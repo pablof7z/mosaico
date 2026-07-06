@@ -67,12 +67,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     }
 
     let child_h = crate::util::opaque_group_id();
-    let member = state
-        .cfg
-        .management_nsec()
-        .and_then(|n| nostr_sdk::prelude::Keys::parse(n).ok())
-        .map(|k| k.public_key().to_hex())
-        .unwrap_or_default();
+    let member = state.backend_pubkey().unwrap_or_default();
 
     let gate = state
         .provider

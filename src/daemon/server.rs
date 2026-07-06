@@ -110,17 +110,21 @@ pub struct DaemonState {
     /// Guards collision detection and reservation so simultaneous duplicate
     /// starts cannot both pick the durable signer.
     session_signers: Mutex<session_signer::SignerReservations>,
-    /// Hex pubkey of this backend's identity (pubkey of `tenexPrivateKey`;
-    /// no `userNsec` fallback). Added as an admin to every group we create
-    /// and the address matched by subgroup orchestration `add` tags.
-    /// `None` only when no `tenexPrivateKey` is configured.
-    backend_pubkey: Option<String>,
 }
 
 impl DaemonState {
-    /// Hex pubkey of this backend's identity key, if configured.
-    fn backend_pubkey(&self) -> Option<&str> {
-        self.backend_pubkey.as_deref()
+    /// Hex pubkey of this backend's identity key. Ensures the daemon-owned
+    /// management key exists before deriving the pubkey.
+    fn backend_pubkey(&self) -> Option<String> {
+        self.provider.management_pubkey()
+    }
+
+    /// Management signer for NIP-29 group operations. Goes through the provider
+    /// so missing `tenexPrivateKey` is created in the same provisioning path.
+    fn management_keys(&self) -> Result<Keys> {
+        self.provider
+            .management_keys()
+            .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))
     }
     pub(crate) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {
         let g = self.store.lock().expect("store mutex poisoned");

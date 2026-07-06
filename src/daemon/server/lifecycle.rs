@@ -75,12 +75,6 @@ pub async fn run() -> Result<()> {
         cfg.whitelisted_pubkeys.clone(),
         &cfg.relays, // provider_instance hashes main relays only, not indexer
     ));
-    // Backend identity: pubkey of `tenexPrivateKey` (no `userNsec` fallback).
-    // Used as a copied admin on groups and as the orchestration matcher.
-    let backend_pubkey: Option<String> = cfg
-        .backend_nsec()
-        .and_then(|n| Keys::parse(n).ok())
-        .map(|k| k.public_key().to_hex());
     let state = Arc::new(DaemonState {
         store,
         transport,
@@ -111,7 +105,6 @@ pub async fn run() -> Result<()> {
         outbox_notify: Notify::new(),
         session_keys: Mutex::new(HashMap::new()),
         session_signers: Mutex::new(HashMap::new()),
-        backend_pubkey,
     });
 
     // These tolerate a not-yet-connected relay, so they start now.
@@ -152,17 +145,15 @@ pub async fn run() -> Result<()> {
         // Nostr clients. Best-effort: failure deferred to next restart.
         // Intentionally NOT stored in the hosted set — the echo must NOT appear in
         // `who` or be injected into agent turn-context.
-        if let Some(nsec) = relay_state.cfg.backend_nsec() {
-            if let Ok(backend_keys) = nostr_sdk::prelude::Keys::parse(nsec) {
-                let name = format!("{} (tenex-edge)", relay_state.host);
-                let ev = crate::domain::DomainEvent::Profile(crate::domain::Profile {
-                    agent: crate::domain::AgentRef::new(backend_keys.public_key().to_hex(), name),
-                    host: relay_state.host.clone(),
-                    owners: relay_state.owners.clone(),
-                    is_backend: true,
-                });
-                let _ = relay_state.provider.publish(&ev, &backend_keys).await;
-            }
+        if let Some(backend_keys) = relay_state.provider.management_keys() {
+            let name = format!("{} (tenex-edge)", relay_state.host);
+            let ev = crate::domain::DomainEvent::Profile(crate::domain::Profile {
+                agent: crate::domain::AgentRef::new(backend_keys.public_key().to_hex(), name),
+                host: relay_state.host.clone(),
+                owners: relay_state.owners.clone(),
+                is_backend: true,
+            });
+            let _ = relay_state.provider.publish(&ev, &backend_keys).await;
         }
 
         membership_cleanup::cleanup_dead_local_sessions(&relay_state);

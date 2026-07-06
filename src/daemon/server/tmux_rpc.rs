@@ -201,7 +201,7 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         channel_name,
         "provision: ensuring channel ready"
     );
-    let expect_member = state.backend_pubkey().unwrap_or_default().to_string();
+    let expect_member = state.backend_pubkey().unwrap_or_default();
     let ctx = crate::fabric::nip29::readiness::ChannelCtx {
         channel: scope,
         expect_member: &expect_member,

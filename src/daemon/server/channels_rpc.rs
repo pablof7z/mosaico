@@ -41,8 +41,6 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
     use crate::fabric::nip29::orchestration::{build_add_agents_event, AddTarget};
-    use nostr_sdk::prelude::Keys;
-
     #[derive(serde::Deserialize)]
     struct AgentSpec {
         slug: String,
@@ -148,11 +146,7 @@ Switch into it instead: tenex-edge channels switch {}",
     // call its gate here when it lands. For now we proceed and fail loudly below
     // if the relay rejects the subgroup create/lock.
 
-    let nsec = state
-        .cfg
-        .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
-    let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+    let mgmt_keys = state.management_keys()?;
     let mgmt_pk = mgmt_keys.public_key().to_hex();
 
     // Opaque random child id; the human handle lives in the kind:39000 `name`,
@@ -291,8 +285,6 @@ pub(in crate::daemon::server) async fn rpc_channels_edit(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    use nostr_sdk::prelude::Keys;
-
     #[derive(serde::Deserialize)]
     struct P {
         channel: String,
@@ -312,11 +304,7 @@ pub(in crate::daemon::server) async fn rpc_channels_edit(
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
 
-    let nsec = state
-        .cfg
-        .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
-    let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+    let mgmt_keys = state.management_keys()?;
     let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&channel_h, &p.about)?;
     let event_id = state
         .transport

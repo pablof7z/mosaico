@@ -316,10 +316,7 @@ async fn ensure_backend_admin(
     channel_h: &str,
     backend_pubkey: &str,
 ) -> Result<()> {
-    let Some(nsec) = state.cfg.management_nsec() else {
-        anyhow::bail!("no signing key (tenexPrivateKey) set");
-    };
-    let mgmt = Keys::parse(nsec).context("parsing management key")?;
+    let mgmt = state.management_keys()?;
     let parent = state
         .with_store(|s| s.channel_parent(channel_h).unwrap_or(None))
         .filter(|p| !p.is_empty());
@@ -354,11 +351,7 @@ async fn publish_invite_orchestration(
     channel_h: &str,
     target: crate::fabric::nip29::orchestration::AddTarget,
 ) -> Result<String> {
-    let nsec = state
-        .cfg
-        .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
-    let keys = Keys::parse(nsec).context("parsing management key")?;
+    let keys = state.management_keys()?;
     let prose = if target.session_id.is_some() {
         format!("resume {} in this channel", target.slug)
     } else {
