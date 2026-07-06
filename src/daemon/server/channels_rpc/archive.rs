@@ -32,25 +32,25 @@ pub(in crate::daemon::server) async fn archive_channel(
     } else {
         let mgmt_keys = state.management_keys()?;
         let builder =
-            crate::fabric::nip29::lifecycle::group_edit_metadata(&channel, &archived_about)?;
+            crate::fabric::nip29::lifecycle::group_edit_metadata(channel, &archived_about)?;
         state
             .transport
             .publish_signed(builder, &mgmt_keys)
             .await?
             .to_hex()
     };
-    let _ = state.provider.fetch_and_materialize_channel(&channel).await;
-    let metadata_confirmed = state.with_store(|s| s.is_archived_channel(&channel))?;
+    let _ = state.provider.fetch_and_materialize_channel(channel).await;
+    let metadata_confirmed = state.with_store(|s| s.is_archived_channel(channel))?;
 
-    refresh_project_members_cache(state, &channel).await;
-    let members = state.with_store(|s| s.list_channel_members(&channel))?;
+    refresh_project_members_cache(state, channel).await;
+    let members = state.with_store(|s| s.list_channel_members(channel))?;
     let admins = members.iter().filter(|m| m.role == "admin").count();
     let remove_targets = archive_removal_targets(&members);
     let mut failures = Vec::new();
     for pubkey in &remove_targets {
         let outcome = state
             .provider
-            .remove_member_confirmed(&channel, pubkey)
+            .remove_member_confirmed(channel, pubkey)
             .await;
         if !outcome.is_confirmed() {
             failures.push(format!("{}:{outcome:?}", crate::util::pubkey_short(pubkey)));
