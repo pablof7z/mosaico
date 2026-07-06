@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::FabricContextInput;
+use super::{missing_channel_warning, FabricContextInput};
 use crate::state::Store;
 
 /// The four canonical, replayable inputs the fabric view derives from. Each
@@ -163,6 +163,12 @@ pub(super) struct EvCap {
 pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> ViewInputs {
     let root = read::project_root(store, input.scope);
     let channel_hs = read::selected_channels(store, input);
+    let mut warnings = input.warnings.to_vec();
+    warnings.extend(
+        read::missing_channels(store, input)
+            .into_iter()
+            .map(|channel| missing_channel_warning(&channel)),
+    );
 
     let mut refs: BTreeMap<String, String> = BTreeMap::new();
     let mut backend: BTreeSet<String> = BTreeSet::new();
@@ -228,11 +234,11 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         crate::idref::agent_ref_from(input.self_slug, input.local_host, input.local_host);
     let meta = MetaInput {
         self_row: input.session.map(|s| read::self_cap(s, input)),
-        project: read::channel_summary(store, &root),
+        project: read::project_summary(store, &root),
         agents: read::agent_caps(input),
         channels,
         unjoined: read::unjoined_caps(store, &root, &channel_hs),
-        warnings: input.warnings.to_vec(),
+        warnings,
         self_pubkey: input.self_pubkey.to_string(),
         self_ref,
         force: input.force,

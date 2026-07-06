@@ -44,6 +44,13 @@ pub(crate) struct FabricContextInput<'a> {
     pub(crate) force: bool,
 }
 
+fn missing_channel_warning(channel: &str) -> String {
+    format!(
+        "Fabric channel {channel:?} is unavailable: no relay-backed channel metadata \
+         exists locally, so it is not rendered as an active channel."
+    )
+}
+
 #[derive(Clone)]
 pub(crate) struct FabricMessageSeed {
     pub(crate) id: String,

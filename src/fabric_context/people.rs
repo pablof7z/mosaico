@@ -11,16 +11,12 @@ pub(super) fn member_rows(
     input: &FabricContextInput<'_>,
 ) -> Vec<MemberRow> {
     let statuses = status_map(store, channel, input.now);
-    let mut pubkeys = store
+    let pubkeys = store
         .list_channel_members(channel)
         .unwrap_or_default()
         .into_iter()
         .map(|m| m.pubkey)
         .collect::<BTreeSet<_>>();
-    pubkeys.extend(statuses.keys().cloned());
-    if !input.self_pubkey.is_empty() {
-        pubkeys.insert(input.self_pubkey.to_string());
-    }
     pubkeys
         .into_iter()
         .filter(|pk| !is_backend(store, pk))

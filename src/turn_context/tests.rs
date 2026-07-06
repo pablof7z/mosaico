@@ -23,6 +23,16 @@ fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
         .unwrap()
 }
 
+fn materialize_channel(store: &Store, channel: &str) {
+    store.upsert_channel(channel, channel, "", "", 1).unwrap();
+    store
+        .replace_channel_members(channel, &[SELF_PK.to_string()], 1)
+        .unwrap();
+    store
+        .upsert_profile(SELF_PK, "test-agent", "test-agent", "", false, 1)
+        .unwrap();
+}
+
 fn insert_chat(store: &Store, channel: &str, pubkey: &str, created_at: u64, body: &str) {
     store
         .insert_event(&RelayEvent {
@@ -75,6 +85,7 @@ fn first_turn_post_join_chat_shown_as_ambient() {
     let now = crate::util::now_secs().saturating_sub(100);
     let rec = {
         let s = m.lock().unwrap();
+        materialize_channel(&s, ch);
         let id = register(&s, SELF_PK, ch, now); // session starts inside the recent window
         s.get_session(&id).unwrap().unwrap()
     };
@@ -146,6 +157,7 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     let ch = "ch-cursor";
     let sid = {
         let s = m.lock().unwrap();
+        materialize_channel(&s, ch);
         register(&s, SELF_PK, ch, 100)
     };
     // Event before session start — surfaces as pre-join notice on first turn.
@@ -193,6 +205,7 @@ fn inbox_mention_surfaces_in_turn_context() {
     let ch = "ch-mention";
     let sid = {
         let s = m.lock().unwrap();
+        materialize_channel(&s, ch);
         register(&s, SELF_PK, ch, 100)
     };
     {
@@ -217,6 +230,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
     let now = crate::util::now_secs().saturating_sub(100);
     let sid = {
         let s = m.lock().unwrap();
+        materialize_channel(&s, ch);
         register(&s, SELF_PK, ch, now)
     };
     // Ambient (non-mention) message arriving after session start.

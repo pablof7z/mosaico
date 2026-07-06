@@ -74,6 +74,7 @@ fn test_session(id: &str) -> Session {
 #[test]
 fn turn_start_context_returns_none_when_empty_non_first_turn() {
     let store = Store::open_memory().unwrap();
+    seed_channel(&store);
     let mut rec = test_session("sess-freeze-2");
     rec.seen_cursor = crate::util::now_secs();
     let m = Mutex::new(store);
@@ -218,6 +219,7 @@ fn ended_turn_with_cursor_uses_delta_not_snapshot() {
 #[test]
 fn turn_check_context_returns_none_when_nothing_due() {
     let store = Store::open_memory().unwrap();
+    seed_channel(&store);
     let m = Mutex::new(store);
     let ctx = assemble_turn_check_context(&m, &test_session("sess-no-rows"), "laptop", None, 200);
     assert!(
@@ -337,6 +339,7 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
 #[test]
 fn turn_check_direct_mentions_surface_from_inbox() {
     let store = Store::open_memory().unwrap();
+    seed_channel(&store);
     let newly = store
         .enqueue_inbox(
             "mention-1",

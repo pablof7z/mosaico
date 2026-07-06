@@ -140,11 +140,7 @@ fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
         .unwrap_or_default();
     let status_map = live_status_map(statuses, now);
 
-    let mut pubkeys = members.roster.get(channel).cloned().unwrap_or_default();
-    pubkeys.extend(status_map.keys().cloned());
-    if !self_pubkey.is_empty() {
-        pubkeys.insert(self_pubkey.clone());
-    }
+    let pubkeys = members.roster.get(channel).cloned().unwrap_or_default();
     pubkeys
         .into_iter()
         .filter(|pk| !members.backend.contains(pk))

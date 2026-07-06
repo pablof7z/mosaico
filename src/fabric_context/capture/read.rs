@@ -15,6 +15,13 @@ use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
 /// Widest chat capture cap; assemble re-applies the real per-window limit.
 const CHAT_CAPTURE_CAP: u32 = 10_000;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChannelReadiness {
+    Ready,
+    Archived,
+    Missing,
+}
+
 pub(super) fn self_cap(s: &Session, input: &FabricContextInput<'_>) -> SelfCap {
     SelfCap {
         agent: input.self_slug.to_string(),
@@ -35,8 +42,24 @@ pub(super) fn selected_channels(store: &Store, input: &FabricContextInput<'_>) -
     }
     channels.sort();
     channels.dedup();
-    channels.retain(|channel| !is_archived_channel(store, channel));
+    channels.retain(|channel| matches!(channel_readiness(store, channel), ChannelReadiness::Ready));
     channels
+}
+
+pub(super) fn missing_channels(store: &Store, input: &FabricContextInput<'_>) -> Vec<String> {
+    let mut channels = channels_for(store, input.session, input.scope);
+    let forced_by_channel = group_forced(input.forced_messages, input.scope);
+    for ch in forced_by_channel.keys() {
+        if !channels.iter().any(|c| c == ch) {
+            channels.push(ch.clone());
+        }
+    }
+    channels.sort();
+    channels.dedup();
+    channels
+        .into_iter()
+        .filter(|channel| matches!(channel_readiness(store, channel), ChannelReadiness::Missing))
+        .collect()
 }
 
 fn channels_for(store: &Store, session: Option<&Session>, scope: &str) -> Vec<String> {
@@ -196,10 +219,6 @@ pub(super) fn project_root(store: &Store, channel: &str) -> String {
         .unwrap_or_else(|| channel.to_string())
 }
 
-fn is_archived_channel(store: &Store, channel: &str) -> bool {
-    store.is_archived_channel(channel).unwrap_or(false)
-}
-
 fn is_backend(store: &Store, pubkey: &str) -> bool {
     store
         .get_profile(pubkey)
@@ -210,6 +229,21 @@ fn is_backend(store: &Store, pubkey: &str) -> bool {
 }
 
 pub(super) fn channel_summary(store: &Store, channel: &str) -> SummaryCap {
+    let ch = store
+        .get_channel(channel)
+        .ok()
+        .flatten()
+        .expect("renderable channels are filtered through get_channel first");
+    SummaryCap {
+        name: ch
+            .human_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| display_name(store, channel)),
+        about: ch.about,
+    }
+}
+
+pub(super) fn project_summary(store: &Store, channel: &str) -> SummaryCap {
     let ch = store.get_channel(channel).ok().flatten();
     SummaryCap {
         name: ch
@@ -218,5 +252,13 @@ pub(super) fn channel_summary(store: &Store, channel: &str) -> SummaryCap {
             .map(str::to_string)
             .unwrap_or_else(|| display_name(store, channel)),
         about: ch.map(|c| c.about).unwrap_or_default(),
+    }
+}
+
+fn channel_readiness(store: &Store, channel: &str) -> ChannelReadiness {
+    match store.get_channel(channel) {
+        Ok(Some(ch)) if !ch.is_archived() => ChannelReadiness::Ready,
+        Ok(Some(_)) => ChannelReadiness::Archived,
+        _ => ChannelReadiness::Missing,
     }
 }

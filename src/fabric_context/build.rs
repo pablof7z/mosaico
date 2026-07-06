@@ -2,7 +2,7 @@ use super::messages::message_rows;
 use super::model::*;
 use super::people::{member_rows, presence_rows};
 use super::refs::display_name;
-use super::{FabricContextInput, FabricMessageSeed};
+use super::{missing_channel_warning, FabricContextInput, FabricMessageSeed};
 use crate::state::{Session, Store};
 use crate::util::relative_time;
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,7 +10,13 @@ use std::path::Path;
 
 pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> FabricView {
     let root = project_root(store, input.scope);
-    let project = channel_summary(store, &root);
+    let project = project_summary(store, &root);
+    let mut warnings = input
+        .warnings
+        .iter()
+        .cloned()
+        .map(|text| WarningRow { text })
+        .collect::<Vec<_>>();
     let mut channels = channels_for(store, input.session, input.scope);
     let forced_by_channel = group_forced(input.forced_messages, input.scope);
     for ch in forced_by_channel.keys() {
@@ -20,7 +26,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
     }
     channels.sort();
     channels.dedup();
-    channels.retain(|channel| !is_archived_channel(store, channel));
+    channels.retain(|channel| channel_ready_for_render(store, channel, &mut warnings));
 
     let mut view = FabricView {
         self_row: input.session.map(|s| SelfRow {
@@ -33,12 +39,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         channels: Vec::new(),
         unjoined: unjoined_channels(store, &root, &channels, input.now),
         important: Vec::new(),
-        warnings: input
-            .warnings
-            .iter()
-            .cloned()
-            .map(|text| WarningRow { text })
-            .collect(),
+        warnings,
     };
 
     for channel in channels {
@@ -180,11 +181,35 @@ fn project_root(store: &Store, channel: &str) -> String {
         .unwrap_or_else(|| channel.to_string())
 }
 
-fn is_archived_channel(store: &Store, channel: &str) -> bool {
-    store.is_archived_channel(channel).unwrap_or(false)
+fn channel_ready_for_render(store: &Store, channel: &str, warnings: &mut Vec<WarningRow>) -> bool {
+    match store.get_channel(channel) {
+        Ok(Some(ch)) if !ch.is_archived() => true,
+        Ok(Some(_)) => false,
+        _ => {
+            warnings.push(WarningRow {
+                text: missing_channel_warning(channel),
+            });
+            false
+        }
+    }
 }
 
 fn channel_summary(store: &Store, channel: &str) -> ProjectRow {
+    let ch = store
+        .get_channel(channel)
+        .ok()
+        .flatten()
+        .expect("renderable channels are filtered through get_channel first");
+    ProjectRow {
+        name: ch
+            .human_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| display_name(store, channel)),
+        about: ch.about,
+    }
+}
+
+fn project_summary(store: &Store, channel: &str) -> ProjectRow {
     let ch = store.get_channel(channel).ok().flatten();
     ProjectRow {
         name: ch

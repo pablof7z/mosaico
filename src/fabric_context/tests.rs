@@ -28,21 +28,28 @@ fn seed_store() -> Store {
 }
 
 fn session(store: &Store) -> Session {
+    let rec = session_record(store, "sess", "root");
+    store
+        .join_session_channel(&rec.session_id, "task", 20)
+        .unwrap();
+    rec
+}
+
+fn session_record(store: &Store, external_id: &str, channel_h: &str) -> Session {
     let id = store
         .register_session(&RegisterSession {
             harness: "test".into(),
             external_id_kind: "test".into(),
-            external_id: "sess".into(),
+            external_id: external_id.into(),
             agent_pubkey: SELF_PK.into(),
             agent_slug: "coder".into(),
-            channel_h: "root".into(),
+            channel_h: channel_h.into(),
             child_pid: None,
             transcript_path: None,
             resume_id: String::new(),
             now: 10,
         })
         .unwrap();
-    store.join_session_channel(&id, "task", 20).unwrap();
     store.get_session(&id).unwrap().unwrap()
 }
 
@@ -235,4 +242,53 @@ fn recent_presence_uses_status_source() {
     assert!(text.contains("<recent-presence>"));
     assert!(text.contains("ref=\"@reviewer\""));
     assert!(text.contains("text=\"checking tests\""));
+}
+
+#[test]
+fn missing_channels_are_warned_not_rendered() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile(SELF_PK, "coder", "coder", "laptop", false, 1)
+        .unwrap();
+    let rec = session_record(&store, "missing", "ghost");
+
+    let direct = render_fabric_context(&store, input(Some(&rec), "ghost", 0, 100, false))
+        .expect("missing channel warning should render");
+    assert!(direct.contains("Fabric channel \"ghost\" is unavailable"));
+    assert!(!direct.contains("<channel name=\"#ghost\""));
+    assert!(!direct.contains("<members>"));
+
+    let captured = capture_inputs(&store, &input(Some(&rec), "ghost", 0, 100, false));
+    let trellis = render_view_text(&assemble::assemble_view(&captured, 0, 100));
+    assert_eq!(trellis, direct);
+}
+
+#[test]
+fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
+    let store = seed_store();
+    let rec = session(&store);
+    let edge_home = tempfile::tempdir().unwrap();
+    crate::identity::add_local_agent(edge_home.path(), "helper", None, 1).unwrap();
+
+    let text = render_fabric_context(
+        &store,
+        FabricContextInput {
+            edge_home: Some(edge_home.path()),
+            ..input(Some(&rec), "root", 0, 100, true)
+        },
+    )
+    .expect("context should render");
+    assert!(text.contains("<local-agents>"));
+    assert!(!text.contains("<agents>"));
+    assert!(text.contains("<member ref=\"@coder\""));
+
+    let empty = Store::open_memory().unwrap();
+    empty.upsert_channel("solo", "solo", "", "", 1).unwrap();
+    empty
+        .upsert_profile(SELF_PK, "coder", "coder", "laptop", false, 1)
+        .unwrap();
+    let solo = session_record(&empty, "solo", "solo");
+    let text = render_fabric_context(&empty, input(Some(&solo), "solo", 0, 100, true)).unwrap();
+    assert!(text.contains("<channel name=\"#solo\""));
+    assert!(!text.contains("<members>"), "got: {text}");
 }
