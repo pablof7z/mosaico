@@ -251,21 +251,9 @@ pub(in crate::daemon::server) fn set_active_session_channel(
         super::session_signer::move_channel(&mut preflight, session_id, new_channel)?;
         preflight
     };
-    // Every write here is part of one logical "this session now publishes into
-    // `new_channel`" move. A swallowed error would leave the session row and the
-    // identity's active-channel hint disagreeing, so later resume/mention flows
-    // could target stale context. Fail loud so the switch/create RPC reports the
-    // failure instead of silently half-applying it.
     state.with_store(|s| -> Result<()> {
-        // No store transaction is available here, so do the fallible reads/checks
-        // FIRST and perform the mutations only after they all pass: a failure must
-        // not leave the session/identity half-moved (left/joined/repointed but the
-        // identity row stale, or vice versa).
-        //
-        // A live session that is switching channels MUST have a bound identity
-        // row. `Ok(None)` means the identity vanished out from under an active
-        // session — a real invariant break, not a benign miss — so bail BEFORE any
-        // mutation rather than skip the identity repoint.
+        // Preflight before mutating; session row and identity channel must move
+        // together or not at all.
         let prev_to_leave = if leave_previous {
             s.get_session(session_id)
                 .context("set_active_session_channel: reading current session")?
@@ -288,7 +276,6 @@ pub(in crate::daemon::server) fn set_active_session_channel(
         idn.session_id = session_id.to_string();
         idn.alive = true;
 
-        // Mutations — every fallible precondition above has already passed.
         if let Some(prev) = prev_to_leave {
             s.leave_session_channel(session_id, &prev)
                 .context("set_active_session_channel: leaving previous channel")?;

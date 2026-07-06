@@ -1,6 +1,8 @@
 use super::*;
 use crate::reconcile::StatusReconciler;
 
+mod roster_bootstrap;
+
 pub async fn run() -> Result<()> {
     let storage = crate::daemon::storage_paths::StoragePaths::current();
     config::ensure_dir(&storage.edge_home)?;
@@ -156,57 +158,9 @@ pub async fn run() -> Result<()> {
             let _ = relay_state.provider.publish(&ev, &backend_keys).await;
         }
 
-        relay_state.provider.refresh_project_list().await.ok();
-        match publish_local_agent_roster(&relay_state, None).await {
-            Ok(report) => tracing::info!(
-                published = report.published,
-                removed = report.removed,
-                failed = report.failed.len(),
-                "published backend agent roster"
-            ),
-            Err(e) => tracing::warn!(error = %e, "backend agent roster publish failed"),
-        }
-
+        roster_bootstrap::publish_startup_roster(&relay_state).await;
         membership_cleanup::cleanup_dead_local_sessions(&relay_state);
-
-        // Discover groups where selected ordinal pubkeys or the backend
-        // management key are already members/admins, and record them in
-        // `subscribed_projects`. New memberships discovered from 39002 events
-        // extend coverage via `ensure_subscription`.
-        {
-            let member_groups: Vec<String> = relay_state.with_store(|s| {
-                let mut pubkeys = s.list_identity_pubkeys().unwrap_or_default();
-                if let Some(pk) = relay_state.backend_pubkey() {
-                    pubkeys.push(pk);
-                }
-                let mut groups = Vec::new();
-                for pk in &pubkeys {
-                    if let Ok(gs) = s.list_channels_where_member(pk) {
-                        groups.extend(gs);
-                    }
-                    if let Ok(gs) = s.list_channels_where_admin(pk) {
-                        groups.extend(gs);
-                    }
-                }
-                groups.sort_unstable();
-                groups.dedup();
-                groups
-            });
-            {
-                let mut projs = relay_state.subscribed_projects.lock().unwrap();
-                for group in &member_groups {
-                    if !projs.iter().any(|p| p == group) {
-                        projs.push(group.clone());
-                    }
-                }
-            }
-            tracing::info!(
-                subscribed_identity_pubkeys =
-                    relay_state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default().len()),
-                member_groups = member_groups.len(),
-                "spawn-on-mention coverage seeded"
-            );
-        }
+        roster_bootstrap::seed_spawn_on_mention_coverage(&relay_state);
 
         // Seed the three stable aggregate REQs (#h / #p / group-state) once. This
         // replaces both the per-member-group subscription loop and the standalone

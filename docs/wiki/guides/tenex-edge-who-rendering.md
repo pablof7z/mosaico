@@ -26,6 +26,6 @@ The old `src/cli/who/render.rs` + `src/who_snapshot.rs` markdown-table renderer 
 <!-- citations: [^7d6bf-cad7a] [^7d6bf-5aab0] -->
 ## `who --all-projects` Block Layout
 
-`render_fabric_all_projects`/`_human` in `fabric_context.rs` renders one project block per root channel, with the invitable-agent roster shown once up front since it is scope-independent. Within each block, per-agent entries are listed as `agentName (host) - status` (e.g. `developer8 (laptop) - working`), followed by spawnable agent entries in the format `agent@host  [spawnable via command]`.
+`render_fabric_all_projects`/`_human` in `fabric_context.rs` renders one project block per root channel. Within each block, per-agent entries are listed as `agentName (host) - status` (for example, `developer8 (laptop) - working`), followed by the available-agent roster materialized from kind:30555 events for that root channel. Availability rows show the advertised capability slug, host, and use criteria; they do not come from the local keystore inventory.
 
 <!-- citations: [^7d6bf-bafea] [^7d6bf-db5d3] -->

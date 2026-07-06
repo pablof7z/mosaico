@@ -57,8 +57,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
         AgentAction::Assign { slug, projects } => {
             let found = crate::identity::list_local_agent_details(&edge_home)
                 .into_iter()
-                .find(|a| a.slug == slug)
-                .is_some();
+                .any(|a| a.slug == slug);
             if !found {
                 anyhow::bail!(
                     "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"

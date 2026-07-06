@@ -9,4 +9,4 @@ source_refs:
 
 # publish_de
 
-A closure in runtime.rs that captures provider and p.keys (the base agent keypair), then publishes a DomainEvent signed with those keys. It was hardcoded to always sign with base keys regardless of ordinal, causing the ordinal kind:0-clobbering bug.
+Historical runtime closure that published `DomainEvent`s with the wrong signing keys. The bug was that it ignored the selected agent instance and signed all sessions with the local derivation-root key. Current runtime publishing signs with the selected ordinal instance key carried through `EngineParams`.

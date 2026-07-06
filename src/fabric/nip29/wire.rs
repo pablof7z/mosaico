@@ -23,9 +23,7 @@
 //! uses an inline `@<agent-instance-label>` in the chat body, which adds a `p`
 //! tag for the mentioned instance pubkey.
 //!
-//! Most events do not carry a slug: it is resolved downstream from the signer's
-//! kind:0 profile (authoritative) or the local `profiles` table. Status carries
-//! an optional `slug` convenience tag for immediate rendering. Authorization
+//! Most events resolve slug downstream; status carries an optional render-hint slug. Authorization
 //! uses only event.pubkey (signer); self-asserted `agent` tags have no authority
 //! and are never written or read.
 

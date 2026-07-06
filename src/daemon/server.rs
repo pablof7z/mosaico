@@ -247,10 +247,7 @@ use diagnostics::{
 use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
-use profile_rpc::{
-    resolve_backend_pubkey, resolve_project_member_pubkey_hex, resolve_pubkey_hex,
-    rpc_publish_profile,
-};
+use profile_rpc::{resolve_backend_pubkey, resolve_project_member_pubkey_hex, resolve_pubkey_hex};
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::rpc_session_end;
@@ -298,7 +295,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channels_join" => rpc_channels_join(state, &req.params).await,
         "channels_leave" => rpc_channels_leave(state, &req.params).await,
         "channels_switch" => rpc_channels_switch(state, &req.params).await,
-        "publish_profile" => rpc_publish_profile(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
         "tmux_status" => tmux_rpc::rpc_tmux_status(state).await,
         "tmux_send" => tmux_rpc::rpc_tmux_send(state, &req.params).await,

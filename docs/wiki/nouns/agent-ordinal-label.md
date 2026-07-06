@@ -9,4 +9,4 @@ source_refs:
 
 # agent_ordinal_label
 
-Display label for an agent's Nth concurrent identity. Ordinal 0 is the base agent itself (smith); higher ordinals append the number (smith1, smith2). This is the addressable identity peers see, not a transient per-session alias.
+Display label for an agent's Nth concurrent identity. Runtime ordinals start at 1: the first `smith` session is `smith1`, the second same-channel session is `smith2`. This is the addressable identity peers see, not a transient per-session alias.

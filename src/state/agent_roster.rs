@@ -5,6 +5,30 @@
 
 use super::*;
 
+/// kind:30555 backend-published capability roster, fanned out to one row per
+/// advertised root channel. The signer is the backend management key; `slug` is
+/// the capability label, not an agent identity pubkey.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentAvailability {
+    pub backend_pubkey: String,
+    pub host: String,
+    pub slug: String,
+    pub use_criteria: String,
+    pub channel_h: String,
+    pub updated_at: u64,
+}
+
+/// Complete replacement payload for one `(backend_pubkey, slug)` 30555 address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRoster {
+    pub backend_pubkey: String,
+    pub host: String,
+    pub slug: String,
+    pub use_criteria: String,
+    pub channels: Vec<String>,
+    pub updated_at: u64,
+}
+
 const COLS: &str = "backend_pubkey, host, agent_slug, use_criteria, channel_h, updated_at";
 
 fn row_to_availability(row: &rusqlite::Row) -> rusqlite::Result<AgentAvailability> {

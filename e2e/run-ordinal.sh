@@ -10,13 +10,9 @@
 #
 # WHAT IT VERIFIES (and current implementation status on this branch)
 #   1. Ordinal allocation — two concurrent sessions of the SAME agent in the
-#      SAME room get DISTINCT routable pubkeys (the foundation for ordinal 0 =
-#      `smith`, ordinal 1 = `smith1`). The DISTINCTNESS is assertable today; the
-#      ordinal LABELS (`smith` / `smith1`) are NOT yet surfaced because the live
-#      session-start path still mints keys via `identity::derive_session_keys`
-#      (anchored per harness session), not `identity::derive_agent_ordinal_keys`
-#      (which exists + is unit-tested but is not yet wired into the live signer).
-#      → distinctness: hard check; ordinal-label assertion: SKIP-guarded.
+#      SAME room get DISTINCT routable ordinal pubkeys (`smith1`, then
+#      `smith2`). The same ordinal may be reused in a different room, but never
+#      concurrently in the same room.
 #   2. Room-independent reuse — `smithN`'s pubkey must be identical wherever it
 #      appears. Pure derivation property; not assertable from the CLI without
 #      daemon internals (no command dumps the (agent,ordinal)->pubkey family).
@@ -210,9 +206,9 @@ start_session() {
 new_watch; WP0="$LAST_WATCH"
 new_watch; WP1="$LAST_WATCH"
 # Start BOTH concurrently so both reservations are held simultaneously: that is
-# exactly the collision the ordinal allocator resolves (lowest-free → 0 then 1).
+# exactly the collision the ordinal allocator resolves (lowest-free → 1 then 2).
 # Sequential starts let the first (watch-pid-less) session get idle-reaped before
-# the second runs, freeing ordinal 0 and masking the collision.
+# the second runs, freeing ordinal 1 and masking the collision.
 start_session "${SID0}" "${WP0}" >/dev/null 2>&1 &
 P0=$!
 start_session "${SID1}" "${WP1}" >/dev/null 2>&1 &
@@ -269,8 +265,8 @@ else
 fi
 
 # 1c. AUTHORITATIVE wire check: kind:30315 presence in the room must carry TWO
-# distinct authors (ordinal 0 + ordinal 1), each signing with its own durable
-# key. Retry to absorb presence-publish timing — this is the headline proof that
+# distinct authors (`smith1` + `smith2`), each signing with its own ordinal key.
+# Retry to absorb presence-publish timing — this is the headline proof that
 # distinct ordinal identities are live on the relay.
 log "check 1c: relay kind:30315 presence authors in room '${E2E_PROJECT}'"
 DISTINCT_PUBKEYS=0
@@ -352,11 +348,12 @@ fi
 
 # ── 7. CHECK 4: switch-reject (Phase 5) ──────────────────────────────────────
 log "check 4: channels switch rejects a live-ordinal collision (Phase 5)"
-# Real collision scenario: session0 holds ordinal 0 (the base 'smith' pubkey) in
-# '${E2E_PROJECT}'. Start a SECOND 'smith' in its own per-session room — it reuses
-# the same ordinal-0 pubkey (room-independent). When that session tries to switch
-# INTO '${E2E_PROJECT}', its ordinal-0 pubkey is already live there (session0, a
-# DIFFERENT session) → the daemon must reject with "already active".
+# Real collision scenario: session0 holds ordinal 1 (`smith1`) in
+# '${E2E_PROJECT}'. Start a SECOND 'smith' in its own per-session room — it may
+# reuse the same ordinal-1 pubkey because the room differs. When that session
+# tries to switch INTO '${E2E_PROJECT}', its ordinal-1 pubkey is already live
+# there (session0, a DIFFERENT session) → the daemon must reject with "already
+# active".
 SID2="ord-s2-$$-$(date +%s)"
 new_watch; WP2="$LAST_WATCH"
 (

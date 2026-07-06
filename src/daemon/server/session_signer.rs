@@ -3,9 +3,8 @@ use anyhow::Result;
 use nostr_sdk::prelude::Keys;
 use std::collections::{HashMap, HashSet};
 
-/// A reserved ordinal slot. At most one live session per
-/// `(base derivation pubkey, channel, ordinal)`. The same ordinal key may be
-/// reused concurrently in different channels, but never in the same channel.
+/// One live session per `(derivation root, channel, ordinal)`.
+/// The same ordinal key may be reused concurrently in different channels.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct OrdinalSlot {
     base_pubkey: String,
@@ -13,9 +12,7 @@ pub(super) struct OrdinalSlot {
     ordinal: u32,
 }
 
-/// In-memory reservation map: slot → owning session id. Tracks which ordinals
-/// are live for each base/channel so the allocator can pick the lowest free one
-/// and two concurrent same-channel spawns can't both claim the same ordinal.
+/// In-memory reservation map: slot → owning session id.
 pub(super) type SignerReservations = HashMap<OrdinalSlot, String>;
 
 pub(super) struct SignerRequest<'a> {
@@ -39,8 +36,7 @@ pub(super) struct SignerRequest<'a> {
     pub owned_pubkey: Option<&'a str>,
 }
 
-/// The ordinal identity selected for a session. All runtime signers use derived
-/// ordinal keys and must be admitted to the group as members before use.
+/// The ordinal identity selected for a session.
 pub(super) struct SelectedSigner {
     pub ordinal: u32,
     pub pubkey: String,

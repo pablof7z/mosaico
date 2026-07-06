@@ -9,4 +9,4 @@ source_refs:
 
 # identities (table)
 
-Derived signing keys the daemon publishes as. (base agent pubkey, ordinal) plus per-session pubkeys map to their owning agent/session and a resume binding. Bounds the #p subscription (the set of pubkeys the daemon listens for) and resumes the right session when a mention arrives for an offline agent. Ordinal 0 == the base agent key.
+Derived signing keys the daemon publishes as. `(derivation root pubkey, ordinal)` plus per-session pubkeys map to their owning agent/session and a resume binding. Bounds the #p subscription (the set of pubkeys the daemon listens for) and resumes the right session when a mention arrives for an offline ordinal identity. Runtime ordinals start at 1.

@@ -1,34 +1,5 @@
 use super::*;
 
-pub(in crate::daemon::server) async fn rpc_publish_profile(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        slug: String,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("publish_profile params")?;
-
-    let edge_home = crate::config::edge_home();
-    let id = crate::identity::load_or_create(&edge_home, &p.slug, now_secs())
-        .with_context(|| format!("loading agent {}", p.slug))?;
-
-    let ev = DomainEvent::Profile(crate::domain::Profile {
-        agent: crate::domain::AgentRef::new(id.pubkey_hex(), p.slug.clone()),
-        host: state.host.clone(),
-        owners: state.owners.clone(),
-        is_backend: false,
-    });
-    let event_id = state.provider.publish(&ev, &id.keys).await?;
-
-    Ok(serde_json::json!({
-        "slug": p.slug,
-        "pubkey": id.pubkey_hex(),
-        "event_id": event_id.to_hex(),
-    }))
-}
-
 /// Resolve a backend label (from `slug@backend-label`) to the backend's pubkey.
 /// The label is exactly config.json `backendName`; it is not an OS/DNS hostname,
 /// pubkey, npub, NIP-05 address, or slugified display string.

@@ -180,13 +180,6 @@ result: {"groups": [ {group_id, name, about, parent, relay}, … ]}
 ```
 Lists NIP-29 groups visible to the daemon, optionally scoped to a project.
 
-### `publish_profile`
-```jsonc
-params: {"agent": "slug", "name": "…"|null, "about": "…"|null}
-result: {"event_id": "hex"}
-```
-Force-publishes or updates the agent's kind:0 profile.
-
 ### `statusline`
 ```jsonc
 params: {"session": "te-…"|null, "cwd": "/path", ...}

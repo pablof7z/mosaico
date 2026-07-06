@@ -20,7 +20,6 @@ pub(crate) struct WhoSnapshot {
     pub(crate) now: u64,
     pub(crate) rows: Vec<WhoRow>,
     pub(crate) other_projects: Vec<OtherProjectSummary>,
-    /// Agent capabilities advertised by backend management-key 30555 events.
     #[serde(default)]
     pub(crate) spawnable: Vec<SpawnableRow>,
     /// When the current scope is a per-session room, the work-root project it is
@@ -35,7 +34,6 @@ pub(crate) struct WhoSnapshot {
     pub(crate) project_display: String,
 }
 
-/// A channel's human display name: its kind:39000 `name`, else the raw id.
 fn display_name(store: StoreReader<'_>, id: &str) -> String {
     let channel = match store.get_channel(id) {
         Ok(c) => c,
@@ -56,7 +54,6 @@ pub(crate) struct SpawnableRow {
     pub(crate) slug: String,
     #[serde(default)]
     pub(crate) command: String,
-    /// Optional one-line "when to use this agent" note from the 30555 event.
     #[serde(default)]
     pub(crate) byline: Option<String>,
 }
@@ -233,9 +230,7 @@ pub(crate) fn load_who_snapshot(
     })
     .collect();
 
-    // If the current scope is a session/task channel, surface its parent so the
-    // renderer can label it as the channel (not the project). `parent` empty (or
-    // unknown) ⇒ a top-level project, so `None`.
+    // Session/task channel parent lets the renderer label channel vs project.
     let channel_parent = current_project.and_then(|p| {
         match store.channel_parent(p) {
             Ok(parent) => parent,
