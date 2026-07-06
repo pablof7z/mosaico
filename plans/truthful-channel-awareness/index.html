@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Truthful Channel Awareness And Provisioning Diagnostics</title>
+    <link rel="stylesheet" href="../../assets/style.css">
+  </head>
+  <body>
+    <main class="shell">
+      <nav class="topbar">
+        <a href="../../">Planning pages</a>
+        
+      </nav>
+      <section class="hero">
+        <div class="eyebrow">Architecture plan</div>
+        <h1>Truthful Channel Awareness And Provisioning Diagnostics</h1>
+        <p class="summary">Plan fixes the path where launch/session hooks can imply a project channel and roster even though NIP-29 provisioning never produced relay-backed channel state.</p>
+        <div class="meta">
+          <span class="pill ready">Ready to implement</span>
+          <span class="pill">84 percent certainty</span>
+        </div>
+      </section>
+      <div class="grid">
+        <div>
+
+          <section class="section">
+            <h2>Boundaries</h2>
+            <pre class="mermaid">flowchart LR
+  Launch[launch/provision] --&gt; Gate[channel readiness gate]
+  Gate --&gt;|Ready| Session[session_start registers session]
+  Gate --&gt;|Degraded| Degraded[explicit fabric unavailable state]
+  Session --&gt; Capture[hook-context capture]
+  Capture --&gt; Trellis[Trellis FabricView]
+  Trellis --&gt; Render[hook renderer]
+  Render --&gt; Agent[agent-visible context]
+  Gate --&gt; Receipt[readiness receipt/probe]
+  Receipt --&gt; Explain[explain/doctor output]</pre>
+          </section>
+          <section class="section">
+            <h2>Very High Level</h2>
+            <p>Track issues #259 through #262 as one ownership boundary: channel readiness must be confirmed before fabric state is rendered as real, and any failed/omitted side effect must be explainable. First, preserve session-start fail-closed behavior but make launch preflight stop presenting degraded panes as fabric-ready; when readiness degrades, the hook should get an explicit unavailable state rather than a desired channel name. Second, change hook-context capture/rendering so requested scope is not enough to produce a `&lt;channel&gt;` block. A channel block requires a materialized `relay_channels` row, and missing channel state becomes a warning or degraded marker. Third, split local invitable agent inventory from channel presence. Local config can be useful, but it must not render as the channel roster; confirmed channel membership remains under `&lt;members&gt;`/presence. Fourth, extend diagnostics around the provisioning side effect. Trellis already explains the hook-context `FabricView` from `channel-meta`, `members`, `presence`, and `messages`; it should also receive enough host-observed readiness facts or linked receipts for operators to explain why a channel was missing without guessing from logs. This plan is ready because the current logs and code show clear failure points and test seams.</p>
+          </section>
+          <section class="section">
+            <h2>Existing Rules Or ADRs</h2>
+            <ul><li>AGENTS.md backlog rule is satisfied by issues #259, #260, #261, and #262 as the canonical queue; the generated plan PR is a transient review artifact and should not become durable documentation after implementation.</li><li>The relay-sourced state rule is preserved: no local optimistic `relay_channels` fabrication should be introduced to make hook output look complete.</li><li>The Trellis boundary in docs/trellis-mapping.md is preserved: Trellis explains derived hook output today, while the host/provider owns relay effects and feeds observed facts back in.</li><li>File-size limits should be respected by keeping changes in domain-owned modules: launch/session readiness, fabric_context capture/rendering, and probe/diagnostics.</li></ul>
+          </section>
+          <section class="section">
+            <h2>Rule Tension And Tightening</h2>
+            <h3>Possible loosening</h3>
+            <ul><li>No production rule should be loosened. In particular, do not loosen the rule that kind:39000 materialization, not local intent, is the source of channel existence.</li><li>There is process tension because gh-plan-pr writes docs/plans by design; treat that output as a planning PR artifact to retire rather than a durable repo planning file.</li></ul>
+            <h3>Possible tightening</h3>
+            <ul><li>Add a repository rule or test expectation that hook `&lt;channel&gt;` blocks require confirmed channel metadata, not just requested scope or environment variables.</li><li>Add a vocabulary rule that local invitable agents and channel-present members are separate concepts in hook output and CLI rendering.</li><li>Require readiness degradation paths to expose a machine-readable reason through doctor/explain/probe before opening a local-only agent pane.</li></ul>
+          </section>
+          <section class="section">
+            <h2>Alternatives Considered</h2>
+            <ul><li>Optimistically create local channel rows when relay creation times out. Rejected because it reintroduces phantom fabric state and violates the current relay-sourced invariant.</li><li>Let launch keep opening panes and rely only on a warning. This preserves local work but still risks false channel identity unless the hook receives a distinct degraded state.</li><li>Move all channel provisioning decisions into Trellis immediately. Rejected for this fix because provider writes, signing, relay reads, and membership repair are still host-owned effects; a readiness receipt is the smaller correct step.</li></ul>
+          </section>
+        </div>
+        <aside>
+          <section class="card">
+            <h2>TTS Version</h2>
+            <audio controls preload="metadata" src="https://blossom.primal.net/8cdc19878d006b587fce4ccba5345287b423175652c99b4cab3ff784ca2a69d7.mp3"></audio>
+            <p>Audio-friendly narration generated from the planning payload.</p>
+          </section>
+          <section class="card">
+            <h2>Certainty</h2>
+            <div class="certainty ">84%</div>
+            <p>Ready to implement.</p>
+          </section>
+          <section class="card links">
+            <h2>Links</h2>
+            
+            <a href="https://blossom.primal.net/8cdc19878d006b587fce4ccba5345287b423175652c99b4cab3ff784ca2a69d7.mp3">Open narration</a>
+            <a href="../../docs/plans/truthful-channel-awareness/plan.md">Detailed plan file</a>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+    </script>
+  </body>
+</html>
