@@ -132,10 +132,14 @@ pub async fn run(cli: Cli) -> Result<()> {
 
 // ── stop ─────────────────────────────────────────────────────────────────────
 
+/// How long `stop` waits for a shut-down daemon to actually exit (release its
+/// startup flock) before giving up and reporting it as still-running.
+const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn stop_daemon() -> Result<()> {
     // Try to gracefully shut down a running daemon without spawning one.
     match crate::daemon::blocking::call_no_spawn("shutdown", serde_json::json!({})) {
-        Ok(_) => eprintln!("[tenex-edge] daemon stopped"),
+        Ok(_) => wait_for_daemon_exit(),
         Err(_) => eprintln!("[tenex-edge] daemon was not running"),
     }
     crate::daemon::set_inhibit();
@@ -144,6 +148,35 @@ fn stop_daemon() -> Result<()> {
          run any non-hook command (e.g. `tenex-edge who`) to resume"
     );
     Ok(())
+}
+
+/// The RPC layer acks `shutdown` the instant it wakes the daemon's shutdown
+/// future — before the daemon has actually torn down the relay connection,
+/// removed its socket, and dropped its startup flock. Poll that flock
+/// (non-blocking `try_acquire`) so `stop` doesn't return until the old
+/// process has genuinely exited and released it.
+fn wait_for_daemon_exit() {
+    let deadline = Instant::now() + DAEMON_SHUTDOWN_TIMEOUT;
+    loop {
+        match crate::daemon::client::StartupLock::try_acquire() {
+            Ok(Some(_lock)) => {
+                eprintln!("[tenex-edge] daemon stopped");
+                return;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("[tenex-edge] daemon shutdown requested but could not confirm exit: {e}");
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            eprintln!(
+                "[tenex-edge] daemon shutdown requested but it did not exit within {DAEMON_SHUTDOWN_TIMEOUT:?}"
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 // ── session-end ──────────────────────────────────────────────────────────────
