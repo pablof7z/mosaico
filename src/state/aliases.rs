@@ -112,7 +112,7 @@ impl Store {
 
     /// Alias rows matching one external id. With a `harness`, this is the exact
     /// schema key; without one, it is the machine-wide lookup used for endpoint
-    /// ids such as `tmux_pane` and `watch_pid`.
+    /// ids such as `pty_session` and `watch_pid`.
     pub fn aliases_for_external_id(
         &self,
         harness: Option<&str>,

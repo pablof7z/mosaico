@@ -5,14 +5,14 @@ use serde_json::json;
 fn validate_render_lists_alias_evidence() {
     let v = json!({
         "verb": "validate",
-        "target": "tmux_pane:%1",
+        "target": "pty_session:%1",
         "verdict": "passed",
         "ok": true,
         "checks": [
-            {"name":"alias","status":"passed","summary":"alias `tmux_pane:%1` resolves to live session `s1` with surface evidence"}
+            {"name":"alias","status":"passed","summary":"alias `pty_session:%1` resolves to live session `s1` with surface evidence"}
         ],
         "alias_evidence": {
-            "alias_kind": "tmux_pane",
+            "alias_kind": "pty_session",
             "harness": null,
             "external_id": "%1",
             "row_count": 1,
@@ -29,7 +29,7 @@ fn validate_render_lists_alias_evidence() {
             "missing": [],
             "rows": [{
                 "harness": "codex",
-                "external_id_kind": "tmux_pane",
+                "external_id_kind": "pty_session",
                 "external_id": "%1",
                 "session_id": "s1",
                 "session_alive": true,
@@ -41,9 +41,9 @@ fn validate_render_lists_alias_evidence() {
     let text = render_validate(&v);
 
     assert!(text.contains("alias evidence"));
-    assert!(text.contains("kind=tmux_pane"));
+    assert!(text.contains("kind=pty_session"));
     assert!(text.contains("session alive=true channel=room agent=codex"));
-    assert!(text.contains("codex:tmux_pane:%1 -> s1"));
+    assert!(text.contains("codex:pty_session:%1 -> s1"));
 }
 
 #[test]

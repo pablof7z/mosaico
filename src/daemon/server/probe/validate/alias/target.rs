@@ -17,10 +17,12 @@ pub(in crate::daemon::server::probe::validate) fn alias_target(
         .or_else(|| harnessed_path(target, "harness-session/", "harness_session"))
         .or_else(|| harnessed(target, "resume:", "resume"))
         .or_else(|| harnessed_path(target, "resume/", "resume"))
-        .or_else(|| machine_wide(target, "tmux_pane:", "tmux_pane"))
-        .or_else(|| machine_wide(target, "tmux-pane:", "tmux_pane"))
-        .or_else(|| machine_wide(target, "tmux_pane/", "tmux_pane"))
-        .or_else(|| machine_wide(target, "tmux-pane/", "tmux_pane"))
+        .or_else(|| machine_wide(target, "pty_session:", "pty_session"))
+        .or_else(|| machine_wide(target, "pty-session:", "pty_session"))
+        .or_else(|| machine_wide(target, "pty:", "pty_session"))
+        .or_else(|| machine_wide(target, "pty_session/", "pty_session"))
+        .or_else(|| machine_wide(target, "pty-session/", "pty_session"))
+        .or_else(|| machine_wide(target, "pty/", "pty_session"))
         .or_else(|| machine_wide(target, "watch_pid:", "watch_pid"))
         .or_else(|| machine_wide(target, "watch-pid:", "watch_pid"))
         .or_else(|| machine_wide(target, "watch_pid/", "watch_pid"))
@@ -61,7 +63,7 @@ fn machine_wide(target: &str, prefix: &str, kind: &str) -> Option<AliasTarget> {
 fn normalize_kind(kind: &str) -> &str {
     match kind {
         "harness-session" => "harness_session",
-        "tmux-pane" => "tmux_pane",
+        "pty-session" | "pty" => "pty_session",
         "watch-pid" => "watch_pid",
         other => other,
     }

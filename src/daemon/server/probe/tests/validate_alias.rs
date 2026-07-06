@@ -21,19 +21,19 @@ async fn rpc_probe_validate_alias_resolves_live_consistent_session() {
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_alias_supports_tmux_pane_shorthand() {
+async fn rpc_probe_validate_alias_supports_pty_session_shorthand() {
     let state = DaemonState::new_for_test().await;
     seed_alive_session(&state, "s1", "room", true);
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "tmux_pane:%1" }),
+        &json!({ "verb": "validate", "target": "pty_session:%1" }),
     )
     .unwrap();
 
     assert_eq!(v["ok"], true);
     assert_check_status(&v, "alias", "passed");
-    assert_eq!(v["alias_evidence"]["alias_kind"], "tmux_pane");
+    assert_eq!(v["alias_evidence"]["alias_kind"], "pty_session");
     assert_eq!(v["alias_evidence"]["harness"], serde_json::Value::Null);
     assert_eq!(v["alias_evidence"]["resolved_session_id"], "s1");
 }
@@ -101,7 +101,7 @@ fn seed_alive_session(
                 session_id,
                 100,
             )?;
-            s.put_alias("codex", "tmux_pane", "%1", session_id, 100)?;
+            s.put_alias("codex", "pty_session", "%1", session_id, 100)?;
             s.put_alias("codex", "watch_pid", "123", session_id, 100)?;
             if !alive {
                 s.mark_dead(session_id)?;

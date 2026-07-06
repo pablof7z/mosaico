@@ -18,9 +18,6 @@ pub(in crate::daemon::server) async fn spawn_session(
         "spawning session engine"
     );
 
-    // Register THIS instance's signing keys under its selected pubkey, so
-    // `keys_for(selected_pubkey)` returns the key that actually authored its
-    // events.
     state.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {

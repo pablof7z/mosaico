@@ -86,9 +86,9 @@ const TARGET_FORMS: &[TargetForm] = &[
         example: "tenex-edge validate joined:<session>",
     },
     TargetForm {
-        target: "alias:<harness>:<kind>:<value> | harness_session:<harness>:<id> | resume:<harness>:<id> | tmux_pane:<pane> | watch_pid:<pid>",
+        target: "alias:<harness>:<kind>:<value> | harness_session:<harness>:<id> | resume:<harness>:<id> | pty_session:<id> | watch_pid:<pid>",
         proves: "session alias resolution, canonical session binding, and live-session surfaces",
-        example: "tenex-edge validate tmux_pane:%1",
+        example: "tenex-edge validate pty_session:<id>",
     },
     TargetForm {
         target: "identity:<pubkey> | profile:<pubkey> | pubkey:<pubkey> | agent:<slug> | backend:<label>",
@@ -184,7 +184,7 @@ mod tests {
         assert!(text.contains("provider_attempt:<id>"));
         assert!(text.contains("alias:<harness>:<kind>:<value>"));
         assert!(text.contains("harness_session:<harness>:<id>"));
-        assert!(text.contains("tmux_pane:<pane>"));
+        assert!(text.contains("pty_session:<id>"));
         assert!(text.contains("watch_pid:<pid>"));
         assert!(text.contains("profile:<pubkey>"));
         assert!(text.contains("admin:<channel>:<pubkey>"));
