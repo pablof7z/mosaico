@@ -93,27 +93,19 @@ fn duplicate_same_agent_same_channel_gets_transient_signer() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let durable_pubkey = store
-        .get_session(&first_id)
-        .unwrap()
-        .expect("first session")
-        .agent_pubkey;
-    assert!(
-        session_transient_pubkey(&store, &first_id).is_none(),
-        "first same-agent/channel session should keep durable signer"
-    );
-    let transient_pubkey = session_transient_pubkey(&store, &second_id)
-        .expect("second same-agent/channel session should get transient signer");
+    let first_pubkey = session_identity_pubkey(&store, &first_id)
+        .expect("first session should get ordinal signer");
+    let second_pubkey = session_identity_pubkey(&store, &second_id)
+        .expect("second same-agent/channel session should get ordinal signer");
     assert_ne!(
-        transient_pubkey, durable_pubkey,
-        "transient signer must differ from durable agent pubkey"
+        second_pubkey, first_pubkey,
+        "same-agent sessions in one channel must select distinct ordinal pubkeys"
     );
-    let other_transient_pubkey = session_transient_pubkey(&store, &other_id).expect(
-        "same durable agent in a different channel should get the next global ordinal signer",
-    );
-    assert!(
-        other_transient_pubkey != durable_pubkey && other_transient_pubkey != transient_pubkey,
-        "global ordinal signer must be distinct from the base and prior ordinal"
+    let other_pubkey = session_identity_pubkey(&store, &other_id)
+        .expect("same agent in a different channel should get ordinal signer");
+    assert_eq!(
+        other_pubkey, first_pubkey,
+        "the same ordinal pubkey may be reused concurrently in different channels"
     );
 
     stop_daemon(&home);
@@ -121,8 +113,8 @@ fn duplicate_same_agent_same_channel_gets_transient_signer() {
 
 /// Issue #98 regression: two concurrent same-agent sessions in one channel must
 /// publish DISTINCT, INTERNALLY CONSISTENT identities. The bug this guards: the
-/// ordinal-1 instance published its kind:0 under the base pubkey AND labelled it
-/// "claude1", clobbering the base instance's "claude" profile — so both pubkeys
+/// second instance published its kind:0 under the first pubkey AND labelled it
+/// "claude2", clobbering the first instance's "claude1" profile — so both pubkeys
 /// (or the wrong pubkey) ended up named "claude1". Here we prove each selected
 /// pubkey carries its OWN label on the wire (kind:0) and through the local
 /// instance identity that backs `who`.
@@ -141,21 +133,20 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let durable_pubkey = store
+    let first_pubkey = store
         .get_session(&first_id)
         .unwrap()
         .expect("first session")
         .agent_pubkey;
-    let transient_pubkey = session_transient_pubkey(&store, &second_id)
+    let second_pubkey = session_identity_pubkey(&store, &second_id)
         .expect("second concurrent session should get a distinct ordinal pubkey");
     assert_ne!(
-        durable_pubkey, transient_pubkey,
+        first_pubkey, second_pubkey,
         "the two concurrent instances must select distinct pubkeys"
     );
 
     // Each session reports its OWN (pubkey, label) pair through the identity that
-    // backs `who`: base instance is "claude" on the durable pubkey, the second is
-    // "claude1" on the ordinal key.
+    // backs `who`: the first instance is "claude1", the second is "claude2".
     let first_instance = store
         .instance_identity_for_session(&first_id)
         .unwrap()
@@ -164,31 +155,30 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         .instance_identity_for_session(&second_id)
         .unwrap()
         .expect("second instance identity");
-    assert_eq!(first_instance.pubkey, durable_pubkey);
-    assert_eq!(first_instance.display_slug(), "claude");
-    assert_eq!(second_instance.pubkey, transient_pubkey);
-    assert_eq!(second_instance.display_slug(), "claude1");
+    assert_eq!(first_instance.pubkey, first_pubkey);
+    assert_eq!(first_instance.display_slug(), "claude1");
+    assert_eq!(second_instance.pubkey, second_pubkey);
+    assert_eq!(second_instance.display_slug(), "claude2");
 
     // kind:0 on the relay: each pubkey is named for ITS OWN backend-qualified
-    // instance — the base pubkey is "claude@test-host" (never clobbered to the
-    // ordinal label), the ordinal is "claude1@test-host".
+    // instance, never clobbering another ordinal profile.
     assert!(
         wait_until(std::time::Duration::from_secs(20), || {
-            relay::kind0_name_for_author(&relay, &durable_pubkey).as_deref()
-                == Some("claude@test-host")
-                && relay::kind0_name_for_author(&relay, &transient_pubkey).as_deref()
-                    == Some("claude1@test-host")
+            relay::kind0_name_for_author(&relay, &first_pubkey).as_deref()
+                == Some("claude1@test-host")
+                && relay::kind0_name_for_author(&relay, &second_pubkey).as_deref()
+                    == Some("claude2@test-host")
         }),
-        "kind:0 names must be self-consistent: base={:?} ordinal={:?}",
-        relay::kind0_name_for_author(&relay, &durable_pubkey),
-        relay::kind0_name_for_author(&relay, &transient_pubkey),
+        "kind:0 names must be self-consistent: first={:?} second={:?}",
+        relay::kind0_name_for_author(&relay, &first_pubkey),
+        relay::kind0_name_for_author(&relay, &second_pubkey),
     );
 
     stop_daemon(&home);
 }
 
 #[test]
-fn duplicate_resume_reassert_preserves_transient_pubkey() {
+fn duplicate_resume_reassert_preserves_selected_pubkey() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_signing_relay(&home);
@@ -206,8 +196,8 @@ fn duplicate_resume_reassert_preserves_transient_pubkey() {
         )
         .await
     });
-    let before = session_transient_pubkey(&Store::open(&home.store_path()).unwrap(), &duplicate_id)
-        .expect("duplicate session should have transient pubkey");
+    let before = session_identity_pubkey(&Store::open(&home.store_path()).unwrap(), &duplicate_id)
+        .expect("duplicate session should have selected pubkey");
     let instance = Store::open(&home.store_path())
         .unwrap()
         .instance_identity_for_session(&duplicate_id)
@@ -231,13 +221,13 @@ fn duplicate_resume_reassert_preserves_transient_pubkey() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let after = session_transient_pubkey(&store, &duplicate_id_after)
-        .expect("reasserted duplicate should keep transient pubkey");
+    let after = session_identity_pubkey(&store, &duplicate_id_after)
+        .expect("reasserted duplicate should keep selected pubkey");
     assert_eq!(
         duplicate_id, duplicate_id_after,
         "resume_id should resolve to the same canonical session"
     );
-    assert_eq!(before, after, "resume must preserve transient pubkey");
+    assert_eq!(before, after, "resume must preserve selected pubkey");
 
     stop_daemon(&home);
 }

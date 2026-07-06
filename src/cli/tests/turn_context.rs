@@ -108,7 +108,7 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "awareness should name the channel; got: {text:?}"
     );
     assert!(
-        text.contains("You are @coder on laptop (session "),
+        text.contains("You are @coder1 on laptop (session "),
         "awareness should identify this agent; got: {text:?}"
     );
     assert!(

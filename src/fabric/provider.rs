@@ -1,6 +1,7 @@
 //! Phase 5: `Nip29Provider` — concrete provider wrapping delivery, wire
 //! codec, materializer, and lifecycle in one place.
 
+mod agent_roster;
 pub(crate) mod chat;
 mod group_management;
 mod group_state;

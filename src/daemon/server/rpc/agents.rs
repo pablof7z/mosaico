@@ -62,3 +62,42 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
     })?;
     Ok(serde_json::json!({ "sessions": rows }))
 }
+
+#[derive(serde::Deserialize, Default)]
+pub(super) struct RosterParams {
+    #[serde(default)]
+    channel: Option<String>,
+}
+
+pub(in crate::daemon::server) fn rpc_agents_roster(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let p: RosterParams = serde_json::from_value(params.clone()).context("agents_roster params")?;
+    let rows = state.with_store(|s| -> Result<Vec<serde_json::Value>> {
+        let rows = match p.channel.as_deref().filter(|h| !h.is_empty()) {
+            Some(channel) => s.list_agent_roster_for_channel(channel)?,
+            None => s.list_agent_roster()?,
+        };
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let agent = if row.host.is_empty() || row.host == state.host {
+                    row.slug.clone()
+                } else {
+                    format!("{}@{}", row.slug, row.host)
+                };
+                serde_json::json!({
+                    "agent": agent,
+                    "slug": row.slug,
+                    "host": row.host,
+                    "backend_pubkey": row.backend_pubkey,
+                    "channel": row.channel_h,
+                    "use_criteria": row.use_criteria,
+                    "updated_at": row.updated_at,
+                })
+            })
+            .collect())
+    })?;
+    Ok(serde_json::json!({ "agents": rows }))
+}

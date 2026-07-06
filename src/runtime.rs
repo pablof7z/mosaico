@@ -44,8 +44,8 @@ pub struct EngineParams {
     /// identity and signing key from this — never from parallel slug/pubkey/key
     /// fields with base-vs-ordinal fallback rules at the callsite.
     pub instance: crate::identity::AgentInstance,
-    /// The agent's durable (ordinal-0, file-backed) keypair — the derivation root
-    /// for this instance's signing keys via [`AgentInstance::signing_keys`].
+    /// Local file-backed keypair used as the derivation root for this instance's
+    /// ordinal signing keys via [`AgentInstance::signing_keys`].
     pub base_keys: Keys,
     pub project: String,
     pub session_id: String,
@@ -70,9 +70,9 @@ pub struct EngineParams {
 }
 
 impl EngineParams {
-    /// Keys used to SIGN this session's live events: the base keys for ordinal 0,
-    /// this instance's derived ordinal keys otherwise. The base-vs-ordinal choice
-    /// lives in [`AgentInstance::signing_keys`], not here.
+    /// Keys used to SIGN this session's live events. Runtime sessions sign with
+    /// their selected ordinal key; legacy fallback handling lives in
+    /// [`AgentInstance::signing_keys`], not here.
     fn signing_keys(&self) -> Keys {
         self.instance.signing_keys(&self.base_keys)
     }
@@ -167,8 +167,7 @@ pub async fn run_session_in_daemon(
         }
     };
 
-    // Publish identity card signed with this session's own key: base key for
-    // ordinal 0 ("haiku"), derived key for ordinal N ("haiku1", etc.).
+    // Publish identity card signed with this session's own ordinal key.
     publish_de(DomainEvent::Profile(Profile {
         agent: aref.clone(),
         host: p.host.clone(),

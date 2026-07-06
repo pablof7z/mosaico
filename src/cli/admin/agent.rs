@@ -15,12 +15,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
             let max_slug = rows.iter().map(|r| r.slug.len()).max().unwrap_or(0);
             for r in &rows {
                 let cmd = display_commands(&r.commands);
-                println!(
-                    "{:<max_slug$}  {}  {}",
-                    r.slug.bold(),
-                    pubkey_short(&r.pubkey).cyan(),
-                    cmd.dimmed()
-                );
+                println!("{:<max_slug$}  {}", r.slug.bold(), cmd.dimmed());
             }
         }
         AgentAction::Add {
@@ -47,31 +42,34 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                 Some(c) => println!("  spawns: {}", c.display().dimmed()),
                 None => println!("  spawns: {}", "(no commands)".dimmed()),
             }
-            // Publish the kind:0 identity card so the agent is discoverable on the
-            // indexer relay immediately, not just after its first session. Best
-            // effort: the keypair already exists locally and the session engine
-            // re-publishes the same Profile on first run, so a publish failure
-            // (e.g. daemon/relay down) must not fail the create.
             if created {
                 if let Some(byline) = prompt_use_criteria()? {
                     crate::identity::set_local_agent_byline(&edge_home, &slug, Some(byline))?;
                 }
-                publish_profile(&slug).await;
             }
-            assign_to_projects(&id.pubkey_hex(), &projects).await?;
+            if !projects.is_empty() {
+                println!(
+                    "  project-specific assignment is not implemented; roster is advertised to every root project"
+                );
+            }
+            publish_roster(None).await;
         }
         AgentAction::Assign { slug, projects } => {
-            let pubkey = crate::identity::list_local_agent_details(&edge_home)
+            let found = crate::identity::list_local_agent_details(&edge_home)
                 .into_iter()
                 .find(|a| a.slug == slug)
-                .map(|a| a.pubkey)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"
-                    )
-                })?;
-            println!("{} {}", slug.bold(), pubkey_short(&pubkey).cyan());
-            assign_to_projects(&pubkey, &projects).await?;
+                .is_some();
+            if !found {
+                anyhow::bail!(
+                    "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"
+                );
+            }
+            if !projects.is_empty() {
+                println!(
+                    "project-specific assignment is not implemented; roster is advertised to every root project"
+                );
+            }
+            publish_roster(None).await;
         }
         AgentAction::Remove { slug } => {
             match crate::identity::remove_local_agent(&edge_home, &slug)? {
@@ -86,6 +84,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     eprintln!("no such local agent: {slug}");
                 }
             }
+            publish_roster(Some(&slug)).await;
         }
     }
     Ok(())
@@ -114,11 +113,10 @@ fn prompt_use_criteria() -> Result<Option<String>> {
     Ok(Some(criteria.trim().to_string()).filter(|s| !s.is_empty()))
 }
 
-/// `tenex-edge agents` — the invitable roster: every local-keystore agent with
-/// its "when to use" byline, plus the gesture to pull one in. Distinct from
-/// `agent list` (a keystore-management view of pubkeys/commands): this is the
-/// recruiting screen an agent or human consults before an `invite`. Reads the
-/// local store directly — no daemon round-trip.
+/// `tenex-edge agents` — the advertised roster from materialized kind:30555
+/// events. Distinct from `agent list` (a local keystore-management view of
+/// commands): this is the recruiting screen an agent or human consults before an
+/// `invite`.
 pub async fn agents(action: Option<AgentsAction>) -> Result<()> {
     match action.unwrap_or(AgentsAction::List) {
         AgentsAction::List => agents_roster().await,
@@ -127,21 +125,38 @@ pub async fn agents(action: Option<AgentsAction>) -> Result<()> {
 }
 
 async fn agents_roster() -> Result<()> {
-    let edge_home = crate::config::edge_home();
-    let rows = crate::identity::list_local_agents(&edge_home);
+    let v = daemon_call_async("agents_roster", serde_json::json!({})).await?;
+    let rows = v["agents"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
     if rows.is_empty() {
-        println!(
-            "No agents to invite (none in {}).",
-            edge_home.join("agents").display()
-        );
-        println!("Add one with: tenex-edge agent add <slug> [-- <command>]");
+        println!("No agents advertised by 30555 roster events.");
         return Ok(());
     }
-    println!("Agents you can invite:");
-    for (slug, _commands, _agent_def, byline) in &rows {
-        match byline.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
-            Some(b) => println!("  @{} — {}", slug.bold(), b),
-            None => println!("  @{}", slug.bold()),
+    println!("Available agents:");
+    for row in rows {
+        let agent = row["agent"].as_str().unwrap_or("?");
+        let slug = row["slug"].as_str().unwrap_or(agent);
+        let backend_pubkey = row["backend_pubkey"].as_str().unwrap_or("");
+        let criteria = row["use_criteria"].as_str().unwrap_or("").trim();
+        let channel = row["channel"].as_str().unwrap_or("");
+        let invite_spec = if agent.contains('@') && !backend_pubkey.is_empty() {
+            format!("{slug}@{backend_pubkey}")
+        } else {
+            slug.to_string()
+        };
+        match criteria.is_empty() {
+            true => println!(
+                "  @{}  #{}  invite: {}",
+                agent.bold(),
+                channel.dimmed(),
+                invite_spec.dimmed()
+            ),
+            false => println!(
+                "  @{} — {}  #{}  invite: {}",
+                agent.bold(),
+                criteria,
+                channel.dimmed(),
+                invite_spec.dimmed()
+            ),
         }
     }
     println!("\nInvite one with: tenex-edge invite --channel <channel> --agent <slug>");
@@ -195,46 +210,24 @@ async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<(
     Ok(())
 }
 
-/// Publish an agent's kind:0 identity card via the daemon (which owns the
-/// transport pool including the indexer relay). Best effort: failures are
-/// reported but never abort agent creation.
-async fn publish_profile(slug: &str) {
-    match daemon_call_async("publish_profile", serde_json::json!({ "slug": slug })).await {
+async fn publish_roster(remove_slug: Option<&str>) {
+    match daemon_call_async(
+        "agent_roster_publish",
+        serde_json::json!({ "remove_slug": remove_slug }),
+    )
+    .await
+    {
         Ok(v) => {
-            let event_id = v["event_id"].as_str().unwrap_or("?");
-            let short = &event_id[..event_id.len().min(8)];
-            println!("  published profile (kind:0) {}", short.dimmed());
+            let published = v["published"].as_u64().unwrap_or(0);
+            let removed = v["removed"].as_u64().unwrap_or(0);
+            let failed = v["failed"].as_array().map(Vec::len).unwrap_or(0);
+            println!(
+                "  roster publish: {} advertised, {} removed, {} failed",
+                published, removed, failed
+            );
         }
-        Err(e) => eprintln!("  profile publish deferred to first session: {e}"),
-    }
-}
-
-/// Add `pubkey` to each project's NIP-29 group via the daemon's `project_add`
-/// RPC. Per-project failures (e.g. operator not a group admin) are reported as
-/// they happen so the remaining assignments still run, but any failure makes the
-/// whole command exit non-zero — a partially-applied grant must not look like a
-/// clean success to a caller (or a script) that checks the exit code.
-async fn assign_to_projects(pubkey: &str, projects: &[String]) -> Result<()> {
-    let mut failures = 0usize;
-    for project in projects {
-        match daemon_call_async(
-            "project_add",
-            serde_json::json!({ "project": project, "pubkey": pubkey }),
-        )
-        .await
-        {
-            Ok(_) => println!("  assigned to {}", project.bold()),
-            Err(e) => {
-                eprintln!("  failed to assign to {}: {}", project.bold(), e);
-                failures += 1;
-            }
+        Err(e) => {
+            eprintln!("  roster publish deferred: {e}");
         }
     }
-    if failures > 0 {
-        anyhow::bail!(
-            "{failures} of {} project assignment(s) failed",
-            projects.len()
-        );
-    }
-    Ok(())
 }

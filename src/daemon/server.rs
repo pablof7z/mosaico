@@ -27,6 +27,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
 
+mod agent_roster;
 mod background;
 mod demux;
 mod invite_rpc;
@@ -102,13 +103,11 @@ pub struct DaemonState {
     last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
     /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
     outbox_notify: Notify,
-    /// Per-session derived keypairs for duplicate live signers. The durable
-    /// agent key remains the default; this map is populated only when a second
-    /// live session of the same durable agent joins the same routing scope.
+    /// Per-session derived ordinal keypairs for live signers.
     session_keys: Mutex<HashMap<String, Keys>>,
-    /// Reserved durable signer slots keyed by `(durable agent pubkey, group)`.
-    /// Guards collision detection and reservation so simultaneous duplicate
-    /// starts cannot both pick the durable signer.
+    /// Reserved ordinal signer slots keyed by `(derivation root pubkey, group)`.
+    /// Guards collision detection so simultaneous starts in one channel cannot
+    /// pick the same ordinal signer.
     session_signers: Mutex<session_signer::SignerReservations>,
 }
 
@@ -194,8 +193,8 @@ impl DaemonState {
             .collect()
     }
     /// Release a session's ordinal reservation + engine keys. Scans by session
-    /// id (the ordinal slot is keyed by base pubkey + room + ordinal, all of
-    /// which the reservation map already holds).
+    /// id (the ordinal slot is keyed by derivation root pubkey + room + ordinal,
+    /// all of which the reservation map already holds).
     fn release_session_signer(&self, session_id: &str) -> Option<Keys> {
         let mut reservations = self.session_signers.lock().unwrap();
         let mut session_keys = self.session_keys.lock().unwrap();
@@ -230,6 +229,7 @@ mod turn_lifecycle;
 mod turns;
 mod who;
 
+use agent_roster::{publish_local_agent_roster, rpc_agent_roster_publish};
 use channel_membership_rpc::{rpc_channels_join, rpc_channels_leave, rpc_channels_switch};
 use channel_resolve::{
     project_root, resolve_channel, resolve_channel_ref, rpc_channels_resolve, ChannelResolution,
@@ -254,7 +254,7 @@ use profile_rpc::{
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::rpc_session_end;
-use session_signing::{admit_ordinal_signer, select_session_signer};
+use session_signing::select_session_signer;
 use session_start::rpc_session_start;
 use status_publish::spawn_outbox_drainer;
 use statusline::rpc_statusline;
@@ -287,6 +287,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "project_add" => rpc::rpc_project_add(state, &req.params).await,
         "project_remove" => rpc::rpc_project_remove(state, &req.params).await,
         "agents_list_sessions" => rpc::rpc_agents_list_sessions(state, &req.params),
+        "agents_roster" => rpc::rpc_agents_roster(state, &req.params),
+        "agent_roster_publish" => rpc_agent_roster_publish(state, &req.params).await,
         "debug_outbox" => rpc_debug_outbox(state, &req.params),
         "channels_create" => rpc_channels_create(state, &req.params).await,
         "channels_edit" => rpc_channels_edit(state, &req.params).await,

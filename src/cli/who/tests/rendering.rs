@@ -148,7 +148,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
     ));
     assert!(!out.contains("[session"));
     assert!(!out.contains("remote-session"));
-    assert!(out.contains("## Agents (for new sessions)"));
+    assert!(out.contains("## Available agents"));
     assert!(out.contains("| Agent | Host | When to use |"));
     assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
     assert!(!out.contains("| codex | laptop | `codex` |"));

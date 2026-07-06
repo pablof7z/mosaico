@@ -156,21 +156,35 @@ pub async fn run() -> Result<()> {
             let _ = relay_state.provider.publish(&ev, &backend_keys).await;
         }
 
+        relay_state.provider.refresh_project_list().await.ok();
+        match publish_local_agent_roster(&relay_state, None).await {
+            Ok(report) => tracing::info!(
+                published = report.published,
+                removed = report.removed,
+                failed = report.failed.len(),
+                "published backend agent roster"
+            ),
+            Err(e) => tracing::warn!(error = %e, "backend agent roster publish failed"),
+        }
+
         membership_cleanup::cleanup_dead_local_sessions(&relay_state);
 
-        // Discover groups where local agents are already members so kind:9 chat
-        // arrives even when no session is alive (spawn-on-mention path), and record
-        // them in `subscribed_projects`. We DON'T open a REQ per group here — the
-        // single `resubscribe` below folds all of them (plus owned groups and the
-        // backend identity) into the three stable aggregate REQs. New memberships
-        // discovered from 39002 events extend coverage via `ensure_subscription`.
+        // Discover groups where selected ordinal pubkeys or the backend
+        // management key are already members/admins, and record them in
+        // `subscribed_projects`. New memberships discovered from 39002 events
+        // extend coverage via `ensure_subscription`.
         {
-            let edge = crate::config::edge_home();
-            let local_pks: Vec<String> = crate::identity::list_local_pubkeys(&edge);
             let member_groups: Vec<String> = relay_state.with_store(|s| {
+                let mut pubkeys = s.list_identity_pubkeys().unwrap_or_default();
+                if let Some(pk) = relay_state.backend_pubkey() {
+                    pubkeys.push(pk);
+                }
                 let mut groups = Vec::new();
-                for pk in &local_pks {
+                for pk in &pubkeys {
                     if let Ok(gs) = s.list_channels_where_member(pk) {
+                        groups.extend(gs);
+                    }
+                    if let Ok(gs) = s.list_channels_where_admin(pk) {
                         groups.extend(gs);
                     }
                 }
@@ -187,7 +201,8 @@ pub async fn run() -> Result<()> {
                 }
             }
             tracing::info!(
-                local_agents = local_pks.len(),
+                subscribed_identity_pubkeys =
+                    relay_state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default().len()),
                 member_groups = member_groups.len(),
                 "spawn-on-mention coverage seeded"
             );

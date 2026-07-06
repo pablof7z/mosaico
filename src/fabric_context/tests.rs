@@ -83,7 +83,6 @@ fn input<'a>(
         self_slug: "coder",
         self_pubkey: SELF_PK,
         local_host: "laptop",
-        edge_home: None,
         forced_messages: &[],
         warnings: &[],
         force,
@@ -267,18 +266,21 @@ fn missing_channels_are_warned_not_rendered() {
 fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
     let store = seed_store();
     let rec = session(&store);
-    let edge_home = tempfile::tempdir().unwrap();
-    crate::identity::add_local_agent(edge_home.path(), "helper", None, 1).unwrap();
+    store
+        .replace_agent_roster(&crate::state::AgentRoster {
+            backend_pubkey: "backend".into(),
+            host: "laptop".into(),
+            slug: "helper".into(),
+            use_criteria: "For testing".into(),
+            channels: vec!["root".into()],
+            updated_at: 2,
+        })
+        .unwrap();
 
-    let text = render_fabric_context(
-        &store,
-        FabricContextInput {
-            edge_home: Some(edge_home.path()),
-            ..input(Some(&rec), "root", 0, 100, true)
-        },
-    )
-    .expect("context should render");
-    assert!(text.contains("<local-agents>"));
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
+        .expect("context should render");
+    assert!(text.contains("<available-agents>"));
+    assert!(text.contains("<agent ref=\"@helper\" about=\"For testing\""));
     assert!(!text.contains("<agents>"));
     assert!(text.contains("<member ref=\"@coder\""));
 

@@ -133,16 +133,23 @@ pub(super) fn unjoined_caps(
         .collect()
 }
 
-pub(super) fn agent_caps(input: &FabricContextInput<'_>) -> Vec<AgentCap> {
-    let Some(edge_home) = input.edge_home else {
-        return Vec::new();
-    };
-    crate::identity::list_invitable_agents(edge_home)
+pub(super) fn agent_caps(
+    store: &Store,
+    root: &str,
+    input: &FabricContextInput<'_>,
+) -> Vec<AgentCap> {
+    store
+        .list_agent_roster_for_channel(root)
+        .unwrap_or_default()
         .into_iter()
-        .map(|(slug, byline, created_at)| AgentCap {
-            reference: slug,
-            about: byline.unwrap_or_default(),
-            created_at,
+        .map(|row| AgentCap {
+            reference: if row.host.is_empty() || row.host == input.local_host {
+                row.slug
+            } else {
+                format!("{}@{}", row.slug, row.host)
+            },
+            about: row.use_criteria,
+            created_at: row.updated_at,
         })
         .collect()
 }

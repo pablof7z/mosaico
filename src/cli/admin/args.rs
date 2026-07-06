@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum AgentAction {
-    /// List the agents in this machine's local keystore (slug, pubkey, commands).
+    /// List the agents in this machine's local keystore (slug, commands).
     List,
     /// Add a local agent: mint + persist its keypair if the slug is new. Pass a
     /// harness launch command after `--` to set its default named command (e.g.
@@ -12,13 +12,14 @@ pub(in crate::cli) enum AgentAction {
     /// interactive launch prompts for one and daemon/TUI spawns use built-in
     /// defaults only for built-in harness slugs.
     ///
-    /// Repeat `--project <p>` to also assign the agent to one or more projects
-    /// in the same step (adds its pubkey to each NIP-29 group).
+    /// Repeat `--project <p>` to document the intended assignment. Per-project
+    /// roster scoping is not implemented yet; current roster publish advertises
+    /// every local capability to every root project.
     Add {
         /// Agent slug ([A-Za-z0-9._-]).
         slug: String,
-        /// Assign to this project (repeatable). Adds the agent's pubkey to the
-        /// project's NIP-29 group.
+        /// Intended project assignment (repeatable). Currently triggers a
+        /// roster republish; per-project scoping is not implemented yet.
         #[arg(long = "project", value_name = "PROJECT")]
         projects: Vec<String>,
         /// Set the harness command as a string (shell-word split). Takes priority
@@ -29,9 +30,9 @@ pub(in crate::cli) enum AgentAction {
         #[arg(last = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
-    /// Assign an existing local agent to one or more projects: add its pubkey to
-    /// each project's NIP-29 group. Repeat `--project <p>` for multiple projects.
-    /// Requires your operator key to be a group admin on the relay.
+    /// Assign an existing local agent to one or more projects. Per-project
+    /// roster scoping is not implemented yet; this republished roster still
+    /// advertises every local capability to every root project.
     Assign {
         /// Agent slug (must already exist in the local keystore).
         slug: String,

@@ -20,7 +20,7 @@ pub(crate) struct WhoSnapshot {
     pub(crate) now: u64,
     pub(crate) rows: Vec<WhoRow>,
     pub(crate) other_projects: Vec<OtherProjectSummary>,
-    /// Agents tenex-edge has an identity for that can be spawned via tmux.
+    /// Agent capabilities advertised by backend management-key 30555 events.
     #[serde(default)]
     pub(crate) spawnable: Vec<SpawnableRow>,
     /// When the current scope is a per-session room, the work-root project it is
@@ -54,8 +54,9 @@ fn display_name(store: StoreReader<'_>, id: &str) -> String {
 pub(crate) struct SpawnableRow {
     pub(crate) host: String,
     pub(crate) slug: String,
+    #[serde(default)]
     pub(crate) command: String,
-    /// Optional one-line "when to use this agent" note from the agent file.
+    /// Optional one-line "when to use this agent" note from the 30555 event.
     #[serde(default)]
     pub(crate) byline: Option<String>,
 }
@@ -218,15 +219,19 @@ pub(crate) fn load_who_snapshot(
         })
         .collect();
 
-    let spawnable: Vec<SpawnableRow> = crate::tmux::spawnable_agents()
-        .into_iter()
-        .map(|(slug, command, byline)| SpawnableRow {
-            host: local_host.clone(),
-            slug,
-            command,
-            byline,
-        })
-        .collect();
+    let roster_scope = current_project.map(|p| work_root_for(store, p));
+    let spawnable: Vec<SpawnableRow> = match roster_scope.as_deref() {
+        Some(root) => store.list_agent_roster_for_channel(root)?,
+        None => store.list_agent_roster()?,
+    }
+    .into_iter()
+    .map(|row| SpawnableRow {
+        host: row.host,
+        slug: row.slug,
+        command: String::new(),
+        byline: Some(row.use_criteria).filter(|s| !s.trim().is_empty()),
+    })
+    .collect();
 
     // If the current scope is a session/task channel, surface its parent so the
     // renderer can label it as the channel (not the project). `parent` empty (or

@@ -158,8 +158,8 @@ pub(super) async fn rpc_tmux_spawn(
 ///
 /// If the same agent slug already has a live session in the scope, logs a note
 /// about the concurrent launch. The actual signer pubkey is selected and
-/// admitted by `session_start`; pre-provisioning with the base pubkey would make
-/// the first session look like a duplicate to the roster-aware ordinal allocator.
+/// admitted by `session_start`; pre-provisioning with the derivation root pubkey
+/// would make the first session look like a duplicate to the ordinal allocator.
 pub(in crate::daemon::server) async fn provision_before_spawn(
     state: &Arc<DaemonState>,
     slug: &str,

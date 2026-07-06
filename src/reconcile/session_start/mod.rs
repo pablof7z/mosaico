@@ -37,7 +37,7 @@ pub struct ChannelReadyIntent {
     pub channel_h: String,
     pub work_root: String,
     pub room_parent: Option<String>,
-    pub base_pubkey: String,
+    pub signer_pubkey: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -265,9 +265,9 @@ pub(crate) fn plan_from_request(req: &SessionStartRequestFact) -> SessionStartPl
             channel_h: req.channel_h.clone(),
             work_root: req.work_root.clone(),
             room_parent: req.room_parent.clone(),
-            base_pubkey: req.base_pubkey.clone(),
+            signer_pubkey: req.signer_pubkey.clone(),
         }),
-        admit_pubkey: (active && req.signer_ordinal > 0).then(|| req.signer_pubkey.clone()),
+        admit_pubkey: None,
         tmux_pane: req.tmux_pane.clone(),
         ring_doorbell: req.ring_doorbell,
         notify_outbox: active,

@@ -223,7 +223,7 @@ fn freeze_status_outbox_is_debuggable_and_presence_is_unified() {
                 })
                 .unwrap_or(false)
         }),
-        "the coder agent's presence should materialize in relay_status under its durable pubkey"
+        "the coder agent's presence should materialize in relay_status under its selected pubkey"
     );
 
     stop_daemon(&home);

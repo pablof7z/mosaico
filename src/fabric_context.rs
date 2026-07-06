@@ -1,5 +1,4 @@
 use crate::state::{InboxRow, Session, Store};
-use std::path::Path;
 
 pub(crate) mod assemble;
 mod build;
@@ -38,7 +37,6 @@ pub(crate) struct FabricContextInput<'a> {
     pub(crate) self_slug: &'a str,
     pub(crate) self_pubkey: &'a str,
     pub(crate) local_host: &'a str,
-    pub(crate) edge_home: Option<&'a Path>,
     pub(crate) forced_messages: &'a [FabricMessageSeed],
     pub(crate) warnings: &'a [String],
     pub(crate) force: bool,
@@ -108,46 +106,30 @@ pub(crate) fn render_fabric_all_projects(
 ) -> String {
     let mut out = String::new();
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host, None));
+        let view = build_view(store, project_input(root, now, local_host));
         out.push_str(&render_view(&view));
         out.push('\n');
     }
     out
 }
 
-/// Human-rendered counterpart of [`render_fabric_all_projects`]. The
-/// invitable-agent roster is scope-independent, so it is rendered once up
-/// front instead of once per project block.
+/// Human-rendered counterpart of [`render_fabric_all_projects`].
 pub(crate) fn render_fabric_all_projects_human(
     store: &Store,
     roots: &[String],
     now: u64,
     local_host: &str,
-    edge_home: Option<&Path>,
     color: bool,
 ) -> String {
     let mut out = String::new();
-    let roster = build::agents(edge_home, 0, now);
-    if !roster.is_empty() {
-        let roster_view = FabricView {
-            agents: roster,
-            ..Default::default()
-        };
-        out.push_str(render_human_view(&roster_view, color).trim_start_matches('\n'));
-    }
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host, None));
+        let view = build_view(store, project_input(root, now, local_host));
         out.push_str(&render_human_view(&view, color));
     }
     out
 }
 
-fn project_input<'a>(
-    root: &'a str,
-    now: u64,
-    local_host: &'a str,
-    edge_home: Option<&'a Path>,
-) -> FabricContextInput<'a> {
+fn project_input<'a>(root: &'a str, now: u64, local_host: &'a str) -> FabricContextInput<'a> {
     FabricContextInput {
         session: None,
         scope: root,
@@ -156,7 +138,6 @@ fn project_input<'a>(
         self_slug: "",
         self_pubkey: "",
         local_host,
-        edge_home,
         forced_messages: &[],
         warnings: &[],
         force: true,

@@ -1,4 +1,4 @@
-use super::{Channel, Profile, Session, Status, Store};
+use super::{AgentAvailability, Channel, Profile, Session, Status, Store};
 use anyhow::Result;
 
 /// Read-only capability for callers that assemble views from the store.
@@ -44,6 +44,17 @@ impl StoreReader<'_> {
 
     pub(crate) fn list_identity_pubkeys(self) -> Result<Vec<String>> {
         self.store.list_identity_pubkeys()
+    }
+
+    pub(crate) fn list_agent_roster_for_channel(
+        self,
+        channel_h: &str,
+    ) -> Result<Vec<AgentAvailability>> {
+        self.store.list_agent_roster_for_channel(channel_h)
+    }
+
+    pub(crate) fn list_agent_roster(self) -> Result<Vec<AgentAvailability>> {
+        self.store.list_agent_roster()
     }
 
     pub(crate) fn instance_identity_for_session(

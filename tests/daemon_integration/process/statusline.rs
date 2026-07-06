@@ -10,8 +10,8 @@ fn resolves_to_specific_session_when_session_id_is_supplied() {
     // not whichever session is newest for the agent+cwd pair.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Two concurrent same-agent sessions in one project now share the project
-    // channel (per-session rooms are off by default), so the second derives a
-    // transient signer — which needs a backend key.
+    // channel (per-session rooms are off by default), so both need selected
+    // ordinal signers derived from the backend key.
     let home = Home::new().with_backend_key();
 
     // Start two sessions with the same agent + cwd but distinct harness ids.

@@ -245,6 +245,12 @@ pub(in crate::daemon::server) fn set_active_session_channel(
     new_channel: &str,
     leave_previous: bool,
 ) -> Result<()> {
+    let moved_reservations = {
+        let reservations = state.session_signers.lock().unwrap();
+        let mut preflight = reservations.clone();
+        super::session_signer::move_channel(&mut preflight, session_id, new_channel)?;
+        preflight
+    };
     // Every write here is part of one logical "this session now publishes into
     // `new_channel`" move. A swallowed error would leave the session row and the
     // identity's active-channel hint disagreeing, so later resume/mention flows
@@ -269,7 +275,7 @@ pub(in crate::daemon::server) fn set_active_session_channel(
             None
         };
         let mut idn = s
-            .get_identity(agent_pubkey)
+            .identity_for_session(session_id)
             .context("set_active_session_channel: loading identity")?
             .with_context(|| {
                 format!(
@@ -295,6 +301,7 @@ pub(in crate::daemon::server) fn set_active_session_channel(
             .context("set_active_session_channel: persisting identity active-channel move")?;
         Ok(())
     })?;
+    *state.session_signers.lock().unwrap() = moved_reservations;
     state.outbox_notify.notify_waiters();
     Ok(())
 }

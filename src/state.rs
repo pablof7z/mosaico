@@ -1,9 +1,10 @@
 //! Local persistence in SQLite (the persistence foundation).
 //! The store is two things and nothing else:
-//!   1. `relay_*` materialized caches — channels, members, profiles, status, and
-//!      a verbatim event log. Every one is rebuildable from the relay and is
-//!      identical for local and remote agents. Agent identity, status, channels,
-//!      and membership are NEVER authoritative local tables; they are caches.
+//!   1. `relay_*` materialized caches — channels, members, profiles, roster,
+//!      status, and a verbatim event log. Every one is rebuildable from the
+//!      relay and is identical for local and remote agents. Agent identity,
+//!      status, channels, roster, and membership are NEVER authoritative local
+//!      tables; they are caches.
 //!   2. local plumbing the relay can't carry — OS process handles (`sessions`),
 //!      joined-channel state (`session_channels`), external-id aliases
 //!      (`session_aliases`), derived signing keys (`identities`), the inbound
@@ -97,6 +98,30 @@ pub struct Status {
     pub last_seen: u64,
     pub updated_at: u64,
     pub expiration: u64,
+}
+
+/// kind:30555 backend-published capability roster, fanned out to one row per
+/// advertised root channel. The signer is the backend management key; `slug` is
+/// the capability label (for example `codex`), not an agent identity pubkey.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentAvailability {
+    pub backend_pubkey: String,
+    pub host: String,
+    pub slug: String,
+    pub use_criteria: String,
+    pub channel_h: String,
+    pub updated_at: u64,
+}
+
+/// Complete replacement payload for one `(backend_pubkey, slug)` 30555 address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRoster {
+    pub backend_pubkey: String,
+    pub host: String,
+    pub slug: String,
+    pub use_criteria: String,
+    pub channels: Vec<String>,
+    pub updated_at: u64,
 }
 
 /// A verbatim relay event (any kind other than 0 / 39xxx / 30315, which have
@@ -209,9 +234,8 @@ pub struct SessionAlias {
     pub created_at: u64,
 }
 
-/// A derived signing key the daemon publishes as. Ordinal 0 == the base agent
-/// key. Binds an ordinal/per-session pubkey to its owning agent/session and the
-/// harness-native id used to resume it.
+/// A derived signing key the daemon publishes as. Binds an ordinal pubkey to its
+/// owning local capability/session and the harness-native id used to resume it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub pubkey: String,
@@ -267,6 +291,7 @@ pub(super) fn mint_session_id() -> String {
     format!("te-{nanos:x}-{seq:x}")
 }
 
+mod agent_roster;
 mod aliases;
 mod channels;
 mod schema;

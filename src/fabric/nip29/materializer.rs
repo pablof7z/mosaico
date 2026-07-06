@@ -11,7 +11,7 @@
 //! identical for local and remote agents, rebuildable from the relay at any time.
 
 use crate::domain::{ChatMessage, Profile};
-use crate::state::{RelayEvent, Store};
+use crate::state::{AgentRoster, RelayEvent, Store};
 use nostr_sdk::Event;
 
 mod messages;
@@ -149,6 +149,51 @@ impl Nip29Materializer {
         }
     }
 
+    // ── relay_agent_roster (kind:30555) ─────────────────────────────────────
+
+    /// Materialise a backend management-key signed capability roster event into
+    /// `relay_agent_roster`, one row per advertised root channel.
+    pub fn materialize_agent_roster(store: &Store, event: &Event) {
+        let Some(slug) = super::nostr_tag(event, "d") else {
+            return;
+        };
+        let host = super::nostr_tag(event, "hostname")
+            .or_else(|| super::nostr_tag(event, "host"))
+            .unwrap_or("");
+        let use_criteria = super::nostr_tag(event, "use-criteria").unwrap_or("");
+        let backend_pubkey = event.pubkey.to_hex();
+        let advertised_channels = collect_tag_values(event, "h");
+        let had_h_tags = !advertised_channels.is_empty();
+        let channels: Vec<String> = advertised_channels
+            .into_iter()
+            .filter(|channel_h| {
+                store.is_root_channel(channel_h).unwrap_or(false)
+                    && store
+                        .is_channel_admin(channel_h, &backend_pubkey)
+                        .unwrap_or(false)
+            })
+            .collect();
+        if channels.is_empty() && had_h_tags {
+            return;
+        }
+        let roster = AgentRoster {
+            backend_pubkey,
+            host: host.to_string(),
+            slug: slug.to_string(),
+            use_criteria: use_criteria.to_string(),
+            channels,
+            updated_at: event.created_at.as_secs(),
+        };
+        if let Err(e) = store.replace_agent_roster(&roster) {
+            tracing::error!(
+                backend = %roster.backend_pubkey,
+                slug = %roster.slug,
+                error = %e,
+                "materialize_agent_roster: relay_agent_roster replace failed — relay truth diverged from cache"
+            );
+        }
+    }
+
     // ── relay_events (every other kind, verbatim) ────────────────────────────
 
     /// Cache one relay event verbatim in `relay_events` (NIP-01 replacement is
@@ -243,12 +288,16 @@ impl Nip29Materializer {
 
 /// All `p`-tag pubkey values (`slice[1]`) on the event.
 fn collect_p_pubkeys(event: &Event) -> Vec<String> {
+    collect_tag_values(event, "p")
+}
+
+fn collect_tag_values(event: &Event, tag_name: &str) -> Vec<String> {
     event
         .tags
         .iter()
         .filter_map(|t| {
             let s = t.as_slice();
-            if s.first().map(String::as_str) == Some("p") {
+            if s.first().map(String::as_str) == Some(tag_name) {
                 s.get(1).cloned()
             } else {
                 None

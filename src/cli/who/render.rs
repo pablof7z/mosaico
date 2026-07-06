@@ -51,8 +51,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
                 Some(b) if !b.is_empty() => format!(" — {b}"),
                 _ => String::new(),
             };
-            let tag = format!("[spawnable via {}]", row.command);
-            let _ = writeln!(out, "{}{}  {}", label.dimmed(), byline, tag.dimmed());
+            let _ = writeln!(out, "{}{}", label.dimmed(), byline);
         }
     }
 
@@ -106,14 +105,14 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     }
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "## Agents (for new sessions)");
+    let _ = writeln!(out, "## Available agents");
     let _ = writeln!(
         out,
         "Start a new session with `tenex-edge chat write --message \"...\"`."
     );
     let _ = writeln!(out);
     if snapshot.spawnable.is_empty() {
-        let _ = writeln!(out, "_No local spawnable agents configured._");
+        let _ = writeln!(out, "_No agents advertised by 30555 roster events._");
     } else {
         let _ = writeln!(out, "| Agent | Host | When to use |");
         let _ = writeln!(out, "|---|---|---|");

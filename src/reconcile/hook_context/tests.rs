@@ -94,7 +94,6 @@ fn fabric_input<'a>(
         self_slug: "coder",
         self_pubkey: SELF_PK,
         local_host: "laptop",
-        edge_home: None,
         forced_messages: &[],
         warnings: &[],
         force,

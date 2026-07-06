@@ -235,7 +235,7 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
     let meta = MetaInput {
         self_row: input.session.map(|s| read::self_cap(s, input)),
         project: read::project_summary(store, &root),
-        agents: read::agent_caps(input),
+        agents: read::agent_caps(store, &root, input),
         channels,
         unjoined: read::unjoined_caps(store, &root, &channel_hs),
         warnings,

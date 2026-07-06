@@ -6,7 +6,6 @@ use super::{missing_channel_warning, FabricContextInput, FabricMessageSeed};
 use crate::state::{Session, Store};
 use crate::util::relative_time;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> FabricView {
     let root = project_root(store, input.scope);
@@ -35,7 +34,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
             session_id: s.session_id.clone(),
         }),
         project,
-        agents: agents(input.edge_home, input.cursor, input.now),
+        agents: agents(store, &root, input.cursor, input.now, input.local_host),
         channels: Vec::new(),
         unjoined: unjoined_channels(store, &root, &channels, input.now),
         important: Vec::new(),
@@ -159,16 +158,25 @@ fn unjoined_channels(
         .collect()
 }
 
-pub(super) fn agents(edge_home: Option<&Path>, cursor: u64, now: u64) -> Vec<AgentRow> {
-    let Some(edge_home) = edge_home else {
-        return Vec::new();
-    };
-    crate::identity::list_invitable_agents(edge_home)
+pub(super) fn agents(
+    store: &Store,
+    root: &str,
+    cursor: u64,
+    now: u64,
+    local_host: &str,
+) -> Vec<AgentRow> {
+    store
+        .list_agent_roster_for_channel(root)
+        .unwrap_or_default()
         .into_iter()
-        .filter(|(_, _, created_at)| cursor == 0 || (*created_at > cursor && *created_at <= now))
-        .map(|(slug, byline, _)| AgentRow {
-            reference: slug,
-            about: byline.unwrap_or_default(),
+        .filter(|row| cursor == 0 || (row.updated_at > cursor && row.updated_at <= now))
+        .map(|row| AgentRow {
+            reference: if row.host.is_empty() || row.host == local_host {
+                row.slug
+            } else {
+                format!("{}@{}", row.slug, row.host)
+            },
+            about: row.use_criteria,
         })
         .collect()
 }

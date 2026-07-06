@@ -3,39 +3,35 @@ use anyhow::Result;
 use nostr_sdk::prelude::Keys;
 use std::collections::{HashMap, HashSet};
 
-/// A reserved ordinal slot (issue #47). At most one LIVE session per
-/// `(base agent pubkey, ordinal)`. Replaces the old binary
-/// `(agent, project)` durable-vs-transient slot: instead of "first session gets
-/// the durable key, everyone else gets a per-session transient key", each
-/// concurrent live session takes the next free DURABLE ordinal identity
-/// (`smith`, `smith1`, `smith2`, …), globally for that base agent.
+/// A reserved ordinal slot. At most one live session per
+/// `(base derivation pubkey, channel, ordinal)`. The same ordinal key may be
+/// reused concurrently in different channels, but never in the same channel.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct OrdinalSlot {
     base_pubkey: String,
+    channel_h: String,
     ordinal: u32,
 }
 
 /// In-memory reservation map: slot → owning session id. Tracks which ordinals
-/// are live for each base agent so the allocator can pick the lowest free one
-/// and two concurrent spawns can't both claim the same ordinal.
+/// are live for each base/channel so the allocator can pick the lowest free one
+/// and two concurrent same-channel spawns can't both claim the same ordinal.
 pub(super) type SignerReservations = HashMap<OrdinalSlot, String>;
 
 pub(super) struct SignerRequest<'a> {
     pub session_id: &'a str,
-    /// Durable base agent pubkey (the ordinal-0 identity).
+    /// Local derivation-root pubkey for this capability.
     pub base_pubkey: &'a str,
     pub agent_slug: &'a str,
-    /// The NIP-29 group id the session operates in (`route_scope`). This is used
-    /// for membership admission and logging; ordinal identity itself is global.
+    /// The NIP-29 group id the session operates in (`route_scope`).
     pub h: &'a str,
-    /// Base agent keys — the HKDF derivation root for ordinals > 0.
+    /// Local keypair used only as the HKDF derivation root for ordinal keys.
     pub base_keys: &'a Keys,
     /// Honor this exact ordinal when free (resume of a known route, or a
     /// mention-driven spawn naming a specific `smithN`). `None` → allocate the
-    /// lowest free global ordinal (birth).
+    /// lowest free channel ordinal (birth).
     pub preferred_ordinal: Option<u32>,
-    /// Pubkeys currently unavailable for reuse: live identities for the base
-    /// agent plus pubkeys present in the target channel's active roster.
+    /// Pubkeys currently unavailable for reuse in the target channel.
     pub occupied_pubkeys: Option<&'a HashSet<String>>,
     /// Pubkey this same session or exact preferred route is allowed to reuse.
     /// Generic births still treat roster membership as occupied; mention-driven
@@ -43,23 +39,21 @@ pub(super) struct SignerRequest<'a> {
     pub owned_pubkey: Option<&'a str>,
 }
 
-/// The identity selected for a session. Ordinal 0 signs with the base agent key
-/// (`keys` is `None`, so callers fall back to the durable key via
-/// `keys_for_session`); ordinal N>0 signs with a durable derived key and must be
-/// admitted to the group as a member before use.
+/// The ordinal identity selected for a session. All runtime signers use derived
+/// ordinal keys and must be admitted to the group as members before use.
 pub(super) struct SelectedSigner {
     pub ordinal: u32,
     pub pubkey: String,
     pub label: String,
-    keys: Option<Keys>,
+    keys: Keys,
 }
 
 impl SelectedSigner {
     /// Project to the authoritative [`crate::identity::AgentInstance`] (issue #98).
-    /// The base slug/pubkey are the agent's durable (ordinal-0) identity; this
-    /// signer contributes the selected ordinal + pubkey. Engine + publishers
-    /// derive label/pubkey/signing-key policy from the returned instance, never
-    /// from the raw `label`/`keys` fields here.
+    /// The base slug/pubkey identify the local derivation family; this signer
+    /// contributes the selected ordinal + pubkey. Engine + publishers derive
+    /// label/pubkey/signing-key policy from the returned instance, never from
+    /// the raw `label`/`keys` fields here.
     pub(super) fn instance(
         &self,
         base_slug: &str,
@@ -72,27 +66,18 @@ impl SelectedSigner {
             self.pubkey.clone(),
         )
     }
-    /// The pubkey that must be added as a NIP-29 member before use — only for
-    /// ordinals > 0. Ordinal 0 is the base agent, admitted by the normal
-    /// session-start membership flow.
-    pub(super) fn member_pubkey_to_admit(&self) -> Option<&str> {
-        if self.ordinal > 0 {
-            Some(&self.pubkey)
-        } else {
-            None
-        }
-    }
 }
 
-fn slot(base_pubkey: &str, ordinal: u32) -> OrdinalSlot {
+fn slot(base_pubkey: &str, channel_h: &str, ordinal: u32) -> OrdinalSlot {
     OrdinalSlot {
         base_pubkey: base_pubkey.to_string(),
+        channel_h: channel_h.to_string(),
         ordinal,
     }
 }
 
-/// Construct the concrete signer for an ordinal: derive its durable keypair,
-/// label, and pubkey. Ordinal 0 carries no engine keys (base-key fallback).
+/// Construct the concrete signer for an ordinal: derive its keypair, label, and
+/// pubkey.
 fn build(req: &SignerRequest<'_>, ordinal: u32) -> SelectedSigner {
     let keys = identity::derive_agent_ordinal_keys(req.base_keys, ordinal);
     let pubkey = keys.public_key().to_hex();
@@ -101,31 +86,24 @@ fn build(req: &SignerRequest<'_>, ordinal: u32) -> SelectedSigner {
         ordinal,
         pubkey,
         label,
-        keys: if ordinal == 0 { None } else { Some(keys) },
+        keys,
     }
 }
 
-/// Commit a chosen ordinal: record its engine keys (or clear them for ordinal 0)
-/// and return the signer. The reservation must already be inserted.
+/// Commit a chosen ordinal: record its engine keys and return the signer. The
+/// reservation must already be inserted.
 fn finish(
     session_keys: &mut HashMap<String, Keys>,
     req: &SignerRequest<'_>,
     ordinal: u32,
 ) -> SelectedSigner {
     let signer = build(req, ordinal);
-    match &signer.keys {
-        Some(k) => {
-            session_keys.insert(req.session_id.to_string(), k.clone());
-        }
-        None => {
-            session_keys.remove(req.session_id);
-        }
-    }
+    session_keys.insert(req.session_id.to_string(), signer.keys.clone());
     signer
 }
 
 fn is_taken(r: &SignerReservations, req: &SignerRequest<'_>, ordinal: u32) -> bool {
-    if r.get(&slot(req.base_pubkey, ordinal))
+    if r.get(&slot(req.base_pubkey, req.h, ordinal))
         .map(String::as_str)
         .is_some_and(|owner| owner != req.session_id)
     {
@@ -137,21 +115,21 @@ fn is_taken(r: &SignerReservations, req: &SignerRequest<'_>, ordinal: u32) -> bo
         && req.owned_pubkey != Some(signer.pubkey.as_str())
 }
 
-/// Lowest ordinal not currently reserved by a live session or otherwise visible
-/// as occupied.
+/// Lowest ordinal not currently reserved by a live same-channel session or
+/// otherwise visible as occupied in the target channel.
 fn lowest_free(r: &SignerReservations, req: &SignerRequest<'_>) -> u32 {
-    let mut n = 0u32;
+    let mut n = 1u32;
     while is_taken(r, req, n) {
         n += 1;
     }
     n
 }
 
-/// Select and reserve a global ordinal identity for a session.
+/// Select and reserve a channel-scoped ordinal identity for a session.
 ///
 /// - Reassert: if this session already owns a slot, keep its ordinal.
 /// - `preferred_ordinal` (resume/mention): honor it when free.
-/// - Otherwise allocate the lowest free global ordinal (birth).
+/// - Otherwise allocate the lowest free channel ordinal (birth).
 ///
 /// Race-safe under the single-writer daemon: the caller holds the reservations +
 /// session_keys mutexes across this call, so two concurrent spawns serialize and
@@ -175,24 +153,21 @@ pub(super) fn select_and_reserve(
         return Ok(finish(session_keys, &req, existing));
     }
 
-    let ordinal = match req.preferred_ordinal {
+    let ordinal = match req.preferred_ordinal.filter(|n| *n > 0) {
         Some(n) if !is_taken(reservations, &req, n) => n,
-        // Preferred ordinal is occupied by a different live session. Channel
-        // switch rejects this upstream; at birth it should not happen, but fall
-        // back to lowest-free to keep the session live rather than failing.
         Some(preferred) => {
-            tracing::warn!(
-                session = %req.session_id,
-                agent = %req.agent_slug,
-                h = %req.h,
-                preferred,
-                "preferred ordinal occupied by another session; falling back to lowest-free"
+            anyhow::bail!(
+                "preferred ordinal {preferred} for {} is already active in channel {}",
+                req.agent_slug,
+                req.h
             );
-            lowest_free(reservations, &req)
         }
         None => lowest_free(reservations, &req),
     };
-    reservations.insert(slot(req.base_pubkey, ordinal), req.session_id.to_string());
+    reservations.insert(
+        slot(req.base_pubkey, req.h, ordinal),
+        req.session_id.to_string(),
+    );
     let signer = finish(session_keys, &req, ordinal);
     tracing::info!(
         session = %req.session_id,
@@ -224,6 +199,40 @@ pub(super) fn release(
     session_keys.remove(session_id)
 }
 
+/// Move an existing live session reservation to a new channel. This keeps the
+/// channel-scoped collision guard aligned with `sessions.channel_h` after
+/// `channels switch` / create auto-focus.
+pub(super) fn move_channel(
+    reservations: &mut SignerReservations,
+    session_id: &str,
+    new_channel: &str,
+) -> Result<()> {
+    let Some((old_slot, owner)) = reservations
+        .iter()
+        .find(|(_, owner)| owner.as_str() == session_id)
+        .map(|(slot, owner)| (slot.clone(), owner.clone()))
+    else {
+        return Ok(());
+    };
+    if old_slot.channel_h == new_channel {
+        return Ok(());
+    }
+    let new_slot = slot(&old_slot.base_pubkey, new_channel, old_slot.ordinal);
+    if reservations
+        .get(&new_slot)
+        .is_some_and(|existing| existing != session_id)
+    {
+        anyhow::bail!(
+            "ordinal {} for this agent is already reserved in channel {}",
+            old_slot.ordinal,
+            new_channel
+        );
+    }
+    reservations.remove(&old_slot);
+    reservations.insert(new_slot, owner);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,68 +261,57 @@ mod tests {
     }
 
     #[test]
-    fn first_session_in_room_is_ordinal_zero_base_key() {
+    fn first_session_in_room_is_ordinal_one_derived_key() {
         let bk = base_keys();
         let bp = bk.public_key().to_hex();
         let mut r = SignerReservations::new();
         let mut sk = HashMap::new();
         let s = select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
-        assert_eq!(s.ordinal, 0);
-        assert_eq!(s.label, "smith");
-        assert_eq!(s.pubkey, bp); // ordinal 0 IS the base pubkey
-        assert!(s.member_pubkey_to_admit().is_none());
-        assert!(sk.is_empty());
-        // Projected instance: ordinal 0 signs with the base keys (no derivation).
+        assert_eq!(s.ordinal, 1);
+        assert_eq!(s.label, "smith1");
+        assert_ne!(s.pubkey, bp);
+        assert!(sk.contains_key("s1"));
         let inst = s.instance("smith", &bp);
-        assert_eq!(inst.display_slug(), "smith");
-        assert_eq!(inst.pubkey, bp);
-        assert_eq!(
-            inst.signing_keys(&bk).secret_key().to_secret_hex(),
-            bk.secret_key().to_secret_hex()
-        );
+        assert_eq!(inst.display_slug(), "smith1");
+        assert_eq!(inst.pubkey, s.pubkey);
+        assert_eq!(inst.signing_keys(&bk).public_key().to_hex(), s.pubkey);
     }
 
     #[test]
-    fn second_same_agent_same_room_is_ordinal_one_durable() {
+    fn second_same_agent_same_room_is_ordinal_two() {
         let bk = base_keys();
         let bp = bk.public_key().to_hex();
         let mut r = SignerReservations::new();
         let mut sk = HashMap::new();
         select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
         let s2 = select_and_reserve(&mut r, &mut sk, request("s2", "#a", &bp, &bk, None)).unwrap();
-        assert_eq!(s2.ordinal, 1);
-        assert_eq!(s2.label, "smith1");
+        assert_eq!(s2.ordinal, 2);
+        assert_eq!(s2.label, "smith2");
         assert_ne!(s2.pubkey, bp);
-        assert_eq!(s2.member_pubkey_to_admit(), Some(s2.pubkey.as_str()));
-        // Durable: the same ordinal-1 key is reproducible (room-independent).
         assert_eq!(
             s2.pubkey,
-            identity::derive_agent_ordinal_keys(&bk, 1)
+            identity::derive_agent_ordinal_keys(&bk, 2)
                 .public_key()
                 .to_hex()
         );
-        // Projected instance: ordinal 1 signs with a DERIVED key whose pubkey is
-        // the selected pubkey — never collapsing back onto the base.
         let inst = s2.instance("smith", &bp);
-        assert_eq!(inst.display_slug(), "smith1");
+        assert_eq!(inst.display_slug(), "smith2");
         assert_eq!(inst.pubkey, s2.pubkey);
         assert_eq!(inst.signing_keys(&bk).public_key().to_hex(), s2.pubkey);
         assert_ne!(inst.signing_keys(&bk).public_key().to_hex(), bp);
     }
 
     #[test]
-    fn different_rooms_allocate_distinct_global_ordinals() {
-        // A live smith in #a and another live smith in #b must not share a
-        // pubkey. Channels are membership scopes, not identity scopes.
+    fn different_rooms_can_reuse_same_ordinal_key() {
         let bk = base_keys();
         let bp = bk.public_key().to_hex();
         let mut r = SignerReservations::new();
         let mut sk = HashMap::new();
         let a = select_and_reserve(&mut r, &mut sk, request("a", "#a", &bp, &bk, None)).unwrap();
         let b = select_and_reserve(&mut r, &mut sk, request("b", "#b", &bp, &bk, None)).unwrap();
-        assert_eq!(a.ordinal, 0);
+        assert_eq!(a.ordinal, 1);
         assert_eq!(b.ordinal, 1);
-        assert_ne!(a.pubkey, b.pubkey);
+        assert_eq!(a.pubkey, b.pubkey);
     }
 
     #[test]
@@ -324,18 +322,21 @@ mod tests {
         let mut sk = HashMap::new();
         select_and_reserve(&mut r, &mut sk, request("s0", "#a", &bp, &bk, None)).unwrap();
         select_and_reserve(&mut r, &mut sk, request("s1", "#a", &bp, &bk, None)).unwrap();
-        // Release ordinal 0; next allocation refills the gap at 0.
+        // Release ordinal 1; next allocation refills the gap at 1.
         release(&mut r, &mut sk, "s0");
         let s2 = select_and_reserve(&mut r, &mut sk, request("s2", "#a", &bp, &bk, None)).unwrap();
-        assert_eq!(s2.ordinal, 0);
+        assert_eq!(s2.ordinal, 1);
     }
 
     #[test]
     fn channel_roster_occupancy_blocks_reusing_released_ordinal() {
         let bk = base_keys();
         let bp = bk.public_key().to_hex();
+        let ord1_pubkey = identity::derive_agent_ordinal_keys(&bk, 1)
+            .public_key()
+            .to_hex();
         let mut occupied = HashSet::new();
-        occupied.insert(bp.clone());
+        occupied.insert(ord1_pubkey.clone());
         let mut r = SignerReservations::new();
         let mut sk = HashMap::new();
         let s = select_and_reserve(
@@ -353,16 +354,19 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(s.ordinal, 1);
-        assert_eq!(s.label, "smith1");
+        assert_eq!(s.ordinal, 2);
+        assert_eq!(s.label, "smith2");
     }
 
     #[test]
     fn existing_session_can_reassert_its_roster_pubkey() {
         let bk = base_keys();
         let bp = bk.public_key().to_hex();
+        let ord1_pubkey = identity::derive_agent_ordinal_keys(&bk, 1)
+            .public_key()
+            .to_hex();
         let mut occupied = HashSet::new();
-        occupied.insert(bp.clone());
+        occupied.insert(ord1_pubkey.clone());
         let mut r = SignerReservations::new();
         let mut sk = HashMap::new();
         let s = select_and_reserve(
@@ -374,13 +378,13 @@ mod tests {
                 agent_slug: "smith",
                 h: "#a",
                 base_keys: &bk,
-                preferred_ordinal: Some(0),
+                preferred_ordinal: Some(1),
                 occupied_pubkeys: Some(&occupied),
-                owned_pubkey: Some(&bp),
+                owned_pubkey: Some(ord1_pubkey.as_str()),
             },
         )
         .unwrap();
-        assert_eq!(s.ordinal, 0);
+        assert_eq!(s.ordinal, 1);
     }
 
     #[test]
@@ -450,9 +454,9 @@ mod tests {
             },
         )
         .unwrap();
-        // Both get ordinal 0 in the same room — independent per agent.
-        assert_eq!(a.ordinal, 0);
-        assert_eq!(b.ordinal, 0);
+        // Both get ordinal 1 in the same room — independent per agent family.
+        assert_eq!(a.ordinal, 1);
+        assert_eq!(b.ordinal, 1);
         assert_ne!(a.pubkey, b.pubkey);
     }
 
@@ -483,6 +487,6 @@ mod tests {
         });
         let mut got = ordinals.lock().unwrap().clone();
         got.sort();
-        assert_eq!(got, vec![0, 1]); // two distinct ordinals, never both 0
+        assert_eq!(got, vec![1, 2]); // two distinct same-channel ordinals
     }
 }

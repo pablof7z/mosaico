@@ -17,7 +17,7 @@ pub(in crate::daemon::server) async fn spawn_session(
 
     // Register THIS instance's signing keys under its selected pubkey, so
     // `keys_for(selected_pubkey)` returns the key that actually authored its
-    // events (base key for ordinal 0, derived key for ordinal N).
+    // events.
     state.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {
@@ -138,6 +138,23 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             Ok(i) => i,
             Err(_) => continue,
         };
+        let signer = match select_session_signer(
+            state,
+            &session_id,
+            &id.keys,
+            &id.pubkey_hex(),
+            &snap.agent_slug,
+            &snap.channel_h,
+            &snap.resume_id,
+            None,
+        ) {
+            Ok(signer) => signer,
+            Err(e) => {
+                tracing::warn!(session = %session_id, error = %e, "signer selection failed during reconcile; skipping session");
+                continue;
+            }
+        };
+
         // Re-establish membership + the group-state subscription through the one
         // channel-provisioning primitive. The scope may be a top-level project
         // (root channel) or a subgroup; its stored parent (if any) is the
@@ -150,7 +167,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             .provider
             .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
                 channel: &snap.channel_h,
-                expect_member: &id.pubkey_hex(),
+                expect_member: &signer.pubkey,
                 parent_hint: parent_hint.as_deref(),
                 name: None,
                 repair_whitelisted_admins: true,
@@ -176,27 +193,12 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                     tracing::error!(session = %session_id, error = %e, "failed to mark identity dead during reconcile quarantine");
                 }
             });
+            state.release_session_signer(&session_id);
             continue;
         }
 
-        let signer = match select_session_signer(
-            state,
-            &session_id,
-            &id.keys,
-            &id.pubkey_hex(),
-            &snap.agent_slug,
-            &snap.channel_h,
-            &snap.resume_id,
-            None,
-        ) {
-            Ok(signer) => signer,
-            Err(e) => {
-                tracing::warn!(session = %session_id, error = %e, "signer selection failed during reconcile; skipping session");
-                continue;
-            }
-        };
-        // Rebind the row to the selected ordinal pubkey (== base for ordinal 0) so
-        // mention routing keys on this session's real identity, not the base.
+        // Rebind the row to the selected ordinal pubkey so mention routing keys
+        // on this session's real identity, not the local derivation root.
         state.with_store(|s| {
             if let Err(e) = s.set_session_agent_pubkey(&session_id, &signer.pubkey) {
                 tracing::error!(
@@ -207,18 +209,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                 );
             }
         });
-        if let Some(member_pubkey) = signer.member_pubkey_to_admit() {
-            if let Err(e) = admit_ordinal_signer(state, &snap.channel_h, member_pubkey).await {
-                tracing::warn!(session = %session_id, error = %e, "ordinal signer admission failed during reconcile; skipping session");
-                state.release_session_signer(&session_id);
-                state.with_store(|s| {
-                    if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
-                        tracing::error!(session = %session_id, error = %e, "reconcile: failed to mark identity dead after admission failure; ghost ordinal may remain");
-                    }
-                });
-                continue;
-            }
-        }
 
         if let Err(e) = ensure_subscription(state, &snap.channel_h).await {
             tracing::warn!(channel = %snap.channel_h, error = %e, "ensure_subscription failed during reconcile");
@@ -232,7 +222,22 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             "",
             snap.child_pid,
         );
-        let _ = spawn_session(state, ep).await;
+        if let Err(e) = spawn_session(state, ep).await {
+            tracing::error!(
+                session = %session_id,
+                error = %e,
+                "reconcile: failed to respawn session engine; releasing selected signer"
+            );
+            state.release_session_signer(&session_id);
+            state.with_store(|s| {
+                if let Err(e) = s.mark_dead(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark session dead after reconcile spawn failure");
+                }
+                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
+                    tracing::error!(session = %session_id, error = %e, "failed to mark identity dead after reconcile spawn failure");
+                }
+            });
+        }
     }
     // Any registration/end transitions above enqueued publishes.
     state.outbox_notify.notify_waiters();
@@ -253,7 +258,7 @@ pub(in crate::daemon::server) fn engine_params_for(
 ) -> EngineParams {
     EngineParams {
         instance,
-        // Derivation root for this instance's signing keys (ordinal 0 == this).
+        // Derivation root for this instance's ordinal signing keys.
         base_keys: id.keys.clone(),
         project: project.to_string(),
         session_id: session_id.to_string(),

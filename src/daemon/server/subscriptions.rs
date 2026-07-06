@@ -215,17 +215,14 @@ fn preview_matches(
 /// split by owner so channels can refcount per session:
 ///
 /// - `daemon_channels` / archived: explicitly tracked projects, groups any
-///   local/ordinal pubkey is a member of (spawn-on-mention), and groups this
+///   ordinal pubkey is a member of (spawn-on-mention), and groups this
 ///   daemon manages (admin). Owned by the daemon scope.
 /// - `sessions`: each alive session mapped to the channels it has joined. Each
 ///   session is its own scope, so a shared channel stays open until the LAST
 ///   owning session leaves.
-/// - `addressed_pubkeys`: local durable + ordinal pubkeys, live transient session
-///   keys, and the backend identity. Owned by the daemon scope.
+/// - `addressed_pubkeys`: selected ordinal pubkeys, live session keys, and the
+///   backend identity. Owned by the daemon scope.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
-    let edge = crate::config::edge_home();
-    let local_pks = crate::identity::list_local_pubkeys(&edge);
-
     let mut daemon_channels: BTreeSet<String> = state
         .subscribed_projects
         .lock()
@@ -233,15 +230,19 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         .iter()
         .cloned()
         .collect();
-    let mut pubkeys: BTreeSet<String> = local_pks.iter().cloned().collect();
+    let mut pubkeys: BTreeSet<String> = BTreeSet::new();
     let mut sessions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let backend_pubkey = state.backend_pubkey();
 
     let archived = state.with_store(|s| {
         let ordinals = s.list_identity_pubkeys().unwrap_or_default();
         pubkeys.extend(ordinals.iter().cloned());
-        // Channels any local/ordinal pubkey is a member of (spawn-on-mention path),
-        // plus channels it manages (admin = the old "owned groups").
-        for pk in local_pks.iter().chain(ordinals.iter()) {
+        if let Some(pk) = backend_pubkey.as_ref() {
+            pubkeys.insert(pk.clone());
+        }
+        // Channels any ordinal pubkey is a member of (spawn-on-mention path),
+        // plus channels this backend manages as admin.
+        for pk in ordinals.iter().chain(backend_pubkey.iter()) {
             if let Ok(gs) = s.list_channels_where_member(pk) {
                 daemon_channels.extend(gs);
             }
@@ -273,7 +274,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
 
     // Live transient session keys + backend identity round out the addressed set.
     pubkeys.extend(state.live_session_pubkeys());
-    if let Some(bp) = state.backend_pubkey() {
+    if let Some(bp) = backend_pubkey {
         pubkeys.insert(bp);
     }
 

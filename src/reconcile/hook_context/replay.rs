@@ -117,7 +117,6 @@ mod tests {
             self_slug: "",
             self_pubkey: "",
             local_host: "host",
-            edge_home: None,
             forced_messages: &[],
             warnings: &[],
             force: true,

@@ -46,8 +46,14 @@ fn request_derives_execute_plan() {
     let cmd = out.command.unwrap();
     assert_eq!(cmd.action, SessionStartAction::Execute);
     assert_eq!(cmd.plan.row.agent_pubkey, "ord");
-    assert_eq!(cmd.plan.admit_pubkey.as_deref(), Some("ord"));
-    assert!(cmd.plan.channel_ready.is_some());
+    assert!(cmd.plan.admit_pubkey.is_none());
+    assert_eq!(
+        cmd.plan
+            .channel_ready
+            .as_ref()
+            .map(|ready| ready.signer_pubkey.as_str()),
+        Some("ord")
+    );
     assert!(cmd.plan.ensure_subscription);
     assert!(cmd.plan.replay_chat);
     assert!(cmd.plan.spawn.is_some());

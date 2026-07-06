@@ -213,6 +213,15 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         );
     }
 
+    let already_running = state.sessions.lock().unwrap().contains_key(&session_id);
+    let existing_channel = already_running
+        .then(|| state.with_store(|s| s.get_session(&session_id).ok().flatten()))
+        .flatten()
+        .map(|r| r.channel_h);
+    if let Some(existing) = existing_channel.as_ref() {
+        project = existing.clone();
+    }
+
     // Select this session's ordinal identity, THEN write its row carrying that
     // ordinal pubkey. Ordering matters twice over: it runs AFTER stale-session
     // cancellation (so a superseded ordinal is freed and reusable), and BEFORE the
@@ -231,7 +240,6 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         &native_id,
         p.preferred_ordinal,
     )?;
-    let already_running = state.sessions.lock().unwrap().contains_key(&session_id);
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
     // channel rather than stomping it with whatever TENEX_EDGE_CHANNEL the new
@@ -239,14 +247,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // overwrites channel_h transiently AND permanently adds a spurious passive
     // join to session_channels (INSERT OR IGNORE never cleans it up), causing
     // the session to receive inbox messages from the wrong channel.
-    let channel_for_upsert = if already_running {
-        state
-            .with_store(|s| s.get_session(&session_id).ok().flatten())
-            .map(|r| r.channel_h)
-            .unwrap_or_else(|| project.clone())
-    } else {
-        project.clone()
-    };
+    let channel_for_upsert = existing_channel.unwrap_or_else(|| project.clone());
     let effective_pane = tmux_pane
         .clone()
         .or_else(|| state.with_store(|s| session_pane(s, &session_id)));
@@ -343,7 +344,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             &check.channel_h,
             &check.work_root,
             check.room_parent.as_deref(),
-            &check.base_pubkey,
+            &check.signer_pubkey,
             &session_id,
             progress.as_ref(),
         )
@@ -352,25 +353,22 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             advisory::record_failed(state, &session_id, "channel_ready", &e, now_secs());
             return Err(e);
         }
-    }
-
-    // `signer` was selected above (before the row was written). Now that the
-    // channel is ready, admit ordinals > 0 as NIP-29 members before routing use.
-    if let Some(member_pubkey) = plan.admit_pubkey.as_deref() {
-        if let Some(prog) = &progress {
-            prog.emit(
-                "nip29",
-                format!(
-                    "admitting ordinal {} signer {} before routing use",
-                    signer.ordinal,
-                    pubkey_short(member_pubkey)
+        let is_root = state.with_store(|s| s.is_root_channel(&check.channel_h).unwrap_or(false));
+        if is_root {
+            match publish_local_agent_roster(state, None).await {
+                Ok(report) => tracing::info!(
+                    channel = %check.channel_h,
+                    published = report.published,
+                    removed = report.removed,
+                    failed = report.failed.len(),
+                    "published backend agent roster for root channel"
                 ),
-            );
-        }
-        if let Err(e) = admit_ordinal_signer(state, &project, member_pubkey).await {
-            abort_session_start(state, &session_id);
-            advisory::record_failed(state, &session_id, "admit_ordinal", &e, now_secs());
-            return Err(e);
+                Err(e) => tracing::warn!(
+                    channel = %check.channel_h,
+                    error = %e,
+                    "backend agent roster publish failed for root channel"
+                ),
+            }
         }
     }
 
@@ -419,6 +417,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     }
     if let Err(e) = spawn_session(state, ep).await {
         advisory::record_failed(state, &session_id, "spawn_engine", &e, now_secs());
+        abort_session_start(state, &session_id);
         return Err(e);
     }
     tracing::info!(

@@ -206,7 +206,7 @@ async fn spawn_target(
     let edge = config::edge_home();
     let id = match crate::identity::load_or_create(&edge, slug, now_secs()) {
         Ok(id) => {
-            tracing::info!(slug = %slug, child = %op.child_h, "minting/loading agent identity for orchestration target");
+            tracing::info!(slug = %slug, child = %op.child_h, "loading local derivation root for orchestration target");
             id
         }
         Err(e) => {
@@ -214,34 +214,7 @@ async fn spawn_target(
             return false;
         }
     };
-    let agent_pk = id.pubkey_hex();
-    log_nip29_role_decision(
-        &op.child_h,
-        &agent_pk,
-        "member",
-        "handle_orchestration target agent durable pubkey",
-    );
-
-    let profile = DomainEvent::Profile(crate::domain::Profile {
-        agent: crate::domain::AgentRef::new(agent_pk.clone(), slug.clone()),
-        host: state.host.clone(),
-        owners: state.owners.clone(),
-        is_backend: false,
-    });
-    let _ = state.provider.publish(&profile, &id.keys).await;
-
-    let confirmed = state
-        .provider
-        .grant_member_confirmed(&op.child_h, &agent_pk)
-        .await;
-    if !confirmed.is_confirmed() {
-        tracing::warn!(
-            slug = %slug,
-            child = %op.child_h,
-            "member-add not confirmed after all retries — skipping spawn"
-        );
-        return false;
-    }
+    drop(id);
 
     let work_root = state.with_store(|s| work_root_for(s, &op.child_h));
     match crate::tmux::spawn_agent(

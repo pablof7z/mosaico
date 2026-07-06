@@ -17,8 +17,8 @@
 //! builders are the leaf the reconciler's planner calls to shape each REQ.
 
 use crate::fabric::nip29::wire::{
-    kind, KIND_CHAT, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA, KIND_LONGFORM,
-    KIND_STATUS,
+    kind, KIND_AGENT_ROSTER, KIND_CHAT, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
+    KIND_LONGFORM, KIND_STATUS,
 };
 use nostr_sdk::prelude::{Alphabet, Filter, SingleLetterTag, SubscriptionId};
 
@@ -49,11 +49,16 @@ fn p_single() -> SingleLetterTag {
     SingleLetterTag::lowercase(Alphabet::P)
 }
 
-/// Narrow `#h` filter for a single channel: chat + status + long-form scoped to
-/// exactly one NIP-29 group id.
+/// Narrow `#h` filter for a single channel: chat + status + long-form + backend
+/// capability roster scoped to exactly one NIP-29 group id.
 pub(crate) fn narrow_h_filter(h: &str) -> Filter {
     Filter::new()
-        .kinds([kind(KIND_CHAT), kind(KIND_STATUS), kind(KIND_LONGFORM)])
+        .kinds([
+            kind(KIND_CHAT),
+            kind(KIND_STATUS),
+            kind(KIND_AGENT_ROSTER),
+            kind(KIND_LONGFORM),
+        ])
         .custom_tag(h_single(), h)
 }
 
@@ -94,6 +99,7 @@ mod tests {
         );
         assert!(json.contains('9'), "kind 9 present");
         assert!(json.contains("30315"), "kind 30315 present");
+        assert!(json.contains("30555"), "kind 30555 present");
         assert!(json.contains("30023"), "kind 30023 present");
         assert!(!json.contains("\"kinds\":[0"), "no profile kind 0: {json}");
     }

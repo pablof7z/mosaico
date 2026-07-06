@@ -3,7 +3,7 @@ use std::process::Command;
 
 /// The `name` field of the newest kind:0 profile authored by `pubkey`, if any.
 /// Used to prove each agent instance publishes its OWN display label (issue #98):
-/// ordinal 0 → "claude", ordinal 1 → "claude1", never clobbering each other.
+/// "claude1", "claude2", etc. never clobber each other.
 pub(super) fn kind0_name_for_author(relay: &str, pubkey: &str) -> Option<String> {
     let output = Command::new("nak")
         .args(["req", "-k", "0", "-a", pubkey, "-l", "5", relay])

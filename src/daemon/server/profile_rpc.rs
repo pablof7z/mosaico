@@ -36,6 +36,10 @@ pub(in crate::daemon::server) async fn resolve_backend_pubkey(
     state: &Arc<DaemonState>,
     label: &str,
 ) -> Result<String> {
+    if let Ok(pk) = nostr_sdk::prelude::PublicKey::parse(label) {
+        return Ok(pk.to_hex());
+    }
+
     if label == state.host {
         return state.backend_pubkey().ok_or_else(|| {
             anyhow::anyhow!(
@@ -56,17 +60,9 @@ pub(in crate::daemon::server) async fn resolve_backend_pubkey(
 pub(in crate::daemon::server) async fn resolve_project_member_pubkey_hex(
     input: &str,
 ) -> Result<String> {
-    let edge_home = config::edge_home();
-    if let Some(agent) = identity::list_local_agent_details(&edge_home)
-        .into_iter()
-        .find(|agent| agent.slug == input)
-    {
-        return Ok(agent.pubkey);
-    }
-
-    resolve_pubkey_hex(input).await.with_context(|| {
-        format!("resolving {input:?} as a local agent slug, pubkey, npub, or NIP-05 address")
-    })
+    resolve_pubkey_hex(input)
+        .await
+        .with_context(|| format!("resolving {input:?} as a pubkey, npub, or NIP-05 address"))
 }
 
 pub(in crate::daemon::server) async fn resolve_pubkey_hex(input: &str) -> Result<String> {

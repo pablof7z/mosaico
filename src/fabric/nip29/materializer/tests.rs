@@ -219,17 +219,15 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
     assert!(store.has_event(&mention_event.id.to_hex()).unwrap());
 }
 
-/// Two concurrent sessions of the SAME agent slug but DIFFERENT ordinal
-/// pubkeys (ordinal 0 and ordinal 1) must route independently: a mention
-/// p-tagging only ordinal 0's pubkey reaches ONLY that session, never the
-/// sibling ordinal. Regression for the double-delivery bug where every
-/// ordinal of an agent shared the base pubkey, so one mention woke both.
+/// Two concurrent sessions of the SAME agent slug but DIFFERENT ordinal pubkeys
+/// must route independently: a mention p-tagging only one ordinal's pubkey
+/// reaches ONLY that session, never the sibling ordinal.
 #[test]
 fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
     let store = Store::open_memory().unwrap();
     let sender = Keys::generate();
-    let ord0 = Keys::generate(); // ordinal 0 (base) pubkey
-    let ord1 = Keys::generate(); // ordinal 1 (HKDF-derived) pubkey — distinct
+    let ord0 = Keys::generate();
+    let ord1 = Keys::generate();
     let sender_pk = sender.public_key().to_hex();
     let ord0_pk = ord0.public_key().to_hex();
     let ord1_pk = ord1.public_key().to_hex();
@@ -238,17 +236,17 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
     let ord0_sid = register(&store, &ord0_pk, "proj", "ord0-ext");
     let ord1_sid = register(&store, &ord1_pk, "proj", "ord1-ext");
 
-    // Mention p-tags ONLY ordinal 0.
+    // Mention p-tags ONLY one ordinal.
     let event = build(
         &sender,
         9,
-        "hey ordinal zero",
+        "hey one ordinal",
         vec![make_tag(&["h", "proj"]), make_tag(&["p", &ord0_pk])],
     );
     let chat = ChatMessage {
         from: crate::domain::AgentRef::new(sender_pk, String::new()),
         project: "proj".into(),
-        body: "hey ordinal zero".into(),
+        body: "hey one ordinal".into(),
         mentioned_pubkey: Some(ord0_pk),
     };
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
@@ -263,8 +261,88 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
             .peek_pending_for_session(&ord1_sid)
             .unwrap()
             .is_empty(),
-        "the sibling ordinal must NOT receive a mention addressed to ordinal 0"
+        "the sibling ordinal must NOT receive a mention addressed to another ordinal"
     );
+}
+
+#[test]
+fn agent_roster_materializes_per_h_tag() {
+    let store = Store::open_memory().unwrap();
+    let backend = Keys::generate();
+    let backend_pk = backend.public_key().to_hex();
+    store.upsert_channel("root-a", "Root A", "", "", 1).unwrap();
+    store.upsert_channel("root-b", "Root B", "", "", 1).unwrap();
+    store
+        .replace_channel_admins("root-a", &[backend_pk.clone()], 1)
+        .unwrap();
+    store
+        .replace_channel_admins("root-b", &[backend_pk.clone()], 1)
+        .unwrap();
+    let event = build_at(
+        &backend,
+        crate::fabric::nip29::wire::KIND_AGENT_ROSTER,
+        "",
+        vec![
+            make_tag(&["d", "codex"]),
+            make_tag(&["hostname", "laptop"]),
+            make_tag(&["use-criteria", "For coding"]),
+            make_tag(&["h", "root-a"]),
+            make_tag(&["h", "root-b"]),
+        ],
+        123,
+    );
+
+    Nip29Materializer::materialize_agent_roster(&store, &event);
+
+    let root_a = store.list_agent_roster_for_channel("root-a").unwrap();
+    assert_eq!(root_a.len(), 1);
+    assert_eq!(root_a[0].backend_pubkey, backend_pk);
+    assert_eq!(root_a[0].slug, "codex");
+    assert_eq!(root_a[0].host, "laptop");
+    assert_eq!(root_a[0].use_criteria, "For coding");
+    assert_eq!(root_a[0].updated_at, 123);
+    assert_eq!(
+        store.list_agent_roster_for_channel("root-b").unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn agent_roster_rejects_non_admin_or_non_root_h_tags() {
+    let store = Store::open_memory().unwrap();
+    let backend = Keys::generate();
+    let backend_pk = backend.public_key().to_hex();
+    store.upsert_channel("root", "Root", "", "", 1).unwrap();
+    store
+        .upsert_channel("child", "Child", "", "root", 1)
+        .unwrap();
+    store
+        .replace_channel_admins("child", &[backend_pk.clone()], 1)
+        .unwrap();
+
+    let event = build_at(
+        &backend,
+        crate::fabric::nip29::wire::KIND_AGENT_ROSTER,
+        "",
+        vec![
+            make_tag(&["d", "codex"]),
+            make_tag(&["hostname", "laptop"]),
+            make_tag(&["h", "root"]),
+            make_tag(&["h", "child"]),
+        ],
+        123,
+    );
+
+    Nip29Materializer::materialize_agent_roster(&store, &event);
+
+    assert!(store
+        .list_agent_roster_for_channel("root")
+        .unwrap()
+        .is_empty());
+    assert!(store
+        .list_agent_roster_for_channel("child")
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

@@ -1,9 +1,9 @@
 //! `identities` — derived signing keys the daemon publishes as.
 //!
-//! (base agent pubkey, ordinal) plus per-session pubkeys map to their owning
+//! (local derivation root, ordinal) plus per-session pubkeys map to their owning
 //! agent/session and a resume binding. Bounds the `#p` subscription (the set of
 //! pubkeys the daemon listens for) and resumes the right session when a mention
-//! arrives for an offline agent. Ordinal 0 == the base agent key.
+//! arrives for an offline agent.
 
 use super::*;
 
@@ -25,14 +25,20 @@ fn row_to_identity(row: &rusqlite::Row) -> rusqlite::Result<Identity> {
 }
 
 impl Store {
-    /// Upsert a derived identity keyed by its pubkey.
+    /// Upsert a derived identity keyed by `(pubkey, session_id)`.
     pub fn upsert_identity(&self, i: &Identity) -> Result<()> {
+        if !i.session_id.is_empty() {
+            self.conn.execute(
+                "DELETE FROM identities WHERE session_id=?1 AND pubkey<>?2",
+                params![i.session_id, i.pubkey],
+            )?;
+        }
         self.conn.execute(
             "INSERT INTO identities
                  (pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id,
                   alive, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(pubkey) DO UPDATE SET
+             ON CONFLICT(pubkey, session_id) DO UPDATE SET
                  base_pubkey=excluded.base_pubkey, agent_slug=excluded.agent_slug,
                  ordinal=excluded.ordinal, session_id=excluded.session_id,
                  channel_h=excluded.channel_h, native_id=excluded.native_id,
@@ -52,13 +58,36 @@ impl Store {
         Ok(())
     }
 
-    /// Fetch one identity by its (derived) pubkey.
+    /// Fetch the newest known identity row for a derived pubkey.
     pub fn get_identity(&self, pubkey: &str) -> Result<Option<Identity>> {
         Ok(self
             .conn
             .query_row(
-                &format!("SELECT {COLS} FROM identities WHERE pubkey=?1"),
+                &format!(
+                    "SELECT {COLS} FROM identities WHERE pubkey=?1
+                     ORDER BY alive DESC, created_at DESC LIMIT 1"
+                ),
                 params![pubkey],
+                row_to_identity,
+            )
+            .optional()?)
+    }
+
+    /// Fetch the identity row for a derived pubkey in a specific channel.
+    pub fn get_identity_for_channel(
+        &self,
+        pubkey: &str,
+        channel_h: &str,
+    ) -> Result<Option<Identity>> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {COLS} FROM identities
+                     WHERE pubkey=?1 AND channel_h=?2
+                     ORDER BY alive DESC, created_at DESC LIMIT 1"
+                ),
+                params![pubkey, channel_h],
                 row_to_identity,
             )
             .optional()?)
@@ -69,12 +98,12 @@ impl Store {
     pub fn list_identity_pubkeys(&self) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT pubkey FROM identities ORDER BY base_pubkey, ordinal")?;
+            .prepare("SELECT DISTINCT pubkey FROM identities ORDER BY base_pubkey, ordinal")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// All identities sharing a base agent key (ordinal 0..n).
+    /// All identities sharing a local derivation root.
     pub fn identities_for_base(&self, base_pubkey: &str) -> Result<Vec<Identity>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM identities WHERE base_pubkey=?1 ORDER BY ordinal"
@@ -96,14 +125,27 @@ impl Store {
             .resolve_canonical_id(session_id)?
             .unwrap_or_else(|| session_id.to_string());
         self.conn.execute(
-            "UPDATE identities SET session_id=?2, native_id=?3, alive=?4 WHERE pubkey=?1",
+            "DELETE FROM identities WHERE session_id=?1 AND pubkey<>?2",
+            params![canonical, pubkey],
+        )?;
+        let changed = self.conn.execute(
+            "UPDATE identities SET native_id=?3, alive=?4
+             WHERE pubkey=?1 AND session_id=?2",
             params![pubkey, canonical, native_id, alive as i64],
         )?;
+        if changed == 0 {
+            if let Some(mut identity) = self.get_identity(pubkey)? {
+                identity.session_id = canonical;
+                identity.native_id = native_id.to_string();
+                identity.alive = alive;
+                self.upsert_identity(&identity)?;
+            }
+        }
         Ok(())
     }
 
     /// The identity currently bound to a canonical session (resolves the id
-    /// first). Used by `who`/signing/reconcile to report a session's durable
+    /// first). Used by `who`/signing/reconcile to report a session's selected
     /// ordinal identity. Newest binding wins.
     pub fn identity_for_session(&self, session_id: &str) -> Result<Option<Identity>> {
         let Some(canonical) = self.resolve_canonical_id(session_id)? else {
@@ -125,9 +167,8 @@ impl Store {
     /// The authoritative [`crate::identity::AgentInstance`] for a session (issue
     /// #98): the projection of its bound `identities` row that read-side callers
     /// (status/chat publish, `who`/statusline, mention routing) consume instead of
-    /// re-deriving base-vs-ordinal label/pubkey/key policy at the edge. `None` when
-    /// no derived identity is bound yet (callers fall back to the base instance
-    /// from the session row).
+    /// re-deriving ordinal label/pubkey/key policy at the edge. `None` when
+    /// no identity row is bound yet (callers fall back to the session row).
     pub fn instance_identity_for_session(
         &self,
         session_id: &str,
@@ -155,9 +196,29 @@ impl Store {
         Ok(())
     }
 
-    /// The identity bound to a base agent in a given channel — used to resume the
-    /// right session when a mention arrives for an offline agent. Prefers a live
-    /// binding, then the most recent.
+    /// The identity bound to an exact selected pubkey in a given channel.
+    pub fn resolve_identity_pubkey_for_channel(
+        &self,
+        pubkey: &str,
+        channel_h: &str,
+    ) -> Result<Option<Identity>> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {COLS} FROM identities
+                     WHERE pubkey=?1 AND channel_h=?2
+                     ORDER BY alive DESC, created_at DESC LIMIT 1"
+                ),
+                params![pubkey, channel_h],
+                row_to_identity,
+            )
+            .optional()?)
+    }
+
+    /// The identity bound to a derivation family in a given channel — used when
+    /// callers intentionally need the newest instance for the local capability.
+    /// Prefers a live binding, then the most recent.
     pub fn resolve_identity_for_channel(
         &self,
         base_pubkey: &str,

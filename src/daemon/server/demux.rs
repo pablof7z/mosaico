@@ -183,25 +183,23 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
         return;
     }
 
-    // Resolve the mentioned pubkey to (agent_slug, ordinal). It may be a base
-    // agent key (ordinal 0, in the keystore) OR a durable ordinal key (issue #47)
-    // recorded in the `identities` table.
-    let edge = crate::config::edge_home();
-    let local_agents = crate::identity::list_local_agent_details(&edge);
-    let (agent_slug, ordinal, base_pubkey) =
-        match local_agents.iter().find(|a| a.pubkey == mentioned_pk) {
-            Some(a) => (a.slug.clone(), 0u32, mentioned_pk.to_string()),
-            None => match state.with_store(|s| s.get_identity(mentioned_pk).ok().flatten()) {
-                Some(idn) => (idn.agent_slug, idn.ordinal, idn.base_pubkey),
-                None => return,
-            },
-        };
+    // Resolve the mentioned pubkey to a known ordinal identity row. Local
+    // derivation-root keys are not fabric agent identities under the roster model.
+    let Some(idn) = state.with_store(|s| {
+        s.get_identity_for_channel(mentioned_pk, project)
+            .ok()
+            .flatten()
+            .or_else(|| s.get_identity(mentioned_pk).ok().flatten())
+    }) else {
+        return;
+    };
+    let (agent_slug, ordinal) = (idn.agent_slug, idn.ordinal);
 
     // Resume vs fresh: if this identity previously ran in this channel and left a
     // bound native session, RESUME that harness (restores its conversation);
     // otherwise spawn fresh with the exact ordinal.
     let bound = state.with_store(|s| {
-        s.resolve_identity_for_channel(&base_pubkey, project)
+        s.resolve_identity_pubkey_for_channel(mentioned_pk, project)
             .ok()
             .flatten()
     });
@@ -226,11 +224,6 @@ async fn handle_offline_agent_mention(state: &Arc<DaemonState>, mentioned_pk: &s
     if !is_member {
         let (_, _, members) = state.provider.fetch_group_state(project).await;
         if !members.contains(mentioned_pk) {
-            if ordinal == 0 {
-                // Base agent must already be a member to be mentioned here.
-                tracing::debug!(agent = %agent_slug, project, "base agent not a member of channel — skipping spawn");
-                return;
-            }
             tracing::info!(agent = %agent_slug, ordinal, project, "provisioning ordinal pubkey into channel via mgmt key");
             if !state
                 .provider

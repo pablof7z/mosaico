@@ -42,7 +42,7 @@ fn render_agents(out: &mut String, agents: &[AgentRow]) {
     if agents.is_empty() {
         return;
     }
-    out.push_str("\n    <local-agents>");
+    out.push_str("\n    <available-agents>");
     for a in agents {
         let _ = write!(out, "\n      <agent ref=\"@{}\"", esc_attr(&a.reference));
         if !a.about.is_empty() {
@@ -50,7 +50,7 @@ fn render_agents(out: &mut String, agents: &[AgentRow]) {
         }
         out.push_str(" />");
     }
-    out.push_str("\n    </local-agents>");
+    out.push_str("\n    </available-agents>");
 }
 
 fn render_channel(out: &mut String, channel: &ChannelBlock) {

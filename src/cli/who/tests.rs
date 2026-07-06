@@ -134,7 +134,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     let coder = snapshot
         .rows
         .iter()
-        .find(|r| r.source == WhoSource::Local && r.slug == "coder")
+        .find(|r| r.source == WhoSource::Local && r.slug == "coder1")
         .expect("local coder row");
     let reviewer = snapshot
         .rows
@@ -152,7 +152,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
 
     let once = strip_ansi(&render_who_once(&snapshot));
     assert!(once.starts_with("proj\n\n"));
-    assert!(once.contains("coder (laptop) - idle"));
+    assert!(once.contains("coder1 (laptop) - idle"));
     assert!(!once.contains("[session"));
     assert!(once.contains("reviewer (tower, remote) - reviewing the patch"));
 }

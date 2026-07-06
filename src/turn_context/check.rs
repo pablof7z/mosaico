@@ -85,7 +85,6 @@ pub(crate) fn assemble_turn_check(
                 self_slug: &self_slug,
                 self_pubkey: &self_pubkey,
                 local_host: self_host,
-                edge_home: Some(&crate::config::edge_home()),
                 forced_messages: &forced,
                 warnings: &warnings,
                 force: false,

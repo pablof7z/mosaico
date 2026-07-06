@@ -24,7 +24,7 @@ fn render_agents(out: &mut String, agents: &[AgentRow], color: bool) {
     if agents.is_empty() {
         return;
     }
-    let _ = writeln!(out, "{}", style("Local agents", color, Style::Header));
+    let _ = writeln!(out, "{}", style("Available agents", color, Style::Header));
     for a in agents {
         let name = format!("@{}", a.reference);
         if a.about.is_empty() {

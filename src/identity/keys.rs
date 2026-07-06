@@ -48,20 +48,14 @@ pub fn derive_session_keys(
 
 /// Display label for an agent's Nth concurrent identity.
 pub fn agent_ordinal_label(agent_slug: &str, ordinal: u32) -> String {
-    if ordinal == 0 {
-        agent_slug.to_string()
-    } else {
-        format!("{agent_slug}{ordinal}")
-    }
+    format!("{agent_slug}{ordinal}")
 }
 
 /// Deterministically derive the keypair for an agent's Nth concurrent identity.
-/// Ordinal 0 is the durable file-backed key; higher ordinals are stable across
-/// rooms and sessions for the same base agent key.
+/// Ordinals are stable across rooms and sessions for the same local derivation
+/// root. Runtime identities start at ordinal 1; ordinal 0 is kept only for
+/// legacy rows and is also derived, not the file-backed root key.
 pub fn derive_agent_ordinal_keys(base: &Keys, ordinal: u32) -> Keys {
-    if ordinal == 0 {
-        return base.clone();
-    }
     const SALT: &[u8] = b"tenex-edge/agent-ordinal-key/v1";
     let ikm = base.secret_key().as_secret_bytes();
     let base_pub = base.public_key().to_hex();
@@ -107,7 +101,7 @@ impl AgentInstance {
         Self {
             base_slug,
             base_pubkey: base_pubkey.clone(),
-            ordinal: 0,
+            ordinal: 1,
             pubkey: base_pubkey,
         }
     }
@@ -135,6 +129,9 @@ impl AgentInstance {
     }
 
     pub fn signing_keys(&self, base_keys: &Keys) -> Keys {
+        if self.pubkey == base_keys.public_key().to_hex() {
+            return base_keys.clone();
+        }
         derive_agent_ordinal_keys(base_keys, self.ordinal)
     }
 }

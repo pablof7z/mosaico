@@ -157,8 +157,7 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         .expect("receiver session row");
     let receiver_scope = receiver_row.channel_h.clone();
 
-    // Mention is now inline in the body as `@<agent-instance-label>` — the
-    // receiver agent is `chat-receiver` (ordinal 0, no numeric suffix). The label
+    // Mention is now inline in the body as `@<agent-instance-label>`. The label
     // resolves to the receiver instance: first via its live local session, and as
     // a fallback via the relay-cached `relay_profiles`. In this nak env kind:0
     // isn't materialized back, so also seed the receiver's profile (keyed on its
@@ -216,8 +215,8 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         "chat read should render the body and a timestamp; got: {stdout}"
     );
 
-    // The sender's authoring pubkey (its ordinal-0 durable agent key) is what the
-    // inbox records as `from_pubkey` — the inbox no longer stores a `from_session`.
+    // The sender's selected ordinal pubkey is what the inbox records as
+    // `from_pubkey`; the inbox no longer stores a `from_session`.
     let sender_pubkey = Store::open(&home.store_path())
         .unwrap()
         .get_session(&sender_canon)

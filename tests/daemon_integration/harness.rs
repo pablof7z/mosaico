@@ -233,18 +233,15 @@ pub(crate) fn chat_in_channel(
     store.chat_for_channel(channel_h, 0, u32::MAX).unwrap()
 }
 
-/// The transient (non-durable) signer pubkey bound to a session, or `None` when
-/// the session signs with its durable ordinal-0 base key. Replaces the removed
-/// `session_pubkey_for_session`: per-session identities now live in `identities`
-/// (ordinal 0 == the base agent key, ordinal > 0 == a durable derived signer).
-pub(crate) fn session_transient_pubkey(
+/// The selected ordinal signer pubkey bound to a session, or `None` when no
+/// session identity row has been materialized yet.
+pub(crate) fn session_identity_pubkey(
     store: &tenex_edge::state::Store,
     session_id: &str,
 ) -> Option<String> {
     store
         .identity_for_session(session_id)
         .unwrap()
-        .filter(|i| i.ordinal > 0)
         .map(|i| i.pubkey)
 }
 
