@@ -51,7 +51,7 @@ pub(crate) fn agent_env_slug() -> Option<String> {
     )
 }
 
-/// The NIP-29 subgroup id (`h`) this pane was spawned into, exported as
+/// The NIP-29 subgroup id (`h`) this PTY session was spawned into, exported as
 /// `TENEX_EDGE_CHANNEL`. Present only for sessions launched into a subgroup task
 /// room; absent for ordinary project sessions. Threaded into session-resolving
 /// RPCs so the daemon binds to the subgroup session (stored under this `h`)

@@ -27,4 +27,4 @@ PTY delivery re-enqueues a message to pending if the paste itself fails, so a de
 
 ## Hooks Path Context Rendering
 
-The hooks path in `assemble_turn_start_context` renders only ambient context (skips the mention block) when the session has a live pty pane, because the pty paste path owns direct-mention delivery. <!-- [^d39d3-b6337] -->
+The hooks path in `assemble_turn_start_context` renders only ambient context (skips the mention block) when the session has a live PTY session, because the terminal injection path owns direct-mention delivery. <!-- [^d39d3-b6337] -->

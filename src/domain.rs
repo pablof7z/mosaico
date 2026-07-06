@@ -26,7 +26,7 @@ pub enum Lifecycle {
     Active,
     /// The session finished (clean exit / session-end). Title retained.
     Ended,
-    /// A newer logical session took this one's pane/pid slot.
+    /// A newer logical session took this one's PTY/pid slot.
     Superseded,
 }
 

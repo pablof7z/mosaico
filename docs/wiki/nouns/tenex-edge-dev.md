@@ -10,4 +10,4 @@ source_refs:
 
 # tenex-edge-dev
 
-A skill used for tenex-edge development live labs: run a local croissant relay, configure container backends with real host AI auth, launch Claude/Codex/OpenCode agents, and inspect pty panes, hook logs, relay logs, and Nostr events with nak.
+A skill used for tenex-edge development live labs: run a local croissant relay, configure container backends with real host AI auth, launch Claude/Codex/OpenCode agents, and inspect portable PTY sessions, hook logs, relay logs, and Nostr events with nak.

@@ -60,7 +60,7 @@ PTY spawn events (identity resolution failure, concurrent instance launch, pre-p
 
 ## Session Lifecycle
 
-Session lifecycle logs include session_start hook received, stale session cancelled (with reason: same_pid/same_pane), re-assert when engine already running, session engine spawned with agent+channel+session, and session engine exited. <!-- [^47f3c-0b6d2] -->
+Session lifecycle logs include session_start hook received, stale session cancelled (with reason: same_pid/same_endpoint), re-assert when engine already running, session engine spawned with agent+channel+session, and session engine exited. <!-- [^47f3c-0b6d2] -->
 
 ## Ordinal Allocation
 

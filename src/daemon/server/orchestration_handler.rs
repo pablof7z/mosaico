@@ -174,12 +174,12 @@ async fn resume_target(
     )
     .await
     {
-        Ok(pane) => {
+        Ok(pty_id) => {
             tracing::info!(
                 session_id = %rec.session_id,
                 slug = %rec.agent_slug,
                 child = %op.child_h,
-                pane = %pane,
+                pty_id = %pty_id,
                 "orchestration: session resumed"
             );
             true
@@ -229,8 +229,8 @@ async fn spawn_target(
     )
     .await
     {
-        Ok(pane) => {
-            tracing::info!(slug = %slug, child = %op.child_h, pane = %pane, "orchestration: agent spawned");
+        Ok(pty_id) => {
+            tracing::info!(slug = %slug, child = %op.child_h, pty_id = %pty_id, "orchestration: agent spawned");
             true
         }
         Err(e) => {

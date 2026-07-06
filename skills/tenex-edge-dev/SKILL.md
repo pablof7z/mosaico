@@ -1,6 +1,6 @@
 ---
 name: tenex-edge-dev
-description: Use for tenex-edge development live labs: run a local croissant relay, configure one or more container backends with real host AI auth, launch Claude/Codex/OpenCode agents, and inspect pty panes, hook logs, relay logs, and Nostr events with nak.
+description: Use for tenex-edge development live labs: run a local croissant relay, configure one or more container backends with real host AI auth, launch Claude/Codex/OpenCode agents, and inspect portable PTY sessions, hook logs, relay logs, and Nostr events with nak.
 allowed-tools: Bash
 ---
 
@@ -8,8 +8,8 @@ allowed-tools: Bash
 
 Use this skill when validating tenex-edge changes in a real local environment:
 a host croissant relay, one or more isolated container backends, real host
-Claude/Codex/OpenCode auth, live agent UIs in pty, relay-level traffic, hook
-logs, and Nostr events inspected with `nak`.
+Claude/Codex/OpenCode auth, live agent UIs in portable PTY sessions,
+relay-level traffic, hook logs, and Nostr events inspected with `nak`.
 
 This is the replacement mindset for the old scripted e2e harness. Prefer a
 small live lab that can be inspected over a mocked shortcut. The objective is
@@ -25,20 +25,20 @@ Read these files from this skill directory as needed:
   flows.
 - `references/container-backends.md`: how host credentials, container state,
   profile configs, model choices, and launch modes fit together.
-- `references/observability.md`: how to inspect pty panes, croissant logs,
+- `references/observability.md`: how to inspect PTY sessions, croissant logs,
   Nostr events, hook logs, daemon logs, and what counts as evidence.
 - `references/troubleshooting.md`: common failures and the concrete checks to
   run before escalating.
-- `scripts/start-croissant-relay`: starts croissant in host pty, creates a
+- `scripts/start-croissant-relay`: starts croissant as a host process, creates a
   per-run work directory, waits for NIP-11, and writes `lab.env`.
 - `scripts/write-container-profiles`: writes one or more disposable
   `.container-state/<profile>/tenex/config.json` files against the relay.
-- `scripts/launch-agent-pty`: launches an agent through the container runner
-  inside a host pty session, either direct or through `tenex-edge launch`.
-- `scripts/probe-lab`: captures relay NIP-11, relay pty output, selected Nostr
-  event kinds, and optional agent pty panes into a probe directory.
-- `scripts/cleanup-lab`: stops pty-launched agent containers by their recorded
-  names/cidfiles, kills agent pty sessions, then stops the relay pty session.
+- `scripts/launch-agent-pty`: launches an agent through the container runner,
+  either as a foreground direct run or through `tenex-edge launch` portable PTY.
+- `scripts/probe-lab`: captures relay NIP-11, relay logs, and selected Nostr
+  event kinds into a probe directory.
+- `scripts/cleanup-lab`: stops recorded agent containers and then stops the
+  relay process.
 
 ## Non-Negotiables
 
@@ -51,19 +51,20 @@ Read these files from this skill directory as needed:
   values, or raw private keys in the transcript or final report.
 - Keep fabric state isolated. Generated state belongs under `.container-state/`
   or a temp live-lab work directory, not in the host `~/.tenex-edge`.
-- Run croissant on the host at `/Users/pablofernandez/Work/croissant`.
+- Run croissant on the host at `${HOME}/Work/croissant`, or set
+  `TENEX_EDGE_DEV_CROISSANT_DIR` for another checkout.
   Containers point at the host relay URL; croissant itself does not need a
   container.
 - Use the cheapest useful model for each provider. The lab only needs enough
   model ability to run commands and surface UI/hook behavior.
-- Use host pty for every agent run, even direct harness runs, so the testing
-  agent can capture exactly what the agent UI is showing.
+- Use `tenex-edge launch` when validating reattach, injection, or hosted
+  lifecycle behavior. Direct harness runs are foreground auth/plugin checks.
 - Use `tenex-edge who` for identity/fabric inspection. Do not rely on obsolete
   identity commands.
 
 ## Standard Start
 
-From `/Users/pablofernandez/src/tenex-edge`:
+From the tenex-edge repo root:
 
 ```bash
 git status -sb
@@ -72,8 +73,8 @@ bash containers/tenex-edge/run doctor
 ```
 
 `doctor` must verify the installed backends and support tools, including
-Claude/Codex/OpenCode where configured, `nak`, `pty`, and hook/plugin
-installation inside container state. If auth checks fail, stop and report the
+Claude/Codex/OpenCode where configured, `nak`, and hook/plugin installation
+inside container state. If auth checks fail, stop and report the
 missing host path; do not silently switch to new credentials.
 
 Start a relay:
@@ -109,13 +110,13 @@ fabric; model-provider auth still comes from the host credential mounts.
 
 ## Launch Patterns
 
-Direct harness run in host pty:
+Direct harness run in the foreground:
 
 ```bash
 skills/tenex-edge-dev/scripts/launch-agent-pty "${LAB_ENV}" direct claude --model haiku
 ```
 
-Run through `tenex-edge launch` in host pty:
+Run through `tenex-edge launch` in portable PTY mode:
 
 ```bash
 skills/tenex-edge-dev/scripts/launch-agent-pty "${LAB_ENV}" launch claude --model haiku
@@ -139,16 +140,18 @@ name unless the feature under test depends on that provider/model.
 
 ## Inspecting The Run
 
-Capture agent UI:
+Inspect launch-mode PTY sessions:
 
 ```bash
-pty capture-pane -pt <agent-session> -S -240 -e
+bash containers/tenex-edge/run --profile claude tenex-edge pty list
+bash containers/tenex-edge/run --profile claude tenex-edge pty attach <pty-id>
 ```
 
-Drive a prompt:
+Drive a prompt or hook-like injection:
 
 ```bash
-pty send-keys -t <agent-session> "Run tenex-edge who and summarize the self header." C-m
+bash containers/tenex-edge/run --profile claude tenex-edge pty inject <pty-id> \
+  "Run tenex-edge who and summarize the self header."
 ```
 
 Probe everything into files:
@@ -165,9 +168,10 @@ tail -n 200 .container-state/claude/tenex/edge/daemon.log
 tail -n 200 .container-state/claude/tenex/edge/relay.log
 ```
 
-Croissant logs all inbound/outbound traffic and rejected event reasons in its
-pty pane. Use those logs together with `nak` event probes and agent pty
-captures; a passing lab needs live evidence from more than one surface.
+Croissant logs all inbound/outbound traffic and rejected event reasons to the
+relay log named in `lab.env`. Use those logs together with `nak` event probes
+and PTY attach/inject evidence; a passing lab needs live evidence from more
+than one surface.
 
 ## Evidence Standard
 
@@ -175,7 +179,7 @@ A useful report contains:
 
 - relay URL, run id, profile names, and whether this was direct or launch mode
 - exact agent commands and accepted model flags
-- pty capture excerpts showing the settled agent UI, no persistent
+- PTY attach output or screenshot showing the settled agent UI, no persistent
   `@te_session` warning, and injected tenex-edge context
 - croissant log excerpts showing traffic or rejection reasons
 - `nak` evidence for the expected event kinds
@@ -191,11 +195,12 @@ Give this to a simple agent to validate that the skill works:
 Use the tenex-edge-dev skill. Start a fresh local croissant relay on the host,
 use the printed relay URL without forcing port 9888, configure one claude
 container profile against it using real host Claude auth and disposable local
-fabric keys, run the container doctor, launch Claude in a host pty session
-with the cheapest Haiku-class model available, ask it to run or describe
-tenex-edge who, then capture the pty pane, croissant logs, hook-tail or hook
-call output, and nak relay probes. Clean up with scripts/cleanup-lab. Do not
-print any secret or auth file contents. If it fails, write concise lessons to
+fabric keys, run the container doctor, launch Claude through `tenex-edge
+launch` with the cheapest Haiku-class model available, attach to the printed
+PTY session, inject or type a prompt asking it to run or describe
+`tenex-edge who`, then collect croissant logs, hook-tail or hook call output,
+and nak relay probes. Clean up with scripts/cleanup-lab. Do not print any
+secret or auth file contents. If it fails, write concise lessons to
 skills/tenex-edge-dev/lessons. Report whether the skill worked and include the
 exact evidence commands/results.
 ```

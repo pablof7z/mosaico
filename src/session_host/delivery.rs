@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-/// How long to wait after `session_start` fires before typing into the pane.
+/// How long to wait after `session_start` fires before typing into the PTY.
 /// The hook fires early in harness startup; we need to wait until the input
 /// box is actually interactive.
 const SPAWN_PROMPT_DELAY_MS: u64 = 2000;

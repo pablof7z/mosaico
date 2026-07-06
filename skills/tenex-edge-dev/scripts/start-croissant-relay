@@ -59,7 +59,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 RUN_ID="${TENEX_EDGE_DEV_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
-CROISSANT_DIR="${TENEX_EDGE_DEV_CROISSANT_DIR:-/Users/pablofernandez/Work/croissant}"
+CROISSANT_DIR="${TENEX_EDGE_DEV_CROISSANT_DIR:-${HOME}/Work/croissant}"
 RELAY_HOST="${TENEX_EDGE_DEV_RELAY_HOST:-$(bridge_host)}"
 RELAY_PORT="${TENEX_EDGE_DEV_RELAY_PORT:-$(pick_port)}"
 RELAY_WS="ws://${RELAY_HOST}:${RELAY_PORT}"

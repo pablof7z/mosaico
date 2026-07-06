@@ -102,7 +102,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
 }
 
 /// `channels_resolve` RPC: thin wrapper over [`resolve_channel`] so the CLI launch
-/// path can convert `--channel <name>` to its opaque id BEFORE spawning the pane,
+/// path can convert `--channel <name>` to its opaque id BEFORE spawning the PTY,
 /// minting at most one group. Returns `{ channel_h }`.
 pub(in crate::daemon::server) async fn rpc_channels_resolve(
     state: &Arc<DaemonState>,

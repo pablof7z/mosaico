@@ -65,7 +65,7 @@ Use profile-specific state even for one-off tests. Avoid sharing state across
 profiles because it makes hook behavior, logs, and relays harder to attribute.
 Also avoid running two containers against the same profile at once. A launched
 agent can own the daemon socket while a second diagnostic container waits or
-times out. Use pty captures and logs first, or stop the agent pane before
+times out. Use PTY attach, hook-tail, and logs first, or stop the agent before
 same-profile RPC checks.
 
 `write-container-profiles` resets `.container-state/<profile>/tenex/edge` by
@@ -117,7 +117,7 @@ The script:
 - prints only profile names, config paths, and pubkey prefixes
 
 If you add a custom profile, use a simple lowercase name without spaces. The
-name becomes part of file paths and pty session names.
+name becomes part of file paths and generated session/container names.
 
 ## Launch Modes
 
@@ -132,7 +132,7 @@ Use direct mode when validating:
 - the backend CLI starts inside the container
 - real host auth works
 - hook/plugin installation is visible to the backend CLI
-- agent UI can be captured through host pty
+- agent UI and auth behavior are visible in the foreground terminal
 
 Launch mode:
 
@@ -145,13 +145,12 @@ Use launch mode when validating:
 - `tenex-edge launch` selects and starts the backend correctly
 - launch-time environment is correct
 - tenex-edge hook context is injected
-- pty session naming/attachment behavior is correct
+- portable PTY naming, attachment, and injection behavior are correct
 - the launched agent appears as expected in fabric state
 
-The pty launch helper names the Apple container after the pty session and
-writes a cidfile in the lab work directory. Clean up with
-`scripts/cleanup-lab` so the container-side daemon exits before the relay is
-stopped.
+The launch helper writes a cidfile in the lab work directory when the container
+runtime provides one. Clean up with `scripts/cleanup-lab` so the container-side
+daemon exits before the relay is stopped.
 
 ## Backend Commands And Model Policy
 
@@ -188,7 +187,6 @@ bash containers/tenex-edge/run doctor
 The doctor should prove:
 
 - required CLIs are installed in the image
-- `pty` is available
 - `nak` is available
 - host auth projections are present for configured providers
 - Claude hooks can be installed into writable staged settings
@@ -242,6 +240,6 @@ For each backend include:
 - exact command
 - model flag accepted or fallback used
 - whether host auth was accepted
-- pty session name
+- PTY id for launch-mode runs, or foreground direct run evidence
 - log paths inspected
 - pass/fail and the next concrete failing command

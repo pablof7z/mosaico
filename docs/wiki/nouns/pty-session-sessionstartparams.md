@@ -1,12 +1,12 @@
 ---
 type: noun-entry
-slug: pty-pane-sessionstartparams
-name: "pty_pane (SessionStartParams)"
+slug: pty-session-sessionstartparams
+name: "pty_session (SessionStartParams)"
 origin: extracted
 source_refs:
   - transcript:685-688
 ---
 
-# pty_pane (SessionStartParams)
+# pty_session (SessionStartParams)
 
-Stable pty pane id from $PTY_PANE (e.g. %5), present only when the hook fires inside a pty session.
+Stable portable PTY session id supplied by launch-mode hook context.

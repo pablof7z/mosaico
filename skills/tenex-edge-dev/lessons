@@ -32,10 +32,10 @@ mention `project init`, so a first-time runner hits this every time.
 The troubleshooting reference already warns "avoid running two containers
 against the same profile at once," but it undersells the blast radius. In
 this run, launching `claude` via `launch-agent-pty ... launch claude
---model haiku` produced a healthy pane (`claude@claude workspace workspace
+--model haiku` produced a healthy session UI (`claude@claude workspace workspace
 [idle]`, no `@te_session` warning). Running
 `bash containers/tenex-edge/run --profile claude tenex-edge explain event:<id>`
-in a **second** container against the same profile while that pty session
+in a **second** container against the same profile while that PTY session
 was still up:
 
 - succeeded and printed a correct receipt, BUT
@@ -43,16 +43,16 @@ was still up:
   bind-mounted socket path, logged
   `removing locally managed offline agent from channel ... reason=startup-stale-pid`,
   and evicted the live agent's pubkey from the NIP-29 channel.
-- The live pty pane's statusline flipped to `[te: down]` and its next
+- The live PTY session's statusline flipped to `[te: down]` and its next
   prompt hung with `UserPromptSubmit hook timed out after 30s` — the session
-  was unrecoverable; it had to be killed (`container stop/rm` +
-  `pty kill-session`) and relaunched fresh.
+  was unrecoverable; it had to be killed (`container stop/rm` plus
+  `tenex-edge pty kill <id>`) and relaunched fresh.
 
 Lesson: treat "same-profile RPC" as a hard stop, not a soft caution. Before
 any `tenex-edge explain ...` / `tenex-edge project ...` / other one-shot
 `tenex-edge` subcommand against a profile, first stop that profile's
-pty-launched agent (`container stop <name>`, `pty kill-session -t <name>`,
-remove the stale `daemon.sock`), THEN run the diagnostic command. Only `nak`
+launch-mode agent (`container stop <name>`, `tenex-edge pty kill <id>`,
+remove the stale `daemon.sock` if needed), THEN run the diagnostic command. Only `nak`
 against the relay directly (no container involved) is safe to run
 concurrently with a live agent.
 
@@ -91,29 +91,17 @@ falls through to nudge-to-keep with `capture = None`. So `explain` is
 behaving correctly here — the gap is host LLM-role config, not the
 reconciler/explain code.
 
-## `scripts/cleanup-lab` fails on macOS's system bash (3.2) when no explicit agent-pty args are given
+## `scripts/cleanup-lab` now relies on cidfiles and the relay PID
 
-Calling `skills/tenex-edge-dev/scripts/cleanup-lab "${LAB_ENV}"` (no trailing
-session names, relying on its own `pty list-sessions` scan) fails with:
+The cleanup helper no longer scans external session names. It reads the
+container cidfiles under the lab work directory, stops those containers when the
+container runtime is available, and kills the relay PID recorded in `lab.env`.
+For a stuck launch-mode PTY, kill it explicitly with the same profile/home
+context:
 
+```bash
+bash containers/tenex-edge/run --profile claude tenex-edge pty kill <pty-id>
 ```
-skills/tenex-edge-dev/scripts/cleanup-lab: line 52: sessions[@]: unbound variable
-```
-
-`/bin/bash` on this host is `GNU bash, version 3.2.57(1)-release
-(arm64-apple-darwin25)` (Apple ships 3.2 for licensing reasons). Bash 3.2 has
-a known bug where `"${array[@]}"` on a zero-element array raises "unbound
-variable" under `set -u`, even though the array was assigned (`sessions=()`
-from `sessions=("$@")` with empty `$@`). The script's `#!/usr/bin/env bash`
-shebang doesn't help if `bash` on `PATH` resolves to the system 3.2 binary
-rather than a newer Homebrew bash. Workaround used in this run: pass the
-exact agent pty session name(s) explicitly (`cleanup-lab "${LAB_ENV}"
-"${AGENT_PTY}"`) to avoid the auto-scan branch, or kill agent
-containers/pty sessions manually and just `pty kill-session -t
-"${RELAY_PTY}"` at the end. A durable fix would be guarding the loop with
-`for session in "${sessions[@]-}"` or checking `((${#sessions[@]}))` before
-the `for`, or shipping `#!/usr/bin/env bash` scripts that assume Homebrew
-bash and documenting that dependency.
 
 ### How the LLM-inputs money shot was actually produced (working recipe)
 

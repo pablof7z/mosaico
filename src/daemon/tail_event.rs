@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn delivery_failure_is_failed_sync_with_session_detail() {
-        let ev = TailEvent::delivery_failure(7, "chan", "codex", "sid-1", "pane vanished");
+        let ev = TailEvent::delivery_failure(7, "chan", "codex", "sid-1", "endpoint vanished");
         match ev {
             TailEvent::Sync {
                 ts,
@@ -230,7 +230,7 @@ mod tests {
                 assert_eq!(from, "tenex-edge");
                 assert_eq!(to, "codex");
                 assert_eq!(state, "failed");
-                assert_eq!(detail.as_deref(), Some("session sid-1: pane vanished"));
+                assert_eq!(detail.as_deref(), Some("session sid-1: endpoint vanished"));
             }
             _ => panic!("expected sync event"),
         }

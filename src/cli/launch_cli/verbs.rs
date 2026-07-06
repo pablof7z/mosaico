@@ -88,6 +88,11 @@ pub(crate) async fn launch(
         "[tenex-edge pty] reattach: tenex-edge pty attach {}",
         meta.id
     );
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        eprintln!("[tenex-edge pty] attach skipped: not running on a TTY");
+        return Ok(());
+    }
     crate::pty::attach(&meta.socket)
 }
 

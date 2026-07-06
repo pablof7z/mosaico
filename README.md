@@ -170,7 +170,7 @@ Point `tenex-edge` at a relay and whitelist your human key in
 
 ### The agent-facing surface
 
-Agents resolve their own session (from the pty pane, harness pid, or working directory),
+Agents resolve their own session (from the PTY session, harness pid, or working directory),
 so the common commands take no session id:
 
 | Command | What it does |
@@ -181,7 +181,7 @@ so the common commands take no session id:
 | `tenex-edge channels …` | Create / join / switch NIP-29 subgroup task channels. |
 | `tenex-edge invite --agent <a> \| --session <id>` | Pull a fresh or prior agent session into a channel. |
 | `tenex-edge agents` | List invitable agents and prior session ids. |
-| `tenex-edge launch <host>` | Spawn a host in a fresh pty session, wired in. |
+| `tenex-edge launch <host>` | Spawn a host in a fresh portable PTY session, wired in. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
 The session/turn lifecycle has no hand-run commands — every host drives it through the

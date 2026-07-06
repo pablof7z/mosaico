@@ -370,7 +370,7 @@ pub enum IdentityDecision {
     /// A live session shares the harness id / resume token → same logical
     /// session restarted in place; reattach to it.
     Reattach(SessionId),
-    /// A live session occupies the same pane/pid but is a DIFFERENT logical
+    /// A live session occupies the same PTY/pid but is a DIFFERENT logical
     /// session → supersede the old one and mint a fresh canonical id.
     Supersede { old: SessionId },
     /// No prior identity → mint a fresh canonical id.

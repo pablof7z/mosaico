@@ -66,7 +66,7 @@ fn resume_match_reattaches() {
 }
 
 #[test]
-fn same_pane_different_session_supersedes() {
+fn same_endpoint_different_session_supersedes() {
     let mut o = obs();
     o.pty_session = Some("%5".into());
     o.harness_session_id = Some("new".into());

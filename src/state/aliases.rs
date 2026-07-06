@@ -118,7 +118,7 @@ impl Store {
     }
 
     /// Drop the `pty_session` alias(es) for a session (resolves the id first). Used
-    /// when the bound pane is found dead, so it is no longer treated as an endpoint.
+    /// when the bound PTY is found dead, so it is no longer treated as an endpoint.
     pub fn clear_pty_session(&self, session_id: &str) -> Result<()> {
         self.clear_alias_kind(session_id, "pty_session")
     }

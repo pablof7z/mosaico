@@ -1,13 +1,13 @@
 ---
 type: noun-entry
-slug: pty-wrapped-session
-name: "pty-wrapped session"
+slug: pty-hosted-session
+name: "PTY-hosted session"
 origin: extracted
 source_refs:
   - transcript:11-11
   - transcript:150-151
 ---
 
-# pty-wrapped session
+# PTY-hosted session
 
-an agent session running in a live pty pane where injected envelopes are pasted as real user prompts, auto-captured and published
+an agent session running in a live portable PTY where injected envelopes are pasted as real user prompts

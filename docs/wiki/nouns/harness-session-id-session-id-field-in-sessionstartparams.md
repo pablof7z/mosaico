@@ -10,4 +10,4 @@ source_refs:
 
 # harness_session_id (session_id field in SessionStartParams)
 
-The harness-native external session id sent by hooks; it is ONLY a locator for `session_aliases`, never the identity. It is Some for harnesses that own an id (claude-code, codex) and None for programmatic hosts (opencode) whose stable anchors are the resume token / pty pane / watched pid.
+The harness-native external session id sent by hooks; it is ONLY a locator for `session_aliases`, never the identity. It is Some for harnesses that own an id (claude-code, codex) and None for programmatic hosts (opencode) whose stable anchors are the resume token / PTY session / watched pid.

@@ -86,7 +86,7 @@ static HOOK_HOSTS: &[HostDef] = &[
         // opencode is a programmatic TS plugin, not a stdin-JSON harness in the
         // usual sense: it pipes a small JSON payload to `hook` and reads stdout.
         // It owns no harness-assigned session id, so it no longer mints a
-        // competing identity each start: it reports its resume token / pane / PID
+        // competing identity each start: it reports its resume token / PTY / PID
         // as locators and the daemon resolves (and reattaches to) the canonical
         // id, which the hook echoes back on stdout. It passes its own PID in the
         // payload (no pid_search).
@@ -300,7 +300,7 @@ async fn hook_dispatch(
 
             // The raw hook id is NOT canonical identity — it is the harness's
             // external session id, one locator among several (resume token, hosted
-            // pane, watched pid). We REPORT what we observed; the daemon owns
+            // PTY, watched pid). We REPORT what we observed; the daemon owns
             // identity and decides whether to mint, reattach, or supersede.
             let harness_session_id = if sid.is_empty() {
                 None

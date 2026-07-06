@@ -10,7 +10,7 @@ low-frequency lifecycle signals from hooks, CLI reads, and chat writes.
 
 All params/results are JSON. `session` fields are full session ids. For
 agent-facing commands the daemon resolves the caller from the explicit session
-when present, then the pty pane, harness-native session id, watched harness
+when present, then the PTY session, harness-native session id, watched harness
 process, and finally the cwd+agent scan where that fallback is safe. **The
 resolution stays daemon-side** so every client path observes the same identity
 rules.
@@ -23,7 +23,7 @@ params: {"agent": "coder", "session_id": "te-…"|null, "cwd": "/path", "watch_p
 result: {"session_id": "te-…"}   // session_id printed verbatim to stdout
 ```
 The `session_id` is the raw canonical id — an internal correlation handle for
-hooks, pty pane/session binding, resume, and DB rows. It is never rendered as a
+hooks, PTY session binding, resume, and DB rows. It is never rendered as a
 user-facing identity; a concrete agent instance is identified by its agent-instance
 label (`haiku`, `haiku1`, …) backed by that instance's selected pubkey.
 The provider opens the project's NIP-29 group and adds the session agent as a
@@ -201,22 +201,22 @@ result: {"pong": true}
 Health-check / keep-alive.
 
 ### `pty_status`
-Returns live pty session state (panes, windows) known to the daemon.
+Returns live portable PTY session state known to the daemon.
 
 ### `pty_send`
-Sends keystrokes or text to a pty pane.
+Sends keystrokes or text to a portable PTY session.
 
 ### `pty_spawn`
-Spawns a new pty window/session for an agent, optionally pre-loading a message.
+Spawns a new portable PTY session for an agent, optionally pre-loading a message.
 
 ### `pty_attach`
-Returns the pty target string needed to attach to a session's pane.
+Returns the PTY target string needed to attach to a session.
 
 ### `pty_resume`
 Reconstitutes a dead harness session in pty (re-opens the agent in its worktree).
 
 ### `pty_resumable`
-Returns the list of sessions that can be resumed (have a dead pty pane but live session row).
+Returns the list of sessions that can be resumed (have no live PTY session but retain a session row).
 
 ### Control / handshake (not user verbs)
 - `hello` / `welcome` (§4)
