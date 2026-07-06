@@ -1,9 +1,118 @@
 use super::*;
 
 #[test]
-fn session_start_without_tenex_private_key_refuses_unverified_channel() {
+fn session_start_without_tenex_private_key_generates_key_and_provisions_project() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new(); // default config has NO tenexPrivateKey
+    let home = Home::new();
+    rewrite_config_with_user_nsec_without_backend_key(&home, false);
+    let sid = unique_session("sess-autokey");
+
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "session_start",
+            serde_json::json!({"agent": "coder", "session_id": &sid, "cwd": "/tmp"}),
+        )
+        .await
+        .expect("session_start should generate a management key and provision");
+    });
+
+    let cfg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.dir.path().join("config.json")).unwrap(),
+    )
+    .unwrap();
+    let generated = cfg["tenexPrivateKey"]
+        .as_str()
+        .expect("generated tenexPrivateKey");
+    let backend_pk = pubkey_of(generated);
+    let user_pk = pubkey_of(EXAMPLE_USER_NSEC);
+
+    refresh_project_members("tmp");
+    let members = Store::open(&home.store_path())
+        .unwrap()
+        .list_channel_members("tmp")
+        .unwrap();
+    assert!(
+        members
+            .iter()
+            .any(|m| m.pubkey == backend_pk && m.role == "admin"),
+        "generated management key should be an admin of the project group"
+    );
+    assert!(
+        members
+            .iter()
+            .any(|m| m.pubkey == user_pk && m.role == "admin"),
+        "whitelisted user key should be repaired as project admin"
+    );
+
+    let store = Store::open(&home.store_path()).unwrap();
+    assert!(
+        store
+            .get_session(&sid)
+            .unwrap()
+            .map(|rec| rec.alive)
+            .unwrap_or(false),
+        "successful readiness should leave a live session row"
+    );
+
+    stop_daemon(&home);
+}
+
+#[test]
+fn generated_management_key_self_grants_on_existing_user_owned_project() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    rewrite_config_with_user_nsec_without_backend_key(&home, false);
+    let project = unique_session("existing-project");
+    let cwd = home.dir.path().join("existing-work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let mut projects = serde_json::Map::new();
+    projects.insert(
+        project.clone(),
+        serde_json::Value::String(cwd.to_string_lossy().to_string()),
+    );
+    std::fs::write(
+        home.dir.path().join("projects.json"),
+        serde_json::to_string(&serde_json::Value::Object(projects)).unwrap(),
+    )
+    .unwrap();
+    let sid = unique_session("sess-selfgrant");
+
+    rt().block_on(async {
+        precreate_project_group_as_user(&project).await;
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "session_start",
+            serde_json::json!({"agent": "coder", "session_id": &sid, "cwd": &cwd}),
+        )
+        .await
+        .expect("session_start should self-grant generated management key");
+    });
+
+    let cfg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.dir.path().join("config.json")).unwrap(),
+    )
+    .unwrap();
+    let backend_pk = pubkey_of(cfg["tenexPrivateKey"].as_str().unwrap());
+    refresh_project_members(&project);
+    let members = Store::open(&home.store_path())
+        .unwrap()
+        .list_channel_members(&project)
+        .unwrap();
+    assert!(
+        members
+            .iter()
+            .any(|m| m.pubkey == backend_pk && m.role == "admin"),
+        "generated management key should be self-granted admin on the existing group"
+    );
+
+    stop_daemon(&home);
+}
+
+#[test]
+fn session_start_refuses_unverified_channel() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -13,16 +122,15 @@ fn session_start_without_tenex_private_key_refuses_unverified_channel() {
                 serde_json::json!({"agent": "coder", "session_id": "sess-nogrp", "cwd": "/tmp"}),
             )
             .await
-            .expect_err("session_start must fail closed without tenexPrivateKey");
+            .expect_err("session_start must fail closed when channel readiness is unverified");
         assert!(
             format!("{err:#}").contains("not verified ready"),
             "unexpected session_start error: {err:#}"
         );
     });
 
-    // Fail-closed: without tenexPrivateKey the daemon cannot sign or verify
-    // NIP-29 readiness, so it must not leave a live session pointed at phantom
-    // channel state.
+    // Fail-closed: if the relay cannot verify NIP-29 readiness, the daemon must
+    // not leave a live session pointed at phantom channel state.
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
         store

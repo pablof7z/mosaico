@@ -50,7 +50,7 @@ fn ensure_channel_ready_inner<'a>(
             return ChannelGate::Ready;
         }
 
-        let Some(mgmt_keys) = provider.parse_management_keys() else {
+        let Some(mgmt_keys) = provider.management_keys() else {
             return ChannelGate::Degraded;
         };
         let mgmt_pubkey = mgmt_keys.public_key().to_hex();

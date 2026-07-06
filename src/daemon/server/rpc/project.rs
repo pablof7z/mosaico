@@ -27,8 +27,6 @@ pub async fn rpc_project_edit(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    use nostr_sdk::prelude::Keys;
-
     #[derive(serde::Deserialize)]
     struct P {
         project: String,
@@ -36,11 +34,7 @@ pub async fn rpc_project_edit(
     }
     let p: P = serde_json::from_value(params.clone()).context("project_edit params")?;
 
-    let nsec = state
-        .cfg
-        .management_nsec()
-        .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
-    let user_keys = Keys::parse(nsec).context("parsing signing key")?;
+    let user_keys = state.management_keys()?;
 
     // NIP-29 edit-metadata: the wire shape lives in the nip29 lifecycle module.
     // The relay validates admin rights and re-publishes kind:39000.

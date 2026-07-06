@@ -2,13 +2,14 @@ use super::*;
 
 impl DaemonState {
     pub(crate) async fn new_for_test() -> Arc<DaemonState> {
+        let backend_key = Keys::generate().secret_key().to_secret_hex();
         let cfg = Config {
             whitelisted_pubkeys: Vec::new(),
             relays: Vec::new(),
             indexer_relay: String::new(),
             host: "test-host".into(),
             user_nsec: None,
-            tenex_private_key: None,
+            tenex_private_key: Some(backend_key.clone()),
             tmux_status_command: None,
             per_session_rooms: false,
         };
@@ -23,7 +24,7 @@ impl DaemonState {
         let provider = Arc::new(Nip29Provider::new(
             transport.clone(),
             store.clone(),
-            None,
+            Some(backend_key),
             None,
             Vec::new(),
             &cfg.relays,
@@ -60,7 +61,6 @@ impl DaemonState {
             outbox_notify: Notify::new(),
             session_keys: Mutex::new(HashMap::new()),
             session_signers: Mutex::new(HashMap::new()),
-            backend_pubkey: None,
         })
     }
 }

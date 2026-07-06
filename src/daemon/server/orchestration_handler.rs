@@ -12,7 +12,7 @@ pub(super) async fn handle_orchestration(
     use crate::fabric::nip29::orchestration::is_authorized;
 
     let event_id = event.id.to_hex();
-    let Some(backend_pk) = state.backend_pubkey().map(|s| s.to_string()) else {
+    let Some(backend_pk) = state.backend_pubkey() else {
         return;
     };
     let mine: Vec<_> = op

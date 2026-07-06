@@ -9,6 +9,9 @@ use serde::Deserialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+mod management_key;
+pub(crate) use management_key::{ensure_tenex_private_key, generate_tenex_private_key};
+
 pub const DEFAULT_RELAY: &str = "wss://nip29.f7z.io";
 pub const DEFAULT_INDEXER_RELAY: &str = "wss://purplepag.es";
 pub const ISOLATED_HOME_ACK_ENV: &str = "TENEX_EDGE_ISOLATED_HOME_OK";

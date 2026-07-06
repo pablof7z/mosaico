@@ -1,6 +1,6 @@
 use super::Nip29Provider;
 use crate::fabric::group_management::{classify_group_publish_error, GroupPublishOutcome};
-use nostr_sdk::EventBuilder;
+use nostr_sdk::{prelude::Keys, EventBuilder};
 
 impl Nip29Provider {
     pub(in crate::fabric::provider) async fn try_grant_mgmt_admin_via_user_nsec(
@@ -8,7 +8,6 @@ impl Nip29Provider {
         group: &str,
         mgmt_pubkey: &str,
     ) -> bool {
-        use nostr_sdk::prelude::Keys;
         let nsec = match &self.user_nsec {
             Some(n) => n.clone(),
             None => {
@@ -82,12 +81,56 @@ impl Nip29Provider {
         }
     }
 
-    pub(in crate::fabric::provider) fn parse_management_keys(
-        &self,
-    ) -> Option<nostr_sdk::prelude::Keys> {
-        self.management_nsec
-            .as_ref()
-            .and_then(|n| nostr_sdk::prelude::Keys::parse(n).ok())
+    pub(crate) fn management_keys(&self) -> Option<Keys> {
+        let cached = self
+            .management_nsec
+            .lock()
+            .expect("management key mutex poisoned")
+            .clone()
+            .filter(|n| !n.trim().is_empty());
+        if let Some(nsec) = cached {
+            return match Keys::parse(&nsec) {
+                Ok(keys) => Some(keys),
+                Err(e) => {
+                    tracing::error!(
+                        error = %format!("{e:#}"),
+                        "configured tenexPrivateKey is not parseable"
+                    );
+                    None
+                }
+            };
+        }
+
+        match crate::config::ensure_tenex_private_key() {
+            Ok(nsec) => {
+                *self
+                    .management_nsec
+                    .lock()
+                    .expect("management key mutex poisoned") = Some(nsec.clone());
+                match Keys::parse(&nsec) {
+                    Ok(keys) => Some(keys),
+                    Err(e) => {
+                        tracing::error!(
+                            error = %format!("{e:#}"),
+                            "persisted tenexPrivateKey is not parseable"
+                        );
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %format!("{e:#}"),
+                    "failed to ensure tenexPrivateKey"
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn management_pubkey(&self) -> Option<String> {
+        self.management_keys()
+            .map(|keys| keys.public_key().to_hex())
     }
 
     fn log_group_role_decision(project: &str, pubkey: &str, role: &str, reason: &str) {
@@ -102,7 +145,7 @@ impl Nip29Provider {
         project: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.parse_management_keys() else {
+        let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
         Self::log_group_role_decision(project, pubkey_hex, "member", "add member");
@@ -125,7 +168,7 @@ impl Nip29Provider {
 
     /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
     pub async fn nip29_set_group_name(&self, group: &str, name: &str) -> bool {
-        let Some(mgmt_keys) = self.parse_management_keys() else {
+        let Some(mgmt_keys) = self.management_keys() else {
             return false;
         };
         eprintln!("[daemon] nip29 set-name h={group} name={name:?}");
@@ -151,7 +194,7 @@ impl Nip29Provider {
         project: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.parse_management_keys() else {
+        let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
         Self::log_group_role_decision(project, pubkey_hex, "admin", "add admin");
@@ -174,7 +217,7 @@ impl Nip29Provider {
 
     /// Create + lock a NIP-29 subgroup.
     pub async fn nip29_create_subgroup(&self, child_h: &str, name: &str, parent_h: &str) -> bool {
-        let Some(mgmt_keys) = self.parse_management_keys() else {
+        let Some(mgmt_keys) = self.management_keys() else {
             return false;
         };
         eprintln!("[daemon] nip29 create-subgroup h={child_h} name={name:?} parent={parent_h}");
@@ -221,7 +264,7 @@ impl Nip29Provider {
         project: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.parse_management_keys() else {
+        let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
         eprintln!(

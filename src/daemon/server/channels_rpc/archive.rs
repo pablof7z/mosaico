@@ -4,8 +4,6 @@ pub(in crate::daemon::server) async fn rpc_channels_archive(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    use nostr_sdk::prelude::Keys;
-
     #[derive(serde::Deserialize)]
     struct P {
         channel: String,
@@ -25,11 +23,7 @@ pub(in crate::daemon::server) async fn rpc_channels_archive(
     let event_id = if current.about == archived_about {
         String::new()
     } else {
-        let nsec = state
-            .cfg
-            .management_nsec()
-            .ok_or_else(|| anyhow::anyhow!("no signing key (tenexPrivateKey) set"))?;
-        let mgmt_keys = Keys::parse(nsec).context("parsing signing key")?;
+        let mgmt_keys = state.management_keys()?;
         let builder =
             crate::fabric::nip29::lifecycle::group_edit_metadata(&channel, &archived_about)?;
         state

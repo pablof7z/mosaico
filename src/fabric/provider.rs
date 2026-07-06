@@ -42,8 +42,9 @@ pub struct Nip29Provider {
     pub store: Arc<Mutex<Store>>,
     /// Same Arc as `DaemonState.transport` — used for lifecycle publishes only.
     pub transport: Arc<Transport>,
-    /// Backend management signing key (`tenexPrivateKey`).
-    pub management_nsec: Option<String>,
+    /// Backend management signing key (`tenexPrivateKey`). Missing keys are
+    /// generated and persisted by the shared readiness/provisioning path.
+    management_nsec: Mutex<Option<String>>,
     /// Human operator key (`userNsec`) for self-granting the management key.
     pub user_nsec: Option<String>,
     /// Whitelisted human pubkeys (hex) that should hold admin in owned groups.
@@ -71,7 +72,7 @@ impl Nip29Provider {
             wire,
             store,
             transport,
-            management_nsec,
+            management_nsec: Mutex::new(management_nsec),
             user_nsec,
             whitelisted_pubkeys,
             provider_instance,

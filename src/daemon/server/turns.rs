@@ -105,7 +105,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     // Assemble via the shared turn-context module so daemon and hook tests cannot
     // drift. The receipt is the graph's OWN dependency trace — it replaces the
     // hand-rolled turn_start_audit and is consistent with the render by construction.
-    let backend_pubkey = state.backend_pubkey.clone().unwrap_or_default();
+    let backend_pubkey = state.backend_pubkey().unwrap_or_default();
     let turn = crate::turn_context::assemble_turn_start(
         &state.store,
         &rec,
