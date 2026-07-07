@@ -437,6 +437,13 @@ fn turn_lifecycle_by_harness_alias_drives_canonical_row() {
 fn run_cli_proto(home: &Home, args: &[&str], proto: Option<&str>) -> std::process::Output {
     let mut cmd = std::process::Command::new(bin());
     cmd.args(args)
+        .env_remove("TENEX_EDGE_AGENT")
+        .env_remove("TENEX_EDGE_AGENT_FALLBACK")
+        .env_remove("TENEX_EDGE_SESSION")
+        .env_remove("TENEX_EDGE_PTY_SESSION")
+        .env_remove("TENEX_EDGE_PTY_SOCKET")
+        .env_remove("TENEX_EDGE_CHANNEL")
+        .env_remove("TENEX_EDGE_EPHEMERAL")
         .env("TENEX_EDGE_HOME", home.dir.path())
         .env("TENEX_CONFIG", home.dir.path().join("config.json"))
         .env("TENEX_EDGE_BIN", bin())

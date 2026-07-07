@@ -280,7 +280,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "chat_write" => rpc_chat_write(state, &req.params).await,
         "publish" => rpc_propose(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
-        "turn_check" => rpc_turn_check(state, &req.params),
+        "turn_check" => rpc_turn_check(state, &req.params).await,
         "turn_end" => rpc_turn_end(state, &req.params).await,
         "doctor" => rpc_doctor(state).await,
         "explain" => rpc_explain(state, &req.params),

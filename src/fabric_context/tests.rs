@@ -195,6 +195,7 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
     assert!(text.contains("[MENTIONS YOU]"));
+    assert!(text.contains("for=\"@coder\""));
     assert!(!text.contains("mention=\"true\""));
     assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("<important>"));
@@ -236,6 +237,46 @@ fn injected_mention_row_is_hidden_from_chatter() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("forced context should still render");
     assert!(!text.contains("please pick this up"));
+}
+
+#[test]
+fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
+    use nostr_sdk::prelude::{PublicKey, ToBech32};
+
+    const TARGET_PK: &str = "379e863e8357163b5bce5d2688dc4f1dcc2d505222fb8d74db600f30535dfdfe";
+    const REMOTE_PK: &str = "9aa6883eee2f1ce43053a1eec2c1c8b1c712cbb3c77ec346d9f091982a50b461";
+
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .upsert_profile(TARGET_PK, "target@laptop", "target", "laptop", false, 1)
+        .unwrap();
+    store
+        .upsert_profile(REMOTE_PK, "remote@tower", "remote", "tower", false, 1)
+        .unwrap();
+    let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
+    let tags = format!("[[\"p\",\"{TARGET_PK}\"],[\"p\",\"{REMOTE_PK}\"]]");
+    chat(
+        &store,
+        "mention-target",
+        "root",
+        210,
+        &format!("please ask nostr:{npub} for review"),
+        &tags,
+    );
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
+        .expect("p-tagged ambient message should render");
+    assert!(
+        text.contains("for=\"@target @remote@tower\""),
+        "got: {text}"
+    );
+    assert!(text.contains("please ask @target@laptop for review"));
+    assert!(!text.contains("nostr:npub"), "got: {text}");
+
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false));
+    let trellis = render_view_text(&assemble::assemble_view(&captured, 200, 300));
+    assert_eq!(trellis, text);
 }
 
 #[test]

@@ -250,6 +250,7 @@ fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<MessageRow>, 
             id: e.id,
             channel: e.channel_display,
             from: e.from_ref,
+            recipients: e.recipient_refs,
             body: e.body,
             truncated: e.truncated,
         })

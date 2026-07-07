@@ -235,7 +235,8 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         "receiver did not get live chat row"
     );
     let store = Store::open(&home.store_path()).unwrap();
-    // May already be injected when a live PTY endpoint is present.
+    // The inbound routing ledger may still be pending, or may already be marked
+    // injected when a live PTY endpoint is present in the integration process.
     let rows = receiver_inbox_rows(&store, &receiver_canon);
     let row = rows
         .iter()
