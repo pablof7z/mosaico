@@ -21,6 +21,15 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     }
     let id = args.id.unwrap_or_else(|| session_id(&args.agent));
     let socket = session_socket(&id);
+    let log_path = super::meta::session_dir().join(format!("{id}.supervisor.log"));
+    std::fs::create_dir_all(super::meta::session_dir())
+        .context("creating pty session directory")?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("opening {}", log_path.display()))?;
+    let log_err = log.try_clone()?;
     let bin = std::env::current_exe().context("locating current tenex-edge executable")?;
     let mut child = std::process::Command::new(bin);
     child
@@ -39,8 +48,8 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     child.arg("--").args(&args.command);
     child
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_err));
     unsafe {
         child.pre_exec(|| {
             if libc::setsid() == -1 {

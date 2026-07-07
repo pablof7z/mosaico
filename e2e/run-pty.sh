@@ -48,6 +48,8 @@ PTY_DIR="${A_EDGE}/pty"
 PTY_WORK="${E2E_WORK}/pty-work"
 SOCKET="${PTY_DIR}/${ID}.sock"
 CAPTURE="${E2E_WORK}/pty-capture.log"
+LAUNCH_CAPTURE="${E2E_WORK}/pty-launch-capture.log"
+LAUNCH_OUT="${E2E_WORK}/pty-launch.out"
 ATTACH_LOG="${E2E_WORK}/pty-attach.log"
 ATTACH_ERR="${E2E_WORK}/pty-attach.err"
 SUP_OUT="${E2E_WORK}/pty-supervisor.out"
@@ -163,6 +165,40 @@ else
   check_fail "7 kill — supervisor or metadata remained live"
 fi
 
+log "step 6: tenex-edge launch <agent> uses portable PTY mode"
+(
+  cd "${PTY_WORK}"
+  edge edge-a agent add launch-probe -- \
+    env "LAUNCH_CAPTURE=${LAUNCH_CAPTURE}" /bin/sh -lc \
+    'printf "launch-ready\n"; cat > "$LAUNCH_CAPTURE"' >/dev/null
+  edge edge-a launch launch-probe --project pty-probe >"${LAUNCH_OUT}" 2>&1
+) || check_fail "8 launch — tenex-edge launch command failed"
+LAUNCH_ID="$(sed -n 's/.*session: //p' "${LAUNCH_OUT}" | tail -1 | tr -d '\r')"
+if [[ -n "${LAUNCH_ID}" ]] && wait_for_soft "launched PTY session to be live" 10 \
+     "edge edge-a pty list 2>/dev/null | grep -q '${LAUNCH_ID}.*yes'"; then
+  check_pass "8 launch — tenex-edge launch created a live portable PTY session"
+else
+  check_fail "8 launch — live PTY session not found after launch"
+fi
+
+if [[ -n "${LAUNCH_ID}" ]]; then
+  printf 'launch input line' | edge edge-a pty inject --no-submit "${LAUNCH_ID}"
+  edge edge-a pty inject "${LAUNCH_ID}" ""
+  if wait_for_soft "launch capture to include injected input" 8 \
+       "LC_ALL=C grep -Fq 'launch input line' '${LAUNCH_CAPTURE}'"; then
+    check_pass "9 launch inject — launched PTY receives programmatic input"
+  else
+    check_fail "9 launch inject — launched PTY did not receive injected input"
+  fi
+  edge edge-a pty kill "${LAUNCH_ID}" || check_fail "10 launch kill — command failed"
+  if wait_for_soft "launched PTY metadata is removed" 10 \
+       "! test -e '${PTY_DIR}/${LAUNCH_ID}.json'"; then
+    check_pass "10 launch kill — launched PTY metadata was removed"
+  else
+    check_fail "10 launch kill — launched PTY metadata remained"
+  fi
+fi
+
 echo
 log "portable PTY e2e summary"
 for line in "${RESULTS[@]}"; do
@@ -178,6 +214,7 @@ printf 'totals: %sPASS=%d%s  %sFAIL=%d%s\n' \
 cat <<NOTE
 
 capture    ${CAPTURE}
+launch     ${LAUNCH_CAPTURE}
 attach log ${ATTACH_LOG}
 supervisor ${SUP_ERR}
 tear down  ./e2e/teardown.sh

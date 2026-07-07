@@ -85,7 +85,7 @@ fn claude_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
         })
     };
     vec![
-        ("SessionStart", mk("session-start", 10)),
+        ("SessionStart", mk("session-start", 60)),
         ("SessionEnd", mk("session-end", 30)),
         ("UserPromptSubmit", mk("user-prompt-submit", 30)),
         ("PostToolUse", mk("post-tool-use", 10)),
@@ -110,7 +110,7 @@ pub fn codex_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
     vec![
         (
             "SessionStart",
-            mk("session-start", 30, Some("startup|resume")),
+            mk("session-start", 60, Some("startup|resume")),
         ),
         ("UserPromptSubmit", mk("user-prompt-submit", 30, None)),
         ("PostToolUse", mk("post-tool-use", 10, None)),
@@ -129,7 +129,7 @@ fn grok_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
         })
     };
     vec![
-        ("SessionStart", mk("session-start", 10)),
+        ("SessionStart", mk("session-start", 60)),
         ("SessionEnd", mk("session-end", 10)),
         ("UserPromptSubmit", mk("user-prompt-submit", 30)),
         ("PostToolUse", mk("post-tool-use", 10)),

@@ -9,7 +9,7 @@ use super::abort_session_start;
 use anyhow::Result;
 use std::sync::Arc;
 
-const START_CHANNEL_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+const START_CHANNEL_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 pub(super) async fn ensure_start_channel_ready(
     state: &Arc<DaemonState>,

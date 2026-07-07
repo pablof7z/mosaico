@@ -26,6 +26,11 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     }
     if let Some(parent) = args.socket.parent() {
         std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     let _ = std::fs::remove_file(&args.socket);
     let listener = UnixListener::bind(&args.socket)

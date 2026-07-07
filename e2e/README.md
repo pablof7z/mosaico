@@ -209,19 +209,20 @@ current binary under test.
 | BDD-12 | multiline text is piped to `pty inject --no-submit` | a separate submit is sent | the PTY receives the plain multiline payload | `e2e/run-pty.sh` |
 | BDD-13 | a live PTY session is attached | injected input is echoed by the terminal | the attach client sees the live echo | `e2e/run-pty.sh` |
 | BDD-14 | a PTY session is live | `pty resize` and `pty kill` are issued | resize succeeds, the child exits, and metadata is removed | `e2e/run-pty.sh` |
-| BDD-15 | a launched PTY-backed session has a `pty_session` alias | a user-authored kind:9 mentions that session | the daemon injects the message into the running PTY | `cargo test --test daemon_integration operator_kind9_injects_into_running_launch_session -- --test-threads=1` |
-| BDD-16 | a user-authored kind:9 mentions an offline local agent identity | the agent is available locally | the daemon spawns a PTY-backed session and injects the triggering message | `cargo test --test daemon_integration operator_kind9_to_offline_local_agent_spawns_and_injects -- --test-threads=1` |
-| BDD-17 | validation targets reference PTY aliases and session surfaces | `tenex-edge validate` renders the target | evidence uses `pty_session:<id>` and reports exact proof boundaries | `cargo test --lib probe validate_render` |
-| BDD-18 | exact session targeting is needed for chat/channel operations | `--session <session-id>` is supplied | the requested session anchor wins over ambient environment hints | `cargo test chat_write_accepts_explicit_session_anchor channels_switch_accepts_explicit_session_anchor` |
-| BDD-19 | backend-addressed management commands arrive as p-tagged kind:9 events | add/list/kill/archive commands are parsed | the daemon routes them through the management-command handler | `cargo test daemon::server::management_command` |
-| BDD-20 | hosted-session transport has moved to portable PTY | the tree is searched for replaced transport vocabulary | no current source, docs, tests, or filenames retain the replaced host path | `git grep -n -i <old-term> HEAD` plus filename search |
+| BDD-15 | a local agent has a harmless configured command | `tenex-edge launch <agent>` runs without a TTY | launch creates a live portable PTY session that accepts inject and kill | `e2e/run-pty.sh` |
+| BDD-16 | a launched PTY-backed session has a `pty_session` alias | a user-authored kind:9 mentions that session | the daemon injects the message into the running PTY | `cargo test --test daemon_integration operator_kind9_injects_into_running_launch_session -- --test-threads=1` |
+| BDD-17 | a user-authored kind:9 mentions an offline local agent identity | the agent is available locally | the daemon spawns a PTY-backed session and injects the triggering message | `cargo test --test daemon_integration operator_kind9_to_offline_local_agent_spawns_and_injects -- --test-threads=1` |
+| BDD-18 | validation targets reference PTY aliases and session surfaces | `tenex-edge validate` renders the target | evidence uses `pty_session:<id>` and reports exact proof boundaries | `cargo test --lib probe validate_render` |
+| BDD-19 | exact session targeting is needed for chat/channel operations | `--session <session-id>` is supplied | the requested session anchor wins over ambient environment hints | `cargo test chat_write_accepts_explicit_session_anchor channels_switch_accepts_explicit_session_anchor` |
+| BDD-20 | backend-addressed management commands arrive as p-tagged kind:9 events | add/list/kill/archive commands are parsed | the daemon routes them through the management-command handler | `cargo test daemon::server::management_command` |
+| BDD-21 | hosted-session transport has moved to portable PTY | the tree is searched for replaced transport vocabulary | no current source, docs, tests, or filenames retain the replaced host path | `git grep -n -i <old-term> HEAD` plus filename search |
 
 ## Files
 
 - `lib.sh` — shared config, paths, key minting, the `edge()` / `wait_for` helpers.
 - `run.sh` — boot + smoke test (idempotent; tears down first).
 - `run-pty.sh` — portable PTY controls: attach protocol, multiline inject,
-  resize, kill, and metadata cleanup.
+  `tenex-edge launch <agent>`, resize, kill, and metadata cleanup.
 - `teardown.sh` — stop relay + daemons, reclaim the relay port, wipe scratch.
 
 ## Caveats

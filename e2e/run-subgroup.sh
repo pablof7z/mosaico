@@ -27,19 +27,39 @@ quote_for_sh() {
 }
 
 role_harness_script() {
-  local bin
+  local log_dir="$1"
+  local bin qlog_dir
   bin="$(quote_for_sh "${TENEX_EDGE_BIN}")"
+  qlog_dir="$(quote_for_sh "${log_dir}")"
   cat <<SCRIPT
 cwd="\$(pwd)"
 sid="\${TENEX_EDGE_PTY_SESSION:-e2e-role-\$\$}"
-log="\${TENEX_EDGE_HOME:-\${cwd}}/role-harness-\${TENEX_EDGE_AGENT:-agent}-\${sid}.log"
+log_dir=${qlog_dir}
+mkdir -p "\${log_dir}"
+log="\${log_dir}/role-harness-\${TENEX_EDGE_AGENT:-agent}-\${sid}.log"
 {
   printf 'role-start agent=%s sid=%s cwd=%s channel=%s\n' "\${TENEX_EDGE_AGENT:-}" "\${sid}" "\${cwd}" "\${TENEX_EDGE_CHANNEL:-}"
-  printf '{"session_id":"%s","cwd":"%s","pid":%s}\n' "\${sid}" "\${cwd}" "\$\$" | ${bin} harness hook claude-code --type session-start
+  printf 'role-env config=%s edge_home=%s tenex_dir=%s\n' "\${TENEX_CONFIG:-}" "\${TENEX_EDGE_HOME:-}" "\${TENEX_DIR:-}"
+  printf '{"session_id":"%s","cwd":"%s","watch_pid":%s}\n' "\${sid}" "\${cwd}" "\$\$" | ${bin} harness hook claude-code --type session-start
   printf 'role-hook-rc=%s\n' "\$?"
 } >>"\${log}" 2>&1
 sleep 900
 SCRIPT
+}
+
+seed_role() {
+  local backend="$1" slug="$2" script
+  script="$(role_harness_script "$(backend_edge_home "${backend}")/logs")"
+  (
+    cd "$(backend_project_dir "${backend}")"
+    edge "${backend}" agent add "${slug}" -- \
+      env \
+      "TENEX_CONFIG=$(backend_config "${backend}")" \
+      "TENEX_DIR=$(backend_tenex_dir "${backend}")" \
+      "TENEX_EDGE_HOME=$(backend_edge_home "${backend}")" \
+      "TENEX_EDGE_DEBUG=${TENEX_EDGE_DEBUG}" \
+      /bin/sh -lc "${script}" >/dev/null
+  )
 }
 
 # Keep backend-b's daemon ALIVE for the whole test. A real backend runs a
@@ -65,15 +85,8 @@ ok "parent '${E2E_PROJECT}' present; backends a=${A_PK:0:8} b=${B_PK:0:8}"
 # spawn. Current orchestration proves completion through a real PTY-backed
 # session_start, so a key-only agent is intentionally not enough.
 log "0: seed local role harness commands"
-ROLE_SCRIPT="$(role_harness_script)"
-(
-  cd "$(backend_project_dir edge-a)"
-  edge edge-a agent add research-lead -- sh -lc "${ROLE_SCRIPT}" >/dev/null
-) || die "failed to seed research-lead command on backend-a"
-(
-  cd "$(backend_project_dir edge-b)"
-  edge edge-b agent add testing-lead -- sh -lc "${ROLE_SCRIPT}" >/dev/null
-) || die "failed to seed testing-lead command on backend-b"
+seed_role edge-a research-lead || die "failed to seed research-lead command on backend-a"
+seed_role edge-b testing-lead || die "failed to seed testing-lead command on backend-b"
 ok "role harness commands seeded"
 
 log "0b: backend-b session-start records its project root for spawned roles"
@@ -139,7 +152,7 @@ B_ROLE_BASE_PK="$(grep -oE '\"public_key\"[^0-9a-f]*[0-9a-f]{64}' "${B_ROLE_JSON
 wait_for "backend-b to start testing-lead session in child" 30 \
   "sqlite3 '$(backend_edge_home edge-b)/state.db' \"SELECT 1 FROM sessions WHERE agent_slug='testing-lead' AND channel_h='${CHILD_H}' AND alive=1 LIMIT 1;\" | grep -q 1"
 B_ROLE_PK="$(sqlite3 "$(backend_edge_home edge-b)/state.db" \
-  "SELECT agent_pubkey FROM sessions WHERE agent_slug='testing-lead' AND channel_h='${CHILD_H}' AND alive=1 ORDER BY updated_at DESC LIMIT 1;" \
+  "SELECT agent_pubkey FROM sessions WHERE agent_slug='testing-lead' AND channel_h='${CHILD_H}' AND alive=1 ORDER BY created_at DESC LIMIT 1;" \
   2>/dev/null || true)"
 [[ -n "${B_ROLE_PK}" ]] || die "could not read testing-lead session pubkey from backend-b state"
 ok "backend-b minted testing-lead ${B_ROLE_BASE_PK:0:8} and started session pubkey ${B_ROLE_PK:0:8}"
@@ -169,7 +182,7 @@ A_ROLE_BASE_PK="$(grep -oE '\"public_key\"[^0-9a-f]*[0-9a-f]{64}' "${A_ROLE_JSON
 wait_for "backend-a to start research-lead session in child" 30 \
   "sqlite3 '$(backend_edge_home edge-a)/state.db' \"SELECT 1 FROM sessions WHERE agent_slug='research-lead' AND channel_h='${CHILD_H}' AND alive=1 LIMIT 1;\" | grep -q 1"
 A_ROLE_PK="$(sqlite3 "$(backend_edge_home edge-a)/state.db" \
-  "SELECT agent_pubkey FROM sessions WHERE agent_slug='research-lead' AND channel_h='${CHILD_H}' AND alive=1 ORDER BY updated_at DESC LIMIT 1;" \
+  "SELECT agent_pubkey FROM sessions WHERE agent_slug='research-lead' AND channel_h='${CHILD_H}' AND alive=1 ORDER BY created_at DESC LIMIT 1;" \
   2>/dev/null || true)"
 wait_for "child 39002 to include research-lead" 25 \
   "nak_req_contains '${A_ROLE_PK}' -k 39002 -d '${CHILD_H}' '${RELAY_WS}'"
