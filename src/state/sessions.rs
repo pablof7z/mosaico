@@ -66,8 +66,7 @@ impl Store {
     /// absent or its row was pruned. Splitting this out of [`Self::upsert_session_row`]
     /// lets `rpc_session_start` learn the id, select the ordinal signer (whose
     /// reservation is keyed by session id), and THEN write the row already
-    /// carrying the correct ordinal pubkey — "born right" rather than registered
-    /// with the local derivation-root key and patched afterward.
+    /// carrying the correct ordinal pubkey rather than patching it afterward.
     pub fn resolve_or_mint_session_id(
         &self,
         harness: &str,
@@ -129,6 +128,7 @@ impl Store {
         if !r.channel_h.is_empty() {
             self.join_session_channel_canonical(session_id, &r.channel_h, r.now)?;
         }
+        self.clear_session_claims_for_reassert(session_id, &r.agent_pubkey, &r.channel_h)?;
         Ok(())
     }
 

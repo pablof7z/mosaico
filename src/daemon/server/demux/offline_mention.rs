@@ -2,6 +2,10 @@ use super::super::resolution::work_root_for;
 use super::super::*;
 use std::sync::Arc;
 
+mod headless;
+
+use headless::{mention_prompt, spawn_headless_mention};
+
 /// Spawn a local agent that was p-tagged in a kind:9 message but had no alive
 /// session. Idempotency: `first_sight` prevents duplicate spawns within a run;
 /// `has_alive` prevents re-spawn across restarts when the previous spawn registered.
@@ -33,37 +37,26 @@ pub(super) async fn handle(
         return;
     }
 
-    // Resolve the mentioned pubkey to a known ordinal identity row. Local
-    // derivation-root keys are not fabric agent identities under the roster model.
-    let Some(idn) = state.with_store(|s| {
-        s.get_identity_for_channel(mentioned_pk, project)
+    let now = now_secs();
+    let claim = state.with_store(|s| s.get_session_claim(mentioned_pk, project).ok().flatten());
+    let active_claim = state.with_store(|s| {
+        s.get_active_session_claim(mentioned_pk, project, now)
             .ok()
             .flatten()
-            .or_else(|| s.get_identity(mentioned_pk).ok().flatten())
-    }) else {
-        return;
-    };
-    let (agent_slug, ordinal) = (idn.agent_slug, idn.ordinal);
-
-    // Resume vs fresh: if this identity previously ran in this channel and left a
-    // bound native session, RESUME that harness (restores its conversation);
-    // otherwise spawn fresh with the exact ordinal.
-    let bound = state.with_store(|s| {
-        s.resolve_identity_pubkey_for_channel(mentioned_pk, project)
-            .ok()
-            .flatten()
+            .filter(|c| !c.native_id.is_empty())
     });
-    if let Some(route) = bound.filter(|r| !r.native_id.is_empty()) {
+
+    if let Some(route) = active_claim.as_ref() {
         tracing::info!(
             agent = %route.agent_slug,
             project,
             native_id = %route.native_id,
-            "resuming bound native session"
+            "resuming active ephemeral session claim"
         );
         let resume_work_root = state.with_store(|s| work_root_for(s, project));
         match spawn_headless_mention(
             state,
-            &agent_slug,
+            &route.agent_slug,
             &resume_work_root,
             project,
             body,
@@ -75,32 +68,53 @@ pub(super) async fn handle(
             Ok(true) => return,
             Ok(false) => {}
             Err(e) => {
-                tracing::warn!(agent = %agent_slug, project, error = %e, "headless resume failed - falling back to PTY resume");
+                tracing::warn!(agent = %route.agent_slug, project, error = %e, "headless resume failed - falling back to PTY resume");
             }
         }
         if let Err(e) =
-            crate::session_host::resume_agent(state, &agent_slug, project, &route.native_id).await
+            crate::session_host::resume_agent(state, &route.agent_slug, project, &route.native_id)
+                .await
         {
-            tracing::warn!(agent = %agent_slug, project, error = %e, "session resume failed - falling through to fresh spawn");
+            tracing::warn!(agent = %route.agent_slug, project, error = %e, "session resume failed - falling through to fresh spawn");
         } else {
             return;
         }
     }
 
-    let is_member =
-        state.with_store(|s| s.is_channel_member(project, mentioned_pk).unwrap_or(false));
-    if !is_member {
-        let (_, _, members) = state.provider.fetch_group_state(project).await;
-        if !members.contains(mentioned_pk) {
-            tracing::info!(agent = %agent_slug, ordinal, project, "provisioning ordinal pubkey into channel via mgmt key");
-            if !state
-                .provider
-                .grant_member_confirmed(project, mentioned_pk)
-                .await
-                .is_confirmed()
-            {
-                tracing::warn!(agent = %agent_slug, ordinal, project, "mgmt-key add_member was not confirmed - skipping spawn");
-                return;
+    let identity = state.with_store(|s| {
+        s.get_identity_for_channel(mentioned_pk, project)
+            .ok()
+            .flatten()
+            .or_else(|| s.get_identity(mentioned_pk).ok().flatten())
+    });
+    let Some((agent_slug, ordinal)) = identity
+        .map(|idn| (idn.agent_slug, idn.ordinal))
+        .or_else(|| claim.as_ref().map(|c| (c.agent_slug.clone(), c.ordinal)))
+    else {
+        return;
+    };
+
+    let preferred_ordinal = match claim.as_ref() {
+        Some(_) => None,
+        None => Some(ordinal),
+    };
+
+    if preferred_ordinal.is_some() {
+        let is_member =
+            state.with_store(|s| s.is_channel_member(project, mentioned_pk).unwrap_or(false));
+        if !is_member {
+            let (_, _, members) = state.provider.fetch_group_state(project).await;
+            if !members.contains(mentioned_pk) {
+                tracing::info!(agent = %agent_slug, ordinal, project, "provisioning ordinal pubkey into channel via mgmt key");
+                if !state
+                    .provider
+                    .grant_member_confirmed(project, mentioned_pk)
+                    .await
+                    .is_confirmed()
+                {
+                    tracing::warn!(agent = %agent_slug, ordinal, project, "mgmt-key add_member was not confirmed - skipping spawn");
+                    return;
+                }
             }
         }
     }
@@ -127,7 +141,7 @@ pub(super) async fn handle(
         project,
         body,
         None,
-        Some(ordinal),
+        preferred_ordinal,
     )
     .await
     {
@@ -145,135 +159,25 @@ pub(super) async fn handle(
         None,
         group_arg,
         None,
-        Some(ordinal),
+        preferred_ordinal,
     )
     .await
     {
         Ok(pty_id) => {
-            tracing::info!(agent = %agent_slug, pty_id = %pty_id, project, "agent spawned successfully")
+            tracing::info!(agent = %agent_slug, pty_id = %pty_id, project, "agent spawned successfully");
+            if preferred_ordinal.is_none() {
+                inject_spawn_prompt(agent_slug.clone(), project.to_string(), pty_id, body);
+            }
         }
         Err(e) => tracing::warn!(agent = %agent_slug, project, error = %e, "agent spawn failed"),
     }
 }
 
-async fn spawn_headless_mention(
-    state: &Arc<DaemonState>,
-    agent_slug: &str,
-    work_root: &str,
-    channel_h: &str,
-    body: &str,
-    resume_id: Option<&str>,
-    ordinal: Option<u32>,
-) -> anyhow::Result<bool> {
-    if !crate::session_host::agent_supports_headless_exec(agent_slug) {
-        return Ok(false);
-    }
+fn inject_spawn_prompt(agent: String, project: String, pty_id: String, body: &str) {
     let prompt = mention_prompt(body);
-    let launch = crate::session_host::spawn_agent_exec(
-        state,
-        agent_slug,
-        work_root,
-        &prompt,
-        resume_id,
-        None,
-        Some(channel_h),
-        None,
-        ordinal,
-    )
-    .await?;
-    tracing::info!(
-        agent = %agent_slug,
-        exec_id = %launch.id,
-        pid = launch.pid(),
-        log = %launch.log_path.display(),
-        "headless agent spawned on mention"
-    );
-    reap_headless_on_exit(
-        state.clone(),
-        agent_slug.to_string(),
-        channel_h.to_string(),
-        launch,
-    );
-    Ok(true)
-}
-
-fn reap_headless_on_exit(
-    state: Arc<DaemonState>,
-    agent_slug: String,
-    project: String,
-    launch: crate::session_host::ExecLaunch,
-) {
-    let crate::session_host::ExecLaunch {
-        id,
-        mut child,
-        log_path,
-    } = launch;
-    let pid = child.id() as i32;
     tokio::spawn(async move {
-        let waited = tokio::task::spawn_blocking(move || child.wait()).await;
-        match waited {
-            Ok(Ok(status)) => {
-                tracing::info!(
-                    agent = %agent_slug,
-                    project = %project,
-                    exec_id = %id,
-                    pid,
-                    status = %status,
-                    log = %log_path.display(),
-                    "headless agent exited"
-                );
-            }
-            Ok(Err(e)) => {
-                tracing::warn!(
-                    agent = %agent_slug,
-                    project = %project,
-                    exec_id = %id,
-                    pid,
-                    error = %e,
-                    log = %log_path.display(),
-                    "headless agent wait failed"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    agent = %agent_slug,
-                    project = %project,
-                    exec_id = %id,
-                    pid,
-                    error = %e,
-                    log = %log_path.display(),
-                    "headless agent wait task failed"
-                );
-            }
-        }
-        if let Err(e) = super::super::rpc_session_end(
-            &state,
-            &serde_json::json!({
-                "session": pid.to_string(),
-            }),
-        )
-        .await
-        {
-            tracing::warn!(
-                agent = %agent_slug,
-                project = %project,
-                exec_id = %id,
-                pid,
-                error = %e,
-                "headless agent session_end failed"
-            );
+        if let Err(e) = crate::session_host::inject_spawn_message(&pty_id, &prompt).await {
+            tracing::warn!(agent = %agent, project = %project, pty_id = %pty_id, error = %e, "failed to inject mention prompt into fresh PTY spawn");
         }
     });
-}
-
-fn mention_prompt(body: &str) -> String {
-    let body = body.trim();
-    let body = if body.is_empty() {
-        "You were mentioned in tenex-edge. Check your channel context and respond if needed."
-    } else {
-        body
-    };
-    format!(
-        "{body}\n\n[reply via `tenex-edge chat write --message \"...\"` - replies do not auto-publish]"
-    )
 }

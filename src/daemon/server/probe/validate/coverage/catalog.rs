@@ -110,6 +110,12 @@ pub(super) const DURABLE_TABLES: &[TableCoverage] = &[
         "external-to-canonical session aliases",
     ),
     row(
+        "session_claims",
+        "aggregate",
+        "who:<channel> | awareness:<channel>",
+        "ephemeral route claims and dormant presence",
+    ),
+    row(
         "session_channels",
         "direct",
         "joined:<session>[:channel]",

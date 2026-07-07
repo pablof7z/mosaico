@@ -2,6 +2,11 @@ use crate::state::{Session, Status, Store, StoreReader};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+mod dormant;
+mod scope;
+
+use scope::{is_archived_channel, is_root_channel, scope_contains_channel, work_root_for};
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct OtherProjectSummary {
     pub(crate) project: String,
@@ -75,6 +80,9 @@ pub(crate) struct WhoRow {
     /// the title, which is retained while idle.
     #[serde(default)]
     pub(crate) active: bool,
+    /// A local Class A session that exited but still owns a soft route claim.
+    #[serde(default)]
+    pub(crate) dormant: bool,
     pub(crate) host: String,
     pub(crate) session_id: String,
     pub(crate) age_secs: Option<u64>,
@@ -151,6 +159,15 @@ pub(crate) fn load_who_snapshot(
                 .insert(local_instance(store, &s).display_slug());
         }
     }
+    dormant::push_claim_rows(
+        store,
+        current_project,
+        now,
+        &local_host,
+        &mut rows,
+        &mut other_agents,
+    )
+    .context("who snapshot: failed to read dormant session claims")?;
 
     // ── peers: relay_status across all channels, minus our own keys ────────────
     // Scan every channel even when a `current_project` is set: in-scope statuses
@@ -289,60 +306,6 @@ pub(crate) fn load_who_snapshot(
     })
 }
 
-/// Top-level work-root for `scope`.
-fn work_root_for(store: StoreReader<'_>, scope: &str) -> String {
-    store
-        .channel_project_root(scope)
-        .unwrap_or_else(|e| {
-            tracing::error!(
-                channel = %scope,
-                error = ?e,
-                "who snapshot: channel ancestry lookup failed walking work-root"
-            );
-            None
-        })
-        .unwrap_or_else(|| scope.to_string())
-}
-
-fn scope_contains_channel(store: StoreReader<'_>, current: &str, scope: &str) -> bool {
-    if is_archived_channel(store, current) || is_archived_channel(store, scope) {
-        return false;
-    }
-    if current == scope {
-        return true;
-    }
-    matches!(store.is_root_channel(current), Ok(true)) && work_root_for(store, scope) == current
-}
-
-fn is_archived_channel(store: StoreReader<'_>, scope: &str) -> bool {
-    match store.get_channel(scope) {
-        Ok(Some(channel)) => channel.is_archived(),
-        Ok(None) => false,
-        Err(e) => {
-            tracing::error!(
-                channel = %scope,
-                error = ?e,
-                "who snapshot: archived-channel lookup failed; treating channel as active"
-            );
-            false
-        }
-    }
-}
-
-fn is_root_channel(store: StoreReader<'_>, scope: &str) -> bool {
-    match store.is_root_channel(scope) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(
-                channel = %scope,
-                error = ?e,
-                "who snapshot: is_root_channel lookup failed; assuming non-root"
-            );
-            false
-        }
-    }
-}
-
 /// Build a local-session row. Title/activity/busy come from the agent's own
 /// relay_status row when published, else the local pre-publish draft on the
 /// session.
@@ -378,6 +341,7 @@ fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, now: u64) ->
         status: title,
         activity,
         active: busy,
+        dormant: false,
         host: local_host.to_string(),
         session_id: s.session_id.clone(),
         age_secs: Some(now.saturating_sub(s.last_seen)),
@@ -422,6 +386,7 @@ fn peer_row(store: StoreReader<'_>, st: &Status, local_host: &str, now: u64) -> 
             String::new()
         },
         active: st.busy,
+        dormant: false,
         host,
         session_id: st.session_id.clone(),
         age_secs: Some(now.saturating_sub(st.last_seen)),

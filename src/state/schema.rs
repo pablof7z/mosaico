@@ -202,6 +202,10 @@ CREATE INDEX IF NOT EXISTS idx_identities_base
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session
     ON identities(session_id) WHERE session_id <> '';
 
+CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, base_pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', ordinal INTEGER NOT NULL DEFAULT 0, session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY (pubkey, channel_h));
+CREATE INDEX IF NOT EXISTS idx_session_claims_expires ON session_claims(expires_at);
+CREATE INDEX IF NOT EXISTS idx_session_claims_session ON session_claims(session_id);
+
 CREATE TABLE IF NOT EXISTS inbox (
     event_id        TEXT NOT NULL,
     target_session  TEXT NOT NULL,

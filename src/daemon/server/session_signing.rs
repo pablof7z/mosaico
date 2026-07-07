@@ -37,11 +37,19 @@ pub(in crate::daemon::server) fn select_session_signer(
             .to_hex()
     });
     let occupied_pubkeys: std::collections::HashSet<String> = state.with_store(|s| {
-        s.list_channel_members(h)
+        let mut occupied: std::collections::HashSet<String> = s
+            .list_channel_members(h)
             .unwrap_or_default()
             .into_iter()
             .map(|m| m.pubkey)
-            .collect()
+            .collect();
+        for claim in s
+            .list_active_session_claims_for_channel(h, now_secs())
+            .unwrap_or_default()
+        {
+            occupied.insert(claim.pubkey);
+        }
+        occupied
     });
 
     let signer = {

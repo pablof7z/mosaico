@@ -1,6 +1,10 @@
 use super::*;
 use crate::who_snapshot::WhoRow;
 
+mod labels;
+
+use labels::{rel_cwd_bracket, row_host_label, row_state_label, row_title_label, status_colored};
+
 pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
 
@@ -162,43 +166,6 @@ fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: boo
     );
 }
 
-fn row_host_label(row: &WhoRow) -> String {
-    let host = row.host.trim();
-    let host = if row.remote {
-        format!("{host}, remote")
-    } else {
-        host.to_string()
-    };
-    rel_cwd_bracket(&row.rel_cwd)
-        .map(|dir| format!("{host} [{dir}]"))
-        .unwrap_or(host)
-}
-
-fn row_title_label(row: &WhoRow) -> String {
-    if row.status.trim().is_empty() {
-        "—".to_string()
-    } else {
-        row.status.trim().to_string()
-    }
-}
-
-fn row_state_label(row: &WhoRow) -> String {
-    let mut status = if row.active {
-        let activity = row.activity.trim();
-        if activity.is_empty() {
-            "working".to_string()
-        } else {
-            activity.to_string()
-        }
-    } else {
-        "idle".to_string()
-    };
-    if !row.fresh {
-        status.push_str(" (stale)");
-    }
-    status
-}
-
 const AGENT_TABLE_HEADER: [&str; 2] = ["| Agent | Host | Title | Status |", "|---|---|---|---|"];
 
 fn md_cell(input: &str) -> String {
@@ -214,7 +181,7 @@ fn md_text(input: &str) -> String {
 }
 
 fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
-    let stale = if row.fresh {
+    let stale = if row.fresh || row.dormant {
         String::new()
     } else {
         format!(" {}", "(stale)".dimmed())
@@ -240,19 +207,8 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
         host,
         dir,
         stale,
-        status_colored(&row.status, &row.activity, row.active),
+        status_colored(row),
     );
-}
-
-/// The `[dir]` to show for a row's `rel_cwd`: `None` when empty or the project
-/// root (`.`), so the project root renders without a bracket (§8e).
-fn rel_cwd_bracket(rel_cwd: &str) -> Option<&str> {
-    let r = rel_cwd.trim();
-    if r.is_empty() || r == "." {
-        None
-    } else {
-        Some(r)
-    }
 }
 
 /// Live-redraw a pre-rendered fabric string (the unified `who` view) in the
@@ -289,21 +245,6 @@ pub(super) fn draw_who_live(snapshot: &WhoSnapshot, refresh: Duration) -> Result
     }
     stdout.flush()?;
     Ok(())
-}
-
-/// Terminal status label: dims the live activity and idle marker so the
-/// persistent title stays prominent.
-fn status_colored(title: &str, activity: &str, active: bool) -> String {
-    let t = title.trim();
-    let a = activity.trim();
-    match (t.is_empty(), active) {
-        (true, true) if !a.is_empty() => a.dimmed().to_string(),
-        (true, true) => "working".dimmed().to_string(),
-        (true, false) => "idle".dimmed().to_string(),
-        (false, true) if !a.is_empty() => format!("{} {}", t, format!("— {a}").dimmed()),
-        (false, true) => t.to_string(),
-        (false, false) => format!("{} {}", t, "· idle".dimmed()),
-    }
 }
 
 pub(super) fn should_quit_live(event: TermEvent) -> bool {

@@ -1,4 +1,6 @@
-use super::{AgentAvailability, Channel, Profile, Session, Status, Store};
+use super::{
+    session_claims::SessionClaim, AgentAvailability, Channel, Profile, Session, Status, Store,
+};
 use anyhow::Result;
 
 /// Read-only capability for callers that assemble views from the store.
@@ -66,6 +68,14 @@ impl StoreReader<'_> {
 
     pub(crate) fn list_alive_sessions(self) -> Result<Vec<Session>> {
         self.store.list_alive_sessions()
+    }
+
+    pub(crate) fn get_session(self, session_id: &str) -> Result<Option<Session>> {
+        self.store.get_session(session_id)
+    }
+
+    pub(crate) fn list_active_session_claims(self, now: u64) -> Result<Vec<SessionClaim>> {
+        self.store.list_active_session_claims(now)
     }
 
     pub(crate) fn get_status(

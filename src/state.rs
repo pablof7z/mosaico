@@ -289,6 +289,7 @@ mod retention;
 pub use retention::{
     RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
 };
+pub(crate) mod session_claims;
 mod sessions;
 mod status;
 #[cfg(test)]
