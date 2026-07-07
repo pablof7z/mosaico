@@ -125,6 +125,31 @@ pub(super) fn why_value(state: &Arc<DaemonState>, params: &Value) -> Result<Valu
         });
     }
 
+    if let Some(session) =
+        strip_handle_id(handle, &["delivery:", "delivery/", "inject:", "inject/"])
+    {
+        let r = state.delivery.lock().expect("delivery mutex poisoned");
+        return Ok(match r.explain_delivery(session) {
+            Some(why) => json!({
+                "verb": "why",
+                "handle": handle,
+                "kind": "delivery",
+                "resource_key": why.resource_key,
+                "last_kind": why.last_kind,
+                "cause": why.cause,
+                "input_causes": why.input_causes,
+                "found": true,
+            }),
+            None => json!({
+                "verb": "why",
+                "handle": handle,
+                "kind": "delivery",
+                "found": false,
+                "note": "no command emitted yet on this daemon graph",
+            }),
+        });
+    }
+
     if let Some(raw) = strip_handle_id(handle, &["outbox:", "outbox/"]) {
         let local_id = raw
             .parse::<i64>()

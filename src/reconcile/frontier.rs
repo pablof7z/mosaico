@@ -81,7 +81,7 @@ pub fn uncovered_bypass_risks() -> Vec<&'static str> {
         .collect()
 }
 
-static REGISTRATIONS: [SurfaceRegistration; 8] = [
+static REGISTRATIONS: [SurfaceRegistration; 9] = [
     SurfaceRegistration {
         name: "status",
         mode: SurfaceMode::Authoritative,
@@ -144,6 +144,21 @@ static REGISTRATIONS: [SurfaceRegistration; 8] = [
         facts: &["render cursor observation"],
         trellis_inputs: &["InputFact::TurnCheckRequested"],
         host_effects: &["cursor executor applies sessions.seen_cursor"],
+        bypass_risks: &[],
+    },
+    SurfaceRegistration {
+        name: "delivery",
+        mode: SurfaceMode::Authoritative,
+        facts: &["InputFact::DeliveryScan"],
+        trellis_inputs: &[
+            "pending inbox ids",
+            "session working state",
+            "PTY endpoint liveness",
+            "debounce clock",
+        ],
+        host_effects: &[
+            "delivery_seam returns PTY inject, retry timer, or endpoint cleanup effects",
+        ],
         bypass_risks: &[],
     },
     SurfaceRegistration {

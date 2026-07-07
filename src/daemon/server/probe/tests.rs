@@ -155,6 +155,7 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     assert_surface_status(&oracle, "status", "green");
     assert_surface_status(&oracle, "turn_lifecycle", "green");
     assert_surface_status(&oracle, "cursor", "green");
+    assert_surface_status(&oracle, "delivery", "green");
     assert_surface_status(&oracle, "session_start", "green");
     assert_surface_status(&oracle, "session_watch", "green");
     assert_surface_status(&oracle, "outbox", "green");
@@ -171,10 +172,11 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     assert_eq!(sstatus["effectful"], 1);
 
     let seams = rpc_probe(&state, &json!({ "verb": "seams" })).unwrap();
-    assert_eq!(seams["host_seam_coverage_percent"], 75);
+    assert_eq!(seams["host_seam_coverage_percent"], 77);
     assert_surface_mode(&seams, "status", "authoritative");
     assert_surface_mode(&seams, "turn_lifecycle", "authoritative");
     assert_surface_mode(&seams, "cursor", "authoritative");
+    assert_surface_mode(&seams, "delivery", "authoritative");
     assert_surface_mode(&seams, "session_start", "advisory");
     assert_surface_mode(&seams, "session_watch", "advisory");
     assert_surface_mode(&seams, "outbox", "authoritative");

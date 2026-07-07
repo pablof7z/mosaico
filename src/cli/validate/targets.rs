@@ -16,7 +16,7 @@ const TARGET_FORMS: &[TargetForm] = &[
         example: "tenex-edge validate all",
     },
     TargetForm {
-        target: "state:<surface> | status | subscriptions | hook_context | turn_lifecycle | cursor | session_start | session_watch | outbox",
+        target: "state:<surface> | status | subscriptions | hook_context | turn_lifecycle | cursor | delivery | session_start | session_watch | outbox",
         proves: "surface state, oracle status, seams, resource drift, and live rows",
         example: "tenex-edge validate state:status",
     },

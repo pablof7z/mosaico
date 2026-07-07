@@ -1,7 +1,6 @@
 //! The daemon process: sole owner of state.db AND the single relay connection.
 //!
 //! Started as the hidden daemon subcommand by a thin client's spawn-if-absent
-//! path. See docs/daemon-design.md for responsibilities and lifecycle.
 use super::client::StartupLock;
 use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
@@ -28,6 +27,7 @@ use tokio::sync::Notify;
 
 mod agent_roster;
 mod background;
+mod delivery_drive;
 mod demux;
 mod invite_rpc;
 mod management_command;
@@ -38,8 +38,7 @@ mod rpc;
 mod session_signer;
 
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
-use demux::spawn_demux;
-use demux::warm_profiles;
+use demux::{spawn_demux, warm_profiles};
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
 #[derive(Clone)]
@@ -78,6 +77,7 @@ pub struct DaemonState {
     subscribed_projects: Mutex<Vec<String>>,
     subs: Mutex<crate::reconcile::SubscriptionReconciler>,
     status: Arc<Mutex<crate::reconcile::StatusReconciler>>,
+    delivery: Mutex<crate::reconcile::DeliveryReconciler>,
     turn_lifecycle: Mutex<crate::reconcile::TurnLifecycleReconciler>,
     cursor: Mutex<crate::reconcile::CursorReconciler>,
     session_start: Mutex<crate::reconcile::SessionStartReconciler>,

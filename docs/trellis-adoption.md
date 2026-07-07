@@ -1,7 +1,7 @@
 # Trellis adoption
 
 tenex-edge derives live resources — relay subscriptions, kind:30315 status,
-and the injected hook/fabric-context snapshot — from changing state. Those
+mention delivery, and the injected hook/fabric-context snapshot — from changing state. Those
 derivations and the effects that follow are now owned by
 [Trellis](https://github.com/pablof7z/trellis), a deterministic reconciliation
 engine: state changes go in; effect plans and receipts come out.
@@ -20,13 +20,15 @@ observed facts (the world hands us)
 
 Facts Trellis must **not** invent — they enter as canonical inputs: a hook
 happened, a process is alive/dead, a transcript window was captured, the LLM
-returned `NOW: doing x`, the relay accepted/rejected an event, a clock tick.
+returned `NOW: doing x`, the relay accepted/rejected an event, a delivery scan
+observed pending inbox ids / PTY liveness / debounce time, a clock tick.
 The input-journal vocabulary is `src/reconcile/journal.rs` (`InputFact`); each
 variant names the writer it replaces.
 
 Facts Trellis **does** own after that: a session is working, the activity
 should be *doing x*, publish this exact 30315, this subscription should close,
-this hook snapshot has this shape — and the causal path that explains each one.
+inject or defer these inbox ids, this hook snapshot has this shape — and the
+causal path that explains each one.
 
 Bulky payloads (full transcripts, raw event bodies) never enter the graph — only
 stable hashes/summaries/keys. Trellis is a control plane, not a blob store.
@@ -46,13 +48,14 @@ direct `set_status` seam were deleted, not left alongside).
 | Subscriptions | `subscriptions/` | per-entity `ResourceKey` refcounted by per-session scopes | the unbounded-subscription leak — channel-leave now emits a real NIP-01 CLOSE on last-owner departure |
 | Status (kind:30315) | `status/` | per-session derived `StatusContent` → publish/expire commands | five triggers + two timers collapsed to one change-only publish path; dedup; deterministic expiry on death; h-tag correction on leave |
 | Hook context | `hook_context/` | derived `FabricView` → materialized output frame | the hand-rolled `turn_start_audit` that drifted from the render, replaced by a receipt that *is* the render's dependency trace; cursor + `now` made explicit inputs (deterministic/replayable) |
+| Delivery | `delivery/` | `DeliveryScanFact` → inject/defer/retry/endpoint-cleanup commands | p-tag mentions that arrive while a session is working or debounced now get a graph-decided retry instead of staying `pending` forever |
 
 ## Retrospective instrumentation (`tenex-edge explain`)
 
 Every distill round-trip records an `llm_calls` row (the exact transcript slice,
 system prompt, model, raw response, keyed by a sha256 `window_hash`). Every
 reconciler commit records a `receipts` row (surface, transaction, changed
-summary, commands, `artifact_ref` = the published event id). The same
+summary, commands, `artifact_ref` = the published event id or inbox event id). The same
 `window_hash` threads distill → status publish → receipt.
 
 Replay capsules live in `trellis_replay_capsules` as versioned
@@ -71,6 +74,7 @@ plan does not match the previewed plan.
 
 ```
 tenex-edge explain event:<30315-id>   # the receipt + the exact LLM inputs behind the activity
+tenex-edge explain event:<inbox-id>   # why a mention injected, deferred, or retried
 tenex-edge explain hook:<session>[@ts] # why the injected snapshot had this shape
 tenex-edge explain llm:<id> | session:<id>[@ts] | txn:<surface>:<id> | sub:<channel>
 ```

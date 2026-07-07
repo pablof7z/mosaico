@@ -18,6 +18,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use super::delivery::DeliveryScanFact;
 use super::session_start_facts::{SessionStartFailedFact, SessionStartRequestFact};
 use super::subscriptions::CoverageSnapshot;
 
@@ -108,18 +109,14 @@ pub struct HookContextRenderFact {
 }
 
 /// One canonical world-fact, appended to the input journal by the host.
-///
-/// Derive set matches the daemon's data conventions: `Clone`/`Debug` for
-/// plumbing and `serde` so a journal can be persisted, replayed, or diffed in
-/// tests against the Trellis oracle.
+/// Serde keeps facts persistable/replayable in tests and capsules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputFact {
     SessionStartRequested(SessionStartRequestFact),
     /// Transitional replay fact for the current authoritative status surface.
     StatusDrive(StatusDrive),
 
-    /// Transitional replay fact for the current authoritative subscriptions
-    /// surface: one complete coverage snapshot handed to the reconciler.
+    /// Complete coverage snapshot for the authoritative subscriptions surface.
     SubscriptionSync {
         snapshot: CoverageSnapshot,
         at: Timestamp,
@@ -128,6 +125,8 @@ pub enum InputFact {
     /// Transitional replay fact for the current hook-context render surface.
     HookContextRender(HookContextRenderFact),
 
+    /// A host-observed mention-delivery scan for one session.
+    DeliveryScan(DeliveryScanFact),
     /// A fabric render asked whether it should advance the session cursor.
     ///
     /// Replaces the daemon's independent `seen_cursor` compare-and-swap decision.
@@ -283,6 +282,7 @@ impl InputFact {
             Self::StatusDrive(drive) => drive.at(),
             Self::SubscriptionSync { at, .. } => *at,
             Self::HookContextRender(fact) => fact.now.max(0) as Timestamp,
+            Self::DeliveryScan(fact) => fact.at,
             Self::TurnCheckRequested { at, .. } => *at,
             Self::SessionStarted { at, .. }
             | Self::TurnStarted { at, .. }

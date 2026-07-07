@@ -46,12 +46,28 @@ pub(super) fn render_state(v: &Value) -> String {
             "hook_context" => render_hook_row(&mut out, r),
             "turn_lifecycle" => render_turn_lifecycle_row(&mut out, r),
             "cursor" => render_cursor_row(&mut out, r),
+            "delivery" => render_delivery_row(&mut out, r),
             "session_start" => render_session_start_row(&mut out, r),
             "outbox" => render_outbox_row(&mut out, r),
             _ => render_resource_row(&mut out, r),
         }
     }
     out
+}
+
+fn render_delivery_row(out: &mut String, r: &Value) {
+    let handle = row_handle(r, "delivery");
+    let pty = str_at(r, "pty_id");
+    let pty = if pty.is_empty() { "-" } else { pty };
+    let _ = writeln!(
+        out,
+        "  {:<24} {:<20} events={:?}  pty={}  retry_after={}",
+        handle,
+        str_at(r, "action"),
+        strs(r, "event_ids"),
+        clipped(pty, 16),
+        i64_at(r, "retry_after_secs"),
+    );
 }
 
 fn render_status_row(out: &mut String, r: &Value) {

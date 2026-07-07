@@ -12,6 +12,7 @@ mod applog;
 mod channel_about;
 pub mod command_forensics;
 pub mod config;
+pub(crate) mod delivery_seam;
 pub mod domain;
 pub mod explain;
 mod fabric_context;

@@ -66,6 +66,7 @@ pub fn replay_script(
             super::turn_lifecycle::replay::replay_script(script, export_trace)
         }
         ReplaySurface::Cursor => super::cursor::replay::replay_script(script, export_trace),
+        ReplaySurface::Delivery => super::delivery::replay::replay_script(script, export_trace),
         ReplaySurface::Outbox => super::outbox::replay::replay_script(script, export_trace),
         ReplaySurface::SessionStart => {
             super::session_start::replay::replay_script(script, export_trace)
@@ -81,6 +82,7 @@ enum ReplaySurface {
     HookContext,
     TurnLifecycle,
     Cursor,
+    Delivery,
     Outbox,
     SessionStart,
     SessionWatch,
@@ -117,6 +119,7 @@ fn script_surface(script: &DataTransactionScript<InputFact>) -> Result<ReplaySur
                 | InputFact::TurnEnded { .. }
                 | InputFact::TranscriptWindowCaptured { .. } => ReplaySurface::TurnLifecycle,
                 InputFact::TurnCheckRequested { .. } => ReplaySurface::Cursor,
+                InputFact::DeliveryScan(_) => ReplaySurface::Delivery,
                 InputFact::OutboxEnqueueApplied { .. } | InputFact::RelayPublishAccepted { .. } => {
                     ReplaySurface::Outbox
                 }

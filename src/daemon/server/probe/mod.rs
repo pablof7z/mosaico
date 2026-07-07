@@ -37,12 +37,13 @@ pub(in crate::daemon::server) use oracle::oracle_report;
 
 /// The reconciler surfaces the ledger records; `stats` with no `--surface`
 /// reports all of them.
-pub(super) const SURFACES: [&str; 8] = [
+pub(super) const SURFACES: [&str; 9] = [
     "status",
     "subscriptions",
     "hook_context",
     "turn_lifecycle",
     "cursor",
+    "delivery",
     "session_start",
     "session_watch",
     "outbox",

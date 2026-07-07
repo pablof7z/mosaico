@@ -2,7 +2,7 @@
 //! `subscriptions` lists each live REQ with its owner scopes + refcount;
 //! `status` lists each session's currently-published content, `turn_lifecycle`
 //! lists local turn projections, `cursor` lists high-water decisions,
-//! `session_start` lists advisory staged intents, `session_watch` lists live
+//! `delivery` lists mention-injection decisions, `session_start` lists advisory staged intents, `session_watch` lists live
 //! watched sessions, `outbox` lists publish results, and `hook_context` lists
 //! daemon-held per-session graphs.
 
@@ -10,6 +10,8 @@ use super::{required_str, DaemonState};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+mod delivery;
 
 pub(super) fn state_value(state: &Arc<DaemonState>, params: &Value) -> Result<Value> {
     let surface = required_str(params, "surface")?;
@@ -90,6 +92,7 @@ pub(super) fn state_value(state: &Arc<DaemonState>, params: &Value) -> Result<Va
                 .collect();
             Ok(json!({ "verb": "state", "surface": "cursor", "rows": rows }))
         }
+        "delivery" => delivery::state_value(state),
         "session_start" => {
             let r = state
                 .session_start

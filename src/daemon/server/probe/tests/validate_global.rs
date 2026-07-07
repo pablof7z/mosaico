@@ -94,7 +94,7 @@ fn assert_global_validation(v: &serde_json::Value) {
     assert_eq!(v["verdict"], "passed_with_limitations");
     assert!(v["surface"].is_null());
     assert!(v["state"].is_null());
-    assert_eq!(v["surface_states"].as_array().unwrap().len(), 8);
+    assert_eq!(v["surface_states"].as_array().unwrap().len(), 9);
     assert_check_status(v, "resource_accounting", "passed");
 
     for surface in [
@@ -103,6 +103,7 @@ fn assert_global_validation(v: &serde_json::Value) {
         "hook_context",
         "turn_lifecycle",
         "cursor",
+        "delivery",
         "session_start",
         "session_watch",
         "outbox",

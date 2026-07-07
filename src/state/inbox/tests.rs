@@ -70,3 +70,25 @@ fn inbox_event_prefix_lookup_can_filter_target() {
     assert_eq!(row.len(), 1);
     assert_eq!(row[0].body, "two");
 }
+
+#[test]
+fn claim_pending_event_ids_claims_only_the_planned_rows() {
+    let s = Store::open_memory().unwrap();
+    s.enqueue_inbox("evt-1", "s1", "pk", "room", "one", 10)
+        .unwrap();
+    s.enqueue_inbox("evt-2", "s1", "pk", "room", "two", 11)
+        .unwrap();
+
+    let rows = s
+        .claim_pending_event_ids_for_session(&["evt-2".into()], "s1", 20)
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event_id, "evt-2");
+    assert_eq!(state_for(&s, "evt-1", "s1"), "pending");
+    assert_eq!(state_for(&s, "evt-2", "s1"), "delivered");
+    assert_eq!(
+        s.peek_pending_for_session("s1").unwrap()[0].event_id,
+        "evt-1"
+    );
+}

@@ -7,9 +7,8 @@
 //!
 //! For a published kind:30315 (`event:<id>`) it finds the status receipt by
 //! `artifact_ref`, reads the `window_hash` threaded into its `changed_summary`,
-//! and rejoins the exact `llm_calls` row — the system prompt, transcript slice,
-//! model, and raw response that produced the activity text. THAT is the answer to
-//! "what was fed to the LLM so it said this".
+//! and rejoins the exact `llm_calls` row. For an inbox event id, the same handle
+//! returns delivery receipts explaining inject/defer/retry decisions.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};

@@ -65,7 +65,6 @@ pub async fn run() -> Result<()> {
         indexer = ?cfg.indexer_relay,
         "relay pool connected"
     );
-
     let store = Arc::new(Mutex::new(Store::open(&store_path())?));
     let provider = Arc::new(Nip29Provider::new(
         transport.clone(),
@@ -88,6 +87,7 @@ pub async fn run() -> Result<()> {
         subscribed_projects: Mutex::new(Vec::new()),
         subs: Mutex::new(crate::reconcile::SubscriptionReconciler::new().expect("subs")),
         status: Arc::new(Mutex::new(StatusReconciler::for_ttl(status_ttl_duration()))),
+        delivery: Mutex::new(crate::reconcile::DeliveryReconciler::new()),
         turn_lifecycle: Mutex::new(crate::reconcile::TurnLifecycleReconciler::new()),
         cursor: Mutex::new(crate::reconcile::CursorReconciler::new()),
         session_start: Mutex::new(crate::reconcile::SessionStartReconciler::new()),

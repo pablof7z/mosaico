@@ -3,6 +3,9 @@ use std::time::Duration;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
+#[path = "messaging/inbox_rows.rs"]
+mod inbox_rows;
+use inbox_rows::receiver_inbox_rows;
 #[test]
 fn session_start_runs_engine_and_records_alive_session() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -225,18 +228,15 @@ fn chat_write_stdin_enqueues_live_project_chat_for_receiver() {
         .agent_pubkey;
     assert!(
         wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
-            .map(|store| {
-                store
-                    .peek_pending_for_session(&receiver_canon)
-                    .map(|rows| rows.iter().any(|row| row.body == body))
-                    .unwrap_or(false)
-            })
+            .map(|store| receiver_inbox_rows(&store, &receiver_canon)
+                .iter()
+                .any(|row| row.body == body))
             .unwrap_or(false)),
         "receiver did not get live chat row"
     );
     let store = Store::open(&home.store_path()).unwrap();
-    // peek_chat → the inbound routing ledger; pending rows for the receiver.
-    let rows = store.peek_pending_for_session(&receiver_canon).unwrap();
+    // May already be injected when a live PTY endpoint is present.
+    let rows = receiver_inbox_rows(&store, &receiver_canon);
     let row = rows
         .iter()
         .find(|row| row.body == body)

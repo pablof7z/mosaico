@@ -44,6 +44,10 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
         let r = state.cursor.lock().expect("cursor mutex poisoned");
         r.clone()
     };
+    let delivery = {
+        let r = state.delivery.lock().expect("delivery mutex poisoned");
+        r.clone()
+    };
     let session_start = {
         let r = state
             .session_start
@@ -93,6 +97,13 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
         cursor.graph_node_count(),
     );
     ok &= cursor_row.status == "green";
+    let delivery_row = check(
+        "delivery",
+        delivery.assert_oracle(),
+        delivery.revision(),
+        delivery.graph_node_count(),
+    );
+    ok &= delivery_row.status == "green";
     let session_start_row = check(
         "session_start",
         session_start.assert_oracle(),
@@ -123,6 +134,7 @@ pub(in crate::daemon::server) fn oracle_report(state: &Arc<DaemonState>) -> Orac
             subs_row,
             turn_row,
             cursor_row,
+            delivery_row,
             session_start_row,
             session_watch_row,
             outbox_row,

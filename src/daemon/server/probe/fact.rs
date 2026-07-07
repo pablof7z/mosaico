@@ -72,6 +72,7 @@ fn fact_kind(fact: &InputFact) -> &'static str {
         InputFact::StatusDrive(drive) => status_drive_kind(drive),
         InputFact::SubscriptionSync { .. } => "SubscriptionSync",
         InputFact::HookContextRender(_) => "HookContextRender",
+        InputFact::DeliveryScan(_) => "DeliveryScan",
         InputFact::TurnCheckRequested { .. } => "TurnCheckRequested",
         InputFact::SessionStarted { .. } => "SessionStarted",
         InputFact::TurnStarted { .. } => "TurnStarted",

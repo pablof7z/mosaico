@@ -47,6 +47,7 @@ impl DaemonState {
             status: Arc::new(Mutex::new(crate::reconcile::StatusReconciler::for_ttl(
                 status_ttl_duration(),
             ))),
+            delivery: Mutex::new(crate::reconcile::DeliveryReconciler::new()),
             turn_lifecycle: Mutex::new(crate::reconcile::TurnLifecycleReconciler::new()),
             cursor: Mutex::new(crate::reconcile::CursorReconciler::new()),
             session_start: Mutex::new(crate::reconcile::SessionStartReconciler::new()),
