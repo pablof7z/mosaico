@@ -12,6 +12,11 @@ pub(crate) struct FabricView {
     pub(in crate::fabric_context) unjoined: Vec<UnjoinedChannelRow>,
     pub(in crate::fabric_context) important: Vec<ImportantRow>,
     pub(in crate::fabric_context) warnings: Vec<WarningRow>,
+    /// True when this view was built in delta mode (cursor > 0): it carries only
+    /// what changed since the caller's last snapshot, not the full current state.
+    /// The renderer uses it to explain a quiet result rather than emitting a bare
+    /// empty project block that reads as "everything disappeared".
+    pub(in crate::fabric_context) incremental: bool,
 }
 
 impl FabricView {
@@ -20,6 +25,20 @@ impl FabricView {
     pub(crate) fn is_empty(&self) -> bool {
         self.channels.is_empty()
             && self.agents.is_empty()
+            && self.important.is_empty()
+            && self.warnings.is_empty()
+    }
+
+    /// A forced delta snapshot that surfaced nothing new. Rendered as an explicit
+    /// "nothing changed" note (see `render_no_new_activity`) instead of an empty
+    /// `<project>` skeleton, so a quiet fabric never looks like data loss. Unjoined
+    /// channels and warnings count as content worth showing, so their presence
+    /// takes the normal render path.
+    pub(in crate::fabric_context) fn is_quiet_delta(&self) -> bool {
+        self.incremental
+            && self.channels.is_empty()
+            && self.agents.is_empty()
+            && self.unjoined.is_empty()
             && self.important.is_empty()
             && self.warnings.is_empty()
     }

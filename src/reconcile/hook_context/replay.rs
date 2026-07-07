@@ -116,6 +116,7 @@ mod tests {
             now: 100,
             self_slug: "",
             self_pubkey: "",
+            backend_pubkey: "",
             local_host: "host",
             forced_messages: &[],
             warnings: &[],

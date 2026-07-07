@@ -9,6 +9,18 @@ pub(in crate::fabric_context) fn render_human_view(view: &FabricView, color: boo
         let _ = writeln!(out, "{}", dim(&view.project.about, color));
     }
     out.push('\n');
+    if view.is_quiet_delta() {
+        let _ = writeln!(
+            out,
+            "{}",
+            dim(
+                "Nothing new since your last check. The fabric surfaces only what \
+                 changed — your channels and members are unchanged, not gone.",
+                color
+            )
+        );
+        return out;
+    }
 
     render_agents(&mut out, &view.agents, color);
     for channel in &view.channels {

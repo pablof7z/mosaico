@@ -93,6 +93,7 @@ fn fabric_input<'a>(
         now,
         self_slug: "coder",
         self_pubkey: SELF_PK,
+        backend_pubkey: "",
         local_host: "laptop",
         forced_messages: &[],
         warnings: &[],

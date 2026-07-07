@@ -39,6 +39,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         unjoined: unjoined_channels(store, &root, &channels, input.now),
         important: Vec::new(),
         warnings,
+        incremental: input.cursor != 0,
     };
 
     for channel in channels {

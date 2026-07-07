@@ -69,6 +69,10 @@ pub(in crate::daemon::server) fn rpc_who(
     };
     let now = now_secs();
     let host = state.host.clone();
+    // This daemon's own management pubkey, excluded from every rendered roster so
+    // the backend key never appears as a channel member (its kind:0 is absent on a
+    // cold cache, so identity — not a fetched profile — is the reliable signal).
+    let backend_pk = state.backend_pubkey().unwrap_or_default();
     let snapshot = state.with_store(|s| {
         crate::who_snapshot::load_who_snapshot(s, current_project.as_deref(), now, &host)
     })?;
@@ -102,6 +106,7 @@ pub(in crate::daemon::server) fn rpc_who(
                     now,
                     self_slug: &self_slug,
                     self_pubkey: &self_pubkey,
+                    backend_pubkey: &backend_pk,
                     local_host: &host,
                     forced_messages: &[],
                     warnings: &[],
@@ -122,6 +127,7 @@ pub(in crate::daemon::server) fn rpc_who(
                             now,
                             self_slug: &self_slug,
                             self_pubkey: &self_pubkey,
+                            backend_pubkey: &backend_pk,
                             local_host: &host,
                             forced_messages: &[],
                             warnings: &[],
@@ -161,7 +167,7 @@ pub(in crate::daemon::server) fn rpc_who(
         // `who --all-projects` must not diverge in output format).
         let roots = state.with_store(project_roots)?;
         let fabric = state.with_store(|s| {
-            crate::fabric_context::render_fabric_all_projects(s, &roots, now, &host)
+            crate::fabric_context::render_fabric_all_projects(s, &roots, now, &host, &backend_pk)
         });
         out["fabric"] = serde_json::Value::String(fabric);
         let human = state.with_store(|s| {
@@ -170,6 +176,7 @@ pub(in crate::daemon::server) fn rpc_who(
                 &roots,
                 now,
                 &host,
+                &backend_pk,
                 p.human_color,
             )
         });

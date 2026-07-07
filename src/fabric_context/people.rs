@@ -19,7 +19,10 @@ pub(super) fn member_rows(
         .collect::<BTreeSet<_>>();
     pubkeys
         .into_iter()
-        .filter(|pk| !is_backend(store, pk))
+        // Exclude this daemon's own management key by identity (reliable on a cold
+        // cache), plus any pubkey whose cached kind:0 declares itself a backend
+        // (covers remote backends). Human operators and admins are kept.
+        .filter(|pk| pk.as_str() != input.backend_pubkey && !is_backend(store, pk))
         .map(|pk| {
             let status = statuses
                 .get(&pk)

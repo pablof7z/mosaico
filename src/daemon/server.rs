@@ -39,6 +39,7 @@ mod session_signer;
 
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
 use demux::spawn_demux;
+use demux::warm_profiles;
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
 #[derive(Clone)]
@@ -99,6 +100,11 @@ pub struct DaemonState {
     )>,
     /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
     seen_profiles: Mutex<std::collections::HashSet<String>>,
+    /// Pubkeys with a kind:0 fetch currently in flight, so the many duplicate relay
+    /// deliveries of the same 3900x/chat/status event collapse to ONE background
+    /// warm per pubkey instead of a fetch storm. Entries are removed when the fetch
+    /// completes, so a failed (offline) fetch is retried on the next sighting.
+    warming: Mutex<std::collections::HashSet<String>>,
     /// Last-seen (title, active) keyed by `(author_pubkey, session_id, channel)`
     /// for tail dedup. Tracking `active` too means an active→idle flip emits a
     /// tail event even though the persistent title text is unchanged.

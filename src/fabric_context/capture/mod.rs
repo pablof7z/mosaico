@@ -229,6 +229,13 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
             &mut backend,
         );
     }
+    // Exclude this daemon's own management key by identity, independent of whether
+    // its kind:0 has been fetched into the local cache — on a cold cache (post-reset)
+    // the profile is absent, so `resolve_pubkey`'s is_backend flag alone would let
+    // the mgmt key leak into the roster. Assemble filters against this `backend` set.
+    if !input.backend_pubkey.is_empty() {
+        backend.insert(input.backend_pubkey.to_string());
+    }
 
     let self_ref =
         crate::idref::agent_ref_from(input.self_slug, input.local_host, input.local_host);

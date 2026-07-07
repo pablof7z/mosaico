@@ -36,6 +36,13 @@ pub(crate) struct FabricContextInput<'a> {
     pub(crate) now: u64,
     pub(crate) self_slug: &'a str,
     pub(crate) self_pubkey: &'a str,
+    /// This daemon's management/backend pubkey — its OWN local identity, NOT relay
+    /// data — excluded from rendered member rosters so the daemon key never shows
+    /// up as a channel member. Sourced from `DaemonState::backend_pubkey()`, never
+    /// from a fetched kind:0 (which is absent on a cold cache right after a reset,
+    /// the exact case where the mgmt key leaked into `who`). Empty `""` when the
+    /// backend identity is unknown or the roster is not rendered (delta turns).
+    pub(crate) backend_pubkey: &'a str,
     pub(crate) local_host: &'a str,
     pub(crate) forced_messages: &'a [FabricMessageSeed],
     pub(crate) warnings: &'a [String],
@@ -103,10 +110,11 @@ pub(crate) fn render_fabric_all_projects(
     roots: &[String],
     now: u64,
     local_host: &str,
+    backend_pubkey: &str,
 ) -> String {
     let mut out = String::new();
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host));
+        let view = build_view(store, project_input(root, now, local_host, backend_pubkey));
         out.push_str(&render_view(&view));
         out.push('\n');
     }
@@ -119,17 +127,23 @@ pub(crate) fn render_fabric_all_projects_human(
     roots: &[String],
     now: u64,
     local_host: &str,
+    backend_pubkey: &str,
     color: bool,
 ) -> String {
     let mut out = String::new();
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host));
+        let view = build_view(store, project_input(root, now, local_host, backend_pubkey));
         out.push_str(&render_human_view(&view, color));
     }
     out
 }
 
-fn project_input<'a>(root: &'a str, now: u64, local_host: &'a str) -> FabricContextInput<'a> {
+fn project_input<'a>(
+    root: &'a str,
+    now: u64,
+    local_host: &'a str,
+    backend_pubkey: &'a str,
+) -> FabricContextInput<'a> {
     FabricContextInput {
         session: None,
         scope: root,
@@ -137,6 +151,7 @@ fn project_input<'a>(root: &'a str, now: u64, local_host: &'a str) -> FabricCont
         now,
         self_slug: "",
         self_pubkey: "",
+        backend_pubkey,
         local_host,
         forced_messages: &[],
         warnings: &[],

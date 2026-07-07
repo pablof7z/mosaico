@@ -28,6 +28,17 @@ fn resolve_locally(
     parent: &str,
     name: &str,
 ) -> Result<Option<String>> {
+    // The project root's `channel_h` IS its slug and it has no parent, so a request
+    // to resolve `name` under a `parent` equal to it is the root asking for ITSELF —
+    // return it unchanged, never mint a child of the root literally named after the
+    // root. This is the load-bearing cold-cache case: a bare `launch` (no --channel)
+    // scopes the session to the project root by passing the slug as both work-root
+    // and channel; right after a state/relay reset the root's kind:39000 has not yet
+    // materialized, so checks 2–3 below miss and, without this guard, an opaque
+    // child (parent=slug, name=slug) gets minted — the name-vs-id double-create.
+    if parent == name {
+        return Ok(Some(name.to_string()));
+    }
     if let Some(h) = store.channel_id_for_name(parent, name)? {
         return Ok(Some(h));
     }
@@ -316,6 +327,29 @@ mod resolve_tests {
         // Passthrough is pure: it must not have created a channel named after the id.
         assert!(
             store.get_channel(id).unwrap().is_none(),
+            "resolve_locally must never mint a channel"
+        );
+    }
+
+    /// A bare `launch` (no --channel) scopes to the project root by resolving
+    /// `name == parent == slug`. On a COLD cache (post-reset, root kind:39000 not yet
+    /// materialized) this must resolve to the root slug itself and mint NOTHING —
+    /// the name-vs-id double-create regression (a spurious opaque child under root).
+    #[test]
+    fn root_slug_resolves_to_itself_on_cold_cache_without_minting() {
+        let store = Store::open_memory().unwrap();
+        // Empty cache: the project root's kind:39000 has not materialized.
+        assert!(
+            store.get_channel("tenex-edge").unwrap().is_none(),
+            "precondition: root must be absent from the cold cache"
+        );
+        assert_eq!(
+            resolve_locally(&store, "tenex-edge", "tenex-edge").unwrap(),
+            Some("tenex-edge".to_string()),
+            "name==parent (the root asking for itself) must resolve to the slug, not mint a child"
+        );
+        assert!(
+            store.get_channel("tenex-edge").unwrap().is_none(),
             "resolve_locally must never mint a channel"
         );
     }

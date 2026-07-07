@@ -103,6 +103,7 @@ pub async fn run() -> Result<()> {
             std::collections::VecDeque::new(),
         )),
         seen_profiles: Mutex::new(std::collections::HashSet::new()),
+        warming: Mutex::new(std::collections::HashSet::new()),
         last_status: Mutex::new(HashMap::new()),
         outbox_notify: Notify::new(),
         session_keys: Mutex::new(HashMap::new()),
@@ -156,6 +157,16 @@ pub async fn run() -> Result<()> {
                 is_backend: true,
             });
             let _ = relay_state.provider.publish(&ev, &backend_keys).await;
+        }
+
+        // Proactively warm the profiles we already know we care about — the human
+        // operator(s) and every durable agent identity — so the very first `who`
+        // renders them by name instead of raw hex. Members we learn about later are
+        // warmed as their 3900x events arrive (see `warm_profiles` in the demux).
+        {
+            let mut known = relay_state.owners.clone();
+            known.extend(relay_state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default()));
+            warm_profiles(&relay_state, known);
         }
 
         roster_bootstrap::publish_startup_roster(&relay_state).await;

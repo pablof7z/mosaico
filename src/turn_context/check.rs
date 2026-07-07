@@ -84,6 +84,10 @@ pub(crate) fn assemble_turn_check(
                 now,
                 self_slug: &self_slug,
                 self_pubkey: &self_pubkey,
+                // turn_check is always a delta render (cursor > 0), which never emits
+                // a full <members> roster, so the backend-exclusion input is unused
+                // here — the roster leak can only surface on a full (cursor == 0) render.
+                backend_pubkey: "",
                 local_host: self_host,
                 forced_messages: &forced,
                 warnings: &warnings,

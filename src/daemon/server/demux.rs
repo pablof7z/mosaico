@@ -14,6 +14,76 @@
 use super::resolution::work_root_for;
 use super::*;
 
+/// Proactively fetch + cache the `kind:0` for any of `pubkeys` we do not already
+/// have a name for. Called on every inbound event (a peer newly seen in a
+/// 3900x/chat/status) and once at startup for the identities we already know
+/// (owners, hosted agents). Known identities are filtered out cheaply and
+/// synchronously — they never spawn a task or touch the network — and concurrent
+/// duplicate deliveries of the same event collapse to ONE in-flight fetch per
+/// pubkey via the `warming` guard. `who` therefore never has to warm: the cache
+/// is populated as pubkeys are observed, and it renders names from the cache.
+pub(in crate::daemon::server) fn warm_profiles(state: &Arc<DaemonState>, pubkeys: Vec<String>) {
+    let to_fetch = claim_pubkeys_to_warm(state, pubkeys);
+    if to_fetch.is_empty() {
+        return;
+    }
+    let st = state.clone();
+    tokio::spawn(async move {
+        for pk in &to_fetch {
+            let _ = crate::profile::resolve_name(&st, pk).await;
+        }
+        // Release the in-flight claims; a fetch that failed (offline relay) is thus
+        // retried the next time the pubkey is observed rather than being wedged.
+        let mut guard = st.warming.lock().unwrap();
+        for pk in &to_fetch {
+            guard.remove(pk);
+        }
+    });
+}
+
+/// The synchronous half of [`warm_profiles`]: reduce `pubkeys` to the ones worth a
+/// relay fetch and claim them in the in-flight `warming` set. A pubkey is dropped
+/// when it is empty, already has a cached name, or is already being fetched — so a
+/// known identity never hits the network and duplicate deliveries never stack up.
+fn claim_pubkeys_to_warm(state: &Arc<DaemonState>, pubkeys: Vec<String>) -> Vec<String> {
+    // A cache miss (no row, or a row with no resolved name) is the only reason to
+    // hit the relay; everything already named is skipped.
+    let missing = state.with_store(|s| {
+        pubkeys
+            .into_iter()
+            .filter(|pk| !pk.is_empty())
+            .filter(|pk| {
+                s.get_profile(pk)
+                    .ok()
+                    .flatten()
+                    .map(|p| p.name.is_empty())
+                    .unwrap_or(true)
+            })
+            .collect::<Vec<_>>()
+    });
+    // Collapse concurrent duplicates: claim each pubkey; a fetch already in flight
+    // for it keeps ownership until it completes.
+    let mut guard = state.warming.lock().unwrap();
+    missing
+        .into_iter()
+        .filter(|pk| guard.insert(pk.clone()))
+        .collect()
+}
+
+/// Every identity a raw event references: its author plus all `p`-tagged pubkeys
+/// (channel members on a 39001/39002, mention targets on chat). These are the
+/// pubkeys whose `kind:0` we want cached so they render by name.
+fn referenced_pubkeys(event: &Event) -> Vec<String> {
+    let mut refs = vec![event.pubkey.to_hex()];
+    refs.extend(event.tags.iter().filter_map(|t| {
+        let s = t.as_slice();
+        (s.first().map(String::as_str) == Some("p"))
+            .then(|| s.get(1).cloned())
+            .flatten()
+    }));
+    refs
+}
+
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     tokio::spawn(async move {
         let mut notifications = state.transport.notifications();
@@ -68,6 +138,11 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     // load-bearing — a refreshed subscription replays stored events, which is
     // how a NEW session receives mentions that predate it.
     let outcome = state.with_store(|s| state.provider.materialize(&env, &hosted, now, s));
+
+    // Proactively resolve the kind:0 of every identity this event just surfaced
+    // (author + p-tagged members/mentions), so a peer seen for the first time in a
+    // 3900x/chat/status is named without waiting for a turn to warm the cache.
+    warm_profiles(state, referenced_pubkeys(event));
 
     // The relay pool notifies once PER MATCHING SUBSCRIPTION (scope filters ×
     // live sessions), so the same event reaches here many times. The tail
@@ -401,5 +476,36 @@ fn derive_and_emit_tail_events(
             // Activity events are not emitted on the tail (they're durable
             // narrative, not real-time transitions).
         }
+    }
+}
+
+#[cfg(test)]
+mod warm_tests {
+    use super::*;
+
+    /// The proactive-warm selection: already-named identities are skipped (no
+    /// network), empty pubkeys are ignored, and a pubkey already in flight is not
+    /// re-claimed — so duplicate relay deliveries collapse to one fetch.
+    #[tokio::test]
+    async fn claim_skips_known_empty_and_in_flight() {
+        let state = DaemonState::new_for_test().await;
+        state.with_store(|s| {
+            s.upsert_profile("known-pk", "pablo", "pablo", "laptop", false, 1)
+                .unwrap();
+        });
+
+        let claimed = claim_pubkeys_to_warm(
+            &state,
+            vec!["known-pk".into(), "new-pk".into(), String::new()],
+        );
+        assert_eq!(
+            claimed,
+            vec!["new-pk".to_string()],
+            "only the uncached, non-empty pubkey is claimed for a fetch"
+        );
+
+        // Same pubkey again while its fetch is still in flight → nothing to do.
+        let again = claim_pubkeys_to_warm(&state, vec!["new-pk".into()]);
+        assert!(again.is_empty(), "an in-flight pubkey is not re-claimed");
     }
 }

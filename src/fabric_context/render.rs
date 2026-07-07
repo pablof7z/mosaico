@@ -4,6 +4,11 @@ use std::fmt::Write as _;
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<tenex-edge>");
     render_self(&mut out, view.self_row.as_ref());
+    if view.is_quiet_delta() {
+        render_no_new_activity(&mut out, &view.project.name);
+        out.push_str("\n</tenex-edge>");
+        return out;
+    }
     let _ = write!(
         out,
         "\n\n  <project name=\"{}\"",
@@ -23,6 +28,19 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     render_warnings(&mut out, &view.warnings);
     out.push_str("\n</tenex-edge>");
     out
+}
+
+/// A quiet delta: explain that the fabric reports only changes, rather than
+/// emitting an empty `<project>` block that reads as "channels disappeared".
+fn render_no_new_activity(out: &mut String, project: &str) {
+    let _ = write!(
+        out,
+        "\n\n  <no-new-activity project=\"{}\">\
+         \n    Nothing new since your last check. The fabric surfaces only what \
+         changed — your channels, members, and messages are unchanged, not gone.\
+         \n  </no-new-activity>",
+        esc_attr(project)
+    );
 }
 
 fn render_self(out: &mut String, row: Option<&SelfRow>) {

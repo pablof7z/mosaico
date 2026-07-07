@@ -218,6 +218,7 @@ pub(crate) fn assemble_turn_start(
                 now,
                 self_slug: &self_slug,
                 self_pubkey: &self_pubkey,
+                backend_pubkey,
                 local_host: self_host,
                 forced_messages: &forced,
                 warnings: &warnings,

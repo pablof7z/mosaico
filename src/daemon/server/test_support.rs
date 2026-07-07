@@ -62,6 +62,7 @@ impl DaemonState {
                 std::collections::VecDeque::new(),
             )),
             seen_profiles: Mutex::new(std::collections::HashSet::new()),
+            warming: Mutex::new(std::collections::HashSet::new()),
             last_status: Mutex::new(HashMap::new()),
             outbox_notify: Notify::new(),
             session_keys: Mutex::new(HashMap::new()),

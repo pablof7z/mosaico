@@ -216,6 +216,8 @@ current binary under test.
 | BDD-19 | exact session targeting is needed for chat/channel operations | `--session <session-id>` is supplied | the requested session anchor wins over ambient environment hints | `cargo test chat_write_accepts_explicit_session_anchor channels_switch_accepts_explicit_session_anchor` |
 | BDD-20 | backend-addressed management commands arrive as p-tagged kind:9 events | add/list/kill/archive commands are parsed | the daemon routes them through the management-command handler | `cargo test daemon::server::management_command` |
 | BDD-21 | hosted-session transport has moved to portable PTY | the tree is searched for replaced transport vocabulary | no current source, docs, tests, or filenames retain the replaced host path | `git grep -n -i <old-term> HEAD` plus filename search |
+| BDD-22 | a peer's kind:0 lives only on the relay and it is added to the project as a member | the daemon receives the relay-signed kind:39002 | it proactively fetches the peer's kind:0 and `who` renders the peer by NAME, not hex, with no explicit warm | `e2e/run-warm.sh` |
+| BDD-23 | the daemon's management key is a channel admin | `who --all-projects` renders the roster | the management pubkey is excluded from the member list | `e2e/run-warm.sh` |
 
 ## Files
 
@@ -225,6 +227,8 @@ current binary under test.
 - `run-ordinal.sh` — same-agent ordinal identity, routing, and collision checks.
 - `run-pty.sh` — portable PTY controls: attach protocol, multiline inject,
   `tenex-edge launch <agent>`, resize, kill, and metadata cleanup.
+- `run-warm.sh` — proactive kind:0 profile warming (a relay-only peer resolves by
+  name in `who` without any explicit warm) and backend-mgmt-key roster exclusion.
 - `teardown.sh` — stop relay + daemons, reclaim the relay port, wipe scratch.
 
 ## Caveats

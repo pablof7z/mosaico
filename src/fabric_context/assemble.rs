@@ -44,6 +44,7 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
             .cloned()
             .map(|text| WarningRow { text })
             .collect(),
+        incremental: cursor != 0,
     };
 
     let full = cursor == 0;

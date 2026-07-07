@@ -11,6 +11,31 @@
 
 set -euo pipefail
 
+# ── hermetic env: scrub the caller's live tenex-edge session identity ─────────
+#
+# The rig may be run from INSIDE a live tenex-edge agent session (a developer or
+# an agent driving it from a hooked shell). That parent process exports its own
+# session identity — TENEX_EDGE_CHANNEL, TENEX_EDGE_AGENT, the harness session id
+# — and the auto-spawned isolated daemon inherits the client's environment
+# wholesale. A leaked TENEX_EDGE_CHANNEL is the worst offender: a bare
+# `session-start` (no channel) would then scope the isolated backend into the
+# CALLER's channel name, minting a spurious child group under the test project
+# (observed: a `name=<caller-channel>` 39000 with `parent=<test-project>`).
+#
+# Unset these ONCE here, at source time, BEFORE any run-*.sh applies its own
+# intentional per-call prefixes (e.g. `TENEX_EDGE_CHANNEL=<room> edge ...` in
+# run-ordinal.sh). Scrubbing per-call inside `edge()` would instead clobber those
+# deliberate values — this is why the scrub lives at harness entry, not in edge().
+# TENEX_EDGE_HOME/CONFIG/DIR are re-set per call by `edge()`; unsetting the
+# ambient ones keeps any stray un-wrapped invocation off the caller's real home.
+unset TENEX_EDGE_CHANNEL \
+      TENEX_EDGE_AGENT \
+      TENEX_EDGE_AGENT_FALLBACK \
+      CLAUDE_CODE_SESSION_ID \
+      TENEX_EDGE_HOME \
+      TENEX_CONFIG \
+      TENEX_DIR 2>/dev/null || true
+
 # ── tunables (override from the environment) ─────────────────────────────────
 
 # Where the relay listens. The NIP-29 relay speaks plain ws:// (no TLS) locally.
