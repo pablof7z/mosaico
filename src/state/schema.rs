@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use std::path::Path;
 
 mod identity_migration;
+mod session_claims;
 mod trellis_commits;
 mod trellis_replay_capsules;
 mod version;
@@ -204,7 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_identities_base
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session
     ON identities(session_id) WHERE session_id <> '';
 
-CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, base_pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', ordinal INTEGER NOT NULL DEFAULT 0, session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY (pubkey, channel_h));
+CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, base_pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', ordinal INTEGER NOT NULL DEFAULT 0, session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
 CREATE INDEX IF NOT EXISTS idx_session_claims_expires ON session_claims(expires_at);
 CREATE INDEX IF NOT EXISTS idx_session_claims_session ON session_claims(session_id);
 
@@ -274,6 +275,7 @@ pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
     version::check(conn, path)?;
     conn.execute_batch(SCHEMA).context("creating schema")?;
     identity_migration::ensure_session_primary_key(conn)?;
+    session_claims::ensure_columns(conn)?;
     trellis_commits::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
     version::stamp(conn)
@@ -283,6 +285,7 @@ pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA)
         .context("creating in-memory schema")?;
     identity_migration::ensure_session_primary_key(conn)?;
+    session_claims::ensure_columns(conn)?;
     trellis_commits::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
     version::stamp(conn)

@@ -12,10 +12,21 @@ pub(crate) struct SessionClaim {
     pub(crate) harness: String,
     pub(crate) last_active_at: u64,
     pub(crate) expires_at: u64,
+    pub(crate) owner_backend_pubkey: String,
+    pub(crate) owner_host: String,
 }
 
 const COLS: &str = "pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id, \
-     harness, last_active_at, expires_at";
+     harness, last_active_at, expires_at, owner_backend_pubkey, owner_host";
+
+impl SessionClaim {
+    pub(crate) fn is_owned_by_backend(&self, backend_pubkey: Option<&str>) -> bool {
+        self.owner_backend_pubkey.is_empty()
+            || backend_pubkey
+                .filter(|pk| !pk.is_empty())
+                .is_some_and(|pk| pk == self.owner_backend_pubkey)
+    }
+}
 
 fn row_to_claim(row: &rusqlite::Row) -> rusqlite::Result<SessionClaim> {
     Ok(SessionClaim {
@@ -29,6 +40,8 @@ fn row_to_claim(row: &rusqlite::Row) -> rusqlite::Result<SessionClaim> {
         harness: row.get(7)?,
         last_active_at: row.get(8)?,
         expires_at: row.get(9)?,
+        owner_backend_pubkey: row.get(10)?,
+        owner_host: row.get(11)?,
     })
 }
 
@@ -37,13 +50,15 @@ impl Store {
         self.conn.execute(
             "INSERT INTO session_claims
                  (pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id,
-                  harness, last_active_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                  harness, last_active_at, expires_at, owner_backend_pubkey, owner_host)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(pubkey, channel_h) DO UPDATE SET
                  base_pubkey=excluded.base_pubkey, agent_slug=excluded.agent_slug,
                  ordinal=excluded.ordinal, session_id=excluded.session_id,
                  native_id=excluded.native_id, harness=excluded.harness,
-                 last_active_at=excluded.last_active_at, expires_at=excluded.expires_at",
+                 last_active_at=excluded.last_active_at, expires_at=excluded.expires_at,
+                 owner_backend_pubkey=excluded.owner_backend_pubkey,
+                 owner_host=excluded.owner_host",
             params![
                 c.pubkey,
                 c.base_pubkey,
@@ -54,7 +69,9 @@ impl Store {
                 c.native_id,
                 c.harness,
                 c.last_active_at,
-                c.expires_at
+                c.expires_at,
+                c.owner_backend_pubkey,
+                c.owner_host
             ],
         )?;
         Ok(())

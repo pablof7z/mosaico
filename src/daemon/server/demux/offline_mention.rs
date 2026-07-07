@@ -38,13 +38,31 @@ pub(super) async fn handle(
     }
 
     let now = now_secs();
-    let claim = state.with_store(|s| s.get_session_claim(mentioned_pk, project).ok().flatten());
+    let backend_pubkey = state.backend_pubkey();
+    let claim = state
+        .with_store(|s| s.get_session_claim(mentioned_pk, project).ok().flatten())
+        .filter(|c| c.is_owned_by_backend(backend_pubkey.as_deref()));
     let active_claim = state.with_store(|s| {
         s.get_active_session_claim(mentioned_pk, project, now)
             .ok()
             .flatten()
-            .filter(|c| !c.native_id.is_empty())
     });
+    if let Some(remote_claim) = active_claim
+        .as_ref()
+        .filter(|c| !c.is_owned_by_backend(backend_pubkey.as_deref()))
+    {
+        tracing::info!(
+            agent = %remote_claim.agent_slug,
+            project,
+            owner_host = %remote_claim.owner_host,
+            owner_backend = %crate::util::pubkey_short(&remote_claim.owner_backend_pubkey),
+            "active ephemeral session claim belongs to another backend - skipping local spawn"
+        );
+        return;
+    }
+    let active_claim = active_claim
+        .filter(|c| c.is_owned_by_backend(backend_pubkey.as_deref()))
+        .filter(|c| !c.native_id.is_empty());
 
     if let Some(route) = active_claim.as_ref() {
         tracing::info!(

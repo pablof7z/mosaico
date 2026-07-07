@@ -46,6 +46,13 @@ fn dormant_row(
     local_host: &str,
     now: u64,
 ) -> WhoRow {
+    let owner_host = claim.owner_host.trim();
+    let host = if owner_host.is_empty() {
+        local_host.to_string()
+    } else {
+        owner_host.to_string()
+    };
+    let remote = !owner_host.is_empty() && owner_host != local_host;
     let title = store
         .get_session(&claim.session_id)
         .ok()
@@ -61,11 +68,11 @@ fn dormant_row(
         activity: String::new(),
         active: false,
         dormant: true,
-        host: local_host.to_string(),
+        host,
         session_id: claim.session_id,
         age_secs: Some(now.saturating_sub(claim.last_active_at)),
         rel_cwd: String::new(),
-        remote: false,
+        remote,
         attachable: false,
         work_root: scope::work_root_for(store, &claim.channel_h),
         pubkey: claim.pubkey,

@@ -80,6 +80,8 @@ fn record_ephemeral_claim(state: &Arc<DaemonState>, rec: &crate::state::Session)
         harness: rec.harness.clone(),
         last_active_at: now,
         expires_at: now.saturating_add(claim_grace_secs()),
+        owner_backend_pubkey: state.backend_pubkey().unwrap_or_default(),
+        owner_host: state.host.clone(),
     };
     if let Err(e) = state.with_store(|s| s.upsert_session_claim(&claim)) {
         tracing::warn!(
