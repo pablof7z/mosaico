@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{AgentCap, EvCap, MsgBundle, SelfCap, SummaryCap, UnjoinedCap};
-use crate::fabric_context::messages::mentions_pubkey;
+use crate::fabric_context::messages::{mentions_pubkey, p_tag_pubkeys};
 use crate::fabric_context::refs::{display_name, pubkey_ref};
 use crate::fabric_context::{FabricContextInput, FabricMessageSeed};
 use crate::state::{Session, Store};
@@ -170,11 +170,13 @@ pub(super) fn capture_messages(
         .filter(|e| e.kind == crate::fabric::nip29::wire::KIND_CHAT as u32)
         .filter(|e| e.pubkey != input.self_pubkey)
         .map(|ev| {
-            let (body, truncated) = truncate_words(&ev.content, CHAT_RENDER_WORD_LIMIT);
+            let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
+            let (body, truncated) = truncate_words(&resolved_body, CHAT_RENDER_WORD_LIMIT);
             EvCap {
                 id: ev.id.clone(),
                 channel_display: display_name(store, &ev.channel_h),
                 from_ref: pubkey_ref(store, &ev.pubkey, input.local_host),
+                recipient_refs: p_tag_refs(store, &ev.tags_json, input.local_host),
                 created_at: ev.created_at,
                 body,
                 truncated,
@@ -191,6 +193,7 @@ pub(super) fn capture_messages(
                 id: row.id.clone(),
                 channel_display: display_name(store, channel),
                 from_ref: pubkey_ref(store, &row.from_pubkey, input.local_host),
+                recipient_refs: forced_recipient_refs(store, input, row.mention),
                 created_at: row.created_at,
                 body,
                 truncated,
@@ -200,6 +203,24 @@ pub(super) fn capture_messages(
         })
         .collect();
     MsgBundle { events, forced }
+}
+
+fn p_tag_refs(store: &Store, tags_json: &str, local_host: &str) -> Vec<String> {
+    p_tag_pubkeys(tags_json)
+        .into_iter()
+        .map(|pk| pubkey_ref(store, &pk, local_host))
+        .collect()
+}
+
+fn forced_recipient_refs(
+    store: &Store,
+    input: &FabricContextInput<'_>,
+    mention: bool,
+) -> Vec<String> {
+    if !mention || input.self_pubkey.is_empty() {
+        return Vec::new();
+    }
+    vec![pubkey_ref(store, input.self_pubkey, input.local_host)]
 }
 
 pub(super) fn resolve_pubkey(

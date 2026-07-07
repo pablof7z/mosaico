@@ -99,6 +99,7 @@ pub(in crate::fabric_context) struct MessageRow {
     pub(in crate::fabric_context) id: String,
     pub(in crate::fabric_context) channel: String,
     pub(in crate::fabric_context) from: String,
+    pub(in crate::fabric_context) recipients: Vec<String>,
     pub(in crate::fabric_context) age: String,
     pub(in crate::fabric_context) body: String,
     pub(in crate::fabric_context) mention: bool,

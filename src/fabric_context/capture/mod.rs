@@ -147,6 +147,7 @@ pub(super) struct EvCap {
     pub(super) id: String,
     pub(super) channel_display: String,
     pub(super) from_ref: String,
+    pub(super) recipient_refs: Vec<String>,
     pub(super) created_at: u64,
     pub(super) body: String,
     pub(super) truncated: bool,

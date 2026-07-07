@@ -60,7 +60,7 @@ pub(super) fn message_rows(
                 channel_h: channel.to_string(),
                 d_tag: String::new(),
                 content: row.body.clone(),
-                tags_json: "[]".to_string(),
+                tags_json: forced_tags_json(input.self_pubkey, row.mention),
             });
         }
     }
@@ -101,11 +101,13 @@ fn message_row(
     local_host: &str,
     mention: bool,
 ) -> MessageRow {
-    let (body, truncated) = truncate_words(&ev.content, CHAT_RENDER_WORD_LIMIT);
+    let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
+    let (body, truncated) = truncate_words(&resolved_body, CHAT_RENDER_WORD_LIMIT);
     MessageRow {
         id: ev.id.clone(),
         channel: display_name(store, &ev.channel_h),
         from: pubkey_ref(store, &ev.pubkey, local_host),
+        recipients: p_tag_refs(store, &ev.tags_json, local_host),
         age: relative_time(ev.created_at, now),
         body,
         mention,
@@ -113,13 +115,41 @@ fn message_row(
     }
 }
 
+fn forced_tags_json(self_pubkey: &str, mention: bool) -> String {
+    if !mention || self_pubkey.is_empty() {
+        return "[]".to_string();
+    }
+    serde_json::to_string(&vec![vec!["p".to_string(), self_pubkey.to_string()]])
+        .unwrap_or_else(|_| "[]".to_string())
+}
+
+fn p_tag_refs(store: &Store, tags_json: &str, local_host: &str) -> Vec<String> {
+    p_tag_pubkeys(tags_json)
+        .into_iter()
+        .map(|pk| pubkey_ref(store, &pk, local_host))
+        .collect()
+}
+
+pub(crate) fn p_tag_pubkeys(tags_json: &str) -> Vec<String> {
+    let Ok(tags) = serde_json::from_str::<Vec<Vec<String>>>(tags_json) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for tag in tags {
+        if tag.first().is_some_and(|t| t == "p") {
+            if let Some(pubkey) = tag.get(1).filter(|p| !p.is_empty()) {
+                if !out.iter().any(|seen| seen == pubkey) {
+                    out.push(pubkey.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
 pub(super) fn mentions_pubkey(tags_json: &str, pubkey: &str) -> bool {
     if pubkey.is_empty() {
         return false;
     }
-    let Ok(tags) = serde_json::from_str::<Vec<Vec<String>>>(tags_json) else {
-        return false;
-    };
-    tags.iter()
-        .any(|tag| tag.first().is_some_and(|t| t == "p") && tag.get(1).is_some_and(|p| p == pubkey))
+    p_tag_pubkeys(tags_json).iter().any(|p| p == pubkey)
 }

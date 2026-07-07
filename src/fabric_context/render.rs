@@ -155,12 +155,17 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
         if m.truncated {
             let _ = write!(out, " id=\"{}\"", esc_attr(&short));
         }
-        let _ = write!(
-            out,
-            " from=\"@{}\" age=\"{}\">",
-            esc_attr(&m.from),
-            esc_attr(&m.age)
-        );
+        let _ = write!(out, " from=\"@{}\"", esc_attr(&m.from));
+        if !m.recipients.is_empty() {
+            let recipients = m
+                .recipients
+                .iter()
+                .map(|r| format!("@{r}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = write!(out, " for=\"{}\"", esc_attr(&recipients));
+        }
+        let _ = write!(out, " age=\"{}\">", esc_attr(&m.age));
         if m.mention {
             out.push_str("[MENTIONS YOU] ");
         }
