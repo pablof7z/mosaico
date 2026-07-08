@@ -287,7 +287,7 @@ pub(crate) fn plan_from_request(req: &SessionStartRequestFact) -> SessionStartPl
         ring_doorbell: req.ring_doorbell,
         notify_outbox: active,
         ensure_subscription: active,
-        replay_chat: active && req.channel_already_subscribed,
+        replay_chat: active && (req.channel_already_subscribed || req.pty_session.is_some()),
         spawn: active.then(|| EngineStartIntent {
             session_id: req.session_id.clone(),
             channel_h: req.channel_h.clone(),

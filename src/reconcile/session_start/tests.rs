@@ -62,6 +62,21 @@ fn request_derives_execute_plan() {
 }
 
 #[test]
+fn pty_session_start_replays_chat_even_without_coverage_hint() {
+    let InputFact::SessionStartRequested(mut req) = request(false, 0) else {
+        panic!("request helper must return session-start input");
+    };
+    req.channel_already_subscribed = false;
+    req.pty_session = Some("%offline".into());
+
+    let mut r = SessionStartReconciler::new();
+    let out = r.drive(InputFact::SessionStartRequested(req)).unwrap();
+    let cmd = out.command.unwrap();
+
+    assert!(cmd.plan.replay_chat);
+}
+
+#[test]
 fn reassert_suppresses_effects_after_row_and_endpoint() {
     let mut r = SessionStartReconciler::new();
     let out = r.drive(request(true, 0)).unwrap();
