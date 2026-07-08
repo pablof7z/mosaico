@@ -30,6 +30,11 @@ pub(super) enum HeadlessShape {
     ClaudePrint,
     /// Codex: `codex exec [resume <id>] <flags> <prompt>`.
     CodexExec,
+    /// opencode: `opencode run --format json [--session <id>] <flags> <prompt>`.
+    /// A fresh run mints its own `ses_…` id (opencode has no forced-id flag), so
+    /// the native id is recovered from the NDJSON `sessionID` field in the log
+    /// after exit; resume replays it through `--session`.
+    OpencodeRun,
 }
 
 static SPAWN_DEFS: &[SpawnDef] = &[
@@ -90,6 +95,7 @@ pub(super) fn headless_shape_for_bin(bin: &str) -> Option<HeadlessShape> {
     match name {
         "claude" => Some(HeadlessShape::ClaudePrint),
         "codex" => Some(HeadlessShape::CodexExec),
+        "opencode" => Some(HeadlessShape::OpencodeRun),
         _ => None,
     }
 }
@@ -152,6 +158,23 @@ pub(super) fn build_headless_command(
             out.push("--json".to_string());
             if let Some(id) = resume_id {
                 out.push("resume".to_string());
+                out.push(id.to_string());
+            }
+            out.extend(it.cloned());
+            out.push(prompt.to_string());
+            out
+        }
+        HeadlessShape::OpencodeRun => {
+            let mut out = Vec::with_capacity(base.len() + 5);
+            let mut it = base.iter();
+            if let Some(bin) = it.next() {
+                out.push(bin.clone());
+            }
+            out.push("run".to_string());
+            out.push("--format".to_string());
+            out.push("json".to_string());
+            if let Some(id) = resume_id {
+                out.push("--session".to_string());
                 out.push(id.to_string());
             }
             out.extend(it.cloned());

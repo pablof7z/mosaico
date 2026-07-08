@@ -88,7 +88,10 @@ fn headless_shape_is_keyed_by_binary() {
         headless_shape_for_bin("/opt/homebrew/bin/codex"),
         Some(HeadlessShape::CodexExec)
     ));
-    assert!(headless_shape_for_bin("opencode").is_none());
+    assert!(matches!(
+        headless_shape_for_bin("opencode"),
+        Some(HeadlessShape::OpencodeRun)
+    ));
 }
 
 #[test]
@@ -174,6 +177,41 @@ fn codex_headless_resume_uses_exec_resume() {
             "codex-session",
             "-m",
             "gpt-5",
+            "follow up"
+        ])
+    );
+}
+
+#[test]
+fn opencode_headless_fresh_inserts_run_after_binary() {
+    let base = cmd(&["opencode", "--agent", "build"]);
+    // A fresh run has no forced id; opencode mints its own, recovered from the log.
+    let got = build_headless_command(&base, HeadlessShape::OpencodeRun, None, None, "ship it");
+    assert_eq!(
+        got,
+        cmd(&["opencode", "run", "--format", "json", "--agent", "build", "ship it"])
+    );
+}
+
+#[test]
+fn opencode_headless_resume_uses_session_flag() {
+    let base = cmd(&["opencode"]);
+    let got = build_headless_command(
+        &base,
+        HeadlessShape::OpencodeRun,
+        Some("ses_0bf752c68ffeZIy7EBgv55kExz"),
+        None,
+        "follow up",
+    );
+    assert_eq!(
+        got,
+        cmd(&[
+            "opencode",
+            "run",
+            "--format",
+            "json",
+            "--session",
+            "ses_0bf752c68ffeZIy7EBgv55kExz",
             "follow up"
         ])
     );

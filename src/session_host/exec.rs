@@ -183,6 +183,7 @@ fn harness_for_shape(shape: HeadlessShape) -> Harness {
     match shape {
         HeadlessShape::ClaudePrint => Harness::ClaudeCode,
         HeadlessShape::CodexExec => Harness::Codex,
+        HeadlessShape::OpencodeRun => Harness::Opencode,
     }
 }
 
@@ -240,6 +241,8 @@ fn native_id_from_value(value: &serde_json::Value) -> Option<String> {
     const KEYS: &[&str] = &[
         "session_id",
         "sessionId",
+        // opencode NDJSON (`run --format json`) tags every line with `sessionID`.
+        "sessionID",
         "conversation_id",
         "conversationId",
         "thread_id",
