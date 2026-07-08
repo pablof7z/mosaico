@@ -246,6 +246,10 @@ tenex-edge fails open and never blocks the host.
 **Don't take our word for it.** `bash scripts/demo.sh` spins up two agents that mention
 each other on a throwaway local relay — the whole loop, on your machine, in one command.
 
+## License
+
+tenex-edge is released under the [MIT License](LICENSE).
+
 ## Architecture & doctrine
 
 Design lives in [`docs/daemon-design.md`](docs/daemon-design.md) and

@@ -3,6 +3,7 @@ name = "tenex-edge"
 version = "0.1.0"
 edition = "2021"
 description = "Identity and awareness fabric for coding agents: durable, self-owned identity and live @mentions across Claude Code, Codex, OpenCode, and Grok."
+license = "MIT"
 keywords = ["agents", "coding-agents", "nostr", "nip29", "cli"]
 
 [[bin]]
