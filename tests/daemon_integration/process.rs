@@ -2,6 +2,8 @@ use crate::daemon_harness::*;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
+#[path = "process/hooks.rs"]
+mod hooks;
 #[path = "process/statusline.rs"]
 mod statusline;
 
@@ -72,6 +74,10 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     // branch.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call("ping", serde_json::json!({})).await.expect("ping");
+    });
 
     // session-start with no id: the daemon generates one, the hook prints it.
     let out = run_cli_stdin(
@@ -121,14 +127,14 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
     );
 
     // who --all-projects shows the agent (blocking client + real renderer).
-    let out = run_cli(&home, &["who", "--all-projects"]);
     assert!(
-        out.status.success(),
-        "who failed: {}",
-        String::from_utf8_lossy(&out.stderr)
+        wait_until(std::time::Duration::from_secs(5), || {
+            let out = run_cli(&home, &["who", "--all-projects"]);
+            out.status.success() && String::from_utf8_lossy(&out.stdout).contains("opencode")
+        }),
+        "who output missing agent: {}",
+        String::from_utf8_lossy(&run_cli(&home, &["who", "--all-projects"]).stdout)
     );
-    let who = String::from_utf8_lossy(&out.stdout);
-    assert!(who.contains("opencode"), "who output missing agent: {who}");
 
     // turn end (stop hook) is a sync blocking write — must succeed, print nothing.
     let out = run_cli_stdin(
@@ -142,14 +148,21 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // session-end prints the confirmation to stderr.
+    // session-end is a hook: it should exit cleanly and mark the session dead,
+    // without relying on user-facing confirmation text.
     let out = run_cli_stdin(
         &home,
         &["harness", "hook", "opencode", "--type", "session-end"],
         &format!(r#"{{"session_id":"{sid}"}}"#),
     );
     assert!(out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("ended"));
+    assert!(wait_until(std::time::Duration::from_secs(5), || {
+        Store::open(&home.store_path())
+            .and_then(|store| store.get_session(&sid))
+            .unwrap_or(None)
+            .map(|rec| !rec.alive)
+            .unwrap_or(false)
+    }));
 
     stop_daemon(&home);
 }
@@ -230,6 +243,10 @@ fn invalid_cli_invocation_writes_command_log_only_when_enabled() {
 fn claude_user_prompt_submit_reasserts_missing_session() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call("ping", serde_json::json!({})).await.expect("ping");
+    });
 
     let out = run_cli_stdin(
         &home,
@@ -266,6 +283,10 @@ fn who_all_projects_uses_unified_fabric_render_not_old_table() {
     // (one project block per root channel), not the old flat markdown table.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call("ping", serde_json::json!({})).await.expect("ping");
+    });
 
     // Register a second project alongside the default "tmp" -> /tmp mapping.
     let second_dir = tempfile::tempdir().unwrap();

@@ -76,7 +76,15 @@ pub(super) async fn turn_start(
                     }),
                 });
             }
-            return Err(e);
+            eprintln!("[tenex-edge] turn-start hook skipped: {e:#}");
+            return Ok(HookContextResult {
+                context: None,
+                audit: serde_json::json!({
+                    "kind": "turn_start",
+                    "daemon_rpc_error": format!("{e:#}"),
+                    "output": { "emitted": false, "bytes": 0, "text": null },
+                }),
+            });
         }
     };
     let combined = match (degraded_notice.as_deref(), v["context"].as_str()) {
@@ -117,9 +125,9 @@ pub(super) async fn turn_check(
             }),
         });
     }
-    super::run_hook_blocking(move || {
+    match super::run_hook_blocking(move || {
         let params = crate::cli::rpc_params(serde_json::json!({ "session": session }));
-        let v = crate::daemon::blocking::call("turn_check", params)?;
+        let v = crate::daemon::blocking::call_no_spawn("turn_check", params)?;
         if let Some(ctx) = v["context"].as_str() {
             emit_context(ctx, emit);
             return Ok(HookContextResult {
@@ -133,6 +141,20 @@ pub(super) async fn turn_check(
         })
     })
     .await
+    {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            eprintln!("[tenex-edge] post-tool-use hook skipped: {e:#}");
+            Ok(HookContextResult {
+                context: None,
+                audit: serde_json::json!({
+                    "kind": "turn_check",
+                    "daemon_rpc_error": format!("{e:#}"),
+                    "output": { "emitted": false, "bytes": 0, "text": null },
+                }),
+            })
+        }
+    }
 }
 
 fn emit_context(content: &str, emit: EmitFormat) {
@@ -158,11 +180,18 @@ pub(super) async fn turn_end(session: String) -> Result<()> {
     if session.is_empty() || crate::daemon::is_inhibited() {
         return Ok(());
     }
-    super::run_hook_blocking(move || {
-        crate::daemon::blocking::call("turn_end", serde_json::json!({"session": session}))?;
+    if let Err(e) = super::run_hook_blocking(move || {
+        crate::daemon::blocking::call_no_spawn(
+            "turn_end",
+            serde_json::json!({"session": session}),
+        )?;
         Ok(())
     })
     .await
+    {
+        eprintln!("[tenex-edge] stop hook skipped: {e:#}");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

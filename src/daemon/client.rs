@@ -46,7 +46,7 @@ impl Client {
     pub async fn connect_or_spawn() -> Result<Client> {
         let mut last_err: Option<anyhow::Error> = None;
         for _ in 0..5 {
-            match Self::try_connect_handshake().await {
+            match Self::try_connect_handshake(true).await {
                 Ok(ConnectOutcome::Ready(c)) => return Ok(c),
                 Ok(ConnectOutcome::SkewExitRequested) => {
                     // The old daemon is exiting; let it release the socket, then
@@ -66,6 +66,17 @@ impl Client {
             }
         }
         Err(last_err.unwrap_or_else(|| anyhow::anyhow!("could not establish a daemon connection")))
+    }
+
+    /// Connect only to an already-running compatible daemon. Hook paths use this
+    /// so they never become the daemon startup or version-skew recovery path.
+    pub async fn connect_running() -> Result<Client> {
+        match Self::try_connect_handshake(false).await? {
+            ConnectOutcome::Ready(c) => Ok(c),
+            ConnectOutcome::SkewExitRequested => {
+                bail!("daemon protocol skew; hook path will not respawn daemon")
+            }
+        }
     }
 
     /// One-shot request → single `ok` result (errors map to `Err`).
@@ -172,7 +183,7 @@ impl Client {
 
     // ── handshake / connect ──────────────────────────────────────────────
 
-    async fn try_connect_handshake() -> Result<ConnectOutcome> {
+    async fn try_connect_handshake(request_skew_exit: bool) -> Result<ConnectOutcome> {
         let stream = tokio::time::timeout(
             DAEMON_HANDSHAKE_IO_TIMEOUT,
             UnixStream::connect(socket_path()),
@@ -199,6 +210,9 @@ impl Client {
                 next_id: 0,
             })),
             HandshakeDecision::AskOlderDaemonToExit => {
+                if !request_skew_exit {
+                    bail!("daemon protocol skew; hook path will not ask daemon to exit");
+                }
                 // Older daemon under a newer binary (the human cutover): ask it
                 // to exit so we can respawn the new binary's daemon.
                 write_line(&mut writer, &please_exit()).await?;

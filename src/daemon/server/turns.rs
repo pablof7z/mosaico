@@ -79,7 +79,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         elapsed_s: None,
     });
 
-    warm_context_profiles(state, &rec, context_warm_since(&rec, now)).await;
+    schedule_context_profile_warm(state.clone(), rec.clone(), context_warm_since(&rec, now));
 
     // Assemble via the shared turn-context module so daemon and hook tests cannot
     // drift. The receipt is the graph's OWN dependency trace — it replaces the
@@ -152,7 +152,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
         cursor::fact_from_session(&rec, now, rec.working),
     )
     .context("applying cursor turn_check projection")?;
-    warm_context_profiles(state, &rec, delta_since.unwrap_or(now)).await;
+    schedule_context_profile_warm(state.clone(), rec.clone(), delta_since.unwrap_or(now));
     let turn = crate::turn_context::assemble_turn_check(
         &state.store,
         &rec,
@@ -224,6 +224,12 @@ fn context_warm_since(rec: &crate::state::Session, now: u64) -> u64 {
     } else {
         rec.seen_cursor
     }
+}
+
+fn schedule_context_profile_warm(state: Arc<DaemonState>, rec: crate::state::Session, since: u64) {
+    tokio::spawn(async move {
+        warm_context_profiles(&state, &rec, since).await;
+    });
 }
 
 async fn warm_context_profiles(state: &Arc<DaemonState>, rec: &crate::state::Session, since: u64) {

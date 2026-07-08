@@ -7,7 +7,7 @@ matcher = "startup|resume"
 [[hooks.SessionStart.hooks]]
 type = "command"
 command = 'tenex-edge harness hook codex --type session-start'
-timeout = 30
+timeout = 5
 statusMessage = "Starting tenex-edge"
 
 [[hooks.UserPromptSubmit]]
@@ -15,7 +15,7 @@ statusMessage = "Starting tenex-edge"
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
 command = 'tenex-edge harness hook codex --type user-prompt-submit'
-timeout = 30
+timeout = 5
 statusMessage = "tenex-edge turn start"
 
 [[hooks.PostToolUse]]
@@ -23,7 +23,7 @@ statusMessage = "tenex-edge turn start"
 [[hooks.PostToolUse.hooks]]
 type = "command"
 command = 'tenex-edge harness hook codex --type post-tool-use'
-timeout = 10
+timeout = 5
 statusMessage = "tenex-edge turn check"
 
 [[hooks.Stop]]
@@ -31,5 +31,5 @@ statusMessage = "tenex-edge turn check"
 [[hooks.Stop.hooks]]
 type = "command"
 command = 'tenex-edge harness hook codex --type stop'
-timeout = 30
+timeout = 5
 statusMessage = "tenex-edge turn end"

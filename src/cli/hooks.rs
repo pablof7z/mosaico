@@ -288,6 +288,10 @@ async fn hook_dispatch(
 
     match hook_type.as_str() {
         "session-start" => {
+            let has_pty_anchor = std::env::var("TENEX_EDGE_PTY_SESSION")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .is_some();
             // PID to watch: an explicit `pid`/`watch_pid` in the payload (set by
             // programmatic hosts like opencode, which know their own process)
             // wins; otherwise walk the process tree for the harness's ancestor.
@@ -307,7 +311,7 @@ async fn hook_dispatch(
                 Some(sid.clone())
             };
 
-            if harness_session_id.is_none() && !host.echo_session_id {
+            if harness_session_id.is_none() && !host.echo_session_id && !has_pty_anchor {
                 // Fail open: a harness that owns its id but dropped it here sent a
                 // malformed payload — reporting an anchorless observation would
                 // mint an orphan session later hooks could never match.
@@ -322,7 +326,7 @@ async fn hook_dispatch(
                 return Ok(());
             }
 
-            let canonical = report_observation(
+            let canonical = match report_observation(
                 host,
                 &agent_slug,
                 &cwd,
@@ -331,7 +335,14 @@ async fn hook_dispatch(
                 watch_pid,
                 provision_command,
             )
-            .await?;
+            .await
+            {
+                Ok(canonical) => canonical,
+                Err(e) => {
+                    eprintln!("[tenex-edge] session-start hook skipped: {e:#}");
+                    return Ok(());
+                }
+            };
 
             if host.echo_session_id {
                 // Programmatic host with no id of its own: hand the daemon-minted
@@ -345,7 +356,7 @@ async fn hook_dispatch(
         }
         "session-end" => {
             if !sid.is_empty() {
-                session_end(sid)?;
+                session_end_hook(sid)?;
             }
         }
         "user-prompt-submit" => {

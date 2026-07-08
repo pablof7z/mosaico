@@ -204,6 +204,19 @@ pub(super) fn session_end(session: String) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn session_end_hook(session: String) -> Result<()> {
+    if crate::daemon::is_inhibited() {
+        return Ok(());
+    }
+    if let Err(e) = crate::daemon::blocking::call_no_spawn(
+        "session_end",
+        serde_json::json!({"session": session}),
+    ) {
+        eprintln!("[tenex-edge] session-end hook skipped: {e:#}");
+    }
+    Ok(())
+}
+
 /// Async daemon call for non-hook CLI verbs.
 pub(super) async fn daemon_call_async(
     method: &str,
@@ -213,19 +226,9 @@ pub(super) async fn daemon_call_async(
     client.call(method, params).await
 }
 
-/// Hard caps for hook daemon calls. Turn hooks fire frequently and must fail
-/// open quickly; session-start can legitimately spend longer proving relay
-/// channel readiness before the harness starts.
+/// Hard caps for hook daemon calls. Hooks are on the harness critical path and
+/// must fail open quickly; slow relay proof happens outside the hook response.
 const HOOK_DAEMON_TIMEOUT: Duration = Duration::from_secs(5);
-const SESSION_START_HOOK_DAEMON_TIMEOUT: Duration = Duration::from_secs(55);
-
-fn hook_daemon_timeout(method: &str) -> Duration {
-    if method == "session_start" {
-        SESSION_START_HOOK_DAEMON_TIMEOUT
-    } else {
-        HOOK_DAEMON_TIMEOUT
-    }
-}
 
 /// Hook-path daemon call: returns `Ok(Null)` when the daemon is inhibited
 /// (after `tenex-edge stop`) so hooks fail open rather than spawning it.
@@ -236,8 +239,8 @@ pub(super) async fn daemon_call_hook_async(
     if crate::daemon::is_inhibited() {
         return Ok(serde_json::Value::Null);
     }
-    tokio::time::timeout(hook_daemon_timeout(method), async {
-        let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
+    tokio::time::timeout(HOOK_DAEMON_TIMEOUT, async {
+        let mut client = crate::daemon::client::Client::connect_running().await?;
         client.call(method, params).await
     })
     .await
@@ -255,8 +258,8 @@ where
     if crate::daemon::is_inhibited() {
         return Ok(serde_json::Value::Null);
     }
-    tokio::time::timeout(hook_daemon_timeout(method), async {
-        let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
+    tokio::time::timeout(HOOK_DAEMON_TIMEOUT, async {
+        let mut client = crate::daemon::client::Client::connect_running().await?;
         client.call_with_items(method, params, on_item).await
     })
     .await
