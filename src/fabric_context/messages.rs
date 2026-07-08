@@ -27,6 +27,7 @@ pub(super) fn message_rows(
         .into_iter()
         .filter(|e| e.kind == crate::fabric::nip29::wire::KIND_CHAT as u32)
         .filter(|e| e.pubkey != input.self_pubkey)
+        .filter(|e| !is_backend_traffic(store, input.backend_pubkey, &e.pubkey, &e.tags_json))
         .collect::<Vec<_>>();
     // Messages already pasted verbatim into the pane (e.g. the mention that
     // spawned this turn) would otherwise also show up here, duplicating the
@@ -152,4 +153,39 @@ pub(super) fn mentions_pubkey(tags_json: &str, pubkey: &str) -> bool {
         return false;
     }
     p_tag_pubkeys(tags_json).iter().any(|p| p == pubkey)
+}
+
+/// A chat event is backend↔party traffic when its author OR any directed `p`-tag
+/// recipient is a backend — either this daemon's own management key
+/// (`backend_pubkey`, reliable on a cold cache) or a pubkey whose cached kind:0
+/// declares `is_backend` (covers remote backends). Such traffic is excluded from
+/// ambient `<chatter>`, symmetric with the roster's backend exclusion in
+/// `people`/`assemble::member_rows`. Applied identically on both the live
+/// (`message_rows`) and captured (`capture::capture_messages`) paths so the two
+/// stay in `assert_incremental_equals_full` parity.
+pub(crate) fn is_backend_traffic(
+    store: &Store,
+    backend_pubkey: &str,
+    author: &str,
+    tags_json: &str,
+) -> bool {
+    if is_backend_pubkey(store, backend_pubkey, author) {
+        return true;
+    }
+    p_tag_pubkeys(tags_json)
+        .iter()
+        .any(|pk| is_backend_pubkey(store, backend_pubkey, pk))
+}
+
+fn is_backend_pubkey(store: &Store, backend_pubkey: &str, pubkey: &str) -> bool {
+    (!backend_pubkey.is_empty() && pubkey == backend_pubkey) || is_backend(store, pubkey)
+}
+
+fn is_backend(store: &Store, pubkey: &str) -> bool {
+    store
+        .get_profile(pubkey)
+        .ok()
+        .flatten()
+        .map(|p| p.is_backend)
+        .unwrap_or(false)
 }

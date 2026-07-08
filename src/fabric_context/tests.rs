@@ -1,6 +1,9 @@
 use super::*;
 use crate::state::{RegisterSession, RelayEvent, Session, Status, Store};
 
+#[path = "tests/backend_traffic.rs"]
+mod backend_traffic;
+
 const SELF_PK: &str = "self-pubkey";
 const OTHER_PK: &str = "other-pubkey";
 
@@ -394,75 +397,4 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, true));
     let trellis = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(trellis, text);
-}
-
-/// The daemon's own management pubkey must be excluded from the rendered roster by
-/// IDENTITY, even when it has no cached kind:0 (the cold-cache case where the
-/// `is_backend` profile flag is absent). Human operators/admins stay. Both render
-/// paths (build_view + capture/assemble) must agree.
-#[test]
-fn backend_pubkey_excluded_from_roster_without_cached_profile() {
-    const MGMT_PK: &str = "backend-mgmt-pubkey";
-    let store = seed_store();
-    // Add the mgmt key as a channel admin/member with NO profile (cold cache).
-    store
-        .replace_channel_members(
-            "root",
-            &[SELF_PK.into(), OTHER_PK.into(), MGMT_PK.into()],
-            2,
-        )
-        .unwrap();
-    let rec = session(&store);
-
-    let excluded = |backend_pubkey: &str| -> String {
-        let build = FabricContextInput {
-            session: Some(&rec),
-            scope: "root",
-            cursor: 0,
-            now: 100,
-            self_slug: "coder",
-            self_pubkey: SELF_PK,
-            backend_pubkey,
-            local_host: "laptop",
-            forced_messages: &[],
-            warnings: &[],
-            force: true,
-        };
-        let text = render_fabric_context(&store, build).expect("roster should render");
-        // Parity: the pure path must reach the SAME bytes for the same inputs.
-        let cap_input = FabricContextInput {
-            session: Some(&rec),
-            scope: "root",
-            cursor: 0,
-            now: 100,
-            self_slug: "coder",
-            self_pubkey: SELF_PK,
-            backend_pubkey,
-            local_host: "laptop",
-            forced_messages: &[],
-            warnings: &[],
-            force: true,
-        };
-        let captured = capture_inputs(&store, &cap_input);
-        let trellis = render_view_text(&assemble::assemble_view(&captured, 0, 100));
-        assert_eq!(trellis, text, "build_view and assemble must agree");
-        text
-    };
-
-    // With the mgmt key known, it is filtered out; the human operator stays.
-    let filtered = excluded(MGMT_PK);
-    assert!(filtered.contains("<member ref=\"@coder\""));
-    assert!(filtered.contains("<member ref=\"@reviewer\""));
-    assert!(
-        !filtered.contains("@backend"),
-        "mgmt key leaked into roster: {filtered}"
-    );
-
-    // Control: without the identity, the profile-less mgmt key WOULD leak — proving
-    // the identity filter (not mere absence) is what excludes it.
-    let leaked = excluded("");
-    assert!(
-        leaked.contains("@backend"),
-        "control: mgmt key should leak when its identity is unknown: {leaked}"
-    );
 }

@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{AgentCap, EvCap, MsgBundle, SelfCap, SummaryCap, UnjoinedCap};
-use crate::fabric_context::messages::{mentions_pubkey, p_tag_pubkeys};
+use crate::fabric_context::messages::{is_backend_traffic, mentions_pubkey, p_tag_pubkeys};
 use crate::fabric_context::refs::{display_name, pubkey_ref};
 use crate::fabric_context::{FabricContextInput, FabricMessageSeed};
 use crate::state::{Session, Store};
@@ -169,6 +169,7 @@ pub(super) fn capture_messages(
         .into_iter()
         .filter(|e| e.kind == crate::fabric::nip29::wire::KIND_CHAT as u32)
         .filter(|e| e.pubkey != input.self_pubkey)
+        .filter(|e| !is_backend_traffic(store, input.backend_pubkey, &e.pubkey, &e.tags_json))
         .map(|ev| {
             let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
             let (body, truncated) = truncate_words(&resolved_body, CHAT_RENDER_WORD_LIMIT);
