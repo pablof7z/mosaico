@@ -65,3 +65,43 @@ async fn no_reply_leaves_no_e_tag() {
         signed.tags
     );
 }
+
+#[tokio::test]
+async fn local_relay_event_preserves_signed_reply_tags() {
+    let provider = offline_provider().await;
+    let reply_to = "b".repeat(64);
+    let signed = provider
+        .sign_chat_message(&chat(), Some(&reply_to), &Keys::generate())
+        .await
+        .unwrap();
+    let relay = chat_relay_event(
+        &signed,
+        &OutboundChatRecord {
+            from_session: Some("s1".into()),
+            channel_h: "chan".into(),
+            body: "root cause was a retry storm".into(),
+            mentioned_pubkey: None,
+            mentioned_session: None,
+            created_at: Some(signed.created_at.as_secs()),
+            direction: "outbound",
+        },
+        &signed.id.to_hex(),
+        signed.created_at.as_secs(),
+    );
+
+    let tags: Vec<Vec<String>> = serde_json::from_str(&relay.tags_json).unwrap();
+    assert!(
+        tags.iter()
+            .any(|t| t.first().map(String::as_str) == Some("e")
+                && t.get(1).map(String::as_str) == Some(reply_to.as_str())),
+        "local relay row must preserve reply e tag: {:?}",
+        tags
+    );
+    assert!(
+        tags.iter()
+            .any(|t| t.first().map(String::as_str) == Some("h")
+                && t.get(1).map(String::as_str) == Some("chan")),
+        "local relay row must preserve channel h tag: {:?}",
+        tags
+    );
+}

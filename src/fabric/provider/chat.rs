@@ -123,10 +123,6 @@ fn chat_relay_event(
     event_id: &str,
     created_at: u64,
 ) -> RelayEvent {
-    let mut tags: Vec<Vec<String>> = vec![vec!["h".to_string(), record.channel_h.clone()]];
-    if let Some(pk) = &record.mentioned_pubkey {
-        tags.push(vec!["p".to_string(), pk.clone()]);
-    }
     RelayEvent {
         id: event_id.to_string(),
         kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
@@ -135,8 +131,13 @@ fn chat_relay_event(
         channel_h: record.channel_h.clone(),
         d_tag: String::new(),
         content: record.body.clone(),
-        tags_json: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
+        tags_json: signed_tags_json(signed),
     }
+}
+
+fn signed_tags_json(signed: &Event) -> String {
+    let raw: Vec<Vec<String>> = signed.tags.iter().map(|t| t.as_slice().to_vec()).collect();
+    serde_json::to_string(&raw).unwrap_or_else(|_| "[]".to_string())
 }
 
 fn seed_chat_read_models(
