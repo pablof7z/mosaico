@@ -220,4 +220,25 @@ mod tests {
             parse_err("tenex-edge channel add --new-session reviewer --session @code@host ops");
         assert_eq!(kind, ErrorKind::ArgumentConflict);
     }
+
+    // `--message` is only meaningful in the session modes (it mentions the
+    // brought-online session). In human mode it has no target, so dispatch must
+    // reject it BEFORE any daemon round-trip. Guarded here because the check is a
+    // runtime dispatch guard, not a clap-level conflict.
+    #[tokio::test]
+    async fn message_rejected_in_human_mode() {
+        let err = super::human_add(
+            Some("npub1example".into()),
+            Some("ops".into()),
+            false,
+            Some("hello".into()),
+        )
+        .await
+        .expect_err("--message with a human target must be rejected");
+        assert!(
+            err.to_string()
+                .contains("--message is only valid with --new-session or --session"),
+            "unexpected error: {err}"
+        );
+    }
 }

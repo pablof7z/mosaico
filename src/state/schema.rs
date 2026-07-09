@@ -47,3 +47,6 @@ pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     workspace_roots_migration::ensure_renamed(conn)?;
     version::stamp(conn)
 }
+
+#[cfg(test)]
+mod tests;

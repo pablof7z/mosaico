@@ -105,3 +105,138 @@ fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(cols)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A legacy `identities` table: carries `base_pubkey` + `ordinal`, is keyed on
+    /// `(base_pubkey, ordinal)`, and has the pre-migration `idx_identities_base`
+    /// index that the reshape must drop.
+    fn create_legacy_identities(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE identities (
+                pubkey       TEXT NOT NULL,
+                base_pubkey  TEXT NOT NULL,
+                agent_slug   TEXT NOT NULL DEFAULT '',
+                ordinal      INTEGER NOT NULL DEFAULT 0,
+                session_id   TEXT NOT NULL DEFAULT '',
+                channel_h    TEXT NOT NULL DEFAULT '',
+                native_id    TEXT NOT NULL DEFAULT '',
+                alive        INTEGER NOT NULL DEFAULT 0,
+                created_at   INTEGER NOT NULL,
+                PRIMARY KEY (base_pubkey, ordinal)
+            );
+            CREATE INDEX idx_identities_base ON identities(base_pubkey);
+            CREATE INDEX idx_identities_channel ON identities(channel_h);
+            "#,
+        )
+        .unwrap();
+    }
+
+    fn insert_legacy(conn: &Connection, pubkey: &str, base: &str, ordinal: i64, session_id: &str) {
+        conn.execute(
+            "INSERT INTO identities
+                 (pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id,
+                  alive, created_at)
+             VALUES (?1, ?2, 'coder', ?3, ?4, '#room', 'native', 1, 7)",
+            rusqlite::params![pubkey, base, ordinal, session_id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn reshapes_legacy_identities_preserving_rows_and_backfilling_codename() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_legacy_identities(&conn);
+        // Two rows with distinct non-empty session ids...
+        insert_legacy(&conn, "pk-a", "base-a", 0, "sess-1");
+        insert_legacy(&conn, "pk-b", "base-b", 0, "sess-2");
+        // ...plus two session-id-less rows with different pubkeys: the partial
+        // `WHERE session_id <> ''` unique index must let BOTH survive.
+        insert_legacy(&conn, "pk-c", "base-c", 0, "");
+        insert_legacy(&conn, "pk-d", "base-d", 0, "");
+
+        ensure_session_primary_key(&conn).unwrap();
+
+        // Schema reshaped: codename in, base_pubkey / ordinal gone.
+        let cols = table_columns(&conn, "identities").unwrap();
+        assert!(cols.iter().any(|c| c == "codename"), "codename missing");
+        assert!(
+            !cols.iter().any(|c| c == "base_pubkey"),
+            "base_pubkey should be gone"
+        );
+        assert!(
+            !cols.iter().any(|c| c == "ordinal"),
+            "ordinal should be gone"
+        );
+
+        // All four rows preserved (the two empty-session rows did not collide).
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM identities", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 4, "every legacy row must survive the rebuild");
+
+        // Codename is backfilled from the session id (empty-session rows too).
+        let codename_a: String = conn
+            .query_row(
+                "SELECT codename FROM identities WHERE pubkey='pk-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(codename_a, crate::util::friendly_short_code("sess-1"));
+        let codename_c: String = conn
+            .query_row(
+                "SELECT codename FROM identities WHERE pubkey='pk-c'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(codename_c, crate::util::friendly_short_code(""));
+
+        // A non-codename field rides through untouched.
+        let native: String = conn
+            .query_row(
+                "SELECT native_id FROM identities WHERE pubkey='pk-b'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(native, "native");
+    }
+
+    #[test]
+    fn is_idempotent_on_already_migrated_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_legacy_identities(&conn);
+        insert_legacy(&conn, "pk-a", "base-a", 0, "sess-1");
+
+        // First run reshapes.
+        ensure_session_primary_key(&conn).unwrap();
+        let codename_first: String = conn
+            .query_row(
+                "SELECT codename FROM identities WHERE pubkey='pk-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        // Second run is a no-op: no error, no data change, no re-rebuild.
+        ensure_session_primary_key(&conn).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM identities", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let codename_second: String = conn
+            .query_row(
+                "SELECT codename FROM identities WHERE pubkey='pk-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(codename_first, codename_second);
+        assert_eq!(codename_first, crate::util::friendly_short_code("sess-1"));
+    }
+}

@@ -53,3 +53,31 @@ fn member_row_shows_role_and_codename_for_peer_session() {
     let trellis = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     assert_eq!(trellis, text);
 }
+
+/// Purge guard for the human-facing "project" -> "workspace" rename (#201): a
+/// representative agent-facing render must expose the workspace under a
+/// `<workspace ...>` element and must NOT leak the word "project" anywhere
+/// (case-insensitive). If "project" ever creeps back into agent-facing output
+/// this fails loudly.
+#[test]
+fn agent_render_uses_workspace_and_never_leaks_project() {
+    let store = seed_store();
+    let rec = session(&store);
+    // A representative, non-trivial view: workspace-bearing root channel with
+    // members and a channel block.
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
+        .expect("forced context should render");
+
+    assert!(
+        text.contains("<workspace "),
+        "agent render must carry a <workspace ...> element; got: {text}"
+    );
+    assert!(
+        text.contains("<member "),
+        "expected a members block; got: {text}"
+    );
+    assert!(
+        !text.to_ascii_lowercase().contains("project"),
+        "agent-facing render must never contain \"project\"; got: {text}"
+    );
+}
