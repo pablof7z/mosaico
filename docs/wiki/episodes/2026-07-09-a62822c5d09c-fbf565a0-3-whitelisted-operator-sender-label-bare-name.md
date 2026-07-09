@@ -4,7 +4,7 @@ date: 2026-07-09
 session: a62822c5-d09c-4a83-9251-a3856d276ac4
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/a62822c5-d09c-4a83-9251-a3856d276ac4.jsonl
 salience: product
-status: active
+status: superseded
 subjects:
   - whitelisted-operator-rendering
   - chat-row-refs
