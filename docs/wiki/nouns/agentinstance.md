@@ -9,4 +9,8 @@ source_refs:
 
 # AgentInstance
 
-The single authoritative identity value for a session, carrying base_slug, base_pubkey, ordinal, and pubkey, with methods display_slug(), agent_ref(), signing_keys(&base_keys). The single place base-vs-ordinal policy lives; created at session birth and threaded through EngineParams, replacing the distributed identity state across session rows, identity rows, and in-memory signer maps.
+Superseded by per-session identity. There is no base-vs-ordinal identity policy
+to carry: each session has exactly one keypair, derived from the machine's
+management key as `derive(management_secret, session_id)`. The session id and its
+derived pubkey are the whole identity; there is no base pubkey or ordinal. See
+[Tenex-Edge Agent Identity](../guides/tenex-edge-agent-identity.md).

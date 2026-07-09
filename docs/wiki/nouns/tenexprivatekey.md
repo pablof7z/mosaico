@@ -9,4 +9,7 @@ source_refs:
 
 # tenexPrivateKey
 
-A throwaway backend seckey (hex) distinct from the user's key; the backend's signing key, paired with userNsec as the human's key.
+The machine's management key (hex seckey) — the only secret stored on the machine.
+Every session's keypair is derived from it as `derive(management_secret,
+session_id)`, and the management key is what adds and removes session pubkeys in
+NIP-29 channel membership.

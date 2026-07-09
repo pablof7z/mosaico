@@ -9,4 +9,8 @@ source_refs:
 
 # AgentIdentity
 
-A durable Nostr keypair resolved from --agent <slug>, generated on first use and persisted under <edge_home>/agents/<slug>.json. Identity is (agent, machine): the same slug on another machine is a different key.
+Superseded by per-session identity. A session's signing key is derived from the
+machine's management key as `derive(management_secret, session_id)`, not resolved
+from a durable per-agent keypair. `--agent <slug>` now names a role config
+(`<edge_home>/agents/<slug>.json`: harness, provider, model), not a stored
+identity key. See [Tenex-Edge Agent Identity](../guides/tenex-edge-agent-identity.md).

@@ -9,4 +9,8 @@ source_refs:
 
 # OrdinalSlot
 
-A reserved ordinal slot (issue #47). At most one live session per base agent pubkey and ordinal. Each concurrent live session takes the next free durable ordinal identity (smith, smith1, smith2, ...), globally for that base agent; channels are membership scopes, not identity scopes.
+Superseded by per-session identity. Ordinals are gone: sessions are no longer
+numbered instances of a durable base agent. Each concurrent session is simply its
+own keypair (derived from the machine's management key), disambiguated by its
+codename handle rather than an ordinal slot. See
+[Tenex-Edge Agent Identity](../guides/tenex-edge-agent-identity.md).

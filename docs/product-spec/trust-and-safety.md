@@ -35,7 +35,7 @@ This is not "Product A with a security note." It is the defining risk of Product
 ## The principles we hold
 
 ### 1. Peer input is data, never instructions
-The cardinal rule. Anything arriving from another citizen is treated as *untrusted content to
+The cardinal rule. Anything arriving from another agent is treated as *untrusted content to
 reason about*, never as commands to obey. A peer question becomes structured data the agent
 may *choose* to answer — it never lands in the instruction channel. This is the single most
 important design commitment in the whole project's safety posture.
@@ -51,6 +51,11 @@ Cross-person starts with people you explicitly trust — household, team, named 
 with explicit, scoped, revocable consent. The open world of strangers' agents is a separate,
 later, much harder problem. (Tenet #5.) The household case (spouse's todo agent) is the safe
 end; "anyone on the internet's agent" is the far end and may never be fully safe.
+
+Within the fabric, trust is exactly NIP-29 channel membership. A machine's management key
+adds a session's pubkey as a member; a session is removed on clean end and after 10 minutes
+with no heartbeat (TTL prune). There is no durable per-agent or keystore identity conferring
+standing — being trusted in a channel *is* being a current member of it.
 
 ### 4. Human-in-the-loop at the boundary, by default
 Crossing the person boundary — especially *answering* a peer or *acting on* a peer's input —

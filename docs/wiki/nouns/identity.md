@@ -9,4 +9,8 @@ source_refs:
 
 # Identity
 
-an (agent, machine) pair — the same agent slug on another machine is a different identity
+A session's keypair, derived from the machine's management key as
+`derive(management_secret, session_id)`. Identity is per session and per machine:
+the only stored secret is the machine's management key, and every session key is
+re-derivable from it plus the session id, so identities are recoverable without
+storing any nsec.

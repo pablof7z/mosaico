@@ -10,4 +10,8 @@ source_refs:
 
 # session identity
 
-the ordinal pubkey assigned at spawn time and persisted on the session row from creation, used for signing and routing to that specific instance
+The keypair a session signs and is routed by, derived at start as
+`derive(management_secret, session_id)`. It is the session's whole identity —
+there is no separate base key or ordinal. Because it is derived from the session
+id, it is stable across resume and re-derivable from the machine's management key
+without being stored.

@@ -9,4 +9,8 @@ source_refs:
 
 # agent
 
-A citizen, not a process — it persists across hosts rather than being born and dying with a single session.
+A role that a session plays on the fabric (defined by a role config under
+`<edge_home>/agents/<slug>.json`). The addressable, running unit is the session:
+it mints its own key, publishes presence, and coordinates in channels. Agents
+self-organize — the value is shared awareness that lets the left hand know what
+the right hand is doing, not a durable per-agent identity.

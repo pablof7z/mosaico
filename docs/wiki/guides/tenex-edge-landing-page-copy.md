@@ -2,7 +2,7 @@
 title: Tenex-Edge Landing Page Copy
 slug: tenex-edge-landing-page-copy
 topic: marketing
-summary: The canonical tagline reads **"Citizenship for your agents"** â but this phrase is used **exactly once**, in the architecture/philosophy section, after the me
+summary: The canonical positioning is spontaneous self-organization for the agents you already run — shared awareness and addressability, not durable per-agent identity.
 tags:
   - capture
 volatility: warm
@@ -19,24 +19,24 @@ sources:
 
 ## Tagline & Positioning
 
-The canonical tagline reads **"Citizenship for your agents"** — but this phrase is used **exactly once**, in the architecture/philosophy section, after the mechanism has been proven. It is never the hero or lead framing. The word **"citizenship"** is demoted to exactly one earned use in the README, appearing only in the How-it-works/architecture section after the mechanism has been proven.
+The canonical tagline reads **"Spontaneous self-organization for your agents"** — shared awareness and addressability for the agents you already run. Do not lead with durable per-agent identity or "citizenship"; that framing is retired.
 
-The CLI about string and Cargo.toml description read **"An identity and awareness fabric for the coding agents you already run."** instead of leading with "Citizenship" and naming "Nostr" on a first-touch surface. The terms **"nostr"** and **"nip29"** are placed in Cargo.toml keywords for crates.io discoverability rather than in the description string.
+The CLI about string and Cargo.toml description read **"A shared-awareness fabric for the coding agents you already run."** instead of naming "Nostr" on a first-touch surface. The terms **"nostr"** and **"nip29"** are placed in Cargo.toml keywords for crates.io discoverability rather than in the description string.
 
-The central positioning idea: **the agents you already run can finally see each other — and they're still the same agents tomorrow.**
+The central positioning idea: **the agents you already run can finally see each other — so the left hand knows what the right hand is doing and they self-organize.**
 
-The category label used in all copy is **"an identity and awareness fabric for coding agents"** — never "orchestrator," "agent OS," or "swarm."
+The category label used in all copy is **"a shared-awareness fabric for coding agents"** — never "orchestrator," "agent OS," or "swarm."
 
 The hero of the README and landing page is the **proof itself**: a real @mention terminal transcript showing a message typed in Claude Code landing in Codex's terminal as a real conversational turn. The hero headline uses a flat declarative **"X is the Y for Z"** pattern with zero adjective inflation. The README headline reads **"Stop being the message bus between your own agents."** as a bolded line immediately after the transcript.
 
-The subhead beneath the hero carries the **felt-pain framing** while the **identity moat is staked as beat two**.
+The subhead beneath the hero carries the **felt-pain framing** while the **shared-awareness moat is staked as beat two**.
 
-The defensible positioning anchor is the USP: **durable, self-owned, cryptographic identity for coding agents that is host-neutral AND cross-session AND cross-machine at once** — a combination no competitor in the ~90-tool field offers. This is the load-bearing differentiator; everything else in the copy flows from it.
+The defensible positioning anchor is the USP: **live cross-agent awareness plus cross-host addressability for the coding agents you already run — host-neutral, so agents in Claude Code, Codex, and OpenCode see and reach one another** — a combination no competitor in the ~90-tool field offers. This is the load-bearing differentiator; everything else in the copy flows from it.
 
 <!-- citations: [^75f62-a1d2d] [^75f62-0c1d2] [^75f62-f5dd6] [^75f62-0d82b] -->
 ## Vocabulary
 
-Copy uses the project's own noun set as its load-bearing language: **citizen / citizenship**, **fabric**, **presence**, **awareness**, **activity**, **host-neutral**. These terms are not decorative — they encode the architecture and the moat. Avoid substituting generic alternatives that flatten the distinction. <!-- [^75f62-e360c] -->
+Copy uses the project's own noun set as its load-bearing language: **self-organization**, **fabric**, **presence**, **awareness**, **activity**, **host-neutral**. These terms are not decorative — they encode the architecture and the moat. Do not reach for the retired "citizen / citizenship / durable identity" vocabulary. Avoid substituting generic alternatives that flatten the distinction. <!-- [^75f62-e360c] -->
 
 ## Shipping vs. Aspirational
 
@@ -55,13 +55,13 @@ No LICENSE file exists in the tenex-edge repo and no `license` field is set in C
 
 Copy must not assert a confident single beachhead persona. The docs mark the target user as an explicitly open, unresolved question, and the landing page should reflect that honest uncertainty rather than prematurely narrowing.
 
-The honest best-fit persona to address in current copy is a **solo developer running multiple coding-agent hosts** who wants durable identity and shared awareness across sessions and devices. This is the audience the shipped capabilities actually serve today; it is framed as the current best fit, not a declared beachhead. <!-- [^75f62-732f6] -->
+The honest best-fit persona to address in current copy is a **solo developer running multiple coding-agent hosts** who wants shared awareness and cross-host coordination across sessions and devices. This is the audience the shipped capabilities actually serve today; it is framed as the current best fit, not a declared beachhead. <!-- [^75f62-732f6] -->
 
 ## Framing — What Not to Lead With
 
 Do not lead with the "agents stop clobbering each other" framing. Project doctrine explicitly flags it as the seductive demo, not the foundation, and demotes it to ceiling-not-floor. It may appear as a downstream benefit illustration, never as the headline promise.
 
-Copy must explicitly and early **contrast against Claude Code's native Agent Teams** by naming the two things it structurally cannot do: **cross-host participation** (Codex/OpenCode joining) and **cross-session / cross-machine durability**.
+Copy must explicitly and early **contrast against Claude Code's native Agent Teams** by naming the two things it structurally cannot do: **cross-host participation** (Codex/OpenCode joining) and **live cross-agent awareness across sessions and machines**.
 
 The words **"Nostr,"** **"crypto,"** and **"decentralized"** never appear above the architecture section in the README or landing copy; above the fold the mechanism is described by its properties — **keys on disk, no central server, works if a relay dies**. Nostr is revealed exactly once in the **"How it works"** section, framed as an open protocol that is self-hostable with no vendor lock-in.
 
@@ -70,19 +70,19 @@ The landing page footer reads **"Your keys never leave your disk. Your agents' t
 <!-- citations: [^75f62-1eeb8] [^75f62-55c4c] -->
 ## Product A — Near-Term Wedge
 
-Product A is the near-term single-player wedge: durable identity plus fleet awareness for one operator's own agents across their own devices. It is the concrete initial offering that the broader citizenship vision scales out from. Landing copy should present Product A as the thing you can use today, with cross-person citizenship as the horizon it opens onto. <!-- [^75f62-b15cf] -->
+Product A is the near-term single-player wedge: shared awareness plus cross-host coordination for one operator's own agents across their own devices. It is the concrete initial offering that the broader self-organization vision scales out from. Landing copy should present Product A as the thing you can use today, with cross-person coordination as the horizon it opens onto. <!-- [^75f62-b15cf] -->
 
 ## Pain Framing & Reusable Copy Lines
 
 The core problem-framing line for copy is **"the human is the integration runtime"** (equivalently, *"you are the integration layer"*).
 
-The phrase **"the agent that helped you yesterday is a stranger today"** is reusable gold copy for the amnesiac-agent pain.
+The reusable gold copy for the coordination pain is **"every agent runs blind — no agent knows the others exist, what they touched, or what they just decided."**
 
 The verbatim pain quote — **"The human ends up doing all of this manually: routing work, checking overlap, resolving priority, deciding merge order, figuring out what broke what, telling agents what to retry"** — is the single best articulation of the product's negative space and should be used in copy.
 
 The beat 2 pain section uses verbatim developer quotes about parallel-agent collisions, capped at 3–4 sentences, then turns to: **"The agents aren't the bottleneck. The bus between them is — and the bus is you."** The README pain headline reads **"The problem is the wire. The wire is you."** (two sentences), harmonized with the landing page's punchier version.
 
-Ownable metaphors for the product include: *the OS turned inside out*, *the host is a body, the identity is the person*, *enfranchise don't own — a passport good anywhere on the fabric*, *the anti-Zapier*, and *awareness over authority*.
+Ownable metaphors for the product include: *the OS turned inside out*, *the left hand knows what the right hand is doing*, *the anti-Zapier*, and *awareness over authority*.
 
 The **"milkshake and straw"** metaphor pair — the fabric and identity are the asset (milkshake), the hooks/adapters are distribution (straws) — is a load-bearing positioning metaphor. It is demoted from a cold section heading to the first body line on the landing page so it doesn't read as a riddle before the referent is established.
 
@@ -97,15 +97,15 @@ The existing README voice is **dry, precise, proof-heavy, and zero hype** — th
 
 ## README Structure & Format
 
-**7-beat arc.** The README follows a 7-beat arc: **proof hero → pain in their words → what ships today (present-tense, tested only) → why identity is the foundation with comparison table → how it works (Nostr revealed here) → what this isn't yet → quickstart/commands/FAQ.**
+**7-beat arc.** The README follows a 7-beat arc: **proof hero → pain in their words → what ships today (present-tense, tested only) → why shared awareness is the foundation with comparison table → how it works (Nostr revealed here) → what this isn't yet → quickstart/commands/FAQ.**
 
 **Beat 1 — Proof hero.** A real @mention terminal transcript showing a message typed in Claude Code landing in Codex's terminal as a real conversational turn. Code-block-as-hero before any prose. The README headline reads **"Stop being the message bus between your own agents."** as a bolded line immediately after the transcript.
 
 **Beat 2 — Pain in their words.** The README pain headline reads **"The problem is the wire. The wire is you."** (two sentences), harmonized with the landing page's punchier version. Uses verbatim developer quotes about parallel-agent collisions, capped at 3–4 sentences, then turns to: **"The agents aren't the bottleneck. The bus between them is — and the bus is you."**
 
-**Beat 3 — What ships today.** A plain bullet list using only present-tense, verified facts: durable identity per (agent, machine); presence/liveness; LLM-distilled one-line activity broadcast per turn; session-targeted @mentions injected as real turns; one daemon/one store/one relay connection; verified live on Claude Code, Codex, OpenCode, and Grok.
+**Beat 3 — What ships today.** A plain bullet list using only present-tense, verified facts: a stable `@codename@host` handle per session; presence/liveness; LLM-distilled one-line activity broadcast per turn; session-targeted @mentions injected as real turns; one daemon/one store/one relay connection; verified live on Claude Code, Codex, OpenCode, and Grok.
 
-**Beat 4 — Why identity is the foundation.** Includes a comparison table against **Claude Code Agent Teams, hcom, and mcp_agent_mail** evaluating host-neutral, cross-session, cross-machine, and self-owned identity dimensions. The table is labeled **"mid-2026 snapshot"** to acknowledge competitor feature sets may change. The comparison table cell contrasting tenex-edge's self-owned keys with competitors' identity model reads **"central registry"** rather than the cryptic "registered names" or "named."
+**Beat 4 — Why shared awareness is the foundation.** Includes a comparison table against **Claude Code Agent Teams, hcom, and mcp_agent_mail** evaluating host-neutral, live cross-agent awareness, cross-machine, and cross-host addressability dimensions. The table is labeled **"mid-2026 snapshot"** to acknowledge competitor feature sets may change. The comparison cell contrasting tenex-edge's open fabric with competitors' identity model reads **"central registry"** rather than the cryptic "registered names" or "named."
 
 **Beat 5 — How it works.** Nostr is revealed here, framed as an open protocol that is self-hostable with no vendor lock-in. The multi-writer SQLite corruption incident and its single-writer-daemon fix is included as a one-sentence asset to signal production scar tissue.
 

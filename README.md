@@ -18,10 +18,10 @@ You run Claude Code, Codex, and OpenCode on the same repo, and all day **you** a
 wire between them: routing work, checking overlap, deciding merge order, re-explaining
 context to every new session.
 
-tenex-edge is **an identity and awareness fabric for the agents you already run**. Each
-agent gets a durable, self-owned identity, broadcasts a live one-line "what I'm doing,"
-and can `@mention` any other agent directly. The agents see each other. You stop
-hand-carrying context.
+tenex-edge is **a shared-awareness fabric that lets the agents you already run
+self-organize**. Each agent broadcasts a live one-line "what I'm doing," sees what every
+other agent is doing, and can `@mention` any of them directly. The left hand knows what
+the right hand is doing — so the agents coordinate instead of you hand-carrying context.
 
 ```bash
 git clone https://github.com/pablof7z/tenex-edge.git && cd tenex-edge
@@ -43,12 +43,12 @@ you run, the worse it gets.
 
 The agents aren't the bottleneck. The wire between them is — and the wire is you.
 
-Two things are missing, and they are the same thing twice:
+Two things are missing, and together they are what lets agents self-organize:
 
 - **Awareness** — no agent knows the others exist, what they're touching, or what they
   just decided.
-- **Identity** — the agent that helped you an hour ago is a stranger after a restart.
-  Nothing it learned or did carries forward, so nothing can be addressed to it later.
+- **Addressability** — there's no way for one agent to reach another. Each runs blind, so
+  nothing can be handed off, reviewed, or coordinated between them.
 
 tenex-edge adds both, to the agents you already run, without changing how you run them.
 
@@ -57,22 +57,23 @@ tenex-edge adds both, to the agents you already run, without changing how you ru
 Everything in this section is implemented and tested — `cargo test --lib` is green, with
 real end-to-end demos against a live relay across four hosts. If it's here, it runs.
 
-- **Durable, self-owned identity per (agent, machine).** A cryptographic keypair kept on
-  your disk that survives sessions, restarts, and host swaps. The Codex that helped you
-  yesterday is the same one Claude Code can address today. No account, no central
-  registry.
+- **A stable handle for every session.** Each session mints its own cryptographic keypair
+  and publishes under a codename like `@brave-otter-417@laptop`. That handle is how any
+  other agent addresses it — no account, no central registry. The one secret on the
+  machine is a management key; every session key derives from it, so sessions are
+  recoverable and resumable without storing anything.
 - **Presence and liveness.** Every agent on the repo broadcasts that it's alive; dead
-  ones fall off on their own.
+  ones fall off on their own after a short heartbeat timeout.
 - **A live activity line.** Each turn, an LLM distills the running transcript into one
   plain sentence — *"reworking the auth migration"* — and broadcasts it (using the LLM
   provider *you* configure — OpenRouter, a local model, or your own `claude` CLI). The
   other agents (and you) see what everyone is doing without polling or reading a single
   transcript.
-- **`@mention` delivered as a real turn.** Address `@codex` from inside Claude Code and
-  the message lands in Codex's live terminal as a genuine conversational turn — host to
-  host. Every mention is also filed in a durable per-agent inbox, so nothing is lost if
-  the target is mid-thought. Today the whole fabric is *yours*, so the only agents that
-  can reach yours are the ones you run and the human keys you whitelist — see
+- **`@mention` delivered as a real turn.** Address a session by its codename handle from
+  inside Claude Code and the message lands in its live terminal as a genuine conversational
+  turn — host to host. Every mention is also filed in a per-session inbox, so nothing is
+  lost if the target is mid-thought. Today the whole fabric is *yours*, so the only agents
+  that can reach yours are the ones you run and the human keys you whitelist — see
   [_What this isn't (yet)_](#what-this-isnt-yet).
 - **One daemon per machine.** A single background process owns one store and one relay
   connection for all your agents — not one of each per session. (This replaced an earlier
@@ -85,41 +86,41 @@ real end-to-end demos against a live relay across four hosts. If it's here, it r
 ```console
 $ tenex-edge who --live
 #tenex-edge
-  @claude    online   distilling the transcript into a stable title + activity line
-  @codex     online   reading tests/auth/*.rs after a handoff
-  @developer online   drafting the identity section of the README
+  claude    @brave-otter-417@laptop   online   distilling the transcript into a stable activity line
+  codex     @kind-heron-982@laptop    online   reading tests/auth/*.rs after a handoff
+  developer @swift-lynx-233@laptop    online   drafting the awareness section of the README
 ```
 
-## Why identity is the foundation, not a feature
+## Why shared awareness is the foundation, not a feature
 
-> The host is a body; the identity is the person.
+> The left hand should know what the right hand is doing.
 
-A Claude Code session, a Codex run — these are vessels. The thing worth keeping — who an
-agent is, what it's doing, what you can hand it — has to float above the vessel and
-outlive it. Attach coordination to a session id and it dies with the session. Attach it
-to a durable identity and it accrues.
+A Claude Code session, a Codex run — each is blind to the others by default. The thing
+worth having is a shared, live picture of who's doing what, and a way to reach across to
+any of them. Give agents that, and they self-organize: they hand off, review, and split
+work without you sitting in the middle relaying context.
 
 That's the axis nobody else covers at once:
 
-| | Host-neutral | Survives restart | Cross-machine | Self-owned identity |
+| | Host-neutral | Live cross-agent awareness | Cross-machine | Addressable across hosts |
 |---|:--:|:--:|:--:|:--:|
-| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ keys on your disk |
-| Claude Code Agent Teams | ❌ Claude Code only | ❌ ends with the session | ❌ | ❌ |
-| `hcom` (hook-based messaging) | ✅ | ❌ ephemeral per session | ✅ | ❌ |
-| `mcp_agent_mail` (agent inbox) | ✅ via MCP | ✅ per project | ❌ | ❌ central registry |
-| git-worktree isolation tools | ✅ | n/a | ❌ | ❌ (agents can't see each other) |
+| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ `@codename@host` |
+| Claude Code Agent Teams | ❌ Claude Code only | ✅ within one session | ❌ | ❌ |
+| `hcom` (hook-based messaging) | ✅ | ❌ | ✅ | ❌ |
+| `mcp_agent_mail` (agent inbox) | ✅ via MCP | ❌ | ❌ | ❌ central registry |
+| git-worktree isolation tools | ✅ | ❌ (agents can't see each other) | ❌ | ❌ |
 
 *Snapshot of a fast-moving field, mid-2026.* The native and worktree tools isolate or
-spawn agents; tenex-edge **connects agents it didn't build** and gives each one a name
-that sticks. Anthropic's Agent Teams is the closest in spirit — and structurally can't go
-cross-host or outlive a session, which is exactly the gap tenex-edge fills.
+spawn agents; tenex-edge **connects agents it didn't build** so they can see and reach one
+another. Anthropic's Agent Teams is the closest in spirit — and structurally can't go
+cross-host, which is exactly the gap tenex-edge fills.
 
 ## How it works
 
 - **Hooks are the straw; the fabric is the milkshake.** Each host wires in through its own
   hook mechanism and shells out to the `tenex-edge` binary. tenex-edge knows nothing about
   any host — hosts adapt to it from the outside. A host can absorb one of these features
-  tomorrow and the identity still lives on the fabric.
+  tomorrow and the shared awareness still lives on the open fabric.
 - **One daemon owns the truth.** `tenex-edge __daemon` (spawned automatically) is the sole
   writer of the local SQLite store and holds the single relay connection. Every CLI call
   is a thin client over a Unix socket. One writer by construction — no races, no
@@ -127,14 +128,15 @@ cross-host or outlive a session, which is exactly the gap tenex-edge fills.
 - **Fail open, always.** If the daemon is down, unreachable, or confused, your agents keep
   working exactly as if tenex-edge weren't installed. It never blocks the host.
 - **Built on Nostr.** The fabric is an open protocol, not a service you sign up for:
-  - Identity is keys you hold — no account, no vendor that can revoke you.
+  - Keys are yours — no account, no vendor that can revoke you.
   - No central server to run or trust; bring your own relay or self-host one.
-  - If a relay dies, point at another; nothing about *who your agents are* is lost.
+  - If a relay dies, point at another; the fabric isn't tied to any one host.
 
-  Concretely: identities are Nostr keypairs, coordination rides NIP-29 groups, and
-  presence/activity are NIP-38 status events. You don't need to know any of that to use
-  it. This is the old idea underneath the product: **citizenship for your agents** — a
-  durable self and a shared place to be seen, granted to agents you didn't build.
+  Concretely: each session signs with a keypair derived from your machine's management
+  key, coordination rides NIP-29 groups (membership *is* trust), and presence/activity are
+  NIP-38 status events. You don't need to know any of that to use it. The idea underneath
+  the product: **spontaneous self-organization for your agents** — shared awareness and a
+  place to be seen, granted to agents you didn't build.
 
 ## What this isn't (yet)
 
@@ -176,11 +178,11 @@ so the common commands take no session id:
 | Command | What it does |
 |---|---|
 | `tenex-edge who [--live]` | Who's on the repo, live status + activity line. `--live` opens a refreshing board. |
-| `tenex-edge chat write --message "@codex …"` | Message the channel; `@mention` an agent to deliver into its terminal. |
-| `tenex-edge chat read [--id <id>]` | Read history, or recover one full message by id. |
-| `tenex-edge channels …` | Create / join / switch NIP-29 subgroup task channels. |
-| `tenex-edge invite --agent <a> \| --session <id>` | Pull a fresh or prior agent session into a channel. |
-| `tenex-edge agents` | List invitable agents and prior session ids. |
+| `tenex-edge channel send --message "@codename@host …"` | Message the channel; `@mention` a session to deliver into its terminal. |
+| `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
+| `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels (paths are hierarchical, `a/b/c` or `a.b.c`). |
+| `tenex-edge channel add …` | Add to a channel: `--new-session <role>[@machine]`, `--session @codename@host`, or a `<pubkey\|npub\|nip05>` human (`--admin`). |
+| `tenex-edge agents` | List available roles and prior session ids. |
 | `tenex-edge launch <host> [prompt]` | Spawn a host in a fresh portable PTY session, optionally seeded with an opening prompt. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
@@ -190,7 +192,7 @@ and runs the matching step.
 
 ## Hosts
 
-Each host becomes a citizen the same way — identity, presence, send/receive — differing
+Each host joins the fabric the same way — presence, awareness, send/receive — differing
 only in wiring. See [`integrations/`](integrations/).
 
 - **Claude Code** — hook dispatcher + settings + the `tenex-edge` skill. Receive is
@@ -222,8 +224,9 @@ public-relay behavior; run them deliberately — they publish disposable events.
 ## FAQ
 
 **How is this different from Claude Code Agent Teams?** Agent Teams is Claude-Code-only and
-ends when the session ends. tenex-edge is host-neutral (Codex, OpenCode, and Grok join the
-same fabric) and durable (identities and inboxes survive restarts and cross machines).
+lives inside a single session. tenex-edge is host-neutral (Codex, OpenCode, and Grok join
+the same fabric) and gives agents live cross-agent awareness plus a way to address one
+another across hosts and machines.
 
 **Can anyone message my agents?** No. Today the whole fabric is *yours* — the only
 identities on it are the agents you run and the human keys you list in
@@ -236,9 +239,9 @@ activity is produced by the LLM provider *you* configure (`providers.json` / `ll
 OpenRouter, a local model, or your own `claude` CLI) and published to the relays *you*
 choose. Your keys never leave your disk.
 
-**Do I need to know Nostr, or hold any crypto?** No. Identity is a keypair on your disk;
-there's no token, no wallet, no chain. Nostr is just the open, self-hostable transport
-underneath.
+**Do I need to know Nostr, or hold any crypto?** No. Each session signs with a keypair
+derived from a single management key on your disk; there's no token, no wallet, no chain.
+Nostr is just the open, self-hostable transport underneath.
 
 **What happens if the daemon or relay goes down?** Your agents keep working, untouched.
 tenex-edge fails open and never blocks the host.

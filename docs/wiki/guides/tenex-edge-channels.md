@@ -29,30 +29,47 @@ sources:
 ## Agent Membership
 
 Agent online presence is active channel membership. When a locally managed
-session ends or is found stale, the local daemon removes that session's agent
-pubkey from each channel it had joined, including base/cardinal agents and
-ordinal instances.
+session ends or is found stale (10 minutes with no heartbeat), the local daemon
+removes that session's derived pubkey from each channel it had joined.
 
-Fresh per-session room context displays the project and channel labels, not `Project: (unnamed channel)` / `Channel: (unnamed channel)`, by synchronously stamping the parent/root and local membership or suppressing the warning for locally-managed rooms while provisioning converges.
+Fresh per-session room context displays the channel labels, not `Channel: (unnamed channel)`, by synchronously stamping the parent/root and local membership or suppressing the warning for locally-managed rooms while provisioning converges.
 
-The chat_write bail requiring a concrete session id is removed; delivery routes by selected agent-instance pubkey alone.
+The channel-send bail requiring a concrete session id is removed; delivery routes by the session's derived pubkey alone.
 
 <!-- citations: [^3c769-6616d] [^bd868-93a15] [^019f1-6da12] -->
-## Invite
+## Channel Add
 
-`tenex-edge invite --channel <channel> --agent <slug[@backend-label]>` spawns a fresh local or remote session into an existing channel. `tenex-edge invite --channel <channel> --session <session-id>` restores an exact prior session when its context is useful. It is an explicit command, not an auto-add side-effect of @-mention. <!-- [^661eb-712ca] -->
+`tenex-edge channel add` is the single verb for putting someone or something into
+a channel. It takes one of three mutually-exclusive targets:
 
-## Channels Switch
+- `channel add <pubkey|npub|nip05> <path> [--admin]` — add a human. `--admin`
+  grants NIP-29 admin in that channel.
+- `channel add --new-session <role>[@machine] <path>` — spawn a fresh session of a
+  role (optionally on a named machine) into the channel, synchronously.
+- `channel add --session @codename@host <path>` — pull an existing session into the
+  channel.
 
-`tenex-edge channels switch` is an agent-only command. Channel paths are project-relative with no project prefix—for example, `planning` or `epic999/planning`, never `tenex-edge/planning`. When ambiguous, it returns a structured error with exit code 2 and provides copy-paste-ready command re-runs instead of an interactive prompt. <!-- [^661eb-a80c7] -->
+On the two session modes, an optional `--message "..."` adds the session, waits
+for it to come online, and p-tags a kind:9 to it. Adding a member is an explicit
+command, not an auto-add side-effect of an @-mention. <!-- [^661eb-712ca] -->
 
-## Channel References
+## Channel Switch
 
-Channel references use forward-slash hierarchy (e.g. `tenex-edge/planning`), never dots. <!-- [^661eb-ba480] -->
+`tenex-edge channel switch` is an agent-only command. Channel paths are
+project-relative with no project prefix—for example, `planning` or
+`epic999/planning`. When ambiguous, it returns a structured error with exit code 2
+and provides copy-paste-ready command re-runs instead of an interactive prompt.
+<!-- [^661eb-a80c7] -->
+
+## Channel Paths
+
+Channel paths are hierarchical and accept either delimiter: forward slashes or
+dots (`a/b/c` or `a.b.c`). Missing ancestor channels are auto-created like
+`mkdir -p`, and there is no depth cap. <!-- [^661eb-ba480] -->
 
 ## Channel Creation
 
-When an agent creates a channel, the daemon auto-switches the creating agent's session into the new channel, and the CLI prints `switched to it`. The auto-switch is unconditional for genuine agent sessions because the brand-new room needs none of the switch path's occupancy or membership guards. A `channels create` that hits the dedup path (name already exists) does not auto-switch, because switching into a pre-existing channel needs the occupancy checks that only `channels switch` runs. The `--agent` flag is optional on `channels create`; a channel can be created and joined without specifying any agents. When `channels create` is invoked with no `--agent` targets, no kind:9 orchestration event is published and `orchestration_event_id` comes back empty.
+When an agent creates a channel, the daemon auto-switches the creating agent's session into the new channel, and the CLI prints `switched to it`. The auto-switch is unconditional for genuine agent sessions because the brand-new room needs none of the switch path's occupancy or membership guards. A `channel create` that hits the dedup path (name already exists) does not auto-switch, because switching into a pre-existing channel needs the occupancy checks that only `channel switch` runs. Creating a channel does not require adding any members up front; a channel can be created and joined on its own. When a channel is created with no members added, no kind:9 orchestration event is published and `orchestration_event_id` comes back empty.
 
 <!-- citations: [^b07a5-7de80] [^b20ef-a6805] -->
 

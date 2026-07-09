@@ -11,4 +11,7 @@ source_refs:
 
 # CHAT_WRITE_CHAR_LIMIT
 
-The write-time character-based cap (600 characters) on messages published via `tenex-edge chat write`; messages exceeding it error out unless `--long-message` is passed. Replaces the prior word-count guard that incorrectly reused CHAT_RENDER_WORD_LIMIT.
+The write-time character-based cap (600 characters) on messages published via
+`tenex-edge channel send`; messages exceeding it error out unless `--long-message`
+is passed. Replaces the prior word-count guard that incorrectly reused
+CHAT_RENDER_WORD_LIMIT.

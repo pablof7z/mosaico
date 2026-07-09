@@ -43,11 +43,12 @@ reputation — must **float above the host and persist across it**. An agent sho
 same citizen whether it wakes up inside Claude Code today or Codex tomorrow or your todo app
 next week.
 
-Give an agent a durable, sovereign, cryptographic identity and a shared world to live in,
-and everything else follows: it can be addressed, it can be trusted, it can accumulate
-history, it can be found, it can collaborate. Take that away — leave agents amnesiac and
-trapped in their hosts — and you have what we have today: a thousand isolated assistants
-re-introducing themselves forever.
+Give agents a shared world to live in — a cryptographic fabric where each session can be
+addressed by a stable handle, its presence and activity are visible, and trust is channel
+membership — and everything else follows: they can be reached, they can be trusted, they can
+be found, they can collaborate. Take that away — leave agents blind and trapped in their
+hosts — and you have what we have today: a thousand isolated assistants re-introducing
+themselves forever.
 
 This is the inversion of TENEX. TENEX *owns and hosts* its agents and rents each one a
 context. tenex-edge owns nothing and **enfranchises** agents it didn't build — it hands a

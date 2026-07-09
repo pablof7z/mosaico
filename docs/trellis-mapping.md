@@ -92,7 +92,7 @@ The local, non-rebuildable tables are the main owned truth:
   turn state, `seen_cursor`, title, and activity (`src/state/schema.rs`).
 - `session_channels`: passive/active channel membership per session
   (`src/state/schema.rs`).
-- `identities`: bound ordinal identity, selected pubkey, channel, native id,
+- `identities`: per-session derived pubkey, channel, native id,
   and alive bit (`src/state/schema.rs`).
 - `inbox` and `outbox`: local delivery and publish ledgers. These are not
   computed relay state.
@@ -124,9 +124,9 @@ Current shape:
   `subscribed_projects`, asks `SubscriptionRegistry::add_channel` for narrow
   `PlannedReq`s, and applies opens through `Transport::subscribe_with_id_to`.
 - `build_entity_coverage` derives `EntityCoverage { channels_h,
-  group_state_d, addressed_pubkeys_p }` from subscribed projects, local and
-  ordinal pubkeys, membership/admin rows, alive sessions' joined channels, live
-  transient session keys, and the backend pubkey.
+  group_state_d, addressed_pubkeys_p }` from subscribed projects, per-session
+  derived pubkeys, membership/admin rows, alive sessions' joined channels, live
+  transient session keys, and the management-key pubkey.
 - `SubscriptionRegistry` is already a pure planner. It holds aggregate and
   narrow coverage and returns `PlannedReq { id, filter }`; network I/O happens
   only when the daemon applies the plan.

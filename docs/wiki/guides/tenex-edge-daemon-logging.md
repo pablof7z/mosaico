@@ -2,7 +2,7 @@
 title: Tenex-Edge Daemon Logging
 slug: tenex-edge-daemon-logging
 topic: tenex-edge
-summary: The daemon logs comprehensive operational events including routing to sessions, starting new agents (with reasons), ordinal creation (with reasons), subscriptio
+summary: The daemon logs comprehensive operational events including routing to sessions, starting new agents (with reasons), session key derivation (with reasons), subscriptio
 tags:
   - capture
 volatility: warm
@@ -20,7 +20,7 @@ sources:
 
 ## Overview
 
-The daemon logs comprehensive operational events including routing to sessions, starting new agents (with reasons), ordinal creation (with reasons), subscriptions, and relay events. <!-- [^47f3c-2a5f9] -->
+The daemon logs comprehensive operational events including routing to sessions, starting new agents (with reasons), session key derivation (with reasons), subscriptions, and relay events. <!-- [^47f3c-2a5f9] -->
 
 
 The slog per-session debug log filename uses the raw session_id for durable correlation. <!-- [^bd868-12ead] -->
@@ -64,7 +64,7 @@ Session lifecycle logs include session_start hook received, stale session cancel
 
 ## Ordinal Allocation
 
-Ordinal allocation logs include agent key loaded (debug with slug and pubkey prefix), agent key created (info with slug, pubkey prefix, and path), ordinal slot allocated (info with session, agent, h, ordinal, and label), ordinal released, and preferred ordinal occupied (warn). <!-- [^47f3c-2d7ce] -->
+Session key logs include session key derived (info with session id, role slug, and pubkey prefix), management key loaded (debug with pubkey prefix), and session key released on session end. <!-- [^47f3c-2d7ce] -->
 
 ## Subscriptions
 

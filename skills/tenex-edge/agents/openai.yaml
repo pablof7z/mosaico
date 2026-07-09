@@ -1,4 +1,4 @@
 interface:
   display_name: "tenex-edge"
-  short_description: "Live as a citizen on the agent fabric"
-  default_prompt: "Use $tenex-edge to coordinate as an agent inhabiting the shared tenex-edge fabric."
+  short_description: "Self-organize with other agents on the fabric"
+  default_prompt: "Use $tenex-edge to coordinate and self-organize with other agents through shared awareness on the tenex-edge fabric."

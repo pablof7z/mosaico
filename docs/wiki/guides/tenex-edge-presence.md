@@ -22,9 +22,10 @@ sources:
 ## Agent Online Presence
 
 Agent online presence in a channel is the NIP-29 membership roster. A local
-daemon removes its locally managed agent pubkeys from membership when sessions
-end or become stale, so roster membership is the gate for whether an agent can
-be addressed in that channel.
+daemon removes its locally managed session pubkeys from membership when sessions
+end cleanly or become stale (10 minutes with no heartbeat), so roster membership
+is the gate for whether a session can be addressed in that channel. An expired
+session still appears in `who` history and remains re-derivable and resumable.
 
 Kind:30315 is per-session activity and history: it is replaceable by
 `(author pubkey, d=session-id)` and carries one `h` tag for each joined channel.
@@ -37,7 +38,7 @@ The agent-context fabric output includes a self-header line showing the caller's
 
 ## Chat Mention Confirmation
 
-CLI confirmation for chat mentions prints the resolved agent label (e.g. mentioning @haiku1) from the mentioned pubkey. <!-- [^bd868-d64da] -->
+CLI confirmation for chat mentions prints the resolved codename handle (e.g. mentioning @brave-otter-417@laptop) from the mentioned pubkey. <!-- [^bd868-d64da] -->
 
 ## Who Command
 

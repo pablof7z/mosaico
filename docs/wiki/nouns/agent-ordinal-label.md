@@ -9,4 +9,9 @@ source_refs:
 
 # agent_ordinal_label
 
-Display label for an agent's Nth concurrent identity. Runtime ordinals start at 1: the first `smith` session is `smith1`, the second same-channel session is `smith2`. This is the addressable identity peers see, not a transient per-session alias.
+Superseded by the session codename. Concurrent sessions of the same role are no
+longer disambiguated by an ordinal (`smith1`, `smith2`); each session has its own
+codename handle `@<codename>@<host>` derived from its session id. That handle is
+the addressable identity peers see. See
+[session_codename](session-codename.md) and
+[Tenex-Edge Agent Identity](../guides/tenex-edge-agent-identity.md).

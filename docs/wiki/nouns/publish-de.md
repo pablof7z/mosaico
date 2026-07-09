@@ -9,4 +9,7 @@ source_refs:
 
 # publish_de
 
-Historical runtime closure that published `DomainEvent`s with the wrong signing keys. The bug was that it ignored the selected agent instance and signed all sessions with the local derivation-root key. Current runtime publishing signs with the selected ordinal instance key carried through `EngineParams`.
+Historical runtime closure that published `DomainEvent`s with the wrong signing
+keys. Current runtime publishing signs each event with the publishing session's
+own derived key (`derive(management_secret, session_id)`), carried through
+`EngineParams`.

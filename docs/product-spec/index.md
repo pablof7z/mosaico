@@ -9,17 +9,19 @@
 
 ## The one-liner
 
-**Citizenship for your agents** — a durable identity and a shared world for agents,
-no matter which tool they happen to be running in.
+**Spontaneous self-organization for your agents** — shared awareness and a place to
+coordinate, so the agents you already run find each other and route work between
+themselves, no matter which tool they happen to be running in.
 
 ## The thesis in three sentences
 
 Today the human is the integration layer between siloed apps: you manually carry context
-and decisions from one tool to the next. tenex-edge is the connective tissue that lets an
-agent — in any host, built by anyone — become a first-class citizen of a shared fabric,
-so agents discover each other, know each other's roles, route work between themselves and
-to you, and push information proactively across systems. The host becomes a disposable
-*body*; the identity, memory, and relationships float above it and follow the agent.
+and decisions from one tool to the next. tenex-edge is the connective tissue that gives the
+agents you already run — in any host, built by anyone — shared awareness and a way to
+address one another, so they discover each other, know each other's roles, route work
+between themselves and to you, and push information proactively across systems. The left
+hand knows what the right hand is doing, and the agents self-organize instead of waiting on
+you.
 
 ---
 
