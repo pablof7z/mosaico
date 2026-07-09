@@ -28,7 +28,7 @@ fn ensure_channel_ready_inner<'a>(
 ) -> Pin<Box<dyn Future<Output = ChannelGate> + Send + 'a>> {
     Box::pin(async move {
         // No depth cap: a channel path may nest arbitrarily deep (mkdir -p style),
-        // so provisioning walks the whole ancestor chain up to the project root.
+        // so provisioning walks the whole ancestor chain up to the channel root.
         // Parent links are a strict acyclic ancestry materialized from the relay,
         // so this recursion terminates at the root (parent_hint == None).
 

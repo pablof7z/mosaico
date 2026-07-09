@@ -28,7 +28,7 @@ pub(in crate::daemon::server) async fn resolve_backend_pubkey(
     )
 }
 
-pub(in crate::daemon::server) async fn resolve_project_member_pubkey_hex(
+pub(in crate::daemon::server) async fn resolve_channel_member_pubkey_hex(
     input: &str,
 ) -> Result<String> {
     resolve_pubkey_hex(input)

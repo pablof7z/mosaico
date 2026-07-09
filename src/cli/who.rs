@@ -10,18 +10,18 @@ use crate::who_snapshot::WhoSnapshot;
 
 // ── who ──────────────────────────────────────────────────────────────────────
 
-/// `who` params for the daemon RPC. The daemon resolves the current project the
-/// same way the old CLI did (`all_projects ? None : resolve(cwd)`).
-fn who_params(project: &Option<String>, all_projects: bool) -> serde_json::Value {
+/// `who` params for the daemon RPC. The daemon resolves the current root channel the
+/// same way the old CLI did (`all_roots ? None : resolve(cwd)`).
+fn who_params(root: &Option<String>, all_roots: bool) -> serde_json::Value {
     crate::cli::rpc_params(serde_json::json!({
-        "project": project,
-        "all_projects": all_projects,
+        "root": root,
+        "all_roots": all_roots,
         "human_color": stdout_color_enabled(),
     }))
 }
 
-fn who_value_via_daemon(project: &Option<String>, all_projects: bool) -> Result<serde_json::Value> {
-    crate::daemon::blocking::call("who", who_params(project, all_projects))
+fn who_value_via_daemon(root: &Option<String>, all_roots: bool) -> Result<serde_json::Value> {
+    crate::daemon::blocking::call("who", who_params(root, all_roots))
 }
 
 /// `who --expired`: fetch this machine's dead/old sessions from the daemon and
@@ -41,15 +41,15 @@ fn who_expired() -> Result<()> {
     Ok(())
 }
 
-fn who_once(project: Option<String>, all_projects: bool) -> Result<()> {
-    let v = who_value_via_daemon(&project, all_projects)?;
+fn who_once(root: Option<String>, all_roots: bool) -> Result<()> {
+    let v = who_value_via_daemon(&root, all_roots)?;
     if let Some(human) = v.get("fabric_human").and_then(|x| x.as_str()) {
         print!("{human}");
         return Ok(());
     }
     // Prefer the unified fabric view (same format as the hook injection and as
-    // single-project `who`). The daemon sets this for both a resolved current
-    // channel and `--all-projects` (one project block per root channel).
+    // single-root `who`). The daemon sets this for both a resolved current
+    // channel and `--all-roots` (one root-channel block per root channel).
     if let Some(fabric) = v.get("fabric").and_then(|x| x.as_str()) {
         println!("{fabric}");
         return Ok(());
@@ -59,7 +59,7 @@ fn who_once(project: Option<String>, all_projects: bool) -> Result<()> {
     Ok(())
 }
 
-fn who_live(project: Option<String>, all_projects: bool) -> Result<()> {
+fn who_live(root: Option<String>, all_roots: bool) -> Result<()> {
     let refresh = Duration::from_millis(1000);
     let _terminal = render::LiveTerminal::enter()?;
     let mut next_draw = Instant::now();
@@ -67,7 +67,7 @@ fn who_live(project: Option<String>, all_projects: bool) -> Result<()> {
     loop {
         let now = Instant::now();
         if now >= next_draw {
-            let v = who_value_via_daemon(&project, all_projects)?;
+            let v = who_value_via_daemon(&root, all_roots)?;
             if let Some(human) = v.get("fabric_human").and_then(|x| x.as_str()) {
                 render::draw_fabric_live(human, refresh)?;
             } else if let Some(fabric) = v.get("fabric").and_then(|x| x.as_str()) {

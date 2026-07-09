@@ -31,7 +31,7 @@ pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_jso
                 "session_id": session_id,
                 "socket": meta.socket,
                 "agent": meta.agent,
-                "project": meta.project,
+                "root": meta.root,
                 "cwd": meta.cwd,
                 "command": meta.command,
                 "live": live,
@@ -97,7 +97,7 @@ pub(super) async fn rpc_pty_send(
 #[derive(serde::Deserialize)]
 struct PtySpawnParams {
     agent: String,
-    project: String,
+    root: String,
     #[serde(default)]
     command: Vec<String>,
     /// Override the entire base command, replacing what would be resolved from
@@ -128,23 +128,23 @@ pub(super) async fn rpc_pty_spawn(
     };
     let group = p.channel.as_deref();
 
-    provision_before_spawn(state, &p.agent, &p.project, group).await?;
+    provision_before_spawn(state, &p.agent, &p.root, group).await?;
 
     let pty_id = crate::session_host::spawn_agent(
         state,
         &p.agent,
-        &p.project,
+        &p.root,
         p.command,
         base_override,
         group,
         client_cwd,
     )
     .await?;
-    Ok(serde_json::json!({ "pty_id": pty_id, "agent": p.agent, "project": p.project }))
+    Ok(serde_json::json!({ "pty_id": pty_id, "agent": p.agent, "root": p.root }))
 }
 
 /// Call `ensure_channel_ready` for the launch scope (the channel if given, else
-/// the project root) before the hosted process is opened.
+/// the root channel) before the hosted process is opened.
 ///
 /// If the same agent slug already has a live session in the scope, logs a note
 /// about the concurrent launch. The actual signer pubkey is selected and
@@ -153,10 +153,10 @@ pub(super) async fn rpc_pty_spawn(
 pub(in crate::daemon::server) async fn provision_before_spawn(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     channel: Option<&str>,
 ) -> Result<()> {
-    let scope = channel.filter(|g| !g.is_empty()).unwrap_or(project);
+    let scope = channel.filter(|g| !g.is_empty()).unwrap_or(root);
     let already_live = state
         .with_store(|s| s.list_alive_sessions())
         .unwrap_or_default()
@@ -172,8 +172,8 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
 
     let timeout = std::time::Duration::from_secs(20);
     let parent_hint = channel
-        .filter(|g| !g.is_empty() && *g != project)
-        .map(|_| project);
+        .filter(|g| !g.is_empty() && *g != root)
+        .map(|_| root);
     let channel_name = state
         .with_store(|s| s.get_channel(scope))
         .ok()
@@ -322,7 +322,7 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
         arr.push(serde_json::json!({
             "session_id": rec.session_id,
             "slug": slug,
-            "project": rec.channel_h,
+            "root": rec.channel_h,
             "work_root": work_root,
             "rel_cwd": "",
             "alive": rec.alive,

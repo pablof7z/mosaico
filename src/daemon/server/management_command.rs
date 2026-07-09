@@ -1,4 +1,4 @@
-use super::channel_resolve::{project_root, resolve_channel_ref, ChannelResolution};
+use super::channel_resolve::{resolve_channel_ref, root_channel, ChannelResolution};
 use super::resolution::work_root_for;
 use super::*;
 use crate::domain::{AgentRef, ChatMessage};
@@ -161,7 +161,7 @@ async fn archive_named_channel(
     channel_ref: &str,
 ) -> Result<String> {
     let target = state.with_store(|s| {
-        let root = project_root(s, command_channel);
+        let root = root_channel(s, command_channel);
         match resolve_channel_ref(s, &root, channel_ref) {
             ChannelResolution::Unique(h) => Ok(h),
             ChannelResolution::Ambiguous(refs) => {
@@ -206,7 +206,7 @@ async fn publish_reply(
     let pubkey = keys.public_key().to_hex();
     let chat = ChatMessage {
         from: AgentRef::new(pubkey, format!("{} (tenex-edge)", state.host)),
-        project: channel_h.to_string(),
+        channel: channel_h.to_string(),
         body: body.to_string(),
         mentioned_pubkey: Some(requester.to_string()),
     };

@@ -4,7 +4,7 @@
 //! fabric awareness.
 
 use super::reads::{
-    ambient_by_joined_channel, context_instance, joined_channels, project_root_h, take_inbox,
+    ambient_by_joined_channel, context_instance, joined_channels, root_channel_h, take_inbox,
 };
 use super::TurnContext;
 use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
@@ -51,7 +51,7 @@ pub(crate) fn assemble_turn_start(
     hook_contexts: &super::HookContextGraphs,
 ) -> TurnContext {
     let first_turn = rec.seen_cursor == 0;
-    // Routing scope is the session's `channel_h` — a project channel, or the
+    // Routing scope is the session's `channel_h` — a root channel, or the
     // session/task channel a `channels switch` moved it into. All fabric
     // presence/deltas key on this so a switched session's turn context reflects
     // the channel it actually publishes into.
@@ -101,20 +101,20 @@ pub(crate) fn assemble_turn_start(
                 }
             };
             (!member && !locally_managed).then(|| {
-                let root = project_root_h(&s, &scope);
+                let root = root_channel_h(&s, &scope);
                 let channel_name = crate::injection::channel_display(&s, &scope);
-                let project_name = crate::injection::channel_display(&s, &root);
-                (root, channel_name, project_name)
+                let root_name = crate::injection::channel_display(&s, &root);
+                (root, channel_name, root_name)
             })
         };
-        if let Some((root, channel_name, project_name)) = warn {
-            // Name the scope precisely: a channel distinct from its project root
-            // gets both. When the scope IS the project root, the channel and
-            // project coincide and only the project is named.
+        if let Some((root, channel_name, root_name)) = warn {
+            // Name the scope precisely: a channel distinct from its root channel
+            // gets both. When the scope IS the root channel, the channel and root
+            // coincide and only the root is named.
             let where_label = if root == scope {
-                format!("project \"{project_name}\"")
+                format!("channel \"{root_name}\"")
             } else {
-                format!("channel \"{channel_name}\" (in project \"{project_name}\")")
+                format!("channel \"{channel_name}\" (in channel \"{root_name}\")")
             };
             warnings.push(format!(
                 "WARNING: this agent ({slug}) is not a member of the NIP-29 group \

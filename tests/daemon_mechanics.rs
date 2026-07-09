@@ -55,13 +55,13 @@ impl Home {
         // The thin client spawns `current_exe() __daemon`; in a test binary that
         // is the harness, so point it at the real built binary.
         std::env::set_var("TENEX_EDGE_BIN", bin());
-        // Register /tmp as a project so hook-driven session_start finds a
-        // resolvable project (the new "refuse without a project" gate would
+        // Register /tmp as a channel so hook-driven session_start finds a
+        // resolvable channel (the new "refuse without a channel" gate would
         // otherwise silently exit 0).
-        let projects_map = serde_json::json!({ "tmp": "/tmp" });
+        let workspace_map = serde_json::json!({ "tmp": "/tmp" });
         std::fs::write(
-            dir.path().join("projects.json"),
-            serde_json::to_string(&projects_map).unwrap(),
+            dir.path().join("workspaces.json"),
+            serde_json::to_string(&workspace_map).unwrap(),
         )
         .unwrap();
         Home { dir }

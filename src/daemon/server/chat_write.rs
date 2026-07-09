@@ -32,10 +32,10 @@ pub(in crate::daemon::server) struct ChatWriteParams {
 fn chat_publish_scope(
     current_scope: &str,
     explicit_dest: Option<&str>,
-    mention_project: Option<&str>,
+    mention_channel: Option<&str>,
 ) -> String {
     explicit_dest
-        .or(mention_project)
+        .or(mention_channel)
         .unwrap_or(current_scope)
         .to_string()
 }
@@ -86,15 +86,15 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         match state.with_store(|s| resolve_recipient(s, &scope, &state.host, &raw)) {
             Ok(target) => {
                 let same_work_root = state
-                    .with_store(|s| work_root_for(s, &scope) == work_root_for(s, &target.project));
-                if target.project != scope && !same_work_root {
+                    .with_store(|s| work_root_for(s, &scope) == work_root_for(s, &target.channel));
+                if target.channel != scope && !same_work_root {
                     anyhow::bail!(
-                        "mention target is in project {:?}, but this chat is for project {:?}",
-                        target.project,
+                        "mention target is in channel {:?}, but this chat is for channel {:?}",
+                        target.channel,
                         scope
                     );
                 }
-                Some((target.pubkey, target.target_session, target.project, raw))
+                Some((target.pubkey, target.target_session, target.channel, raw))
             }
             // An unknown token is an expected "no mention" (silent). A genuine
             // store failure underneath, however, silently DROPS a real mention —
@@ -113,7 +113,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     let publish_scope = chat_publish_scope(
         &scope,
         explicit_dest.as_deref(),
-        mention.as_ref().map(|(_, _, project, _)| project.as_str()),
+        mention.as_ref().map(|(_, _, channel, _)| channel.as_str()),
     );
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
@@ -128,7 +128,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
 
     let chat = ChatMessage {
         from: instance.agent_ref(),
-        project: publish_scope.clone(),
+        channel: publish_scope.clone(),
         body: body_to_send.clone(),
         mentioned_pubkey: mentioned_pubkey.clone(),
     };
@@ -241,20 +241,20 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     let from_label = instance.display_slug();
     state.emit_tail(TailEvent::Msg {
         ts: created_at,
-        project: deliver_scope.clone(),
+        channel: deliver_scope.clone(),
         from: from_label,
         from_session: Some(rec.session_id),
         to: mentioned_pubkey
             .as_deref()
             .map(pubkey_short)
-            .unwrap_or_else(|| "project-chat".to_string()),
+            .unwrap_or_else(|| "channel-chat".to_string()),
         to_session: mentioned_session.clone(),
         body: body_to_send.chars().take(200).collect(),
     });
 
     Ok(serde_json::json!({
         "event_id": event_id,
-        "project": publish_scope,
+        "channel": publish_scope,
         "mentioned_pubkey": mentioned_pubkey,
         "mentioned_session": mentioned_session,
         "mentioned_label": mentioned_label,

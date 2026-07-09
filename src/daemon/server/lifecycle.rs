@@ -84,7 +84,7 @@ pub async fn run() -> Result<()> {
         owners,
         hosted: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
-        subscribed_projects: Mutex::new(Vec::new()),
+        subscribed_root_channels: Mutex::new(Vec::new()),
         subs: Mutex::new(crate::reconcile::SubscriptionReconciler::new().expect("subs")),
         status: Arc::new(Mutex::new(StatusReconciler::for_ttl(status_ttl_duration()))),
         delivery: Mutex::new(crate::reconcile::DeliveryReconciler::new()),
@@ -180,7 +180,7 @@ pub async fn run() -> Result<()> {
             tracing::warn!(error = %e, "initial resubscribe failed");
         }
 
-        // Revive sessions a previous daemon left behind + (re)open their project
+        // Revive sessions a previous daemon left behind + (re)open their channel
         // subscriptions. Subscriptions go out post-auth.
         reconcile_sessions(&relay_state).await;
     });

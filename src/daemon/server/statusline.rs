@@ -65,10 +65,10 @@ pub(in crate::daemon::server) fn rpc_statusline(
             .flatten()
             .map(|c| c.name)
             .unwrap_or_default();
-        // `work_root` is the top-level project this channel belongs under.
-        // This is the "Project" line in `who`, surfaced as `project-name`.
+        // `work_root` is the top-level root this channel belongs under.
+        // This is the "Root" line in `who`, surfaced as `root-name`.
         let work_root = s
-            .channel_project_root(&scope)
+            .root_channel_of(&scope)
             .ok()
             .flatten()
             .unwrap_or_else(|| scope.clone());

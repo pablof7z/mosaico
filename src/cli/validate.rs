@@ -87,7 +87,7 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn validate_args_project_probe_rpc_params() {
+    fn validate_args_workspace_probe_rpc_params() {
         let args = ValidateArgs {
             target: Some("status:s1".into()),
             targets: false,

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub(super) fn push_claim_rows(
     store: StoreReader<'_>,
-    current_project: Option<&str>,
+    current_root: Option<&str>,
     now: u64,
     local_host: &str,
     rows: &mut Vec<WhoRow>,
@@ -21,7 +21,7 @@ pub(super) fn push_claim_rows(
             continue;
         }
         let slug = claim.codename.clone();
-        if current_project
+        if current_root
             .map(|p| scope::scope_contains_channel(store, p, &scope))
             .unwrap_or(true)
         {
@@ -57,7 +57,7 @@ fn dormant_row(
         source: WhoSource::Local,
         fresh: false,
         slug,
-        project: claim.channel_h.clone(),
+        channel: claim.channel_h.clone(),
         status: title,
         activity: String::new(),
         active: false,

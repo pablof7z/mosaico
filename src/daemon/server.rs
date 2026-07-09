@@ -53,7 +53,7 @@ struct SessionHandle {
 #[derive(Clone)]
 struct PeerTracked {
     first_seen: u64,
-    project: String,
+    channel: String,
     slug: String,
     host: String,
 }
@@ -73,7 +73,7 @@ pub struct DaemonState {
     owners: Vec<String>,
     hosted: Mutex<HashMap<String, HostedAgent>>,
     sessions: Mutex<HashMap<String, SessionHandle>>,
-    subscribed_projects: Mutex<Vec<String>>,
+    subscribed_root_channels: Mutex<Vec<String>>,
     subs: Mutex<crate::reconcile::SubscriptionReconciler>,
     status: Arc<Mutex<crate::reconcile::StatusReconciler>>,
     delivery: Mutex<crate::reconcile::DeliveryReconciler>,
@@ -138,14 +138,14 @@ impl DaemonState {
     }
     pub(crate) fn emit_delivery_failure(
         &self,
-        project: &str,
+        channel: &str,
         agent: &str,
         session: &str,
         detail: impl Into<String>,
     ) {
         self.emit_tail(TailEvent::delivery_failure(
             now_secs(),
-            project,
+            channel,
             agent,
             session,
             detail,
@@ -240,7 +240,7 @@ mod who;
 use agent_roster::{publish_local_agent_roster, rpc_agent_roster_publish};
 use channel_membership_rpc::{rpc_channels_join, rpc_channels_leave, rpc_channels_switch};
 use channel_resolve::{
-    project_root, resolve_channel_for_session_start, resolve_channel_path, resolve_channel_ref,
+    resolve_channel_for_session_start, resolve_channel_path, resolve_channel_ref, root_channel,
     rpc_channels_resolve, ChannelResolution,
 };
 use channels_rpc::{
@@ -250,13 +250,13 @@ use channels_rpc::{
 use chat_read_tail::{handle_chat_read, handle_tail};
 use chat_write::rpc_chat_write;
 use diagnostics::{
-    log_nip29_role_decision, refresh_project_members_cache, rpc_debug_outbox, rpc_doctor,
+    log_nip29_role_decision, refresh_channel_members_cache, rpc_debug_outbox, rpc_doctor,
     rpc_explain, rpc_local_backend,
 };
 use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
-use profile_rpc::{resolve_backend_pubkey, resolve_project_member_pubkey_hex, resolve_pubkey_hex};
+use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, resolve_pubkey_hex};
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
@@ -288,11 +288,10 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "explain" => rpc_explain(state, &req.params),
         "probe" => probe::rpc_probe(state, &req.params),
         "local_backend" => rpc_local_backend(state),
-        "project_list" => rpc::rpc_project_list(state).await,
-        "project_edit" => rpc::rpc_project_edit(state, &req.params).await,
-        "project_members" => rpc::rpc_project_members(state, &req.params).await,
-        "project_add" => rpc::rpc_project_add(state, &req.params).await,
-        "project_remove" => rpc::rpc_project_remove(state, &req.params).await,
+        "root_channels" => rpc::rpc_root_channels(state).await,
+        "channel_members" => rpc::rpc_channel_members(state, &req.params).await,
+        "channel_add_member" => rpc::rpc_channel_add_member(state, &req.params).await,
+        "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,
         "agents_list_sessions" => rpc::rpc_agents_list_sessions(state, &req.params),
         "agents_roster" => rpc::rpc_agents_roster(state, &req.params),
         "agent_roster_publish" => rpc_agent_roster_publish(state, &req.params).await,
@@ -363,7 +362,7 @@ fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value>
                 .unwrap_or_default();
             serde_json::json!({
                 "from_slug": from_slug,
-                "project": r.channel_h,
+                "channel": r.channel_h,
                 "from_session": "",
                 "host": "",
                 "subject": "",

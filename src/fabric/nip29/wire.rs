@@ -3,10 +3,10 @@
 //! | Domain      | Wire |
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": "slug@host"}`, `["host", host]` |
-//! | Activity    | kind:1,     `["h", project]` — social narrative (no inbox routing) |
+//! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
 //! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", session_id]`, one or more `["h", channel]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | AgentRoster | kind:30555, backend management-key signed, `["d", capability_slug]`, `["hostname", host]`, `["use-criteria", text]`, one or more root-channel `["h", channel]` |
-//! | Chat        | kind:9,     `["h", project]`, optional `["p", mentioned_pubkey]` |
+//! | Chat        | kind:9,     `["h", channel]`, optional `["p", mentioned_pubkey]` |
 //!
 //! Status is the single self-contained per-session signal: ONE kind:30315 event
 //! per `(author_pubkey, session_id)` carries the whole live state (busy/idle, the
@@ -66,12 +66,12 @@ fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)
 }
 
-pub(crate) fn h_filter(f: Filter, project: &str) -> Filter {
-    f.custom_tag(SingleLetterTag::lowercase(Alphabet::H), project)
+pub(crate) fn h_filter(f: Filter, channel: &str) -> Filter {
+    f.custom_tag(SingleLetterTag::lowercase(Alphabet::H), channel)
 }
 
-fn project_tag(project: &str) -> Result<Tag> {
-    tag(&["h", project])
+fn h_tag(channel: &str) -> Result<Tag> {
+    tag(&["h", channel])
 }
 
 /// First value of the first tag whose name matches `name` (i.e. `slice[1]`).
@@ -110,7 +110,7 @@ fn all_tag_values(event: &Event, name: &str) -> Vec<String> {
         .collect()
 }
 
-fn project_from_tags(event: &Event) -> Option<String> {
+fn channel_from_tags(event: &Event) -> Option<String> {
     first_tag(event, "h").map(String::from)
 }
 
@@ -120,14 +120,14 @@ impl Nip29WireCodec {
             DomainEvent::Profile(pf) => profile::encode(pf)?,
             DomainEvent::Activity(Activity {
                 agent: _agent,
-                project,
+                channel,
                 text,
             }) => {
                 // Activity is a social narrative note (kind:1 without inbox routing).
                 // We still encode it for broadcast purposes but it's not part of
                 // the inbox system. For now, encode as a plain kind:1 note.
                 use nostr_sdk::prelude::EventBuilder as EB;
-                EB::new(Kind::from(1u16), text.clone()).tags([project_tag(project)?])
+                EB::new(Kind::from(1u16), text.clone()).tags([h_tag(channel)?])
             }
             DomainEvent::Status(Status {
                 agent,
@@ -150,7 +150,7 @@ impl Nip29WireCodec {
                     tag(&["host", host])?,
                 ];
                 for channel in channels {
-                    tags.push(project_tag(channel)?);
+                    tags.push(h_tag(channel)?);
                 }
                 // Carry the agent slug on the wire as a convenience hint. The
                 // durable agent key IS the author, so peers can resolve it via
@@ -169,11 +169,11 @@ impl Nip29WireCodec {
             }
             DomainEvent::ChatMessage(ChatMessage {
                 from: _from,
-                project,
+                channel,
                 body,
                 mentioned_pubkey,
             }) => {
-                let mut tags = vec![project_tag(project)?];
+                let mut tags = vec![h_tag(channel)?];
                 if let Some(pk) = mentioned_pubkey {
                     tags.push(tag(&["p", pk])?);
                 }
@@ -183,7 +183,7 @@ impl Nip29WireCodec {
             }
             DomainEvent::Proposal(Proposal {
                 agent: _,
-                project,
+                channel,
                 title,
                 body,
                 d,
@@ -192,7 +192,7 @@ impl Nip29WireCodec {
                 let mut tags = vec![
                     tag(&["d", d])?,
                     tag(&["title", title])?,
-                    project_tag(project)?,
+                    h_tag(channel)?,
                     // No agent tag: author identity is the event signer; slug is in kind:0.
                 ];
                 // p-tag each owner so the proposal surfaces to the human.
@@ -237,23 +237,23 @@ impl Nip29WireCodec {
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {
                 // Slug is NOT on the wire; resolved by the materializer.
                 from: AgentRef::new(pubkey, String::new()),
-                project: project_from_tags(event)?,
+                channel: channel_from_tags(event)?,
                 body: event.content.clone(),
                 mentioned_pubkey: first_tag(event, "p").map(str::to_string),
             })),
             1 => {
                 // kind:1 notes: decode as Activity for social narrative (no routing).
-                let project = project_from_tags(event)?;
+                let channel = channel_from_tags(event)?;
                 Some(DomainEvent::Activity(Activity {
                     agent: AgentRef::new(pubkey, String::new()),
-                    project,
+                    channel,
                     text: event.content.clone(),
                 }))
             }
             KIND_LONGFORM => Some(DomainEvent::Proposal(Proposal {
                 // Slug is NOT on the wire; resolved downstream from kind:0 profile.
                 agent: AgentRef::new(pubkey, String::new()),
-                project: project_from_tags(event)?,
+                channel: channel_from_tags(event)?,
                 title: first_tag(event, "title").unwrap_or_default().to_string(),
                 body: event.content.clone(),
                 d: first_tag(event, "d").unwrap_or_default().to_string(),

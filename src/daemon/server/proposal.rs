@@ -28,7 +28,7 @@ pub(in crate::daemon::server) struct ProposeParams {
 /// Tags:
 ///   ["d", <short-id>]           — addressable identifier (NIP-33)
 ///   ["title", <title>]          — human-readable title
-///   ["h", <project>]            — NIP-29 group
+///   ["h", <channel>]            — NIP-29 group
 ///   ["p", <owner>]              — per owner in cfg.owners, surfaces to the human
 ///   (no agent/session tag — author identity is the event signer pubkey; kind:0 carries slug)
 pub(in crate::daemon::server) async fn rpc_propose(
@@ -41,8 +41,8 @@ pub(in crate::daemon::server) async fn rpc_propose(
         anyhow::bail!("title must not be empty");
     }
 
-    // Resolve session if one is live; fall back to cwd-based project + env agent.
-    // propose doesn't require a live session — it just needs a project and a key.
+    // Resolve session if one is live; fall back to cwd-based channel + env agent.
+    // propose doesn't require a live session — it just needs a channel and a key.
     let session_rec = resolve_session(state, &CallerAnchor::from_params(params)).ok();
     let cwd = p
         .cwd
@@ -51,12 +51,12 @@ pub(in crate::daemon::server) async fn rpc_propose(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     // Publish into the session's CURRENT routing scope — channel when set
     // (a `channels switch` moved it to a subgroup), else the per-session room.
-    // Falls back to the cwd-derived project when no session is live (a bare
+    // Falls back to the cwd-derived channel when no session is live (a bare
     // `tenex-edge publish` from the repo root).
-    let project = session_rec
+    let channel = session_rec
         .as_ref()
         .map(|r| r.channel_h.clone())
-        .unwrap_or_else(|| crate::project::resolve(&cwd).unwrap_or_default());
+        .unwrap_or_else(|| crate::workspace::resolve(&cwd).unwrap_or_default());
     let agent_slug = session_rec
         .as_ref()
         .map(|r| r.agent_slug.clone())
@@ -79,7 +79,7 @@ pub(in crate::daemon::server) async fn rpc_propose(
     // Build the Proposal domain event; the wire shape lives in the NIP-29 provider.
     let ev = DomainEvent::Proposal(crate::domain::Proposal {
         agent: crate::domain::AgentRef::new(id.pubkey_hex(), agent_slug.clone()),
-        project: project.clone(),
+        channel: channel.clone(),
         title: p.title.clone(),
         body: p.body.clone(),
         d: d_tag.clone(),
@@ -87,7 +87,7 @@ pub(in crate::daemon::server) async fn rpc_propose(
         audience: state.owners.clone(),
     });
     // Checked publish: a NIP-29 relay rejecting the kind:30023 (e.g. the author
-    // isn't a member of the project group) used to resolve Ok and report a false
+    // isn't a member of the channel group) used to resolve Ok and report a false
     // "published" — silent data loss. `publish_checked` fails on relay rejection
     // so the CLI exits nonzero with the relay's stated reason.
     // Sign with the session's own minted key when a live session is present; else

@@ -2,7 +2,7 @@ use super::super::{agent_roster::publish_local_agent_roster, DaemonState};
 use std::sync::Arc;
 
 pub(super) async fn publish_startup_roster(state: &Arc<DaemonState>) {
-    state.provider.refresh_project_list().await.ok();
+    state.provider.refresh_root_channels().await.ok();
     match publish_local_agent_roster(state, None).await {
         Ok(report) => tracing::info!(
             published = report.published,
@@ -34,7 +34,7 @@ pub(super) fn seed_spawn_on_mention_coverage(state: &Arc<DaemonState>) {
         groups
     });
     {
-        let mut projs = state.subscribed_projects.lock().unwrap();
+        let mut projs = state.subscribed_root_channels.lock().unwrap();
         for group in &member_groups {
             if !projs.iter().any(|p| p == group) {
                 projs.push(group.clone());

@@ -7,8 +7,8 @@
 //! a separate display name and is never accepted as a chat target.
 //!
 //! Rules that hold EVERYWHERE:
-//!   - `@` always means backend label, never project. An agent is
-//!     `(slug, backend-label)`; project is only where a message goes, never who it
+//!   - `@` always means backend label, never channel. An agent is
+//!     `(slug, backend-label)`; channel is only where a message goes, never who it
 //!     is.
 //!   - backend labels are config.json `backendName` values and are preserved
 //!     exactly after trimming. They are not DNS hostnames and are not slugified.
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_at_is_backend_label_not_project() {
+    fn parse_at_is_backend_label_not_channel() {
         match parse_ref("codex@myBackend") {
             Ref::Agent { slug, host } => {
                 assert_eq!(slug, "codex");

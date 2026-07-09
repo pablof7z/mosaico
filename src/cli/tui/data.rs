@@ -117,7 +117,7 @@ fn merge_session_values(sessions: &serde_json::Value, ptys: &serde_json::Value) 
             .or_insert_with(|| SessionRow {
                 session_id: session_id.to_string(),
                 agent: value["agent"].as_str().unwrap_or("?").to_string(),
-                channels: value["project"]
+                channels: value["root"]
                     .as_str()
                     .filter(|s| !s.is_empty())
                     .map(|s| vec![s.to_string()])
@@ -166,7 +166,7 @@ mod tests {
             ]
         });
         let ptys = serde_json::json!({
-            "endpoints": [{"pty_id": "pty-1", "session_id": "s1", "agent": "codex", "project": "root", "cwd": "/tmp", "command": ["codex"], "live": true}]
+            "endpoints": [{"pty_id": "pty-1", "session_id": "s1", "agent": "codex", "root": "root", "cwd": "/tmp", "command": ["codex"], "live": true}]
         });
 
         let rows = merge_session_values(&sessions, &ptys);

@@ -54,10 +54,10 @@ pub(super) fn fill_pane_from_hook(pane: &mut SessionPane, host: &str, stdin_json
     if pane.host.is_empty() {
         pane.host = host.to_string();
     }
-    if pane.project.is_empty() {
-        pane.project = stdin_json["cwd"]
+    if pane.root.is_empty() {
+        pane.root = stdin_json["cwd"]
             .as_str()
-            .map(|cwd| crate::project::resolve(std::path::Path::new(cwd)).unwrap_or_default())
+            .map(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).unwrap_or_default())
             .unwrap_or_default();
     }
 }
@@ -84,24 +84,24 @@ pub(super) fn command_session(v: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-pub(super) fn command_project(v: &Value) -> String {
+pub(super) fn command_root(v: &Value) -> String {
     v["process"]["cwd"]
         .as_str()
-        .map(|cwd| crate::project::resolve(std::path::Path::new(cwd)).unwrap_or_default())
+        .map(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).unwrap_or_default())
         .unwrap_or_default()
 }
 
 pub(super) fn infer_command_session(
     panes: &BTreeMap<String, SessionPane>,
     agent: &str,
-    project: &str,
+    root: &str,
 ) -> Option<String> {
-    if agent.is_empty() || project.is_empty() {
+    if agent.is_empty() || root.is_empty() {
         return None;
     }
     let matches = panes
         .values()
-        .filter(|p| p.agent == agent && p.project == project && !p.session.is_empty())
+        .filter(|p| p.agent == agent && p.root == root && !p.session.is_empty())
         .map(|p| p.session.clone())
         .collect::<Vec<_>>();
     if matches.len() == 1 {

@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn load_hook_tail_snapshot(
-    project_filters: &BTreeSet<String>,
+    root_filters: &BTreeSet<String>,
     session_filter: &Option<String>,
 ) -> HookTailSnapshot {
     let mut panes: BTreeMap<String, SessionPane> = BTreeMap::new();
@@ -46,11 +46,11 @@ pub(super) fn load_hook_tail_snapshot(
         unscoped.extend(read_command_log(&path, &mut panes));
     }
 
-    let mut projects = BTreeSet::new();
+    let mut roots = BTreeSet::new();
     let mut sessions = BTreeSet::new();
     for pane in panes.values() {
-        if !pane.project.is_empty() {
-            projects.insert(pane.project.clone());
+        if !pane.root.is_empty() {
+            roots.insert(pane.root.clone());
         }
         if !pane.session.is_empty() {
             sessions.insert(pane.short.clone());
@@ -59,7 +59,7 @@ pub(super) fn load_hook_tail_snapshot(
 
     let mut panes: Vec<SessionPane> = panes
         .into_values()
-        .filter(|p| project_filters.is_empty() || project_filters.contains(&p.project))
+        .filter(|p| root_filters.is_empty() || root_filters.contains(&p.root))
         .filter(|p| match session_filter {
             Some(filter) => p.session == *filter || p.short == *filter,
             None => true,
@@ -82,7 +82,7 @@ pub(super) fn load_hook_tail_snapshot(
     HookTailSnapshot {
         panes,
         unscoped,
-        projects: projects.into_iter().collect(),
+        roots: roots.into_iter().collect(),
         sessions: sessions.into_iter().collect(),
     }
 }
@@ -91,8 +91,8 @@ fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
     let Ok(v) = crate::daemon::blocking::call_no_spawn(
         "who",
         serde_json::json!({
-            "project": null,
-            "all_projects": true,
+            "root": null,
+            "all_roots": true,
             "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
         }),
     ) else {
@@ -106,7 +106,7 @@ fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
         let pane = panes
             .entry(session.clone())
             .or_insert_with(|| new_pane(&session));
-        pane.project = row["project"].as_str().unwrap_or("").to_string();
+        pane.root = row["root"].as_str().unwrap_or("").to_string();
         pane.agent = row["slug"].as_str().unwrap_or("").to_string();
         pane.host = row["host"].as_str().unwrap_or("").to_string();
     }
@@ -309,14 +309,14 @@ fn parse_command_log(
                 let Some(start) = received.get(&call_id) else {
                     continue;
                 };
-                let project = command_project(start);
+                let root = command_root(start);
                 let agent = start["env"]["TENEX_EDGE_AGENT"]
                     .as_str()
                     .or_else(|| start["env"]["TENEX_EDGE_AGENT_FALLBACK"].as_str())
                     .unwrap_or("")
                     .to_string();
                 let session = command_session(start)
-                    .or_else(|| infer_command_session(panes, &agent, &project))
+                    .or_else(|| infer_command_session(panes, &agent, &root))
                     .or_else(|| session_hint.map(str::to_string));
                 let argv: Vec<&str> = start["command"]["argv"]
                     .as_array()
@@ -351,8 +351,8 @@ fn parse_command_log(
                     let pane = panes
                         .entry(session.clone())
                         .or_insert_with(|| new_pane(&session));
-                    if !project.is_empty() {
-                        pane.project = project;
+                    if !root.is_empty() {
+                        pane.root = root;
                     }
                     if !agent.is_empty() {
                         pane.agent = agent;

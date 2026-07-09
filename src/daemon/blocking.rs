@@ -226,7 +226,7 @@ struct MethodPolicy {
 
 fn method_policy(method: &str) -> MethodPolicy {
     match method {
-        "ping" | "who" | "pty_status" | "pty_resumable" | "project_members" => MethodPolicy {
+        "ping" | "who" | "pty_status" | "pty_resumable" | "channel_members" => MethodPolicy {
             response_timeout: DEFAULT_RESPONSE_IO_TIMEOUT,
             retry_after_delivery: true,
         },

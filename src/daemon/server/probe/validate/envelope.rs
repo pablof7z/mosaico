@@ -68,8 +68,8 @@ pub(super) fn build(
         ("coverage_evidence", json!(target_checks.coverage_evidence)),
         ("alias_evidence", json!(target_checks.alias_evidence)),
         (
-            "project_root_evidence",
-            json!(target_checks.project_root_evidence),
+            "workspace_evidence",
+            json!(target_checks.workspace_evidence),
         ),
         (
             "membership_evidence",

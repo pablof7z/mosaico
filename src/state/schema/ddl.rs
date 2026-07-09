@@ -225,7 +225,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS idx_outbox_pending
     ON outbox(state, next_attempt_at, local_id);
 
-CREATE TABLE IF NOT EXISTS project_roots (
+CREATE TABLE IF NOT EXISTS workspace_roots (
     channel_h   TEXT PRIMARY KEY,
     abs_path    TEXT NOT NULL,
     updated_at  INTEGER NOT NULL

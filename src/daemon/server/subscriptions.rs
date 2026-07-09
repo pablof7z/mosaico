@@ -3,29 +3,29 @@ use crate::fabric::subscriptions::{id_h_narrow, narrow_h_filter};
 use crate::reconcile::{CoverageSnapshot, InputFact, SubEffect};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Record `project` as an explicitly-subscribed channel and reconcile. The
+/// Record `channel` as an explicitly-subscribed channel and reconcile. The
 /// subscribed set feeds the daemon-scope coverage; the reconciler opens a narrow
 /// per-entity REQ for any newly-covered channel and, critically, CLOSES any REQ
 /// no longer owned by anyone. Idempotent: an already-covered channel yields no
 /// effects. Bounded — opening/closing a relay REQ can hang on a slow relay, and
 /// this is awaited on hook-critical paths (session_start, spawn_session), so the
-/// intent (project recorded above + folded into the reconciler) survives a
+/// intent (channel recorded above + folded into the reconciler) survives a
 /// timeout; we fail open.
 pub(in crate::daemon::server) async fn ensure_subscription(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
 ) -> Result<()> {
     {
-        let mut projs = state.subscribed_projects.lock().unwrap();
-        if !projs.iter().any(|p| p == project) {
-            projs.push(project.to_string());
+        let mut projs = state.subscribed_root_channels.lock().unwrap();
+        if !projs.iter().any(|p| p == channel) {
+            projs.push(channel.to_string());
         }
     }
     match tokio::time::timeout(std::time::Duration::from_secs(5), sync_subscriptions(state)).await {
         Ok(r) => r,
         Err(_) => {
             tracing::warn!(
-                channel = project,
+                channel = channel,
                 "subscription sync timed out; continuing best-effort"
             );
             Ok(())
@@ -214,7 +214,7 @@ fn preview_matches(
 /// Compute the daemon's current subscription coverage from durable sources,
 /// split by owner so channels can refcount per session:
 ///
-/// - `daemon_channels` / archived: explicitly tracked projects, groups any
+/// - `daemon_channels` / archived: explicitly tracked channels, groups any
 ///   ordinal pubkey is a member of (spawn-on-mention), and groups this
 ///   daemon manages (admin). Owned by the daemon scope.
 /// - `sessions`: each alive session mapped to the channels it has joined. Each
@@ -224,7 +224,7 @@ fn preview_matches(
 ///   backend identity. Owned by the daemon scope.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
-        .subscribed_projects
+        .subscribed_root_channels
         .lock()
         .unwrap()
         .iter()

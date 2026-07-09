@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn live_renderer_same_as_once_with_hint() {
     let snapshot = WhoSnapshot {
-        project: "proj".to_string(),
+        root: "proj".to_string(),
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
             fresh: true,
             slug: "reviewer".to_string(),
-            project: "proj".to_string(),
+            channel: "proj".to_string(),
             status: "reviewing the patch".to_string(),
             activity: String::new(),
             active: false,
@@ -23,10 +23,10 @@ fn live_renderer_same_as_once_with_hint() {
             work_root: "proj".to_string(),
             pubkey: String::new(),
         }],
-        other_projects: vec![],
+        other_roots: vec![],
         spawnable: vec![],
         channel_parent: None,
-        project_display: "proj".to_string(),
+        root_display: "proj".to_string(),
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
@@ -35,11 +35,11 @@ fn live_renderer_same_as_once_with_hint() {
 }
 
 #[test]
-fn who_renderer_summarizes_other_projects() {
+fn who_renderer_summarizes_other_roots() {
     let store = Store::open_memory().unwrap();
-    // An idle agent in the current project.
+    // An idle agent in the current channel.
     record_peer(&store, "pk-a", "a", "laptop", "", false, 1_000);
-    // A root project "other" with its own about + one live agent.
+    // A root channel "other" with its own about + one live agent.
     store
         .upsert_channel("other", "other", "Other work", "", 1_000)
         .unwrap();
@@ -66,20 +66,20 @@ fn who_renderer_summarizes_other_projects() {
 
     assert!(once.contains("a (laptop) - idle"));
     assert!(!once.contains("[session"));
-    assert!(once.contains("1 other agent(s) in other projects:"));
+    assert!(once.contains("1 other agent(s) in other root channels:"));
     assert!(once.contains("  * other - Other work"));
 }
 
 #[test]
-fn who_all_projects_includes_project_in_agent_names() {
+fn who_all_roots_includes_root_in_agent_names() {
     let snapshot = WhoSnapshot {
-        project: "*".to_string(),
+        root: "*".to_string(),
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
             fresh: true,
             slug: "reviewer".to_string(),
-            project: "other".to_string(),
+            channel: "other".to_string(),
             status: String::new(),
             activity: String::new(),
             active: false,
@@ -93,27 +93,27 @@ fn who_all_projects_includes_project_in_agent_names() {
             work_root: "other".to_string(),
             pubkey: String::new(),
         }],
-        other_projects: vec![],
+        other_roots: vec![],
         spawnable: vec![],
         channel_parent: None,
-        project_display: "*".to_string(),
+        root_display: "*".to_string(),
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.starts_with("all projects\n\n"));
+    assert!(once.starts_with("all root channels\n\n"));
     assert!(once.contains("reviewer (tower) - idle"));
 }
 
 #[test]
 fn agent_renderer_uses_markdown_sections_and_agent_table() {
     let snapshot = WhoSnapshot {
-        project: "proj".to_string(),
+        root: "proj".to_string(),
         now: 1_000,
         rows: vec![WhoRow {
             source: WhoSource::Peer,
             fresh: true,
             slug: "reviewer".to_string(),
-            project: "proj".to_string(),
+            channel: "proj".to_string(),
             status: "Review plan".to_string(),
             activity: "checking patch | tests".to_string(),
             active: true,
@@ -127,8 +127,8 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
             work_root: "proj".to_string(),
             pubkey: String::new(),
         }],
-        other_projects: vec![OtherProjectSummary {
-            project: "other".to_string(),
+        other_roots: vec![OtherRootSummary {
+            root: "other".to_string(),
             agent_count: 1,
             agents: vec!["codex".to_string()],
             about: Some("ignored in agent renderer".to_string()),
@@ -140,11 +140,11 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
             byline: Some("Use for autonomous coding tasks".to_string()),
         }],
         channel_parent: None,
-        project_display: "proj".to_string(),
+        root_display: "proj".to_string(),
     };
 
     let out = render_who_plain(&snapshot);
-    assert!(out.starts_with("# tenex-edge who\n\nProject: proj\n\n## Agents in this channel\n"));
+    assert!(out.starts_with("# tenex-edge who\n\nRoot: proj\n\n## Agents in this channel\n"));
     assert!(out.contains("| Agent | Host | Title | Status |"));
     assert!(out.contains(
         "| reviewer | tower, remote [worktree] | Review plan | checking patch \\| tests |"
@@ -155,7 +155,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
     assert!(out.contains("| Agent | Host | When to use |"));
     assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
     assert!(!out.contains("| codex | laptop | `codex` |"));
-    assert!(out.contains("## Other projects\n\n- other"));
+    assert!(out.contains("## Other root channels\n\n- other"));
 }
 
 /// Concurrent same-agent instances now carry DISTINCT ordinal slugs
@@ -164,14 +164,14 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
 #[test]
 fn agent_renderer_renders_ordinal_slugs_directly() {
     let snapshot = WhoSnapshot {
-        project: "proj".to_string(),
+        root: "proj".to_string(),
         now: 1_000,
         rows: vec![
             WhoRow {
                 source: WhoSource::Local,
                 fresh: true,
                 slug: "codex".to_string(),
-                project: "proj".to_string(),
+                channel: "proj".to_string(),
                 status: "one".to_string(),
                 activity: String::new(),
                 active: false,
@@ -189,7 +189,7 @@ fn agent_renderer_renders_ordinal_slugs_directly() {
                 source: WhoSource::Peer,
                 fresh: true,
                 slug: "codex1".to_string(),
-                project: "proj".to_string(),
+                channel: "proj".to_string(),
                 status: "two".to_string(),
                 activity: String::new(),
                 active: false,
@@ -204,10 +204,10 @@ fn agent_renderer_renders_ordinal_slugs_directly() {
                 pubkey: String::new(),
             },
         ],
-        other_projects: vec![],
+        other_roots: vec![],
         spawnable: vec![],
         channel_parent: None,
-        project_display: "proj".to_string(),
+        root_display: "proj".to_string(),
     };
 
     let out = render_who_plain(&snapshot);
@@ -221,24 +221,24 @@ fn agent_renderer_renders_ordinal_slugs_directly() {
 }
 
 #[test]
-fn render_labels_session_room_as_channel_with_parent_project() {
+fn render_labels_session_room_as_channel_with_parent_root() {
     let snapshot = WhoSnapshot {
-        project: "session-a1b2c3d4e5f60718".to_string(),
+        root: "session-a1b2c3d4e5f60718".to_string(),
         now: 1000,
         rows: vec![],
-        other_projects: vec![],
+        other_roots: vec![],
         spawnable: vec![],
         channel_parent: Some("lsjkd".to_string()),
-        project_display: "session-a1b2c3d4e5f60718".to_string(),
+        root_display: "session-a1b2c3d4e5f60718".to_string(),
     };
     let out = render_who_plain(&snapshot);
     assert!(
         out.contains("Channel: session-a1b2c3d4e5f60718 (your session room)"),
         "got: {out}"
     );
-    assert!(out.contains("Project: lsjkd"), "got: {out}");
+    assert!(out.contains("Root: lsjkd"), "got: {out}");
     assert!(
-        !out.contains("Project: session-a1b2c3d4e5f60718"),
+        !out.contains("Root: session-a1b2c3d4e5f60718"),
         "got: {out}"
     );
 }
@@ -246,7 +246,7 @@ fn render_labels_session_room_as_channel_with_parent_project() {
 #[test]
 fn who_snapshot_exposes_work_root_for_session_room_rows() {
     let store = Store::open_memory().unwrap();
-    // A session/task channel nested under project "proj" (parent set).
+    // A session/task channel nested under channel "proj" (parent set).
     store.upsert_channel("proj", "proj", "", "", 1_000).unwrap();
     store
         .upsert_channel("session-room", "session-room", "", "proj", 1_000)
@@ -262,12 +262,12 @@ fn who_snapshot_exposes_work_root_for_session_room_rows() {
 
     let snapshot = load_who_snapshot(&store, Some("session-room"), 1_000, "laptop").unwrap();
     let row = snapshot.rows.first().expect("session-room row");
-    assert_eq!(row.project, "session-room");
+    assert_eq!(row.channel, "session-room");
     assert_eq!(row.work_root, "proj");
 }
 
 #[test]
-fn who_project_root_snapshot_includes_nested_channel_sessions() {
+fn who_root_snapshot_includes_nested_channel_sessions() {
     let store = Store::open_memory().unwrap();
     store.upsert_channel("root", "root", "", "", 1_000).unwrap();
     store
@@ -281,6 +281,6 @@ fn who_project_root_snapshot_includes_nested_channel_sessions() {
     let snapshot = load_who_snapshot(&store, Some("root"), 1_000, "laptop").unwrap();
 
     let row = snapshot.rows.first().expect("nested channel row");
-    assert_eq!(row.project, "leaf");
+    assert_eq!(row.channel, "leaf");
     assert_eq!(row.work_root, "root");
 }

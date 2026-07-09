@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub struct SpawnSessionArgs {
     pub id: Option<String>,
     pub agent: String,
-    pub project: String,
+    pub root: String,
     pub cwd: PathBuf,
     pub channel: Option<String>,
     pub ephemeral: bool,
@@ -69,7 +69,7 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
         socket: socket.to_string_lossy().to_string(),
         supervisor_pid: supervisor.id(),
         agent: args.agent,
-        project: args.project,
+        root: args.root,
         cwd: args.cwd.to_string_lossy().to_string(),
         ephemeral: args.ephemeral,
         command: args.command,

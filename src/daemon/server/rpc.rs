@@ -5,9 +5,9 @@
 //! table in `server.rs` can call them as `rpc::rpc_*`.
 
 pub(super) mod agents;
-pub(super) mod project;
+pub(super) mod channel_members;
 
 pub(super) use agents::{rpc_agents_list_sessions, rpc_agents_roster};
-pub use project::{
-    rpc_project_add, rpc_project_edit, rpc_project_list, rpc_project_members, rpc_project_remove,
+pub use channel_members::{
+    rpc_channel_add_member, rpc_channel_members, rpc_channel_remove_member, rpc_root_channels,
 };

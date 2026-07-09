@@ -57,9 +57,9 @@ pub(crate) fn agent_env_slug() -> Option<String> {
 
 /// The NIP-29 subgroup id (`h`) this PTY session was spawned into, exported as
 /// `TENEX_EDGE_CHANNEL`. Present only for sessions launched into a subgroup task
-/// room; absent for ordinary project sessions. Threaded into session-resolving
+/// room; absent for ordinary channel sessions. Threaded into session-resolving
 /// RPCs so the daemon binds to the subgroup session (stored under this `h`)
-/// rather than a sibling parent-project session in the same working directory.
+/// rather than a sibling parent-channel session in the same working directory.
 pub(crate) fn channel_env() -> Option<String> {
     std::env::var("TENEX_EDGE_CHANNEL")
         .ok()
@@ -73,14 +73,14 @@ pub(crate) fn ephemeral_session_env() -> bool {
 /// The hosted PTY session this CLI invocation runs in. It is present in the
 /// harness env from process birth and is 1:1 with the session, so the daemon
 /// resolves it to the caller's canonical session. Native harness shells outside
-/// tenex-edge launch fall back to harness ids, watched pid, or project scan.
+/// tenex-edge launch fall back to harness ids, watched pid, or channel scan.
 pub(crate) fn pty_session_env() -> Option<String> {
     std::env::var("TENEX_EDGE_PTY_SESSION")
         .ok()
         .filter(|s| !s.is_empty())
 }
 
-/// Build the typed caller identity and project it into the daemon's stable RPC
+/// Build the typed caller identity and channel it into the daemon's stable RPC
 /// JSON shape. One definition keeps senders from drifting; merge call-specific
 /// fields on top with [`rpc_params`].
 pub(crate) fn caller_identity() -> serde_json::Value {

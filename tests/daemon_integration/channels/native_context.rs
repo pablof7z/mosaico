@@ -75,7 +75,7 @@ fn channels_create_uses_watch_pid_as_exact_session_anchor() {
 }
 
 #[test]
-fn who_refuses_agent_project_scan_without_exact_anchor() {
+fn who_refuses_agent_channel_scan_without_exact_anchor() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
@@ -129,7 +129,7 @@ fn who_refuses_agent_project_scan_without_exact_anchor() {
             )
             .await
             .expect("who should accept the exact watched-process anchor");
-        assert_eq!(ok["project"].as_str(), Some(current_channel.as_str()));
+        assert_eq!(ok["root"].as_str(), Some(current_channel.as_str()));
         assert!(
             ok.get("fabric_human").is_none(),
             "agent-anchored who should keep the XML fabric path"

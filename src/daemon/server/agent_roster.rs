@@ -66,7 +66,7 @@ pub(in crate::daemon::server) async fn publish_local_agent_roster(
 
 fn root_channels(store: &Store) -> Vec<String> {
     store
-        .list_projects_read_model()
+        .list_root_channels()
         .unwrap_or_default()
         .into_iter()
         .filter(|c| !c.is_archived())

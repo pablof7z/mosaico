@@ -15,7 +15,7 @@ pub enum TailEvent {
     /// Directed message / mention arriving or departing.
     Msg {
         ts: u64,
-        project: String,
+        channel: String,
         from: String,
         from_session: Option<String>,
         to: String,
@@ -25,7 +25,7 @@ pub enum TailEvent {
     /// Outbound delivery state transition.
     Sync {
         ts: u64,
-        project: String,
+        channel: String,
         from: String,
         to: String,
         /// "accepted" | "delivered" | "failed"
@@ -35,7 +35,7 @@ pub enum TailEvent {
     /// Working / idle transition for a local session.
     Turn {
         ts: u64,
-        project: String,
+        channel: String,
         agent: String,
         session: String,
         /// "working" | "idle"
@@ -47,7 +47,7 @@ pub enum TailEvent {
     /// mid-turn flag (`active`).
     Status {
         ts: u64,
-        project: String,
+        channel: String,
         agent: String,
         text: String,
         /// Whether the session is mid-turn (idle = !active).
@@ -56,7 +56,7 @@ pub enum TailEvent {
     /// Peer session came online (first-seen heartbeat).
     Join {
         ts: u64,
-        project: String,
+        channel: String,
         agent: String,
         host: String,
         session: String,
@@ -65,7 +65,7 @@ pub enum TailEvent {
     /// Peer session went offline (prune / expiry / rpc_session_end).
     Leave {
         ts: u64,
-        project: String,
+        channel: String,
         agent: String,
         host: String,
         session: String,
@@ -75,17 +75,17 @@ pub enum TailEvent {
     /// Own session start / end.
     Sess {
         ts: u64,
-        project: String,
+        channel: String,
         agent: String,
         session: String,
         /// "start" | "end"
         state: String,
         rel_cwd: String,
     },
-    /// Project metadata (about) changed.
+    /// Channel metadata (about) changed.
     Proj {
         ts: u64,
-        project: String,
+        channel: String,
         about: String,
     },
     /// New agent profile first discovered (default-hidden tier).
@@ -100,14 +100,14 @@ pub enum TailEvent {
 impl TailEvent {
     pub(crate) fn delivery_failure(
         ts: u64,
-        project: &str,
+        channel: &str,
         agent: &str,
         session: &str,
         detail: impl Into<String>,
     ) -> Self {
         TailEvent::Sync {
             ts,
-            project: project.to_string(),
+            channel: channel.to_string(),
             from: "tenex-edge".to_string(),
             to: agent.to_string(),
             state: "failed".to_string(),
@@ -175,7 +175,7 @@ mod tests {
     fn tier_ordering_is_correct() {
         let msg = TailEvent::Msg {
             ts: 0,
-            project: "proj".into(),
+            channel: "proj".into(),
             from: "a".into(),
             from_session: None,
             to: "b".into(),
@@ -184,7 +184,7 @@ mod tests {
         };
         let status = TailEvent::Status {
             ts: 0,
-            project: "proj".into(),
+            channel: "proj".into(),
             agent: "a".into(),
             text: "working".into(),
             active: true,
@@ -204,7 +204,7 @@ mod tests {
     fn category_names_match_spec() {
         let ev = TailEvent::Join {
             ts: 0,
-            project: "p".into(),
+            channel: "p".into(),
             agent: "a".into(),
             host: "h".into(),
             session: "s".into(),
@@ -219,14 +219,14 @@ mod tests {
         match ev {
             TailEvent::Sync {
                 ts,
-                project,
+                channel,
                 from,
                 to,
                 state,
                 detail,
             } => {
                 assert_eq!(ts, 7);
-                assert_eq!(project, "chan");
+                assert_eq!(channel, "chan");
                 assert_eq!(from, "tenex-edge");
                 assert_eq!(to, "codex");
                 assert_eq!(state, "failed");
@@ -240,7 +240,7 @@ mod tests {
     fn roundtrip_serialization() {
         let ev = TailEvent::Turn {
             ts: 1_700_000_000,
-            project: "tenex-edge".into(),
+            channel: "tenex-edge".into(),
             agent: "claude".into(),
             session: "te-abc-123".into(),
             state: "working".into(),

@@ -12,7 +12,7 @@ const START_CHANNEL_READY_TIMEOUT: std::time::Duration = std::time::Duration::fr
 
 pub(super) async fn verify_start_channel_ready(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
     work_root: &str,
     room_parent: Option<&str>,
     name: Option<&str>,
@@ -20,7 +20,7 @@ pub(super) async fn verify_start_channel_ready(
 ) -> Result<()> {
     start_channel_ready(
         state,
-        project,
+        channel,
         work_root,
         room_parent,
         name,
@@ -32,7 +32,7 @@ pub(super) async fn verify_start_channel_ready(
 
 async fn start_channel_ready(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
     work_root: &str,
     room_parent: Option<&str>,
     name: Option<&str>,
@@ -40,15 +40,15 @@ async fn start_channel_ready(
     progress: Option<&InitProgress>,
 ) -> Result<()> {
     if let Some(parent) = room_parent {
-        ensure_session_room_ready(state, project, parent, agent_pubkey, progress).await
+        ensure_session_room_ready(state, channel, parent, agent_pubkey, progress).await
     } else {
-        ensure_existing_channel_ready(state, project, work_root, name, agent_pubkey).await
+        ensure_existing_channel_ready(state, channel, work_root, name, agent_pubkey).await
     }
 }
 
 async fn ensure_session_room_ready(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
     parent: &str,
     agent_pubkey: &str,
     progress: Option<&InitProgress>,
@@ -56,19 +56,19 @@ async fn ensure_session_room_ready(
     // Human-initiated session: mint its per-session room under the work-root,
     // then await the relay's kind:39000 echo before opening gates.
     if let Some(prog) = progress {
-        prog.emit("nip29", format!("minting per-session room {project}"));
+        prog.emit("nip29", format!("minting per-session room {channel}"));
     }
     let provisioned = matches!(
         tokio::time::timeout(
             START_CHANNEL_READY_TIMEOUT,
-            ensure_session_room(state, project, project, parent, agent_pubkey),
+            ensure_session_room(state, channel, channel, parent, agent_pubkey),
         )
         .await,
         Ok(true)
     );
     if !provisioned {
         anyhow::bail!(
-            "per-session room {project} (parent {parent}) was not provisioned on the relay; \
+            "per-session room {channel} (parent {parent}) was not provisioned on the relay; \
              channel readiness remains pending"
         );
     }
@@ -77,20 +77,20 @@ async fn ensure_session_room_ready(
 
 async fn ensure_existing_channel_ready(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
     work_root: &str,
     name: Option<&str>,
     agent_pubkey: &str,
 ) -> Result<()> {
-    // Project / orchestration sessions must verify relay-backed channel state.
-    let parent_hint = if project != work_root && !work_root.is_empty() {
+    // Channel / orchestration sessions must verify relay-backed channel state.
+    let parent_hint = if channel != work_root && !work_root.is_empty() {
         Some(work_root.to_string())
     } else {
         None
     };
     let open = async {
         let ctx = crate::fabric::nip29::readiness::ChannelCtx {
-            channel: project,
+            channel,
             expect_member: agent_pubkey,
             parent_hint: parent_hint.as_deref(),
             name,
@@ -102,14 +102,14 @@ async fn ensure_existing_channel_ready(
     match tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open).await {
         Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded) => {
             anyhow::bail!(
-                "channel {project} was not verified ready on the relay; \
+                "channel {channel} was not verified ready on the relay; \
                  channel readiness remains pending"
             );
         }
         Ok(_) => Ok(()),
         Err(_) => {
             anyhow::bail!(
-                "ensure_channel_ready timed out for channel {project}; \
+                "ensure_channel_ready timed out for channel {channel}; \
                  channel readiness remains pending"
             );
         }

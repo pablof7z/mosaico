@@ -45,7 +45,7 @@ pub(super) fn session_published_reply_since(
 
 pub(super) struct NoReplyNotice<'a> {
     pub(super) agent_slug: &'a str,
-    pub(super) project: &'a str,
+    pub(super) channel: &'a str,
     pub(super) session_id: Option<&'a str>,
     pub(super) exec_id: &'a str,
     pub(super) pid: i32,
@@ -61,7 +61,7 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
             emit_local_notice_failure(state, &notice, body);
             tracing::warn!(
                 agent = %notice.agent_slug,
-                project = notice.project,
+                channel = notice.channel,
                 exec_id = notice.exec_id,
                 error = %e,
                 "headless no-reply notice publish skipped: missing management keys"
@@ -73,13 +73,13 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
     let from = format!("{} (tenex-edge)", state.host);
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), from.clone()),
-        project: notice.project.to_string(),
+        channel: notice.channel.to_string(),
         body: body.clone(),
         mentioned_pubkey: None,
     };
     let record = OutboundChatRecord {
         from_session: None,
-        channel_h: notice.project.to_string(),
+        channel_h: notice.channel.to_string(),
         body: body.clone(),
         mentioned_pubkey: None,
         mentioned_session: None,
@@ -96,7 +96,7 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
             emit_local_notice_failure(state, &notice, body);
             tracing::warn!(
                 agent = %notice.agent_slug,
-                project = notice.project,
+                channel = notice.channel,
                 exec_id = notice.exec_id,
                 error = %format!("{e:#}"),
                 "headless no-reply notice publish failed"
@@ -106,7 +106,7 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
     };
     state.emit_tail(TailEvent::Msg {
         ts: published.created_at,
-        project: notice.project.to_string(),
+        channel: notice.channel.to_string(),
         from,
         from_session: None,
         to: notice.agent_slug.to_string(),
@@ -117,7 +117,7 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
 
 fn emit_local_notice_failure(state: &Arc<DaemonState>, notice: &NoReplyNotice<'_>, body: String) {
     state.emit_delivery_failure(
-        notice.project,
+        notice.channel,
         notice.agent_slug,
         notice.session_id.unwrap_or(notice.exec_id),
         body,
@@ -149,7 +149,7 @@ mod tests {
         let log_path = PathBuf::from("/tmp/exec-codex-1.log");
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "codex",
-            project: "chan",
+            channel: "chan",
             session_id: Some("te-session"),
             exec_id: "exec-codex-1",
             pid: 4321,
@@ -170,7 +170,7 @@ mod tests {
         let log_path = PathBuf::from("/tmp/exec-claude-1.log");
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "claude",
-            project: "chan",
+            channel: "chan",
             session_id: None,
             exec_id: "exec-claude-1",
             pid: 9876,

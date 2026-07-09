@@ -55,7 +55,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     let rec = resolve_session_inner(
         state,
         &CallerAnchor::from_params(params),
-        ResolveScope::Project,
+        ResolveScope::Channel,
     )?;
     let target =
         resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel read").await?;
@@ -133,16 +133,16 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     loop {
         match rx.recv().await {
             Ok(TailEvent::Msg {
-                project: ev_project,
+                channel: ev_channel,
                 ..
-            }) if read_scopes.contains(&ev_project) => {
+            }) if read_scopes.contains(&ev_channel) => {
                 let cursor = cursors
-                    .entry(ev_project.clone())
+                    .entry(ev_channel.clone())
                     .or_insert_with(|| ChatCursor::new(live_floor))
                     .clone();
                 let rows = state.with_store(|s| {
                     s.chat_messages_for_channel_after(
-                        &ev_project,
+                        &ev_channel,
                         cursor.created_at,
                         &cursor.id,
                         CHAT_READ_CAP,
@@ -215,7 +215,7 @@ pub(in crate::daemon::server) fn chat_log_row_to_json(
         "from_pubkey": &row.author_pubkey,
         "from_slug": from_slug,
         "host": host,
-        "project": &row.channel_h,
+        "channel": &row.channel_h,
         "body": body,
         "truncated": truncated,
         "created_at": row.created_at,

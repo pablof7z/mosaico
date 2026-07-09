@@ -1,7 +1,7 @@
 //! `relay_channels` — kind:39000 group metadata cache.
 //!
-//! A channel and a project are one abstraction; `parent` is the only distinction
-//! (`""` = top-level project channel, set = session/task channel).
+//! A channel and a channel are one abstraction; `parent` is the only distinction
+//! (`""` = top-level root channel, set = session/task channel).
 
 use super::*;
 
@@ -143,8 +143,8 @@ impl Store {
             .unwrap_or(false))
     }
 
-    /// Root project channels as read-model rows, ordered by stable project id.
-    pub fn list_projects_read_model(&self) -> Result<Vec<Channel>> {
+    /// Root channels as read-model rows, ordered by stable channel id.
+    pub fn list_root_channels(&self) -> Result<Vec<Channel>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM relay_channels WHERE parent='' ORDER BY channel_h"
         ))?;
@@ -152,12 +152,12 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Read-model metadata for a channel/project.
+    /// Read-model metadata for a channel/channel.
     pub fn channel_meta_read_model(&self, channel_h: &str) -> Result<Option<Channel>> {
         self.get_channel(channel_h)
     }
 
-    /// The `parent` h-tag of a channel (`""` for a top-level project channel),
+    /// The `parent` h-tag of a channel (`""` for a top-level root channel),
     /// or `None` if the channel is unknown.
     pub fn channel_parent(&self, channel_h: &str) -> Result<Option<String>> {
         Ok(self
@@ -170,10 +170,10 @@ impl Store {
             .optional()?)
     }
 
-    /// Walk a known channel's `parent` links to its top-level project channel.
+    /// Walk a known channel's `parent` links to its top-level root channel.
     /// Returns `None` when the channel or any ancestor is unknown; callers that
     /// use rootness for routing/admission must not silently treat that as root.
-    pub fn channel_project_root(&self, channel_h: &str) -> Result<Option<String>> {
+    pub fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
         if self.get_channel(channel_h)?.is_none() {
             return Ok(None);
         }
@@ -200,20 +200,20 @@ impl Store {
         );
     }
 
-    /// True when the channel is a known top-level project channel (`parent`
+    /// True when the channel is a known top-level root channel (`parent`
     /// empty). Unknown channels are not root.
     pub fn is_root_channel(&self, channel_h: &str) -> Result<bool> {
         Ok(self
-            .channel_project_root(channel_h)?
+            .root_channel_of(channel_h)?
             .map(|root| root == channel_h)
             .unwrap_or(false))
     }
 
     /// True when the channel is known and belongs under a different top-level
-    /// project root. Unknown ancestry is not treated as a sub-channel.
+    /// channel root. Unknown ancestry is not treated as a sub-channel.
     pub fn is_subchannel(&self, channel_h: &str) -> Result<bool> {
         Ok(self
-            .channel_project_root(channel_h)?
+            .root_channel_of(channel_h)?
             .map(|root| root != channel_h)
             .unwrap_or(false))
     }

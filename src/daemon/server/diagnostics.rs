@@ -33,9 +33,9 @@ pub(in crate::daemon::server) fn rpc_local_backend(
     Ok(serde_json::json!({ "pubkey": pubkey, "backend_label": state.host.clone() }))
 }
 
-pub(in crate::daemon::server) async fn refresh_project_members_cache(
+pub(in crate::daemon::server) async fn refresh_channel_members_cache(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
 ) -> bool {
     use crate::fabric::nip29::materializer::Nip29Materializer;
     use crate::fabric::nip29::wire::{kind, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS};
@@ -43,7 +43,7 @@ pub(in crate::daemon::server) async fn refresh_project_members_cache(
 
     let filter = Filter::new()
         .kinds([kind(KIND_GROUP_ADMINS), kind(KIND_GROUP_MEMBERS)])
-        .identifier(project)
+        .identifier(channel)
         .limit(10);
     let Ok(events) = state.transport.fetch(filter, Duration::from_secs(5)).await else {
         return false;

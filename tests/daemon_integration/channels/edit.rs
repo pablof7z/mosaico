@@ -105,7 +105,7 @@ fn channels_edit_ambiguous_reference_returns_exact_reruns() {
         .channel_h;
     let actual_root = Store::open(&home.store_path())
         .unwrap()
-        .channel_project_root(&active_channel)
+        .root_channel_of(&active_channel)
         .unwrap()
         .unwrap_or(active_channel);
     Store::open(&home.store_path())

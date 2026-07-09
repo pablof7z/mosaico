@@ -2,15 +2,15 @@
 //!
 //! Renders the awareness floor for a host status bar:
 //!   claude@kubrick tenex-edge support [Refactoring the inbox] [writing tests]
-//!   └ identity ┘  └ project┘  └channel┘ └ distilled title ┘   └ live activity ┘
+//!   └ identity ┘  └ root┘  └channel┘ └ distilled title ┘   └ live activity ┘
 //!
 //! The channel segment is the channel's human NAME (kind:39000 `name`), falling
 //! back to its raw id only when no name is cached — the opaque id is never shown
 //! when a name exists.
 //!
 //! `agentName` is exactly what the session published in its kind:0 profile
-//! (the `name` field). `host` is the backend's exact config label. `project-name` is
-//! the work-root project the session room hangs under. `#session` is the
+//! (the `name` field). `host` is the backend's exact config label. `root-name` is
+//! the work-root channel the session room hangs under. `#session` is the
 //! channel the session is currently on (changes with `tenex-edge channels
 //! switch`). `[title]` is that channel's title on the relay (kind:39000 `name`
 //! tag for a task channel; the distilled session title for a per-session
@@ -97,14 +97,14 @@ pub struct StatuslineView {
     #[serde(default)]
     #[allow(dead_code)]
     session_id: String,
-    /// The work-root project the session's room hangs under (== `who`'s
-    /// "Project:" line). For an ordinary project session this is `project`
-    /// itself; for a per-session room it's the parent project.
+    /// The work-root channel the session's room hangs under (== `who`'s
+    /// "Root:" line). For an ordinary root session this is `root`
+    /// itself; for a per-session room it's the parent root.
     #[serde(default)]
     work_root: String,
     /// The NIP-29 channel the session is currently routing under — its
     /// `channel` when set (via `tenex-edge channels switch`), else its
-    /// per-session room `project`. The `#session-…` segment renders this id.
+    /// per-session room `root`. The `#session-…` segment renders this id.
     #[serde(default)]
     channel: String,
     /// The channel's display title on the relay (kind:39000 `name` tag for a
@@ -165,7 +165,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
         ident, "36", // cyan
     ));
 
-    // Project: the work-root project the session's room hangs under.
+    // Root: the work-root channel the session's room hangs under.
     segs.push(paint(v.work_root.clone(), "2"));
 
     // Session: the channel the session is currently on (its `channel` when set,
@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_identity_project_session_title_status() {
+    fn renders_identity_root_session_title_status() {
         let s = render_statusline(&view(), false);
         // Channel segment renders the human NAME (`support`), never the opaque
         // id; the distilled session title follows in its own `[…]` segment.

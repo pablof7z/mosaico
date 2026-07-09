@@ -42,7 +42,7 @@ impl DaemonState {
             owners,
             hosted: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
-            subscribed_projects: Mutex::new(Vec::new()),
+            subscribed_root_channels: Mutex::new(Vec::new()),
             subs: Mutex::new(crate::reconcile::SubscriptionReconciler::new().expect("subs")),
             status: Arc::new(Mutex::new(crate::reconcile::StatusReconciler::for_ttl(
                 status_ttl_duration(),

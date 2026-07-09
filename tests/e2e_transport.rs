@@ -23,7 +23,7 @@ async fn publishes_and_decodes_all_event_types() {
     let reader_keys = Keys::generate();
     let agent_pk = agent_keys.public_key().to_hex();
     let reader_pk = reader_keys.public_key().to_hex();
-    let project = "tenex-edge".to_string();
+    let channel = "tenex-edge".to_string();
 
     // Reader subscribes FIRST (presence is ephemeral — must be listening live).
     let reader = Transport::connect(std::slice::from_ref(&relay.url), reader_keys)
@@ -31,7 +31,7 @@ async fn publishes_and_decodes_all_event_types() {
         .expect("reader connects");
     let scope = Scope {
         authors: vec![agent_pk.clone()],
-        project: Some(project.clone()),
+        channel: Some(channel.clone()),
     };
     reader
         .subscribe(scope_filters(&scope))
@@ -56,7 +56,7 @@ async fn publishes_and_decodes_all_event_types() {
         }),
         DomainEvent::Status(Status {
             agent: aref.clone(),
-            channels: vec![project.clone()],
+            channels: vec![channel.clone()],
             session_id: "sess-1".into(),
             host: "test-host".into(),
             title: "fixing the auth bug".into(),

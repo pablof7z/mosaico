@@ -20,7 +20,6 @@ mod joined_tail;
 mod llm_tail;
 mod membership_tail;
 mod outbox_tail;
-mod project_root_tail;
 mod quarantine_tail;
 mod readiness_attempt_tail;
 mod receipt_tail;
@@ -33,6 +32,7 @@ mod status_tail;
 mod subscription_tail;
 mod turn_tail;
 mod txn_tail;
+mod workspace_tail;
 
 pub(in crate::cli) fn render_validate(v: &Value) -> String {
     let mut out = String::new();
@@ -109,8 +109,8 @@ pub(in crate::cli) fn render_validate(v: &Value) -> String {
     if let Some(alias) = v.get("alias_evidence").filter(|v| !v.is_null()) {
         alias_tail::render(&mut out, alias);
     }
-    if let Some(project_root) = v.get("project_root_evidence").filter(|v| !v.is_null()) {
-        project_root_tail::render(&mut out, project_root);
+    if let Some(workspace) = v.get("workspace_evidence").filter(|v| !v.is_null()) {
+        workspace_tail::render(&mut out, workspace);
     }
     if let Some(membership) = v.get("membership_evidence").filter(|v| !v.is_null()) {
         membership_tail::render(&mut out, membership);

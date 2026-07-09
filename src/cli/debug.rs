@@ -188,13 +188,13 @@ mod tests {
     }
 
     #[test]
-    fn command_session_can_infer_unique_live_agent_project() {
+    fn command_session_can_infer_unique_live_agent_channel() {
         let mut panes = BTreeMap::new();
         panes.insert(
             "session-a".to_string(),
             SessionPane {
                 session: "session-a".to_string(),
-                project: "proj".to_string(),
+                root: "proj".to_string(),
                 agent: "coder".to_string(),
                 ..SessionPane::default()
             },
@@ -208,7 +208,7 @@ mod tests {
             "session-b".to_string(),
             SessionPane {
                 session: "session-b".to_string(),
-                project: "proj".to_string(),
+                root: "proj".to_string(),
                 agent: "coder".to_string(),
                 ..SessionPane::default()
             },

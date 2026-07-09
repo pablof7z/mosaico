@@ -55,20 +55,20 @@ impl Home {
         std::env::set_var("TENEX_CONFIG", &cfg);
         std::env::set_var("TENEX_EDGE_DAEMON_GRACE_S", "30");
         std::env::set_var("TENEX_EDGE_BIN", bin());
-        // Register /tmp as a project so hooks (which all send cwd=/tmp) find a
-        // resolvable project. Without this, the new "refuse to start without a
-        // known project" gate silently exits 0 and the tests see no session.
-        let projects_map = serde_json::json!({ "tmp": "/tmp" });
+        // Register /tmp as a channel so hooks (which all send cwd=/tmp) find a
+        // resolvable channel. Without this, the new "refuse to start without a
+        // known channel" gate silently exits 0 and the tests see no session.
+        let workspace_map = serde_json::json!({ "tmp": "/tmp" });
         std::fs::write(
-            dir.path().join("projects.json"),
-            serde_json::to_string(&projects_map).unwrap(),
+            dir.path().join("workspaces.json"),
+            serde_json::to_string(&workspace_map).unwrap(),
         )
         .unwrap();
         Home { dir }
     }
     /// Rewrite the config to include a backend signing key (`tenexPrivateKey`).
     /// Needed by tests that start multiple CONCURRENT same-agent sessions in one
-    /// project: with per-session rooms off (the default) they share the project
+    /// channel: with per-session rooms off (the default) they share the channel
     /// channel and thus the durable signer slot, so the second session derives a
     /// transient "second-personality" key — which requires a backend key.
     pub(crate) fn with_backend_key(self) -> Self {

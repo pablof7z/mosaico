@@ -22,8 +22,8 @@ pub(super) fn context_instance(
         })
 }
 
-pub(super) fn project_root_h(s: &Store, channel: &str) -> String {
-    s.channel_project_root(channel)
+pub(super) fn root_channel_h(s: &Store, channel: &str) -> String {
+    s.root_channel_of(channel)
         .ok()
         .flatten()
         .unwrap_or_else(|| channel.to_string())

@@ -33,7 +33,6 @@ mod membership;
 mod message;
 mod outbox;
 mod params;
-mod project_root;
 mod quarantine;
 mod readiness_attempt;
 mod receipt;
@@ -55,6 +54,7 @@ mod target;
 mod target_checks;
 mod turn;
 mod txn;
+mod workspace;
 
 pub(super) fn validate_value(state: &Arc<DaemonState>, params: &Value) -> Result<Value> {
     let input = input::ValidationInput::collect(state, params);

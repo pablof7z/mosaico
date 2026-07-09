@@ -377,7 +377,7 @@ fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
 }
 
 /// A forced but empty delta (nothing new since the cursor) must explain that the
-/// fabric reports only changes, NOT emit a bare empty `<project>` skeleton that
+/// fabric reports only changes, NOT emit a bare empty `<workspace>` skeleton that
 /// reads as "channels disappeared". Regression for the confusing second `who`.
 #[test]
 fn quiet_forced_delta_renders_no_new_activity_note() {
@@ -387,7 +387,7 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("forced who should always render");
     assert!(text.contains("You are @coder, a coder agent."));
-    assert!(text.contains("<no-new-activity project=\"main\">"));
+    assert!(text.contains("<no-new-activity workspace=\"main\">"));
     assert!(text.contains("The fabric surfaces only what changed"));
     // The tell-tale empty skeleton must NOT appear: no channel/members blocks.
     assert!(!text.contains("<members>"), "got: {text}");

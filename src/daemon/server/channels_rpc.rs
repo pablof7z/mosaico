@@ -14,7 +14,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
 ) -> bool {
     // Provision the room through the SAME shared primitive every channel uses
     // (per-session rooms, orchestration task rooms, operator-created channels):
-    // ensure the parent project exists (recursively), create+lock the subgroup,
+    // ensure the parent channel exists (recursively), create+lock the subgroup,
     // propagate the parent's trusted admin set DOWN, and add the owning agent as a
     // member. Best-effort and fail-open — a degraded relay leaves the session
     // running without a relay-backed room.
@@ -55,8 +55,8 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
         /// creating agent's CURRENT channel (see `parent` resolution below).
         #[serde(default)]
         parent: Option<String>,
-        /// Project-relative parent override from `channels create
-        /// --parent-channel`. Resolved within the creator's project subtree; takes
+        /// Channel-relative parent override from `channels create
+        /// --parent-channel`. Resolved within the creator's channel subtree; takes
         /// precedence over both the literal `parent` and the current-channel
         /// default.
         #[serde(default)]
@@ -74,7 +74,7 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
 
     // Resolve the creator agent (when invoked from a session) FIRST — both the
     // child-of-current-channel default and the auto-switch below need it. Strict
-    // resolution (no project fallback): child-of-current and auto-switch must only
+    // resolution (no channel fallback): child-of-current and auto-switch must only
     // fire when actually run as an agent, never bind to an arbitrary sibling
     // session of a bare operator invocation.
     let creator_rec = resolve_session_inner(
@@ -84,30 +84,30 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
     )
     .ok();
 
-    // Operator cwd-resolved project slug (== root channel_h for project roots).
+    // Operator cwd-resolved channel slug (== root channel_h for channel roots).
     // Used as fallback when there is no agent session.
-    let cwd_project: Option<String> = params["cwd"]
+    let cwd_channel: Option<String> = params["cwd"]
         .as_str()
         .filter(|s| !s.is_empty())
-        .and_then(|cwd| crate::project::resolve(std::path::Path::new(cwd)).ok());
+        .and_then(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).ok());
 
     // Resolve the parent the new channel hangs under:
-    //   1. `--parent-channel <ref>` — project-relative override.
+    //   1. `--parent-channel <ref>` — channel-relative override.
     //   2. the creating agent's CURRENT channel — the child-of-current default.
     //   3. an explicit literal `parent` — the picker / operator / test path.
-    //   4. cwd-resolved project root — bare operator invocation from a project dir.
+    //   4. cwd-resolved channel root — bare operator invocation from a channel dir.
     let parent: String = if let Some(r) = p
         .parent_channel
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        // Prefer the session's project root; fall back to cwd-resolved project.
+        // Prefer the session's channel root; fall back to cwd-resolved channel.
         let root = if let Some(rec) = &creator_rec {
-            state.with_store(|s| super::project_root(s, &rec.channel_h))
+            state.with_store(|s| super::root_channel(s, &rec.channel_h))
         } else {
-            cwd_project.clone().context(
-                "--parent-channel requires running inside an agent session or a project directory",
+            cwd_channel.clone().context(
+                "--parent-channel requires running inside an agent session or a channel directory",
             )?
         };
         match state.with_store(|s| super::resolve_channel_ref(s, &root, r)) {
@@ -116,18 +116,18 @@ pub(in crate::daemon::server) async fn rpc_channels_create(
                 return Ok(serde_json::json!({ "ambiguous": refs, "reference": r }));
             }
             super::ChannelResolution::NotFound => {
-                anyhow::bail!("no channel matching {r:?} in this project")
+                anyhow::bail!("no channel matching {r:?} in this channel")
             }
         }
     } else if let Some(rec) = &creator_rec {
         rec.channel_h.clone()
     } else if let Some(par) = p.parent.as_deref().filter(|s| !s.is_empty()) {
         par.to_string()
-    } else if let Some(proj) = cwd_project {
+    } else if let Some(proj) = cwd_channel {
         proj
     } else {
         anyhow::bail!(
-            "channels create needs a parent: run it inside an agent session, pass --parent-channel, or run from a project directory"
+            "channels create needs a parent: run it inside an agent session, pass --parent-channel, or run from a channel directory"
         );
     };
 
@@ -184,7 +184,7 @@ Switch into it instead: tenex-edge channels switch {}",
 
     // ONE shared primitive provisions EVERY channel — per-session rooms,
     // orchestration task rooms, and operator-created channels are the same thing.
-    // `ensure_channel_ready` ensures the parent project group exists (recursively),
+    // `ensure_channel_ready` ensures the parent channel group exists (recursively),
     // creates+locks the child subgroup under it, propagates the trusted admin set
     // (parent admins + whitelist + backend) DOWN, and adds the member. The only
     // thing that differs between callers is where the name comes from and who the
@@ -224,7 +224,7 @@ Switch into it instead: tenex-edge channels switch {}",
 
     // Publish the durable `about` as kind:9002 edit-metadata so it reaches the
     // relay's kind:39000 (not just the local cache), signed by the management key
-    // exactly like `rpc_project_edit` does. Best-effort: the channel exists either
+    // exactly like the channels edit RPC does. Best-effort: the channel exists either
     // way; an unset `about` skips the publish.
     if !p.about.trim().is_empty() {
         let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&child_h, &p.about)?;

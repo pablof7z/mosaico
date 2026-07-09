@@ -32,7 +32,7 @@ pub(super) enum Cmd {
     // corresponding private fn (session_start_inner / turn_start / turn_check /
     // turn_end). Session end has a small public surface for agents to end
     // themselves explicitly.
-    /// List agents currently visible in the project/channel.
+    /// List agents currently visible in the channel/channel.
     Who(WhoArgs),
     /// Interactively configure model providers and role-to-model assignments.
     Config(ConfigArgs),
@@ -44,7 +44,7 @@ pub(super) enum Cmd {
     },
     /// Manage the local agent keystore: agents that have a private key on THIS
     /// machine under `<edge_home>/agents/<slug>.json`. These are the identities
-    /// you can spawn locally; project membership is governed separately by the
+    /// you can spawn locally; channel membership is governed separately by the
     /// codec (e.g. the NIP-29 group's member list), not here.
     Agent {
         #[command(subcommand)]

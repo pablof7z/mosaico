@@ -6,7 +6,7 @@
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct FabricView {
     pub(in crate::fabric_context) self_row: Option<SelfRow>,
-    pub(in crate::fabric_context) project: ProjectRow,
+    pub(in crate::fabric_context) workspace: WorkspaceRow,
     pub(in crate::fabric_context) agents: Vec<AgentRow>,
     pub(in crate::fabric_context) channels: Vec<ChannelBlock>,
     pub(in crate::fabric_context) unjoined: Vec<UnjoinedChannelRow>,
@@ -15,7 +15,7 @@ pub(crate) struct FabricView {
     /// True when this view was built in delta mode (cursor > 0): it carries only
     /// what changed since the caller's last snapshot, not the full current state.
     /// The renderer uses it to explain a quiet result rather than emitting a bare
-    /// empty project block that reads as "everything disappeared".
+    /// empty workspace block that reads as "everything disappeared".
     pub(in crate::fabric_context) incremental: bool,
 }
 
@@ -31,7 +31,7 @@ impl FabricView {
 
     /// A forced delta snapshot that surfaced nothing new. Rendered as an explicit
     /// "nothing changed" note (see `render_no_new_activity`) instead of an empty
-    /// `<project>` skeleton, so a quiet fabric never looks like data loss. Unjoined
+    /// `<workspace>` skeleton, so a quiet fabric never looks like data loss. Unjoined
     /// channels and warnings count as content worth showing, so their presence
     /// takes the normal render path.
     pub(in crate::fabric_context) fn is_quiet_delta(&self) -> bool {
@@ -45,7 +45,7 @@ impl FabricView {
 }
 
 #[derive(Clone, Default, PartialEq)]
-pub(in crate::fabric_context) struct ProjectRow {
+pub(in crate::fabric_context) struct WorkspaceRow {
     pub(in crate::fabric_context) name: String,
     pub(in crate::fabric_context) about: String,
 }
@@ -111,7 +111,7 @@ pub(in crate::fabric_context) struct MessageRow {
     pub(in crate::fabric_context) truncated: bool,
 }
 
-/// A channel in the project this agent has not joined — not a dormant one;
+/// A channel in the workspace this agent has not joined — not a dormant one;
 /// joined channels never appear here regardless of how quiet they are.
 #[derive(Clone, PartialEq)]
 pub(in crate::fabric_context) struct UnjoinedChannelRow {

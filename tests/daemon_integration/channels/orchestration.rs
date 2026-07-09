@@ -41,7 +41,7 @@ fn orchestration_session_uses_existing_group_without_minting() {
     assert_eq!(channel.name, "issue-42");
     assert_eq!(
         channel.parent, "tmp",
-        "with a channel override the session joins the named task channel under the project root; it must not mint a per-session room"
+        "with a channel override the session joins the named task channel under the channel root; it must not mint a per-session room"
     );
 
     stop_daemon(&home);

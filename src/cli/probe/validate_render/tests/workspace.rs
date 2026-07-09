@@ -2,18 +2,18 @@ use super::*;
 use serde_json::json;
 
 #[test]
-fn validate_render_lists_project_root_evidence() {
+fn validate_render_lists_workspace_evidence() {
     let v = json!({
         "verb": "validate",
-        "target": "project:room",
+        "target": "channel:room",
         "verdict": "passed",
         "ok": true,
         "checks": [
-            {"name":"project_root","status":"passed","summary":"project `room` root path `/tmp/room` exists"}
+            {"name":"workspace","status":"passed","summary":"channel `room` root path `/tmp/room` exists"}
         ],
-        "project_root_evidence": {
+        "workspace_evidence": {
             "channel_h": "room",
-            "project_root": "root",
+            "root_channel": "root",
             "channel_found": true,
             "found": true,
             "direct_binding_found": false,
@@ -29,37 +29,37 @@ fn validate_render_lists_project_root_evidence() {
 
     let text = render_validate(&v);
 
-    assert!(text.contains("project root evidence"));
-    assert!(text.contains("channel=room project_root=root"));
+    assert!(text.contains("workspace evidence"));
+    assert!(text.contains("channel=room root_channel=root"));
     assert!(text.contains("binding_channel=root path=/tmp/root"));
     assert!(text.contains("direct=false inherited=true"));
 }
 
 #[test]
-fn validate_render_lists_project_root_reason() {
+fn validate_render_lists_workspace_reason() {
     let v = json!({
         "verb": "validate",
-        "target": "project:missing",
+        "target": "channel:missing",
         "verdict": "passed_with_limitations",
         "ok": true,
         "checks": [
-            {"name":"project_root","status":"not_proven","summary":"project `missing` has no local project root binding"}
+            {"name":"workspace","status":"not_proven","summary":"channel `missing` has no local workspace binding"}
         ],
-        "limitations": ["no project_roots row exists for this channel or its top-level project root"],
-        "project_root_evidence": {
+        "limitations": ["no workspace_roots row exists for this channel or its root channel"],
+        "workspace_evidence": {
             "channel_h": "missing",
-            "project_root": "",
+            "root_channel": "",
             "channel_found": false,
             "found": false,
             "direct_binding_found": false,
             "inherited_binding": false,
             "binding_channel_h": "",
-            "reason": "no project_roots row exists for this channel or its top-level project root"
+            "reason": "no workspace_roots row exists for this channel or its root channel"
         }
     });
 
     let text = render_validate(&v);
 
-    assert!(text.contains("project root evidence"));
-    assert!(text.contains("no project_roots row exists"));
+    assert!(text.contains("workspace evidence"));
+    assert!(text.contains("no workspace_roots row exists"));
 }

@@ -30,7 +30,7 @@ pub(in crate::daemon::server) struct CallerAnchor<'a> {
     /// harness-session lookup — a harness-native id is only unique WITHIN its
     /// harness. (`pty_session` needs no harness.)
     pub harness: Option<&'a str>,
-    /// Scan keys (used only in `Project` scope).
+    /// Scan keys (used only in `Channel` scope).
     pub cwd: Option<&'a str>,
     pub agent: Option<&'a str>,
     pub group: Option<&'a str>,
@@ -73,22 +73,22 @@ pub(in crate::daemon::server) enum ResolveScope {
     /// (channels switch/join/leave, invite, create) where guessing the wrong
     /// session is harmful.
     Strict,
-    /// Exact anchors, then the cwd+agent scan (latest-alive in the project). For
+    /// Exact anchors, then the cwd+agent scan (latest-alive in the channel). For
     /// reads and host-facing commands (who/turn/chat/propose) run from a repo.
-    Project,
+    Channel,
 }
 
 pub(in crate::daemon::server) fn resolve_session(
     state: &Arc<DaemonState>,
     anchor: &CallerAnchor,
 ) -> Result<Session> {
-    resolve_session_inner(state, anchor, ResolveScope::Project)
+    resolve_session_inner(state, anchor, ResolveScope::Channel)
 }
 
-/// The project channel a routing scope belongs under: a top-level channel is its
-/// own work root; sub-channels walk to the top-level project root.
+/// The root channel a routing scope belongs under: a top-level channel is its
+/// own work root; sub-channels walk to the top-level channel root.
 pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> String {
-    s.channel_project_root(scope)
+    s.root_channel_of(scope)
         .ok()
         .flatten()
         .unwrap_or_else(|| scope.to_string())
@@ -164,12 +164,12 @@ pub(in crate::daemon::server) fn resolve_session_inner(
              (no --session, PTY session, harness id, or watch pid resolved a live session)"
         );
     }
-    // 5. Scan: cwd-derived project (or explicit group) + agent slug.
+    // 5. Scan: cwd-derived channel (or explicit group) + agent slug.
     //    `list_alive_sessions` is newest-first, so the first match is the latest.
     //    LIMITATION: with no exact anchor (for a native harness that has neither
     //    a PTY session nor a harness-native id), this picks the latest
-    //    alive session for the agent in the project — so it assumes a single live
-    //    session per (agent, project) there. Hosted launches never reach this
+    //    alive session for the agent in the channel — so it assumes a single live
+    //    session per (agent, channel) there. Hosted launches never reach this
     //    tier because the PTY session anchor at step 2 is exact.
     let cwd = anchor
         .cwd
@@ -177,9 +177,9 @@ pub(in crate::daemon::server) fn resolve_session_inner(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let explicit_group = anchor.group.filter(|g| !g.is_empty());
     let work_root = explicit_group.is_none();
-    let project = explicit_group
+    let channel = explicit_group
         .map(|g| g.to_string())
-        .unwrap_or_else(|| crate::project::resolve(&cwd).unwrap_or_default());
+        .unwrap_or_else(|| crate::workspace::resolve(&cwd).unwrap_or_default());
     let want_agent = anchor.agent.filter(|a| !a.is_empty());
 
     let pick = state.with_store(|s| {
@@ -187,8 +187,8 @@ pub(in crate::daemon::server) fn resolve_session_inner(
             .unwrap_or_default()
             .into_iter()
             .find(|rec| {
-                let scope_ok = rec.channel_h == project
-                    || (work_root && work_root_for(s, &rec.channel_h) == project);
+                let scope_ok = rec.channel_h == channel
+                    || (work_root && work_root_for(s, &rec.channel_h) == channel);
                 let agent_ok = want_agent.map(|a| rec.agent_slug == a).unwrap_or(true);
                 scope_ok && agent_ok
             })
@@ -198,11 +198,11 @@ pub(in crate::daemon::server) fn resolve_session_inner(
     }
     if let Some(agent) = want_agent {
         anyhow::bail!(
-            "no active tenex-edge session for agent {agent:?} in project {project:?} (run session-start, or pass --session)"
+            "no active tenex-edge session for agent {agent:?} in channel {channel:?} (run session-start, or pass --session)"
         );
     }
     anyhow::bail!(
-        "no active tenex-edge session for project {project:?} (run session-start, or pass --session)"
+        "no active tenex-edge session for channel {channel:?} (run session-start, or pass --session)"
     )
 }
 
@@ -212,7 +212,7 @@ mod tests {
     use crate::state::Store;
 
     #[test]
-    fn work_root_for_walks_to_top_level_project() {
+    fn work_root_for_walks_to_top_level_root() {
         let store = Store::open_memory().unwrap();
         store.upsert_channel("root", "root", "", "", 1).unwrap();
         store.upsert_channel("task", "Task", "", "root", 1).unwrap();

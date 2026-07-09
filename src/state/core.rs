@@ -18,7 +18,7 @@ impl Store {
         //   synchronous=NORMAL safe under WAL; fsync only at checkpoints
         // No foreign_keys pragma: the schema declares no FK constraints.
         //
-        // WAL is a startup invariant, not a best-effort hint. This project has a
+        // WAL is a startup invariant, not a best-effort hint. This channel has a
         // documented multi-writer corruption incident: ~16 per-session readers
         // plus the daemon writer rely on WAL actually being engaged. Critically,
         // `PRAGMA journal_mode=WAL` does NOT error when it cannot switch — it

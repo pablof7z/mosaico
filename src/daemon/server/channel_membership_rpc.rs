@@ -13,7 +13,7 @@ pub(in crate::daemon::server) enum TargetChannel {
 /// `Strict` scope: the PTY/session anchor identifies the exact session,
 /// and a miss fails loud rather than binding an arbitrary sibling. `join`/
 /// `leave`/`switch` are per-session mutations, so picking "some session in this
-/// project" would be wrong.
+/// channel" would be wrong.
 pub(in crate::daemon::server) fn resolve_caller(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -27,9 +27,9 @@ pub(in crate::daemon::server) fn resolve_caller(
     .with_context(|| format!("{verb} must be run from within a tenex-edge agent session"))
 }
 
-/// Resolve `reference` in the caller's project subtree, returning the project
+/// Resolve `reference` in the caller's channel subtree, returning the channel
 /// root alongside the resolution so callers can decide what to do with a miss.
-fn resolve_ref_in_project(
+fn resolve_ref_in_channel(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     reference: &str,
@@ -37,7 +37,7 @@ fn resolve_ref_in_project(
     if reference.trim().is_empty() {
         anyhow::bail!("channel h must not be empty");
     }
-    let root = state.with_store(|s| super::project_root(s, &rec.channel_h));
+    let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
     let resolution = state.with_store(|s| super::resolve_channel_ref(s, &root, reference));
     Ok((root, resolution))
 }
@@ -51,17 +51,17 @@ pub(in crate::daemon::server) fn resolve_target_channel(
     rec: &crate::state::Session,
     reference: &str,
 ) -> Result<TargetChannel> {
-    match resolve_ref_in_project(state, rec, reference)? {
+    match resolve_ref_in_channel(state, rec, reference)? {
         (_, super::ChannelResolution::Unique(h)) => Ok(TargetChannel::Unique(h)),
         (_, super::ChannelResolution::Ambiguous(refs)) => Ok(ambiguous(refs, reference)),
         (_, super::ChannelResolution::NotFound) => {
-            anyhow::bail!("no channel matching {reference:?} in this project")
+            anyhow::bail!("no channel matching {reference:?} in this channel")
         }
     }
 }
 
 /// Like [`resolve_target_channel`] but with `mkdir -p` semantics: when the
-/// reference names a project-relative path that does not exist yet, create the
+/// reference names a channel-relative path that does not exist yet, create the
 /// whole missing ancestor chain (not just the leaf) and target the leaf. Used by
 /// `join`/`switch`, which are intent-to-be-there gestures; `leave`/`archive` keep
 /// the non-creating [`resolve_target_channel`].
@@ -70,7 +70,7 @@ pub(in crate::daemon::server) async fn resolve_or_create_target_channel(
     rec: &crate::state::Session,
     reference: &str,
 ) -> Result<TargetChannel> {
-    match resolve_ref_in_project(state, rec, reference)? {
+    match resolve_ref_in_channel(state, rec, reference)? {
         (_, super::ChannelResolution::Unique(h)) => Ok(TargetChannel::Unique(h)),
         (_, super::ChannelResolution::Ambiguous(refs)) => Ok(ambiguous(refs, reference)),
         (root, super::ChannelResolution::NotFound) => Ok(TargetChannel::Unique(
@@ -84,7 +84,7 @@ async fn ensure_joinable(
     rec: &crate::state::Session,
     channel_h: &str,
 ) -> Result<()> {
-    refresh_project_members_cache(state, channel_h).await;
+    refresh_channel_members_cache(state, channel_h).await;
     let is_member = state.with_store(
         |s| match s.is_channel_member(channel_h, &rec.agent_pubkey) {
             Ok(present) => present,
@@ -115,7 +115,7 @@ async fn ensure_joinable(
                 channel_h
             );
         }
-        refresh_project_members_cache(state, channel_h).await;
+        refresh_channel_members_cache(state, channel_h).await;
     }
 
     // A store error here MUST fail the switch — never read as "no occupant",

@@ -8,7 +8,7 @@ use crate::state::Message;
 #[derive(serde::Deserialize, Default)]
 pub(in crate::daemon::server) struct TailParams {
     #[serde(default)]
-    project: Option<String>,
+    channel: Option<String>,
     /// Number of backfill events (recent messages + roster snapshot), default 20.
     #[serde(default)]
     backfill: Option<u64>,
@@ -24,12 +24,12 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
 ) -> Result<()> {
     let p: TailParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let project = p.project.clone();
+    let channel = p.channel.clone();
     let backfill_n = p.backfill.unwrap_or(20);
     let since = p.since.unwrap_or(0);
 
-    // Ensure the requested project is in the union subscription.
-    if let Some(pr) = &project {
+    // Ensure the requested channel is in the union subscription.
+    if let Some(pr) = &channel {
         let _ = ensure_subscription(state, pr).await;
     }
 
@@ -43,7 +43,7 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
 
     // ── Backfill ────────────────────────────────────────────────────────────
     if backfill_n > 0 {
-        let backfill_events = build_backfill(state, project.as_deref(), backfill_n, since);
+        let backfill_events = build_backfill(state, channel.as_deref(), backfill_n, since);
         for ev in backfill_events {
             if write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
                 .await
@@ -59,7 +59,7 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     loop {
         match rx.recv().await {
             Ok(ev) => {
-                if tail_event_matches_project(&ev, project.as_deref())
+                if tail_event_matches_channel(&ev, channel.as_deref())
                     && ev.ts() >= since
                     && write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
                         .await
@@ -79,27 +79,27 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     Ok(())
 }
 
-/// True when the event belongs to the requested project scope (or no filter).
-pub(in crate::daemon::server) fn tail_event_matches_project(
+/// True when the event belongs to the requested channel scope (or no filter).
+pub(in crate::daemon::server) fn tail_event_matches_channel(
     ev: &TailEvent,
-    project: Option<&str>,
+    channel: Option<&str>,
 ) -> bool {
-    let Some(pr) = project else {
+    let Some(pr) = channel else {
         return true;
     };
-    let ev_project = match ev {
-        TailEvent::Msg { project, .. } => project.as_str(),
-        TailEvent::Sync { project, .. } => project.as_str(),
-        TailEvent::Turn { project, .. } => project.as_str(),
-        TailEvent::Status { project, .. } => project.as_str(),
-        TailEvent::Join { project, .. } => project.as_str(),
-        TailEvent::Leave { project, .. } => project.as_str(),
-        TailEvent::Sess { project, .. } => project.as_str(),
-        TailEvent::Proj { project, .. } => project.as_str(),
-        // Profiles are cross-project; always include.
+    let ev_channel = match ev {
+        TailEvent::Msg { channel, .. } => channel.as_str(),
+        TailEvent::Sync { channel, .. } => channel.as_str(),
+        TailEvent::Turn { channel, .. } => channel.as_str(),
+        TailEvent::Status { channel, .. } => channel.as_str(),
+        TailEvent::Join { channel, .. } => channel.as_str(),
+        TailEvent::Leave { channel, .. } => channel.as_str(),
+        TailEvent::Sess { channel, .. } => channel.as_str(),
+        TailEvent::Proj { channel, .. } => channel.as_str(),
+        // Profiles are cross-channel; always include.
         TailEvent::Profile { .. } => return true,
     };
-    ev_project == pr
+    ev_channel == pr
 }
 
 /// Build the backfill event list from the materialized caches.
@@ -109,7 +109,7 @@ pub(in crate::daemon::server) fn tail_event_matches_project(
 /// identically) and this daemon's own live sessions, sorted ascending by time.
 pub(in crate::daemon::server) fn build_backfill(
     state: &Arc<DaemonState>,
-    project: Option<&str>,
+    channel: Option<&str>,
     limit: u64,
     since: u64,
 ) -> Vec<TailEvent> {
@@ -118,7 +118,7 @@ pub(in crate::daemon::server) fn build_backfill(
     let cap = limit.min(u32::MAX as u64) as u32;
 
     // ── Recent chat lines from messages ──────────────────────────────────────
-    let chat_rows: Vec<Message> = state.with_store(|s| match project {
+    let chat_rows: Vec<Message> = state.with_store(|s| match channel {
         Some(pr) => s
             .chat_messages_for_channel(pr, since, cap)
             .unwrap_or_default(),
@@ -132,11 +132,11 @@ pub(in crate::daemon::server) fn build_backfill(
                 .into_iter()
                 .next()
                 .map(|r| pubkey_short(&r.recipient_pubkey))
-                .unwrap_or_else(|| "project-chat".to_string())
+                .unwrap_or_else(|| "channel-chat".to_string())
         });
         events.push(TailEvent::Msg {
             ts: row.created_at,
-            project: row.channel_h.clone(),
+            channel: row.channel_h.clone(),
             from: from_slug,
             from_session: row.author_session.clone(),
             to,
@@ -146,7 +146,7 @@ pub(in crate::daemon::server) fn build_backfill(
     }
 
     // ── Roster snapshot: live status rows (peers + local agents) ─────────────
-    if let Some(pr) = project {
+    if let Some(pr) = channel {
         let statuses = state.with_store(|s| s.live_status_for_channel(pr, now).unwrap_or_default());
         for st in statuses {
             let host = state
@@ -157,7 +157,7 @@ pub(in crate::daemon::server) fn build_backfill(
                 .unwrap_or_default();
             events.push(TailEvent::Join {
                 ts: st.last_seen,
-                project: st.channel_h.clone(),
+                channel: st.channel_h.clone(),
                 agent: st.slug.clone(),
                 host,
                 session: st.pubkey.clone(),
@@ -166,7 +166,7 @@ pub(in crate::daemon::server) fn build_backfill(
             if !st.title.is_empty() || st.busy {
                 events.push(TailEvent::Status {
                     ts: st.last_seen,
-                    project: st.channel_h.clone(),
+                    channel: st.channel_h.clone(),
                     agent: st.slug.clone(),
                     text: st.title.clone(),
                     active: st.busy,
@@ -178,12 +178,12 @@ pub(in crate::daemon::server) fn build_backfill(
     // ── This daemon's own live sessions as synthetic Sess/Turn events ────────
     let mine = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
     for rec in mine {
-        if project.map(|pr| rec.channel_h != pr).unwrap_or(false) {
+        if channel.map(|pr| rec.channel_h != pr).unwrap_or(false) {
             continue;
         }
         events.push(TailEvent::Sess {
             ts: rec.created_at,
-            project: rec.channel_h.clone(),
+            channel: rec.channel_h.clone(),
             agent: rec.agent_slug.clone(),
             session: rec.session_id.clone(),
             state: "start".into(),
@@ -192,7 +192,7 @@ pub(in crate::daemon::server) fn build_backfill(
         if rec.working {
             events.push(TailEvent::Turn {
                 ts: rec.turn_started_at,
-                project: rec.channel_h.clone(),
+                channel: rec.channel_h.clone(),
                 agent: rec.agent_slug.clone(),
                 session: rec.session_id.clone(),
                 state: "working".into(),

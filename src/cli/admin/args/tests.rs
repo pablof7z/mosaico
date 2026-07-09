@@ -155,16 +155,15 @@ fn channels_edit_about_rejects_more_than_80_chars() {
 }
 
 #[test]
-fn channel_read_help_lists_channel_not_project_alias() {
+fn channel_read_help_uses_channel_flag() {
     let err = parse_err(&["tenex-edge", "channel", "read", "--help"]);
     let help = err.to_string();
 
     assert!(help.contains("--channel <CHANNEL>"));
-    assert!(!help.contains("--project <PROJECT>"));
 }
 
 #[test]
-fn channel_read_rejects_removed_project_alias() {
+fn channel_read_rejects_removed_alias() {
     let err = parse_err(&["tenex-edge", "channel", "read", "--project", "tmp"]);
 
     assert_eq!(err.kind(), ErrorKind::UnknownArgument);

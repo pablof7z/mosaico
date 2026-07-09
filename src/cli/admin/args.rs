@@ -11,16 +11,16 @@ pub(in crate::cli) enum AgentAction {
     /// interactive launch prompts for one and daemon/TUI spawns use built-in
     /// defaults only for built-in harness slugs.
     ///
-    /// Repeat `--project <p>` to document the intended assignment. Per-project
+    /// Repeat `--root <p>` to document the intended assignment. Per-root
     /// roster scoping is not implemented yet; current roster publish advertises
-    /// every local capability to every root project.
+    /// every local capability to every root channel.
     Add {
         /// Agent slug ([A-Za-z0-9._-]).
         slug: String,
-        /// Intended project assignment (repeatable). Currently triggers a
-        /// roster republish; per-project scoping is not implemented yet.
-        #[arg(long = "project", value_name = "PROJECT")]
-        projects: Vec<String>,
+        /// Intended root assignment (repeatable). Currently triggers a
+        /// roster republish; per-root scoping is not implemented yet.
+        #[arg(long = "root", value_name = "ROOT")]
+        roots: Vec<String>,
         /// Set the harness command as a string (shell-word split). Takes priority
         /// over `--` args. Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
         #[arg(short = 'c', long = "command", value_name = "COMMAND")]
@@ -29,15 +29,15 @@ pub(in crate::cli) enum AgentAction {
         #[arg(last = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
-    /// Assign an existing local agent to one or more projects. Per-project
+    /// Assign an existing local agent to one or more roots. Per-root
     /// roster scoping is not implemented yet; this republished roster still
-    /// advertises every local capability to every root project.
+    /// advertises every local capability to every root channel.
     Assign {
         /// Agent slug (must already exist in the local keystore).
         slug: String,
-        /// Project to assign to (repeatable; at least one required).
-        #[arg(long = "project", value_name = "PROJECT", required = true)]
-        projects: Vec<String>,
+        /// Root to assign to (repeatable; at least one required).
+        #[arg(long = "root", value_name = "ROOT", required = true)]
+        roots: Vec<String>,
     },
     /// Remove a local agent. Its key file is parked at `<slug>.json.removed`
     /// (not deleted) so a mistake is recoverable; the agent stops being spawnable
@@ -74,10 +74,10 @@ pub(in crate::cli) enum AgentsAction {
 #[derive(Args)]
 pub(in crate::cli) struct AddArgs {
     /// Human mode: the member id (hex pubkey, npub, or nip05). Flag modes: the
-    /// project-relative channel to add into.
+    /// channel-relative channel to add into.
     #[arg(value_name = "ID_OR_CHANNEL")]
     pub(in crate::cli::admin) first: Option<String>,
-    /// Human mode only: the project-relative channel (second positional).
+    /// Human mode only: the channel-relative channel (second positional).
     #[arg(value_name = "CHANNEL")]
     pub(in crate::cli::admin) second: Option<String>,
     /// Spawn a fresh session of `ROLE[@machine]` and add it to the channel.
@@ -95,7 +95,7 @@ pub(in crate::cli) struct AddArgs {
     pub(in crate::cli::admin) message: Option<String>,
 }
 
-/// Subgroup task channels under a project (NIP-29 child groups).
+/// Subgroup task channels under a root (NIP-29 child groups).
 #[derive(Subcommand)]
 pub(in crate::cli) enum ChannelAction {
     /// Add a member to a channel: a human by id, a freshly spawned session
@@ -121,13 +121,13 @@ pub(in crate::cli) enum ChannelAction {
         /// Keep the chat reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Project-relative channel name/path/id to read. Required when this
+        /// Channel-relative channel name/path/id to read. Required when this
         /// session is joined to more than one channel; inferred only when exactly
         /// one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
         /// Explicit reader session id instead of resolving from the current
-        /// PTY/harness process or project scan.
+        /// PTY/harness process or root scan.
         #[arg(long)]
         session: Option<String>,
     },
@@ -139,13 +139,13 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Project-relative channel name/path/id to write to. Required when
+        /// Channel-relative channel name/path/id to write to. Required when
         /// this session is joined to more than one channel; inferred only when
         /// exactly one joined channel exists.
         #[arg(long)]
         channel: Option<String>,
         /// Explicit sender session id instead of resolving from the current
-        /// PTY/harness process or project scan.
+        /// PTY/harness process or root scan.
         #[arg(long)]
         session: Option<String>,
         /// Allow publishing a message longer than the default 600-character cap.
@@ -160,7 +160,7 @@ pub(in crate::cli) enum ChannelAction {
     Create {
         /// Human-readable channel name, e.g. "support". The channel id (NIP-29
         /// `h` value) is an opaque random value, never derived from the name;
-        /// the name is the durable human handle. Unique per parent project.
+        /// the name is the durable human handle. Unique per parent root channel.
         #[arg(long)]
         name: String,
         /// Short, stable channel description (max 80 chars), not status text.
@@ -172,8 +172,8 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]
         agents: Vec<String>,
         /// Parent channel the new channel hangs under. Defaults to the channel
-        /// you are currently in; pass a project-relative reference (e.g.
-        /// `planning` or `epic999/planning`) to nest it elsewhere in the project.
+        /// you are currently in; pass a channel-relative reference (e.g.
+        /// `planning` or `epic999/planning`) to nest it elsewhere in the root.
         #[arg(long = "parent-channel", value_name = "CHANNEL")]
         parent_channel: Option<String>,
         /// Explicit session id to mutate instead of resolving the caller from
@@ -183,30 +183,30 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Edit metadata on an existing subgroup task channel.
     Edit {
-        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
         channel: String,
         /// New durable channel description.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
-        /// Explicit session id to use as the project-relative resolution anchor.
+        /// Explicit session id to use as the channel-relative resolution anchor.
         #[arg(long)]
         session: Option<String>,
     },
-    /// List the subgroup task channels under a project, or every top-level
-    /// project on the relay with `--roots`.
+    /// List the subgroup task channels under a root, or every top-level
+    /// root on the relay with `--roots`.
     List {
-        /// Parent project slug. Defaults to the project resolved from the current
+        /// Parent root slug. Defaults to the root resolved from the current
         /// directory. Ignored with `--roots`.
         #[arg(long)]
-        project: Option<String>,
-        /// List every top-level project on the relay instead of one project's
+        root: Option<String>,
+        /// List every top-level root channel on the relay instead of one root's
         /// subgroup tree.
-        #[arg(long, conflicts_with = "project")]
+        #[arg(long, conflicts_with = "root")]
         roots: bool,
     },
-    /// Register the current directory as a tenex-edge project workspace. Maps
-    /// the directory's basename as a slug in `~/.tenex-edge/projects.json` so a
-    /// non-git directory resolves to a project. Refuses if the slug is already
+    /// Register the current directory as a tenex-edge workspace. Maps
+    /// the directory's basename as a slug in `~/.tenex-edge/workspaces.json` so a
+    /// non-git directory resolves to a workspace. Refuses if the slug is already
     /// mapped to a different path; pass `--force` to overwrite. No-op if the
     /// slug already maps to this exact path.
     Init {
@@ -216,7 +216,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Join a channel for passive context and direct-mention delivery.
     Join {
-        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -225,7 +225,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Stop listening to a passively joined channel.
     Leave {
-        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -234,15 +234,15 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Mark a channel archived and remove all non-admin members.
     Archive {
-        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
         channel: String,
-        /// Explicit session id to use as the project-relative resolution anchor.
+        /// Explicit session id to use as the channel-relative resolution anchor.
         #[arg(long)]
         session: Option<String>,
     },
     /// Switch the active channel for the current session to a different NIP-29 subgroup.
     Switch {
-        /// Channel name, project-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.

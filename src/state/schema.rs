@@ -2,7 +2,7 @@
 //! Six `relay_*` tables are materialized caches and may be dropped/rebuilt from
 //! relay state. The remaining local tables are non-rebuildable daemon state:
 //! session bindings, aliases, identities, inbox/outbox, channel reservations,
-//! and project roots.
+//! and workspace roots.
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
@@ -15,6 +15,7 @@ mod session_claims;
 mod trellis_commits;
 mod trellis_replay_capsules;
 mod version;
+mod workspace_roots_migration;
 
 use ddl::SCHEMA;
 
@@ -27,6 +28,7 @@ pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
     trellis_commits::ensure_columns(conn)?;
     outbox_backoff::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
+    workspace_roots_migration::ensure_renamed(conn)?;
     version::stamp(conn)
 }
 
@@ -39,5 +41,6 @@ pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     trellis_commits::ensure_columns(conn)?;
     outbox_backoff::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
+    workspace_roots_migration::ensure_renamed(conn)?;
     version::stamp(conn)
 }

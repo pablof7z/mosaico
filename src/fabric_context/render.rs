@@ -5,17 +5,17 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<tenex-edge>");
     render_self(&mut out, view.self_row.as_ref());
     if view.is_quiet_delta() {
-        render_no_new_activity(&mut out, &view.project.name);
+        render_no_new_activity(&mut out, &view.workspace.name);
         out.push_str("\n</tenex-edge>");
         return out;
     }
     let _ = write!(
         out,
-        "\n\n  <project name=\"{}\"",
-        esc_attr(&view.project.name)
+        "\n\n  <workspace name=\"{}\"",
+        esc_attr(&view.workspace.name)
     );
-    if !view.project.about.is_empty() {
-        let _ = write!(out, " about=\"{}\"", esc_attr(&view.project.about));
+    if !view.workspace.about.is_empty() {
+        let _ = write!(out, " about=\"{}\"", esc_attr(&view.workspace.about));
     }
     out.push('>');
     render_agents(&mut out, &view.agents);
@@ -23,7 +23,7 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
         render_channel(&mut out, channel);
     }
     render_unjoined(&mut out, &view.unjoined);
-    out.push_str("\n  </project>");
+    out.push_str("\n  </workspace>");
     render_important(&mut out, &view.important);
     render_warnings(&mut out, &view.warnings);
     out.push_str("\n</tenex-edge>");
@@ -31,15 +31,15 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
 }
 
 /// A quiet delta: explain that the fabric reports only changes, rather than
-/// emitting an empty `<project>` block that reads as "channels disappeared".
-fn render_no_new_activity(out: &mut String, project: &str) {
+/// emitting an empty `<workspace>` block that reads as "channels disappeared".
+fn render_no_new_activity(out: &mut String, workspace: &str) {
     let _ = write!(
         out,
-        "\n\n  <no-new-activity project=\"{}\">\
+        "\n\n  <no-new-activity workspace=\"{}\">\
          \n    Nothing new since your last check. The fabric surfaces only what \
          changed — your channels, members, and messages are unchanged, not gone.\
          \n  </no-new-activity>",
-        esc_attr(project)
+        esc_attr(workspace)
     );
 }
 

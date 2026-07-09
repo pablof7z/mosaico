@@ -2,8 +2,8 @@
 use super::report::bool_at;
 use super::{
     alias, awareness, channel, commit, coverage, cursor, event, hook_context, identity, inbox,
-    joined, llm, membership, message, outbox, project_root, quarantine, readiness_attempt,
-    recipient, session, session_start, session_watch, status, subscription, turn, DaemonState,
+    joined, llm, membership, message, outbox, quarantine, readiness_attempt, recipient, session,
+    session_start, session_watch, status, subscription, turn, workspace, DaemonState,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ pub(super) struct TargetChecks {
     pub(super) commit_evidence: Option<Value>,
     pub(super) coverage_evidence: Option<Value>,
     pub(super) alias_evidence: Option<Value>,
-    pub(super) project_root_evidence: Option<Value>,
+    pub(super) workspace_evidence: Option<Value>,
     pub(super) membership_evidence: Option<Value>,
     pub(super) membership_snapshot_evidence: Option<Value>,
     pub(super) awareness_evidence: Option<Value>,
@@ -58,8 +58,8 @@ impl TargetChecks {
                 .map(|parsed| coverage::coverage_evidence(state, target, &parsed)),
             alias_evidence: alias::alias_target(target)
                 .map(|parsed| alias::alias_evidence(state, target, &parsed)),
-            project_root_evidence: project_root::project_root_target(target)
-                .map(|id| project_root::project_root_evidence(state, target, id)),
+            workspace_evidence: workspace::workspace_target(target)
+                .map(|id| workspace::workspace_evidence(state, target, id)),
             membership_evidence: membership::membership_target(target)
                 .map(|parsed| membership::membership_evidence(state, target, &parsed)),
             membership_snapshot_evidence: membership::membership_snapshot_target(target)
@@ -114,7 +114,7 @@ impl TargetChecks {
             || self.commit_evidence.is_some()
             || self.coverage_evidence.is_some()
             || self.alias_evidence.is_some()
-            || self.project_root_evidence.is_some()
+            || self.workspace_evidence.is_some()
             || self.membership_evidence.is_some()
             || self.membership_snapshot_evidence.is_some()
             || self.awareness_evidence.is_some()
@@ -190,8 +190,8 @@ impl TargetChecks {
         if let Some(v) = &self.alias_evidence {
             alias::push_alias_check(checks, limitations, v);
         }
-        if let Some(v) = &self.project_root_evidence {
-            project_root::push_project_root_check(checks, limitations, v);
+        if let Some(v) = &self.workspace_evidence {
+            workspace::push_workspace_check(checks, limitations, v);
         }
         if let Some(v) = &self.membership_evidence {
             membership::push_membership_check(checks, limitations, v);

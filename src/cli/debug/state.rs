@@ -1,4 +1,4 @@
-use super::data::{HookTailOpts, HookTailSnapshot, ProjectPopup};
+use super::data::{HookTailOpts, HookTailSnapshot, RootPopup};
 use super::loader::load_hook_tail_snapshot;
 use super::render::{render_hook_tail, HookTailState};
 use super::util::cycle_filter;
@@ -32,7 +32,7 @@ impl Drop for TuiTerminal {
 
 pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
     let mut state = HookTailState {
-        project_filters: opts.projects.into_iter().collect(),
+        root_filters: opts.roots.into_iter().collect(),
         session_filter: opts.session,
         pane_limit: opts.panes.clamp(1, 24),
         focused: 0,
@@ -45,7 +45,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
     };
 
     let refresh = opts.refresh.max(Duration::from_millis(100));
-    let mut snapshot = load_hook_tail_snapshot(&state.project_filters, &state.session_filter);
+    let mut snapshot = load_hook_tail_snapshot(&state.root_filters, &state.session_filter);
     let mut pane_order = Vec::new();
     stabilize_pane_order(&mut snapshot, &mut pane_order);
 
@@ -99,21 +99,21 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                             }
                         }
                         KeyCode::Down => {
-                            if popup.cursor + 1 < snapshot.projects.len() {
+                            if popup.cursor + 1 < snapshot.roots.len() {
                                 popup.cursor += 1;
                             }
                         }
                         KeyCode::Char(' ') => {
-                            if let Some(project) = snapshot.projects.get(popup.cursor) {
-                                if state.project_filters.contains(project) {
-                                    state.project_filters.remove(project);
+                            if let Some(root) = snapshot.roots.get(popup.cursor) {
+                                if state.root_filters.contains(root) {
+                                    state.root_filters.remove(root);
                                 } else {
-                                    state.project_filters.insert(project.clone());
+                                    state.root_filters.insert(root.clone());
                                 }
                             }
                         }
                         KeyCode::Char('a') => {
-                            state.project_filters.clear();
+                            state.root_filters.clear();
                         }
                         _ => {}
                     }
@@ -206,13 +206,13 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                             state.line_cursor = usize::MAX;
                         }
                         KeyCode::Char('a') => {
-                            state.project_filters.clear();
+                            state.root_filters.clear();
                             state.session_filter = None;
                             state.status = "filters cleared".to_string();
                             next_refresh = Instant::now();
                         }
                         KeyCode::Char('p') => {
-                            state.popup = Some(ProjectPopup { cursor: 0 });
+                            state.popup = Some(RootPopup { cursor: 0 });
                         }
                         KeyCode::Char('s') => {
                             state.session_filter =
@@ -233,7 +233,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
             next_refresh = Instant::now() + refresh;
             loading = true;
             let tx = snap_tx.clone();
-            let filter_p = state.project_filters.clone();
+            let filter_p = state.root_filters.clone();
             let filter_s = state.session_filter.clone();
             std::thread::spawn(move || {
                 let snap = load_hook_tail_snapshot(&filter_p, &filter_s);

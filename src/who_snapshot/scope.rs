@@ -3,7 +3,7 @@ use super::StoreReader;
 /// Top-level work-root for `scope`.
 pub(super) fn work_root_for(store: StoreReader<'_>, scope: &str) -> String {
     store
-        .channel_project_root(scope)
+        .root_channel_of(scope)
         .unwrap_or_else(|e| {
             tracing::error!(
                 channel = %scope,

@@ -8,7 +8,7 @@ pub struct LaunchMetadata {
     pub socket: String,
     pub supervisor_pid: u32,
     pub agent: String,
-    pub project: String,
+    pub root: String,
     pub cwd: String,
     #[serde(default)]
     pub ephemeral: bool,

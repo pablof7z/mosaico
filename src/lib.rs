@@ -6,7 +6,7 @@
 //!
 //! Layering (M1 §2), each knowing only what is below it:
 //!   cli -> runtime -> { domain, codec, transport, state, distill }
-//!   config / identity / project are leaf utilities.
+//!   config / identity / channel are leaf utilities.
 
 mod applog;
 mod channel_about;
@@ -24,9 +24,9 @@ pub mod llmconfig;
 pub mod logging;
 pub(crate) mod outbox_seam;
 pub mod profile;
-pub mod project;
 pub mod session;
 pub mod util;
+pub mod workspace;
 
 pub mod cli;
 pub mod daemon;

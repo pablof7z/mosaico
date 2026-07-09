@@ -122,7 +122,7 @@ impl TitleSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionKey {
     pub host: String,
-    pub project: String,
+    pub channel: String,
     pub agent_pubkey: String,
     pub agent_slug: String,
     pub harness: Harness,
@@ -143,7 +143,7 @@ pub struct SessionKey {
 pub struct SessionObservation {
     pub agent_slug: String,
     pub agent_pubkey: String,
-    pub project: String,
+    pub channel: String,
     pub host: String,
     pub rel_cwd: String,
     pub harness: Harness,
@@ -156,11 +156,11 @@ pub struct SessionObservation {
 }
 
 impl SessionObservation {
-    /// Project the identity inputs out of the observation.
+    /// Channel the identity inputs out of the observation.
     pub fn key(&self) -> SessionKey {
         SessionKey {
             host: self.host.clone(),
-            project: self.project.clone(),
+            channel: self.channel.clone(),
             agent_pubkey: self.agent_pubkey.clone(),
             agent_slug: self.agent_slug.clone(),
             harness: self.harness,
@@ -174,14 +174,14 @@ impl SessionObservation {
 
 /// What `Store::upsert_status` receives from the kind:30315 materializer.
 /// Mirrors a relay-confirmed self-contained status signal into `relay_status`.
-/// Keyed by `(agent_pubkey, project)` — one row per actor per group.
+/// Keyed by `(agent_pubkey, channel)` — one row per actor per group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerStatusObservation {
     pub agent_pubkey: String,
     /// Resolved from the peer's kind:0 profile (NEVER self-asserted); may be "".
     pub agent_slug: String,
-    /// Group id (== kind:30315 `d` tag == `h` tag == project slug).
-    pub project: String,
+    /// Group id (== kind:30315 `d` tag == `h` tag == channel slug).
+    pub channel: String,
     pub host: String,
     pub rel_cwd: String,
     pub title: String,
@@ -215,7 +215,7 @@ pub struct SessionSnapshot {
     pub session_id: SessionId,
     pub agent_pubkey: String,
     pub agent_slug: String,
-    pub project: String,
+    pub channel: String,
     pub host: String,
     pub rel_cwd: String,
     pub title: String,
@@ -351,7 +351,7 @@ pub enum Transition {
 // ── pure identity resolution ─────────────────────────────────────────────────
 
 /// A live session candidate `resolve_identity` may reattach to or supersede.
-/// The registry hands the rows it found (same host/project/agent, lifecycle
+/// The registry hands the rows it found (same host/channel/agent, lifecycle
 /// active) so the decision stays a pure function of data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiveLocator {
@@ -378,7 +378,7 @@ pub enum IdentityDecision {
 }
 
 /// Decide identity from an alias lookup + the live candidates on the same
-/// (host, project, agent). Precedence, highest first:
+/// (host, channel, agent). Precedence, highest first:
 ///   1. `alias_hit`            → Existing (a stored alias already names the id)
 ///   2. same harness id / resume token among live → Reattach (restart in place)
 ///   3. same PTY session / watch_pid among live    → Supersede (slot reused by a
@@ -452,7 +452,7 @@ pub enum RoomDecision {
 ///     `claude` / `tenex-edge launch` directly) → mint a per-session subgroup
 ///     under `work_root`.
 ///   - `None`/empty, `per_session_rooms = false` (default) → land in the bare
-///     project channel (`work_root`); no child room is minted.
+///     root channel (`work_root`); no child room is minted.
 ///
 /// Pure and total.
 pub fn decide_session_room(

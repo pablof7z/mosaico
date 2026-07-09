@@ -18,9 +18,9 @@ pub(in crate::cli) enum DebugAction {
     Validate(ValidateArgs),
     /// Live TUI for hook injections and tenex-edge command invocations.
     HookTail {
-        /// Filter panes/events to one or more projects (repeatable).
-        #[arg(long = "project")]
-        projects: Vec<String>,
+        /// Filter panes/events to one or more roots (repeatable).
+        #[arg(long = "root")]
+        roots: Vec<String>,
         /// Filter panes/events to a session id (or a unique prefix of it).
         #[arg(long)]
         session: Option<String>,
@@ -51,12 +51,12 @@ pub(in crate::cli) async fn debug(action: DebugAction) -> Result<()> {
         DebugAction::Explain(args) => explain(args),
         DebugAction::Validate(args) => validate(args).await,
         DebugAction::HookTail {
-            projects,
+            roots,
             session,
             panes,
             refresh_ms,
         } => super::hook_tail(super::HookTailOpts {
-            projects,
+            roots,
             session,
             panes,
             refresh: Duration::from_millis(refresh_ms.max(100)),

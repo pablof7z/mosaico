@@ -9,15 +9,15 @@ use tenex_edge::fabric::nip29::wire::Nip29WireCodec;
 use tenex_edge::identity;
 use tenex_edge::state::{Identity, Session, Store};
 
-fn add_project_mapping(home: &Home, project: &str, path: &Path) {
+fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::create_dir_all(path).unwrap();
-    let map_path = home.dir.path().join("projects.json");
+    let map_path = home.dir.path().join("workspaces.json");
     let mut map = std::fs::read_to_string(&map_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s).ok())
         .unwrap_or_default();
     map.insert(
-        project.to_string(),
+        channel.to_string(),
         serde_json::Value::String(path.to_string_lossy().to_string()),
     );
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
@@ -109,15 +109,15 @@ fn wait_for_alive_session(home: &Home, slug: &str, scope: &str) -> Session {
     found.unwrap()
 }
 
-fn wait_for_group_member(home: &Home, project: &str, pubkey: &str) {
+fn wait_for_group_member(home: &Home, channel: &str, pubkey: &str) {
     assert!(
         wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
             .map(|s| {
-                refresh_project_members(project);
-                s.is_channel_member(project, pubkey).unwrap_or(false)
+                refresh_channel_members(channel);
+                s.is_channel_member(channel, pubkey).unwrap_or(false)
             })
             .unwrap_or(false)),
-        "{pubkey} was not visible as a member of {project}; daemon_log={}; group_log={}",
+        "{pubkey} was not visible as a member of {channel}; daemon_log={}; group_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<{e}>")),
         std::fs::read_to_string(home.dir.path().join("logs/group-mgmt.log"))
@@ -153,12 +153,12 @@ async fn nostr_user_client(keys: Keys) -> NostrClient {
     client
 }
 
-async fn publish_user_kind9(project: &str, body: &str, mentioned_pubkey: &str) -> String {
+async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -> String {
     let keys = Keys::parse(EXAMPLE_USER_NSEC).expect("operator keys");
     let client = nostr_user_client(keys.clone()).await;
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), ""),
-        project: project.to_string(),
+        channel: channel.to_string(),
         body: body.to_string(),
         mentioned_pubkey: Some(mentioned_pubkey.to_string()),
     };
@@ -183,9 +183,9 @@ fn operator_kind9_injects_into_running_launch_session() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("kind9-launch");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("kind9-launch");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
     let log = home.dir.path().join("launch-injected.log");
     let native_session = unique_session("launch-native");
     let agent = "launch-kind9";
@@ -197,8 +197,8 @@ fn operator_kind9_injects_into_running_launch_session() {
                 "pty_spawn",
                 serde_json::json!({
                     "agent": agent,
-                    "project": project,
-                    "channel": project,
+                    "root": channel,
+                    "channel": channel,
                     "cwd": work_dir,
                     "base_command": harness_command(&native_session, &work_dir, &log),
                 }),
@@ -208,17 +208,17 @@ fn operator_kind9_injects_into_running_launch_session() {
         v["pty_id"].as_str().unwrap().to_string()
     });
 
-    let rec = wait_for_alive_session(&home, agent, &project);
-    wait_for_group_member(&home, &project, &rec.agent_pubkey);
+    let rec = wait_for_alive_session(&home, agent, &channel);
+    wait_for_group_member(&home, &channel, &rec.agent_pubkey);
 
     let body = format!("operator relay injection {}", unique_session("body"));
     rt().block_on(async {
-        publish_user_kind9(&project, &body, &rec.agent_pubkey).await;
+        publish_user_kind9(&channel, &body, &rec.agent_pubkey).await;
     });
     wait_for_injected_log(&log, &body);
 
     let store = Store::open(&home.store_path()).unwrap();
-    let messages = chat_in_channel(&store, &project);
+    let messages = chat_in_channel(&store, &channel);
     assert!(
         messages
             .iter()
@@ -236,9 +236,9 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("kind9-spawn");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("kind9-spawn");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
 
     let agent = "offline-kind9";
     let log = home.dir.path().join("offline-injected.log");
@@ -261,7 +261,7 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
             agent_slug: agent.to_string(),
             codename: tenex_edge::util::friendly_short_code("offline-seed"),
             session_id: String::new(),
-            channel_h: project.clone(),
+            channel_h: channel.clone(),
             native_id: String::new(),
             alive: false,
             created_at: 1,
@@ -282,28 +282,28 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
         .await
         .expect("keeper session_start");
     });
-    let keeper = wait_for_alive_session(&home, "keeper", &project);
-    wait_for_group_member(&home, &project, &keeper.agent_pubkey);
+    let keeper = wait_for_alive_session(&home, "keeper", &channel);
+    wait_for_group_member(&home, &channel, &keeper.agent_pubkey);
 
     rt().block_on(async {
         let mut c = DaemonClient::connect_or_spawn().await.expect("connect");
         let add = c
             .call(
-                "project_add",
-                serde_json::json!({"project": project, "pubkey": agent_pubkey}),
+                "channel_add_member",
+                serde_json::json!({"channel": channel, "pubkey": agent_pubkey}),
             )
             .await
-            .expect("project_add offline agent");
+            .expect("channel_add_member offline agent");
         assert_eq!(add["pubkey"], agent_pubkey);
     });
-    wait_for_group_member(&home, &project, &agent_pubkey);
+    wait_for_group_member(&home, &channel, &agent_pubkey);
 
     let body = format!("wake offline agent {}", unique_session("body"));
     rt().block_on(async {
-        publish_user_kind9(&project, &body, &agent_pubkey).await;
+        publish_user_kind9(&channel, &body, &agent_pubkey).await;
     });
 
-    let rec = wait_for_alive_session(&home, agent, &project);
+    let rec = wait_for_alive_session(&home, agent, &channel);
     let store = Store::open(&home.store_path()).unwrap();
     let instance = store
         .session_identity_for_session(&rec.session_id)

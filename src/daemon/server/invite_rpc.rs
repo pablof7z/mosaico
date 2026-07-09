@@ -147,15 +147,15 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
         ..Default::default()
     };
     let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| project_root(s, &rec.channel_h)),
+        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h)),
         Err(_) => {
             let cwd = p
                 .cwd
                 .as_deref()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::project::resolve(&cwd)
-                .context("invite must run inside an agent session or project directory")?
+            crate::workspace::resolve(&cwd)
+                .context("invite must run inside an agent session or channel directory")?
         }
     };
     match state.with_store(|s| resolve_channel_ref(s, &root, &p.channel)) {
@@ -164,7 +164,7 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
             serde_json::json!({ "ambiguous": refs, "reference": p.channel }),
         )),
         ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {:?} in this project", p.channel)
+            anyhow::bail!("no channel matching {:?} in this channel", p.channel)
         }
     }
 }
@@ -297,7 +297,7 @@ async fn invite_session(
 /// Cap on the (otherwise unbounded) channel-readiness probe run on the invite
 /// RPC's synchronous path. Without it, an unreachable relay wedges the whole
 /// invite call — and the client connection with it — indefinitely. Modeled on
-/// `rpc/project.rs`'s `PROJECT_MEMBER_READY_TIMEOUT`.
+/// `rpc/channel.rs`'s `CHANNEL_MEMBER_READY_TIMEOUT`.
 const BACKEND_ADMIN_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
 async fn ensure_backend_admin(

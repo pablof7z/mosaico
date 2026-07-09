@@ -6,7 +6,7 @@
 //!     Finds sessions that have unread chat mentions + a live PTY endpoint, then
 //!     injects the rendered pending messages into the agent.
 //!
-//!   • `spawn_agent(state, slug, project, launch_args)` — spawns a new
+//!   • `spawn_agent(state, slug, root, launch_args)` — spawns a new
 //!     PTY-hosted harness. Manual spawns start clean; no prompt is injected.
 //!
 //! Delivery is fail-open: endpoint failures are logged and pending inbox rows are

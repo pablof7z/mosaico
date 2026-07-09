@@ -51,7 +51,7 @@ pub(super) async fn report_observation(
         "provision_command": provision_command,
         // NIP-29 subgroup id this hosted process was spawned into, when
         // present. The daemon stores the session under this `h` instead of the
-        // cwd-derived project so its presence/chat publish into the subgroup.
+        // cwd-derived channel so its presence/chat publish into the subgroup.
         "channel": crate::cli::channel_env(),
     });
     let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {

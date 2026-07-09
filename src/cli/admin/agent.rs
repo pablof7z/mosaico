@@ -20,7 +20,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Add {
             slug,
-            projects,
+            roots,
             command_str,
             command,
         } => {
@@ -47,14 +47,14 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     crate::identity::set_local_agent_byline(&edge_home, &slug, Some(byline))?;
                 }
             }
-            if !projects.is_empty() {
+            if !roots.is_empty() {
                 println!(
-                    "  project-specific assignment is not implemented; roster is advertised to every root project"
+                    "  root-specific assignment is not implemented; roster is advertised to every root channel"
                 );
             }
             publish_roster(None).await;
         }
-        AgentAction::Assign { slug, projects } => {
+        AgentAction::Assign { slug, roots } => {
             let found = crate::identity::list_local_agent_details(&edge_home)
                 .into_iter()
                 .any(|a| a.slug == slug);
@@ -63,9 +63,9 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"
                 );
             }
-            if !projects.is_empty() {
+            if !roots.is_empty() {
                 println!(
-                    "project-specific assignment is not implemented; roster is advertised to every root project"
+                    "root-specific assignment is not implemented; roster is advertised to every root channel"
                 );
             }
             publish_roster(None).await;

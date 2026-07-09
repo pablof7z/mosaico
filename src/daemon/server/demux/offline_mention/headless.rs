@@ -45,7 +45,7 @@ pub(super) async fn spawn_headless_mention(
 fn reap_headless_on_exit(
     state: Arc<DaemonState>,
     agent_slug: String,
-    project: String,
+    channel: String,
     launch: crate::session_host::ExecLaunch,
 ) {
     let crate::session_host::ExecLaunch {
@@ -62,7 +62,7 @@ fn reap_headless_on_exit(
             Ok(Ok(status)) => {
                 tracing::info!(
                     agent = %agent_slug,
-                    project = %project,
+                    channel = %channel,
                     exec_id = %id,
                     pid,
                     status = %status,
@@ -74,7 +74,7 @@ fn reap_headless_on_exit(
             Ok(Err(e)) => {
                 tracing::warn!(
                     agent = %agent_slug,
-                    project = %project,
+                    channel = %channel,
                     exec_id = %id,
                     pid,
                     error = %e,
@@ -86,7 +86,7 @@ fn reap_headless_on_exit(
             Err(e) => {
                 tracing::warn!(
                     agent = %agent_slug,
-                    project = %project,
+                    channel = %channel,
                     exec_id = %id,
                     pid,
                     error = %e,
@@ -108,7 +108,7 @@ fn reap_headless_on_exit(
                 &state,
                 notice::NoReplyNotice {
                     agent_slug: &agent_slug,
-                    project: &project,
+                    channel: &channel,
                     session_id: session_id.as_deref(),
                     exec_id: &id,
                     pid,
@@ -128,7 +128,7 @@ fn reap_headless_on_exit(
         {
             tracing::warn!(
                 agent = %agent_slug,
-                project = %project,
+                channel = %channel,
                 exec_id = %id,
                 pid,
                 error = %e,

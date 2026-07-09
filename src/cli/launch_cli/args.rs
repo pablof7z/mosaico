@@ -11,12 +11,12 @@ pub(in crate::cli) struct LaunchArgs {
     /// from stdin.
     #[arg(index = 2, value_name = "PROMPT")]
     prompt: Option<String>,
-    /// Project slug; defaults to project resolved from current directory.
+    /// Root slug; defaults to root resolved from current directory.
     #[arg(long)]
-    project: Option<String>,
+    root: Option<String>,
     /// Channel name to scope this agent into; resolved to its opaque id and
     /// created if absent. Omit the value (`--channel` with no argument) to
-    /// open an interactive fuzzy picker over all known rooms for the project.
+    /// open an interactive fuzzy picker over all known rooms for the root.
     /// When per-session rooms are disabled (the default), omitting `--channel`
     /// entirely also opens the picker; with per-session rooms enabled, omitting
     /// it mints a fresh per-session room instead. The daemon's tenexPrivateKey
@@ -46,7 +46,7 @@ pub(in crate::cli) async fn launch(args: LaunchArgs) -> Result<()> {
         .unwrap_or_default();
     super::verbs::launch(
         args.slug,
-        args.project,
+        args.root,
         args.channel,
         args.command_name,
         override_command,

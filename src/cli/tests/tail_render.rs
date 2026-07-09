@@ -16,7 +16,7 @@ fn ts_str() -> String {
 fn render_msg_no_color_no_emoji() {
     let ev = TailEvent::Msg {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         from: "claude".into(),
         from_session: Some("te-abc-111".into()),
         to: "codex".into(),
@@ -26,7 +26,7 @@ fn render_msg_no_color_no_emoji() {
     let line = render_tail_event(&ev, false, false, false, false);
     assert!(line.starts_with(&ts_str()), "should start with timestamp");
     assert!(line.contains("msg"), "should contain category");
-    assert!(line.contains("claude@proj"), "should contain agent@project");
+    assert!(line.contains("claude@proj"), "should contain agent@channel");
     assert!(line.contains("->"), "ASCII arrow when no_emoji");
     assert!(line.contains("codex"), "should contain recipient");
     assert!(line.contains("review the codec"), "should contain body");
@@ -36,7 +36,7 @@ fn render_msg_no_color_no_emoji() {
 fn render_msg_with_emoji() {
     let ev = TailEvent::Msg {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         from: "claude".into(),
         from_session: None,
         to: "codex".into(),
@@ -53,7 +53,7 @@ fn render_msg_with_emoji() {
 fn render_turn_working_no_color() {
     let ev = TailEvent::Turn {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         agent: "claude".into(),
         session: "te-session-1".into(),
         state: "working".into(),
@@ -61,7 +61,7 @@ fn render_turn_working_no_color() {
     };
     let line = render_tail_event(&ev, false, false, false, false);
     assert!(line.contains("turn"), "category");
-    assert!(line.contains("claude@proj"), "agent@project");
+    assert!(line.contains("claude@proj"), "agent@channel");
     assert!(line.contains("started working"), "state label");
     assert!(line.contains(">"), "ASCII glyph when no emoji");
 }
@@ -70,7 +70,7 @@ fn render_turn_working_no_color() {
 fn render_turn_idle_with_elapsed() {
     let ev = TailEvent::Turn {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         agent: "claude".into(),
         session: "te-session-1".into(),
         state: "idle".into(),
@@ -87,7 +87,7 @@ fn render_turn_idle_with_elapsed() {
 fn render_join_no_color() {
     let ev = TailEvent::Join {
         ts: TS,
-        project: "tenex-edge".into(),
+        channel: "tenex-edge".into(),
         agent: "codex".into(),
         host: "tower".into(),
         session: "te-peer-abc".into(),
@@ -97,14 +97,14 @@ fn render_join_no_color() {
     assert!(line.contains("join"), "category");
     assert!(line.contains("codex@tower"), "agent@backend-label");
     assert!(line.contains("online"), "verb");
-    assert!(line.contains("tenex-edge"), "project");
+    assert!(line.contains("tenex-edge"), "channel");
 }
 
 #[test]
 fn render_leave_formats_duration() {
     let ev = TailEvent::Leave {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         agent: "opencode".into(),
         host: "tower".into(),
         session: "te-peer-def".into(),
@@ -122,7 +122,7 @@ fn render_leave_formats_duration() {
 fn render_failed_sync_includes_detail() {
     let ev = TailEvent::Sync {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         from: "tenex-edge".into(),
         to: "codex".into(),
         state: "failed".into(),
@@ -143,7 +143,7 @@ fn render_failed_sync_includes_detail() {
 fn render_sess_start_no_color() {
     let ev = TailEvent::Sess {
         ts: TS,
-        project: "proj".into(),
+        channel: "proj".into(),
         agent: "claude".into(),
         session: "te-abc-999".into(),
         state: "start".into(),

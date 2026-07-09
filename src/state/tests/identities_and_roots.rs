@@ -35,10 +35,10 @@ fn identities_bind_and_resolve() {
 }
 
 #[test]
-fn project_roots_roundtrip() {
+fn workspace_paths_roundtrip() {
     let s = Store::open_memory().unwrap();
-    s.upsert_project_root("h1", "/abs/path", 1).unwrap();
-    assert_eq!(s.project_root("h1").unwrap().unwrap(), "/abs/path");
-    s.upsert_project_root("h1", "/abs/other", 2).unwrap();
-    assert_eq!(s.project_root("h1").unwrap().unwrap(), "/abs/other");
+    s.upsert_workspace("h1", "/abs/path", 1).unwrap();
+    assert_eq!(s.workspace_path("h1").unwrap().unwrap(), "/abs/path");
+    s.upsert_workspace("h1", "/abs/other", 2).unwrap();
+    assert_eq!(s.workspace_path("h1").unwrap().unwrap(), "/abs/other");
 }

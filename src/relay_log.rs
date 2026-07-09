@@ -5,8 +5,8 @@
 //! are no-ops beyond the stderr echo.
 //!
 //! ```text
-//! 2026-06-25 14:32:05.123  [→relay] kind:9000  put-user  h=my-project  p=abc12345  role=admin
-//! 2026-06-25 14:32:05.456  [→relay] kind:9007  create-group  h=session-xyz  parent=my-project
+//! 2026-06-25 14:32:05.123  [→relay] kind:9000  put-user  h=my-channel  p=abc12345  role=admin
+//! 2026-06-25 14:32:05.456  [→relay] kind:9007  create-group  h=session-xyz  parent=my-channel
 //! 2026-06-25 14:32:05.789  [relay✗] rejected: blocked: unknown group member
 //! ```
 

@@ -284,9 +284,9 @@ pub fn is_opaque_group_id(s: &str) -> bool {
 /// six `[a-z0-9]` chars (base36) derived from a stable hash of the session's
 /// `anchor` (resume token / harness id / pid).
 ///
-/// The id does NOT prefix the work-root project name: a session channel is
-/// already nested under its project via the NIP-29 `parent` tag, so repeating
-/// the project in the id is redundant. The child→parent link is the relay's
+/// The id does NOT prefix the work-root channel name: a session channel is
+/// already nested under its channel via the NIP-29 `parent` tag, so repeating
+/// the channel in the id is redundant. The child→parent link is the relay's
 /// kind:39000 `parent` tag, materialized into `relay_channels.parent` — never
 /// inferred from the id's shape.
 ///
@@ -429,7 +429,7 @@ mod tests {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
             "non-[a-z0-9] char in {id}"
         );
-        // No project name anywhere in the id — the room is nested via parent.
+        // No channel name anywhere in the id — the room is nested via parent.
         assert!(!session_room_id("my-repo-anchor").contains("my-repo"));
     }
 

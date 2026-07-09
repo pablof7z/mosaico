@@ -202,14 +202,14 @@ async fn dispatch_http(state: &HttpState, method: &str, params: &Value, id: Valu
 impl HttpSubscriptions {
     async fn add(&self, params: &Value) -> Result<()> {
         let uri = super::protocol::required_string(params, "uri")?;
-        let project = super::resources::subscription_project(&uri)?;
+        let channel = super::resources::subscription_channel(&uri)?;
         let mut tasks = self.tasks.lock().await;
         if tasks.contains_key(&uri) {
             return Ok(());
         }
         tasks.insert(
             uri.clone(),
-            tokio::spawn(run_subscription(uri, project, self.tx.clone())),
+            tokio::spawn(run_subscription(uri, channel, self.tx.clone())),
         );
         Ok(())
     }
@@ -223,8 +223,8 @@ impl HttpSubscriptions {
     }
 }
 
-async fn run_subscription(uri: String, project: Option<String>, tx: broadcast::Sender<Value>) {
-    let params = json!({ "project": project, "backfill": 0 });
+async fn run_subscription(uri: String, channel: Option<String>, tx: broadcast::Sender<Value>) {
+    let params = json!({ "channel": channel, "backfill": 0 });
     let note_uri = uri.clone();
     let stream_result = async {
         let mut client = crate::daemon::client::Client::connect_or_spawn().await?;

@@ -4,7 +4,7 @@ fn obs() -> SessionObservation {
     SessionObservation {
         agent_slug: "claude".into(),
         agent_pubkey: "pk".into(),
-        project: "proj".into(),
+        channel: "proj".into(),
         host: "laptop".into(),
         rel_cwd: String::new(),
         harness: Harness::ClaudeCode,
@@ -22,7 +22,7 @@ fn snap(busy: bool, last_seen: u64, lifecycle: Lifecycle) -> SessionSnapshot {
         session_id: SessionId::from("s1"),
         agent_pubkey: "pk".into(),
         agent_slug: "claude".into(),
-        project: "proj".into(),
+        channel: "proj".into(),
         host: "laptop".into(),
         rel_cwd: String::new(),
         title: "fixing auth".into(),
@@ -140,7 +140,7 @@ fn room_empty_group_override_mints_when_per_session_rooms_enabled() {
 }
 
 #[test]
-fn room_no_group_override_uses_project_when_per_session_rooms_disabled() {
+fn room_no_group_override_uses_root_when_per_session_rooms_disabled() {
     assert_eq!(
         decide_session_room(None, "my-repo", false),
         RoomDecision::UseExisting {

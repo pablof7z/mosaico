@@ -160,7 +160,7 @@ impl Nip29Provider {
 
     /// Fetch all kind:39000 events from the relay and materialize them into the
     /// `relay_channels` cache via the single inbound materializer.
-    pub async fn refresh_project_list(&self) -> Result<()> {
+    pub async fn refresh_root_channels(&self) -> Result<()> {
         use crate::fabric::nip29::materializer::Nip29Materializer;
         use nostr_sdk::prelude::{Filter, Kind};
         let filter = Filter::new().kind(Kind::from(39000u16)).limit(200);
@@ -168,7 +168,7 @@ impl Nip29Provider {
             .transport
             .fetch(filter, Duration::from_secs(5))
             .await
-            .context("refresh_project_list: relay fetch of kind:39000 list failed")?;
+            .context("refresh_root_channels: relay fetch of kind:39000 list failed")?;
         for ev in &events {
             self.with_store(|s| Nip29Materializer::materialize_channel(s, ev));
         }

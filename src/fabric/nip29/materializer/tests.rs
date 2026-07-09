@@ -51,14 +51,14 @@ fn channel_metadata_materializes() {
         "",
         vec![
             make_tag(&["d", "proj"]),
-            make_tag(&["name", "Project"]),
+            make_tag(&["name", "Channel"]),
             make_tag(&["about", "the thing"]),
             make_tag(&["parent", ""]),
         ],
     );
     Nip29Materializer::materialize_channel(&store, &event);
     let ch = store.get_channel("proj").unwrap().unwrap();
-    assert_eq!(ch.name, "Project");
+    assert_eq!(ch.name, "Channel");
     assert_eq!(ch.about, "the thing");
     assert!(store.is_root_channel("proj").unwrap());
 }
@@ -179,7 +179,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
     let ambient_event = build(&sender, 9, "ambient", vec![make_tag(&["h", "proj"])]);
     let ambient_chat = ChatMessage {
         from: crate::domain::AgentRef::new(sender_pk.clone(), String::new()),
-        project: "proj".into(),
+        channel: "proj".into(),
         body: "ambient".into(),
         mentioned_pubkey: None,
     };
@@ -203,7 +203,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
     );
     let mention_chat = ChatMessage {
         from: crate::domain::AgentRef::new(sender_pk, String::new()),
-        project: "proj".into(),
+        channel: "proj".into(),
         body: "ship it".into(),
         mentioned_pubkey: Some(receiver_pk),
     };
@@ -250,7 +250,7 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
     );
     let chat = ChatMessage {
         from: crate::domain::AgentRef::new(sender_pk, String::new()),
-        project: "proj".into(),
+        channel: "proj".into(),
         body: "hey one ordinal".into(),
         mentioned_pubkey: Some(ord0_pk),
     };

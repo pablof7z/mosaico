@@ -28,11 +28,11 @@ fn resolve_locally(
     parent: &str,
     name: &str,
 ) -> Result<Option<String>> {
-    // The project root's `channel_h` IS its slug and it has no parent, so a request
+    // The channel root's `channel_h` IS its slug and it has no parent, so a request
     // to resolve `name` under a `parent` equal to it is the root asking for ITSELF —
     // return it unchanged, never mint a child of the root literally named after the
     // root. This is the load-bearing cold-cache case: a bare `launch` (no --channel)
-    // scopes the session to the project root by passing the slug as both work-root
+    // scopes the session to the channel root by passing the slug as both work-root
     // and channel; right after a state/relay reset the root's kind:39000 has not yet
     // materialized, so checks 2–3 below miss and, without this guard, an opaque
     // child (parent=slug, name=slug) gets minted — the name-vs-id double-create.
@@ -140,7 +140,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     Ok(child_h)
 }
 
-/// `mkdir -p` for channel paths: resolve a project-relative NAME path within
+/// `mkdir -p` for channel paths: resolve a channel-relative NAME path within
 /// `root`, provisioning EVERY missing ancestor (not just the leaf) when
 /// `create_if_absent`. Segments split on both `/` and `.`, so `a.b.c` and
 /// `a/b/c` create the same three-deep chain. Each segment resolves as a child of
@@ -177,7 +177,7 @@ pub(in crate::daemon::server) async fn rpc_channels_resolve(
 ) -> Result<serde_json::Value> {
     #[derive(serde::Deserialize)]
     struct P {
-        project: String,
+        channel: String,
         name: String,
         #[serde(default)]
         agent: Option<String>,
@@ -187,7 +187,7 @@ pub(in crate::daemon::server) async fn rpc_channels_resolve(
     let p: P = serde_json::from_value(params.clone()).context("channels_resolve params")?;
     let channel_h = resolve_channel(
         state,
-        &p.project,
+        &p.channel,
         &p.name,
         p.agent.as_deref(),
         p.create_if_absent,
@@ -196,44 +196,44 @@ pub(in crate::daemon::server) async fn rpc_channels_resolve(
     Ok(serde_json::json!({ "channel_h": channel_h }))
 }
 
-// ── project-relative `channels switch` resolution ─────────────────────────────
+// ── channel-relative `channels switch` resolution ─────────────────────────────
 //
-// `channels switch` (an AGENT-only gesture) resolves a project-RELATIVE reference
-// to one opaque `channel_h`. There is no cross-project switch — references are
-// scoped to the current project's subtree. On ambiguity the daemon returns the
+// `channels switch` (an AGENT-only gesture) resolves a channel-RELATIVE reference
+// to one opaque `channel_h`. There is no cross-channel switch — references are
+// scoped to the current channel's subtree. On ambiguity the daemon returns the
 // candidate paths so the agent re-runs with an exact one (a structured error,
 // never an interactive prompt a hooks-only agent cannot answer).
 
-/// Outcome of resolving a project-relative channel reference.
+/// Outcome of resolving a channel-relative channel reference.
 pub(in crate::daemon::server) enum ChannelResolution {
     /// Exactly one channel matched → its opaque `channel_h`.
     Unique(String),
     /// Several matched → the exact re-run references (a unique relative path, or
     /// the `@<id>` escape hatch when two siblings share a name), sorted.
     Ambiguous(Vec<String>),
-    /// Nothing in the project subtree matched.
+    /// Nothing in the channel subtree matched.
     NotFound,
 }
 
-/// Walk `parent` links up from `channel` to the top-level project root.
-pub(in crate::daemon::server) fn project_root(
+/// Walk `parent` links up from `channel` to the top-level channel root.
+pub(in crate::daemon::server) fn root_channel(
     store: &crate::state::Store,
     channel: &str,
 ) -> String {
     store
-        .channel_project_root(channel)
+        .root_channel_of(channel)
         .unwrap_or_else(|e| {
             tracing::error!(
                 channel = %channel,
                 error = %e,
-                "project_root: channel ancestry lookup failed"
+                "root_channel: channel ancestry lookup failed"
             );
             None
         })
         .unwrap_or_else(|| channel.to_string())
 }
 
-/// Resolve a project-relative `reference` within `root`'s subtree. Forms:
+/// Resolve a channel-relative `reference` within `root`'s subtree. Forms:
 ///   - a literal known `channel_h` → returned unchanged (id passthrough);
 ///   - `@<id-prefix>` → the channel whose opaque id starts with the prefix;
 ///   - `name` / `parent/child` → suffix-matched against descendant NAME paths

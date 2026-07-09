@@ -2,15 +2,15 @@ use super::*;
 use std::path::Path;
 use std::time::Duration;
 
-fn add_project_mapping(home: &Home, project: &str, path: &Path) {
+fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::create_dir_all(path).unwrap();
-    let map_path = home.dir.path().join("projects.json");
+    let map_path = home.dir.path().join("workspaces.json");
     let mut map = std::fs::read_to_string(&map_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s).ok())
         .unwrap_or_default();
     map.insert(
-        project.to_string(),
+        channel.to_string(),
         serde_json::Value::String(path.to_string_lossy().to_string()),
     );
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
@@ -55,9 +55,9 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("pty-bootstrap");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("pty-bootstrap");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "no-hook-agent";
 
     let pty_id = rt().block_on(async {
@@ -67,8 +67,8 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
                 "pty_spawn",
                 serde_json::json!({
                     "agent": agent,
-                    "project": &project,
-                    "channel": &project,
+                    "root": &channel,
+                    "channel": &channel,
                     "cwd": &work_dir,
                     "base_command": no_hook_command(),
                 }),
@@ -78,8 +78,8 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
         v["pty_id"].as_str().unwrap().to_string()
     });
 
-    let rec = wait_for_alive(&home, agent, &project);
-    refresh_project_members(&project);
+    let rec = wait_for_alive(&home, agent, &channel);
+    refresh_channel_members(&channel);
     let store = Store::open(&home.store_path()).unwrap();
     assert_eq!(
         store
@@ -91,7 +91,7 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
         Some(pty_id.clone())
     );
     assert!(store
-        .is_channel_member(&project, &rec.agent_pubkey)
+        .is_channel_member(&channel, &rec.agent_pubkey)
         .unwrap_or(false));
 
     let _ = tenex_edge::pty::kill(&pty_id);
@@ -104,9 +104,9 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("pty-reassert");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("pty-reassert");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "late-hook-agent";
 
     let pty_id = rt().block_on(async {
@@ -116,8 +116,8 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
                 "pty_spawn",
                 serde_json::json!({
                     "agent": agent,
-                    "project": &project,
-                    "channel": &project,
+                    "root": &channel,
+                    "channel": &channel,
                     "cwd": &work_dir,
                     "base_command": no_hook_command(),
                 }),
@@ -126,7 +126,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
             .expect("pty_spawn");
         v["pty_id"].as_str().unwrap().to_string()
     });
-    let first = wait_for_alive(&home, agent, &project);
+    let first = wait_for_alive(&home, agent, &channel);
     let meta = pty_meta(&pty_id);
     let native_session = unique_session("native-hook");
 
@@ -139,7 +139,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
                 "harness": "codex",
                 "session_id": &native_session,
                 "cwd": &work_dir,
-                "channel": &project,
+                "channel": &channel,
                 "watch_pid": i32::try_from(meta.supervisor_pid).ok(),
                 "pty_session": &pty_id,
                 "pty_socket": &meta.socket,
@@ -158,7 +158,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
         .list_alive_sessions()
         .unwrap()
         .into_iter()
-        .filter(|rec| rec.agent_slug == agent && rec.channel_h == project)
+        .filter(|rec| rec.agent_slug == agent && rec.channel_h == channel)
         .collect::<Vec<_>>();
     assert_eq!(
         alive.len(),
@@ -183,9 +183,9 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("pty-codex-hook");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("pty-codex-hook");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "codex";
 
     let pty_id = rt().block_on(async {
@@ -195,8 +195,8 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
                 "pty_spawn",
                 serde_json::json!({
                     "agent": agent,
-                    "project": &project,
-                    "channel": &project,
+                    "root": &channel,
+                    "channel": &channel,
                     "cwd": &work_dir,
                     "base_command": no_hook_command(),
                 }),
@@ -205,7 +205,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
             .expect("pty_spawn");
         v["pty_id"].as_str().unwrap().to_string()
     });
-    let first = wait_for_alive(&home, agent, &project);
+    let first = wait_for_alive(&home, agent, &channel);
     let meta = pty_meta(&pty_id);
 
     let out = run_cli_stdin_with_env_in_dir(
@@ -238,7 +238,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
         .list_alive_sessions()
         .unwrap()
         .into_iter()
-        .filter(|rec| rec.agent_slug == agent && rec.channel_h == project)
+        .filter(|rec| rec.agent_slug == agent && rec.channel_h == channel)
         .collect::<Vec<_>>();
     assert_eq!(alive.len(), 1, "codex hook should not mint a duplicate");
 

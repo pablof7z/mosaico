@@ -4,7 +4,7 @@
 use super::super::*;
 
 /// Every 30s, drop peer sessions older than `PRUNE_PEER_AFTER_SECS` from the
-/// store and emit a `Leave` tail event for each `(pubkey, session, project)`
+/// store and emit a `Leave` tail event for each `(pubkey, session, channel)`
 /// tuple that was tracked in memory but is no longer live.
 pub fn spawn_pruner(state: Arc<DaemonState>) {
     tokio::spawn(async move {
@@ -38,7 +38,7 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
             // against sessions that are about to expire.
             let tracked_keys: Vec<(String, String, String)> = {
                 let map = state.peer_sessions.lock().unwrap();
-                // We'll emit Leave for (pubkey, session, project) tuples in our map
+                // We'll emit Leave for (pubkey, session, channel) tuples in our map
                 // that are no longer live in the store. Cross-reference below.
                 map.keys().cloned().collect()
             };
@@ -52,8 +52,8 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
                 .with_store(|s| {
                     tracked_keys
                         .iter()
-                        .filter(|(pubkey, session_id, project)| {
-                            s.get_status(pubkey, session_id, project)
+                        .filter(|(pubkey, session_id, channel)| {
+                            s.get_status(pubkey, session_id, channel)
                                 .ok()
                                 .flatten()
                                 .map(|st| st.expiration >= now)
@@ -82,7 +82,7 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
                 let online_s = now.saturating_sub(tracked.first_seen);
                 state.emit_tail(TailEvent::Leave {
                     ts: now,
-                    project: tracked.project,
+                    channel: tracked.channel,
                     agent: tracked.slug,
                     host: tracked.host,
                     session: session_id,

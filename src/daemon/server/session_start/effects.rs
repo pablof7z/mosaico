@@ -55,8 +55,8 @@ async fn publish_root_roster_if_needed(state: &Arc<DaemonState>, channel_h: &str
     }
 }
 
-pub(super) fn schedule_replay_chat(state: Arc<DaemonState>, project: String) {
+pub(super) fn schedule_replay_chat(state: Arc<DaemonState>, channel: String) {
     tokio::spawn(async move {
-        replay_channel_chat(&state, &project).await;
+        replay_channel_chat(&state, &channel).await;
     });
 }

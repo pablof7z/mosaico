@@ -42,8 +42,8 @@ pub(in crate::daemon::server::probe::validate) fn channel_evidence(
         let admin_count = members.iter().filter(|m| m.role == "admin").count();
         let member_count = members.len();
         let membership_snapshot = store.has_channel_membership_snapshot(channel_h)?;
-        let project_root = store.channel_project_root(channel_h)?;
-        let is_root = project_root.as_deref() == Some(channel_h);
+        let root_channel = store.root_channel_of(channel_h)?;
+        let is_root = root_channel.as_deref() == Some(channel_h);
         let human_name = channel.human_name().map(str::to_string);
 
         Ok::<Value, anyhow::Error>(json!({
@@ -58,7 +58,7 @@ pub(in crate::daemon::server::probe::validate) fn channel_evidence(
             "human_name": human_name,
             "about": channel.about,
             "parent": channel.parent,
-            "project_root": project_root,
+            "root_channel": root_channel,
             "is_root": is_root,
             "is_archived": channel.is_archived(),
             "membership_snapshot": membership_snapshot,

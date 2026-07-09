@@ -72,7 +72,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     // Emit Turn{working} for the live tail feed, keyed on the routing scope.
     state.emit_tail(TailEvent::Turn {
         ts: now,
-        project: rec.channel_h.clone(),
+        channel: rec.channel_h.clone(),
         agent: agent_label,
         session: rec.session_id.clone(),
         state: "working".into(),
@@ -206,7 +206,7 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
             let agent_label = state.session_instance(rec).display_slug();
             state.emit_tail(TailEvent::Turn {
                 ts: now,
-                project: rec.channel_h.clone(),
+                channel: rec.channel_h.clone(),
                 agent: agent_label,
                 session: rec.session_id.clone(),
                 state: "idle".into(),

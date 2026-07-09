@@ -42,7 +42,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     let _ = state.provider.fetch_and_materialize_channel(channel).await;
     let metadata_confirmed = state.with_store(|s| s.is_archived_channel(channel))?;
 
-    refresh_project_members_cache(state, channel).await;
+    refresh_channel_members_cache(state, channel).await;
     let members = state.with_store(|s| s.list_channel_members(channel))?;
     let admins = members.iter().filter(|m| m.role == "admin").count();
     let remove_targets = archive_removal_targets(&members);

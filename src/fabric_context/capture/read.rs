@@ -246,9 +246,9 @@ pub(super) fn resolve_pubkey(
     }
 }
 
-pub(super) fn project_root(store: &Store, channel: &str) -> String {
+pub(super) fn root_channel(store: &Store, channel: &str) -> String {
     store
-        .channel_project_root(channel)
+        .root_channel_of(channel)
         .ok()
         .flatten()
         .unwrap_or_else(|| channel.to_string())
@@ -269,7 +269,7 @@ pub(super) fn channel_summary(store: &Store, channel: &str) -> SummaryCap {
     }
 }
 
-pub(super) fn project_summary(store: &Store, channel: &str) -> SummaryCap {
+pub(super) fn workspace_summary(store: &Store, channel: &str) -> SummaryCap {
     let ch = store.get_channel(channel).ok().flatten();
     SummaryCap {
         name: ch

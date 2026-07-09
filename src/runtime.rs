@@ -44,10 +44,10 @@ pub struct EngineParams {
     pub identity: crate::identity::SessionIdentity,
     /// The session's OWN minted keypair — the one and only key it signs with.
     pub keys: Keys,
-    pub project: String,
+    pub channel: String,
     pub session_id: String,
     pub host: String,
-    /// Project-relative working directory (§8e), advertised on presence/status.
+    /// Channel-relative working directory (§8e), advertised on presence/status.
     pub rel_cwd: String,
     /// The human owner pubkey(s) — p-tagged on our profile + presence.
     pub owners: Vec<String>,
@@ -86,8 +86,8 @@ fn status_channels(p: &EngineParams, store: &Mutex<Store>, session: &Session) ->
     if !session.channel_h.is_empty() && !channels.iter().any(|c| c == &session.channel_h) {
         channels.push(session.channel_h.clone());
     }
-    if channels.is_empty() && !p.project.is_empty() {
-        channels.push(p.project.clone());
+    if channels.is_empty() && !p.channel.is_empty() {
+        channels.push(p.channel.clone());
     }
     channels.sort();
     channels.dedup();

@@ -299,7 +299,7 @@ fn turn_check_delta_suppressed_when_not_due() {
     );
 }
 
-/// Ambient project chat is delta-gated off the relay-event log: a row newer than
+/// Ambient channel chat is delta-gated off the relay-event log: a row newer than
 /// the cursor surfaces, an older one does not re-emit on the next tool call.
 #[test]
 fn turn_check_chat_shown_once_not_per_tool_call() {

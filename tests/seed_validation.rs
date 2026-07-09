@@ -91,13 +91,13 @@ async fn seed_session_with_thread_root_link() {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let project = format!("tenex-off-val-{nanos:x}");
+    let channel = format!("tenex-off-val-{nanos:x}");
     let session_id = format!("val-sess-{nanos:x}");
     let title = "VALIDATION: session→thread link";
 
     eprintln!("\n[seed] ===== seed session with thread-root link =====");
     eprintln!("[seed] relay      = {relay}");
-    eprintln!("[seed] project(h) = {project}");
+    eprintln!("[seed] channel(h) = {channel}");
     eprintln!("[seed] session-id = {session_id}");
     eprintln!("[seed] title      = {title}");
     eprintln!(
@@ -109,13 +109,13 @@ async fn seed_session_with_thread_root_link() {
     let agent_c = connect(agent.clone(), &relay).await;
     let user_c = connect(user.clone(), &relay).await;
 
-    // ── Create an OPEN group with our chosen id (h == project). Retry rate limits.
+    // ── Create an OPEN group with our chosen id (h == channel). Retry rate limits.
     let mut created = false;
     for (attempt, backoff) in [2u64, 5, 12].into_iter().enumerate() {
         let create = EventBuilder::new(Kind::from(9007u16), "")
             .tags([Tag::custom(
                 TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
-                [project.clone()],
+                [channel.clone()],
             )])
             .build(admin.public_key());
         let create = admin.sign_event(create).await.expect("sign create");
@@ -172,7 +172,7 @@ async fn seed_session_with_thread_root_link() {
         &agent,
         &DomainEvent::Status(Status {
             agent: agent_ref.clone(),
-            channels: vec![project.clone()],
+            channels: vec![channel.clone()],
             session_id: session_id.clone().into(),
             host: "seed-host".into(),
             title: title.into(),
@@ -192,7 +192,7 @@ async fn seed_session_with_thread_root_link() {
         .fetch_events(
             Filter::new()
                 .kind(Kind::from(30315u16))
-                .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &project),
+                .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &channel),
             Duration::from_secs(5),
         )
         .await

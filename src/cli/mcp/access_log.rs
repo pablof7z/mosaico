@@ -37,7 +37,7 @@ fn add_param_shape(event: &mut serde_json::Map<String, Value>, params: &Value) {
         event.insert("argument_keys".into(), json!(keys));
         add_arg(event, arguments, "session");
         add_arg(event, arguments, "channel");
-        add_arg(event, arguments, "project");
+        add_arg(event, arguments, "channel");
     }
 }
 

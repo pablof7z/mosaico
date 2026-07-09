@@ -79,21 +79,21 @@ fn write_config_with_backend_key(home: &Home, per_session_rooms: bool, backend_k
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }
 
-fn refresh_project_members(project: &str) {
+fn refresh_channel_members(channel: &str) {
     let _ = tenex_edge::daemon::blocking::call(
-        "project_members",
-        serde_json::json!({ "project": project }),
+        "channel_members",
+        serde_json::json!({ "channel": channel }),
     );
 }
 
-fn materialize_member_snapshot(home: &Home, project: &str, pubkey: &str) {
+fn materialize_member_snapshot(home: &Home, channel: &str, pubkey: &str) {
     Store::open(&home.store_path())
         .unwrap()
-        .replace_channel_members(project, &[pubkey.to_string()], 9_000_000)
+        .replace_channel_members(channel, &[pubkey.to_string()], 9_000_000)
         .unwrap();
 }
 
-async fn precreate_project_group_as_user(project: &str) {
+async fn precreate_channel_group_as_user(channel: &str) {
     use nostr_sdk::prelude::*;
 
     let relay = shared_nip29_relay_url();
@@ -117,11 +117,11 @@ async fn precreate_project_group_as_user(project: &str) {
     for (label, builder) in [
         (
             "9007 create-group",
-            tenex_edge::fabric::nip29::lifecycle::group_create(project).unwrap(),
+            tenex_edge::fabric::nip29::lifecycle::group_create(channel).unwrap(),
         ),
         (
             "9002 lock-closed",
-            tenex_edge::fabric::nip29::lifecycle::group_lock_closed(project).unwrap(),
+            tenex_edge::fabric::nip29::lifecycle::group_lock_closed(channel).unwrap(),
         ),
     ] {
         let signed = builder.sign_with_keys(&user_keys).unwrap();

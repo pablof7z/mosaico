@@ -175,30 +175,30 @@ impl Nip29Provider {
             .map(|keys| keys.public_key().to_hex())
     }
 
-    fn log_group_role_decision(project: &str, pubkey: &str, role: &str, reason: &str) {
+    fn log_group_role_decision(channel: &str, pubkey: &str, role: &str, reason: &str) {
         eprintln!(
-            "[daemon] nip29-role-decision project={project} target={} role={role} reason={reason}",
+            "[daemon] nip29-role-decision channel={channel} target={} role={role} reason={reason}",
             crate::util::pubkey_short(pubkey)
         );
     }
 
     pub(crate) async fn nip29_add_member_outcome(
         &self,
-        project: &str,
+        channel: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
         let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
-        Self::log_group_role_decision(project, pubkey_hex, "member", "add member");
-        match crate::fabric::nip29::lifecycle::group_put_user(project, pubkey_hex) {
+        Self::log_group_role_decision(channel, pubkey_hex, "member", "add member");
+        match crate::fabric::nip29::lifecycle::group_put_user(channel, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (session)")
                     .await
             }
             Err(e) => {
                 tracing::error!(
-                    group = project,
+                    group = channel,
                     pubkey = pubkey_hex,
                     error = %format!("{e:#}"),
                     "nip29_add_member: group_put_user build failed — failing closed"
@@ -233,21 +233,21 @@ impl Nip29Provider {
 
     pub(crate) async fn nip29_add_admin_outcome(
         &self,
-        project: &str,
+        channel: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
         let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
-        Self::log_group_role_decision(project, pubkey_hex, "admin", "add admin");
-        match crate::fabric::nip29::lifecycle::group_put_admin(project, pubkey_hex) {
+        Self::log_group_role_decision(channel, pubkey_hex, "admin", "add admin");
+        match crate::fabric::nip29::lifecycle::group_put_admin(channel, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (admin)")
                     .await
             }
             Err(e) => {
                 tracing::error!(
-                    group = project,
+                    group = channel,
                     pubkey = pubkey_hex,
                     error = %format!("{e:#}"),
                     "nip29_add_admin: group_put_admin build failed — failing closed"
@@ -303,24 +303,24 @@ impl Nip29Provider {
 
     pub(crate) async fn nip29_remove_member_outcome(
         &self,
-        project: &str,
+        channel: &str,
         pubkey_hex: &str,
     ) -> GroupPublishOutcome {
         let Some(mgmt_keys) = self.management_keys() else {
             return GroupPublishOutcome::Rejected;
         };
         eprintln!(
-            "[daemon] nip29 remove-member h={project} p={}",
+            "[daemon] nip29 remove-member h={channel} p={}",
             crate::util::pubkey_short(pubkey_hex)
         );
-        match crate::fabric::nip29::lifecycle::group_remove_user(project, pubkey_hex) {
+        match crate::fabric::nip29::lifecycle::group_remove_user(channel, pubkey_hex) {
             Ok(b) => {
                 self.publish_group_management_outcome(b, &mgmt_keys, "9001 remove-user (session)")
                     .await
             }
             Err(e) => {
                 tracing::error!(
-                    group = project,
+                    group = channel,
                     pubkey = pubkey_hex,
                     error = %format!("{e:#}"),
                     "nip29_remove_member: group_remove_user build failed — failing closed"

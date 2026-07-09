@@ -1,8 +1,8 @@
 use super::*;
 
-/// `channels list`: render the subgroup tree under `project` from LOCAL daemon
+/// `channels list`: render the subgroup tree under `channel` from LOCAL daemon
 /// state (materialized kind:39000 metadata) — no relay round-trip. Returns the
-/// rooms in depth-first order, each with a `depth` (the project root is depth 0
+/// rooms in depth-first order, each with a `depth` (the channel root is depth 0
 /// and not included; its direct children are depth 1) so the CLI can indent.
 pub(in crate::daemon::server) fn rpc_channels_list(
     state: &Arc<DaemonState>,
@@ -10,14 +10,14 @@ pub(in crate::daemon::server) fn rpc_channels_list(
 ) -> Result<serde_json::Value> {
     #[derive(serde::Deserialize)]
     struct P {
-        project: String,
+        channel: String,
     }
     let p: P = serde_json::from_value(params.clone()).context("channels_list params")?;
 
     // Every channel the daemon has materialized.
     let rows = state.with_store(|s| s.list_channels())?;
-    let rooms = channel_list_rooms(rows, &p.project);
-    Ok(serde_json::json!({ "project": p.project, "rooms": rooms }))
+    let rooms = channel_list_rooms(rows, &p.channel);
+    Ok(serde_json::json!({ "channel": p.channel, "rooms": rooms }))
 }
 
 fn channel_list_rooms(rows: Vec<crate::state::Channel>, root: &str) -> Vec<serde_json::Value> {

@@ -102,11 +102,11 @@ pub(crate) fn render_fabric_context_human(
     Some(render_human_view(&view, color))
 }
 
-/// `--all-projects`: the same fabric renderer as a single-scope `who`, one
-/// project block per root channel in `roots`. No single caller session exists
-/// across projects, so each block is built session-less (no self row, no
+/// `--all-roots`: the same fabric renderer as a single-scope `who`, one
+/// root-channel block per root channel in `roots`. No single caller session
+/// exists across root channels, so each block is built session-less (no self row, no
 /// chatter — `build_view` only pulls messages when a session is present).
-pub(crate) fn render_fabric_all_projects(
+pub(crate) fn render_fabric_all_roots(
     store: &Store,
     roots: &[String],
     now: u64,
@@ -115,15 +115,15 @@ pub(crate) fn render_fabric_all_projects(
 ) -> String {
     let mut out = String::new();
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host, backend_pubkey));
+        let view = build_view(store, root_input(root, now, local_host, backend_pubkey));
         out.push_str(&render_view(&view));
         out.push('\n');
     }
     out
 }
 
-/// Human-rendered counterpart of [`render_fabric_all_projects`].
-pub(crate) fn render_fabric_all_projects_human(
+/// Human-rendered counterpart of [`render_fabric_all_roots`].
+pub(crate) fn render_fabric_all_roots_human(
     store: &Store,
     roots: &[String],
     now: u64,
@@ -133,13 +133,13 @@ pub(crate) fn render_fabric_all_projects_human(
 ) -> String {
     let mut out = String::new();
     for root in roots {
-        let view = build_view(store, project_input(root, now, local_host, backend_pubkey));
+        let view = build_view(store, root_input(root, now, local_host, backend_pubkey));
         out.push_str(&render_human_view(&view, color));
     }
     out
 }
 
-fn project_input<'a>(
+fn root_input<'a>(
     root: &'a str,
     now: u64,
     local_host: &'a str,

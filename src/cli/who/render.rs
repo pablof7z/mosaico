@@ -10,17 +10,17 @@ use labels::{rel_cwd_bracket, row_host_label, row_state_label, row_title_label, 
 pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
 
-    let scope = if snapshot.project == "*" {
-        "all projects".to_string()
+    let scope = if snapshot.root == "*" {
+        "all root channels".to_string()
     } else {
-        snapshot.project_display.clone()
+        snapshot.root_display.clone()
     };
     let _ = writeln!(out, "{}", scope.bold());
     let _ = writeln!(out);
 
     if snapshot.rows.is_empty() {
         let _ = writeln!(out, "(no live agents — start a session)");
-    } else if snapshot.project == "*" {
+    } else if snapshot.root == "*" {
         for row in &snapshot.rows {
             render_who_row(&mut out, row, true);
         }
@@ -30,20 +30,20 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
         }
     }
 
-    if snapshot.project != "*" && !snapshot.other_projects.is_empty() {
+    if snapshot.root != "*" && !snapshot.other_roots.is_empty() {
         let _ = writeln!(out);
         let _ = writeln!(
             out,
-            "{} other agent(s) in other projects:",
-            snapshot.other_projects.len()
+            "{} other agent(s) in other root channels:",
+            snapshot.other_roots.len()
         );
-        for op in &snapshot.other_projects {
+        for op in &snapshot.other_roots {
             match &op.about {
                 Some(about) if !about.is_empty() => {
-                    let _ = writeln!(out, "  * {} - {}", op.project, about);
+                    let _ = writeln!(out, "  * {} - {}", op.root, about);
                 }
                 _ => {
-                    let _ = writeln!(out, "  * {}", op.project);
+                    let _ = writeln!(out, "  * {}", op.root);
                 }
             }
         }
@@ -77,19 +77,19 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
 
     let _ = writeln!(out, "# tenex-edge who");
     let _ = writeln!(out);
-    if snapshot.project == "*" {
-        let _ = writeln!(out, "Project: all projects");
+    if snapshot.root == "*" {
+        let _ = writeln!(out, "Root: all root channels");
     } else if let Some(parent) = &snapshot.channel_parent {
         // The current scope is this session's own room — show it as the channel,
-        // with the work-root project it's nested under.
+        // with the work-root channel it's nested under.
         let _ = writeln!(
             out,
             "Channel: {} (your session room)",
-            snapshot.project_display
+            snapshot.root_display
         );
-        let _ = writeln!(out, "Project: {parent}");
+        let _ = writeln!(out, "Root: {parent}");
     } else {
-        let _ = writeln!(out, "Project: {}", snapshot.project_display);
+        let _ = writeln!(out, "Root: {}", snapshot.root_display);
     }
     let _ = writeln!(out);
 
@@ -106,7 +106,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
             let _ = writeln!(out, "{line}");
         }
         for row in &snapshot.rows {
-            render_who_markdown_row(&mut out, row, snapshot.project == "*");
+            render_who_markdown_row(&mut out, row, snapshot.root == "*");
         }
     }
 
@@ -134,16 +134,16 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
         }
     }
 
-    if snapshot.project != "*" {
+    if snapshot.root != "*" {
         let _ = writeln!(out);
-        let _ = writeln!(out, "## Other projects");
-        if snapshot.other_projects.is_empty() {
+        let _ = writeln!(out, "## Other root channels");
+        if snapshot.other_roots.is_empty() {
             let _ = writeln!(out);
-            let _ = writeln!(out, "_No other projects visible._");
+            let _ = writeln!(out, "_No other root channels visible._");
         } else {
             let _ = writeln!(out);
-            for op in &snapshot.other_projects {
-                let _ = writeln!(out, "- {}", md_text(&op.project));
+            for op in &snapshot.other_roots {
+                let _ = writeln!(out, "- {}", md_text(&op.root));
             }
         }
     }
@@ -151,7 +151,7 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     out
 }
 
-fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_project: bool) {
+fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_root: bool) {
     // Concurrent same-agent instances now carry DISTINCT ordinal slugs
     // ("haiku"/"haiku1"), so the slug alone disambiguates.
     let agent = row.slug.clone();
@@ -182,7 +182,7 @@ fn md_text(input: &str) -> String {
         .join(" ")
 }
 
-fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
+fn render_who_row(out: &mut String, row: &WhoRow, include_root: bool) {
     let stale = if row.fresh || row.dormant {
         String::new()
     } else {
@@ -199,7 +199,7 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_project: bool) {
     let dir = rel_cwd_bracket(&row.rel_cwd)
         .map(|d| format!(" {}", format!("[{d}]").dimmed()))
         .unwrap_or_default();
-    let _ = include_project;
+    let _ = include_root;
     // Distinct ordinal slugs already disambiguate concurrent same-agent rows.
     let name = row.slug.clone().cyan().to_string();
     let _ = writeln!(

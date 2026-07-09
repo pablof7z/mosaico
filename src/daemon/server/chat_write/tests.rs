@@ -50,9 +50,9 @@ fn register_session(store: &Store, session_id: &str, agent_slug: &str, channel_h
 }
 
 #[test]
-fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_project() {
+fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "project", "", "", 1).unwrap();
+    store.upsert_channel("root", "channel", "", "", 1).unwrap();
     store
         .upsert_channel("task-a", "Task A", "", "root", 2)
         .unwrap();
@@ -70,7 +70,7 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_proje
     let resolved = resolve_recipient(&store, "leaf-a", "local", "helper").unwrap();
 
     assert_eq!(resolved.target_session.as_deref(), Some("helper-session"));
-    assert_eq!(resolved.project, "leaf-b");
+    assert_eq!(resolved.channel, "leaf-b");
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
 
     let resolved = resolve_recipient(
         &store,
-        "project",
+        "channel",
         "localBackend",
         "developer1@remoteBackend",
     )
@@ -115,7 +115,7 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
 
     assert_eq!(resolved.pubkey, "remote-pk");
     assert_eq!(resolved.target_session, None);
-    assert_eq!(resolved.project, "project");
+    assert_eq!(resolved.channel, "channel");
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
 
     let resolved = resolve_recipient(
         &store,
-        "project",
+        "channel",
         "localBackend",
         "developer1@remoteBackend",
     )

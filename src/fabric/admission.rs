@@ -186,7 +186,7 @@ mod tests {
     fn chat(sender_pk: &str, channel: &str, body: &str, mention: Option<String>) -> ChatMessage {
         ChatMessage {
             from: AgentRef::new(sender_pk, String::new()),
-            project: channel.to_string(),
+            channel: channel.to_string(),
             body: body.to_string(),
             mentioned_pubkey: mention,
         }

@@ -13,7 +13,6 @@ mod joined;
 mod llm;
 mod membership;
 mod outbox;
-mod project_root;
 mod quarantine;
 mod readiness_attempt;
 mod receipt;
@@ -25,6 +24,7 @@ mod status;
 mod subscription;
 mod turn;
 mod txn;
+mod workspace;
 
 mod core;
 mod fabric;

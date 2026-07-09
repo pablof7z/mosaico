@@ -28,8 +28,8 @@ impl StoreReader<'_> {
         self.store.channel_parent(channel_h)
     }
 
-    pub(crate) fn channel_project_root(self, channel_h: &str) -> Result<Option<String>> {
-        self.store.channel_project_root(channel_h)
+    pub(crate) fn root_channel_of(self, channel_h: &str) -> Result<Option<String>> {
+        self.store.root_channel_of(channel_h)
     }
 
     pub(crate) fn is_root_channel(self, channel_h: &str) -> Result<bool> {

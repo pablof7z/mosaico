@@ -338,7 +338,7 @@ impl Transport {
     /// so random ids leaked an unbounded number of subscriptions into the relay
     /// pool — each retaining a full clone of the filter (BTreeMaps of tag/pubkey/
     /// kind sets) — growing the process to tens of GB over a day. Stable ids cap
-    /// the live set at the actual working set (projects × agents × kinds).
+    /// the live set at the actual working set (channels × agents × kinds).
     pub async fn subscribe(&self, filters: Vec<Filter>) -> Result<()> {
         for f in filters {
             let id = stable_subscription_id(&f);

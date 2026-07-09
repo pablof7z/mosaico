@@ -2,15 +2,15 @@ use super::*;
 use std::path::Path;
 use std::time::Duration;
 
-fn add_project_mapping(home: &Home, project: &str, path: &Path) {
+fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::create_dir_all(path).unwrap();
-    let map_path = home.dir.path().join("projects.json");
+    let map_path = home.dir.path().join("workspaces.json");
     let mut map = std::fs::read_to_string(&map_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s).ok())
         .unwrap_or_default();
     map.insert(
-        project.to_string(),
+        channel.to_string(),
         serde_json::Value::String(path.to_string_lossy().to_string()),
     );
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
@@ -46,9 +46,9 @@ fn session_kill_stops_pty_session_and_marks_offline() {
     let home = Home::new();
     write_config(&home, false);
 
-    let project = unique_session("kill-pty");
-    let work_dir = home.dir.path().join(&project);
-    add_project_mapping(&home, &project, &work_dir);
+    let channel = unique_session("kill-pty");
+    let work_dir = home.dir.path().join(&channel);
+    add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "kill-agent";
 
     let pty_id = rt().block_on(async {
@@ -58,8 +58,8 @@ fn session_kill_stops_pty_session_and_marks_offline() {
                 "pty_spawn",
                 serde_json::json!({
                     "agent": agent,
-                    "project": &project,
-                    "channel": &project,
+                    "root": &channel,
+                    "channel": &channel,
                     "cwd": &work_dir,
                     "base_command": no_hook_command(),
                 }),
@@ -68,7 +68,7 @@ fn session_kill_stops_pty_session_and_marks_offline() {
             .expect("pty_spawn");
         v["pty_id"].as_str().unwrap().to_string()
     });
-    let rec = wait_for_alive(&home, agent, &project);
+    let rec = wait_for_alive(&home, agent, &channel);
 
     let killed = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");

@@ -241,7 +241,7 @@ fn activity_roundtrip() {
     let keys = Keys::generate();
     let ev = DomainEvent::Activity(Activity {
         agent: AgentRef::new(keys.public_key().to_hex(), String::new()),
-        project: "tenex-edge".into(),
+        channel: "tenex-edge".into(),
         text: "fixing the auth bug".into(),
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
@@ -252,7 +252,7 @@ fn activity_uses_nip29_h_tag_not_hashtag() {
     let keys = Keys::generate();
     let ev = DomainEvent::Activity(Activity {
         agent: agent(&keys, "coder"),
-        project: "tenex-edge".into(),
+        channel: "tenex-edge".into(),
         text: "fixing the auth bug".into(),
     });
     let signed = Nip29WireCodec
@@ -288,9 +288,9 @@ fn kind_24011_presence_is_ignored() {
 }
 
 #[test]
-fn t_only_project_notes_are_ignored() {
+fn t_only_channel_notes_are_ignored() {
     // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None
-    // (no `h` tag means no project, so project_from_tags returns None).
+    // (no `h` tag means no channel, so channel_from_tags returns None).
     let keys = Keys::generate();
     let event = EventBuilder::new(Kind::from(1u16), "old shape")
         .tags([tag(&["t", "tenex-edge"]).unwrap()])
@@ -305,7 +305,7 @@ fn chat_message_encodes_as_kind9_with_group_and_pubkey_mention_only() {
     let mentioned_pk = "dd".repeat(32);
     let ev = DomainEvent::ChatMessage(ChatMessage {
         from: agent(&keys, "codex"),
-        project: "myproject".into(),
+        channel: "mychannel".into(),
         body: "status: tests are green".into(),
         mentioned_pubkey: Some(mentioned_pk.clone()),
     });
@@ -314,12 +314,12 @@ fn chat_message_encodes_as_kind9_with_group_and_pubkey_mention_only() {
     let signed = builder.sign_with_keys(&keys).expect("sign");
 
     assert_eq!(signed.kind.as_u16(), KIND_CHAT);
-    assert!(has_tag(&signed, "h", "myproject"));
+    assert!(has_tag(&signed, "h", "mychannel"));
     assert!(has_tag(&signed, "p", &mentioned_pk));
 
     match codec.decode_event(&signed) {
         Some(DomainEvent::ChatMessage(chat)) => {
-            assert_eq!(chat.project, "myproject");
+            assert_eq!(chat.channel, "mychannel");
             assert_eq!(chat.body, "status: tests are green");
             assert_eq!(chat.mentioned_pubkey, Some(mentioned_pk));
         }

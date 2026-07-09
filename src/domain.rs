@@ -129,7 +129,7 @@ impl Profile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Activity {
     pub agent: AgentRef,
-    pub project: String,
+    pub channel: String,
     pub text: String,
 }
 
@@ -138,7 +138,7 @@ pub struct Activity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proposal {
     pub agent: AgentRef,
-    pub project: String,
+    pub channel: String,
     pub title: String,
     pub body: String,
     /// Stable addressable identifier; reuse to publish a superseding revision.
@@ -180,7 +180,7 @@ pub struct Status {
     /// Whether the session is mid-turn (busy). Decoupled from `title` so an idle
     /// session keeps showing its title with a separate idle marker.
     pub busy: bool,
-    /// Project-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
+    /// Channel-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
     /// Public status value: never the absolute `$HOME/...` path (privacy). Lets
     /// a `who` reflect where the agent is working.
     pub rel_cwd: String,
@@ -202,14 +202,14 @@ impl Status {
     }
 }
 
-/// A project chat line. It is ambient project context; live sessions see it
-/// going forward only. Chat fans out to every alive project session by pubkey +
+/// A channel chat line. It is ambient channel context; live sessions see it
+/// going forward only. Chat fans out to every alive channel session by pubkey +
 /// channel membership; session ids are for lifecycle/status, not chat
 /// addressing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,
-    pub project: String,
+    pub channel: String,
     pub body: String,
     /// Optional pubkey for the @-mentioned agent.
     pub mentioned_pubkey: Option<String>,
@@ -232,10 +232,10 @@ impl DomainEvent {
     pub fn channel(&self) -> Option<&str> {
         match self {
             DomainEvent::Profile(_) => None,
-            DomainEvent::Activity(a) => Some(&a.project),
+            DomainEvent::Activity(a) => Some(&a.channel),
             DomainEvent::Status(s) => s.primary_channel(),
-            DomainEvent::ChatMessage(m) => Some(&m.project),
-            DomainEvent::Proposal(p) => Some(&p.project),
+            DomainEvent::ChatMessage(m) => Some(&m.channel),
+            DomainEvent::Proposal(p) => Some(&p.channel),
         }
     }
 }

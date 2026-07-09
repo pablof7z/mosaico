@@ -3,7 +3,7 @@
 //!   * spawn a new session: `channel add --new-session <role>[@machine] <channel>`
 //!   * pull an existing one:`channel add --session @codename@host <channel>`
 //!
-//! Human adds route to the daemon's `project_add`; both session modes route to
+//! Human adds route to the daemon's `channel_add_member`; both session modes route to
 //! `invite` (fresh spawn vs. resume/pull). `--message` posts a chat mentioning
 //! the brought-online session and is valid only in the session modes.
 
@@ -44,9 +44,9 @@ async fn human_add(
         anyhow::bail!("channel add <pubkey|npub|nip05> <channel> [--admin]");
     };
     let v = daemon_call_async(
-        "project_add",
+        "channel_add_member",
         crate::cli::rpc_params(serde_json::json!({
-            "project": channel,
+            "channel": channel,
             "pubkey": id,
             "admin": admin,
         })),

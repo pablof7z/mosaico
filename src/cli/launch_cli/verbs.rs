@@ -8,16 +8,16 @@ use anyhow::{Context as _, Result};
 /// inside it, then attaches the current terminal to the new session.
 pub(crate) async fn launch(
     agent: String,
-    project: Option<String>,
+    root: Option<String>,
     channel: Option<String>,
     command_name: Option<String>,
     override_command: Vec<String>,
     extra_args: Vec<String>,
     prompt: Option<String>,
 ) -> Result<()> {
-    let project = match project {
+    let root = match root {
         Some(p) => p,
-        None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
+        None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
     let base_command = if override_command.is_empty() {
         super::launch_command::resolve_launch_command(&agent, command_name.as_deref(), &extra_args)?
@@ -29,7 +29,7 @@ pub(crate) async fn launch(
     let command = super::launch_command::append_launch_args(base_command.clone(), &extra_args);
     // Show the interactive picker only when --channel "" is explicitly passed.
     // A bare `tenex-edge launch <agent>` with no --channel defaults to the
-    // project root channel.
+    // root channel.
     let want_picker = matches!(channel, Some(ref s) if s.is_empty());
     let channel = if want_picker {
         use std::io::IsTerminal;
@@ -39,21 +39,21 @@ pub(crate) async fn launch(
                  pass --channel <id> to scope into a specific channel non-interactively"
             );
         }
-        Some(pick_channel(&project, &agent).await?)
+        Some(pick_channel(&root, &agent).await?)
     } else {
         channel
     };
     // Resolve a channel NAME (or a literal id) to its opaque `channel_h` BEFORE
     // spawning, so TENEX_EDGE_CHANNEL and provisioning both see ONE id (creating
     // it if absent). A picker selection is already an id and round-trips unchanged.
-    // When no channel was specified, default to the project root channel.
+    // When no channel was specified, default to the root channel.
     let channel = match channel {
-        None => Some(project.clone()),
+        None => Some(root.clone()),
         Some(name) if !name.is_empty() => {
             let v = super::super::daemon_call_async(
                 "channels_resolve",
                 serde_json::json!({
-                    "project": project.clone(),
+                    "root": root.clone(),
                     "name": name,
                     "agent": agent.clone(),
                     "create_if_absent": true,
@@ -79,7 +79,7 @@ pub(crate) async fn launch(
     let meta = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
         id: None,
         agent: agent.clone(),
-        project,
+        root,
         cwd: cwd_path,
         channel,
         ephemeral: false,
@@ -104,14 +104,13 @@ pub(crate) async fn launch(
     crate::pty::attach(&meta.socket)
 }
 
-/// Fetch all rooms under `project` and present an interactive fuzzy picker.
+/// Fetch all rooms under `root` and present an interactive fuzzy picker.
 /// Includes a "＋ Create new channel…" entry at the top; selecting it prompts
 /// for a name, creates the channel via the daemon, and returns the new id.
 /// `agent_slug` is used as the default agent spec when creating.
-async fn pick_channel(project: &str, agent_slug: &str) -> Result<String> {
-    let v =
-        super::super::daemon_call_async("channels_list", serde_json::json!({ "project": project }))
-            .await?;
+async fn pick_channel(root: &str, agent_slug: &str) -> Result<String> {
+    let v = super::super::daemon_call_async("channels_list", serde_json::json!({ "root": root }))
+        .await?;
 
     let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
 
@@ -143,14 +142,14 @@ async fn pick_channel(project: &str, agent_slug: &str) -> Result<String> {
 
     match &ids[idx] {
         Some(id) => Ok(id.clone()),
-        None => create_channel_interactive(project, agent_slug, &theme).await,
+        None => create_channel_interactive(root, agent_slug, &theme).await,
     }
 }
 
 /// Prompt for a channel name, then create it via the daemon using the agent
 /// being launched and the local backend pubkey. Returns the new channel id.
 async fn create_channel_interactive(
-    project: &str,
+    root: &str,
     agent_slug: &str,
     theme: &dialoguer::theme::ColorfulTheme,
 ) -> Result<String> {
@@ -168,7 +167,7 @@ async fn create_channel_interactive(
     let v = super::super::daemon_call_async(
         "channels_create",
         crate::cli::rpc_params(serde_json::json!({
-            "parent": project,
+            "parent": root,
             "name": &name,
             "about": &name,
             "agents": [{ "slug": agent_slug, "backend": backend_label }],

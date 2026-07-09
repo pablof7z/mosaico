@@ -31,8 +31,8 @@ const SPECS: &[ToolSpec] = &[
         name: "tenex_edge.who",
         description: "Read current tenex-edge awareness.",
         props: &[
-            Prop::new("project", "string", "Project or channel id to inspect."),
-            Prop::new("all_projects", "boolean", "Return all project awareness."),
+            Prop::new("channel", "string", "Channel or channel id to inspect."),
+            Prop::new("all_roots", "boolean", "Return all channel awareness."),
         ],
         required: &[],
         read_only: true,
@@ -40,11 +40,11 @@ const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "tenex_edge.channels_list",
-        description: "List channels under a project.",
+        description: "List channels under a channel.",
         props: &[Prop::new(
-            "project",
+            "channel",
             "string",
-            "Project slug. Defaults to current directory project.",
+            "Channel slug. Defaults to current directory channel.",
         )],
         required: &[],
         read_only: true,

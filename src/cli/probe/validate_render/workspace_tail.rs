@@ -1,16 +1,16 @@
-//! Project-root evidence renderer for `probe validate`.
+//! Workspace evidence renderer for `probe validate`.
 
 use serde_json::Value;
 use std::fmt::Write as _;
 
 pub(super) fn render(out: &mut String, evidence: &Value) {
     let _ = writeln!(out);
-    let _ = writeln!(out, "project root evidence");
+    let _ = writeln!(out, "workspace evidence");
     let _ = writeln!(
         out,
-        "  - channel={} project_root={} channel_found={} direct={} inherited={}",
+        "  - channel={} root_channel={} channel_found={} direct={} inherited={}",
         str_at(evidence, "channel_h"),
-        str_at(evidence, "project_root"),
+        str_at(evidence, "root_channel"),
         bool_at(evidence, "channel_found"),
         bool_at(evidence, "direct_binding_found"),
         bool_at(evidence, "inherited_binding")

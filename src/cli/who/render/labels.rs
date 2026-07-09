@@ -41,8 +41,8 @@ pub(super) fn row_state_label(row: &WhoRow) -> String {
     status
 }
 
-/// The `[dir]` to show for a row's `rel_cwd`: `None` when empty or the project
-/// root (`.`), so the project root renders without a bracket (§8e).
+/// The `[dir]` to show for a row's `rel_cwd`: `None` when empty or the
+/// workspace root (`.`), so the workspace root renders without a bracket (§8e).
 pub(super) fn rel_cwd_bracket(rel_cwd: &str) -> Option<&str> {
     let r = rel_cwd.trim();
     if r.is_empty() || r == "." {

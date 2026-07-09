@@ -50,10 +50,10 @@ pub(super) const DURABLE_TABLES: &[TableCoverage] = &[
         "durable publish queue rows",
     ),
     row(
-        "project_roots",
+        "workspace_roots",
         "direct",
-        "project:<root> | project_root:<root>",
-        "project root bindings",
+        "workspace:<channel> | work_root:<channel>",
+        "channel workspace bindings",
     ),
     row(
         "receipts",

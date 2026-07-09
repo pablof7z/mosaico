@@ -8,8 +8,8 @@ mod scope;
 use scope::{is_archived_channel, is_root_channel, scope_contains_channel, work_root_for};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct OtherProjectSummary {
-    pub(crate) project: String,
+pub(crate) struct OtherRootSummary {
+    pub(crate) root: String,
     pub(crate) agent_count: usize,
     #[serde(default)]
     pub(crate) agents: Vec<String>,
@@ -20,23 +20,23 @@ pub(crate) struct OtherProjectSummary {
 // the EXACT renderers below — so output is byte-identical by construction.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WhoSnapshot {
-    pub(crate) project: String,
+    pub(crate) root: String,
     pub(crate) now: u64,
     pub(crate) rows: Vec<WhoRow>,
-    pub(crate) other_projects: Vec<OtherProjectSummary>,
+    pub(crate) other_roots: Vec<OtherRootSummary>,
     /// Agents tenex-edge has an identity for that can be spawned locally.
     #[serde(default)]
     pub(crate) spawnable: Vec<SpawnableRow>,
-    /// When the current scope is a per-session room, the work-root project it is
+    /// When the current scope is a per-session room, the work-root channel it is
     /// nested under. Lets the renderer label the room as the current *channel*
-    /// (distinct from the *project*). `None` when the scope is a plain project.
+    /// (distinct from its *root channel*). `None` when the scope is a root channel.
     #[serde(default)]
     pub(crate) channel_parent: Option<String>,
-    /// The human DISPLAY label for `project`: its kind:39000 `name` when set, else
-    /// the raw scope id. Rendered in the `Channel:`/`Project:` headers so the
-    /// opaque channel id never surfaces when a name exists. `*` for all-projects.
+    /// The human DISPLAY label for `root`: its kind:39000 `name` when set, else
+    /// the raw scope id. Rendered in the `Channel:`/`Root:` headers so the
+    /// opaque channel id never surfaces when a name exists. `*` for all-roots.
     #[serde(default)]
-    pub(crate) project_display: String,
+    pub(crate) root_display: String,
 }
 
 fn display_name(store: StoreReader<'_>, id: &str) -> String {
@@ -68,7 +68,7 @@ pub(crate) struct WhoRow {
     pub(crate) source: WhoSource,
     pub(crate) fresh: bool,
     pub(crate) slug: String,
-    pub(crate) project: String,
+    pub(crate) channel: String,
     /// Persistent session title (what the session is about); survives idle turns.
     pub(crate) status: String,
     /// Live "doing now" line, distilled alongside the title. Shown after the
@@ -85,7 +85,7 @@ pub(crate) struct WhoRow {
     pub(crate) host: String,
     pub(crate) session_id: String,
     pub(crate) age_secs: Option<u64>,
-    /// Project-relative working dir (§8e). Empty or "." → rendered without a
+    /// Channel-relative working dir (§8e). Empty or "." → rendered without a
     /// `[dir]` bracket; otherwise shown so worktrees render distinctly.
     #[serde(default)]
     pub(crate) rel_cwd: String,
@@ -96,8 +96,8 @@ pub(crate) struct WhoRow {
     /// True when this session has a live PTY endpoint registered.
     #[serde(default)]
     pub(crate) attachable: bool,
-    /// Top-level work-root project for UI grouping. `project` remains the live
-    /// routing scope (session room or task channel); this is the project tab.
+    /// Top-level work-root channel for UI grouping. `channel` remains the live
+    /// routing scope (session room or task channel); this is the root-channel tab.
     #[serde(default)]
     pub(crate) work_root: String,
     /// Hex pubkey others route to: per-session when derived, else durable agent.
@@ -113,7 +113,7 @@ pub(crate) enum WhoSource {
 
 pub(crate) fn load_who_snapshot(
     store: &Store,
-    current_project: Option<&str>,
+    current_root: Option<&str>,
     now: u64,
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
@@ -143,7 +143,7 @@ pub(crate) fn load_who_snapshot(
         if is_archived_channel(store, &scope) {
             continue;
         }
-        if current_project
+        if current_root
             .map(|p| scope_contains_channel(store, p, &scope))
             .unwrap_or(true)
         {
@@ -157,7 +157,7 @@ pub(crate) fn load_who_snapshot(
     }
     dormant::push_claim_rows(
         store,
-        current_project,
+        current_root,
         now,
         &local_host,
         &mut rows,
@@ -166,8 +166,8 @@ pub(crate) fn load_who_snapshot(
     .context("who snapshot: failed to read dormant session claims")?;
 
     // ── peers: relay_status across all channels, minus our own keys ────────────
-    // Scan every channel even when a `current_project` is set: in-scope statuses
-    // become rows, root channels out of scope feed the other-projects summary.
+    // Scan every channel even when a `current_root` is set: in-scope statuses
+    // become rows, root channels out of scope feed the other-roots summary.
     let mut channels: Vec<String> = store
         .list_channels()
         .context("who snapshot: failed to list channels")?
@@ -175,7 +175,7 @@ pub(crate) fn load_who_snapshot(
         .filter(|c| !c.is_archived())
         .map(|c| c.channel_h)
         .collect();
-    if let Some(p) = current_project {
+    if let Some(p) = current_root {
         if !is_archived_channel(store, p) && !channels.iter().any(|c| c == p) {
             channels.push(p.to_string());
         }
@@ -189,7 +189,7 @@ pub(crate) fn load_who_snapshot(
             if my_pubkeys.contains(&st.pubkey) {
                 continue;
             }
-            let in_scope = current_project
+            let in_scope = current_root
                 .map(|p| scope_contains_channel(store, p, ch))
                 .unwrap_or(true);
             if in_scope {
@@ -201,27 +201,27 @@ pub(crate) fn load_who_snapshot(
         }
     }
 
-    let other_projects = other_agents
+    let other_roots = other_agents
         .into_iter()
-        .map(|(project, agents)| {
+        .map(|(root, agents)| {
             // not-found → no `about`; a genuine read error is logged loudly
             // rather than silently swallowed into the same None.
-            let about = match store.get_channel(&project) {
+            let about = match store.get_channel(&root) {
                 Ok(c) => c.map(|c| c.about).filter(|a| !a.is_empty()),
                 Err(e) => {
                     tracing::error!(
-                        channel = %project,
+                        channel = %root,
                         error = ?e,
-                        "who snapshot: get_channel failed for other-project summary"
+                        "who snapshot: get_channel failed for other-root summary"
                     );
                     None
                 }
             };
-            // Show the project's human name; the raw id is only a fallback.
-            let display = display_name(store, &project);
+            // Show the root channel's human name; the raw id is only a fallback.
+            let display = display_name(store, &root);
             let agents: Vec<String> = agents.into_iter().collect();
-            OtherProjectSummary {
-                project: display,
+            OtherRootSummary {
+                root: display,
                 agent_count: agents.len(),
                 agents,
                 about,
@@ -233,7 +233,7 @@ pub(crate) fn load_who_snapshot(
         .into_iter()
         .map(|(slug, command, byline)| (slug, (command, byline)))
         .collect::<BTreeMap<_, _>>();
-    let roster_scope = current_project.map(|p| work_root_for(store, p));
+    let roster_scope = current_root.map(|p| work_root_for(store, p));
     let mut seen_spawnable = BTreeSet::new();
     let mut spawnable: Vec<SpawnableRow> = match roster_scope.as_deref() {
         Some(root) => store.list_agent_roster_for_channel(root)?,
@@ -275,8 +275,8 @@ pub(crate) fn load_who_snapshot(
             .then_with(|| a.command.cmp(&b.command))
     });
 
-    // Session/task channel parent lets the renderer label channel vs project.
-    let channel_parent = current_project.and_then(|p| {
+    // Session/task channel parent lets the renderer label channel vs root.
+    let channel_parent = current_root.and_then(|p| {
         match store.channel_parent(p) {
             Ok(parent) => parent,
             Err(e) => {
@@ -287,18 +287,18 @@ pub(crate) fn load_who_snapshot(
         .filter(|parent| !parent.is_empty())
     });
 
-    let project_display = current_project
+    let root_display = current_root
         .map(|p| display_name(store, p))
         .unwrap_or_else(|| "*".to_string());
 
     Ok(WhoSnapshot {
-        project: current_project.unwrap_or("*").to_string(),
+        root: current_root.unwrap_or("*").to_string(),
         now,
         rows,
-        other_projects,
+        other_roots,
         spawnable,
         channel_parent,
-        project_display,
+        root_display,
     })
 }
 
@@ -333,7 +333,7 @@ fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, now: u64) ->
         source: WhoSource::Local,
         fresh,
         slug: instance.display_slug(),
-        project: s.channel_h.clone(),
+        channel: s.channel_h.clone(),
         status: title,
         activity,
         active: busy,
@@ -378,7 +378,7 @@ fn peer_row(store: StoreReader<'_>, st: &Status, local_host: &str, now: u64) -> 
         source: WhoSource::Peer,
         fresh: true, // live_status_for_channel only returns unexpired rows
         slug: peer_slug(store, st),
-        project: st.channel_h.clone(),
+        channel: st.channel_h.clone(),
         status: st.title.clone(),
         activity: if st.busy {
             st.activity.clone()

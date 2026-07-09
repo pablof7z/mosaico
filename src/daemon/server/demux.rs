@@ -168,15 +168,15 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
                         let routed_to_local = hosted.contains(mentioned_pk);
                         let st = state.clone();
                         let mentioned_pk = mentioned_pk.clone();
-                        let project = chat.project.clone();
+                        let channel = chat.channel.clone();
                         let body = chat.body.clone();
                         tracing::info!(
                             mentioned_pk = %crate::util::pubkey_short(&mentioned_pk),
-                            project = %project,
+                            channel = %channel,
                             "dispatching offline-agent-mention handler"
                         );
                         tokio::spawn(async move {
-                            offline_mention::handle(&st, &mentioned_pk, &project, &body).await;
+                            offline_mention::handle(&st, &mentioned_pk, &channel, &body).await;
                         });
 
                         if routed_to_local {
@@ -205,7 +205,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     // subscription for any group a local agent just joined. `ensure_subscription`
     // is idempotent for already-subscribed groups.
     if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_GROUP_MEMBERS {
-        if let Some(project) = crate::fabric::nip29::nostr_tag(event, "d") {
+        if let Some(channel) = crate::fabric::nip29::nostr_tag(event, "d") {
             let local_pks = state.hosted_pubkeys();
             let is_member = event.tags.iter().any(|t| {
                 let s = t.as_slice();
@@ -214,7 +214,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             });
             if is_member {
                 let st = state.clone();
-                let proj = project.to_string();
+                let proj = channel.to_string();
                 tokio::spawn(async move {
                     let _ = ensure_subscription(&st, &proj).await;
                 });
@@ -289,7 +289,7 @@ fn derive_and_emit_tail_events(
                             key.clone(),
                             PeerTracked {
                                 first_seen: now,
-                                project: channel.clone(),
+                                channel: channel.clone(),
                                 slug: s.agent.slug.clone(),
                                 host: s.host.clone(),
                             },
@@ -302,7 +302,7 @@ fn derive_and_emit_tail_events(
                 if is_new {
                     state.emit_tail(TailEvent::Join {
                         ts: now,
-                        project: channel.clone(),
+                        channel: channel.clone(),
                         agent: s.agent.slug.clone(),
                         host: s.host.clone(),
                         session: s.session_id.as_str().to_string(),
@@ -323,7 +323,7 @@ fn derive_and_emit_tail_events(
                 if should_emit {
                     state.emit_tail(TailEvent::Status {
                         ts: now,
-                        project: channel.clone(),
+                        channel: channel.clone(),
                         agent: s.agent.slug.clone(),
                         text: s.title.clone(),
                         active: s.busy,
@@ -359,10 +359,10 @@ fn derive_and_emit_tail_events(
                 .mentioned_pubkey
                 .as_deref()
                 .map(pubkey_short)
-                .unwrap_or_else(|| "project-chat".to_string());
+                .unwrap_or_else(|| "channel-chat".to_string());
             state.emit_tail(TailEvent::Msg {
                 ts: now,
-                project: chat.project.clone(),
+                channel: chat.channel.clone(),
                 from: from_slug,
                 from_session: None,
                 to,

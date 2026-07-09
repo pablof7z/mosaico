@@ -1,4 +1,4 @@
-//! Project-root validation for local channel -> filesystem bindings.
+//! Workspace validation for local channel -> filesystem bindings.
 
 use super::report::{bool_at, str_at};
 use super::DaemonState;
@@ -6,48 +6,40 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
 
-pub(super) fn project_root_target(target: &str) -> Option<&str> {
+pub(super) fn workspace_target(target: &str) -> Option<&str> {
     target
-        .strip_prefix("project:")
-        .or_else(|| target.strip_prefix("project/"))
-        .or_else(|| target.strip_prefix("project_root:"))
-        .or_else(|| target.strip_prefix("project_root/"))
-        .or_else(|| target.strip_prefix("project-root:"))
-        .or_else(|| target.strip_prefix("project-root/"))
+        .strip_prefix("workspace:")
+        .or_else(|| target.strip_prefix("workspace/"))
         .or_else(|| target.strip_prefix("work_root:"))
         .or_else(|| target.strip_prefix("work_root/"))
         .and_then(|rest| rest.split('/').next())
         .filter(|id| !id.trim().is_empty())
 }
 
-pub(super) fn project_root_evidence(
-    state: &Arc<DaemonState>,
-    target: &str,
-    requested: &str,
-) -> Value {
+pub(super) fn workspace_evidence(state: &Arc<DaemonState>, target: &str, requested: &str) -> Value {
     let result = state.with_store(|store| {
         let channel = store.get_channel(requested)?;
-        let project_root = store.channel_project_root(requested)?;
-        let direct = store.project_root_binding(requested)?;
-        let inherited = project_root
+        let root_channel = store.root_channel_of(requested)?;
+        let direct = store.workspace_binding(requested)?;
+        let inherited = root_channel
             .as_deref()
             .filter(|root| *root != requested)
-            .map(|root| store.project_root_binding(root))
+            .map(|root| store.workspace_binding(root))
             .transpose()?
             .flatten();
-        Ok::<_, anyhow::Error>((channel, project_root, direct, inherited))
+        Ok::<_, anyhow::Error>((channel, root_channel, direct, inherited))
     });
-    let (channel, project_root, direct, inherited) = match result {
+    let (channel, root_channel, direct, inherited) = match result {
         Ok(v) => v,
         Err(e) => {
             return json!({
                 "target": target,
                 "channel_h": requested,
-                "kind": "project_root",
+                "kind": "workspace",
                 "supported": true,
                 "found": false,
                 "error": e.to_string(),
-                "summary": "project root evidence could not read durable state",
+                "summary": "workspace evidence could not read durable state",
                 "reason": e.to_string(),
             });
         }
@@ -67,13 +59,13 @@ pub(super) fn project_root_evidence(
     json!({
         "target": target,
         "channel_h": requested,
-        "kind": "project_root",
+        "kind": "workspace",
         "supported": true,
         "found": found,
         "channel_found": channel_found,
         "channel_name": channel.as_ref().map(|c| c.name.as_str()).unwrap_or(""),
         "parent": channel.as_ref().map(|c| c.parent.as_str()).unwrap_or(""),
-        "project_root": project_root.as_deref().unwrap_or(""),
+        "root_channel": root_channel.as_deref().unwrap_or(""),
         "direct_binding_found": direct.is_some(),
         "inherited_binding_found": inherited.is_some(),
         "inherited_binding": inherited_binding,
@@ -89,7 +81,7 @@ pub(super) fn project_root_evidence(
     })
 }
 
-pub(super) fn push_project_root_check(
+pub(super) fn push_workspace_check(
     checks: &mut Vec<Value>,
     limitations: &mut Vec<String>,
     evidence: &Value,
@@ -104,7 +96,7 @@ pub(super) fn push_project_root_check(
         "not_proven"
     };
     checks.push(json!({
-        "name": "project_root",
+        "name": "workspace",
         "status": status,
         "summary": str_at(evidence, "summary"),
     }));
@@ -112,7 +104,7 @@ pub(super) fn push_project_root_check(
         limitations.push(str_at(evidence, "reason").to_string());
     } else if status == "passed" && !bool_at(evidence, "channel_found") {
         limitations.push(
-            "project root path exists locally, but relay channel metadata is not materialized"
+            "workspace path exists locally, but relay channel metadata is not materialized"
                 .to_string(),
         );
     }
@@ -120,34 +112,34 @@ pub(super) fn push_project_root_check(
 
 fn summary(
     requested: &str,
-    binding: Option<&crate::state::ProjectRootBinding>,
+    binding: Option<&crate::state::WorkspaceBinding>,
     path_absolute: bool,
     path_exists: bool,
     path_is_dir: bool,
 ) -> String {
     let Some(binding) = binding else {
-        return format!("project `{requested}` has no local project root binding");
+        return format!("channel `{requested}` has no local workspace binding");
     };
     if !path_absolute {
         return format!(
-            "project `{requested}` root binding `{}` is not absolute",
+            "channel `{requested}` workspace binding `{}` is not absolute",
             binding.abs_path
         );
     }
     if !path_exists {
         return format!(
-            "project `{requested}` root path `{}` does not exist",
+            "channel `{requested}` workspace path `{}` does not exist",
             binding.abs_path
         );
     }
     if !path_is_dir {
         return format!(
-            "project `{requested}` root path `{}` is not a directory",
+            "channel `{requested}` workspace path `{}` is not a directory",
             binding.abs_path
         );
     }
     format!(
-        "project `{requested}` root path `{}` exists",
+        "channel `{requested}` workspace path `{}` exists",
         binding.abs_path
     )
 }
@@ -160,15 +152,15 @@ fn reason(
     path_is_dir: bool,
 ) -> &'static str {
     if !found {
-        "no project_roots row exists for this channel or its top-level project root"
+        "no workspace_roots row exists for this channel or its root channel"
     } else if !path_absolute {
-        "project_roots row stores a non-absolute path"
+        "workspace_roots row stores a non-absolute path"
     } else if !path_exists {
-        "project root path does not exist on this machine"
+        "workspace path does not exist on this machine"
     } else if !path_is_dir {
-        "project root path exists but is not a directory"
+        "workspace path exists but is not a directory"
     } else if !channel_found {
-        "project root path exists locally, but relay channel metadata is not materialized"
+        "workspace path exists locally, but relay channel metadata is not materialized"
     } else {
         ""
     }

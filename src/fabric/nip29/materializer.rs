@@ -23,8 +23,8 @@ impl Nip29Materializer {
     // ── relay_channels (kind:39000) ──────────────────────────────────────────
 
     /// Materialise kind:39000 group metadata into `relay_channels`. The group id
-    /// is the event's `d` tag; `parent` (empty for top-level project channels)
-    /// distinguishes a session/task channel from a project channel.
+    /// is the event's `d` tag; `parent` (empty for top-level root channels)
+    /// distinguishes a session/task channel from a root channel.
     pub fn materialize_channel(store: &Store, event: &Event) {
         let Some(channel_h) = super::nostr_tag(event, "d") else {
             return;
@@ -170,7 +170,7 @@ impl Nip29Materializer {
     /// doorbell. Returns `true` if at least one new inbox row was enqueued.
     /// Idempotent: a duplicate `(event_id, target_session)` is ignored by the store.
     pub fn route_chat(store: &Store, event: &Event, chat: &ChatMessage) -> bool {
-        let channel_h = chat.project.as_str();
+        let channel_h = chat.channel.as_str();
         let from_pubkey = event.pubkey.to_hex();
         let event_id = event.id.to_hex();
         let created_at = event.created_at.as_secs();
@@ -263,7 +263,7 @@ fn collect_p_pubkeys(event: &Event) -> Vec<String> {
         .collect()
 }
 
-/// Project a raw Nostr event onto the verbatim `relay_events` row shape.
+/// Channel a raw Nostr event onto the verbatim `relay_events` row shape.
 pub(crate) fn to_relay_event(event: &Event) -> RelayEvent {
     RelayEvent {
         id: event.id.to_hex(),

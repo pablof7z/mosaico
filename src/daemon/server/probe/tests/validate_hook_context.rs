@@ -129,7 +129,7 @@ fn seed_hook_graph_and_receipt(
     let inputs: ViewInputs = serde_json::from_value(json!({
         "meta": {
             "self_row": null,
-            "project": { "name": "", "about": "" },
+            "workspace": { "name": "", "about": "" },
             "agents": [],
             "channels": [],
             "unjoined": [],
@@ -173,7 +173,7 @@ fn unconfirmed_channel_inputs() -> ViewInputs {
     serde_json::from_value(json!({
         "meta": {
             "self_row": null,
-            "project": { "name": "ghost", "about": "" },
+            "workspace": { "name": "ghost", "about": "" },
             "agents": [],
             "channels": [{
                 "h": "ghost",
@@ -202,7 +202,7 @@ fn local_agents_and_members_inputs() -> ViewInputs {
                 "backend": "laptop",
                 "session_id": "s1"
             },
-            "project": { "name": "room", "about": "" },
+            "workspace": { "name": "room", "about": "" },
             "agents": [{
                 "reference": "helper",
                 "about": "available",

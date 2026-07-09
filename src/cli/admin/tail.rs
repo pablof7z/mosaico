@@ -74,7 +74,7 @@ pub fn render_tail_event(
 
     match ev {
         TailEvent::Msg {
-            project,
+            channel,
             from,
             from_session,
             to,
@@ -101,7 +101,7 @@ pub fn render_tail_event(
                 format!(" \"{}{}\"", body_clean, ellipsis)
             };
             format!(
-                "{ts_str}  {cat}  {}@{project}{sess}  {arrow} {}{to_sess}{snippet}",
+                "{ts_str}  {cat}  {}@{channel}{sess}  {arrow} {}{to_sess}{snippet}",
                 col!(from, cyan),
                 col!(to, cyan),
             )
@@ -159,7 +159,7 @@ pub fn render_tail_event(
         }
 
         TailEvent::Turn {
-            project,
+            channel,
             agent,
             session,
             state,
@@ -179,13 +179,13 @@ pub fn render_tail_event(
                 (g, format!(" idle{dur}"))
             };
             format!(
-                "{ts_str}  {cat}  {}@{project}{sess}  {glyph}{detail}",
+                "{ts_str}  {cat}  {}@{channel}{sess}  {glyph}{detail}",
                 col!(agent, cyan),
             )
         }
 
         TailEvent::Status {
-            project,
+            channel,
             agent,
             text,
             active,
@@ -198,11 +198,11 @@ pub fn render_tail_event(
                 (false, true) => text.clone(),
                 (false, false) => format!("{text} · idle"),
             };
-            format!("{ts_str}  {cat}  {}@{project}  {label}", col!(agent, cyan))
+            format!("{ts_str}  {cat}  {}@{channel}  {label}", col!(agent, cyan))
         }
 
         TailEvent::Join {
-            project,
+            channel,
             agent,
             host,
             session,
@@ -217,13 +217,13 @@ pub fn render_tail_event(
                 format!(" ({})", rel_cwd)
             };
             format!(
-                "{ts_str}  {cat}  {}@{host}{sess}  online ({project}{cwd_info})",
+                "{ts_str}  {cat}  {}@{host}{sess}  online ({channel}{cwd_info})",
                 col!(agent, cyan),
             )
         }
 
         TailEvent::Leave {
-            project,
+            channel,
             agent,
             host,
             session,
@@ -234,13 +234,13 @@ pub fn render_tail_event(
             let sess = format!("[{}]", sess_code(session));
             let dur = fmt_duration(*online_s);
             format!(
-                "{ts_str}  {cat}  {}@{host}{sess}  offline (was online {dur}, {project})",
+                "{ts_str}  {cat}  {}@{host}{sess}  offline (was online {dur}, {channel})",
                 col!(agent, cyan),
             )
         }
 
         TailEvent::Sess {
-            project,
+            channel,
             agent,
             session,
             state,
@@ -255,15 +255,15 @@ pub fn render_tail_event(
                 format!(" (rel_cwd: {rel_cwd})")
             };
             format!(
-                "{ts_str}  {cat}  {}@{project}{sess}  session {state}{cwd_info}",
+                "{ts_str}  {cat}  {}@{channel}{sess}  session {state}{cwd_info}",
                 col!(agent, cyan),
             )
         }
 
-        TailEvent::Proj { project, about, .. } => {
+        TailEvent::Proj { channel, about, .. } => {
             let cat = col!("proj ", dimmed);
             let snippet: String = about.chars().take(60).collect();
-            format!("{ts_str}  {cat}  {project}  {snippet}")
+            format!("{ts_str}  {cat}  {channel}  {snippet}")
         }
 
         TailEvent::Profile {

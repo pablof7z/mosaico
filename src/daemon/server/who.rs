@@ -1,5 +1,5 @@
 use super::*;
-use crate::who_snapshot::OtherProjectSummary;
+use crate::who_snapshot::OtherRootSummary;
 use owo_colors::OwoColorize as _;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -7,9 +7,9 @@ use std::fmt::Write as _;
 #[derive(serde::Deserialize, Default)]
 pub(in crate::daemon::server) struct WhoParams {
     #[serde(default)]
-    project: Option<String>,
+    root: Option<String>,
     #[serde(default)]
-    all_projects: bool,
+    all_roots: bool,
     #[serde(default)]
     cwd: Option<String>,
     #[serde(default, alias = "env_session")]
@@ -35,7 +35,7 @@ const EXPIRED_SESSION_LIMIT: u32 = 100;
 
 /// `who`: build the snapshot with the SAME function the CLI used. The client
 /// renders it with the existing renderers, so output is byte-identical. The
-/// daemon resolves the current project the same way the old CLI did.
+/// daemon resolves the current root the same way the old CLI did.
 pub(in crate::daemon::server) fn rpc_who(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -49,7 +49,7 @@ pub(in crate::daemon::server) fn rpc_who(
         return Ok(serde_json::json!({ "expired": rows }));
     }
     let anchor = CallerAnchor::from_params(params);
-    let caller_rec = if p.all_projects {
+    let caller_rec = if p.all_roots {
         None
     } else if p.pty_session.as_deref().filter(|s| !s.is_empty()).is_some()
         || p.harness_session
@@ -68,18 +68,18 @@ pub(in crate::daemon::server) fn rpc_who(
     } else {
         None
     };
-    let current_project = if p.all_projects {
+    let current_root = if p.all_roots {
         None
     } else if let Some(rec) = caller_rec.as_ref() {
         Some(rec.channel_h.clone())
     } else {
-        Some(p.project.clone().unwrap_or_else(|| {
+        Some(p.root.clone().unwrap_or_else(|| {
             let cwd = p
                 .cwd
                 .clone()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::project::resolve(&cwd).unwrap_or_default()
+            crate::workspace::resolve(&cwd).unwrap_or_default()
         }))
     };
     let now = now_secs();
@@ -89,18 +89,18 @@ pub(in crate::daemon::server) fn rpc_who(
     // cold cache, so identity — not a fetched profile — is the reliable signal).
     let backend_pk = state.backend_pubkey().unwrap_or_default();
     let snapshot = state.with_store(|s| {
-        crate::who_snapshot::load_who_snapshot(s, current_project.as_deref(), now, &host)
+        crate::who_snapshot::load_who_snapshot(s, current_root.as_deref(), now, &host)
     })?;
     let mut out = serde_json::to_value(&snapshot)?;
 
     // Attach the UNIFIED fabric view (same format as the hook injection — decision
-    // A) whenever a single current channel resolves. `--all-projects` has no single
-    // scope, so it keeps the cross-project snapshot table. The caller (this session,
+    // A) whenever a single current channel resolves. `--all-roots` has no single
+    // scope, so it keeps the cross-root snapshot table. The caller (this session,
     // when run inside an agent) is marked `(you)` and excluded from peer echoes.
-    if let Some(scope) = current_project.as_deref() {
+    if let Some(scope) = current_root.as_deref() {
         // Reuse the exact caller session, when present, for both the fabric
         // `(you)` match and the folded-in `<self />` row (issue #99).
-        // Deliberately no project-scan fallback: `who` must not masquerade as a
+        // Deliberately no root-scan fallback: `who` must not masquerade as a
         // session just because some live sibling exists in the same repository.
         let rec = caller_rec.as_ref();
         // Issue #98: the caller's ONE authoritative agent-instance identity — the
@@ -152,11 +152,7 @@ pub(in crate::daemon::server) fn rpc_who(
                     )
                 });
                 if let Some(mut human) = human {
-                    append_other_projects_human(
-                        &mut human,
-                        &snapshot.other_projects,
-                        p.human_color,
-                    );
+                    append_other_roots_human(&mut human, &snapshot.other_roots, p.human_color);
                     out["fabric_human"] = serde_json::Value::String(human);
                 }
             }
@@ -175,18 +171,18 @@ pub(in crate::daemon::server) fn rpc_who(
                 }
             }
         }
-    } else if p.all_projects {
-        // No single scope exists across all projects, so `--all-projects` gets
-        // the same fabric renderer applied once per root project instead of
+    } else if p.all_roots {
+        // No single scope exists across all roots, so `--all-roots` gets
+        // the same fabric renderer applied once per root channel instead of
         // falling back to the old snapshot table (issue: `who` and
-        // `who --all-projects` must not diverge in output format).
-        let roots = state.with_store(project_roots)?;
+        // `who --all-roots` must not diverge in output format).
+        let roots = state.with_store(root_channels)?;
         let fabric = state.with_store(|s| {
-            crate::fabric_context::render_fabric_all_projects(s, &roots, now, &host, &backend_pk)
+            crate::fabric_context::render_fabric_all_roots(s, &roots, now, &host, &backend_pk)
         });
         out["fabric"] = serde_json::Value::String(fabric);
         let human = state.with_store(|s| {
-            crate::fabric_context::render_fabric_all_projects_human(
+            crate::fabric_context::render_fabric_all_roots_human(
                 s,
                 &roots,
                 now,
@@ -200,9 +196,9 @@ pub(in crate::daemon::server) fn rpc_who(
     Ok(out)
 }
 
-/// Top-level project channels (`parent` empty), non-archived — the set
-/// `--all-projects` fans its unified fabric render across.
-fn project_roots(store: &crate::state::Store) -> Result<Vec<String>> {
+/// Top-level root channels (`parent` empty), non-archived — the set
+/// `--all-roots` fans its unified fabric render across.
+fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> {
     let mut roots = store
         .reader()
         .list_channels()?
@@ -212,29 +208,25 @@ fn project_roots(store: &crate::state::Store) -> Result<Vec<String>> {
         .collect::<BTreeSet<_>>();
     roots.extend(
         store
-            .list_project_root_bindings()?
+            .list_workspace_bindings()?
             .into_iter()
             .map(|binding| binding.channel_h),
     );
     Ok(roots.into_iter().collect())
 }
 
-fn append_other_projects_human(
-    out: &mut String,
-    other_projects: &[OtherProjectSummary],
-    color: bool,
-) {
-    if other_projects.is_empty() {
+fn append_other_roots_human(out: &mut String, other_roots: &[OtherRootSummary], color: bool) {
+    if other_roots.is_empty() {
         return;
     }
     let _ = writeln!(
         out,
         "{}",
-        human_style("Other projects", color, HumanStyle::Header)
+        human_style("Other root channels", color, HumanStyle::Header)
     );
-    for project in other_projects {
-        let name = human_style(&project.project, color, HumanStyle::Project);
-        let agents = project
+    for root in other_roots {
+        let name = human_style(&root.root, color, HumanStyle::Root);
+        let agents = root
             .agents
             .iter()
             .map(|agent| human_style(&format!("@{agent}"), color, HumanStyle::Agent))
@@ -242,10 +234,10 @@ fn append_other_projects_human(
             .join(", ");
         let count = format!(
             "{} agent{}",
-            project.agent_count,
-            if project.agent_count == 1 { "" } else { "s" }
+            root.agent_count,
+            if root.agent_count == 1 { "" } else { "s" }
         );
-        let about = project
+        let about = root
             .about
             .as_deref()
             .filter(|about| !about.trim().is_empty())
@@ -271,7 +263,7 @@ fn append_other_projects_human(
 enum HumanStyle {
     Agent,
     Header,
-    Project,
+    Root,
 }
 
 fn human_style(text: &str, color: bool, style: HumanStyle) -> String {
@@ -281,7 +273,7 @@ fn human_style(text: &str, color: bool, style: HumanStyle) -> String {
     match style {
         HumanStyle::Agent => text.cyan().to_string(),
         HumanStyle::Header => text.bold().to_string(),
-        HumanStyle::Project => text.blue().bold().to_string(),
+        HumanStyle::Root => text.blue().bold().to_string(),
     }
 }
 
@@ -292,5 +284,3 @@ fn human_dim(text: &str, color: bool) -> String {
         text.to_string()
     }
 }
-
-// ── project_add ──────────────────────────────────────────────────────────────

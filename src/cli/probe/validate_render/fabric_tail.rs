@@ -18,7 +18,7 @@ pub(super) fn render_channel(out: &mut String, channel: &Value) {
             "  - name={:?} parent={:?} root={:?}",
             str_at(channel, "human_name"),
             str_at(channel, "parent"),
-            str_at(channel, "project_root")
+            str_at(channel, "root_channel")
         );
         let _ = writeln!(
             out,
@@ -107,10 +107,10 @@ fn render_readiness(out: &mut String, channel: &Value) {
 pub(super) fn render_awareness(out: &mut String, awareness: &Value) {
     let _ = writeln!(out);
     let _ = writeln!(out, "awareness evidence");
-    if bool_at(awareness, "all_projects") {
+    if bool_at(awareness, "all_roots") {
         let _ = writeln!(
             out,
-            "  - all projects: {} known channel(s)",
+            "  - all channels: {} known channel(s)",
             int_at(awareness, "known_channel_count")
         );
     } else {
@@ -126,7 +126,7 @@ pub(super) fn render_awareness(out: &mut String, awareness: &Value) {
                 "  - name={:?} parent={:?} root={:?}",
                 str_at(awareness, "channel_name"),
                 str_at(awareness, "parent"),
-                str_at(awareness, "project_root")
+                str_at(awareness, "root_channel")
             );
             let _ = writeln!(
                 out,

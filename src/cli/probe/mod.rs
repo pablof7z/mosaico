@@ -128,7 +128,7 @@ enum ProbeAction {
 }
 
 impl ProbeAction {
-    /// Project the parsed verb into the `{verb, ...}` RPC params the daemon's
+    /// Channel the parsed verb into the `{verb, ...}` RPC params the daemon's
     /// `probe` arm dispatches on.
     fn to_rpc(&self) -> Result<(String, Value)> {
         match self {

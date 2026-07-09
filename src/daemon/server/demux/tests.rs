@@ -54,7 +54,7 @@ fn identity(pubkey: &str, codename: &str, slug: &str, channel: &str) -> Identity
 
 /// `handle` returns early when the mentioned pubkey already has an alive session
 /// joined to the channel. This replicates the exact store query.
-fn has_alive_session_for(store: &Store, mentioned_pk: &str, project: &str) -> bool {
+fn has_alive_session_for(store: &Store, mentioned_pk: &str, channel: &str) -> bool {
     store
         .list_alive_sessions()
         .unwrap_or_default()
@@ -62,8 +62,8 @@ fn has_alive_session_for(store: &Store, mentioned_pk: &str, project: &str) -> bo
         .any(|rec| {
             rec.agent_pubkey == mentioned_pk
                 && store
-                    .is_session_joined_channel(&rec.session_id, project)
-                    .unwrap_or(rec.channel_h == project)
+                    .is_session_joined_channel(&rec.session_id, channel)
+                    .unwrap_or(rec.channel_h == channel)
         })
 }
 
@@ -124,12 +124,12 @@ const BACKEND_B: &str = "backend-b-pubkey";
 fn remote_backend_owns_active_claim(
     store: &Store,
     mentioned_pk: &str,
-    project: &str,
+    channel: &str,
     now: u64,
     our_backend: Option<&str>,
 ) -> bool {
     store
-        .get_active_session_claim(mentioned_pk, project, now)
+        .get_active_session_claim(mentioned_pk, channel, now)
         .ok()
         .flatten()
         .as_ref()
@@ -225,9 +225,9 @@ fn remote_claim_gate_skips_when_we_have_no_backend_pubkey_and_claim_has_owner() 
 /// Replicates the identity resolution path in `handle`: try channel-specific
 /// first, then global. Returns (slug, native_id) or None. A per-session pubkey is
 /// unique, so this resolves to exactly one session whose native id can be resumed.
-fn resolve_identity(store: &Store, mentioned_pk: &str, project: &str) -> Option<(String, String)> {
+fn resolve_identity(store: &Store, mentioned_pk: &str, channel: &str) -> Option<(String, String)> {
     store
-        .get_identity_for_channel(mentioned_pk, project)
+        .get_identity_for_channel(mentioned_pk, channel)
         .ok()
         .flatten()
         .or_else(|| store.get_identity(mentioned_pk).ok().flatten())

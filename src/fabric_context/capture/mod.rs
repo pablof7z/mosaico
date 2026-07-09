@@ -58,7 +58,7 @@ impl ViewInputs {
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct MetaInput {
     pub(super) self_row: Option<SelfCap>,
-    pub(super) project: SummaryCap,
+    pub(super) workspace: SummaryCap,
     pub(super) agents: Vec<AgentCap>,
     pub(super) channels: Vec<ChannelCap>,
     pub(super) unjoined: Vec<UnjoinedCap>,
@@ -176,7 +176,7 @@ pub(super) struct EvCap {
 /// reads `build_view`/`people`/`messages` perform, but keeps the `now`/`cursor`
 /// filtering out (superset captures) so the reconciler owns that decision.
 pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> ViewInputs {
-    let root = read::project_root(store, input.scope);
+    let root = read::root_channel(store, input.scope);
     let channel_hs = read::selected_channels(store, input);
     let mut warnings = input.warnings.to_vec();
     warnings.extend(
@@ -272,7 +272,7 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         crate::idref::agent_ref_from(input.self_slug, input.local_host, input.local_host);
     let meta = MetaInput {
         self_row: input.session.map(|s| read::self_cap(s, input)),
-        project: read::project_summary(store, &root),
+        workspace: read::workspace_summary(store, &root),
         agents: read::agent_caps(store, &root, input),
         channels,
         unjoined: read::unjoined_caps(store, &root, &channel_hs),

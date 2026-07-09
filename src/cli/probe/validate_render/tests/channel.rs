@@ -113,7 +113,7 @@ fn validate_render_lists_provider_attempts_for_plain_channel() {
             "found": true,
             "human_name": "Room",
             "parent": "",
-            "project_root": "room",
+            "root_channel": "room",
             "member_count": 2,
             "admin_count": 1,
             "membership_snapshot": true,

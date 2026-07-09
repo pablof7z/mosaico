@@ -39,7 +39,7 @@ pub enum SubEffect {
 /// The daemon's current coverage, split by owner so channels refcount per scope.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoverageSnapshot {
-    /// Explicitly subscribed projects + channels any local/ordinal pubkey manages
+    /// Explicitly subscribed roots + channels any local/ordinal pubkey manages
     /// or is a member of. Owned by the daemon scope.
     pub daemon_channels: BTreeSet<String>,
     /// Addressed pubkeys: local durable + ordinal + live transient session keys +

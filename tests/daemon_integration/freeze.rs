@@ -44,7 +44,7 @@ fn rewrite_config_with_user_nsec(home: &Home) {
 /// We exercise this through the `session_start` path (which causes the daemon
 /// to subscribe and receive relay-authored 39000/39002 events) combined with
 /// direct Store assertions. To force idempotency, we call session_start twice
-/// for the same project, which may re-apply any cached 39002 snapshot from the
+/// for the same channel, which may re-apply any cached 39002 snapshot from the
 /// relay.
 ///
 /// FREEZE-NOTE: the daemon applies 39000/39002 only when they arrive from the
@@ -83,7 +83,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
                     == Some("tmp")
             })
             .unwrap_or(false)),
-        "session start should materialize the room's parent project channel"
+        "session start should materialize the room's parent root channel"
     );
 
     // Record baseline membership state.
@@ -92,17 +92,17 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
         .get_session("freeze-grp-idem-1")
         .unwrap()
         .expect("session row");
-    let project = rec.channel_h.clone();
+    let channel = rec.channel_h.clone();
 
-    // FREEZE: the minted room's parent project channel is present after first
+    // FREEZE: the minted room's parent root channel is present after first
     // start. (Parent now lives in `relay_channels`; `session_room_parent` →
     // `channel_parent`.) Membership itself is relay-confirmed state, so this test
     // seeds the subsequent 39002 snapshot explicitly instead of relying on an
     // optimistic local write.
     assert_eq!(
-        store.channel_parent(&project).unwrap().as_deref(),
+        store.channel_parent(&channel).unwrap().as_deref(),
         Some("tmp"),
-        "session start should record the room's parent project channel"
+        "session start should record the room's parent root channel"
     );
     // Simulate idempotency: apply the same 39002 snapshot twice via the public
     // Store API (the daemon uses `replace_channel_members` when it processes
@@ -111,23 +111,23 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     let members_snapshot = vec![rec.agent_pubkey.clone()];
     let ts = 9_000_000u64;
     store
-        .replace_channel_members(&project, &members_snapshot, ts)
+        .replace_channel_members(&channel, &members_snapshot, ts)
         .unwrap();
     store
-        .replace_channel_members(&project, &members_snapshot, ts)
+        .replace_channel_members(&channel, &members_snapshot, ts)
         .unwrap();
 
     // FREEZE: membership is stable — no duplication, same set.
     assert!(
         store
-            .is_channel_member(&project, &rec.agent_pubkey)
+            .is_channel_member(&channel, &rec.agent_pubkey)
             .unwrap(),
         "member still present after double-apply of 39002 snapshot"
     );
     // Count members via list — expect exactly 1 (no duplication).
     // We confirm via is_channel_member scoped to a distinct fake pubkey being absent.
     assert!(
-        !store.is_channel_member(&project, "nonexistent-pk").unwrap(),
+        !store.is_channel_member(&channel, "nonexistent-pk").unwrap(),
         "phantom member must not appear after 39002 re-application"
     );
 

@@ -4,9 +4,9 @@ use std::fmt::Write as _;
 
 pub(in crate::fabric_context) fn render_human_view(view: &FabricView, color: bool) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "{}", style(&view.project.name, color, Style::Title));
-    if !view.project.about.is_empty() {
-        let _ = writeln!(out, "{}", dim(&view.project.about, color));
+    let _ = writeln!(out, "{}", style(&view.workspace.name, color, Style::Title));
+    if !view.workspace.about.is_empty() {
+        let _ = writeln!(out, "{}", dim(&view.workspace.about, color));
     }
     out.push('\n');
     if view.is_quiet_delta() {

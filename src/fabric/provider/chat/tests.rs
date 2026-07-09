@@ -14,7 +14,7 @@ async fn offline_provider() -> Nip29Provider {
 fn chat() -> ChatMessage {
     ChatMessage {
         from: AgentRef::new("pk", "agent"),
-        project: "chan".into(),
+        channel: "chan".into(),
         body: "root cause was a retry storm".into(),
         mentioned_pubkey: None,
     }

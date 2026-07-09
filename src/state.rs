@@ -7,7 +7,7 @@
 //!      joined-channel state (`session_channels`), external-id aliases
 //!      (`session_aliases`), derived signing keys (`identities`), the inbound
 //!      routing ledger (`inbox`), the outbound publish queue (`outbox`), pending
-//!      channel-name reservations, and on-disk project paths (`project_roots`).
+//!      channel-name reservations, and on-disk workspace paths (`workspace_roots`).
 //!
 //! A pubkey appears AT MOST ONCE per channel. Canonical session identity is
 //! daemon-minted and stable; harness-native ids are aliases that repoint to the
@@ -27,8 +27,8 @@ pub struct Store {
     conn: Connection,
 }
 
-/// kind:39000 group metadata. A channel and a project are one abstraction;
-/// `parent` is the only distinction (`""` = top-level project channel).
+/// kind:39000 group metadata. A channel is the one abstraction; `parent` is the
+/// only distinction (`""` = a root channel at the top of the tree).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Channel {
     pub channel_h: String,
@@ -43,7 +43,7 @@ impl Channel {
     /// The channel's human display name, if it has one — the single source of
     /// truth for "is this channel named?".
     ///
-    /// A ROOT project (`parent` empty) uses its slug as BOTH its NIP-29 group id
+    /// A ROOT channel (`parent` empty) uses its slug as BOTH its NIP-29 group id
     /// and its `name` (`channel_h == name`), so the slug IS the human label.
     /// A session/task room (`parent` set) whose `name` merely defaulted to its
     /// opaque id is genuinely unnamed. An empty `name` is always unnamed.
@@ -270,8 +270,8 @@ mod messages;
 mod outbox;
 pub use outbox::outbox_retry_delay_secs;
 mod profiles;
-mod project_roots;
-pub use project_roots::ProjectRootBinding;
+mod workspace_roots;
+pub use workspace_roots::WorkspaceBinding;
 mod quarantine;
 pub use quarantine::QuarantinedEvent;
 mod reader;

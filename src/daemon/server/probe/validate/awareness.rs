@@ -20,7 +20,7 @@ pub(super) fn awareness_evidence(
                 "supported": true,
                 "found": false,
                 "channel_confirmed": false,
-                "summary": "awareness target has no resolved project/channel context",
+                "summary": "awareness target has no resolved channel/channel context",
                 "reason": reason,
             });
         }
@@ -51,7 +51,7 @@ pub(super) fn push_awareness_check(
     let passed = bool_at(evidence, "found") && bool_at(evidence, "channel_confirmed");
     let status = if failed {
         "failed"
-    } else if passed || bool_at(evidence, "all_projects") {
+    } else if passed || bool_at(evidence, "all_roots") {
         "passed"
     } else {
         "not_proven"
@@ -73,8 +73,8 @@ fn build_evidence(
     now: u64,
     host: &str,
 ) -> anyhow::Result<Value> {
-    let current_project = scope.channel();
-    let snapshot = crate::who_snapshot::load_who_snapshot(store, current_project, now, host)?;
+    let current_root = scope.channel();
+    let snapshot = crate::who_snapshot::load_who_snapshot(store, current_root, now, host)?;
     let rows = snapshot.rows.len();
     let local_rows = snapshot
         .rows
@@ -86,12 +86,12 @@ fn build_evidence(
     let spawnable = snapshot.spawnable.len();
     let known_channels = store.list_channels()?.len();
 
-    if scope.all_projects() {
+    if scope.all_roots() {
         return Ok(json!({
             "target": target,
             "supported": true,
             "found": true,
-            "all_projects": true,
+            "all_roots": true,
             "channel_confirmed": true,
             "known_channel_count": known_channels,
             "row_count": rows,
@@ -99,18 +99,18 @@ fn build_evidence(
             "peer_row_count": peer_rows,
             "fresh_row_count": fresh_rows,
             "spawnable_count": spawnable,
-            "other_project_count": snapshot.other_projects.len(),
+            "other_root_count": snapshot.other_roots.len(),
             "summary": format!(
-                "all-project awareness has {rows} live row(s) across {known_channels} known channel(s); {spawnable} local spawnable agent(s) are separate"
+                "all-channel awareness has {rows} live row(s) across {known_channels} known channel(s); {spawnable} local spawnable agent(s) are separate"
             ),
         }));
     }
 
-    let channel_h = current_project.unwrap_or_default();
+    let channel_h = current_root.unwrap_or_default();
     let channel = store.get_channel(channel_h)?;
     let confirmed = channel.is_some();
     let membership_snapshot = store.has_channel_membership_snapshot(channel_h)?;
-    let project_root = store.channel_project_root(channel_h)?;
+    let root_channel = store.root_channel_of(channel_h)?;
     let members = store.list_channel_members(channel_h)?;
     let admin_count = members.iter().filter(|m| m.role == "admin").count();
     let summary = if confirmed {
@@ -124,12 +124,12 @@ fn build_evidence(
         "target": target,
         "supported": true,
         "found": confirmed,
-        "all_projects": false,
+        "all_roots": false,
         "channel_h": channel_h,
         "channel_confirmed": confirmed,
         "channel_name": channel.as_ref().map(|c| c.human_name().unwrap_or(&c.name)),
         "parent": channel.as_ref().map(|c| c.parent.as_str()).unwrap_or(""),
-        "project_root": project_root.unwrap_or_default(),
+        "root_channel": root_channel.unwrap_or_default(),
         "membership_snapshot": membership_snapshot,
         "member_count": members.len(),
         "admin_count": admin_count,
@@ -138,7 +138,7 @@ fn build_evidence(
         "peer_row_count": peer_rows,
         "fresh_row_count": fresh_rows,
         "spawnable_count": spawnable,
-        "other_project_count": snapshot.other_projects.len(),
+        "other_root_count": snapshot.other_roots.len(),
         "summary": summary,
         "reason": (!confirmed).then_some(
             "awareness must be backed by confirmed relay channel metadata; local/default names and spawnable agents are not channel presence"
@@ -148,7 +148,7 @@ fn build_evidence(
 
 enum Scope {
     Channel(String),
-    AllProjects,
+    AllRoots,
     Missing(String),
 }
 
@@ -156,31 +156,31 @@ impl Scope {
     fn channel(&self) -> Option<&str> {
         match self {
             Scope::Channel(channel) => Some(channel.as_str()),
-            Scope::AllProjects | Scope::Missing(_) => None,
+            Scope::AllRoots | Scope::Missing(_) => None,
         }
     }
 
-    fn all_projects(&self) -> bool {
-        matches!(self, Scope::AllProjects)
+    fn all_roots(&self) -> bool {
+        matches!(self, Scope::AllRoots)
     }
 }
 
 fn requested_scope(params: &Value, requested: &str) -> Scope {
     let requested = requested.trim();
     if requested == "*" {
-        return Scope::AllProjects;
+        return Scope::AllRoots;
     }
     if !requested.is_empty() {
         return Scope::Channel(requested.to_string());
     }
     if params
-        .get("all_projects")
+        .get("all_roots")
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        return Scope::AllProjects;
+        return Scope::AllRoots;
     }
-    for key in ["group", "project"] {
+    for key in ["group", "channel"] {
         if let Some(value) = params
             .get(key)
             .and_then(Value::as_str)
@@ -194,12 +194,12 @@ fn requested_scope(params: &Value, requested: &str) -> Scope {
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
     {
-        if let Ok(project) = crate::project::resolve(Path::new(cwd)) {
-            return Scope::Channel(project);
+        if let Ok(channel) = crate::workspace::resolve(Path::new(cwd)) {
+            return Scope::Channel(channel);
         }
     }
     Scope::Missing(
-        "validate awareness needs a target channel, caller channel, project, cwd, or `awareness:*`"
+        "validate awareness needs a target channel, caller channel, channel, cwd, or `awareness:*`"
             .to_string(),
     )
 }

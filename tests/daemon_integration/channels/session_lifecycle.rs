@@ -2,7 +2,7 @@ use super::*;
 use std::time::Duration;
 
 #[test]
-fn session_start_without_tenex_private_key_generates_key_and_provisions_project() {
+fn session_start_without_tenex_private_key_generates_key_and_provisions_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec_without_backend_key(&home, false);
@@ -40,7 +40,7 @@ fn session_start_without_tenex_private_key_generates_key_and_provisions_project(
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_project_members("tmp");
+            refresh_channel_members("tmp");
             let members = Store::open(&home.store_path())
                 .and_then(|store| store.list_channel_members("tmp"))
                 .unwrap_or_default();
@@ -61,13 +61,13 @@ fn session_start_without_tenex_private_key_generates_key_and_provisions_project(
         members
             .iter()
             .any(|m| m.pubkey == backend_pk && m.role == "admin"),
-        "generated management key should be an admin of the project group"
+        "generated management key should be an admin of the channel group"
     );
     assert!(
         members
             .iter()
             .any(|m| m.pubkey == user_pk && m.role == "admin"),
-        "whitelisted user key should be repaired as project admin"
+        "whitelisted user key should be repaired as channel admin"
     );
 
     let store = Store::open(&home.store_path()).unwrap();
@@ -84,27 +84,27 @@ fn session_start_without_tenex_private_key_generates_key_and_provisions_project(
 }
 
 #[test]
-fn generated_management_key_self_grants_on_existing_user_owned_project() {
+fn generated_management_key_self_grants_on_existing_user_owned_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec_without_backend_key(&home, false);
-    let project = unique_session("existing-project");
+    let channel = unique_session("existing-channel");
     let cwd = home.dir.path().join("existing-work");
     std::fs::create_dir_all(&cwd).unwrap();
-    let mut projects = serde_json::Map::new();
-    projects.insert(
-        project.clone(),
+    let mut channels = serde_json::Map::new();
+    channels.insert(
+        channel.clone(),
         serde_json::Value::String(cwd.to_string_lossy().to_string()),
     );
     std::fs::write(
-        home.dir.path().join("projects.json"),
-        serde_json::to_string(&serde_json::Value::Object(projects)).unwrap(),
+        home.dir.path().join("workspaces.json"),
+        serde_json::to_string(&serde_json::Value::Object(channels)).unwrap(),
     )
     .unwrap();
     let sid = unique_session("sess-selfgrant");
 
     rt().block_on(async {
-        precreate_project_group_as_user(&project).await;
+        precreate_channel_group_as_user(&channel).await;
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
@@ -130,9 +130,9 @@ fn generated_management_key_self_grants_on_existing_user_owned_project() {
     .unwrap();
     let backend_pk = pubkey_of(cfg["tenexPrivateKey"].as_str().unwrap());
     if !wait_until(Duration::from_secs(25), || {
-        refresh_project_members(&project);
+        refresh_channel_members(&channel);
         let members = Store::open(&home.store_path())
-            .and_then(|store| store.list_channel_members(&project))
+            .and_then(|store| store.list_channel_members(&channel))
             .unwrap_or_default();
         members
             .iter()
@@ -146,7 +146,7 @@ fn generated_management_key_self_grants_on_existing_user_owned_project() {
     }
     let members = Store::open(&home.store_path())
         .unwrap()
-        .list_channel_members(&project)
+        .list_channel_members(&channel)
         .unwrap();
     assert!(
         members

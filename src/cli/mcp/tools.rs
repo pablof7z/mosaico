@@ -30,16 +30,16 @@ pub(super) async fn call(params: &Value) -> Result<Value> {
 }
 
 async fn who(args: &Value) -> Result<Value> {
-    let project = opt_string(args, "project");
-    let all_projects = args
-        .get("all_projects")
+    let channel = opt_string(args, "channel");
+    let all_roots = args
+        .get("all_roots")
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let extra = json!({
-        "project": project,
-        "all_projects": all_projects,
+        "channel": channel,
+        "all_roots": all_roots,
     });
-    let params = if project.is_some() || all_projects {
+    let params = if channel.is_some() || all_roots {
         operator_params(extra)
     } else {
         crate::cli::rpc_params(extra)
@@ -48,11 +48,11 @@ async fn who(args: &Value) -> Result<Value> {
 }
 
 async fn channels_list(args: &Value) -> Result<Value> {
-    let project = match opt_string(args, "project") {
-        Some(project) => project,
-        None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
+    let channel = match opt_string(args, "channel") {
+        Some(channel) => channel,
+        None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
-    daemon_raw("channels_list", json!({ "project": project })).await
+    daemon_raw("channels_list", json!({ "channel": channel })).await
 }
 
 async fn chat_read(args: &Value) -> Result<Value> {

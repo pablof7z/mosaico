@@ -1,5 +1,5 @@
 use super::{
-    materialize_member_snapshot, refresh_project_members, rewrite_config_with_user_nsec,
+    materialize_member_snapshot, refresh_channel_members, rewrite_config_with_user_nsec,
     unique_session, write_config,
 };
 use crate::daemon_harness::{rt, stop_daemon, wait_until, Home, ENV_LOCK};
@@ -41,7 +41,7 @@ fn wait_for_channel_parent(home: &Home, channel: &str, parent: &str) {
 fn wait_for_channel_member(home: &Home, channel: &str, pubkey: &str) {
     assert!(
         wait_until(std::time::Duration::from_secs(25), || {
-            refresh_project_members(channel);
+            refresh_channel_members(channel);
             Store::open(&home.store_path())
                 .map(|s| s.is_channel_member(channel, pubkey).unwrap_or(false))
                 .unwrap_or(false)
@@ -128,23 +128,23 @@ fn first_turn_resolves_member_profiles_from_kind0() {
         .expect("session_start");
         wait_for_channel_metadata(&home, "tmp");
         c.call(
-            "project_add",
-            serde_json::json!({"project": "tmp", "pubkey": remote_pk}),
+            "channel_add_member",
+            serde_json::json!({"channel": "tmp", "pubkey": remote_pk}),
         )
         .await
-        .expect("project_add profiled member");
+        .expect("channel_add_member profiled member");
         wait_for_channel_member(&home, "tmp", &remote_pk);
         let members = c
-            .call("project_members", serde_json::json!({"project": "tmp"}))
+            .call("channel_members", serde_json::json!({"channel": "tmp"}))
             .await
-            .expect("project_members");
+            .expect("channel_members");
         assert!(
             members["members"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .any(|m| m["pubkey"] == remote_pk && m["slug"] == remote_name),
-            "project_members should resolve kind:0 slugs: {members}"
+            "channel_members should resolve kind:0 slugs: {members}"
         );
         let v = c
             .call("turn_start", serde_json::json!({"session": sid}))
@@ -190,7 +190,7 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         .unwrap()
         .expect("session row");
     assert!(rec.alive);
-    // The minted session room's parent is the work-root project channel. (Parent
+    // The minted session room's parent is the work-root channel. (Parent
     // now lives in `relay_channels`; `session_room_parent` was renamed to
     // `channel_parent`.)
     wait_for_channel_parent(&home, &rec.channel_h, "tmp");
@@ -199,7 +199,7 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
 }
 
 /// Human-initiated sessions with per-session rooms enabled mint child rooms
-/// under the work-root project.
+/// under the work-root channel.
 #[test]
 fn human_initiated_session_mints_per_session_room() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -221,11 +221,11 @@ fn human_initiated_session_mints_per_session_room() {
     let rec = store.get_session(&sid).unwrap().expect("session row");
     assert_ne!(
         rec.channel_h, "tmp",
-        "human-initiated session should mint a per-session room, not use the bare project"
+        "human-initiated session should mint a per-session room, not use the bare channel"
     );
     assert!(
         rec.channel_h.starts_with("session-"),
-        "room id should be project-agnostic: got {}",
+        "room id should be channel-agnostic: got {}",
         rec.channel_h
     );
     // removed: `channel_breadcrumb` no longer exists — channel hierarchy labels
@@ -237,7 +237,7 @@ fn human_initiated_session_mints_per_session_room() {
             &home.store_path()
         )
         .map(|s| {
-            refresh_project_members(&rec.channel_h);
+            refresh_channel_members(&rec.channel_h);
             s.is_channel_member(&rec.channel_h, &rec.agent_pubkey)
                 .unwrap_or(false)
         })
@@ -249,9 +249,9 @@ fn human_initiated_session_mints_per_session_room() {
 }
 
 /// With per-session rooms disabled, a human-initiated session uses the work-root
-/// project channel.
+/// root channel.
 #[test]
-fn human_initiated_session_uses_project_when_per_session_rooms_disabled() {
+fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     write_config(&home, false);
@@ -271,14 +271,14 @@ fn human_initiated_session_uses_project_when_per_session_rooms_disabled() {
     let rec = store.get_session(&sid).unwrap().expect("session row");
     assert_eq!(
         rec.channel_h, "tmp",
-        "with per-session rooms disabled, the session should use the project channel"
+        "with per-session rooms disabled, the session should use the root channel"
     );
     assert!(
         !rec.channel_h.starts_with("session-"),
         "no per-session room should be minted: got {}",
         rec.channel_h
     );
-    // A session room is a channel with a non-empty parent; the work-root project
+    // A session room is a channel with a non-empty parent; the work-root channel
     // is a root channel. (`is_session_room` was removed; the distinction is
     // `is_root_channel`.)
     assert!(
@@ -287,7 +287,7 @@ fn human_initiated_session_uses_project_when_per_session_rooms_disabled() {
         )
         .map(|s| s.is_root_channel(&rec.channel_h).unwrap_or(false))
         .unwrap_or(false)),
-        "the work-root project is not a session room"
+        "the work-root channel is not a session room"
     );
 
     stop_daemon(&home);
@@ -323,7 +323,7 @@ fn opencode_style_session_without_id_mints_room_via_pid() {
         "opencode session must mint a per-session room: got {}",
         rec.channel_h
     );
-    // A minted session room is a non-root channel (it has a parent project).
+    // A minted session room is a non-root channel (it has a parent channel).
     // (`is_session_room` was removed; the distinction is `!is_root_channel`.)
     assert!(
         !store.is_root_channel(&rec.channel_h).unwrap(),

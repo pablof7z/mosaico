@@ -6,37 +6,37 @@ use crate::session_host::registry::{
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
-pub(super) fn project_abs_path(
+pub(super) fn workspace_abs_path(
     state: &Arc<DaemonState>,
-    project: &str,
+    channel: &str,
     client_cwd: Option<&std::path::Path>,
 ) -> Result<String> {
     if let Some(cwd) = client_cwd {
         let abs = cwd.to_string_lossy().to_string();
         let now = crate::util::now_secs();
-        // The recorded root is what the resume path reads back; if the write is
-        // dropped, a later resume falls into the "no root" branch and we'd spawn
-        // in the wrong directory. Propagate the failure instead of swallowing it.
+        // The recorded workspace path is what the resume path reads back; if the
+        // write is dropped, a later resume falls into the "no workspace" branch and
+        // we'd spawn in the wrong directory. Propagate the failure, don't swallow.
         state
-            .with_store(|s| s.upsert_project_root(project, &abs, now))
-            .with_context(|| format!("recording project root for {project:?}"))?;
+            .with_store(|s| s.upsert_workspace(channel, &abs, now))
+            .with_context(|| format!("recording workspace path for {channel:?}"))?;
         return Ok(abs);
     }
-    // Resume path (no client cwd): the project root MUST already be recorded.
+    // Resume path (no client cwd): the workspace path MUST already be recorded.
     // Never guess the daemon's current_dir here; an unrelated daemon cwd would
     // land the agent in the wrong directory. Fail loud on a read error or
     // missing row.
-    let root = state
-        .with_store(|s| s.project_root(project))
-        .with_context(|| format!("looking up project root for {project:?}"))?;
-    root.ok_or_else(|| {
-        anyhow::anyhow!("cannot resolve project root for {project:?} (no recorded path)")
+    let abs = state
+        .with_store(|s| s.workspace_path(channel))
+        .with_context(|| format!("looking up workspace path for {channel:?}"))?;
+    abs.ok_or_else(|| {
+        anyhow::anyhow!("cannot resolve workspace path for {channel:?} (no recorded path)")
     })
 }
 
 async fn open_agent_session(
     slug: &str,
-    project: &str,
+    root: &str,
     abs_path: &str,
     command: &[String],
     group: Option<&str>,
@@ -45,7 +45,7 @@ async fn open_agent_session(
     let meta = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
         id: None,
         agent: slug.to_string(),
-        project: project.to_string(),
+        root: root.to_string(),
         cwd: std::path::PathBuf::from(abs_path),
         channel: group.filter(|g| !g.is_empty()).map(str::to_string),
         ephemeral,
@@ -54,12 +54,12 @@ async fn open_agent_session(
     Ok(meta)
 }
 
-/// Spawn a new PTY-hosted harness in `project`'s directory. Returns the
+/// Spawn a new PTY-hosted harness in `root`'s directory. Returns the
 /// supervisor session id.
 pub async fn spawn_agent(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     launch_args: Vec<String>,
     base_override: Option<Vec<String>>,
     group: Option<&str>,
@@ -68,7 +68,7 @@ pub async fn spawn_agent(
     spawn_agent_inner(
         state,
         slug,
-        project,
+        root,
         launch_args,
         base_override,
         group,
@@ -81,7 +81,7 @@ pub async fn spawn_agent(
 pub async fn spawn_ephemeral_agent(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     launch_args: Vec<String>,
     base_override: Option<Vec<String>>,
     group: Option<&str>,
@@ -90,7 +90,7 @@ pub async fn spawn_ephemeral_agent(
     spawn_agent_inner(
         state,
         slug,
-        project,
+        root,
         launch_args,
         base_override,
         group,
@@ -104,7 +104,7 @@ pub async fn spawn_ephemeral_agent(
 async fn spawn_agent_inner(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     launch_args: Vec<String>,
     base_override: Option<Vec<String>>,
     group: Option<&str>,
@@ -121,9 +121,8 @@ async fn spawn_agent_inner(
     }
     let _ = find_spawn_def(slug);
 
-    let abs_path = project_abs_path(state, project, client_cwd)?;
-    let meta =
-        open_agent_session(slug, project, &abs_path, &agent_command, group, ephemeral).await?;
+    let abs_path = workspace_abs_path(state, root, client_cwd)?;
+    let meta = open_agent_session(slug, root, &abs_path, &agent_command, group, ephemeral).await?;
     let pty_id = meta.id.clone();
     if let Err(e) =
         crate::daemon::server::session_start::bootstrap_pty_session_start(state, &meta, group, None)
@@ -139,18 +138,18 @@ async fn spawn_agent_inner(
 pub async fn resume_agent(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     resume_id: &str,
 ) -> Result<String> {
-    resume_agent_in_channel(state, slug, project, project, resume_id).await
+    resume_agent_in_channel(state, slug, root, root, resume_id).await
 }
 
-/// Resume a prior session into an explicit channel while using `project` to
+/// Resume a prior session into an explicit channel while using `root` to
 /// resolve the working directory.
 pub async fn resume_agent_in_channel(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     group: &str,
     resume_id: &str,
 ) -> Result<String> {
@@ -165,18 +164,11 @@ pub async fn resume_agent_in_channel(
     })?;
     let resume_command = build_resume_command(&base, shape, resume_id);
 
-    let abs_path = project_abs_path(state, project, None)?;
+    let abs_path = workspace_abs_path(state, root, None)?;
     // A resumed claude/codex session re-registers under the SAME session_id, so it
     // deterministically re-derives its own pubkey — no explicit hint needed.
-    let meta = open_agent_session(
-        slug,
-        project,
-        &abs_path,
-        &resume_command,
-        Some(group),
-        false,
-    )
-    .await?;
+    let meta =
+        open_agent_session(slug, root, &abs_path, &resume_command, Some(group), false).await?;
     let pty_id = meta.id.clone();
     if let Err(e) = crate::daemon::server::session_start::bootstrap_pty_session_start(
         state,

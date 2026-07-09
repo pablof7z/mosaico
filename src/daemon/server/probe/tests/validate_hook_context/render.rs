@@ -94,7 +94,7 @@ async fn rpc_probe_validate_hook_target_fails_legacy_agents_roster() {
         .get_mut("s1")
         .unwrap()
         .set_current_text_for_test(
-            r#"<tenex-edge><project name="room"><agents><agent ref="@helper" /></agents></project></tenex-edge>"#,
+            r#"<tenex-edge><channel name="room"><agents><agent ref="@helper" /></agents></channel></tenex-edge>"#,
         );
 
     let v = rpc_probe(&state, &json!({ "verb": "validate", "target": "hook:s1" })).unwrap();

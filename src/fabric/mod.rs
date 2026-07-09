@@ -27,7 +27,7 @@ pub enum RawEnvelope {
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
     pub authors: Vec<String>,
-    pub project: Option<String>,
+    pub channel: Option<String>,
 }
 
 /// Encode/decode between `DomainEvent` and Nostr event envelopes.
@@ -207,11 +207,11 @@ mod tests {
         let sender_pk = sender_keys.public_key().to_hex();
         let receiver_pk = receiver_keys.public_key().to_hex();
 
-        let sender_sid = register(&store, &sender_pk, "myproject", "sender-ext");
-        let receiver_sid = register(&store, &receiver_pk, "myproject", "receiver-ext");
-        store.replace_channel_admins("myproject", &[], 1).unwrap();
+        let sender_sid = register(&store, &sender_pk, "mychannel", "sender-ext");
+        let receiver_sid = register(&store, &receiver_pk, "mychannel", "receiver-ext");
+        store.replace_channel_admins("mychannel", &[], 1).unwrap();
         store
-            .replace_channel_members("myproject", &[sender_pk.clone(), receiver_pk.clone()], 1)
+            .replace_channel_members("mychannel", &[sender_pk.clone(), receiver_pk.clone()], 1)
             .unwrap();
 
         // Ambient message (no p-tag): stored in relay_events, inbox stays empty.
@@ -219,7 +219,7 @@ mod tests {
             &sender_keys,
             9,
             "heads up: I pushed the parser fix",
-            vec![make_tag(&["h", "myproject"])],
+            vec![make_tag(&["h", "mychannel"])],
         );
         let ambient_ts = ambient.created_at.as_secs();
         let hosted = vec![sender_pk.clone(), receiver_pk.clone()];
@@ -246,7 +246,7 @@ mod tests {
             9,
             "hey receiver, LGTM",
             vec![
-                make_tag(&["h", "myproject"]),
+                make_tag(&["h", "mychannel"]),
                 make_tag(&["p", &receiver_pk]),
             ],
         );
@@ -279,12 +279,12 @@ mod tests {
             &relay,
             39000,
             "",
-            vec![make_tag(&["d", "proj"]), make_tag(&["name", "Project"])],
+            vec![make_tag(&["d", "proj"]), make_tag(&["name", "Channel"])],
         );
         let env = RawEnvelope::Nostr(event);
         let outcome = materialize(&env, &[], 0, "test-pi", &store);
         assert!(outcome.tail.is_none(), "relay-authored state has no tail");
-        assert_eq!(store.get_channel("proj").unwrap().unwrap().name, "Project");
+        assert_eq!(store.get_channel("proj").unwrap().unwrap().name, "Channel");
     }
 
     #[test]

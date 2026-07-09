@@ -1,29 +1,29 @@
 use super::*;
 
 #[tokio::test]
-async fn rpc_probe_validate_project_root_passes_existing_directory() {
+async fn rpc_probe_validate_workspace_passes_existing_directory() {
     let state = DaemonState::new_for_test().await;
     let dir = tempfile::tempdir().unwrap();
-    seed_project(&state, "proj", "", dir.path().to_str().unwrap());
+    seed_workspace(&state, "proj", "", dir.path().to_str().unwrap());
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "project:proj" }),
+        &json!({ "verb": "validate", "target": "workspace:proj" }),
     )
     .unwrap();
 
     assert_eq!(v["ok"], true);
-    assert_check_status(&v, "project_root", "passed");
-    assert_eq!(v["project_root_evidence"]["project_root"], "proj");
-    assert_eq!(v["project_root_evidence"]["binding_channel_h"], "proj");
-    assert_eq!(v["project_root_evidence"]["path_is_dir"], true);
+    assert_check_status(&v, "workspace", "passed");
+    assert_eq!(v["workspace_evidence"]["root_channel"], "proj");
+    assert_eq!(v["workspace_evidence"]["binding_channel_h"], "proj");
+    assert_eq!(v["workspace_evidence"]["path_is_dir"], true);
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_project_root_inherits_from_parent_project() {
+async fn rpc_probe_validate_workspace_inherits_from_parent() {
     let state = DaemonState::new_for_test().await;
     let dir = tempfile::tempdir().unwrap();
-    seed_project(&state, "proj", "", dir.path().to_str().unwrap());
+    seed_workspace(&state, "proj", "", dir.path().to_str().unwrap());
     state
         .with_store(|s| {
             s.upsert_channel("task", "Task", "", "proj", 101)?;
@@ -38,14 +38,14 @@ async fn rpc_probe_validate_project_root_inherits_from_parent_project() {
     .unwrap();
 
     assert_eq!(v["ok"], true);
-    assert_check_status(&v, "project_root", "passed");
-    assert_eq!(v["project_root_evidence"]["project_root"], "proj");
-    assert_eq!(v["project_root_evidence"]["binding_channel_h"], "proj");
-    assert_eq!(v["project_root_evidence"]["inherited_binding"], true);
+    assert_check_status(&v, "workspace", "passed");
+    assert_eq!(v["workspace_evidence"]["root_channel"], "proj");
+    assert_eq!(v["workspace_evidence"]["binding_channel_h"], "proj");
+    assert_eq!(v["workspace_evidence"]["inherited_binding"], true);
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_project_root_missing_binding_is_not_proven() {
+async fn rpc_probe_validate_workspace_missing_binding_is_not_proven() {
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|s| {
@@ -56,51 +56,51 @@ async fn rpc_probe_validate_project_root_missing_binding_is_not_proven() {
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "project_root:proj" }),
+        &json!({ "verb": "validate", "target": "workspace:proj" }),
     )
     .unwrap();
 
     assert_eq!(v["ok"], true);
-    assert_check_status(&v, "project_root", "not_proven");
-    assert_eq!(v["project_root_evidence"]["found"], false);
+    assert_check_status(&v, "workspace", "not_proven");
+    assert_eq!(v["workspace_evidence"]["found"], false);
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_project_root_fails_missing_path() {
+async fn rpc_probe_validate_workspace_fails_missing_path() {
     let state = DaemonState::new_for_test().await;
-    seed_project(&state, "proj", "", "/definitely/not/here/tenex-edge-test");
+    seed_workspace(&state, "proj", "", "/definitely/not/here/tenex-edge-test");
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "project:proj" }),
+        &json!({ "verb": "validate", "target": "workspace:proj" }),
     )
     .unwrap();
 
     assert_eq!(v["ok"], false);
-    assert_check_status(&v, "project_root", "failed");
-    assert_eq!(v["project_root_evidence"]["path_exists"], false);
+    assert_check_status(&v, "workspace", "failed");
+    assert_eq!(v["workspace_evidence"]["path_exists"], false);
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_project_root_reports_local_only_binding_with_limitation() {
+async fn rpc_probe_validate_workspace_reports_local_only_binding_with_limitation() {
     let state = DaemonState::new_for_test().await;
     let dir = tempfile::tempdir().unwrap();
     state
         .with_store(|s| {
-            s.upsert_project_root("local-only", dir.path().to_str().unwrap(), 100)?;
+            s.upsert_workspace("local-only", dir.path().to_str().unwrap(), 100)?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "project:local-only" }),
+        &json!({ "verb": "validate", "target": "workspace:local-only" }),
     )
     .unwrap();
 
     assert_eq!(v["ok"], true);
-    assert_check_status(&v, "project_root", "passed");
-    assert_eq!(v["project_root_evidence"]["channel_found"], false);
+    assert_check_status(&v, "workspace", "passed");
+    assert_eq!(v["workspace_evidence"]["channel_found"], false);
     assert!(v["limitations"].as_array().unwrap().iter().any(|l| {
         l.as_str()
             .unwrap()
@@ -108,11 +108,11 @@ async fn rpc_probe_validate_project_root_reports_local_only_binding_with_limitat
     }));
 }
 
-fn seed_project(state: &std::sync::Arc<DaemonState>, channel_h: &str, parent: &str, path: &str) {
+fn seed_workspace(state: &std::sync::Arc<DaemonState>, channel_h: &str, parent: &str, path: &str) {
     state
         .with_store(|s| {
             s.upsert_channel(channel_h, channel_h, "", parent, 100)?;
-            s.upsert_project_root(channel_h, path, 100)?;
+            s.upsert_workspace(channel_h, path, 100)?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();

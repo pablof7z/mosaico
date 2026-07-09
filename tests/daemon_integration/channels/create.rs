@@ -1,17 +1,17 @@
 use super::*;
 
 /// `channels_create` (the launch channel picker's "create new channel" path)
-/// must auto-create the parent project group when it doesn't exist on the relay
+/// must auto-create the parent channel group when it doesn't exist on the relay
 /// yet. With per-session rooms off (the default), the picker can be the FIRST
-/// thing to touch a project, so the parent isn't guaranteed to exist; without
+/// thing to touch a channel, so the parent isn't guaranteed to exist; without
 /// the parent-ensure the relay rejects the 9007 with "parent group doesn't
 /// exist". Regression for that path.
 #[test]
-fn channels_create_auto_creates_missing_parent_project() {
+fn channels_create_auto_creates_missing_parent_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
-    // A fresh parent project that has NEVER been opened on the relay.
+    // A fresh parent channel that has NEVER been opened on the relay.
     let parent = unique_session("freshproj");
     let backend_pk = pubkey_of(EXAMPLE_BACKEND_SEC_HEX);
 
@@ -34,13 +34,13 @@ fn channels_create_auto_creates_missing_parent_project() {
 
     assert!(!child_h.is_empty(), "channels_create returned a child id");
 
-    // The parent project group was created + locked, so the backend management
+    // The parent channel group was created + locked, so the backend management
     // key is now an admin of it. (Manageability = `is_channel_admin`; the old
     // `is_group_owned` ownership flag no longer exists.)
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
         store.is_channel_admin(&parent, &backend_pk).unwrap(),
-        "parent project {parent} should be managed (backend admin) after channels_create created it"
+        "parent channel {parent} should be managed (backend admin) after channels_create created it"
     );
 
     stop_daemon(&home);
@@ -106,7 +106,7 @@ fn channels_create_no_agents_nests_under_current_and_auto_switches() {
     );
 
     let store = Store::open(&home.store_path()).unwrap();
-    // The new channel nests under the creator's CURRENT channel, not the project root.
+    // The new channel nests under the creator's CURRENT channel, not the channel root.
     assert_eq!(
         store.channel_parent(&child_h).unwrap().unwrap_or_default(),
         current_channel,

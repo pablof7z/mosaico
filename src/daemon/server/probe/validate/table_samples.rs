@@ -13,7 +13,6 @@ const SAMPLE_TABLES: &[&str] = &[
     "message_recipients",
     "messages",
     "outbox",
-    "project_roots",
     "receipts",
     "relay_channel_member_sets",
     "relay_channel_members",
@@ -27,6 +26,7 @@ const SAMPLE_TABLES: &[&str] = &[
     "sessions",
     "trellis_commits",
     "trellis_replay_capsules",
+    "workspace_roots",
 ];
 
 pub(super) fn sample_targets(store: &Store, table: &str, limit: usize) -> Result<Vec<Value>> {
@@ -75,7 +75,6 @@ fn columns_for_table(table: &str) -> &'static [&'static str] {
             "native_event_id",
         ],
         "outbox" => &["local_id", "state", "event_json"],
-        "project_roots" => &["channel_h", "abs_path"],
         "receipts" => &["id", "surface", "transaction_id"],
         "relay_channel_member_sets" => &["channel_h", "role", "updated_at"],
         "relay_channel_members" => &["channel_h", "pubkey", "role"],
@@ -89,6 +88,7 @@ fn columns_for_table(table: &str) -> &'static [&'static str] {
         "sessions" => &["session_id", "agent_slug", "channel_h"],
         "trellis_commits" => &["id", "surface", "transaction_id"],
         "trellis_replay_capsules" => &["id", "surface"],
+        "workspace_roots" => &["channel_h", "abs_path"],
         _ => &[],
     }
 }
@@ -103,7 +103,6 @@ fn sample_target(table: &str, row: &Value) -> Option<Value> {
         "message_recipients" => recipient_target(row)?,
         "messages" => format!("message:{}", text(row, "message_id")?),
         "outbox" => format!("outbox:{}", int(row, "local_id")?),
-        "project_roots" => format!("project:{}", text(row, "channel_h")?),
         "receipts" => format!("receipt:{}", int(row, "id")?),
         "relay_channel_member_sets" => {
             format!("membership_snapshot:{}", text(row, "channel_h")?)
@@ -125,6 +124,7 @@ fn sample_target(table: &str, row: &Value) -> Option<Value> {
         "sessions" => format!("session:{}", text(row, "session_id")?),
         "trellis_commits" => format!("commit:{}", int(row, "id")?),
         "trellis_replay_capsules" => format!("capsule:{}", int(row, "id")?),
+        "workspace_roots" => format!("workspace:{}", text(row, "channel_h")?),
         _ => return None,
     };
     Some(json!({

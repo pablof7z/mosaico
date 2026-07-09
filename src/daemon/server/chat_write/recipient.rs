@@ -5,12 +5,12 @@ use crate::state::Store;
 pub(in crate::daemon::server) struct ResolvedRecipient {
     pub(super) pubkey: String,
     pub(super) target_session: Option<String>,
-    pub(super) project: String,
+    pub(super) channel: String,
 }
 
 /// Resolve a recipient/identifier to a wire pubkey under the CANONICAL scheme:
 ///   - `agent@backend-label` → the durable agent on that backend (`@` NEVER
-///     means project). The message still goes to `my_project`.
+///     means channel). The message still goes to `my_channel`.
 ///   - 64-hex / npub → raw pubkey.
 ///   - a session     → by canonical id, harness alias, or id prefix (correlation
 ///     handles only; a session id is never a chat-target identity).
@@ -22,14 +22,14 @@ pub(in crate::daemon::server) struct ResolvedRecipient {
 /// is addressed only by `agent@backend-label` or pubkey.
 pub(in crate::daemon::server) fn resolve_recipient(
     store: &Store,
-    my_project: &str,
+    my_channel: &str,
     local_host: &str,
     target: &str,
 ) -> Result<ResolvedRecipient> {
     use crate::idref::{parse_ref, Ref};
 
     let session_recipient =
-        |store: &Store, session_id: String, fallback_pk: String, project: String| {
+        |store: &Store, session_id: String, fallback_pk: String, channel: String| {
             let pubkey = store
                 .session_identity_for_session(&session_id)
                 .ok()
@@ -46,7 +46,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             ResolvedRecipient {
                 pubkey,
                 target_session: Some(session_id),
-                project,
+                channel,
             }
         };
 
@@ -58,7 +58,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             Ok(ResolvedRecipient {
                 pubkey: pk,
                 target_session: None,
-                project: my_project.to_string(),
+                channel: my_channel.to_string(),
             })
         }
         Ref::Pubkey(raw) => {
@@ -68,7 +68,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             Ok(ResolvedRecipient {
                 pubkey,
                 target_session: None,
-                project: my_project.to_string(),
+                channel: my_channel.to_string(),
             })
         }
         Ref::Token(tok) => {
@@ -100,12 +100,12 @@ pub(in crate::daemon::server) fn resolve_recipient(
                 }
             }
             // 3. Live local agent-instance label from `who` (`haiku`, `haiku1`, ...).
-            if let Some(found) = find_session_by_agent_label(store, my_project, &tok)? {
+            if let Some(found) = find_session_by_agent_label(store, my_channel, &tok)? {
                 return Ok(session_recipient(
                     store,
                     found.session_id,
                     found.pubkey,
-                    found.project,
+                    found.channel,
                 ));
             }
             // 4. Bare agent-instance label → that instance on the LOCAL host
@@ -114,7 +114,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                 return Ok(ResolvedRecipient {
                     pubkey: pk,
                     target_session: None,
-                    project: my_project.to_string(),
+                    channel: my_channel.to_string(),
                 });
             }
             anyhow::bail!("can't resolve recipient {target:?} (try `tenex-edge who`)")
@@ -126,12 +126,12 @@ pub(in crate::daemon::server) fn resolve_recipient(
 struct SessionMatch {
     pubkey: String,
     session_id: String,
-    project: String,
+    channel: String,
 }
 
 fn find_session_by_agent_label(
     store: &Store,
-    my_project: &str,
+    my_channel: &str,
     label: &str,
 ) -> Result<Option<SessionMatch>> {
     let wanted = label.trim().to_ascii_lowercase();
@@ -139,7 +139,7 @@ fn find_session_by_agent_label(
         return Ok(None);
     }
 
-    let my_root = work_root_for(store, my_project);
+    let my_root = work_root_for(store, my_channel);
     let mut same_scope = Vec::new();
     let mut same_root = Vec::new();
     let mut global = Vec::new();
@@ -163,17 +163,17 @@ fn find_session_by_agent_label(
             continue;
         }
         let joined_current = store
-            .is_session_joined_channel(&session.session_id, my_project)
-            .unwrap_or(session.channel_h == my_project);
-        let project = if joined_current {
-            my_project.to_string()
+            .is_session_joined_channel(&session.session_id, my_channel)
+            .unwrap_or(session.channel_h == my_channel);
+        let channel = if joined_current {
+            my_channel.to_string()
         } else {
             session.channel_h.clone()
         };
         let matched = SessionMatch {
             pubkey: instance.pubkey,
             session_id: session.session_id.clone(),
-            project,
+            channel,
         };
         if joined_current {
             same_scope.push(matched.clone());
@@ -187,7 +187,7 @@ fn find_session_by_agent_label(
     {
         return Ok(Some(matched));
     }
-    if let Some(matched) = choose_unique_session_label_match(label, "current project", same_root)? {
+    if let Some(matched) = choose_unique_session_label_match(label, "current channel", same_root)? {
         return Ok(Some(matched));
     }
     choose_unique_session_label_match(label, "all channels", global)

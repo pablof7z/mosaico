@@ -36,7 +36,7 @@ pub(in crate::daemon::server) async fn rpc_session_end(
         state.outbox_notify.notify_waiters();
         state.emit_tail(TailEvent::Sess {
             ts: now_secs(),
-            project: rec.channel_h.clone(),
+            channel: rec.channel_h.clone(),
             agent: rec.agent_slug.clone(),
             session: rec.session_id.clone(),
             state: "end".into(),

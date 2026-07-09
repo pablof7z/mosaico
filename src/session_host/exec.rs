@@ -1,6 +1,6 @@
 use crate::daemon::server::DaemonState;
 use crate::session::Harness;
-use crate::session_host::launch::project_abs_path;
+use crate::session_host::launch::workspace_abs_path;
 use crate::session_host::registry::{
     apply_agent_def_args, build_headless_command, headless_shape_for_bin, resolve_spawn_entry,
     HeadlessShape,
@@ -42,7 +42,7 @@ pub(crate) fn agent_supports_headless_exec(slug: &str) -> bool {
 pub(crate) async fn spawn_agent_exec(
     state: &Arc<DaemonState>,
     slug: &str,
-    project: &str,
+    root: &str,
     prompt: &str,
     resume_id: Option<&str>,
     base_override: Option<Vec<String>>,
@@ -70,9 +70,9 @@ pub(crate) async fn spawn_agent_exec(
         fresh_session_id.as_deref(),
         prompt,
     );
-    let abs_path = project_abs_path(state, project, client_cwd)?;
+    let abs_path = workspace_abs_path(state, root, client_cwd)?;
     let harness = harness_for_shape(shape);
-    let mut launch = spawn_process(slug, project, group, &abs_path, command, harness)?;
+    let mut launch = spawn_process(slug, root, group, &abs_path, command, harness)?;
     if let Err(e) = crate::daemon::server::session_start::bootstrap_exec_session_start(
         state,
         slug,
@@ -92,7 +92,7 @@ pub(crate) async fn spawn_agent_exec(
 
 fn spawn_process(
     slug: &str,
-    project: &str,
+    root: &str,
     group: Option<&str>,
     cwd: &str,
     command: Vec<String>,
@@ -141,7 +141,7 @@ fn spawn_process(
     }
     let child = child_cmd
         .spawn()
-        .with_context(|| format!("spawning headless exec for {slug} in {project}"))?;
+        .with_context(|| format!("spawning headless exec for {slug} in {root}"))?;
     Ok(ExecLaunch {
         id,
         child,

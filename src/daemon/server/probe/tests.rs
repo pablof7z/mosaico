@@ -26,7 +26,6 @@ mod validate_llm;
 mod validate_membership;
 mod validate_message;
 mod validate_outbox;
-mod validate_project_root;
 mod validate_projection;
 mod validate_quarantine;
 mod validate_readiness_attempt;
@@ -37,6 +36,7 @@ mod validate_session_watch;
 mod validate_status;
 mod validate_subscription;
 mod validate_txn;
+mod validate_workspace;
 
 /// End-to-end proof that the `probe` RPC — the lock/param/dispatch inch in
 /// `rpc_probe` — actually works over a REAL `DaemonState`, not merely that the

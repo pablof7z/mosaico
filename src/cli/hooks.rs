@@ -231,13 +231,13 @@ async fn hook_dispatch(
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-    // No known project in this directory? Hooks must NOT disturb the agent:
-    // exit 0 silently. The user will see the "no known project" message when
+    // No known channel in this directory? Hooks must NOT disturb the agent:
+    // exit 0 silently. The user will see the "no known channel" message when
     // they run an explicit `tenex-edge` verb from this dir; a harness running
     // here should just proceed without tenex-edge's fabric features.
-    if crate::project::resolve(&cwd).is_err() {
+    if crate::workspace::resolve(&cwd).is_err() {
         call_log.note(
-            "no-project",
+            "no-channel",
             serde_json::json!({ "cwd": cwd.to_string_lossy() }),
         );
         return Ok(());

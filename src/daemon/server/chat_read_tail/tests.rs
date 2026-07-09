@@ -53,7 +53,7 @@ fn chat_log_json_keeps_exact_id_reads_full() {
 #[test]
 fn root_chat_read_backfill_and_live_scopes_include_nested_descendants() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("root", "project", "", "", 1).unwrap();
+    store.upsert_channel("root", "channel", "", "", 1).unwrap();
     store.upsert_channel("task", "Task", "", "root", 2).unwrap();
     store.upsert_channel("deep", "Deep", "", "task", 3).unwrap();
     store.upsert_channel("leaf", "Leaf", "", "deep", 4).unwrap();

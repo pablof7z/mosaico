@@ -8,8 +8,8 @@ use crate::util::relative_time;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> FabricView {
-    let root = project_root(store, input.scope);
-    let project = project_summary(store, &root);
+    let root = root_channel(store, input.scope);
+    let workspace = workspace_summary(store, &root);
     let mut warnings = input
         .warnings
         .iter()
@@ -32,7 +32,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
             agent: input.self_slug.to_string(),
             agent_slug: s.agent_slug.clone(),
         }),
-        project,
+        workspace,
         agents: agents(store, &root, input.cursor, input.now, input.local_host),
         channels: Vec::new(),
         unjoined: unjoined_channels(store, &root, &channels, input.now),
@@ -181,9 +181,9 @@ pub(super) fn agents(
         .collect()
 }
 
-fn project_root(store: &Store, channel: &str) -> String {
+fn root_channel(store: &Store, channel: &str) -> String {
     store
-        .channel_project_root(channel)
+        .root_channel_of(channel)
         .ok()
         .flatten()
         .unwrap_or_else(|| channel.to_string())
@@ -202,13 +202,13 @@ fn channel_ready_for_render(store: &Store, channel: &str, warnings: &mut Vec<War
     }
 }
 
-fn channel_summary(store: &Store, channel: &str) -> ProjectRow {
+fn channel_summary(store: &Store, channel: &str) -> WorkspaceRow {
     let ch = store
         .get_channel(channel)
         .ok()
         .flatten()
         .expect("renderable channels are filtered through get_channel first");
-    ProjectRow {
+    WorkspaceRow {
         name: ch
             .human_name()
             .map(str::to_string)
@@ -217,9 +217,9 @@ fn channel_summary(store: &Store, channel: &str) -> ProjectRow {
     }
 }
 
-fn project_summary(store: &Store, channel: &str) -> ProjectRow {
+fn workspace_summary(store: &Store, channel: &str) -> WorkspaceRow {
     let ch = store.get_channel(channel).ok().flatten();
-    ProjectRow {
+    WorkspaceRow {
         name: ch
             .as_ref()
             .and_then(|c| c.human_name())

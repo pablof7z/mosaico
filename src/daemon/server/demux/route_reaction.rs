@@ -90,12 +90,12 @@ mod tests {
     fn build_reaction_carries_kind7_eye_with_e_and_h_tags() {
         let event_id = "aa".repeat(32);
         let keys = Keys::generate();
-        let unsigned = build_reaction(&event_id, "my-project")
+        let unsigned = build_reaction(&event_id, "my-channel")
             .unwrap()
             .build(keys.public_key());
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👁");
         assert_eq!(tag_val(&unsigned, "e").as_deref(), Some(&event_id[..]));
-        assert_eq!(tag_val(&unsigned, "h").as_deref(), Some("my-project"));
+        assert_eq!(tag_val(&unsigned, "h").as_deref(), Some("my-channel"));
     }
 }

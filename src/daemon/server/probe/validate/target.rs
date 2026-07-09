@@ -108,7 +108,7 @@ pub(super) fn unsupported_target_evidence(
         "supported": false,
         "kind": "unknown_target",
         "summary": format!("target `{target}` is not a known validation target"),
-        "reason": "target must be a surface, probe handle, visible Trellis resource path, explain handle, table/ledger target, channel/readiness/readiness_attempt/awareness/message/recipient/project/membership/membership_snapshot/joined/quarantine target, commit target, or `capsule:<id>`",
+        "reason": "target must be a surface, probe handle, visible Trellis resource path, explain handle, table/ledger target, channel/readiness/readiness_attempt/awareness/message/recipient/channel/membership/membership_snapshot/joined/quarantine target, commit target, or `capsule:<id>`",
     }))
 }
 

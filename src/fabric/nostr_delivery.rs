@@ -35,7 +35,7 @@ impl Delivery for NostrDelivery {
 
 /// Build relay subscription filters for a given `Scope`.
 ///
-/// The test `scope_filters_cover_project_kinds` directly exercises this
+/// The test `scope_filters_cover_channel_kinds` directly exercises this
 /// function so subscription drift is caught at the delivery seam.
 pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
     let authors: Vec<PublicKey> = scope
@@ -68,7 +68,7 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
 
     // Presence + status (kind:30315) — live sessions and current work.
     let mut presence_status = Filter::new().kind(kind(KIND_STATUS));
-    if let Some(p) = &scope.project {
+    if let Some(p) = &scope.channel {
         presence_status = h_filter(presence_status, p);
     }
     // Group-scoped events are not author-gated locally; the relay enforces
@@ -77,7 +77,7 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
 
     // Chat (kind:9) — NIP-29 group chat (the sole agent-to-agent channel).
     let mut chat = Filter::new().kind(kind(KIND_CHAT));
-    if let Some(p) = &scope.project {
+    if let Some(p) = &scope.channel {
         chat = h_filter(chat, p);
     }
     filters.push(chat);
@@ -85,8 +85,8 @@ pub fn scope_filters(scope: &Scope) -> Vec<Filter> {
     // NIP-29 relay-authored group state (metadata/admins/members) for the
     // scoped group. Keeping this live is "check which groups we own at all
     // times": it feeds the membership cache. Addressable + relay-signed, so
-    // filter by the `d` tag (group id == project slug), never by author.
-    if let Some(p) = &scope.project {
+    // filter by the `d` tag (group id == channel slug), never by author.
+    if let Some(p) = &scope.channel {
         filters.push(
             Filter::new()
                 .kinds([
@@ -107,10 +107,10 @@ mod tests {
     use nostr_sdk::prelude::Keys;
 
     #[test]
-    fn scope_filters_cover_project_kinds() {
+    fn scope_filters_cover_channel_kinds() {
         let scope = crate::fabric::Scope {
             authors: vec![Keys::generate().public_key().to_hex()],
-            project: Some("tenex-edge".into()),
+            channel: Some("tenex-edge".into()),
         };
         let filters = scope_filters(&scope);
         // profiles, presence/status, chat (kind:9), and NIP-29

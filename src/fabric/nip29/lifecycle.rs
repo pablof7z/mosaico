@@ -15,8 +15,8 @@ fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)
 }
 
-fn project_tag(project: &str) -> Result<Tag> {
-    tag(&["h", project])
+fn h_tag(channel: &str) -> Result<Tag> {
+    tag(&["h", channel])
 }
 
 fn picture_tag(seed: &str) -> Result<Tag> {
@@ -24,22 +24,22 @@ fn picture_tag(seed: &str) -> Result<Tag> {
     tag(&["picture", &url])
 }
 
-/// kind:9007 create-group with a client-chosen id (`h` == project slug). The
+/// kind:9007 create-group with a client-chosen id (`h` == channel slug). The
 /// signer becomes the group admin. NOTE: a fresh group is OPEN until locked.
-pub fn group_create(project: &str) -> Result<EventBuilder> {
-    Ok(EventBuilder::new(kind(KIND_GROUP_CREATE), "").tags([project_tag(project)?]))
+pub fn group_create(channel: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_CREATE), "").tags([h_tag(channel)?]))
 }
 
 /// kind:9002 edit-metadata that locks the group `closed` (only members may write)
 /// while keeping it `public` (anyone may read — required so the non-member daemon
 /// connection still receives group events). Names the group after the slug.
-pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
+pub fn group_lock_closed(channel: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags([
-        project_tag(project)?,
-        tag(&["name", project])?,
+        h_tag(channel)?,
+        tag(&["name", channel])?,
         tag(&["closed"])?,
         tag(&["public"])?,
-        picture_tag(project)?,
+        picture_tag(channel)?,
     ]))
 }
 
@@ -52,7 +52,7 @@ pub fn group_lock_closed(project: &str) -> Result<EventBuilder> {
 /// subgroup admin and, as with any fresh group, it is OPEN until locked.
 pub fn group_create_subgroup(child_h: &str, parent_h: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_CREATE), "")
-        .tags([project_tag(child_h)?, tag(&["parent", parent_h])?]))
+        .tags([h_tag(child_h)?, tag(&["parent", parent_h])?]))
 }
 
 /// kind:9002 edit-metadata that locks a CHILD group `closed` (only members may
@@ -68,7 +68,7 @@ pub fn group_lock_closed_with_parent(
     parent_h: &str,
 ) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags([
-        project_tag(child_h)?,
+        h_tag(child_h)?,
         tag(&["name", name])?,
         tag(&["parent", parent_h])?,
         tag(&["closed"])?,
@@ -79,16 +79,16 @@ pub fn group_lock_closed_with_parent(
 
 /// kind:9000 put-user adding `pubkey` to the group as a member, so it can publish
 /// presence/activity/mentions into the now-closed group.
-pub fn group_put_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
+pub fn group_put_user(channel: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey])?])
+        .tags([h_tag(channel)?, tag(&["p", pubkey])?])
         .allow_self_tagging())
 }
 
 /// kind:9001 remove-user removing `pubkey` from the group.
-pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
+pub fn group_remove_user(channel: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_REMOVE_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey])?])
+        .tags([h_tag(channel)?, tag(&["p", pubkey])?])
         .allow_self_tagging())
 }
 
@@ -97,17 +97,17 @@ pub fn group_remove_user(project: &str, pubkey: &str) -> Result<EventBuilder> {
 /// Same wire shape as [`group_put_user`] but with the role label set to "admin".
 /// relay29 advertises the `admin`/`moderator` roles it accepts via kind:39003;
 /// "admin" is the role tenex-edge grants to every whitelisted human pubkey.
-pub fn group_put_admin(project: &str, pubkey: &str) -> Result<EventBuilder> {
+pub fn group_put_admin(channel: &str, pubkey: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_PUT_USER), "")
-        .tags([project_tag(project)?, tag(&["p", pubkey, "admin"])?])
+        .tags([h_tag(channel)?, tag(&["p", pubkey, "admin"])?])
         .allow_self_tagging())
 }
 
 /// kind:9002 edit-metadata: set the group's `about` text. The relay validates
 /// admin rights and re-publishes kind:39000 signed by the relay key.
-pub fn group_edit_metadata(project: &str, about: &str) -> Result<EventBuilder> {
+pub fn group_edit_metadata(channel: &str, about: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "")
-        .tags([project_tag(project)?, tag(&["about", about])?]))
+        .tags([h_tag(channel)?, tag(&["about", about])?]))
 }
 
 /// kind:9002 edit-metadata: set the full `child` list on a PARENT group.
@@ -118,7 +118,7 @@ pub fn group_edit_metadata(project: &str, about: &str) -> Result<EventBuilder> {
 /// incremental `child` additions is unspecified — a full replacement is safe
 /// regardless of whether the relay accumulates or overwrites.
 pub fn group_set_children(parent_h: &str, children: &[&str]) -> Result<EventBuilder> {
-    let mut tags = vec![project_tag(parent_h)?];
+    let mut tags = vec![h_tag(parent_h)?];
     for ch in children {
         tags.push(tag(&["child", ch])?);
     }
@@ -129,12 +129,12 @@ pub fn group_set_children(parent_h: &str, children: &[&str]) -> Result<EventBuil
 /// per-session room is renamed to its distilled session title). The relay
 /// validates admin rights and re-publishes kind:39000.
 ///
-/// Targets the group with the `h` tag (`project_tag`), matching the working
+/// Targets the group with the `h` tag (`h_tag`), matching the working
 /// lock builders ([`group_lock_closed`] / [`group_lock_closed_with_parent`]):
 /// NIP-29 moderation events (900x) address the group via `h`, not `d`.
-pub fn group_edit_name(project: &str, name: &str) -> Result<EventBuilder> {
+pub fn group_edit_name(channel: &str, name: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "")
-        .tags([project_tag(project)?, tag(&["name", name])?]))
+        .tags([h_tag(channel)?, tag(&["name", name])?]))
 }
 
 #[cfg(test)]

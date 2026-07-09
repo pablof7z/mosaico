@@ -31,9 +31,9 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
             agent: s.agent.clone(),
             agent_slug: s.agent_slug.clone(),
         }),
-        project: ProjectRow {
-            name: meta.project.name.clone(),
-            about: meta.project.about.clone(),
+        workspace: WorkspaceRow {
+            name: meta.workspace.name.clone(),
+            about: meta.workspace.about.clone(),
         },
         agents: agent_rows(inputs, cursor, now),
         channels: Vec::new(),

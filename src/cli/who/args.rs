@@ -4,10 +4,10 @@ use clap::Args;
 #[derive(Args)]
 pub(in crate::cli) struct WhoArgs {
     #[arg(long)]
-    project: Option<String>,
-    /// Show agents across all projects (overrides --project / cwd resolution).
+    root: Option<String>,
+    /// Show agents across all root channels (overrides --root / cwd resolution).
     #[arg(long)]
-    all_projects: bool,
+    all_roots: bool,
     /// Keep a full-screen live view open, refreshing automatically.
     #[arg(long)]
     live: bool,
@@ -21,9 +21,9 @@ pub(in crate::cli) fn who(args: WhoArgs) -> Result<()> {
     if args.expired {
         super::who_expired()
     } else if args.live {
-        super::who_live(args.project, args.all_projects)
+        super::who_live(args.root, args.all_roots)
     } else {
-        super::who_once(args.project, args.all_projects)
+        super::who_once(args.root, args.all_roots)
     }
 }
 
@@ -32,21 +32,17 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn who_all_projects_live_parse_with_owner_args() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "tenex-edge",
-            "who",
-            "--all-projects",
-            "--live",
-        ])
-        .expect("who parses");
+    fn who_all_roots_live_parse_with_owner_args() {
+        let cli =
+            crate::cli::args::Cli::try_parse_from(["tenex-edge", "who", "--all-roots", "--live"])
+                .expect("who parses");
 
         match cli.cmd {
             crate::cli::args::Cmd::Who(args) => {
-                assert!(args.all_projects);
+                assert!(args.all_roots);
                 assert!(args.live);
                 assert!(!args.expired);
-                assert_eq!(args.project, None);
+                assert_eq!(args.root, None);
             }
             _ => panic!("expected who command"),
         }

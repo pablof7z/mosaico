@@ -8,12 +8,12 @@ pub(in crate::daemon::server) async fn spawn_session(
 ) -> Result<()> {
     let session_id = params.session_id.clone();
     let pubkey = params.identity.pubkey.clone();
-    let project = params.project.clone();
+    let channel = params.channel.clone();
     let watch_pid = params.watch_pid;
 
     tracing::info!(
         agent = %params.identity.slug,
-        channel = %project,
+        channel = %channel,
         session = %session_id,
         "spawning session engine"
     );
@@ -25,11 +25,11 @@ pub(in crate::daemon::server) async fn spawn_session(
         },
     );
     let st = state.clone();
-    let project_for_sub = project.clone();
+    let channel_for_sub = channel.clone();
     tokio::spawn(async move {
-        if let Err(e) = ensure_subscription(&st, &project_for_sub).await {
+        if let Err(e) = ensure_subscription(&st, &channel_for_sub).await {
             tracing::warn!(
-                channel = %project_for_sub,
+                channel = %channel_for_sub,
                 error = %e,
                 "session subscription setup failed"
             );
@@ -46,7 +46,7 @@ pub(in crate::daemon::server) async fn spawn_session(
     session_watch::started(
         state,
         &session_id,
-        &project,
+        &channel,
         &pubkey,
         watch_pid,
         "spawn-session",
@@ -175,7 +175,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         };
 
         // Re-establish membership + the group-state subscription through the one
-        // channel-provisioning primitive. The scope may be a top-level project
+        // channel-provisioning primitive. The scope may be a top-level channel
         // (root channel) or a subgroup; its stored parent (if any) is the
         // readiness gate's parent_hint. Idempotent: the relay_channel* cache
         // persists across restarts, so already-ready channels fast-path.
@@ -270,14 +270,14 @@ pub(in crate::daemon::server) fn engine_params_for(
     // The session's own minted signing keypair.
     keys: Keys,
     session_id: &str,
-    project: &str,
+    channel: &str,
     rel_cwd: &str,
     watch_pid: Option<i32>,
 ) -> EngineParams {
     EngineParams {
         identity,
         keys,
-        project: project.to_string(),
+        channel: channel.to_string(),
         session_id: session_id.to_string(),
         host: cfg.host.clone(),
         rel_cwd: rel_cwd.to_string(),

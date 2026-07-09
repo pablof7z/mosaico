@@ -1,4 +1,4 @@
-use super::{project_root, resolve_channel_ref, resolve_locally, ChannelResolution};
+use super::{resolve_channel_ref, resolve_locally, root_channel, ChannelResolution};
 use crate::state::Store;
 
 fn chan(store: &Store, id: &str, name: &str, parent: &str) {
@@ -29,14 +29,14 @@ fn opaque_id_miss_passes_through_without_minting() {
     );
 }
 
-/// A bare `launch` (no --channel) scopes to the project root by resolving
+/// A bare `launch` (no --channel) scopes to the channel root by resolving
 /// `name == parent == slug`. On a COLD cache (post-reset, root kind:39000 not yet
 /// materialized) this must resolve to the root slug itself and mint NOTHING —
 /// the name-vs-id double-create regression (a spurious opaque child under root).
 #[test]
 fn root_slug_resolves_to_itself_on_cold_cache_without_minting() {
     let store = Store::open_memory().unwrap();
-    // Empty cache: the project root's kind:39000 has not materialized.
+    // Empty cache: the channel root's kind:39000 has not materialized.
     assert!(
         store.get_channel("tenex-edge").unwrap().is_none(),
         "precondition: root must be absent from the cold cache"
@@ -165,7 +165,7 @@ fn literal_id_passthrough_and_not_found() {
 }
 
 #[test]
-fn nested_sender_explicit_channel_refs_resolve_from_project_root() {
+fn nested_sender_explicit_channel_refs_resolve_from_root_channel() {
     let store = Store::open_memory().unwrap();
     chan(&store, "h-root", "proj", "");
     chan(&store, "h-epic", "epic", "h-root");
@@ -173,7 +173,7 @@ fn nested_sender_explicit_channel_refs_resolve_from_project_root() {
     chan(&store, "h-leaf", "leaf", "h-plan");
     chan(&store, "h-review", "review", "h-epic");
 
-    let root = project_root(&store, "h-leaf");
+    let root = root_channel(&store, "h-leaf");
     assert_eq!(root, "h-root");
     assert!(matches!(
         resolve_channel_ref(&store, &root, "epic/review"),

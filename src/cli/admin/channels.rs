@@ -3,10 +3,10 @@ use super::*;
 // ── channels (NIP-29 subgroup task rooms) ────────────────────────────────────
 
 pub async fn channels(action: ChannelAction) -> Result<()> {
-    fn resolve_project(project: Option<String>) -> Result<String> {
-        match project {
+    fn resolve_root(root: Option<String>) -> Result<String> {
+        match root {
             Some(p) => Ok(p),
-            None => crate::project::resolve_or_bail(&std::env::current_dir().unwrap_or_default()),
+            None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default()),
         }
     }
     fn print_ambiguous(verb: &str, channel: &str, v: &serde_json::Value) -> ! {
@@ -159,27 +159,27 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
         }
         ChannelAction::Init { force } => {
             let cwd = std::env::current_dir().unwrap_or_default();
-            let (slug, path) = crate::project::register_project(&cwd, force)?;
-            println!("initialized project {slug} at {}", path.display());
+            let (slug, path) = crate::workspace::register_workspace(&cwd, force)?;
+            println!("initialized root {slug} at {}", path.display());
         }
-        // `--roots`: every top-level project on the relay (the old `project list`).
+        // `--roots`: every top-level root on the relay (the old `root list`).
         ChannelAction::List { roots: true, .. } => {
-            let v = daemon_call_async("project_list", serde_json::json!({})).await?;
-            let projects = v["projects"]
+            let v = daemon_call_async("root_channels", serde_json::json!({})).await?;
+            let roots = v["channels"]
                 .as_array()
                 .map(|a| a.as_slice())
                 .unwrap_or(&[]);
-            if projects.is_empty() {
+            if roots.is_empty() {
                 println!("No NIP-29 groups found on the relay.");
                 return Ok(());
             }
-            let max_slug = projects
+            let max_slug = roots
                 .iter()
                 .filter_map(|p| p["slug"].as_str())
                 .map(|s| s.len())
                 .max()
                 .unwrap_or(0);
-            for p in projects {
+            for p in roots {
                 let slug = p["slug"].as_str().unwrap_or("");
                 let about = p["about"].as_str().unwrap_or("");
                 if about.is_empty() {
@@ -189,13 +189,13 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 }
             }
         }
-        ChannelAction::List { project, .. } => {
+        ChannelAction::List { root, .. } => {
             use owo_colors::Stream::Stdout;
-            let parent = resolve_project(project)?;
-            let v = daemon_call_async("channels_list", serde_json::json!({ "project": parent }))
-                .await?;
+            let parent = resolve_root(root)?;
+            let v =
+                daemon_call_async("channels_list", serde_json::json!({ "root": parent })).await?;
             let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
-            // Root of the tree is the project itself. Colorize ONLY on a real
+            // Root of the tree is the root itself. Colorize ONLY on a real
             // terminal so piped output stays literal-`^slug$`-matchable.
             println!("{}", parent.if_supports_color(Stdout, |s| s.bold()));
             if rooms.is_empty() {
@@ -207,7 +207,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 let name = r["name"].as_str().unwrap_or("");
                 let about = r["about"].as_str().unwrap_or("");
                 let depth = r["depth"].as_u64().unwrap_or(0) as usize;
-                // depth 0 = direct child of the project root → one level of indent.
+                // depth 0 = direct child of the root channel → one level of indent.
                 let indent = "  ".repeat(depth + 1);
                 // Name-first: the human handle leads; the opaque id is a dimmed
                 // secondary locator (shown alone only when unnamed). `about` trails.

@@ -19,7 +19,7 @@ enum ResourceUri {
     ChannelStatus(String),
 }
 
-pub(super) fn subscription_project(uri: &str) -> Result<Option<String>> {
+pub(super) fn subscription_channel(uri: &str) -> Result<Option<String>> {
     Ok(match parse_uri(uri)? {
         ResourceUri::Who => None,
         ResourceUri::ChannelStatus(channel) => Some(channel),
@@ -67,7 +67,7 @@ pub(super) async fn read(params: &Value) -> Result<Value> {
     let value = match parsed {
         ResourceUri::Who => daemon_call("who", crate::cli::rpc_params(json!({}))).await?,
         ResourceUri::ChannelStatus(channel) => {
-            daemon_call("who", operator_params(json!({ "project": channel }))).await?
+            daemon_call("who", operator_params(json!({ "channel": channel }))).await?
         }
     };
     let text = serde_json::to_string_pretty(&value)?;
@@ -83,7 +83,7 @@ pub(super) async fn read(params: &Value) -> Result<Value> {
 impl Subscriptions {
     pub(super) async fn add(&self, params: &Value, writer: SharedWriter) -> Result<()> {
         let uri = required_string(params, "uri")?;
-        let project = match parse_uri(&uri)? {
+        let channel = match parse_uri(&uri)? {
             ResourceUri::Who => None,
             ResourceUri::ChannelStatus(channel) => Some(channel),
         };
@@ -93,7 +93,7 @@ impl Subscriptions {
         }
         tasks.insert(
             uri.clone(),
-            tokio::spawn(run_subscription(uri, project, writer)),
+            tokio::spawn(run_subscription(uri, channel, writer)),
         );
         Ok(())
     }
@@ -113,7 +113,7 @@ impl Subscriptions {
     }
 }
 
-async fn run_subscription(uri: String, project: Option<String>, writer: SharedWriter) {
+async fn run_subscription(uri: String, channel: Option<String>, writer: SharedWriter) {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let writer_task = {
         let uri = uri.clone();
@@ -129,7 +129,7 @@ async fn run_subscription(uri: String, project: Option<String>, writer: SharedWr
     };
 
     let params = json!({
-        "project": project,
+        "channel": channel,
         "backfill": 0,
     });
     let stream_result = async {

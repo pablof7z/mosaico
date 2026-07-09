@@ -13,7 +13,7 @@ pub(in crate::daemon::server) fn resolve_chat_target(
     command: &str,
 ) -> Result<ChatTarget> {
     if let Some(reference) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
-        let root = state.with_store(|s| super::project_root(s, &rec.channel_h));
+        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
         let channel_h = state.with_store(|s| resolve_chat_channel_ref(s, &root, reference))?;
         return Ok(ChatTarget {
             channel_h,
@@ -53,7 +53,7 @@ Pass one explicitly:\n{}",
 }
 
 /// Like [`resolve_chat_target`] but with `mkdir -p` semantics for an explicit
-/// `--channel` reference: when the project-relative path does not exist yet,
+/// `--channel` reference: when the channel-relative path does not exist yet,
 /// create the whole missing ancestor chain (not just the leaf) and target the
 /// leaf. The non-explicit (joined-channel inference) path is unchanged.
 pub(in crate::daemon::server) async fn resolve_chat_target_provisioning(
@@ -63,7 +63,7 @@ pub(in crate::daemon::server) async fn resolve_chat_target_provisioning(
     command: &str,
 ) -> Result<ChatTarget> {
     if let Some(reference) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
-        let root = state.with_store(|s| super::project_root(s, &rec.channel_h));
+        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
         match state.with_store(|s| super::resolve_channel_ref(s, &root, reference)) {
             super::ChannelResolution::Unique(channel_h) => {
                 return Ok(ChatTarget {
@@ -106,7 +106,7 @@ fn resolve_chat_channel_ref(
                 .join(", ")
         ),
         super::ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {reference:?} in this project")
+            anyhow::bail!("no channel matching {reference:?} in this channel")
         }
     }
 }
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_chat_target_resolves_project_relative_path() {
+    fn explicit_chat_target_resolves_channel_relative_path() {
         let store = Store::open_memory().unwrap();
         store.upsert_channel("root", "root", "", "", 1).unwrap();
         store

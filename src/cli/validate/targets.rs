@@ -96,9 +96,9 @@ const TARGET_FORMS: &[TargetForm] = &[
         example: "tenex-edge debug validate agent:codex",
     },
     TargetForm {
-        target: "project:<root> | project_root:<root> | work_root:<root>",
-        proves: "project root/channel binding and local filesystem path validity",
-        example: "tenex-edge debug validate project:<channel>",
+        target: "workspace:<channel> | work_root:<channel>",
+        proves: "channel workspace binding and local filesystem path validity",
+        example: "tenex-edge debug validate workspace:<channel>",
     },
     TargetForm {
         target: "member:<channel>:<pubkey> | admin:<channel>:<pubkey>",

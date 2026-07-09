@@ -8,7 +8,7 @@ impl Nip29Materializer {
     /// event id is the message id for NIP-29 chat. Sender session is derived from
     /// the newest status row for `(author pubkey, channel)` when available.
     pub fn materialize_chat_message(store: &Store, event: &Event, chat: &ChatMessage) {
-        let channel_h = chat.project.as_str();
+        let channel_h = chat.channel.as_str();
         let from_pubkey = event.pubkey.to_hex();
         let event_id = event.id.to_hex();
         let author_session = store

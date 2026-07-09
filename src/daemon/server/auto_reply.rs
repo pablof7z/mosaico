@@ -125,7 +125,7 @@ async fn do_publish(
     let keys = state.session_signing_keys(&rec.session_id)?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
-        project: pending.channel_h.clone(),
+        channel: pending.channel_h.clone(),
         body: body.to_string(),
         mentioned_pubkey: None,
     };
@@ -148,10 +148,10 @@ async fn do_publish(
         .await?;
     state.emit_tail(TailEvent::Msg {
         ts: published.created_at,
-        project: pending.channel_h.clone(),
+        channel: pending.channel_h.clone(),
         from: instance.display_slug(),
         from_session: Some(rec.session_id.clone()),
-        to: "project-chat".to_string(),
+        to: "channel-chat".to_string(),
         to_session: None,
         body: body.chars().take(200).collect(),
     });

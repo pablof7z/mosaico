@@ -33,7 +33,7 @@ pub struct Config {
     /// from the CLI. The operator's pubkey is NOT derived from this field for
     /// group admin grants — the operator's pubkey lives in `whitelisted_pubkeys`
     /// (config `whitelistedPubkeys`), which is the source of truth for who is an
-    /// admin in every project group. Never used for group management,
+    /// admin in every channel group. Never used for group management,
     /// session-key derivation, or backend identity.
     pub user_nsec: Option<String>,
     /// This backend/daemon's own Nostr secret key (bech32 nsec or hex). The
@@ -44,7 +44,7 @@ pub struct Config {
     pub tenex_private_key: Option<String>,
     /// Whether human-initiated sessions (no `TENEX_EDGE_CHANNEL` override) mint
     /// their own per-session NIP-29 subgroup. Default `false`: such sessions
-    /// land in the bare project channel, and `tenex-edge launch` (without
+    /// land in the bare root channel, and `tenex-edge launch` (without
     /// `--channel`) opens the interactive channel picker instead of minting.
     /// When `true`, the legacy behavior is restored (mint a per-session room).
     pub per_session_rooms: bool,
@@ -61,7 +61,7 @@ impl Config {
     /// put-admin/remove-user/edit-metadata). Always the backend's own
     /// `tenexPrivateKey` — the operator's `userNsec` is no longer used for
     /// group management. The operator's pubkey is instead *granted* the admin
-    /// role by this signer (see `Nip29Provider::open_project`).
+    /// role by this signer (see `Nip29Provider::open_channel`).
     pub fn management_nsec(&self) -> Option<&String> {
         self.tenex_private_key.as_ref()
     }
@@ -104,7 +104,7 @@ struct RawConfig {
     #[serde(default, rename = "tenexPrivateKey")]
     tenex_private_key: Option<String>,
     /// Opt-in: mint a per-session subgroup for human-initiated sessions.
-    /// Defaults to `false` (use the project channel; `launch` opens the picker).
+    /// Defaults to `false` (use the root channel; `launch` opens the picker).
     #[serde(default, rename = "perSessionRooms")]
     per_session_rooms: bool,
 }

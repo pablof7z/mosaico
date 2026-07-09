@@ -15,9 +15,9 @@ use params::SessionStartParams;
 
 pub(crate) use bootstrap::{bootstrap_exec_session_start, bootstrap_pty_session_start};
 
-/// The top-level project channel for a route scope.
+/// The top-level root channel for a route scope.
 fn work_root_for_scope(s: &Store, scope: &str) -> String {
-    s.channel_project_root(scope)
+    s.root_channel_of(scope)
         .ok()
         .flatten()
         .unwrap_or_else(|| scope.to_string())
@@ -62,17 +62,17 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         .cwd
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    // The working-directory project (the repo this harness runs in).
-    let work_root = crate::project::resolve(&cwd).unwrap_or_default();
+    // The working-directory channel (the repo this harness runs in).
+    let work_root = crate::workspace::resolve(&cwd).unwrap_or_default();
     // The channel this session belongs to: the channel named by TENEX_EDGE_CHANNEL
-    // for a task room, else the working-directory project. The daemon is a direct
+    // for a task room, else the working-directory channel. The daemon is a direct
     // entry point (e2e drives `hook --type session-start` with a NAME in
     // TENEX_EDGE_CHANNEL), so resolve the NAME→opaque id through the ONE shared
     // resolver here. This is the single load-bearing conversion that kills the
     // name-vs-id double-create: every downstream consumer shares one id, and the
     // literal-name subgroup is never minted.
     let mut channel_provision_name: Option<String> = None;
-    let mut project = match p.channel.clone().filter(|g| !g.is_empty()) {
+    let mut channel = match p.channel.clone().filter(|g| !g.is_empty()) {
         // Session-start is a hook edge, so resolving a human channel name must not
         // await relay provisioning. Reserve one opaque id locally and let the
         // background readiness effect publish/materialize it.
@@ -84,12 +84,12 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         }
         None => work_root.clone(),
     };
-    let rel_cwd = crate::project::rel_cwd(&cwd);
+    let rel_cwd = crate::workspace::rel_cwd(&cwd);
     let now = now_secs();
     if let Some(prog) = &progress {
         prog.emit(
-            "project",
-            format!("resolved project {project} from {}", cwd.display()),
+            "channel",
+            format!("resolved channel {channel} from {}", cwd.display()),
         );
     }
 
@@ -114,7 +114,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             }
         });
     let harness_str = harness.as_str();
-    tracing::debug!(agent = %p.agent, harness = %harness_str, channel = %project, "session_start hook received");
+    tracing::debug!(agent = %p.agent, harness = %harness_str, channel = %channel, "session_start hook received");
     let pty_session = p.pty_session.clone().filter(|s| !s.is_empty());
     let pty_socket = p.pty_socket.clone().filter(|s| !s.is_empty());
     // The harness-native id to bind for resume: opencode `ses_*`, else claude/codex
@@ -126,7 +126,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
 
     // Per-session rooms (issue #6), gated by `perSessionRooms` (default off). A
     // human-initiated session (no TENEX_EDGE_CHANNEL override) lives in its own
-    // minted subgroup of the work-root when enabled, else the bare project. The
+    // minted subgroup of the work-root when enabled, else the bare channel. The
     // room id is derived from a stable per-session anchor so a resumed session
     // rejoins the SAME room. `room_parent` is `Some(parent)` exactly when we routed
     // into a freshly-minted room.
@@ -146,7 +146,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             anchor,
         ) {
             (crate::session::RoomDecision::Mint { parent }, Some(anchor)) => {
-                project = crate::util::session_room_id(anchor);
+                channel = crate::util::session_room_id(anchor);
                 Some(parent)
             }
             _ => None,
@@ -177,7 +177,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     }
 
     // Record the secondary external-id aliases (endpoint/pid + any id not used
-    // as the primary) and the project's absolute path on this machine. Reused
+    // as the primary) and the channel's absolute path on this machine. Reused
     // endpoint/pid slots repoint to this newest owner via ON CONFLICT.
     state.with_store(|s| {
         if let Some(pty) = &pty_session {
@@ -199,10 +199,10 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         if let Some(r) = &resume_id {
             s.put_alias(harness_str, "resume", r, &session_id, now).ok();
         }
-        s.upsert_project_root(&work_root, &cwd.to_string_lossy(), now)
+        s.upsert_workspace(&work_root, &cwd.to_string_lossy(), now)
             .ok();
-        if project != work_root {
-            s.upsert_project_root(&project, &cwd.to_string_lossy(), now)
+        if channel != work_root {
+            s.upsert_workspace(&channel, &cwd.to_string_lossy(), now)
                 .ok();
         }
     });
@@ -216,7 +216,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     {
         let new_work_root = room_parent
             .clone()
-            .unwrap_or_else(|| state.with_store(|s| work_root_for_scope(s, &project)));
+            .unwrap_or_else(|| state.with_store(|s| work_root_for_scope(s, &channel)));
         stale::cancel_stale_sessions_on_restart(
             state,
             &session_id,
@@ -233,7 +233,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         .flatten()
         .map(|r| r.channel_h);
     if let Some(existing) = existing_channel.as_ref() {
-        project = existing.clone();
+        channel = existing.clone();
     }
 
     // Mint this session's OWN keypair (deterministic from the management secret +
@@ -241,7 +241,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // re-derives the identical pubkey. `route_chat` keys on this `agent_pubkey`, so
     // a p-tagged mention reaches exactly this session. Membership admission for the
     // minted pubkey happens after channel-ready.
-    let minted = mint_session_identity(state, &session_id, &p.agent, &project, &native_id)?;
+    let minted = mint_session_identity(state, &session_id, &p.agent, &channel, &native_id)?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
     // channel rather than stomping it with whatever TENEX_EDGE_CHANNEL the new
@@ -249,11 +249,11 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // overwrites channel_h transiently AND permanently adds a spurious passive
     // join to session_channels (INSERT OR IGNORE never cleans it up), causing
     // the session to receive inbox messages from the wrong channel.
-    let channel_for_upsert = existing_channel.unwrap_or_else(|| project.clone());
+    let channel_for_upsert = existing_channel.unwrap_or_else(|| channel.clone());
     let effective_endpoint = pty_session
         .clone()
         .or_else(|| state.with_store(|s| session_endpoint(s, &session_id)));
-    let needs_chat_replay = state.subs.lock().unwrap().covers_channel(&project);
+    let needs_chat_replay = state.subs.lock().unwrap().covers_channel(&channel);
     let request = advisory::request_fact(
         &session_id,
         &p.agent,
@@ -262,7 +262,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         ext_id.clone(),
         &native_id,
         &work_root,
-        &project,
+        &channel,
         channel_for_upsert,
         &rel_cwd,
         room_parent.clone(),
@@ -303,7 +303,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         tracing::info!(
             agent = %p.agent,
             session = %session_id,
-            channel = %project,
+            channel = %channel,
             "session re-assert: engine already running"
         );
         if let Some(prog) = &progress {
@@ -343,7 +343,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     }
 
     if plan.replay_chat {
-        effects::schedule_replay_chat(state.clone(), project.clone());
+        effects::schedule_replay_chat(state.clone(), channel.clone());
     }
 
     let Some(spawn) = &plan.spawn else {
@@ -368,7 +368,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     }
     tracing::info!(
         agent = %p.agent,
-        channel = %project,
+        channel = %channel,
         session = %session_id,
         harness = %harness_str,
         "session started"
@@ -380,7 +380,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     if plan.emit_tail {
         state.emit_tail(TailEvent::Sess {
             ts: now_secs(),
-            project: project.clone(),
+            channel: channel.clone(),
             agent: p.agent.clone(),
             session: session_id.clone(),
             state: "start".into(),

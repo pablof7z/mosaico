@@ -1,4 +1,4 @@
-use super::data::{DebugKind, DebugLine, HookTailSnapshot, ProjectPopup, SessionPane};
+use super::data::{DebugKind, DebugLine, HookTailSnapshot, RootPopup, SessionPane};
 use super::util::*;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 pub(super) struct HookTailState {
-    pub(super) project_filters: std::collections::BTreeSet<String>,
+    pub(super) root_filters: std::collections::BTreeSet<String>,
     pub(super) session_filter: Option<String>,
     pub(super) pane_limit: usize,
     pub(super) focused: usize,
@@ -17,7 +17,7 @@ pub(super) struct HookTailState {
     pub(super) line_cursor: usize,
     pub(super) detail_open: bool, // full-screen detail overlay for the selected line
     pub(super) status: String,
-    pub(super) popup: Option<ProjectPopup>,
+    pub(super) popup: Option<RootPopup>,
 }
 
 pub(super) fn render_hook_tail(
@@ -35,11 +35,11 @@ pub(super) fn render_hook_tail(
         ])
         .split(area);
 
-    let project_label: String = if state.project_filters.is_empty() {
+    let root_label: String = if state.root_filters.is_empty() {
         "*".to_string()
     } else {
         state
-            .project_filters
+            .root_filters
             .iter()
             .cloned()
             .collect::<Vec<_>>()
@@ -53,8 +53,8 @@ pub(super) fn render_hook_tail(
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  project="),
-        Span::styled(project_label, Style::default().fg(Color::Yellow)),
+        Span::raw("  root="),
+        Span::styled(root_label, Style::default().fg(Color::Yellow)),
         Span::raw("  session="),
         Span::styled(session, Style::default().fg(Color::Yellow)),
         Span::raw("  panes="),
@@ -78,7 +78,7 @@ pub(super) fn render_hook_tail(
     } else if state.focus_mode {
         "[↑↓] select  [enter] open  [tab/←/→] pane  [f/esc] exit zoom  [q] quit"
     } else {
-        "[enter/f] zoom  [tab/←/→] pane  [+/-] panes  [p] projects  [s] session  [a] clear  [q] quit"
+        "[enter/f] zoom  [tab/←/→] pane  [+/-] panes  [p] roots  [s] session  [a] clear  [q] quit"
     };
     let status = if state.status.is_empty()
         || state.popup.is_some()
@@ -98,7 +98,7 @@ pub(super) fn render_hook_tail(
     );
 
     if state.popup.is_some() {
-        render_project_popup(f, area, snapshot, state);
+        render_root_popup(f, area, snapshot, state);
     }
     if state.detail_open {
         render_detail_overlay(f, area, snapshot, state);
@@ -176,22 +176,22 @@ fn render_detail_overlay(
     );
 }
 
-fn render_project_popup(
+fn render_root_popup(
     f: &mut ratatui::Frame,
     area: Rect,
     snapshot: &HookTailSnapshot,
     state: &HookTailState,
 ) {
     let Some(popup) = &state.popup else { return };
-    let popup_area = centered_rect(50, (snapshot.projects.len() as u16 + 4).max(6), area);
+    let popup_area = centered_rect(50, (snapshot.roots.len() as u16 + 4).max(6), area);
     f.render_widget(Clear, popup_area);
 
     let items: Vec<ListItem> = snapshot
-        .projects
+        .roots
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let checked = state.project_filters.contains(p);
+            let checked = state.root_filters.contains(p);
             let focused = i == popup.cursor;
             let prefix = if checked { " [x] " } else { " [ ] " };
             let style = if focused {
@@ -207,10 +207,10 @@ fn render_project_popup(
         })
         .collect();
 
-    let title = if state.project_filters.is_empty() {
-        " Projects (all) ".to_string()
+    let title = if state.root_filters.is_empty() {
+        " Roots (all) ".to_string()
     } else {
-        format!(" Projects ({} selected) ", state.project_filters.len())
+        format!(" Roots ({} selected) ", state.root_filters.len())
     };
 
     f.render_widget(
@@ -294,11 +294,11 @@ fn render_empty(f: &mut ratatui::Frame, area: Rect, snapshot: &HookTailSnapshot)
 }
 
 fn pane_title(pane: &SessionPane) -> String {
-    match (pane.agent.as_str(), pane.project.as_str()) {
+    match (pane.agent.as_str(), pane.root.as_str()) {
         ("", "") => pane.short.clone(),
         (agent, "") => format!("{} [{}]", agent, pane.short),
-        ("", project) => format!("{} [{}]", project, pane.short),
-        (agent, project) => format!("{}@{} [{}]", agent, project, pane.short),
+        ("", root) => format!("{} [{}]", root, pane.short),
+        (agent, root) => format!("{}@{} [{}]", agent, root, pane.short),
     }
 }
 

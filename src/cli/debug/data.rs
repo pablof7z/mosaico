@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 pub struct HookTailOpts {
-    pub projects: Vec<String>,
+    pub roots: Vec<String>,
     pub session: Option<String>,
     pub panes: usize,
     pub refresh: Duration,
@@ -29,7 +29,7 @@ pub enum DebugKind {
 pub struct SessionPane {
     pub session: String,
     pub short: String,
-    pub project: String,
+    pub root: String,
     pub agent: String,
     pub host: String,
     pub lines: Vec<DebugLine>,
@@ -39,10 +39,10 @@ pub struct SessionPane {
 pub(super) struct HookTailSnapshot {
     pub panes: Vec<SessionPane>,
     pub unscoped: Vec<DebugLine>,
-    pub projects: Vec<String>,
+    pub roots: Vec<String>,
     pub sessions: Vec<String>,
 }
 
-pub struct ProjectPopup {
+pub struct RootPopup {
     pub cursor: usize,
 }
