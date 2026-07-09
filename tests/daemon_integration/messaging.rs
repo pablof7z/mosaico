@@ -397,6 +397,22 @@ fn non_mention_chat_does_not_route_to_inbox() {
         )
     });
 
+    // Wait for the sender's channel to materialize before sending, so `channel
+    // send` resolves an already-provisioned channel instead of racing relay
+    // provisioning on a cold relay (deterministic; avoids a 90s readiness stall).
+    let sender_channel = Store::open(&home.store_path())
+        .unwrap()
+        .get_session(&sender_canon)
+        .unwrap()
+        .expect("sender session row")
+        .channel_h;
+    assert!(
+        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
+            .map(|s| s.get_channel(&sender_channel).unwrap_or(None).is_some())
+            .unwrap_or(false)),
+        "sender channel did not materialize before send"
+    );
+
     // Write a plain channel message — no @mention in the body.
     let body = "no-mention ambient message for routing test";
     let out = run_cli_stdin_with_env_in_dir(
