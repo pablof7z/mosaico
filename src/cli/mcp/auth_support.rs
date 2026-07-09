@@ -78,7 +78,11 @@ pub(super) fn oauth_error(status: StatusCode, message: String) -> Response {
     (status, message).into_response()
 }
 
-pub(super) fn login_html(fields: &[(String, String)], error: Option<&str>) -> String {
+pub(super) fn login_html(
+    fields: &[(String, String)],
+    error: Option<&str>,
+    authorize_url: &str,
+) -> String {
     let error = error
         .map(|e| format!("<p class=\"error\">{}</p>", html(e)))
         .unwrap_or_default();
@@ -93,6 +97,41 @@ pub(super) fn login_html(fields: &[(String, String)], error: Option<&str>) -> St
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let script = r#"<script>
+const form = document.getElementById("login-form");
+const button = document.getElementById("nip07-button");
+const status = document.getElementById("login-status");
+const nsecInput = document.getElementById("nsec-input");
+
+button.addEventListener("click", async () => {
+  try {
+    if (!window.nostr || !window.nostr.getPublicKey || !window.nostr.signEvent) {
+      throw new Error("No NIP-07 signer was found in this browser.");
+    }
+    button.disabled = true;
+    status.textContent = "Waiting for signer approval...";
+    const pubkey = await window.nostr.getPublicKey();
+    const event = await window.nostr.signEvent({
+      kind: 27235,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["u", form.dataset.authorizeUrl],
+        ["method", "POST"],
+        ["challenge", form.elements.login_challenge.value],
+        ["client", "tenex-edge-mcp"]
+      ],
+      content: "tenex-edge OAuth login"
+    });
+    form.elements.nip07_pubkey.value = pubkey;
+    form.elements.nip07_event.value = JSON.stringify(event);
+    nsecInput.required = false;
+    form.submit();
+  } catch (err) {
+    status.textContent = err && err.message ? err.message : String(err);
+    button.disabled = false;
+  }
+});
+</script>"#;
     format!(
         r#"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -100,17 +139,28 @@ pub(super) fn login_html(fields: &[(String, String)], error: Option<&str>) -> St
 <style>
 body{{font-family:system-ui,sans-serif;margin:2rem;max-width:38rem}}
 label,input,button{{display:block;width:100%;box-sizing:border-box}}
-input{{padding:.7rem;margin:.4rem 0 1rem}}button{{padding:.8rem}}
-.error{{color:#a40000}}.hint{{color:#555}}
+input{{padding:.7rem;margin:.4rem 0 1rem}}button{{padding:.8rem;margin:.7rem 0}}
+.error{{color:#a40000}}.hint,.status{{color:#555}}.fallback{{margin-top:1.5rem;border-top:1px solid #ddd;padding-top:1rem}}
 </style>
 <h1>tenex-edge login</h1>
-<p class="hint">Paste an nsec whose public key is listed in whitelistedPubkeys.</p>
+<p class="hint">Pair with a Nostr signer whose public key is listed in whitelistedPubkeys.</p>
 {error}
-<form method="post" action="/oauth/authorize">
+<form id="login-form" method="post" action="/oauth/authorize" data-authorize-url="{authorize_url}">
 {inputs}
-<label>nsec<input name="nsec" type="password" autocomplete="off" required autofocus></label>
-<button type="submit">Pair ChatGPT</button>
-</form>"#
+<input name="nip07_pubkey" type="hidden">
+<input name="nip07_event" type="hidden">
+<button id="nip07-button" type="button">Pair with NIP-07</button>
+<p id="login-status" class="status"></p>
+<div class="fallback">
+<label>nsec<input id="nsec-input" name="nsec" type="password" autocomplete="off" required></label>
+<button type="submit">Pair with nsec</button>
+</div>
+</form>
+{script}"#,
+        authorize_url = html(authorize_url),
+        inputs = inputs,
+        error = error,
+        script = script,
     )
 }
 

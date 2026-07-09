@@ -48,7 +48,7 @@ async fn oauth_authorize(
     Query(params): Query<super::auth::AuthorizeParams>,
 ) -> Response {
     match state.auth {
-        Some(auth) => auth.authorize_page(params),
+        Some(auth) => auth.authorize_page(params).await,
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

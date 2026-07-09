@@ -14,7 +14,7 @@ use super::auth_support::{
     bearer, login_html, normalize_pubkey, oauth_error, oauth_json_error, random_token,
     redirect_with_code, scope_allowed, sign, stable_hash,
 };
-use super::auth_types::{validate_token_request, AuthCode};
+use super::auth_types::{validate_token_request, AuthCode, LoginChallenge};
 pub(super) use super::auth_types::{AuthorizeForm, AuthorizeParams, TokenForm};
 
 const SCOPES: &[&str] = &["tenex:read", "tenex:write"];
@@ -25,6 +25,7 @@ pub(super) struct AuthState {
     secret: Vec<u8>,
     whitelisted: Arc<Vec<String>>,
     codes: Arc<Mutex<HashMap<String, AuthCode>>>,
+    challenges: Arc<Mutex<HashMap<String, LoginChallenge>>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -49,6 +50,7 @@ impl AuthState {
             secret: secret.into_bytes(),
             whitelisted: Arc::new(cfg.whitelisted_pubkeys),
             codes: Arc::new(Mutex::new(HashMap::new())),
+            challenges: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -76,11 +78,11 @@ impl AuthState {
         })
     }
 
-    pub(super) fn authorize_page(&self, params: AuthorizeParams) -> Response {
+    pub(super) async fn authorize_page(&self, params: AuthorizeParams) -> Response {
         if let Err(err) = params.validate(&self.public_url) {
             return oauth_error(StatusCode::BAD_REQUEST, err.to_string());
         }
-        Html(login_html(&params.login_fields(), None)).into_response()
+        self.login_page(&params, None).await
     }
 
     pub(super) async fn authorize_submit(&self, form: AuthorizeForm) -> Response {
@@ -88,12 +90,13 @@ impl AuthState {
         if let Err(err) = params.validate(&self.public_url) {
             return oauth_error(StatusCode::BAD_REQUEST, err.to_string());
         }
-        let pubkey = match self.pubkey_for_nsec(&form.nsec) {
+        let challenge = match self.consume_challenge(&form, &params).await {
+            Ok(challenge) => challenge,
+            Err(err) => return self.login_page(&params, Some(&err.to_string())).await,
+        };
+        let pubkey = match self.pubkey_for_login(&form, &challenge) {
             Ok(pubkey) => pubkey,
-            Err(err) => {
-                return Html(login_html(&params.login_fields(), Some(&err.to_string())))
-                    .into_response()
-            }
+            Err(err) => return self.login_page(&params, Some(&err.to_string())).await,
         };
         let code = match random_token(32) {
             Ok(code) => code,
@@ -175,20 +178,72 @@ impl AuthState {
             .into_response()
     }
 
+    async fn login_page(&self, params: &AuthorizeParams, error: Option<&str>) -> Response {
+        match self.login_fields(params).await {
+            Ok(fields) => Html(login_html(&fields, error, &self.authorize_url())).into_response(),
+            Err(err) => oauth_error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+        }
+    }
+
+    async fn login_fields(&self, params: &AuthorizeParams) -> Result<Vec<(String, String)>> {
+        let challenge = random_token(32)?;
+        let mut challenges = self.challenges.lock().await;
+        let now = crate::util::now_secs();
+        challenges.retain(|_, value| value.expires_at > now);
+        challenges.insert(
+            challenge.clone(),
+            LoginChallenge::from_params(params, &self.public_url, now + 300),
+        );
+        Ok(params.login_fields(&challenge))
+    }
+
+    async fn consume_challenge(
+        &self,
+        form: &AuthorizeForm,
+        params: &AuthorizeParams,
+    ) -> Result<String> {
+        let Some(challenge) = self.challenges.lock().await.remove(&form.login_challenge) else {
+            anyhow::bail!("unknown login challenge");
+        };
+        challenge.validate(params, &self.public_url)?;
+        Ok(form.login_challenge.clone())
+    }
+
+    fn pubkey_for_login(&self, form: &AuthorizeForm, challenge: &str) -> Result<String> {
+        if let Some(nsec) = form
+            .nsec
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return self.pubkey_for_nsec(nsec);
+        }
+        let pubkey = super::auth_nip07::pubkey_for_form(form, &self.public_url, challenge)?;
+        self.ensure_whitelisted(&pubkey)
+    }
+
     fn pubkey_for_nsec(&self, nsec: &str) -> Result<String> {
         let pubkey = Keys::parse(nsec.trim())
             .context("invalid nsec")?
             .public_key()
             .to_hex();
+        self.ensure_whitelisted(&pubkey)
+    }
+
+    fn ensure_whitelisted(&self, pubkey: &str) -> Result<String> {
         if self
             .whitelisted
             .iter()
             .any(|key| normalize_pubkey(key) == pubkey)
         {
-            Ok(pubkey)
+            Ok(pubkey.to_string())
         } else {
-            anyhow::bail!("nsec pubkey is not in whitelistedPubkeys")
+            anyhow::bail!("pubkey is not in whitelistedPubkeys")
         }
+    }
+
+    fn authorize_url(&self) -> String {
+        format!("{}/oauth/authorize", self.public_url)
     }
 
     fn issue_token(&self, code: &AuthCode) -> Result<String> {

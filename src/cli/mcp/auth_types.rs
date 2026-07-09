@@ -15,6 +15,16 @@ pub(super) struct AuthCode {
     pub(super) expires_at: u64,
 }
 
+#[derive(Clone)]
+pub(super) struct LoginChallenge {
+    client_id: String,
+    redirect_uri: String,
+    code_challenge: String,
+    resource: String,
+    scope: Option<String>,
+    pub(super) expires_at: u64,
+}
+
 #[derive(Deserialize, Clone)]
 pub(super) struct AuthorizeParams {
     response_type: String,
@@ -29,7 +39,10 @@ pub(super) struct AuthorizeParams {
 
 #[derive(Deserialize)]
 pub(super) struct AuthorizeForm {
-    pub(super) nsec: String,
+    pub(super) nsec: Option<String>,
+    pub(super) nip07_pubkey: Option<String>,
+    pub(super) nip07_event: Option<String>,
+    pub(super) login_challenge: String,
     response_type: String,
     client_id: String,
     redirect_uri: String,
@@ -71,8 +84,9 @@ impl AuthorizeParams {
             .unwrap_or_else(|| default_resource.to_string())
     }
 
-    pub(super) fn login_fields(&self) -> Vec<(String, String)> {
+    pub(super) fn login_fields(&self, challenge: &str) -> Vec<(String, String)> {
         vec![
+            ("login_challenge".into(), challenge.into()),
             ("response_type".into(), self.response_type.clone()),
             ("client_id".into(), self.client_id.clone()),
             ("redirect_uri".into(), self.redirect_uri.clone()),
@@ -85,6 +99,45 @@ impl AuthorizeParams {
             ("resource".into(), self.resource.clone().unwrap_or_default()),
             ("scope".into(), self.scope.clone().unwrap_or_default()),
         ]
+    }
+}
+
+impl LoginChallenge {
+    pub(super) fn from_params(
+        params: &AuthorizeParams,
+        default_resource: &str,
+        expires_at: u64,
+    ) -> Self {
+        Self {
+            client_id: params.client_id.clone(),
+            redirect_uri: params.redirect_uri.clone(),
+            code_challenge: params.code_challenge.clone(),
+            resource: params.resource_url(default_resource),
+            scope: params.scope.clone(),
+            expires_at,
+        }
+    }
+
+    pub(super) fn validate(&self, params: &AuthorizeParams, default_resource: &str) -> Result<()> {
+        anyhow::ensure!(
+            self.expires_at > crate::util::now_secs(),
+            "login challenge expired"
+        );
+        anyhow::ensure!(self.client_id == params.client_id, "client_id mismatch");
+        anyhow::ensure!(
+            self.redirect_uri == params.redirect_uri,
+            "redirect_uri mismatch"
+        );
+        anyhow::ensure!(
+            self.code_challenge == params.code_challenge,
+            "code_challenge mismatch"
+        );
+        anyhow::ensure!(
+            self.resource == params.resource_url(default_resource),
+            "resource mismatch"
+        );
+        anyhow::ensure!(self.scope == params.scope, "scope mismatch");
+        Ok(())
     }
 }
 
