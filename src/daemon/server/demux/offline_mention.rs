@@ -6,6 +6,26 @@ mod headless;
 
 use headless::{mention_prompt, spawn_headless_mention};
 
+pub(super) fn dispatch(
+    state: &Arc<DaemonState>,
+    chat: &crate::domain::ChatMessage,
+    mentioned_pk: &str,
+) {
+    let st = state.clone();
+    let mentioned_pk = mentioned_pk.to_string();
+    let channel = chat.channel.clone();
+    let body = chat.body.clone();
+    let requester_pubkey = chat.from.pubkey.clone();
+    tracing::info!(
+        mentioned_pk = %crate::util::pubkey_short(&mentioned_pk),
+        channel = %channel,
+        "dispatching offline-agent-mention handler"
+    );
+    tokio::spawn(async move {
+        handle(&st, &mentioned_pk, &channel, &body, Some(&requester_pubkey)).await;
+    });
+}
+
 /// Spawn a local agent that was p-tagged in a kind:9 message but had no alive
 /// session. Idempotency: `first_sight` prevents duplicate spawns within a run;
 /// `has_alive` prevents re-spawn across restarts when the previous spawn registered.
@@ -17,6 +37,7 @@ pub(super) async fn handle(
     mentioned_pk: &str,
     channel: &str,
     body: &str,
+    requester_pubkey: Option<&str>,
 ) {
     let has_alive = state.with_store(|s| {
         s.list_alive_sessions()
@@ -79,6 +100,7 @@ pub(super) async fn handle(
             channel,
             body,
             Some(&route.native_id),
+            notice_context(state, mentioned_pk, &route.agent_slug, requester_pubkey),
         )
         .await
         {
@@ -155,6 +177,7 @@ pub(super) async fn handle(
             channel,
             body,
             Some(&native_id),
+            notice_context(state, mentioned_pk, &agent_slug, requester_pubkey),
         )
         .await
         {
@@ -178,7 +201,17 @@ pub(super) async fn handle(
     // Fresh spawn: a brand-new session (a new pubkey) that starts the agent and
     // gets the mention injected so it can respond.
     tracing::info!(agent = %agent_slug, channel, work_root = %work_root, "spawning agent on mention");
-    match spawn_headless_mention(state, &agent_slug, &work_root, channel, body, None).await {
+    match spawn_headless_mention(
+        state,
+        &agent_slug,
+        &work_root,
+        channel,
+        body,
+        None,
+        notice_context(state, mentioned_pk, &agent_slug, requester_pubkey),
+    )
+    .await
+    {
         Ok(true) => return,
         Ok(false) => {}
         Err(e) => {
@@ -200,7 +233,47 @@ pub(super) async fn handle(
             tracing::info!(agent = %agent_slug, pty_id = %pty_id, channel, "agent spawned successfully");
             inject_spawn_prompt(agent_slug.clone(), channel.to_string(), pty_id, body);
         }
-        Err(e) => tracing::warn!(agent = %agent_slug, channel, error = %e, "agent spawn failed"),
+        Err(e) => {
+            tracing::warn!(agent = %agent_slug, channel, error = %e, "agent spawn failed");
+            headless::publish_start_failure_notice(
+                state,
+                &agent_slug,
+                &target_label(state, mentioned_pk, &agent_slug),
+                channel,
+                requester_pubkey,
+                &e.to_string(),
+            )
+            .await;
+        }
+    }
+}
+
+fn target_label(state: &Arc<DaemonState>, pubkey: &str, fallback: &str) -> String {
+    state
+        .with_store(|s| {
+            s.get_profile(pubkey)
+                .ok()
+                .flatten()
+                .and_then(|p| (!p.name.is_empty()).then_some(p.name))
+                .or_else(|| {
+                    s.get_identity(pubkey)
+                        .ok()
+                        .flatten()
+                        .and_then(|i| (!i.codename.is_empty()).then_some(i.codename))
+                })
+        })
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn notice_context(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    fallback: &str,
+    requester_pubkey: Option<&str>,
+) -> headless::MentionNotice {
+    headless::MentionNotice {
+        requester_pubkey: requester_pubkey.map(str::to_string),
+        target_label: Some(target_label(state, pubkey, fallback)),
     }
 }
 

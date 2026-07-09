@@ -5,6 +5,7 @@ use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::util::CHAT_WRITE_CHAR_LIMIT;
 use anyhow::bail;
 
+mod body;
 mod recipient;
 #[cfg(test)]
 mod tests;
@@ -64,13 +65,6 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel send").await?;
     let explicit_dest =
         (target.explicit && target.channel_h != scope).then_some(target.channel_h.clone());
-    let body_to_send = match &explicit_dest {
-        Some(_) => format!(
-            "[from @{} working in #{scope}]: {}",
-            rec.agent_slug, p.message
-        ),
-        None => p.message.clone(),
-    };
     // Mention target: the FIRST inline `@<agent-instance-label>` in the body that
     // resolves to a known instance pubkey. A redirect is a plain channel post, not
     // a mention. An unresolvable token is silently treated as no mention — it must
@@ -115,6 +109,16 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
         explicit_dest.as_deref(),
         mention.as_ref().map(|(_, _, channel, _)| channel.as_str()),
     );
+    let body_to_send = match &explicit_dest {
+        Some(_) => format!(
+            "[from @{} working in #{scope}]: {}",
+            rec.agent_slug, p.message
+        ),
+        None => mention
+            .as_ref()
+            .map(|(pk, _, _, raw)| body::rewrite_first_resolved_mention(&p.message, raw, pk))
+            .unwrap_or_else(|| p.message.clone()),
+    };
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
     // with the locally-seeded row and the primary-key de-dupe preserves the wrong

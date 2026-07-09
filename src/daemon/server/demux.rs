@@ -166,18 +166,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
                 if let DomainEvent::ChatMessage(ref chat) = de {
                     if let Some(ref mentioned_pk) = chat.mentioned_pubkey {
                         let routed_to_local = hosted.contains(mentioned_pk);
-                        let st = state.clone();
-                        let mentioned_pk = mentioned_pk.clone();
-                        let channel = chat.channel.clone();
-                        let body = chat.body.clone();
-                        tracing::info!(
-                            mentioned_pk = %crate::util::pubkey_short(&mentioned_pk),
-                            channel = %channel,
-                            "dispatching offline-agent-mention handler"
-                        );
-                        tokio::spawn(async move {
-                            offline_mention::handle(&st, &mentioned_pk, &channel, &body).await;
-                        });
+                        offline_mention::dispatch(state, chat, mentioned_pk);
 
                         if routed_to_local {
                             let st = state.clone();

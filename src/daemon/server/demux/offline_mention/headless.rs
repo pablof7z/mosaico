@@ -3,6 +3,11 @@ use std::sync::Arc;
 
 mod notice;
 
+pub(super) struct MentionNotice {
+    pub(super) requester_pubkey: Option<String>,
+    pub(super) target_label: Option<String>,
+}
+
 pub(super) async fn spawn_headless_mention(
     state: &Arc<DaemonState>,
     agent_slug: &str,
@@ -10,6 +15,7 @@ pub(super) async fn spawn_headless_mention(
     channel_h: &str,
     body: &str,
     resume_id: Option<&str>,
+    mention_notice: MentionNotice,
 ) -> anyhow::Result<bool> {
     if !crate::session_host::agent_supports_headless_exec(agent_slug) {
         return Ok(false);
@@ -37,6 +43,7 @@ pub(super) async fn spawn_headless_mention(
         state.clone(),
         agent_slug.to_string(),
         channel_h.to_string(),
+        mention_notice,
         launch,
     );
     Ok(true)
@@ -46,6 +53,7 @@ fn reap_headless_on_exit(
     state: Arc<DaemonState>,
     agent_slug: String,
     channel: String,
+    mention_notice: MentionNotice,
     launch: crate::session_host::ExecLaunch,
 ) {
     let crate::session_host::ExecLaunch {
@@ -69,7 +77,10 @@ fn reap_headless_on_exit(
                     log = %log_path.display(),
                     "headless agent exited"
                 );
-                notice::HeadlessOutcome::Exited(status.to_string())
+                notice::HeadlessOutcome::Exited {
+                    status: status.to_string(),
+                    success: status.success(),
+                }
             }
             Ok(Err(e)) => {
                 tracing::warn!(
@@ -110,10 +121,10 @@ fn reap_headless_on_exit(
                     agent_slug: &agent_slug,
                     channel: &channel,
                     session_id: session_id.as_deref(),
+                    requester_pubkey: mention_notice.requester_pubkey.as_deref(),
+                    target_label: mention_notice.target_label.as_deref(),
                     exec_id: &id,
-                    pid,
                     outcome: &outcome,
-                    log_path: &log_path,
                 },
             )
             .await;
@@ -136,6 +147,30 @@ fn reap_headless_on_exit(
             );
         }
     });
+}
+
+pub(super) async fn publish_start_failure_notice(
+    state: &Arc<DaemonState>,
+    agent_slug: &str,
+    target_label: &str,
+    channel: &str,
+    requester_pubkey: Option<&str>,
+    detail: &str,
+) {
+    let outcome = notice::HeadlessOutcome::StartFailed(detail.to_string());
+    notice::publish_no_reply_notice(
+        state,
+        notice::NoReplyNotice {
+            agent_slug,
+            channel,
+            session_id: None,
+            requester_pubkey,
+            target_label: Some(target_label),
+            exec_id: "spawn",
+            outcome: &outcome,
+        },
+    )
+    .await;
 }
 
 pub(super) fn mention_prompt(body: &str) -> String {

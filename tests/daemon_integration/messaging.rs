@@ -5,6 +5,8 @@ use tenex_edge::state::Store;
 
 #[path = "messaging/inbox_rows.rs"]
 mod inbox_rows;
+#[path = "messaging/target_wire.rs"]
+mod target_wire;
 use inbox_rows::receiver_inbox_rows;
 #[test]
 fn session_start_runs_engine_and_records_alive_session() {
@@ -153,9 +155,6 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .expect("receiver session row");
     let receiver_scope = receiver_row.channel_h.clone();
-    // A live session is addressed by @codename@host (a bare @role mention is
-    // intercepted by the send-guard). kind:0 isn't materialized back in this nak
-    // env, so seed the receiver profile under its codename so the mention resolves.
     let receiver_codename = tenex_edge::util::friendly_short_code(&receiver_canon);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -173,6 +172,9 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
         )
         .unwrap();
     let body = format!("hello @{receiver_codename}@test-host from redirected stdin");
+    let read_body = target_wire::redirected_stdin_rendered_body(&receiver_codename);
+    let wire_body =
+        target_wire::redirected_stdin_body_for_session(&home, &receiver_canon, &receiver_row);
     let out = run_cli_stdin_with_env_in_dir(
         &home,
         &["channel", "send"],
@@ -206,10 +208,8 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // kind:0 isn't materialized back in this nak env, so assert the body+timestamp
-    // render; the sender identity is checked deterministically below via from_pubkey.
     assert!(
-        stdout.contains(&format!("> {body} [")),
+        stdout.contains(&format!("> {read_body} [")),
         "chat read should render the body and a timestamp; got: {stdout}"
     );
 
@@ -224,7 +224,7 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
         wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
             .map(|store| receiver_inbox_rows(&store, &receiver_canon)
                 .iter()
-                .any(|row| row.body == body))
+                .any(|row| row.body == wire_body))
             .unwrap_or(false)),
         "receiver did not get live chat row"
     );
@@ -234,7 +234,7 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
     let rows = receiver_inbox_rows(&store, &receiver_canon);
     let row = rows
         .iter()
-        .find(|row| row.body == body)
+        .find(|row| row.body == wire_body)
         .expect("receiver pending chat row");
     assert_eq!(row.target_session, receiver_canon);
     assert_eq!(row.from_pubkey, sender_pubkey);
@@ -253,7 +253,7 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
         // kind:0 isn't materialized in this nak env, so match on body (the delivery
         // is the invariant; sender identity is checked above via inbox from_pubkey).
         assert!(
-            pending.iter().any(|row| { row["body"] == body }),
+            pending.iter().any(|row| { row["body"] == wire_body }),
             "statusline should surface explicit chat mentions as pending: {statusline}"
         );
 
@@ -272,7 +272,7 @@ fn chat_write_stdin_enqueues_live_channel_chat_for_receiver() {
             .expect("statusline after drain");
         let recent = statusline["recent"].as_array().expect("recent array");
         assert!(
-            recent.iter().any(|row| { row["body"] == body }),
+            recent.iter().any(|row| { row["body"] == wire_body }),
             "statusline should briefly linger drained chat mentions: {statusline}"
         );
     });

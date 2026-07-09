@@ -3,12 +3,12 @@ use crate::daemon::tail_event::TailEvent;
 use crate::domain::{AgentRef, ChatMessage};
 use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::util::now_secs;
-use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum HeadlessOutcome {
-    Exited(String),
+    Exited { status: String, success: bool },
+    StartFailed(String),
     WaitFailed(String),
     WaitTaskFailed(String),
 }
@@ -16,9 +16,18 @@ pub(super) enum HeadlessOutcome {
 impl HeadlessOutcome {
     fn detail(&self) -> String {
         match self {
-            HeadlessOutcome::Exited(status) => format!("process exited with {status}"),
+            HeadlessOutcome::Exited { status, .. } => format!("process exited with {status}"),
+            HeadlessOutcome::StartFailed(error) => format!("start failed: {error}"),
             HeadlessOutcome::WaitFailed(error) => format!("wait failed: {error}"),
             HeadlessOutcome::WaitTaskFailed(error) => format!("wait task failed: {error}"),
+        }
+    }
+
+    fn failed_to_start(&self) -> bool {
+        match self {
+            HeadlessOutcome::Exited { success, .. } => !success,
+            HeadlessOutcome::StartFailed(_) => true,
+            HeadlessOutcome::WaitFailed(_) | HeadlessOutcome::WaitTaskFailed(_) => false,
         }
     }
 }
@@ -47,10 +56,10 @@ pub(super) struct NoReplyNotice<'a> {
     pub(super) agent_slug: &'a str,
     pub(super) channel: &'a str,
     pub(super) session_id: Option<&'a str>,
+    pub(super) requester_pubkey: Option<&'a str>,
+    pub(super) target_label: Option<&'a str>,
     pub(super) exec_id: &'a str,
-    pub(super) pid: i32,
     pub(super) outcome: &'a HeadlessOutcome,
-    pub(super) log_path: &'a Path,
 }
 
 pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: NoReplyNotice<'_>) {
@@ -75,13 +84,13 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
         from: AgentRef::new(keys.public_key().to_hex(), from.clone()),
         channel: notice.channel.to_string(),
         body: body.clone(),
-        mentioned_pubkey: None,
+        mentioned_pubkey: notice.requester_pubkey.map(str::to_string),
     };
     let record = OutboundChatRecord {
         from_session: None,
         channel_h: notice.channel.to_string(),
         body: body.clone(),
-        mentioned_pubkey: None,
+        mentioned_pubkey: notice.requester_pubkey.map(str::to_string),
         mentioned_session: None,
         created_at: Some(now),
         direction: "outbound",
@@ -109,7 +118,10 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
         channel: notice.channel.to_string(),
         from,
         from_session: None,
-        to: notice.agent_slug.to_string(),
+        to: notice
+            .requester_pubkey
+            .map(crate::util::pubkey_short)
+            .unwrap_or_else(|| notice.agent_slug.to_string()),
         to_session: notice.session_id.map(str::to_string),
         body: body.chars().take(200).collect(),
     });
@@ -125,60 +137,68 @@ fn emit_local_notice_failure(state: &Arc<DaemonState>, notice: &NoReplyNotice<'_
 }
 
 fn no_reply_notice_body(notice: &NoReplyNotice<'_>) -> String {
-    let subject = notice
-        .session_id
-        .map(|session| format!("session {session}"))
-        .unwrap_or_else(|| format!("pid {}", notice.pid));
-    format!(
-        "tenex-edge: {} headless run for {subject} exited without publishing a chat reply ({}). exec={}; log={}",
-        notice.agent_slug,
-        notice.outcome.detail(),
-        notice.exec_id,
-        notice.log_path.display()
-    )
+    let target = notice
+        .target_label
+        .filter(|label| !label.is_empty())
+        .unwrap_or(notice.agent_slug);
+    if notice.outcome.failed_to_start() {
+        format!(
+            "tenex-edge: agent {target} failed to start for your mention ({}).",
+            notice.outcome.detail()
+        )
+    } else {
+        format!(
+            "tenex-edge: agent {target} exited without replying to your mention ({}).",
+            notice.outcome.detail()
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
-    fn no_reply_notice_mentions_session_outcome_and_log() {
-        let outcome = HeadlessOutcome::Exited("exit status: 0".to_string());
-        let log_path = PathBuf::from("/tmp/exec-codex-1.log");
+    fn no_reply_notice_mentions_target_and_omits_log() {
+        let outcome = HeadlessOutcome::Exited {
+            status: "exit status: 0".to_string(),
+            success: true,
+        };
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "codex",
             channel: "chan",
             session_id: Some("te-session"),
+            requester_pubkey: Some("pk-requester"),
+            target_label: Some("flint-range-108@laptop"),
             exec_id: "exec-codex-1",
-            pid: 4321,
             outcome: &outcome,
-            log_path: &log_path,
         });
 
-        assert!(body.contains("codex headless run for session te-session"));
-        assert!(body.contains("without publishing a chat reply"));
+        assert!(body.contains("agent flint-range-108@laptop"));
+        assert!(body.contains("exited without replying to your mention"));
         assert!(body.contains("process exited with exit status: 0"));
-        assert!(body.contains("exec=exec-codex-1"));
-        assert!(body.contains("log=/tmp/exec-codex-1.log"));
+        assert!(!body.contains("exec=exec-codex-1"));
+        assert!(!body.contains("/tmp/exec-codex-1.log"));
     }
 
     #[test]
-    fn no_reply_notice_falls_back_to_pid_before_registration() {
-        let outcome = HeadlessOutcome::WaitFailed("no child".to_string());
-        let log_path = PathBuf::from("/tmp/exec-claude-1.log");
+    fn nonzero_exit_reports_failed_start() {
+        let outcome = HeadlessOutcome::Exited {
+            status: "exit status: 2".to_string(),
+            success: false,
+        };
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "claude",
             channel: "chan",
             session_id: None,
+            requester_pubkey: None,
+            target_label: None,
             exec_id: "exec-claude-1",
-            pid: 9876,
             outcome: &outcome,
-            log_path: &log_path,
         });
 
-        assert!(body.contains("claude headless run for pid 9876"));
-        assert!(body.contains("wait failed: no child"));
+        assert!(body.contains("agent claude"));
+        assert!(body.contains("failed to start for your mention"));
+        assert!(body.contains("process exited with exit status: 2"));
     }
 }

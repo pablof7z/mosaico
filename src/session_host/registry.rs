@@ -156,11 +156,11 @@ pub(super) fn build_headless_command(
             }
             out.push("exec".to_string());
             out.push("--json".to_string());
+            out.extend(it.cloned());
             if let Some(id) = resume_id {
                 out.push("resume".to_string());
                 out.push(id.to_string());
             }
-            out.extend(it.cloned());
             out.push(prompt.to_string());
             out
         }

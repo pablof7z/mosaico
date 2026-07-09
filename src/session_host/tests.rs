@@ -159,7 +159,7 @@ fn codex_headless_fresh_inserts_exec_after_binary() {
 
 #[test]
 fn codex_headless_resume_uses_exec_resume() {
-    let base = cmd(&["codex", "-m", "gpt-5"]);
+    let base = cmd(&["codex", "-m", "gpt-5", "--profile", "planner"]);
     let got = build_headless_command(
         &base,
         HeadlessShape::CodexExec,
@@ -173,10 +173,12 @@ fn codex_headless_resume_uses_exec_resume() {
             "codex",
             "exec",
             "--json",
-            "resume",
-            "codex-session",
             "-m",
             "gpt-5",
+            "--profile",
+            "planner",
+            "resume",
+            "codex-session",
             "follow up"
         ])
     );
