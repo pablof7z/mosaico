@@ -1,0 +1,26 @@
+[
+  [
+    "user",
+    "as you can see - the names did not resolve properly in the formatting also, the `tenex-edge channel read` showed a communication between the user and a mgmt agent, which is supposed to be invisble for agents"
+  ],
+  [
+    "assistant",
+    "All three bugs are fixed with regression tests: unresolved nostr mentions now rewritten via the profile resolver, backend/mgmt exchanges filtered out of shared channel reads, and whitelisted operators rendered without the `?` host placeholder. An open item about empty `title` on kind:30315 heartbeat was flagged as a separate design question."
+  ],
+  [
+    "user",
+    "it's happening right now ... I want you to fucking analyze why it's happening!"
+  ],
+  [
+    "assistant",
+    "Investigating where `who` filters 14 agents down to 2; the role files confirm all agents exist on disk, so the divergence is in code. Will report back once found."
+  ],
+  [
+    "user",
+    "fix the ollama setup locally and patch #2 -- if distillation fails agents should be told that generating distillations (dont use this word, use something less internal) so they can alert the user -- it should be injected only a few times per hour (while the issue is still happening) so that agents are not pestering the user"
+  ],
+  [
+    "assistant",
+    "Ollama fix is confirmed live and working. Investigating existing distill-error-tracking infrastructure to wire a throttled, agent-facing notice into the right place without duplication."
+  ]
+]

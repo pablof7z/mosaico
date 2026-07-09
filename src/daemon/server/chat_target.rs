@@ -143,6 +143,8 @@ mod tests {
             title: String::new(),
             activity: String::new(),
             resume_id: String::new(),
+            distill_fail_streak: 0,
+            distill_notice_at: 0,
         }
     }
 

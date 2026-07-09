@@ -12,6 +12,7 @@ mod identity_migration;
 mod outbox_backoff;
 mod profile_agent_slug;
 mod session_claims;
+mod session_distill_notice;
 mod trellis_commits;
 mod trellis_replay_capsules;
 mod version;
@@ -27,6 +28,7 @@ pub(super) fn initialize_file(conn: &Connection, path: &Path) -> Result<()> {
     profile_agent_slug::ensure_column(conn)?;
     trellis_commits::ensure_columns(conn)?;
     outbox_backoff::ensure_columns(conn)?;
+    session_distill_notice::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
     workspace_roots_migration::ensure_renamed(conn)?;
     version::stamp(conn)
@@ -40,6 +42,7 @@ pub(super) fn initialize_memory(conn: &Connection) -> Result<()> {
     profile_agent_slug::ensure_column(conn)?;
     trellis_commits::ensure_columns(conn)?;
     outbox_backoff::ensure_columns(conn)?;
+    session_distill_notice::ensure_columns(conn)?;
     trellis_replay_capsules::ensure_table(conn)?;
     workspace_roots_migration::ensure_renamed(conn)?;
     version::stamp(conn)

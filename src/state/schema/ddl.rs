@@ -149,7 +149,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     seen_cursor       INTEGER NOT NULL DEFAULT 0,
     title             TEXT NOT NULL DEFAULT '',
     activity          TEXT NOT NULL DEFAULT '',
-    resume_id         TEXT NOT NULL DEFAULT ''
+    resume_id         TEXT NOT NULL DEFAULT '',
+    distill_fail_streak INTEGER NOT NULL DEFAULT 0,
+    distill_notice_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_alive
     ON sessions(alive, channel_h);

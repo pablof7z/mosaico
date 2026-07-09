@@ -15,7 +15,7 @@ mod tests;
 pub(crate) use capture::{
     capture_inputs, MembersInput, MessagesInput, MetaInput, PresenceInput, ViewInputs,
 };
-pub(crate) use messages::p_tag_pubkeys;
+pub(crate) use messages::{is_backend_pubkey, p_tag_pubkeys};
 pub(crate) use model::FabricView;
 
 use build::build_view;

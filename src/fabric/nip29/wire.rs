@@ -2,7 +2,7 @@
 //!
 //! | Domain      | Wire |
 //! |-------------|------|
-//! | Profile     | kind:0,     content `{"name": "slug@host"}`, `["host", host]` |
+//! | Profile     | kind:0,     content `{"name": "slug@host"}`, `["host", host]`, optional `["agent-slug", slug]` |
 //! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
 //! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", session_id]`, one or more `["h", channel]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | AgentRoster | kind:30555, backend management-key signed, `["d", capability_slug]`, `["hostname", host]`, `["use-criteria", text]`, one or more root-channel `["h", channel]` |

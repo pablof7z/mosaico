@@ -36,8 +36,7 @@ fn pub_status(
 
 /// Materialize the `proj` channel + roster so awareness has fabric context.
 fn seed_channel(store: &Store) {
-    // Opaque id "proj" with a distinct human name "main" (production ids are
-    // random, never equal to the name).
+    // Opaque id "proj" with a distinct human name "main" (production ids are random, never the name).
     store.upsert_channel("proj", "main", "", "", 1).unwrap();
     store
         .replace_channel_members("proj", &["pk-coder".to_string()], 1)
@@ -67,6 +66,8 @@ fn test_session(id: &str) -> Session {
         title: String::new(),
         activity: String::new(),
         resume_id: String::new(),
+        distill_fail_streak: 0,
+        distill_notice_at: 0,
     }
 }
 
@@ -102,15 +103,14 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        // Only the human name renders — the opaque id is never useful to an
-        // agent, which always addresses channels by name.
+        // Only the human name renders — the opaque id is never useful to an agent (addresses by name).
         text.contains("<channel name=\"#main\""),
         "awareness should name the channel; got: {text:?}"
     );
     let expected_code = crate::util::friendly_short_code("sess-intro");
     assert!(
         text.contains(&format!("You are @{expected_code}, a coder agent.")),
-        "awareness should identify this agent by codename; got: {text:?}"
+        "awareness should identify this agent by codename and agent slug; got: {text:?}"
     );
     assert!(
         !text.contains("[session"),

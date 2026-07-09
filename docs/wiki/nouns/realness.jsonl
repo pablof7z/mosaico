@@ -1,6 +1,7 @@
 {"canonical":"4 7 gb 2 day ago","name":"4.7 GB · 2 days ago","signed":0,"status":"provisional"}
 {"canonical":"agent team","name":"Agent Teams","signed":0,"status":"provisional"}
 {"canonical":"another claude","name":"Another Claude","signed":18,"status":"real"}
+{"canonical":"channel send","name":"channel send","signed":2,"status":"provisional"}
 {"canonical":"clawstr agentry","name":"Clawstr Agentry","signed":0,"status":"provisional"}
 {"canonical":"container state","name":"container-state","signed":1,"status":"provisional"}
 {"canonical":"hacker new","name":"Hacker News","signed":0,"status":"provisional"}
@@ -13,7 +14,11 @@
 {"canonical":"rm rf","name":"rm -rf","signed":1,"status":"provisional"}
 {"canonical":"separately fyi","name":"Separately FYI","signed":0,"status":"provisional"}
 {"canonical":"sk or 4 f 2","name":"sk-or-…4f2a","signed":0,"status":"provisional"}
+{"canonical":"tenex edge channel invite agent slug","name":"tenex-edge channel invite agentSlug","signed":2,"status":"provisional"}
+{"canonical":"tenex edge channel read","name":"tenex-edge channel read","signed":2,"status":"provisional"}
+{"canonical":"tenex edge chat","name":"tenex-edge chat","signed":-4,"status":"suppressed"}
 {"canonical":"tenex edge config","name":"tenex-edge config","signed":3,"status":"real"}
 {"canonical":"tenex edge daemon","name":"tenex-edge daemon","signed":3,"status":"real"}
+{"canonical":"tenex edge invite blah blah blah","name":"tenex-edge invite blah blah blah","signed":2,"status":"provisional"}
 {"canonical":"tenex edge launch","name":"tenex-edge launch","signed":1,"status":"provisional"}
 {"canonical":"tenex edge who","name":"tenex-edge who","signed":1,"status":"provisional"}

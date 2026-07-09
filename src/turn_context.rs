@@ -4,6 +4,7 @@
 //! This module owns the shared text/audit assembly used between them.
 
 mod check;
+mod distill_notice;
 mod reads;
 mod start;
 

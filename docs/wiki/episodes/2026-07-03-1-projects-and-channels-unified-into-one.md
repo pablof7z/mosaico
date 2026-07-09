@@ -4,7 +4,7 @@ date: 2026-07-03
 session: bdb6c341-4dd4-48e7-9764-e80242beb005
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/bdb6c341-4dd4-48e7-9764-e80242beb005.jsonl
 salience: architecture
-status: active
+status: superseded
 subjects:
   - project-channel-unification
   - workspace-binding

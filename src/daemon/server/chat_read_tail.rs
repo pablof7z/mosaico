@@ -3,11 +3,13 @@ use super::*;
 use crate::state::Message;
 use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
 
+mod backend_filter;
 mod read_scope;
 mod tail_stream;
 #[cfg(test)]
 mod tests;
 
+use backend_filter::is_backend_row;
 use read_scope::{chat_read_scopes_for_store, ChatCursor};
 pub(in crate::daemon::server) use tail_stream::handle_tail;
 
@@ -73,6 +75,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
     let live_started_at = now_secs();
     let live_floor = live_started_at.max(since);
 
+    let backend_pubkey = state.backend_pubkey().unwrap_or_default();
     let rows = state.with_store(|s| {
         let mut rows: Vec<Message> = read_scopes
             .iter()
@@ -80,6 +83,7 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
                 s.chat_messages_for_channel(sc, since, CHAT_READ_CAP)
                     .unwrap_or_default()
             })
+            .filter(|row| !is_backend_row(s, &backend_pubkey, row))
             .collect();
         rows.sort_by(|a, b| {
             a.created_at
@@ -157,6 +161,9 @@ pub(in crate::daemon::server) async fn handle_chat_read<W: AsyncWriteExt + Unpin
                     if !seen.insert(row.message_id.clone()) {
                         continue;
                     }
+                    if state.with_store(|s| is_backend_row(s, &backend_pubkey, &row)) {
+                        continue;
+                    }
                     let json = chat_row_to_json(state, &row, true);
                     if write_json(writer, &Response::item(id, json)).await.is_err() {
                         let _ = write_json(writer, &Response::end(id)).await;
@@ -185,11 +192,18 @@ fn chat_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
 }
 
 /// Render a canonical chat message into the CLI's chat-line JSON, resolving the
-/// author's slug from the materialized profile/session caches.
+/// author's slug from the materialized profile/session caches and rewriting any
+/// `nostr:npub1…`/`nostr:nprofile1…` mentions in the body to `@name`, matching
+/// the hook-injected fabric snapshot (`fabric_context::messages::message_row`).
 fn chat_row_to_json(state: &Arc<DaemonState>, row: &Message, truncate: bool) -> serde_json::Value {
     let (from_slug, host, mentioned_session) = chat_row_refs(state, row);
+    let resolved_body = state.with_store(|s| crate::profile::rewrite_body_mentions(s, &row.body));
+    let resolved_row = Message {
+        body: resolved_body,
+        ..row.clone()
+    };
     chat_log_row_to_json(
-        row,
+        &resolved_row,
         &from_slug,
         &host,
         mentioned_session.as_deref(),
@@ -240,12 +254,24 @@ fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String, Op
             .filter(|slug| !slug.is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| pubkey_short(&row.author_pubkey));
-        let host = profile
-            .as_ref()
-            .map(|p| p.host.clone())
-            .filter(|h| !h.is_empty())
-            .or_else(|| session.as_ref().map(|_| local_host))
-            .unwrap_or_default();
+        // A whitelisted human operator has no session/host of their own — render
+        // them bare (empty host) rather than falling through to the `?`
+        // placeholder, mirroring the bare `<@name>` used for terminal mentions
+        // in `injection::render_terminal_mention`.
+        let is_whitelisted = state
+            .whitelisted_pubkeys()
+            .iter()
+            .any(|w| w.eq_ignore_ascii_case(&row.author_pubkey));
+        let host = if is_whitelisted {
+            String::new()
+        } else {
+            profile
+                .as_ref()
+                .map(|p| p.host.clone())
+                .filter(|h| !h.is_empty())
+                .or_else(|| session.as_ref().map(|_| local_host))
+                .unwrap_or_default()
+        };
         let mentioned_session = s
             .message_recipients(&row.message_id)
             .unwrap_or_default()

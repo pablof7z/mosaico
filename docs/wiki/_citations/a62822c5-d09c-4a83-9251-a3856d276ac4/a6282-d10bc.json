@@ -1,0 +1,6 @@
+{
+  "id": "a6282-d10bc",
+  "ts": "2026-07-09T14:41:28Z",
+  "session": "a62822c5-d09c-4a83-9251-a3856d276ac4",
+  "text": "User: fix the ollama setup locally and patch #2 -- if distillation fails agents should be told that generating distillations (dont use this word, use something less internal) so they can alert the user -- it should be injected only a few times per hour (while the issue is still happening) so that agents are not pestering the user"
+}

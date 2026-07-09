@@ -1,0 +1,10 @@
+[
+  [
+    "user",
+    "move explain/validate into debug command tenex-edge {explain,validate} becomes tenex-edge debug {explain,validate} commit and push"
+  ],
+  [
+    "assistant",
+    "Moved `explain` and `validate` under `tenex-edge debug`, also relocated `doctor` there, committed and pushed both changes to master; build, formatting, clippy, and tests pass with docs updated."
+  ]
+]

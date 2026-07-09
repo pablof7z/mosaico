@@ -177,7 +177,7 @@ pub(crate) fn is_backend_traffic(
         .any(|pk| is_backend_pubkey(store, backend_pubkey, pk))
 }
 
-fn is_backend_pubkey(store: &Store, backend_pubkey: &str, pubkey: &str) -> bool {
+pub(crate) fn is_backend_pubkey(store: &Store, backend_pubkey: &str, pubkey: &str) -> bool {
     (!backend_pubkey.is_empty() && pubkey == backend_pubkey) || is_backend(store, pubkey)
 }
 

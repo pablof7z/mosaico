@@ -21,12 +21,11 @@ fn seed_store() -> Store {
     store
         .replace_channel_members("task", &[SELF_PK.into(), OTHER_PK.into()], 1)
         .unwrap();
-    store
-        .upsert_profile(SELF_PK, "coder", "coder", "laptop", false, 1)
-        .unwrap();
-    store
-        .upsert_profile(OTHER_PK, "reviewer", "reviewer", "laptop", false, 1)
-        .unwrap();
+    for (pk, slug) in [(SELF_PK, "coder"), (OTHER_PK, "reviewer")] {
+        store
+            .upsert_profile_with_agent_slug(pk, slug, slug, slug, "laptop", false, 1)
+            .unwrap();
+    }
     store
 }
 

@@ -6,9 +6,22 @@ impl DaemonState {
     }
 
     pub(crate) async fn new_for_test_with_started_at(started_at: u64) -> Arc<DaemonState> {
+        Self::new_for_test_with(started_at, Vec::new()).await
+    }
+
+    pub(crate) async fn new_for_test_with_whitelisted(
+        whitelisted_pubkeys: Vec<String>,
+    ) -> Arc<DaemonState> {
+        Self::new_for_test_with(0, whitelisted_pubkeys).await
+    }
+
+    async fn new_for_test_with(
+        started_at: u64,
+        whitelisted_pubkeys: Vec<String>,
+    ) -> Arc<DaemonState> {
         let backend_key = Keys::generate().secret_key().to_secret_hex();
         let cfg = Config {
-            whitelisted_pubkeys: Vec::new(),
+            whitelisted_pubkeys,
             relays: Vec::new(),
             indexer_relay: String::new(),
             host: "test-host".into(),

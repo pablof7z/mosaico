@@ -1,14 +1,10 @@
-//! The per-session engine (M1 §5, §7).
-//!
-//! Runs as a daemon-hosted task. It is a thin driver over the local `sessions`
-//! row (the canonical local process record). It:
-//!   - publishes the agent's `kind:0` profile once,
-//!   - feeds every kind:30315 trigger into the ONE status reconciler
-//!     ([`crate::reconcile::status`]), which decides when to (re)publish; the
-//!     emitted effects are signed + parked on the `outbox` (the single executor),
-//!   - schedules background distillation (`set_session_distill`; the title feeds
-//!     kind:30315 only),
-//!   - watches the host PID and marks the session dead on pid death or `cancel`.
+//! The per-session engine (M1 §5, §7): a daemon-hosted task, a thin driver over
+//! the local `sessions` row (the canonical local process record). It publishes
+//! the agent's `kind:0` profile once, feeds every kind:30315 trigger into the
+//! ONE status reconciler ([`crate::reconcile::status`]) whose signed effects
+//! park on the `outbox` (the single executor), schedules background distillation
+//! (`set_session_distill`; the title feeds kind:30315 only), and watches the
+//! host PID, marking the session dead on pid death or `cancel`.
 
 use crate::distill;
 use crate::domain::{DomainEvent, Profile};
@@ -279,6 +275,9 @@ pub async fn run_session_in_daemon(
                         });
                     } else if let Some(err_msg) = error {
                         slog(&p.session_id, &format!("[distill] ERROR: {err_msg}"));
+                        if let Err(e) = st!(|s: &Store| s.record_distill_failure(&p.session_id)) {
+                            tracing::error!(session = %p.session_id, error = %e, "record_distill_failure failed");
+                        }
                     }
                 }
 

@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-03
+updated: 2026-07-09
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -18,6 +18,7 @@ sources:
   - session:75f62bb9-f564-4633-8741-997dfea1d0e7
   - session:e0eba763-d227-40ca-a9d2-aaad5b192130
   - session:fea5307b-d9a0-46fe-977c-408e5e0e0ff4
+  - session:a62822c5-d09c-4a83-9251-a3856d276ac4
 ---
 
 # Tenex-Edge Message Formatting
@@ -38,6 +39,10 @@ When a hooks-only turn has both a direct mention and background chatter, the men
 
 When a mention is brought into an agent's attention via any injection path (PTY-hosted or hook-only), an explicit instruction is included reminding the agent to respond via `tenex-edge channel send`. The terminal mention envelope produced by `render_terminal_mention` includes this reply instruction. The hook-only `[MENTIONS YOU]` mention wrapper produced by `render_messages` includes this reply instruction.
 
+Mention tokens in message bodies are normalized to `@<name>` display form by `rewrite_body_mentions`, the single source-of-truth resolver. It scans text for `nostr:npub…`/`nostr:nprofile…` tokens, decodes them, looks up the profile, and replaces each token with `@<name>` (falling back to `pubkey_short`). The `channel read` path runs this resolver before rendering.
+
+Whitelisted human operators (checked against config `whitelistedPubkeys` via `is_whitelisted`) who have no session or host are rendered with a bare `<@name>` (no host segment) instead of `<name@?>` in both `channel read` CLI output and the fabric_context snapshot path — consistent with the bare rendering already used in terminal-injected mention rendering.
+
 Chat mentions use `@<codename>@<host>` (e.g. @brave-otter-417@laptop), the session's kind:0 profile name. The `extract_mentions` tokenizer accepts any handle-shaped token matching `[A-Za-z0-9._-]+` optionally host-qualified as `codename@host`. Unresolvable mention tokens are silently treated as no-mention rather than blocking chat delivery. Mention resolution reverse-looks-up `relay_profiles` by codename handle to return the target session's pubkey.
 
 The channel-send confirmation line reads `mentioning @{codename}@{host}`, driven by the RPC's mentioned handle, falling back to plain `sent chat {id}` when no mention is present. README.md documentation references `@<codename>@<host>` targeting.
@@ -46,7 +51,7 @@ The channel-send confirmation line reads `mentioning @{codename}@{host}`, driven
 
 @-mentioning someone from a subchannel they are not in is a cross-channel mention using `@codename@host` addressing, with no membership side-effects from mentions; replying or joining requires an explicit `channel add` or `channel switch`.
 
-<!-- citations: [^bdb6c-1833e] [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] [^75f62-ebb61] [^e0eba-b9cc1] [^e0eba-5f8a4] [^e0eba-7764c] [^fea53-85a33] -->
+<!-- citations: [^bdb6c-1833e] [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] [^75f62-ebb61] [^e0eba-b9cc1] [^e0eba-5f8a4] [^e0eba-7764c] [^fea53-85a33] [^a6282-aa4e7] -->
 ## Ambient Chatter
 
 Ambient/background chatter is rendered inside a `<tenex-edge>` wrapper as a timeline with `<@name - Xm ago>` prefixes, identical for pty and hooks sessions, with no reply hint.
@@ -68,3 +73,11 @@ Echo suppression uses explicit inbox ledger states. When pty pastes delivered me
 ## Session Identity and Display
 
 The `who` command, when run inside an agent session, displays a self-identity header (codename handle, channel, host, pubkey, status, member, pending), so the roster command also answers "who am I here?". The self-header reads `You are **@{codename}@{host}** on **{channel}**.` with pubkey, status, member, and pending info, and shows the raw session id only as an internal correlation handle. Concurrent sessions of the same role render directly by their distinct codename handles, needing no duplicate-name disambiguation. Session-start and hook echo responses carry only the canonical `session_id` when they need an internal correlation handle. <!-- [^bd868-e816c] -->
+
+## Backend Management Traffic
+
+Management commands (`list agents`, `list sessions`, `add agent`, `kill`, `archive`) are ordinary kind:9 NIP-29 chat events p-tagging the daemon's backend key, with replies published as real broadcast chat events into the same shared group and cached in the same `messages`/`relay_events` tables as normal chat.
+
+The `channel read` path filters out backend-authored or backend-p-tagged rows (both initial batch and `--live` tail) using the `is_backend_pubkey` check, so mgmt-command round-trips like `list agents` are not visible to other agents reading the channel.
+
+The `is_backend_traffic` filter excludes chat events whose author or any p-tag recipient is the daemon's backend mgmt key or a pubkey flagged `is_backend`, protecting the hook-injected awareness snapshot from leaking mgmt exchanges. <!-- [^a6282-fb95f] -->

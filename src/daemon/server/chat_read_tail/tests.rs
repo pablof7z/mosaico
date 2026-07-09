@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::Message;
+use crate::state::{Message, Store};
 use crate::util::CHAT_RENDER_WORD_LIMIT;
 
 fn row(body: String) -> Message {
@@ -97,4 +97,74 @@ fn tail_lag_is_terminal_stream_error() {
     let err = resp.error.expect("lag response is an error");
     assert_eq!(err.code, "stream_lagged");
     assert!(err.message.contains("tail dropped 11 live event"));
+}
+
+// ── mention resolution + backend-traffic + whitelisted-host (regression) ──────
+
+const TARGET_PK: &str = "379e863e8357163b5bce5d2688dc4f1dcc2d505222fb8d74db600f30535dfdfe";
+const BACKEND_PK: &str = "9aa6883eee2f1ce43053a1eec2c1c8b1c712cbb3c77ec346d9f091982a50b461";
+const HUMAN_PK: &str = "b1c712cbb3c77ec346d9f091982a50b461379e863e8357163b5bce5d2688dc4f";
+
+#[tokio::test]
+async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
+    use nostr_sdk::prelude::{PublicKey, ToBech32};
+
+    let state = DaemonState::new_for_test().await;
+    state.with_store(|s| {
+        s.upsert_profile(TARGET_PK, "target@laptop", "target", "laptop", false, 1)
+            .unwrap();
+    });
+    let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
+    let msg = row(format!("please ask nostr:{npub} for review"));
+
+    let json = chat_row_to_json(&state, &msg, false);
+    assert_eq!(json["body"], "please ask @target@laptop for review");
+}
+
+#[test]
+fn is_backend_row_true_when_author_is_flagged_backend() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile(BACKEND_PK, "laptop (tenex-edge)", "hub", "laptop", true, 1)
+        .unwrap();
+    let mut msg = row("mgmt ok: 14 agent(s) on laptop".to_string());
+    msg.author_pubkey = BACKEND_PK.to_string();
+
+    assert!(is_backend_row(&store, "", &msg));
+}
+
+#[test]
+fn is_backend_row_true_when_recipient_is_flagged_backend() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile(BACKEND_PK, "laptop (tenex-edge)", "hub", "laptop", true, 1)
+        .unwrap();
+    let msg = row("list agents".to_string());
+    store
+        .add_message_recipient(&msg.message_id, BACKEND_PK, None, None)
+        .unwrap();
+
+    assert!(is_backend_row(&store, "", &msg));
+}
+
+#[test]
+fn is_backend_row_false_for_ordinary_chat() {
+    let store = Store::open_memory().unwrap();
+    let msg = row("hi Pablo".to_string());
+
+    assert!(!is_backend_row(&store, "", &msg));
+}
+
+#[tokio::test]
+async fn chat_row_refs_renders_whitelisted_human_without_host() {
+    let state = DaemonState::new_for_test_with_whitelisted(vec![HUMAN_PK.to_string()]).await;
+    let mut msg = row("hi".to_string());
+    msg.author_pubkey = HUMAN_PK.to_string();
+    msg.author_session = None;
+
+    let (_, host, _) = chat_row_refs(&state, &msg);
+    assert_eq!(
+        host, "",
+        "whitelisted human must render with no host, not `?`"
+    );
 }

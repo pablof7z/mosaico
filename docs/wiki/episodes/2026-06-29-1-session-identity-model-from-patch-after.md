@@ -4,7 +4,7 @@ date: 2026-06-29
 session: d39d3357-06d0-418a-bdbe-f288a9f9670f
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/d39d3357-06d0-418a-bdbe-f288a9f9670f.jsonl
 salience: architecture
-status: active
+status: superseded
 subjects:
   - session-routing-isolation
   - ordinal-identity-binding

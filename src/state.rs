@@ -145,29 +145,6 @@ pub struct MessageRecipient {
     pub delivered_at: Option<u64>,
 }
 
-/// A local agent process THIS daemon hosts. OS handles only — never agent
-/// identity (that lives in `relay_status`/`relay_profiles`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Session {
-    pub session_id: String,
-    pub agent_pubkey: String,
-    pub agent_slug: String,
-    pub channel_h: String,
-    pub harness: String,
-    pub child_pid: Option<i32>,
-    pub transcript_path: Option<String>,
-    pub alive: bool,
-    pub created_at: u64,
-    pub last_seen: u64,
-    pub working: bool,
-    pub turn_started_at: u64,
-    pub last_distill_at: u64,
-    pub seen_cursor: u64,
-    pub title: String,
-    pub activity: String,
-    pub resume_id: String,
-}
-
 /// Fields for registering / reasserting a local session. The daemon resolves the
 /// `(harness, external_id_kind, external_id)` alias to a canonical session;
 /// missing aliases mint a fresh canonical id.
@@ -282,7 +259,10 @@ pub use retention::{
     RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
 };
 pub(crate) mod session_claims;
+mod session_distill;
 mod session_native;
+mod session_ty;
+pub use session_ty::Session;
 mod sessions;
 mod status;
 #[cfg(test)]

@@ -1,0 +1,10 @@
+[
+  [
+    "user",
+    "move explain/validate into debug command tenex-edge {explain,validate} becomes tenex-edge debug {explain,validate} commit and push"
+  ],
+  [
+    "assistant",
+    "Both changes are pushed to `master`:\n\n1. **`f5caf065`** — `tenex-edge {explain,validate}` → `tenex-edge debug {explain,validate}`\n2. **`cdb3b9f8`** — `tenex-edge doctor` → `tenex-edge debug doctor` (kept, not removed — it surfaces internal Trellis reconciler state, not just relay connectivity, so it belongs alongside the other debug diagnostics per your own criterion)\n\nAll three now live under the existing hidden `debug` subcommand next to `hook-tail`/`outbox`. Build, `cargo fmt --check`, clippy, and all 206+3 relevant lib tests pass; docs/README/wiki updated to match."
+  ]
+]

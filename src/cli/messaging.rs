@@ -83,11 +83,13 @@ fn render_chat_read_row(item: &serde_json::Value, use_color: bool) -> String {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| pubkey_short(pubkey));
-    let host = item["host"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("?");
-    let sender = format!("<{slug}@{host}>");
+    let host = item["host"].as_str().filter(|s| !s.is_empty());
+    let sender = match host {
+        Some(host) => format!("<{slug}@{host}>"),
+        // No host (e.g. a whitelisted human operator, who runs no session):
+        // render bare rather than a misleading `<name@?>`.
+        None => format!("<@{slug}>"),
+    };
     let sender = color_by_pubkey(&sender, pubkey, use_color);
     let body = item["body"].as_str().unwrap_or_default().trim_end();
     let ts = item["created_at"].as_u64().unwrap_or(0);

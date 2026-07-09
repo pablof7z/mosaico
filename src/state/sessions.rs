@@ -9,7 +9,7 @@ use super::*;
 
 const COLS: &str = "session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, \
      transcript_path, alive, created_at, last_seen, working, turn_started_at, last_distill_at, \
-     seen_cursor, title, activity, resume_id";
+     seen_cursor, title, activity, resume_id, distill_fail_streak, distill_notice_at";
 
 fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -30,6 +30,8 @@ fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         title: row.get(14)?,
         activity: row.get(15)?,
         resume_id: row.get(16)?,
+        distill_fail_streak: row.get(17)?,
+        distill_notice_at: row.get(18)?,
     })
 }
 
@@ -220,25 +222,6 @@ impl Store {
         self.conn.execute(
             "UPDATE sessions SET working=?2, turn_started_at=?3 WHERE session_id=?1",
             params![canonical, working as i64, turn_started_at],
-        )?;
-        Ok(())
-    }
-
-    /// Update the locally-distilled pre-publish draft (title/activity) and stamp
-    /// the distill time (resolves first).
-    pub fn set_session_distill(
-        &self,
-        id: &str,
-        title: &str,
-        activity: &str,
-        last_distill_at: u64,
-    ) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
-        self.conn.execute(
-            "UPDATE sessions SET title=?2, activity=?3, last_distill_at=?4 WHERE session_id=?1",
-            params![canonical, title, activity, last_distill_at],
         )?;
         Ok(())
     }
