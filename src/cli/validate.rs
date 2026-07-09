@@ -1,4 +1,4 @@
-//! `tenex-edge validate` - user-facing validation with explanations.
+//! `tenex-edge debug validate` - user-facing validation with explanations.
 //!
 //! This is intentionally a thin client over the daemon's existing `probe`
 //! validation verb, so the visible command and the hidden diagnostic surface
@@ -127,9 +127,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_command_parses_as_top_level_command() {
+    fn validate_command_parses_as_debug_subcommand() {
         let cli = crate::cli::args::Cli::try_parse_from([
             "tenex-edge",
+            "debug",
             "validate",
             "status:s1",
             "--since",
@@ -139,7 +140,9 @@ mod tests {
         .expect("validate command parses");
 
         match cli.cmd {
-            crate::cli::args::Cmd::Validate(args) => {
+            crate::cli::args::Cmd::Debug {
+                action: crate::cli::debug::DebugAction::Validate(args),
+            } => {
                 assert_eq!(args.target.as_deref(), Some("status:s1"));
                 assert!(!args.targets);
                 assert_eq!(args.since, 42);
@@ -151,11 +154,14 @@ mod tests {
 
     #[test]
     fn validate_targets_alias_requests_local_catalog() {
-        let cli = crate::cli::args::Cli::try_parse_from(["tenex-edge", "validate", "targets"])
-            .expect("validate targets parses");
+        let cli =
+            crate::cli::args::Cli::try_parse_from(["tenex-edge", "debug", "validate", "targets"])
+                .expect("validate targets parses");
 
         match cli.cmd {
-            crate::cli::args::Cmd::Validate(args) => {
+            crate::cli::args::Cmd::Debug {
+                action: crate::cli::debug::DebugAction::Validate(args),
+            } => {
                 assert_eq!(args.target.as_deref(), Some("targets"));
                 assert!(args.wants_catalog());
             }
@@ -165,11 +171,14 @@ mod tests {
 
     #[test]
     fn validate_targets_command_parses_and_renders_catalog() {
-        let cli = crate::cli::args::Cli::try_parse_from(["tenex-edge", "validate", "--targets"])
-            .expect("validate --targets parses");
+        let cli =
+            crate::cli::args::Cli::try_parse_from(["tenex-edge", "debug", "validate", "--targets"])
+                .expect("validate --targets parses");
 
         match cli.cmd {
-            crate::cli::args::Cmd::Validate(args) => {
+            crate::cli::args::Cmd::Debug {
+                action: crate::cli::debug::DebugAction::Validate(args),
+            } => {
                 assert!(args.targets);
                 assert!(args.wants_catalog());
             }
@@ -184,7 +193,7 @@ mod tests {
         assert!(text.contains("alias:<harness>:<kind>:<value>"));
         assert!(text.contains("recipient:<event>:<pubkey>[:session]"));
         assert!(text.contains("delivery:<event>:<pubkey>"));
-        assert!(text.contains("tenex-edge validate commit:<id>"));
+        assert!(text.contains("tenex-edge debug validate commit:<id>"));
 
         let json = targets::catalog_json();
         assert_eq!(json["verb"], "validate_targets");

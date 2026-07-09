@@ -68,7 +68,7 @@ paths through Trellis while other paths still write directly is forbidden.
 
 Slice #210 should extend the same transaction path, not recreate a parallel
 audit system. Every projection write, resource command, and output frame should
-carry enough artifact metadata for `tenex-edge explain <handle>` to recover why
+carry enough artifact metadata for `tenex-edge debug explain <handle>` to recover why
 the effect happened:
 
 - Trellis transaction id and input-journal range or cursor.

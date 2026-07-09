@@ -1,9 +1,18 @@
+use crate::cli::explain::{explain, ExplainArgs};
+use crate::cli::validate::{validate, ValidateArgs};
 use anyhow::Result;
 use clap::Subcommand;
 use std::time::Duration;
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum DebugAction {
+    /// Explain a published artifact: the reconciler receipt + the exact LLM
+    /// inputs (system prompt, transcript slice, model, raw response) behind it.
+    Explain(ExplainArgs),
+    /// Validate a surface, handle, event/message/recipient target, awareness
+    /// target, channel/readiness/readiness_attempt target, commit target, fact,
+    /// or replay capsule with explanations.
+    Validate(ValidateArgs),
     /// Live TUI for hook injections and tenex-edge command invocations.
     HookTail {
         /// Filter panes/events to one or more projects (repeatable).
@@ -35,6 +44,8 @@ pub(in crate::cli) enum DebugAction {
 
 pub(in crate::cli) async fn debug(action: DebugAction) -> Result<()> {
     match action {
+        DebugAction::Explain(args) => explain(args),
+        DebugAction::Validate(args) => validate(args).await,
         DebugAction::HookTail {
             projects,
             session,

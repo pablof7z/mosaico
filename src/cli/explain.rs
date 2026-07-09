@@ -1,4 +1,4 @@
-//! `tenex-edge explain <handle>` — point at an artifact, see what produced it.
+//! `tenex-edge debug explain <handle>` — point at an artifact, see what produced it.
 //!
 //! The store is daemon-owned, so this thin verb forwards the handle to the
 //! `explain` RPC (like `who`) and renders the joined record it returns. For a

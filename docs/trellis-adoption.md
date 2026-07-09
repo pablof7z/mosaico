@@ -50,7 +50,7 @@ direct `set_status` seam were deleted, not left alongside).
 | Hook context | `hook_context/` | derived `FabricView` → materialized output frame | the hand-rolled `turn_start_audit` that drifted from the render, replaced by a receipt that *is* the render's dependency trace; cursor + `now` made explicit inputs (deterministic/replayable) |
 | Delivery | `delivery/` | `DeliveryScanFact` → inject/defer/retry/endpoint-cleanup commands | p-tag mentions that arrive while a session is working or debounced now get a graph-decided retry instead of staying `pending` forever |
 
-## Retrospective instrumentation (`tenex-edge explain`)
+## Retrospective instrumentation (`tenex-edge debug explain`)
 
 Every distill round-trip records an `llm_calls` row (the exact transcript slice,
 system prompt, model, raw response, keyed by a sha256 `window_hash`). Every
@@ -73,10 +73,10 @@ fact/snapshot before applying host effects and blocks the effect if the committe
 plan does not match the previewed plan.
 
 ```
-tenex-edge explain event:<30315-id>   # the receipt + the exact LLM inputs behind the activity
-tenex-edge explain event:<inbox-id>   # why a mention injected, deferred, or retried
-tenex-edge explain hook:<session>[@ts] # why the injected snapshot had this shape
-tenex-edge explain llm:<id> | session:<id>[@ts] | txn:<surface>:<id> | sub:<channel>
+tenex-edge debug explain event:<30315-id>   # the receipt + the exact LLM inputs behind the activity
+tenex-edge debug explain event:<inbox-id>   # why a mention injected, deferred, or retried
+tenex-edge debug explain hook:<session>[@ts] # why the injected snapshot had this shape
+tenex-edge debug explain llm:<id> | session:<id>[@ts] | txn:<surface>:<id> | sub:<channel>
 ```
 
 `--json` for the raw joined record; `--redact` to replace prompt/transcript
