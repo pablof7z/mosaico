@@ -19,11 +19,12 @@ pub(super) struct SessionRow {
 
 impl SessionRow {
     pub(super) fn display_title(&self) -> &str {
-        self.title
-            .trim()
-            .is_empty()
-            .then_some("(untitled)")
-            .unwrap_or(self.title.trim())
+        let trimmed = self.title.trim();
+        if trimmed.is_empty() {
+            "(untitled)"
+        } else {
+            trimmed
+        }
     }
 
     pub(super) fn title_with_activity(&self) -> String {
