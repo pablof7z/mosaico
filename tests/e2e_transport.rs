@@ -29,6 +29,10 @@ async fn publishes_and_decodes_all_event_types() {
     let reader = Transport::connect(std::slice::from_ref(&relay.url), reader_keys)
         .await
         .expect("reader connects");
+    // `connect` initiates the relay connection in the background (so the daemon's
+    // store-only RPCs aren't stalled by relay latency); await real connectivity
+    // before subscribing, exactly as the daemon does via `warmup()`.
+    reader.warmup().await;
     let scope = Scope {
         authors: vec![agent_pk.clone()],
         channel: Some(channel.clone()),
@@ -44,6 +48,7 @@ async fn publishes_and_decodes_all_event_types() {
     let agent = Transport::connect(std::slice::from_ref(&relay.url), agent_keys)
         .await
         .expect("agent connects");
+    agent.warmup().await;
     let aref = AgentRef::new(agent_pk.clone(), "coder");
 
     let events = vec![
