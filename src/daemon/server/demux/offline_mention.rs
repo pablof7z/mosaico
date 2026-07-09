@@ -79,7 +79,6 @@ pub(super) async fn handle(
             project,
             body,
             Some(&route.native_id),
-            None,
         )
         .await
         {
@@ -99,43 +98,26 @@ pub(super) async fn handle(
         }
     }
 
+    // No live session and no active claim to resume. Look up the minted identity
+    // bound to the p-tagged pubkey to learn which agent + native session it
+    // belongs to. A per-session pubkey is unique, so this resolves to exactly one
+    // session — resuming it (via its native id) reproduces the same pubkey.
     let identity = state.with_store(|s| {
         s.get_identity_for_channel(mentioned_pk, project)
             .ok()
             .flatten()
             .or_else(|| s.get_identity(mentioned_pk).ok().flatten())
     });
-    let Some((agent_slug, ordinal)) = identity
-        .map(|idn| (idn.agent_slug, idn.ordinal))
-        .or_else(|| claim.as_ref().map(|c| (c.agent_slug.clone(), c.ordinal)))
+    let Some((agent_slug, native_id)) = identity
+        .map(|idn| (idn.agent_slug, idn.native_id))
+        .or_else(|| {
+            claim
+                .as_ref()
+                .map(|c| (c.agent_slug.clone(), c.native_id.clone()))
+        })
     else {
         return;
     };
-
-    let preferred_ordinal = match claim.as_ref() {
-        Some(_) => None,
-        None => Some(ordinal),
-    };
-
-    if preferred_ordinal.is_some() {
-        let is_member =
-            state.with_store(|s| s.is_channel_member(project, mentioned_pk).unwrap_or(false));
-        if !is_member {
-            let (_, _, members) = state.provider.fetch_group_state(project).await;
-            if !members.contains(mentioned_pk) {
-                tracing::info!(agent = %agent_slug, ordinal, project, "provisioning ordinal pubkey into channel via mgmt key");
-                if !state
-                    .provider
-                    .grant_member_confirmed(project, mentioned_pk)
-                    .await
-                    .is_confirmed()
-                {
-                    tracing::warn!(agent = %agent_slug, ordinal, project, "mgmt-key add_member was not confirmed - skipping spawn");
-                    return;
-                }
-            }
-        }
-    }
 
     let work_root = state.with_store(|s| work_root_for(s, project));
     let has_path = state.with_store(|s| s.project_root(&work_root).ok().flatten().is_some());
@@ -144,25 +126,59 @@ pub(super) async fn handle(
         return;
     }
 
-    let group_arg = Some(project);
-    tracing::info!(
-        agent = %agent_slug,
-        ordinal,
-        project,
-        work_root = %work_root,
-        "spawning agent on mention"
-    );
-    match spawn_headless_mention(
-        state,
-        &agent_slug,
-        &work_root,
-        project,
-        body,
-        None,
-        preferred_ordinal,
-    )
-    .await
-    {
+    // If we know the native session id, resume THAT session so the resumed process
+    // re-derives the p-tagged pubkey. Grant that pubkey channel membership up front
+    // (via mgmt key) so its replayed events are accepted.
+    if !native_id.is_empty() {
+        let is_member =
+            state.with_store(|s| s.is_channel_member(project, mentioned_pk).unwrap_or(false));
+        if !is_member {
+            let (_, _, members) = state.provider.fetch_group_state(project).await;
+            if !members.contains(mentioned_pk) {
+                tracing::info!(agent = %agent_slug, project, "provisioning session pubkey into channel via mgmt key");
+                if !state
+                    .provider
+                    .grant_member_confirmed(project, mentioned_pk)
+                    .await
+                    .is_confirmed()
+                {
+                    tracing::warn!(agent = %agent_slug, project, "mgmt-key add_member was not confirmed - skipping resume");
+                    return;
+                }
+            }
+        }
+        tracing::info!(agent = %agent_slug, project, native_id = %native_id, "resuming session on mention");
+        match spawn_headless_mention(
+            state,
+            &agent_slug,
+            &work_root,
+            project,
+            body,
+            Some(&native_id),
+        )
+        .await
+        {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(agent = %agent_slug, project, error = %e, "headless resume failed - falling back to PTY resume");
+            }
+        }
+        match crate::session_host::resume_agent(state, &agent_slug, project, &native_id).await {
+            Ok(pty_id) => {
+                tracing::info!(agent = %agent_slug, pty_id = %pty_id, project, "session resumed on mention");
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(agent = %agent_slug, project, error = %e, "PTY resume failed - falling back to fresh spawn");
+            }
+        }
+    }
+
+    // Fresh spawn: a brand-new session (a new pubkey) that starts the agent and
+    // gets the mention injected so it can respond.
+    tracing::info!(agent = %agent_slug, project, work_root = %work_root, "spawning agent on mention");
+    match spawn_headless_mention(state, &agent_slug, &work_root, project, body, None).await {
         Ok(true) => return,
         Ok(false) => {}
         Err(e) => {
@@ -175,17 +191,14 @@ pub(super) async fn handle(
         &work_root,
         Vec::new(),
         None,
-        group_arg,
+        Some(project),
         None,
-        preferred_ordinal,
     )
     .await
     {
         Ok(pty_id) => {
             tracing::info!(agent = %agent_slug, pty_id = %pty_id, project, "agent spawned successfully");
-            if preferred_ordinal.is_none() {
-                inject_spawn_prompt(agent_slug.clone(), project.to_string(), pty_id, body);
-            }
+            inject_spawn_prompt(agent_slug.clone(), project.to_string(), pty_id, body);
         }
         Err(e) => tracing::warn!(agent = %agent_slug, project, error = %e, "agent spawn failed"),
     }

@@ -40,13 +40,8 @@ async fn open_agent_session(
     abs_path: &str,
     command: &[String],
     group: Option<&str>,
-    ordinal: Option<u32>,
     ephemeral: bool,
 ) -> Result<crate::pty::LaunchMetadata> {
-    let mut command = command.to_vec();
-    if let Some(ord) = ordinal {
-        command = prepend_env(command, "TENEX_EDGE_ORDINAL", &ord.to_string());
-    }
     let meta = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
         id: None,
         agent: slug.to_string(),
@@ -54,27 +49,13 @@ async fn open_agent_session(
         cwd: std::path::PathBuf::from(abs_path),
         channel: group.filter(|g| !g.is_empty()).map(str::to_string),
         ephemeral,
-        command,
+        command: command.to_vec(),
     })?;
     Ok(meta)
 }
 
-fn prepend_env(mut command: Vec<String>, key: &str, value: &str) -> Vec<String> {
-    let mut wrapped = vec![
-        "env".to_string(),
-        "-u".to_string(),
-        "CLAUDE_CODE_CHILD_SESSION".to_string(),
-        "-u".to_string(),
-        "CLAUDE_CODE_SESSION_ID".to_string(),
-        format!("{key}={value}"),
-    ];
-    wrapped.append(&mut command);
-    wrapped
-}
-
 /// Spawn a new PTY-hosted harness in `project`'s directory. Returns the
 /// supervisor session id.
-#[allow(clippy::too_many_arguments)]
 pub async fn spawn_agent(
     state: &Arc<DaemonState>,
     slug: &str,
@@ -83,7 +64,6 @@ pub async fn spawn_agent(
     base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
-    ordinal: Option<u32>,
 ) -> Result<String> {
     spawn_agent_inner(
         state,
@@ -93,13 +73,11 @@ pub async fn spawn_agent(
         base_override,
         group,
         client_cwd,
-        ordinal,
         false,
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn spawn_ephemeral_agent(
     state: &Arc<DaemonState>,
     slug: &str,
@@ -108,7 +86,6 @@ pub async fn spawn_ephemeral_agent(
     base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
-    ordinal: Option<u32>,
 ) -> Result<String> {
     spawn_agent_inner(
         state,
@@ -118,7 +95,6 @@ pub async fn spawn_ephemeral_agent(
         base_override,
         group,
         client_cwd,
-        ordinal,
         true,
     )
     .await
@@ -133,7 +109,6 @@ async fn spawn_agent_inner(
     base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
-    ordinal: Option<u32>,
     ephemeral: bool,
 ) -> Result<String> {
     let (base_command, agent_def) = match base_override {
@@ -147,21 +122,12 @@ async fn spawn_agent_inner(
     let _ = find_spawn_def(slug);
 
     let abs_path = project_abs_path(state, project, client_cwd)?;
-    let meta = open_agent_session(
-        slug,
-        project,
-        &abs_path,
-        &agent_command,
-        group,
-        ordinal,
-        ephemeral,
-    )
-    .await?;
+    let meta =
+        open_agent_session(slug, project, &abs_path, &agent_command, group, ephemeral).await?;
     let pty_id = meta.id.clone();
-    if let Err(e) = crate::daemon::server::session_start::bootstrap_pty_session_start(
-        state, &meta, group, None, ordinal,
-    )
-    .await
+    if let Err(e) =
+        crate::daemon::server::session_start::bootstrap_pty_session_start(state, &meta, group, None)
+            .await
     {
         let _ = crate::pty::kill(&pty_id);
         return Err(e.context("registering PTY-hosted session"));
@@ -200,16 +166,14 @@ pub async fn resume_agent_in_channel(
     let resume_command = build_resume_command(&base, shape, resume_id);
 
     let abs_path = project_abs_path(state, project, None)?;
-    // ordinal=None: a resumed claude/codex session re-registers under the SAME
-    // session_id, so select_session_signer recovers its ordinal from the existing
-    // (pubkey,h) route — no explicit hint needed.
+    // A resumed claude/codex session re-registers under the SAME session_id, so it
+    // deterministically re-derives its own pubkey — no explicit hint needed.
     let meta = open_agent_session(
         slug,
         project,
         &abs_path,
         &resume_command,
         Some(group),
-        None,
         false,
     )
     .await?;
@@ -219,7 +183,6 @@ pub async fn resume_agent_in_channel(
         &meta,
         Some(group),
         Some(resume_id),
-        None,
     )
     .await
     {
@@ -227,29 +190,4 @@ pub async fn resume_agent_in_channel(
         return Err(e.context("registering resumed PTY-hosted session"));
     }
     Ok(pty_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::prepend_env;
-
-    #[test]
-    fn env_options_precede_assignments_for_bsd_env() {
-        let got = prepend_env(vec!["sh".into(), "-lc".into(), "true".into()], "ORD", "1");
-
-        assert_eq!(
-            got,
-            vec![
-                "env",
-                "-u",
-                "CLAUDE_CODE_CHILD_SESSION",
-                "-u",
-                "CLAUDE_CODE_SESSION_ID",
-                "ORD=1",
-                "sh",
-                "-lc",
-                "true"
-            ]
-        );
-    }
 }

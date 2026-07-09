@@ -282,7 +282,7 @@ pub(crate) fn plan_from_request(req: &SessionStartRequestFact) -> SessionStartPl
             name: req.channel_provision_name.clone(),
             signer_pubkey: req.signer_pubkey.clone(),
         }),
-        admit_pubkey: (active && req.signer_ordinal > 0).then(|| req.signer_pubkey.clone()),
+        admit_pubkey: active.then(|| req.signer_pubkey.clone()),
         pty_session: req.pty_session.clone(),
         ring_doorbell: req.ring_doorbell,
         notify_outbox: active,

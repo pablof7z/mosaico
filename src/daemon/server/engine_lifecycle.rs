@@ -7,12 +7,12 @@ pub(in crate::daemon::server) async fn spawn_session(
     params: EngineParams,
 ) -> Result<()> {
     let session_id = params.session_id.clone();
-    let pubkey = params.instance.pubkey.clone();
+    let pubkey = params.identity.pubkey.clone();
     let project = params.project.clone();
     let watch_pid = params.watch_pid;
 
     tracing::info!(
-        agent = %params.instance.base_slug,
+        agent = %params.identity.slug,
         channel = %project,
         session = %session_id,
         "spawning session engine"
@@ -21,7 +21,7 @@ pub(in crate::daemon::server) async fn spawn_session(
     state.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {
-            keys: params.instance.signing_keys(&params.base_keys),
+            keys: params.keys.clone(),
         },
     );
     let st = state.clone();
@@ -160,23 +160,16 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             pid = ?snap.child_pid,
             "reviving session from previous daemon instance"
         );
-        let id = match identity::load_or_create(&config::edge_home(), &snap.agent_slug, now) {
-            Ok(i) => i,
-            Err(_) => continue,
-        };
-        let signer = match select_session_signer(
+        let minted = match mint_session_identity(
             state,
             &session_id,
-            &id.keys,
-            &id.pubkey_hex(),
             &snap.agent_slug,
             &snap.channel_h,
             &snap.resume_id,
-            None,
         ) {
-            Ok(signer) => signer,
+            Ok(minted) => minted,
             Err(e) => {
-                tracing::warn!(session = %session_id, error = %e, "signer selection failed during reconcile; skipping session");
+                tracing::warn!(session = %session_id, error = %e, "identity mint failed during reconcile; skipping session");
                 continue;
             }
         };
@@ -193,7 +186,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             .provider
             .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
                 channel: &snap.channel_h,
-                expect_member: &signer.pubkey,
+                expect_member: &minted.identity.pubkey,
                 parent_hint: parent_hint.as_deref(),
                 name: None,
                 repair_whitelisted_admins: true,
@@ -223,15 +216,15 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             continue;
         }
 
-        // Rebind the row to the selected ordinal pubkey so mention routing keys
-        // on this session's real identity, not the local derivation root.
+        // Rebind the row to the minted session pubkey so mention routing keys on
+        // this session's real identity.
         state.with_store(|s| {
-            if let Err(e) = s.set_session_agent_pubkey(&session_id, &signer.pubkey) {
+            if let Err(e) = s.set_session_agent_pubkey(&session_id, &minted.identity.pubkey) {
                 tracing::error!(
                     session = %session_id,
-                    pubkey = %signer.pubkey,
+                    pubkey = %minted.identity.pubkey,
                     error = %e,
-                    "reconcile: failed to rebind session to ordinal pubkey; mention routing may key on the base identity"
+                    "reconcile: failed to rebind session to minted pubkey; mention routing may miss"
                 );
             }
         });
@@ -241,8 +234,8 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         }
         let ep = engine_params_for(
             &state.cfg,
-            &id,
-            signer.instance(&snap.agent_slug, &id.pubkey_hex()),
+            minted.identity.clone(),
+            minted.keys.clone(),
             &session_id,
             &snap.channel_h,
             "",
@@ -272,20 +265,18 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
 #[allow(clippy::too_many_arguments)]
 pub(in crate::daemon::server) fn engine_params_for(
     cfg: &Config,
-    id: &AgentIdentity,
-    // The session's ONE authoritative agent-instance identity (issue #98): base
-    // slug/pubkey, selected ordinal + pubkey, and (via its methods) the display
-    // label + signing key. The engine derives all wire identity from it.
-    instance: crate::identity::AgentInstance,
+    // The session's read-side identity: pubkey, agent slug, codename.
+    identity: crate::identity::SessionIdentity,
+    // The session's own minted signing keypair.
+    keys: Keys,
     session_id: &str,
     project: &str,
     rel_cwd: &str,
     watch_pid: Option<i32>,
 ) -> EngineParams {
     EngineParams {
-        instance,
-        // Derivation root for this instance's ordinal signing keys.
-        base_keys: id.keys.clone(),
+        identity,
+        keys,
         project: project.to_string(),
         session_id: session_id.to_string(),
         host: cfg.host.clone(),

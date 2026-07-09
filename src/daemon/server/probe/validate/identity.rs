@@ -52,11 +52,9 @@ pub(super) fn identity_evidence(
         };
         let profile = store.get_profile(&pubkey)?;
         let identity = store.get_identity(&pubkey)?;
-        let base_pubkey = identity
-            .as_ref()
-            .map(|row| row.base_pubkey.as_str())
-            .unwrap_or(pubkey.as_str());
-        let derived = store.identities_for_base(base_pubkey)?;
+        // Per-session pubkeys are unique, so the identity itself is the only row
+        // for this pubkey — there is no derivation family to enumerate.
+        let derived: Vec<crate::state::Identity> = Vec::new();
         let session = match identity.as_ref().filter(|row| !row.session_id.is_empty()) {
             Some(row) => store.get_session(&row.session_id)?,
             None => None,
@@ -172,9 +170,8 @@ pub(super) fn push_identity_check(
 fn identity_json(row: &crate::state::Identity) -> Value {
     json!({
         "pubkey": row.pubkey,
-        "base_pubkey": row.base_pubkey,
         "agent_slug": row.agent_slug,
-        "ordinal": row.ordinal,
+        "codename": row.codename,
         "session_id": row.session_id,
         "channel_h": row.channel_h,
         "native_id": row.native_id,

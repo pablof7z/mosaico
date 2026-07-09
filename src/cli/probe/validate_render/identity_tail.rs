@@ -34,8 +34,8 @@ pub(super) fn render(out: &mut String, evidence: &Value) {
             let identity = evidence.get("identity").unwrap_or(&Value::Null);
             let _ = writeln!(
                 out,
-                "  - identity ordinal={} alive={} session={} channel={} native={}",
-                int_at(identity, "ordinal"),
+                "  - identity codename={} alive={} session={} channel={} native={}",
+                str_at(identity, "codename"),
                 bool_at(identity, "alive"),
                 str_at(identity, "session_id"),
                 str_at(identity, "channel_h"),

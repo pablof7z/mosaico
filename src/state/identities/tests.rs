@@ -16,16 +16,15 @@ fn reg(ext: &str, channel: &str, pubkey: &str) -> RegisterSession {
 }
 
 #[test]
-fn identity_for_session_keeps_global_ordinals_distinct_across_channels() {
+fn identity_for_session_binds_each_session_to_its_own_pubkey() {
     let s = Store::open_memory().unwrap();
-    let sid0 = s.register_session(&reg("s0", "h-a", "base")).unwrap();
-    let sid1 = s.register_session(&reg("s1", "h-b", "derived1")).unwrap();
+    let sid0 = s.register_session(&reg("s0", "h-a", "pk0")).unwrap();
+    let sid1 = s.register_session(&reg("s1", "h-b", "pk1")).unwrap();
 
     s.upsert_identity(&Identity {
-        pubkey: "base".into(),
-        base_pubkey: "base".into(),
+        pubkey: "pk0".into(),
         agent_slug: "smith".into(),
-        ordinal: 0,
+        codename: "willow-echo-042".into(),
         session_id: sid0.clone(),
         channel_h: "h-a".into(),
         native_id: "native-0".into(),
@@ -34,10 +33,9 @@ fn identity_for_session_keeps_global_ordinals_distinct_across_channels() {
     })
     .unwrap();
     s.upsert_identity(&Identity {
-        pubkey: "derived1".into(),
-        base_pubkey: "base".into(),
+        pubkey: "pk1".into(),
         agent_slug: "smith".into(),
-        ordinal: 1,
+        codename: "cedar-orbit-113".into(),
         session_id: sid1.clone(),
         channel_h: "h-b".into(),
         native_id: "native-1".into(),
@@ -49,12 +47,12 @@ fn identity_for_session_keeps_global_ordinals_distinct_across_channels() {
     let first = s.identity_for_session(&sid0).unwrap().unwrap();
     let second = s.identity_for_session(&sid1).unwrap().unwrap();
 
-    assert_eq!(first.pubkey, "base");
-    assert_eq!(first.ordinal, 0);
+    assert_eq!(first.pubkey, "pk0");
+    assert_eq!(first.codename, "willow-echo-042");
     assert_eq!(first.channel_h, "h-a");
     assert_eq!(first.native_id, "native-0");
-    assert_eq!(second.pubkey, "derived1");
-    assert_eq!(second.ordinal, 1);
+    assert_eq!(second.pubkey, "pk1");
+    assert_eq!(second.codename, "cedar-orbit-113");
     assert_eq!(second.channel_h, "h-b");
     assert_eq!(second.native_id, "native-1");
 }

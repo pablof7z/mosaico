@@ -50,7 +50,9 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             format!("loading local key for agent {}", p.agent),
         );
     }
-    let id = identity::load_or_create_with_command(
+    // Provision the agent keystore + spawn command (side effect). The durable
+    // agent key is no longer used for signing — every session mints its own key.
+    identity::load_or_create_with_command(
         &edge,
         &p.agent,
         now_secs(),
@@ -234,24 +236,12 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         project = existing.clone();
     }
 
-    // Select this session's ordinal identity, THEN write its row carrying that
-    // ordinal pubkey. Ordering matters twice over: it runs AFTER stale-session
-    // cancellation (so a superseded ordinal is freed and reusable), and BEFORE the
-    // row is persisted / the re-assert early-return below (so the row is born with
-    // the correct pubkey — and re-asserts refresh it to the SAME ordinal rather
-    // than collapsing onto the base). `route_chat` keys on this `agent_pubkey`, so
-    // a p-tagged mention reaches exactly this session, not every ordinal of the
-    // agent. Membership admission for ordinals > 0 happens after channel-ready.
-    let signer = select_session_signer(
-        state,
-        &session_id,
-        &id.keys,
-        &id.pubkey_hex(),
-        &p.agent,
-        &project,
-        &native_id,
-        p.preferred_ordinal,
-    )?;
+    // Mint this session's OWN keypair (deterministic from the management secret +
+    // session id), THEN write its row carrying that pubkey. A resumed session
+    // re-derives the identical pubkey. `route_chat` keys on this `agent_pubkey`, so
+    // a p-tagged mention reaches exactly this session. Membership admission for the
+    // minted pubkey happens after channel-ready.
+    let minted = mint_session_identity(state, &session_id, &p.agent, &project, &native_id)?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
     // channel rather than stomping it with whatever TENEX_EDGE_CHANNEL the new
@@ -264,7 +254,6 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         .clone()
         .or_else(|| state.with_store(|s| session_endpoint(s, &session_id)));
     let needs_chat_replay = state.subs.lock().unwrap().covers_channel(&project);
-    let base_pubkey = id.pubkey_hex();
     let request = advisory::request_fact(
         &session_id,
         &p.agent,
@@ -281,10 +270,8 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         p.watch_pid,
         effective_endpoint.clone(),
         pty_session.is_some(),
-        base_pubkey.clone(),
-        signer.pubkey.clone(),
-        signer.label.clone(),
-        signer.ordinal,
+        minted.identity.pubkey.clone(),
+        minted.identity.codename.clone(),
         already_running,
         needs_chat_replay,
         now,
@@ -364,8 +351,8 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     };
     let ep = engine_params_for(
         &state.cfg,
-        &id,
-        signer.instance(&p.agent, &id.pubkey_hex()),
+        minted.identity.clone(),
+        minted.keys.clone(),
         &spawn.session_id,
         &spawn.channel_h,
         &spawn.rel_cwd,

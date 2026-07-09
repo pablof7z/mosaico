@@ -130,7 +130,6 @@ pub(super) async fn rpc_pty_spawn(
         base_override,
         group,
         client_cwd,
-        None,
     )
     .await?;
     Ok(serde_json::json!({ "pty_id": pty_id, "agent": p.agent, "project": p.project }))

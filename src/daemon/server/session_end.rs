@@ -71,9 +71,8 @@ fn record_ephemeral_claim(state: &Arc<DaemonState>, rec: &crate::state::Session)
     let now = now_secs();
     let claim = crate::state::session_claims::SessionClaim {
         pubkey: identity.pubkey,
-        base_pubkey: identity.base_pubkey,
         agent_slug: identity.agent_slug,
-        ordinal: identity.ordinal,
+        codename: identity.codename,
         session_id: rec.session_id.clone(),
         channel_h: rec.channel_h.clone(),
         native_id,

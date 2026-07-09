@@ -48,7 +48,6 @@ pub(crate) async fn spawn_agent_exec(
     base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&Path>,
-    ordinal: Option<u32>,
 ) -> Result<ExecLaunch> {
     let (base_command, agent_def) = match base_override {
         Some(cmd) => (cmd, None),
@@ -73,7 +72,7 @@ pub(crate) async fn spawn_agent_exec(
     );
     let abs_path = project_abs_path(state, project, client_cwd)?;
     let harness = harness_for_shape(shape);
-    let mut launch = spawn_process(slug, project, group, ordinal, &abs_path, command, harness)?;
+    let mut launch = spawn_process(slug, project, group, &abs_path, command, harness)?;
     if let Err(e) = crate::daemon::server::session_start::bootstrap_exec_session_start(
         state,
         slug,
@@ -82,7 +81,6 @@ pub(crate) async fn spawn_agent_exec(
         group,
         launch.pid(),
         native_id,
-        ordinal,
     )
     .await
     {
@@ -96,7 +94,6 @@ fn spawn_process(
     slug: &str,
     project: &str,
     group: Option<&str>,
-    ordinal: Option<u32>,
     cwd: &str,
     command: Vec<String>,
     harness: Harness,
@@ -133,9 +130,6 @@ fn spawn_process(
         .stderr(Stdio::from(log_err));
     if let Some(channel) = group.filter(|g| !g.is_empty()) {
         child_cmd.env("TENEX_EDGE_CHANNEL", channel);
-    }
-    if let Some(ord) = ordinal {
-        child_cmd.env("TENEX_EDGE_ORDINAL", ord.to_string());
     }
     unsafe {
         child_cmd.pre_exec(|| {

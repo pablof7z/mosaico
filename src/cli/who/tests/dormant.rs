@@ -3,10 +3,9 @@ use crate::state::session_claims::SessionClaim;
 
 fn claim(owner_backend_pubkey: &str, owner_host: &str) -> SessionClaim {
     SessionClaim {
-        pubkey: "pk-codex1".to_string(),
-        base_pubkey: "pk-codex".to_string(),
+        pubkey: "pk-codex-summit-042".to_string(),
         agent_slug: "codex".to_string(),
-        ordinal: 1,
+        codename: "codex-summit-042".to_string(),
         session_id: "sid-codex".to_string(),
         channel_h: "proj".to_string(),
         native_id: "native-codex".to_string(),
@@ -28,13 +27,13 @@ fn who_snapshot_renders_active_claim_as_dormant_presence() {
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let row = snapshot.rows.first().expect("dormant row");
     assert!(row.dormant);
-    assert_eq!(row.slug, "codex1");
+    assert_eq!(row.slug, "codex-summit-042");
     assert_eq!(row.age_secs, Some(100));
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("codex1 (laptop) - last active 1m ago"));
+    assert!(once.contains("codex-summit-042 (laptop) - last active 1m ago"));
     let plain = render_who_plain(&snapshot);
-    assert!(plain.contains("| codex1 | laptop | — | last active 1m ago |"));
+    assert!(plain.contains("| codex-summit-042 | laptop | — | last active 1m ago |"));
 }
 
 #[test]
@@ -51,5 +50,5 @@ fn who_snapshot_marks_remote_owned_claims_remote() {
     assert_eq!(row.host, "tower");
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("codex1 (tower, remote) - last active 1m ago"));
+    assert!(once.contains("codex-summit-042 (tower, remote) - last active 1m ago"));
 }

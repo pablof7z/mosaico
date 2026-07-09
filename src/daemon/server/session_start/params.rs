@@ -30,7 +30,4 @@ pub(super) struct SessionStartParams {
     /// NIP-29 channel (`h`) this hosted process was spawned into.
     #[serde(default)]
     pub(super) channel: Option<String>,
-    /// Exact ordinal to allocate for this session.
-    #[serde(default)]
-    pub(super) preferred_ordinal: Option<u32>,
 }

@@ -225,7 +225,6 @@ async fn spawn_target(
         None,
         Some(&op.child_h),
         None,
-        None,
     )
     .await
     {

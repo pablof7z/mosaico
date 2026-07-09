@@ -10,7 +10,7 @@ use super::{socket_path, store_path};
 use crate::config::{self, Config};
 use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::provider::Nip29Provider;
-use crate::identity::{self, AgentIdentity};
+use crate::identity;
 use crate::runtime::{self, EngineParams};
 use crate::session::Harness;
 use crate::state::{InboxRow, Store};
@@ -35,7 +35,6 @@ mod membership_cleanup;
 mod orchestration_handler;
 mod pty_rpc;
 mod rpc;
-mod session_signer;
 
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
 use demux::{spawn_demux, warm_profiles};
@@ -100,10 +99,9 @@ pub struct DaemonState {
     )>,
     /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
     seen_profiles: Mutex<std::collections::HashSet<String>>,
-    /// Pubkeys with a kind:0 fetch currently in flight, so the many duplicate relay
-    /// deliveries of the same 3900x/chat/status event collapse to ONE background
-    /// warm per pubkey instead of a fetch storm. Entries are removed when the fetch
-    /// completes, so a failed (offline) fetch is retried on the next sighting.
+    /// Pubkeys with a kind:0 fetch in flight, so duplicate relay deliveries of the
+    /// same event collapse to ONE warm. Entries clear when the fetch completes, so
+    /// a failed (offline) fetch is retried on the next sighting.
     warming: Mutex<std::collections::HashSet<String>>,
     /// Last-seen (title, active) keyed by `(author_pubkey, session_id, channel)`
     /// for tail dedup. Tracking `active` too means an active→idle flip emits a
@@ -111,12 +109,9 @@ pub struct DaemonState {
     last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
     /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
     outbox_notify: Notify,
-    /// Per-session derived ordinal keypairs for live signers.
+    /// Per-session minted keypairs for live signers, keyed by canonical session
+    /// id. Populated at mint time; bounds `live_session_pubkeys`.
     session_keys: Mutex<HashMap<String, Keys>>,
-    /// Reserved ordinal signer slots keyed by `(derivation root pubkey, group)`.
-    /// Guards collision detection so simultaneous starts in one channel cannot
-    /// pick the same ordinal signer.
-    session_signers: Mutex<session_signer::SignerReservations>,
 }
 
 impl DaemonState {
@@ -126,8 +121,7 @@ impl DaemonState {
         self.provider.management_pubkey()
     }
 
-    /// Management signer for NIP-29 group operations. Goes through the provider
-    /// so missing `tenexPrivateKey` is created in the same provisioning path.
+    /// Management signer for NIP-29 group ops; provisions `tenexPrivateKey`.
     fn management_keys(&self) -> Result<Keys> {
         self.provider
             .management_keys()
@@ -137,9 +131,8 @@ impl DaemonState {
         let g = self.store.lock().expect("store mutex poisoned");
         f(&g)
     }
-    /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`).
-    /// Used to classify a mention's sender as a human vs another agent, which
-    /// drives envelope presentation.
+    /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`);
+    /// classify a mention's sender as human vs agent for envelope presentation.
     pub(crate) fn whitelisted_pubkeys(&self) -> &[String] {
         &self.cfg.whitelisted_pubkeys
     }
@@ -171,23 +164,34 @@ impl DaemonState {
             .get(pubkey)
             .map(|h| h.keys.clone())
     }
-    /// The authoritative agent-instance identity for a hosted session (issue #98).
-    /// Prefers the bound `identities`-row projection; falls back to the base
-    /// instance from the session row when no derived identity is bound yet. Every
-    /// publisher/renderer/router consumes THIS instead of re-deriving label/pubkey
-    /// policy from `agent_slug`/`agent_pubkey` + `keys_for_session(..)` fallbacks.
+    /// The read-side session identity for a hosted session (pubkey, slug,
+    /// codename). Prefers the bound `identities`-row projection; falls back to a
+    /// codename derived from the session id when none is bound yet.
     pub(in crate::daemon) fn session_instance(
         &self,
         rec: &crate::state::Session,
-    ) -> crate::identity::AgentInstance {
+    ) -> crate::identity::SessionIdentity {
         self.with_store(|s| {
-            s.instance_identity_for_session(&rec.session_id)
+            s.session_identity_for_session(&rec.session_id)
                 .ok()
                 .flatten()
         })
         .unwrap_or_else(|| {
-            crate::identity::AgentInstance::base(rec.agent_slug.clone(), rec.agent_pubkey.clone())
+            crate::identity::SessionIdentity::fallback(
+                &rec.session_id,
+                rec.agent_slug.clone(),
+                rec.agent_pubkey.clone(),
+            )
         })
+    }
+
+    /// Re-derive the keys a session signs with, from the management secret + id.
+    pub(in crate::daemon) fn session_signing_keys(&self, session_id: &str) -> Result<Keys> {
+        let mgmt = self.management_keys()?;
+        Ok(crate::identity::derive_session_keys_v2(
+            mgmt.secret_key(),
+            session_id,
+        ))
     }
     /// Return live per-session derived pubkeys. Callers in `resubscribe` and
     /// `handle_incoming` extend their sets with this so transient duplicates are
@@ -200,13 +204,9 @@ impl DaemonState {
             .map(|k| k.public_key().to_hex())
             .collect()
     }
-    /// Release a session's ordinal reservation + engine keys. Scans by session
-    /// id (the ordinal slot is keyed by derivation root pubkey + room + ordinal,
-    /// all of which the reservation map already holds).
+    /// Drop a session's minted engine keys (session end / failure / GC).
     fn release_session_signer(&self, session_id: &str) -> Option<Keys> {
-        let mut reservations = self.session_signers.lock().unwrap();
-        let mut session_keys = self.session_keys.lock().unwrap();
-        session_signer::release(&mut reservations, &mut session_keys, session_id)
+        self.session_keys.lock().unwrap().remove(session_id)
     }
 }
 
@@ -260,7 +260,7 @@ use profile_rpc::{resolve_backend_pubkey, resolve_project_member_pubkey_hex, res
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::rpc_session_end;
-use session_signing::select_session_signer;
+use session_signing::mint_session_identity;
 use session_start::rpc_session_start;
 use status_publish::spawn_outbox_drainer;
 use statusline::rpc_statusline;

@@ -51,9 +51,8 @@ mod tests {
         store
             .upsert_identity(&Identity {
                 pubkey: "pk".to_string(),
-                base_pubkey: "base".to_string(),
                 agent_slug: "codex".to_string(),
-                ordinal: 1,
+                codename: "willow-echo-042".to_string(),
                 session_id: session_id.clone(),
                 channel_h: "chan".to_string(),
                 native_id: String::new(),

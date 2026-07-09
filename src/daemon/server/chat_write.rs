@@ -122,11 +122,9 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // scope.
     let deliver_scope = publish_scope.clone();
 
-    // Issue #98: sign + label from the session's authoritative agent-instance
-    // identity (selected pubkey + display label), never base-key fallback.
+    // Sign + label from the session's own minted identity (its pubkey + codename).
     let instance = state.session_instance(&rec);
-    let base = identity::load_or_create(&config::edge_home(), &instance.base_slug, now_secs())?;
-    let chat_signing_keys = instance.signing_keys(&base.keys);
+    let chat_signing_keys = state.session_signing_keys(&rec.session_id)?;
     let from_pubkey = instance.pubkey.clone();
 
     let chat = ChatMessage {

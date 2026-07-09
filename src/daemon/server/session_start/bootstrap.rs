@@ -5,7 +5,6 @@ pub(crate) async fn bootstrap_pty_session_start(
     meta: &crate::pty::LaunchMetadata,
     channel: Option<&str>,
     resume_id: Option<&str>,
-    preferred_ordinal: Option<u32>,
 ) -> Result<String> {
     let harness = infer_harness(&meta.command);
     let watch_pid = i32::try_from(meta.supervisor_pid).ok();
@@ -20,7 +19,6 @@ pub(crate) async fn bootstrap_pty_session_start(
             "pty_session": &meta.id,
             "pty_socket": &meta.socket,
             "resume_id": resume_id,
-            "preferred_ordinal": preferred_ordinal,
         }),
         None,
     )
@@ -31,7 +29,6 @@ pub(crate) async fn bootstrap_pty_session_start(
         .ok_or_else(|| anyhow::anyhow!("session_start bootstrap returned no session_id"))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn bootstrap_exec_session_start(
     state: &Arc<DaemonState>,
     agent: &str,
@@ -40,7 +37,6 @@ pub(crate) async fn bootstrap_exec_session_start(
     channel: Option<&str>,
     watch_pid: i32,
     native_id: Option<&str>,
-    preferred_ordinal: Option<u32>,
 ) -> Result<String> {
     let response = rpc_session_start(
         state,
@@ -51,7 +47,6 @@ pub(crate) async fn bootstrap_exec_session_start(
             "channel": channel,
             "watch_pid": watch_pid,
             "session_id": native_id,
-            "preferred_ordinal": preferred_ordinal,
         }),
         None,
     )

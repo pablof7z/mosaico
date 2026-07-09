@@ -80,9 +80,8 @@ fn seed_identity(state: &std::sync::Arc<DaemonState>, pubkey: &str, alive: bool,
             }
             s.upsert_identity(&Identity {
                 pubkey: pubkey.into(),
-                base_pubkey: pubkey.into(),
                 agent_slug: "coder".into(),
-                ordinal: 0,
+                codename: "willow-echo-042".into(),
                 session_id: "s1".into(),
                 channel_h: "room".into(),
                 native_id: "native-s1".into(),

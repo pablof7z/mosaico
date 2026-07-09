@@ -6,15 +6,19 @@ const AMBIENT_CHAT_LIMIT: u32 = 50;
 pub(super) fn context_instance(
     store: &std::sync::Mutex<Store>,
     rec: &Session,
-) -> crate::identity::AgentInstance {
+) -> crate::identity::SessionIdentity {
     store
         .lock()
         .expect("store mutex poisoned")
-        .instance_identity_for_session(&rec.session_id)
+        .session_identity_for_session(&rec.session_id)
         .ok()
         .flatten()
         .unwrap_or_else(|| {
-            crate::identity::AgentInstance::base(rec.agent_slug.clone(), rec.agent_pubkey.clone())
+            crate::identity::SessionIdentity::fallback(
+                &rec.session_id,
+                rec.agent_slug.clone(),
+                rec.agent_pubkey.clone(),
+            )
         })
 }
 

@@ -203,14 +203,14 @@ pub struct SessionAlias {
     pub created_at: u64,
 }
 
-/// A derived signing key the daemon publishes as. Binds an ordinal pubkey to its
-/// owning local capability/session and the harness-native id used to resume it.
+/// A per-session minted signing key the daemon publishes as. Binds the session's
+/// own pubkey to its session, codename, and harness-native resume id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub pubkey: String,
-    pub base_pubkey: String,
     pub agent_slug: String,
-    pub ordinal: u32,
+    /// Memorable per-session codename (`word-word-NNN`); the kind:0 name.
+    pub codename: String,
     pub session_id: String,
     pub channel_h: String,
     pub native_id: String,

@@ -59,11 +59,11 @@ impl StoreReader<'_> {
         self.store.list_agent_roster()
     }
 
-    pub(crate) fn instance_identity_for_session(
+    pub(crate) fn session_identity_for_session(
         self,
         session_id: &str,
-    ) -> Result<Option<crate::identity::AgentInstance>> {
-        self.store.instance_identity_for_session(session_id)
+    ) -> Result<Option<crate::identity::SessionIdentity>> {
+        self.store.session_identity_for_session(session_id)
     }
 
     pub(crate) fn list_alive_sessions(self) -> Result<Vec<Session>> {

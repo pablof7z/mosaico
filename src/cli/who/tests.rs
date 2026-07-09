@@ -97,9 +97,8 @@ fn own_identity(store: &Store, pubkey: &str, slug: &str) {
     store
         .upsert_identity(&Identity {
             pubkey: pubkey.to_string(),
-            base_pubkey: pubkey.to_string(),
             agent_slug: slug.to_string(),
-            ordinal: 0,
+            codename: "willow-echo-042".to_string(),
             session_id: String::new(),
             channel_h: "proj".to_string(),
             native_id: String::new(),
@@ -114,7 +113,9 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     let store = Store::open_memory().unwrap();
     // Local coder is a hosted session; pk-coder is one of our signing keys.
     own_identity(&store, "pk-coder", "coder");
-    register_local(&store, "coder", "pk-coder", "sid-coder", 1_000);
+    let coder_sid = register_local(&store, "coder", "pk-coder", "sid-coder", 1_000);
+    // With no bound identity row, the local row displays the session codename.
+    let coder_code = crate::util::friendly_short_code(&coder_sid);
     // A relay echo of our own status (pk-coder) must be deduped out of peers.
     record_peer(&store, "pk-coder", "coder", "laptop", "", false, 1_000);
     // A genuine remote peer on a different host.
@@ -134,7 +135,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     let coder = snapshot
         .rows
         .iter()
-        .find(|r| r.source == WhoSource::Local && r.slug == "coder1")
+        .find(|r| r.source == WhoSource::Local && r.slug == coder_code)
         .expect("local coder row");
     let reviewer = snapshot
         .rows
@@ -152,7 +153,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
 
     let once = strip_ansi(&render_who_once(&snapshot));
     assert!(once.starts_with("proj\n\n"));
-    assert!(once.contains("coder1 (laptop) - idle"));
+    assert!(once.contains(&format!("{coder_code} (laptop) - idle")));
     assert!(!once.contains("[session"));
     assert!(once.contains("reviewer (tower, remote) - reviewing the patch"));
 }

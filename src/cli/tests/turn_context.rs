@@ -107,9 +107,10 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         text.contains("<channel name=\"#main\""),
         "awareness should name the channel; got: {text:?}"
     );
+    let expected_code = crate::util::friendly_short_code("sess-intro");
     assert!(
-        text.contains("You are @coder1 on laptop (session "),
-        "awareness should identify this agent; got: {text:?}"
+        text.contains(&format!("You are @{expected_code} on laptop (session ")),
+        "awareness should identify this agent by codename; got: {text:?}"
     );
     assert!(
         !text.contains("[session"),
@@ -141,9 +142,8 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     store
         .upsert_identity(&Identity {
             pubkey: "pk-coder1".to_string(),
-            base_pubkey: "pk-coder".to_string(),
             agent_slug: "coder".to_string(),
-            ordinal: 1,
+            codename: "coder-vale-071".to_string(),
             session_id: sid.clone(),
             channel_h: "proj".to_string(),
             native_id: "sess-ordinal-native".to_string(),
@@ -155,8 +155,8 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     pub_status(
         &store,
         "pk-coder1",
-        "coder1",
-        "Ordinal instance",
+        "coder-vale-071",
+        "Session instance",
         "checking hook context",
         true,
         now,
@@ -168,12 +168,12 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("You are @coder1 on"),
-        "snapshot must render the bound ordinal instance; got: {text:?}"
+        text.contains("You are @coder-vale-071 on"),
+        "snapshot must render the bound session codename; got: {text:?}"
     );
     assert!(
         !text.contains("You are @coder on"),
-        "raw session slug must not override the bound instance; got: {text:?}"
+        "raw session slug must not override the bound codename; got: {text:?}"
     );
 }
 

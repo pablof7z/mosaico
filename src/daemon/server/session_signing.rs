@@ -1,84 +1,44 @@
 use super::*;
 
-/// Select the durable ordinal identity for a session (issue #47).
+/// A freshly minted per-session identity: the session's own signing keys plus
+/// its read-side projection (pubkey, slug, codename).
+pub(in crate::daemon::server) struct MintedSession {
+    pub keys: Keys,
+    pub identity: crate::identity::SessionIdentity,
+}
+
+/// Mint (or deterministically re-derive) this session's OWN keypair.
 ///
-/// `base_keys`/`base_pubkey` are a local derivation root for ordinal identities.
-/// The allocator picks ordinal 1 for the first live session in a channel and the
-/// next free ordinal for same-channel concurrency. The same ordinal key may be
-/// reused by another live session in a different channel.
+/// `nsec = derive_session_keys_v2(management_secret, session_id)`. The management
+/// key is the per-machine root; a resumed session (same `session_id`) re-derives
+/// the identical pubkey. Per-session keys are unique by construction, so there is
+/// no occupancy/ordinal/collision logic — every session simply gets its own key.
 ///
-/// Persists the derived signing key into the `identities` cache, binding the
-/// ordinal pubkey to this live session + its harness-native id (the resume key)
-/// so a later mention can resume the right session.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::daemon::server) fn select_session_signer(
+/// Records the minted pubkey into the append-only `identities` cache, binding it
+/// to this live session + its harness-native id (the resume key) and the
+/// memorable codename it publishes under, so a later `#p`-tagged mention resolves
+/// back to the right session.
+pub(in crate::daemon::server) fn mint_session_identity(
     state: &Arc<DaemonState>,
     session_id: &str,
-    base_keys: &Keys,
-    base_pubkey: &str,
     agent_slug: &str,
     h: &str,
     native_id: &str,
-    hint_ordinal: Option<u32>,
-) -> Result<session_signer::SelectedSigner> {
-    // Honor (in priority order): an explicit spawn hint (mention-driven exact
-    // ordinal), then a session's already-bound ordinal (reassert / restart), so
-    // its durable identity survives.
-    let existing_identity = state.with_store(|s| s.identity_for_session(session_id).ok().flatten());
-    let preferred = hint_ordinal.filter(|n| *n > 0).or_else(|| {
-        existing_identity
-            .as_ref()
-            .map(|i| i.ordinal)
-            .filter(|n| *n > 0)
-    });
-    let preferred_pubkey = preferred.map(|ordinal| {
-        crate::identity::derive_agent_ordinal_keys(base_keys, ordinal)
-            .public_key()
-            .to_hex()
-    });
-    let occupied_pubkeys: std::collections::HashSet<String> = state.with_store(|s| {
-        let mut occupied: std::collections::HashSet<String> = s
-            .list_channel_members(h)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.pubkey)
-            .collect();
-        for claim in s
-            .list_active_session_claims_for_channel(h, now_secs())
-            .unwrap_or_default()
-        {
-            occupied.insert(claim.pubkey);
-        }
-        occupied
-    });
-
-    let signer = {
-        let mut reservations = state.session_signers.lock().unwrap();
-        let mut session_keys = state.session_keys.lock().unwrap();
-        session_signer::select_and_reserve(
-            &mut reservations,
-            &mut session_keys,
-            session_signer::SignerRequest {
-                session_id,
-                base_pubkey,
-                agent_slug,
-                h,
-                base_keys,
-                preferred_ordinal: preferred,
-                occupied_pubkeys: Some(&occupied_pubkeys),
-                owned_pubkey: existing_identity
-                    .as_ref()
-                    .map(|i| i.pubkey.as_str())
-                    .or(preferred_pubkey.as_deref()),
-            },
-        )?
-    };
+) -> Result<MintedSession> {
+    let mgmt = state.management_keys()?;
+    let keys = crate::identity::derive_session_keys_v2(mgmt.secret_key(), session_id);
+    let pubkey = keys.public_key().to_hex();
+    let codename = crate::util::friendly_short_code(session_id);
+    state
+        .session_keys
+        .lock()
+        .unwrap()
+        .insert(session_id.to_string(), keys.clone());
 
     let identity = crate::state::Identity {
-        pubkey: signer.pubkey.clone(),
-        base_pubkey: base_pubkey.to_string(),
+        pubkey: pubkey.clone(),
         agent_slug: agent_slug.to_string(),
-        ordinal: signer.ordinal,
+        codename: codename.clone(),
         session_id: session_id.to_string(),
         channel_h: h.to_string(),
         native_id: native_id.to_string(),
@@ -89,5 +49,8 @@ pub(in crate::daemon::server) fn select_session_signer(
         state.release_session_signer(session_id);
         return Err(e);
     }
-    Ok(signer)
+    Ok(MintedSession {
+        keys,
+        identity: crate::identity::SessionIdentity::new(pubkey, agent_slug.to_string(), codename),
+    })
 }

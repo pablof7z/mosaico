@@ -177,9 +177,8 @@ CREATE INDEX IF NOT EXISTS idx_session_aliases_external
 
 CREATE TABLE IF NOT EXISTS identities (
     pubkey       TEXT NOT NULL,
-    base_pubkey  TEXT NOT NULL,
     agent_slug   TEXT NOT NULL DEFAULT '',
-    ordinal      INTEGER NOT NULL DEFAULT 0,
+    codename     TEXT NOT NULL DEFAULT '',
     session_id   TEXT NOT NULL DEFAULT '',
     channel_h    TEXT NOT NULL DEFAULT '',
     native_id    TEXT NOT NULL DEFAULT '',
@@ -187,12 +186,12 @@ CREATE TABLE IF NOT EXISTS identities (
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (pubkey, session_id)
 );
-CREATE INDEX IF NOT EXISTS idx_identities_base
-    ON identities(base_pubkey, channel_h);
+CREATE INDEX IF NOT EXISTS idx_identities_channel
+    ON identities(channel_h);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session
     ON identities(session_id) WHERE session_id <> '';
 
-CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, base_pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', ordinal INTEGER NOT NULL DEFAULT 0, session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
+CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', codename TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
 CREATE INDEX IF NOT EXISTS idx_session_claims_expires ON session_claims(expires_at);
 CREATE INDEX IF NOT EXISTS idx_session_claims_session ON session_claims(session_id);
 

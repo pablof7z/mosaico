@@ -17,9 +17,7 @@ mod keys;
 mod local_agent;
 pub(crate) use commands::adapt_argv_for_slug;
 pub use commands::{LaunchCommand, DEFAULT_COMMAND_NAME};
-pub use keys::{
-    agent_ordinal_label, derive_agent_ordinal_keys, derive_session_keys, AgentInstance,
-};
+pub use keys::{derive_session_keys_v2, SessionIdentity};
 pub(crate) use local_agent::add_local_agent_with_commands;
 pub use local_agent::{
     add_local_agent, list_invitable_agents, list_local_agent_details, list_local_agents,

@@ -20,13 +20,7 @@ pub(super) fn push_claim_rows(
         if scope::is_archived_channel(store, &scope) {
             continue;
         }
-        let slug = crate::identity::AgentInstance::from_parts(
-            claim.agent_slug.clone(),
-            claim.base_pubkey.clone(),
-            claim.ordinal,
-            claim.pubkey.clone(),
-        )
-        .display_slug();
+        let slug = claim.codename.clone();
         if current_project
             .map(|p| scope::scope_contains_channel(store, p, &scope))
             .unwrap_or(true)

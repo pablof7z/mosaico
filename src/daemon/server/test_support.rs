@@ -67,7 +67,6 @@ impl DaemonState {
             last_status: Mutex::new(HashMap::new()),
             outbox_notify: Notify::new(),
             session_keys: Mutex::new(HashMap::new()),
-            session_signers: Mutex::new(HashMap::new()),
         })
     }
 }

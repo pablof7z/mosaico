@@ -38,15 +38,12 @@ type DistillOutput = (
 );
 
 pub struct EngineParams {
-    /// The session's ONE authoritative agent-instance identity (issue #98): base
-    /// slug, selected pubkey, ordinal, and display label all in one value. Every
-    /// publish this engine makes (kind:0, kind:9, kind:30315) derives its wire
-    /// identity and signing key from this — never from parallel slug/pubkey/key
-    /// fields with base-vs-ordinal fallback rules at the callsite.
-    pub instance: crate::identity::AgentInstance,
-    /// Local file-backed keypair used as the derivation root for this instance's
-    /// ordinal signing keys via [`AgentInstance::signing_keys`].
-    pub base_keys: Keys,
+    /// The session's read-side identity: its per-session pubkey, agent slug, and
+    /// codename. Every publish this engine makes (kind:0, kind:9, kind:30315)
+    /// derives its wire identity from this.
+    pub identity: crate::identity::SessionIdentity,
+    /// The session's OWN minted keypair — the one and only key it signs with.
+    pub keys: Keys,
     pub project: String,
     pub session_id: String,
     pub host: String,
@@ -70,11 +67,9 @@ pub struct EngineParams {
 }
 
 impl EngineParams {
-    /// Keys used to SIGN this session's live events. Runtime sessions sign with
-    /// their selected ordinal key; legacy fallback handling lives in
-    /// [`AgentInstance::signing_keys`], not here.
+    /// Keys used to SIGN this session's live events: its own minted key.
     fn signing_keys(&self) -> Keys {
-        self.instance.signing_keys(&self.base_keys)
+        self.keys.clone()
     }
 }
 
@@ -134,7 +129,7 @@ pub async fn run_session_in_daemon(
 ) -> Result<()> {
     let owners = p.owners.clone();
     let signing_keys = p.signing_keys();
-    let aref = p.instance.agent_ref();
+    let aref = p.identity.agent_ref();
 
     macro_rules! st {
         ($f:expr) => {{

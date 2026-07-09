@@ -24,9 +24,8 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, external_id:
 fn claim(pubkey: &str, channel: &str, owner_backend: &str, expires_at: u64) -> SessionClaim {
     SessionClaim {
         pubkey: pubkey.to_string(),
-        base_pubkey: "base".to_string(),
         agent_slug: "codex".to_string(),
-        ordinal: 1,
+        codename: "willow-echo-042".to_string(),
         session_id: "sid".to_string(),
         channel_h: channel.to_string(),
         native_id: "native-1".to_string(),
@@ -38,12 +37,11 @@ fn claim(pubkey: &str, channel: &str, owner_backend: &str, expires_at: u64) -> S
     }
 }
 
-fn identity(pubkey: &str, base: &str, slug: &str, channel: &str, ordinal: u32) -> Identity {
+fn identity(pubkey: &str, codename: &str, slug: &str, channel: &str) -> Identity {
     Identity {
         pubkey: pubkey.to_string(),
-        base_pubkey: base.to_string(),
         agent_slug: slug.to_string(),
-        ordinal,
+        codename: codename.to_string(),
         session_id: format!("sid-{channel}"),
         channel_h: channel.to_string(),
         native_id: "native".to_string(),
@@ -225,41 +223,41 @@ fn remote_claim_gate_skips_when_we_have_no_backend_pubkey_and_claim_has_owner() 
 // ── identity resolution ───────────────────────────────────────────────────────
 
 /// Replicates the identity resolution path in `handle`: try channel-specific
-/// first, then global. Returns (slug, ordinal) or None.
-fn resolve_identity(store: &Store, mentioned_pk: &str, project: &str) -> Option<(String, u32)> {
+/// first, then global. Returns (slug, native_id) or None. A per-session pubkey is
+/// unique, so this resolves to exactly one session whose native id can be resumed.
+fn resolve_identity(store: &Store, mentioned_pk: &str, project: &str) -> Option<(String, String)> {
     store
         .get_identity_for_channel(mentioned_pk, project)
         .ok()
         .flatten()
         .or_else(|| store.get_identity(mentioned_pk).ok().flatten())
-        .map(|idn| (idn.agent_slug, idn.ordinal))
+        .map(|idn| (idn.agent_slug, idn.native_id))
 }
 
 #[test]
 fn identity_resolution_prefers_channel_specific_identity() {
     let store = Store::open_memory().unwrap();
     store
-        .upsert_identity(&identity("pk", "base", "codex", "proj", 1))
+        .upsert_identity(&identity("pk", "willow-echo-042", "codex", "proj"))
         .unwrap();
     store
-        .upsert_identity(&identity("pk", "base", "claude", "other", 2))
+        .upsert_identity(&identity("pk2", "cedar-orbit-113", "claude", "other"))
         .unwrap();
 
-    let (slug, ordinal) = resolve_identity(&store, "pk", "proj").unwrap();
+    let (slug, native_id) = resolve_identity(&store, "pk", "proj").unwrap();
     assert_eq!(slug, "codex");
-    assert_eq!(ordinal, 1);
+    assert_eq!(native_id, "native");
 }
 
 #[test]
 fn identity_resolution_falls_back_to_global_when_no_channel_match() {
     let store = Store::open_memory().unwrap();
     store
-        .upsert_identity(&identity("pk", "base", "claude", "other", 2))
+        .upsert_identity(&identity("pk", "cedar-orbit-113", "claude", "other"))
         .unwrap();
 
-    let (slug, ordinal) = resolve_identity(&store, "pk", "proj").unwrap();
+    let (slug, _) = resolve_identity(&store, "pk", "proj").unwrap();
     assert_eq!(slug, "claude");
-    assert_eq!(ordinal, 2);
 }
 
 #[test]
@@ -268,55 +266,22 @@ fn identity_resolution_returns_none_for_unknown_pubkey() {
     assert!(resolve_identity(&store, "unknown-pk", "proj").is_none());
 }
 
-#[test]
-fn identity_resolution_prefers_alive_identity_over_dead() {
-    let store = Store::open_memory().unwrap();
-    let mut dead = identity("pk", "base", "codex", "proj", 1);
-    dead.alive = false;
-    dead.created_at = 1;
-    store.upsert_identity(&dead).unwrap();
+// ── resume decision ───────────────────────────────────────────────────────────
 
-    let mut alive = identity("pk", "base", "claude", "proj", 2);
-    alive.alive = true;
-    alive.created_at = 10;
-    store.upsert_identity(&alive).unwrap();
-
-    // get_identity_for_channel ORDER BY alive DESC, created_at DESC → alive wins
-    let (slug, _) = resolve_identity(&store, "pk", "proj").unwrap();
-    assert_eq!(slug, "claude");
-}
-
-// ── preferred_ordinal logic ───────────────────────────────────────────────────
-
-/// Replicates the preferred_ordinal decision: if there's a backend-owned claim,
-/// don't pass an ordinal (the claim already provisioned it). If no claim, pass
-/// the ordinal from the identity so the spawn path can provision it.
-fn preferred_ordinal(claim: &Option<SessionClaim>, identity_ordinal: u32) -> Option<u32> {
-    match claim {
-        Some(_) => None,
-        None => Some(identity_ordinal),
-    }
+/// Replicates the resume decision in `handle`: resume the exact session (which
+/// reproduces the p-tagged pubkey) when we know its native id, else fresh spawn.
+fn should_resume(native_id: &str) -> bool {
+    !native_id.is_empty()
 }
 
 #[test]
-fn preferred_ordinal_is_none_when_backend_owned_claim_exists() {
-    let c = claim("pk", "proj", BACKEND_A, 100);
-    assert_eq!(preferred_ordinal(&Some(c), 2), None);
+fn resumes_when_native_id_known() {
+    assert!(should_resume("native-claude-1"));
 }
 
 #[test]
-fn preferred_ordinal_is_some_when_no_claim() {
-    assert_eq!(preferred_ordinal(&None, 2), Some(2));
-}
-
-#[test]
-fn preferred_ordinal_is_none_when_claim_expired_but_still_present() {
-    // A claim that expired is still returned by get_session_claim (non-TTL query).
-    // This means preferred_ordinal is None even though the ordinal may not be
-    // provisioned in the channel anymore. This is a known edge case: the
-    // provisioning path checks the relay's live member set before granting.
-    let c = claim("pk", "proj", BACKEND_A, 5); // expired at t=5
-    assert_eq!(preferred_ordinal(&Some(c), 2), None);
+fn fresh_spawn_when_native_id_unknown() {
+    assert!(!should_resume(""));
 }
 
 // ── eye-reaction routing gate ─────────────────────────────────────────────────

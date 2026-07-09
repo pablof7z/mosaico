@@ -250,25 +250,23 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
         1,
     )
     .expect("add local agent");
-    let base_pubkey = agent_id.pubkey_hex();
-    let ordinal = 1;
-    let agent_pubkey = identity::derive_agent_ordinal_keys(&agent_id.keys, ordinal)
-        .public_key()
-        .to_hex();
+    // Seed an offline identity so the mention resolves the p-tagged pubkey to this
+    // agent. With no native id to resume, the handler falls through to a fresh
+    // spawn (a new session that mints its own pubkey).
+    let agent_pubkey = agent_id.pubkey_hex();
     Store::open(&home.store_path())
         .unwrap()
         .upsert_identity(&Identity {
             pubkey: agent_pubkey.clone(),
-            base_pubkey: base_pubkey.clone(),
             agent_slug: agent.to_string(),
-            ordinal,
+            codename: tenex_edge::util::friendly_short_code("offline-seed"),
             session_id: String::new(),
             channel_h: project.clone(),
             native_id: String::new(),
             alive: false,
             created_at: 1,
         })
-        .expect("seed offline ordinal identity");
+        .expect("seed offline identity");
 
     rt().block_on(async {
         let mut c = DaemonClient::connect_or_spawn().await.expect("connect");
@@ -308,10 +306,9 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
     let rec = wait_for_alive_session(&home, agent, &project);
     let store = Store::open(&home.store_path()).unwrap();
     let instance = store
-        .instance_identity_for_session(&rec.session_id)
+        .session_identity_for_session(&rec.session_id)
         .unwrap()
         .expect("spawned session identity");
-    assert_eq!(instance.base_pubkey, base_pubkey);
     assert_eq!(instance.pubkey, rec.agent_pubkey);
     wait_for_injected_log(&log, &body);
 

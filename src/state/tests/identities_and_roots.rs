@@ -7,9 +7,8 @@ fn identities_bind_and_resolve() {
     let sid = s.register_session(&reg("claude-code", "x", "h1")).unwrap();
     s.upsert_identity(&Identity {
         pubkey: "derived".into(),
-        base_pubkey: "base".into(),
         agent_slug: "agent".into(),
-        ordinal: 1,
+        codename: "willow-echo-042".into(),
         session_id: String::new(),
         channel_h: "h1".into(),
         native_id: String::new(),
@@ -19,13 +18,16 @@ fn identities_bind_and_resolve() {
     .unwrap();
     s.bind_session_identity("derived", &sid, "native-1", true)
         .unwrap();
-    let r = s
-        .resolve_identity_for_channel("base", "h1")
-        .unwrap()
-        .unwrap();
-    assert_eq!(r.session_id, sid);
+    let r = s.identity_for_session(&sid).unwrap().unwrap();
+    assert_eq!(r.pubkey, "derived");
+    assert_eq!(r.codename, "willow-echo-042");
     assert_eq!(r.native_id, "native-1");
     assert!(r.alive);
+    let by_channel = s
+        .get_identity_for_channel("derived", "h1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(by_channel.session_id, sid);
     assert_eq!(
         s.list_identity_pubkeys().unwrap(),
         vec!["derived".to_string()]

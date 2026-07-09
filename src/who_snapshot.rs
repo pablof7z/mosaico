@@ -17,8 +17,7 @@ pub(crate) struct OtherProjectSummary {
 }
 
 // The daemon serializes a WhoSnapshot and the thin `who` client renders it with
-// the EXACT renderers below — so output is byte-identical by construction and
-// can never drift from a separate copy.
+// the EXACT renderers below — so output is byte-identical by construction.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WhoSnapshot {
     pub(crate) project: String,
@@ -119,15 +118,13 @@ pub(crate) fn load_who_snapshot(
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
     let store = store.reader();
-    // "Remote" is computed daemon-side by comparing each peer's exact backend
-    // label to the daemon's configured backend label. Local sessions are on this
-    // daemon by construction → never remote.
+    // "Remote" is computed daemon-side by comparing each peer's backend label to
+    // this daemon's; local sessions are on this daemon → never remote.
     let local_host = daemon_host.trim().to_string();
 
     // Pubkeys this daemon signs as — used to drop our own relay echoes from the
-    // peer set so a local session isn't double-counted as a remote one. A read
-    // failure here would empty the self set and render our OWN sessions as remote
-    // peers, so fail loud rather than mislabel.
+    // peer set. A read failure here would render our OWN sessions as remote peers,
+    // so fail loud rather than mislabel.
     let my_pubkeys: HashSet<String> = store
         .list_identity_pubkeys()
         .context("who snapshot: failed to load this daemon's identity pubkeys (self set)")?
@@ -137,8 +134,7 @@ pub(crate) fn load_who_snapshot(
     let mut rows = Vec::new();
     let mut other_agents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
-    // ── local sessions on this machine ─────────────────────────────────────────
-    // A read failure must error, not silently render "no local sessions".
+    // ── local sessions on this machine (read failure must error, not go quiet) ──
     for s in store
         .list_alive_sessions()
         .context("who snapshot: failed to list live local sessions")?
@@ -353,13 +349,17 @@ fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, now: u64) ->
     }
 }
 
-fn local_instance(store: StoreReader<'_>, s: &Session) -> crate::identity::AgentInstance {
+fn local_instance(store: StoreReader<'_>, s: &Session) -> crate::identity::SessionIdentity {
     store
-        .instance_identity_for_session(&s.session_id)
+        .session_identity_for_session(&s.session_id)
         .ok()
         .flatten()
         .unwrap_or_else(|| {
-            crate::identity::AgentInstance::base(s.agent_slug.clone(), s.agent_pubkey.clone())
+            crate::identity::SessionIdentity::fallback(
+                &s.session_id,
+                s.agent_slug.clone(),
+                s.agent_pubkey.clone(),
+            )
         })
 }
 

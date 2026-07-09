@@ -1,4 +1,4 @@
-//! Deterministic agent key derivation and instance identity.
+//! Deterministic per-session key derivation and the read-side session identity.
 
 use hmac::{Hmac, Mac};
 use nostr_sdk::prelude::*;
@@ -19,54 +19,23 @@ fn hkdf_sha256_32(ikm: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
-/// Deterministically derive a per-session keypair. Same inputs produce the same
-/// key, so a resumed harness session reproduces its pubkey.
-pub fn derive_session_keys(
-    tenex_secret: &SecretKey,
-    project_slug: &str,
-    agent_slug: &str,
-    harness_kind: &str,
-    anchor: &str,
-) -> Keys {
-    const SALT: &[u8] = b"tenex-edge/session-key/v1";
-    let ikm = tenex_secret.as_secret_bytes();
-    let mut info = Vec::with_capacity(
-        project_slug.len() + 1 + agent_slug.len() + 1 + harness_kind.len() + 1 + anchor.len() + 2,
-    );
-    info.extend_from_slice(project_slug.as_bytes());
-    info.push(0x00);
-    info.extend_from_slice(agent_slug.as_bytes());
-    info.push(0x00);
-    info.extend_from_slice(harness_kind.as_bytes());
-    info.push(0x00);
-    info.extend_from_slice(anchor.as_bytes());
+/// Deterministically derive a session's OWN keypair from the per-machine
+/// management secret and the canonical session id. Every session mints its own
+/// keypair; the management key (`tenexPrivateKey`) is the only stored secret.
+///
+/// Determinism: a resumed session (same `session_id`) re-derives the identical
+/// pubkey, so a p-tagged mention can route back to it. Cross-machine divergence:
+/// the management secret is per-machine, so the same `session_id` on two machines
+/// yields two different keypairs — a session identity is `(session, machine)`.
+pub fn derive_session_keys_v2(mgmt_secret: &SecretKey, session_id: &str) -> Keys {
+    const SALT: &[u8] = b"tenex-edge/session-pubkey/v2";
+    let ikm = mgmt_secret.as_secret_bytes();
+    let mut info = Vec::with_capacity(session_id.len() + 2);
+    info.extend_from_slice(session_id.as_bytes());
     info.push(0x00);
     info.push(0x00);
 
-    derive_keys_with_counter(ikm, SALT, info, "derive_session_keys")
-}
-
-/// Display label for an agent's Nth concurrent identity.
-pub fn agent_ordinal_label(agent_slug: &str, ordinal: u32) -> String {
-    format!("{agent_slug}{ordinal}")
-}
-
-/// Deterministically derive the keypair for an agent's Nth concurrent identity.
-/// Ordinals are stable across rooms and sessions for the same local derivation
-/// root. Runtime identities start at ordinal 1; ordinal 0 is kept only for
-/// legacy rows and is also derived, not the file-backed root key.
-pub fn derive_agent_ordinal_keys(base: &Keys, ordinal: u32) -> Keys {
-    const SALT: &[u8] = b"tenex-edge/agent-ordinal-key/v1";
-    let ikm = base.secret_key().as_secret_bytes();
-    let base_pub = base.public_key().to_hex();
-    let mut info = Vec::with_capacity(base_pub.len() + 7);
-    info.extend_from_slice(base_pub.as_bytes());
-    info.push(0x00);
-    info.extend_from_slice(&ordinal.to_be_bytes());
-    info.push(0x00);
-    info.push(0x00);
-
-    derive_keys_with_counter(ikm, SALT, info, "derive_agent_ordinal_keys")
+    derive_keys_with_counter(ikm, SALT, info, "derive_session_keys_v2")
 }
 
 fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &str) -> Keys {
@@ -87,51 +56,43 @@ fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &
     }
 }
 
-/// The single authoritative identity of one running agent instance.
+/// The read-side identity of one running session: its per-session pubkey, the
+/// underlying agent slug (for the roster / local keystore), and the memorable
+/// per-session codename it publishes as (the kind:0 name and mention handle).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentInstance {
-    pub base_slug: String,
-    pub base_pubkey: String,
-    pub ordinal: u32,
+pub struct SessionIdentity {
     pub pubkey: String,
+    pub slug: String,
+    pub codename: String,
 }
 
-impl AgentInstance {
-    pub fn base(base_slug: String, base_pubkey: String) -> Self {
+impl SessionIdentity {
+    pub fn new(pubkey: String, slug: String, codename: String) -> Self {
         Self {
-            base_slug,
-            base_pubkey: base_pubkey.clone(),
-            ordinal: 1,
-            pubkey: base_pubkey,
-        }
-    }
-
-    pub fn from_parts(
-        base_slug: String,
-        base_pubkey: String,
-        ordinal: u32,
-        pubkey: String,
-    ) -> Self {
-        Self {
-            base_slug,
-            base_pubkey,
-            ordinal,
             pubkey,
+            slug,
+            codename,
         }
     }
 
+    /// Projection when no bound `identities` row exists yet: the codename is the
+    /// deterministic `friendly_short_code` of the session id, the same value the
+    /// mint path would have persisted.
+    pub fn fallback(session_id: &str, slug: String, pubkey: String) -> Self {
+        Self {
+            pubkey,
+            slug,
+            codename: crate::util::friendly_short_code(session_id),
+        }
+    }
+
+    /// The per-session display name: its codename.
     pub fn display_slug(&self) -> String {
-        agent_ordinal_label(&self.base_slug, self.ordinal)
+        self.codename.clone()
     }
 
+    /// The wire reference: the session's own pubkey named by its codename.
     pub fn agent_ref(&self) -> crate::domain::AgentRef {
-        crate::domain::AgentRef::new(self.pubkey.clone(), self.display_slug())
-    }
-
-    pub fn signing_keys(&self, base_keys: &Keys) -> Keys {
-        if self.pubkey == base_keys.public_key().to_hex() {
-            return base_keys.clone();
-        }
-        derive_agent_ordinal_keys(base_keys, self.ordinal)
+        crate::domain::AgentRef::new(self.pubkey.clone(), self.codename.clone())
     }
 }

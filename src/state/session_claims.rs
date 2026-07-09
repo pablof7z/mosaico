@@ -3,9 +3,8 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionClaim {
     pub(crate) pubkey: String,
-    pub(crate) base_pubkey: String,
     pub(crate) agent_slug: String,
-    pub(crate) ordinal: u32,
+    pub(crate) codename: String,
     pub(crate) session_id: String,
     pub(crate) channel_h: String,
     pub(crate) native_id: String,
@@ -16,7 +15,7 @@ pub(crate) struct SessionClaim {
     pub(crate) owner_host: String,
 }
 
-const COLS: &str = "pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id, \
+const COLS: &str = "pubkey, agent_slug, codename, session_id, channel_h, native_id, \
      harness, last_active_at, expires_at, owner_backend_pubkey, owner_host";
 
 impl SessionClaim {
@@ -31,17 +30,16 @@ impl SessionClaim {
 fn row_to_claim(row: &rusqlite::Row) -> rusqlite::Result<SessionClaim> {
     Ok(SessionClaim {
         pubkey: row.get(0)?,
-        base_pubkey: row.get(1)?,
-        agent_slug: row.get(2)?,
-        ordinal: row.get::<_, i64>(3)? as u32,
-        session_id: row.get(4)?,
-        channel_h: row.get(5)?,
-        native_id: row.get(6)?,
-        harness: row.get(7)?,
-        last_active_at: row.get(8)?,
-        expires_at: row.get(9)?,
-        owner_backend_pubkey: row.get(10)?,
-        owner_host: row.get(11)?,
+        agent_slug: row.get(1)?,
+        codename: row.get(2)?,
+        session_id: row.get(3)?,
+        channel_h: row.get(4)?,
+        native_id: row.get(5)?,
+        harness: row.get(6)?,
+        last_active_at: row.get(7)?,
+        expires_at: row.get(8)?,
+        owner_backend_pubkey: row.get(9)?,
+        owner_host: row.get(10)?,
     })
 }
 
@@ -49,21 +47,20 @@ impl Store {
     pub(crate) fn upsert_session_claim(&self, c: &SessionClaim) -> Result<()> {
         self.conn.execute(
             "INSERT INTO session_claims
-                 (pubkey, base_pubkey, agent_slug, ordinal, session_id, channel_h, native_id,
+                 (pubkey, agent_slug, codename, session_id, channel_h, native_id,
                   harness, last_active_at, expires_at, owner_backend_pubkey, owner_host)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-                 base_pubkey=excluded.base_pubkey, agent_slug=excluded.agent_slug,
-                 ordinal=excluded.ordinal, session_id=excluded.session_id,
+                 agent_slug=excluded.agent_slug, codename=excluded.codename,
+                 session_id=excluded.session_id,
                  native_id=excluded.native_id, harness=excluded.harness,
                  last_active_at=excluded.last_active_at, expires_at=excluded.expires_at,
                  owner_backend_pubkey=excluded.owner_backend_pubkey,
                  owner_host=excluded.owner_host",
             params![
                 c.pubkey,
-                c.base_pubkey,
                 c.agent_slug,
-                c.ordinal as i64,
+                c.codename,
                 c.session_id,
                 c.channel_h,
                 c.native_id,
@@ -116,19 +113,6 @@ impl Store {
             "SELECT {COLS} FROM session_claims WHERE expires_at>=?1 ORDER BY last_active_at DESC"
         ))?;
         let rows = stmt.query_map(params![now], row_to_claim)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
-    pub(crate) fn list_active_session_claims_for_channel(
-        &self,
-        channel_h: &str,
-        now: u64,
-    ) -> Result<Vec<SessionClaim>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM session_claims
-             WHERE channel_h=?1 AND expires_at>=?2 ORDER BY last_active_at DESC"
-        ))?;
-        let rows = stmt.query_map(params![channel_h, now], row_to_claim)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 

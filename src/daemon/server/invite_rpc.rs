@@ -173,7 +173,6 @@ pub(super) async fn invite_agent(
         None,
         Some(channel_h),
         cwd.map(std::path::Path::new),
-        None,
     )
     .await?;
     let online = wait_local_agent_online(state, channel_h, &target.slug, &before).await?;

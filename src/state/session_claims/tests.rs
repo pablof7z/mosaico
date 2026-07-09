@@ -4,9 +4,8 @@ use crate::state::{RegisterSession, Store};
 fn claim(pubkey: &str, expires_at: u64) -> SessionClaim {
     SessionClaim {
         pubkey: pubkey.to_string(),
-        base_pubkey: "base".to_string(),
         agent_slug: "codex".to_string(),
-        ordinal: 1,
+        codename: "willow-echo-042".to_string(),
         session_id: "sid".to_string(),
         channel_h: "chan".to_string(),
         native_id: "native".to_string(),

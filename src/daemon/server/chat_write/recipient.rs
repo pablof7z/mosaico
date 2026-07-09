@@ -31,7 +31,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
     let session_recipient =
         |store: &Store, session_id: String, fallback_pk: String, project: String| {
             let pubkey = store
-                .instance_identity_for_session(&session_id)
+                .session_identity_for_session(&session_id)
                 .ok()
                 .flatten()
                 .map(|i| i.pubkey)
@@ -149,11 +149,12 @@ fn find_session_by_agent_label(
         .context("find_session_by_agent_label: listing live sessions")?
     {
         let instance = store
-            .instance_identity_for_session(&session.session_id)
+            .session_identity_for_session(&session.session_id)
             .ok()
             .flatten()
             .unwrap_or_else(|| {
-                crate::identity::AgentInstance::base(
+                crate::identity::SessionIdentity::fallback(
+                    &session.session_id,
                     session.agent_slug.clone(),
                     session.agent_pubkey.clone(),
                 )

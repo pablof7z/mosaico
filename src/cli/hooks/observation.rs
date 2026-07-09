@@ -53,11 +53,6 @@ pub(super) async fn report_observation(
         // present. The daemon stores the session under this `h` instead of the
         // cwd-derived project so its presence/chat publish into the subgroup.
         "channel": crate::cli::channel_env(),
-        // Exact ordinal to allocate (issue #47), forwarded from TENEX_EDGE_ORDINAL
-        // when a spawn-on-mention targeted a specific `smithN`.
-        "preferred_ordinal": std::env::var("TENEX_EDGE_ORDINAL")
-            .ok()
-            .and_then(|v| v.parse::<u32>().ok()),
     });
     let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {
         render_init_progress(&item);

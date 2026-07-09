@@ -23,10 +23,10 @@ pub struct SessionStartRequestFact {
     pub watch_pid: Option<i32>,
     pub pty_session: Option<String>,
     pub ring_doorbell: bool,
-    pub base_pubkey: String,
+    /// The session's own minted pubkey.
     pub signer_pubkey: String,
+    /// The session's memorable codename (its kind:0 name / mention handle).
     pub signer_label: String,
-    pub signer_ordinal: u32,
     pub already_running: bool,
     pub channel_already_subscribed: bool,
     pub at: u64,

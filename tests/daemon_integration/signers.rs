@@ -93,19 +93,19 @@ fn duplicate_same_agent_same_channel_gets_transient_signer() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let first_pubkey = session_identity_pubkey(&store, &first_id)
-        .expect("first session should get ordinal signer");
+    let first_pubkey =
+        session_identity_pubkey(&store, &first_id).expect("first session should mint a pubkey");
     let second_pubkey = session_identity_pubkey(&store, &second_id)
-        .expect("second same-agent/channel session should get ordinal signer");
+        .expect("second same-agent/channel session should mint a pubkey");
     assert_ne!(
         second_pubkey, first_pubkey,
-        "same-agent sessions in one channel must select distinct ordinal pubkeys"
+        "each session mints its own key, so same-agent sessions in one channel differ"
     );
     let other_pubkey = session_identity_pubkey(&store, &other_id)
-        .expect("same agent in a different channel should get ordinal signer");
-    assert_eq!(
+        .expect("same agent in a different channel should mint a pubkey");
+    assert_ne!(
         other_pubkey, first_pubkey,
-        "the same ordinal pubkey may be reused concurrently in different channels"
+        "a distinct session (even same agent, different channel) mints a distinct pubkey"
     );
 
     stop_daemon(&home);
@@ -145,29 +145,32 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         "the two concurrent instances must select distinct pubkeys"
     );
 
-    // Each session reports its OWN (pubkey, label) pair through the identity that
-    // backs `who`: the first instance is "claude1", the second is "claude2".
+    // Each session reports its OWN (pubkey, codename) pair through the identity
+    // that backs `who`: each codename is the friendly short code of its session id.
+    let first_code = tenex_edge::util::friendly_short_code(&first_id);
+    let second_code = tenex_edge::util::friendly_short_code(&second_id);
     let first_instance = store
-        .instance_identity_for_session(&first_id)
+        .session_identity_for_session(&first_id)
         .unwrap()
-        .expect("first instance identity");
+        .expect("first session identity");
     let second_instance = store
-        .instance_identity_for_session(&second_id)
+        .session_identity_for_session(&second_id)
         .unwrap()
-        .expect("second instance identity");
+        .expect("second session identity");
     assert_eq!(first_instance.pubkey, first_pubkey);
-    assert_eq!(first_instance.display_slug(), "claude1");
+    assert_eq!(first_instance.display_slug(), first_code);
     assert_eq!(second_instance.pubkey, second_pubkey);
-    assert_eq!(second_instance.display_slug(), "claude2");
+    assert_eq!(second_instance.display_slug(), second_code);
 
-    // kind:0 on the relay: each pubkey is named for ITS OWN backend-qualified
-    // instance, never clobbering another ordinal profile.
+    // kind:0 on the relay: each pubkey is named for ITS OWN codename, never
+    // clobbering another session's profile.
+    let first_name = format!("{first_code}@test-host");
+    let second_name = format!("{second_code}@test-host");
     assert!(
         wait_until(std::time::Duration::from_secs(20), || {
-            relay::kind0_name_for_author(&relay, &first_pubkey).as_deref()
-                == Some("claude1@test-host")
+            relay::kind0_name_for_author(&relay, &first_pubkey).as_deref() == Some(&first_name)
                 && relay::kind0_name_for_author(&relay, &second_pubkey).as_deref()
-                    == Some("claude2@test-host")
+                    == Some(&second_name)
         }),
         "kind:0 names must be self-consistent: first={:?} second={:?}",
         relay::kind0_name_for_author(&relay, &first_pubkey),
@@ -200,12 +203,12 @@ fn duplicate_resume_reassert_preserves_selected_pubkey() {
         .expect("duplicate session should have selected pubkey");
     let instance = Store::open(&home.store_path())
         .unwrap()
-        .instance_identity_for_session(&duplicate_id)
+        .session_identity_for_session(&duplicate_id)
         .unwrap()
-        .expect("duplicate instance identity");
+        .expect("duplicate session identity");
     assert_eq!(
         instance.pubkey, before,
-        "session identity should expose selected signer"
+        "session identity should expose the minted pubkey"
     );
 
     let duplicate_id_after = rt().block_on(async {

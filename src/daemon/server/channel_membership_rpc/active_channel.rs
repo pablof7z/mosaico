@@ -11,12 +11,6 @@ pub(in crate::daemon::server) fn set_active_session_channel(
     new_channel: &str,
     leave_previous: bool,
 ) -> Result<()> {
-    let moved_reservations = {
-        let reservations = state.session_signers.lock().unwrap();
-        let mut preflight = reservations.clone();
-        super::super::session_signer::move_channel(&mut preflight, session_id, new_channel)?;
-        preflight
-    };
     state.with_store(|s| -> Result<()> {
         // Preflight before mutating; session row and identity channel must move
         // together or not at all.
@@ -54,7 +48,6 @@ pub(in crate::daemon::server) fn set_active_session_channel(
             .context("set_active_session_channel: persisting identity active-channel move")?;
         Ok(())
     })?;
-    *state.session_signers.lock().unwrap() = moved_reservations;
     state.outbox_notify.notify_waiters();
     Ok(())
 }

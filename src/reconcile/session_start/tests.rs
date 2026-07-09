@@ -22,18 +22,16 @@ fn request(already_running: bool, ordinal: u32) -> InputFact {
         watch_pid: Some(42),
         pty_session: Some("%1".into()),
         ring_doorbell: true,
-        base_pubkey: "base".into(),
         signer_pubkey: if ordinal > 0 {
             "ord".into()
         } else {
             "base".into()
         },
         signer_label: if ordinal > 0 {
-            "coder1".into()
+            "cedar-orbit-113".into()
         } else {
-            "coder".into()
+            "willow-echo-042".into()
         },
-        signer_ordinal: ordinal,
         already_running,
         channel_already_subscribed: true,
         at: 100,

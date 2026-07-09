@@ -24,7 +24,7 @@ fn validate_render_lists_identity_evidence() {
             "profile_updated_at": 100,
             "identity_found": true,
             "identity": {
-                "ordinal": 0,
+                "codename": "willow-echo-042",
                 "alive": true,
                 "session_id": "s1",
                 "channel_h": "room",
@@ -45,6 +45,6 @@ fn validate_render_lists_identity_evidence() {
 
     assert!(text.contains("identity evidence"));
     assert!(text.contains("profile=pk-agent -> pk-agent profile=true identity=true"));
-    assert!(text.contains("identity ordinal=0 alive=true session=s1"));
+    assert!(text.contains("identity codename=willow-echo-042 alive=true session=s1"));
     assert!(text.contains("memberships=1 admin_channels=0"));
 }
