@@ -32,7 +32,7 @@ pub(super) async fn wait_local_agent_online(
     slug: &str,
     before: &HashSet<String>,
 ) -> Result<String> {
-    wait_until(None, || {
+    let rec = wait_until(None, || {
         state.with_store(|s| {
             s.list_alive_sessions()
                 .unwrap_or_default()
@@ -45,10 +45,10 @@ pub(super) async fn wait_local_agent_online(
                         && s.is_channel_member(channel_h, &rec.agent_pubkey)
                             .unwrap_or(false)
                 })
-                .map(|rec| state.session_instance(&rec).display_slug())
         })
     })
-    .await
+    .await?;
+    Ok(state.session_instance(&rec).display_slug())
 }
 
 pub(super) async fn wait_local_session_online(
@@ -56,7 +56,7 @@ pub(super) async fn wait_local_session_online(
     channel_h: &str,
     session_id: &str,
 ) -> Result<String> {
-    wait_until(None, || {
+    let rec = wait_until(None, || {
         state.with_store(|s| {
             let rec = s.get_session(session_id).ok().flatten()?;
             let online = rec.alive
@@ -64,10 +64,11 @@ pub(super) async fn wait_local_session_online(
                     .unwrap_or(false)
                 && s.is_channel_member(channel_h, &rec.agent_pubkey)
                     .unwrap_or(false);
-            online.then(|| state.session_instance(&rec).display_slug())
+            online.then_some(rec)
         })
     })
-    .await
+    .await?;
+    Ok(state.session_instance(&rec).display_slug())
 }
 
 pub(super) async fn wait_remote_agent_online(
@@ -108,10 +109,7 @@ pub(super) async fn wait_remote_session_online(
     .await
 }
 
-async fn wait_until(
-    backend: Option<&str>,
-    mut f: impl FnMut() -> Option<String>,
-) -> Result<String> {
+async fn wait_until<T>(backend: Option<&str>, mut f: impl FnMut() -> Option<T>) -> Result<T> {
     let deadline = tokio::time::Instant::now() + ONLINE_WAIT;
     loop {
         if let Some(label) = f() {
