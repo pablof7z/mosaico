@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use super::admin::{AgentAction, AgentsAction, ChannelAction, ProjectAction};
+use super::admin::{AgentAction, AgentsAction, ChannelAction};
 use super::config::ConfigArgs;
 use super::debug::DebugAction;
 use super::harness::HarnessAction;
@@ -34,14 +34,9 @@ pub(super) enum Cmd {
     // themselves explicitly.
     /// List agents currently visible in the project/channel.
     Who(WhoArgs),
-    /// Manage NIP-29 project groups (list, set description).
-    Project {
-        #[command(subcommand)]
-        action: ProjectAction,
-    },
     /// Interactively configure model providers and role-to-model assignments.
     Config(ConfigArgs),
-    /// Read/send chat and manage NIP-29 channels (read, send, create, edit, list, join, leave, archive, switch).
+    /// Read/send chat and manage NIP-29 channels (read, send, create, edit, list, init, join, leave, archive, switch).
     #[command(alias = "channels")]
     Channel {
         #[command(subcommand)]
@@ -129,6 +124,13 @@ mod tests {
     #[test]
     fn removed_chat_command_stays_unavailable() {
         let err = parse_err(&["tenex-edge", "chat", "read"]);
+
+        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn removed_project_command_stays_unavailable() {
+        let err = parse_err(&["tenex-edge", "project", "list"]);
 
         assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
     }

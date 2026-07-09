@@ -1,11 +1,11 @@
 # tenex-edge-dev live lab lessons
 
-## `tenex-edge project init` is required before `tenex-edge launch`
+## `tenex-edge channel init` is required before `tenex-edge launch`
 
 `tenex-edge launch <agent> -- <args>` fails fast with:
 
 ```
-tenex-edge: no known project in /workspace; run `tenex-edge project init` or
+tenex-edge: no known project in /workspace; run `tenex-edge channel init` or
 git init first, or pass `--project <slug>`
 ```
 
@@ -15,7 +15,7 @@ state) is separate from git-repo detection. Run once per profile before the
 first `launch` in a lab:
 
 ```bash
-bash containers/tenex-edge/run --profile claude tenex-edge project init
+bash containers/tenex-edge/run --profile claude tenex-edge channel init
 ```
 
 This registers the directory's basename (e.g. `workspace` for a worktree
@@ -25,7 +25,7 @@ profile-local/container state, not host `~/.tenex-edge`. Add this step to the
 live-lab-workflow reference right after `write-container-profiles` and before
 the first `launch-agent-pty ... launch ...` call — the workflow doc
 currently jumps straight from profile-writing to launching and does not
-mention `project init`, so a first-time runner hits this every time.
+mention `channel init`, so a first-time runner hits this every time.
 
 ## Running a second container against the same profile WHILE a launch-mode agent is alive breaks that agent's daemon connection
 
@@ -49,7 +49,7 @@ was still up:
   `tenex-edge pty kill <id>`) and relaunched fresh.
 
 Lesson: treat "same-profile RPC" as a hard stop, not a soft caution. Before
-any `tenex-edge explain ...` / `tenex-edge project ...` / other one-shot
+any `tenex-edge explain ...` / `tenex-edge channel ...` / other one-shot
 `tenex-edge` subcommand against a profile, first stop that profile's
 launch-mode agent (`container stop <name>`, `tenex-edge pty kill <id>`,
 remove the stale `daemon.sock` if needed), THEN run the diagnostic command. Only `nak`

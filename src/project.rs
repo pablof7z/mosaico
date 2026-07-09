@@ -10,7 +10,7 @@
 //!      absolute paths. The cwd itself, or its nearest ancestor present in the
 //!      map, wins. This is the only way to give a non-git directory a project.
 //!   3. Otherwise: `Err(NoProject)`. The caller decides how to surface — hooks
-//!      exit 0 silently; explicit CLI verbs print a "run `tenex-edge project
+//!      exit 0 silently; explicit CLI verbs print a "run `tenex-edge channel
 //!      init` or `git init`" message and exit non-zero.
 //!
 //! There is no longer a `.tenex/project.json` file. The map at
@@ -87,12 +87,12 @@ pub fn rel_cwd(cwd: &Path) -> String {
 
 /// Like [`resolve`], but on [`NoProject`] returns an `anyhow::Error` whose
 /// `Display` form is the user-facing "no known project … run `tenex-edge
-/// project init` or `git init`" message. For the explicit-CLI-verb path only;
+/// channel init` or `git init`" message. For the explicit-CLI-verb path only;
 /// hooks should call [`resolve`] and exit 0 on `Err`.
 pub fn resolve_or_bail(cwd: &Path) -> Result<String> {
     resolve(cwd).map_err(|e| {
         anyhow::anyhow!(
-            "{e}; run `tenex-edge project init` or `git init` first, or pass `--project <slug>`"
+            "{e}; run `tenex-edge channel init` or `git init` first, or pass `--project <slug>`"
         )
     })
 }

@@ -95,30 +95,6 @@ pub(in crate::cli) struct AddArgs {
     pub(in crate::cli::admin) message: Option<String>,
 }
 
-#[derive(Subcommand)]
-pub(in crate::cli) enum ProjectAction {
-    /// List all NIP-29 project groups on the relay.
-    List,
-    /// Initialize the current directory as a tenex-edge project. Registers the
-    /// directory's basename as a slug in `~/.tenex-edge/projects.json`. Refuses
-    /// if the slug is already mapped to a different path; pass `--force` to
-    /// overwrite. No-op if the slug is already mapped to this exact path.
-    Init {
-        /// Overwrite an existing slug->path mapping that points elsewhere.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Set the description for a project's NIP-29 group (publishes kind:9002).
-    Edit {
-        /// New description text.
-        #[arg(long)]
-        description: String,
-        /// Project slug; defaults to the project resolved from the current directory.
-        #[arg(long)]
-        project: Option<String>,
-    },
-}
-
 /// Subgroup task channels under a project (NIP-29 child groups).
 #[derive(Subcommand)]
 pub(in crate::cli) enum ChannelAction {
@@ -216,12 +192,27 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// List the subgroup task channels under a project.
+    /// List the subgroup task channels under a project, or every top-level
+    /// project on the relay with `--roots`.
     List {
         /// Parent project slug. Defaults to the project resolved from the current
-        /// directory.
+        /// directory. Ignored with `--roots`.
         #[arg(long)]
         project: Option<String>,
+        /// List every top-level project on the relay instead of one project's
+        /// subgroup tree.
+        #[arg(long, conflicts_with = "project")]
+        roots: bool,
+    },
+    /// Register the current directory as a tenex-edge project workspace. Maps
+    /// the directory's basename as a slug in `~/.tenex-edge/projects.json` so a
+    /// non-git directory resolves to a project. Refuses if the slug is already
+    /// mapped to a different path; pass `--force` to overwrite. No-op if the
+    /// slug already maps to this exact path.
+    Init {
+        /// Overwrite an existing slug->path mapping that points elsewhere.
+        #[arg(long)]
+        force: bool,
     },
     /// Join a channel for passive context and direct-mention delivery.
     Join {

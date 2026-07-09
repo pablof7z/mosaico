@@ -72,9 +72,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             parent_channel,
             session,
         } => {
-            // `--agent` is optional: an agent may carve out an empty channel and
-            // populate it later. Each target is `slug@backend-label`; the backend
-            // side is a tenex-edge config label, not a machine hostname.
+            // `--agent` is optional; each is `slug@backend-label` (a config label).
             let mut parsed: Vec<serde_json::Value> = Vec::with_capacity(agents.len());
             for a in &agents {
                 let target = crate::idref::parse_agent_backend_ref(a).with_context(|| {
@@ -89,9 +87,8 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 "channels_create",
                 crate::cli::rpc_params(with_session(
                     serde_json::json!({
-                        // No `parent` here: the daemon defaults the new channel under
-                        // the creating session's CURRENT channel. `--parent-channel`
-                        // overrides that with a project-relative reference.
+                        // No `parent`: the daemon defaults the new channel under the
+                        // creating session's CURRENT channel; `--parent-channel` overrides.
                         "parent_channel": parent_channel,
                         "name": name,
                         "about": about,
@@ -101,8 +98,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 )),
             )
             .await?;
-            // Ambiguous `--parent-channel`: the daemon returns candidate paths
-            // instead of creating. Print copy-paste re-runs and exit 2.
+            // Ambiguous `--parent-channel`: daemon returns candidate paths; print re-runs, exit 2.
             if let Some(refs) = v["ambiguous"].as_array() {
                 let name = v["reference"].as_str().unwrap_or("");
                 eprintln!("'{name}' is ambiguous — re-run with an exact --parent-channel:");
@@ -161,17 +157,46 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 v["channel"].as_str().unwrap_or(&channel)
             );
         }
-        ChannelAction::List { project } => {
+        ChannelAction::Init { force } => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let (slug, path) = crate::project::register_project(&cwd, force)?;
+            println!("initialized project {slug} at {}", path.display());
+        }
+        // `--roots`: every top-level project on the relay (the old `project list`).
+        ChannelAction::List { roots: true, .. } => {
+            let v = daemon_call_async("project_list", serde_json::json!({})).await?;
+            let projects = v["projects"]
+                .as_array()
+                .map(|a| a.as_slice())
+                .unwrap_or(&[]);
+            if projects.is_empty() {
+                println!("No NIP-29 groups found on the relay.");
+                return Ok(());
+            }
+            let max_slug = projects
+                .iter()
+                .filter_map(|p| p["slug"].as_str())
+                .map(|s| s.len())
+                .max()
+                .unwrap_or(0);
+            for p in projects {
+                let slug = p["slug"].as_str().unwrap_or("");
+                let about = p["about"].as_str().unwrap_or("");
+                if about.is_empty() {
+                    println!("{slug}");
+                } else {
+                    println!("{slug:<max_slug$}  — {about}");
+                }
+            }
+        }
+        ChannelAction::List { project, .. } => {
             use owo_colors::Stream::Stdout;
             let parent = resolve_project(project)?;
             let v = daemon_call_async("channels_list", serde_json::json!({ "project": parent }))
                 .await?;
             let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
-            // Root of the tree is the project itself. Colorize ONLY when stdout is a
-            // real terminal: piped/captured output (the e2e harness, shell
-            // substitution) must be plain so callers can match the slug literally —
-            // `.bold()` would otherwise wrap it in ANSI escapes and a `^slug$` grep
-            // would never match.
+            // Root of the tree is the project itself. Colorize ONLY on a real
+            // terminal so piped output stays literal-`^slug$`-matchable.
             println!("{}", parent.if_supports_color(Stdout, |s| s.bold()));
             if rooms.is_empty() {
                 println!("  (no channels)");
@@ -184,10 +209,8 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 let depth = r["depth"].as_u64().unwrap_or(0) as usize;
                 // depth 0 = direct child of the project root → one level of indent.
                 let indent = "  ".repeat(depth + 1);
-                // Name-first: the human handle is primary; the opaque id is shown
-                // dimmed only as a secondary locator, and alone only when the
-                // channel has no name yet. `about`, when set, trails as a suffix —
-                // mirroring how `project list` shows a project's description.
+                // Name-first: the human handle leads; the opaque id is a dimmed
+                // secondary locator (shown alone only when unnamed). `about` trails.
                 let suffix = if about.is_empty() || about == name {
                     String::new()
                 } else {

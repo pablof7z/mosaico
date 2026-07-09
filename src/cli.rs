@@ -115,7 +115,6 @@ pub async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Publish(args) => messaging::publish(args).await,
         Cmd::Who(args) => who::who(args),
-        Cmd::Project { action } => admin::project(action).await,
         Cmd::Config(args) => config::config(args).await,
         Cmd::Channel { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
