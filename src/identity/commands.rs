@@ -45,7 +45,23 @@ pub(super) fn normalize_commands(commands: Vec<LaunchCommand>) -> Vec<LaunchComm
 
 pub fn adapt_argv_for_slug(argv: &[String], source_slug: &str, target_slug: &str) -> Vec<String> {
     argv.iter()
-        .map(|arg| adapt_arg_for_slug(arg, source_slug, target_slug))
+        .enumerate()
+        .map(|(i, arg)| {
+            if i == 0 {
+                // argv[0] is the binary executable — never rewrite it to the
+                // target slug just because an agent's slug happens to match the
+                // binary name (e.g. agent "codex" with command `codex --yolo`
+                // must not become `planner --yolo`). Only honor explicit {slug}
+                // placeholders, which are user-intentional templating.
+                if arg.contains("{slug}") {
+                    arg.replace("{slug}", target_slug)
+                } else {
+                    arg.clone()
+                }
+            } else {
+                adapt_arg_for_slug(arg, source_slug, target_slug)
+            }
+        })
         .collect()
 }
 
@@ -135,6 +151,21 @@ mod tests {
             "target",
         );
         assert_eq!(got, argv(&["runner", "--file", "/home/me/target.json"]));
+    }
+
+    #[test]
+    fn adapt_keeps_binary_when_source_slug_matches_binary() {
+        // Agent "codex" with command `codex --yolo` adapted to "planner" must
+        // keep `codex` as argv[0] — only explicit {slug} placeholders or
+        // slug-matching path stems further down the argv get rewritten.
+        let got = adapt_argv_for_slug(&argv(&["codex", "--yolo"]), "codex", "planner");
+        assert_eq!(got, argv(&["codex", "--yolo"]));
+    }
+
+    #[test]
+    fn adapt_expands_explicit_placeholder_in_binary_position() {
+        let got = adapt_argv_for_slug(&argv(&["{slug}"]), "codex", "planner");
+        assert_eq!(got, argv(&["planner"]));
     }
 
     #[test]

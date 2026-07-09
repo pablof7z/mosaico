@@ -183,6 +183,7 @@ fn agent_command_suggestions(
     agents: &[SpawnAgentEntry],
 ) -> Vec<CommandSuggestion> {
     let mut out = Vec::new();
+    let mut seen_argv = std::collections::HashSet::new();
     for (source_slug, commands, _, _) in agents {
         if source_slug == target_slug {
             continue;
@@ -192,8 +193,12 @@ fn agent_command_suggestions(
             let Some(command) = LaunchCommand::new(command.name.clone(), argv) else {
                 continue;
             };
+            let argv_key = command.argv.join("\u{0000}");
+            if !seen_argv.insert(argv_key) {
+                continue;
+            }
             out.push(CommandSuggestion {
-                label: format!("@{source_slug} {}", command.display()),
+                label: display_argv(&command.argv),
                 command,
             });
         }
@@ -213,80 +218,11 @@ fn builtin_command_suggestions(target_slug: &str) -> Vec<CommandSuggestion> {
     commands
         .into_iter()
         .map(|command| CommandSuggestion {
-            label: format!("built-in {}", command.display()),
+            label: display_argv(&command.argv),
             command,
         })
         .collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn argv(parts: &[&str]) -> Vec<String> {
-        parts.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn command(name: &str, parts: &[&str]) -> LaunchCommand {
-        LaunchCommand::new(name, argv(parts)).unwrap()
-    }
-
-    #[test]
-    fn suggestions_adapt_other_agent_commands() {
-        let agents = vec![(
-            "poppy".to_string(),
-            vec![command(
-                "file",
-                &["runner", "--file", "/home/me/poppy.json"],
-            )],
-            None,
-            None,
-        )];
-
-        let suggestions = agent_command_suggestions("newagent", &agents);
-        assert_eq!(suggestions.len(), 1);
-        assert_eq!(suggestions[0].command.name, "file");
-        assert_eq!(
-            suggestions[0].command.argv,
-            argv(&["runner", "--file", "/home/me/newagent.json"])
-        );
-    }
-
-    #[test]
-    fn suggestions_ignore_old_singular_command_shape() {
-        let agents = vec![("legacy".to_string(), vec![], None, None)];
-        assert!(agent_command_suggestions("newagent", &agents).is_empty());
-    }
-
-    #[test]
-    fn builtins_prefer_matching_target_slug() {
-        let suggestions = builtin_command_suggestions("codex");
-        assert_eq!(suggestions[0].command.name, "codex");
-        assert_eq!(suggestions[0].command.argv, argv(&["codex"]));
-    }
-
-    #[test]
-    fn duplicate_extra_args_are_not_appended_twice() {
-        let base = argv(&["codex", "--yolo"]);
-        let extra = argv(&["--yolo"]);
-        assert!(extra_args_without_duplicate_suffix(&base, extra).is_empty());
-    }
-
-    #[test]
-    fn distinct_extra_args_are_preserved() {
-        let base = argv(&["codex", "--model", "gpt-5"]);
-        let extra = argv(&["--yolo"]);
-        assert_eq!(
-            extra_args_without_duplicate_suffix(&base, extra),
-            argv(&["--yolo"])
-        );
-    }
-
-    #[test]
-    fn display_argv_quotes_shell_sensitive_args() {
-        assert_eq!(
-            display_argv(&argv(&["codex", "--profile", "work profile"])),
-            "codex --profile 'work profile'"
-        );
-    }
-}
+mod tests;
