@@ -17,9 +17,9 @@ use std::path::Path;
 
 const TAIL_BYTES: u64 = 96 * 1024;
 
-/// A compact, chronological snippet of the last `max_msgs` user/assistant turns,
-/// capped at `max_chars`. `None` if the file is unreadable/empty.
-pub fn read_recent(path: &Path, max_msgs: usize, max_chars: usize) -> Option<String> {
+/// The tail of `path` split into lines, dropping the partial first line left by
+/// the mid-file seek. `None` if the file is unreadable.
+fn tail_lines(path: &Path) -> Option<Vec<String>> {
     let mut f = File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
     let start = len.saturating_sub(TAIL_BYTES);
@@ -27,14 +27,20 @@ pub fn read_recent(path: &Path, max_msgs: usize, max_chars: usize) -> Option<Str
     let mut bytes = Vec::new();
     f.read_to_end(&mut bytes).ok()?;
     let text = String::from_utf8_lossy(&bytes);
-
-    let mut lines: Vec<&str> = text.lines().collect();
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     if start > 0 && !lines.is_empty() {
-        lines.remove(0); // drop the partial first line from the mid-file seek
+        lines.remove(0);
     }
+    Some(lines)
+}
+
+/// A compact, chronological snippet of the last `max_msgs` user/assistant turns,
+/// capped at `max_chars`. `None` if the file is unreadable/empty.
+pub fn read_recent(path: &Path, max_msgs: usize, max_chars: usize) -> Option<String> {
+    let lines = tail_lines(path)?;
 
     let mut msgs: Vec<String> = Vec::new();
-    for line in lines {
+    for line in &lines {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -66,6 +72,35 @@ pub fn read_recent(path: &Path, max_msgs: usize, max_chars: usize) -> Option<Str
     let tail: Vec<String> = msgs.iter().rev().take(max_msgs).rev().cloned().collect();
     let joined = tail.join("\n");
     Some(cap_tail(&joined, max_chars))
+}
+
+/// The text of the LAST assistant message in the transcript, capped at
+/// `max_chars`. Used to auto-publish an agent's final response when its turn
+/// ended without an explicit `chat write`. `None` when the transcript holds no
+/// non-empty assistant text.
+pub fn read_last_assistant_text(path: &Path, max_chars: usize) -> Option<String> {
+    let lines = tail_lines(path)?;
+    let mut last: Option<String> = None;
+    for line in &lines {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some((role, content)) = message_record(&v) else {
+            continue;
+        };
+        if role != "assistant" {
+            continue;
+        }
+        let body = extract(content, role);
+        if !body.trim().is_empty() {
+            last = Some(body.trim().to_string());
+        }
+    }
+    last.map(|b| truncate(&b, max_chars))
 }
 
 fn message_record(v: &Value) -> Option<(&str, Option<&Value>)> {
@@ -136,123 +171,4 @@ fn cap_tail(s: &str, n: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn extracts_recent_turns_skipping_tool_results() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("t.jsonl");
-        let mut f = File::create(&p).unwrap();
-        // user prompt (string), assistant text+tool_use, user tool_result (noise)
-        writeln!(
-            f,
-            r#"{{"type":"user","message":{{"role":"user","content":"fix the auth bug"}}}}"#
-        )
-        .unwrap();
-        writeln!(f, r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"Looking at the login flow"}},{{"type":"tool_use","name":"Edit","input":{{"file_path":"src/auth.rs"}}}}]}}}}"#).unwrap();
-        writeln!(f, r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","content":"ok"}}]}}}}"#).unwrap();
-        writeln!(f, r#"{{"type":"attachment","foo":1}}"#).unwrap();
-
-        let out = read_recent(&p, 10, 5000).unwrap();
-        assert!(out.contains("User: fix the auth bug"), "got: {out}");
-        assert!(
-            out.contains("Assistant: Looking at the login flow"),
-            "got: {out}"
-        );
-        assert!(
-            !out.contains("[uses Edit"),
-            "tool_use should be stripped: {out}"
-        );
-        assert!(
-            !out.contains("tool_result"),
-            "tool results should be skipped: {out}"
-        );
-    }
-
-    #[test]
-    fn extracts_flat_role_content_shape() {
-        // The opencode plugin (like pc) writes flat {"role","content"} lines.
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("flat.jsonl");
-        let mut f = File::create(&p).unwrap();
-        writeln!(
-            f,
-            r#"{{"role":"user","content":"the rate limiter drops valid requests under load"}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"role":"assistant","content":"Let me check the token-bucket refill interval"}}"#
-        )
-        .unwrap();
-        writeln!(f, r#"{{"role":"tool","content":"noise"}}"#).unwrap();
-
-        let out = read_recent(&p, 10, 5000).unwrap();
-        assert!(
-            out.contains("User: the rate limiter drops valid requests under load"),
-            "got: {out}"
-        );
-        assert!(
-            out.contains("Assistant: Let me check the token-bucket refill interval"),
-            "got: {out}"
-        );
-        assert!(
-            !out.contains("noise"),
-            "non user/assistant roles should be skipped: {out}"
-        );
-    }
-
-    #[test]
-    fn extracts_codex_rollout_response_items() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("codex.jsonl");
-        let mut f = File::create(&p).unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"response_item","payload":{{"type":"message","role":"developer","content":[{{"type":"input_text","text":"policy noise"}}]}}}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"fix empty distillations"}}]}}}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"response_item","payload":{{"type":"function_call","name":"exec_command","arguments":"{{}}"}}}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"response_item","payload":{{"type":"function_call_output","output":"large tool result"}}}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"response_item","payload":{{"type":"message","role":"assistant","content":[{{"type":"output_text","text":"Tracing the transcript parser"}}]}}}}"#
-        )
-        .unwrap();
-
-        let out = read_recent(&p, 10, 5000).unwrap();
-        assert!(out.contains("User: fix empty distillations"), "got: {out}");
-        assert!(
-            out.contains("Assistant: Tracing the transcript parser"),
-            "got: {out}"
-        );
-        assert!(
-            !out.contains("policy noise"),
-            "developer messages are noise: {out}"
-        );
-        assert!(
-            !out.contains("large tool result"),
-            "tool output should be skipped: {out}"
-        );
-    }
-
-    #[test]
-    fn missing_file_is_none() {
-        assert!(read_recent(Path::new("/no/such/transcript.jsonl"), 10, 1000).is_none());
-    }
-}
+mod tests;

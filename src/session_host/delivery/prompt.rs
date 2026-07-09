@@ -7,6 +7,10 @@ use std::time::Duration;
 struct PendingPrompt {
     text: String,
     chat_ids: Vec<String>,
+    /// The most recent injected mention — the event an auto-reply threads to,
+    /// and the channel it publishes into.
+    trigger_event_id: String,
+    trigger_channel: String,
 }
 
 async fn collect_pending_prompt(
@@ -44,7 +48,17 @@ async fn collect_pending_prompt(
         return Ok(None);
     };
 
-    Ok(Some(PendingPrompt { text, chat_ids }))
+    let trigger = chat_rows.last();
+    let trigger_event_id = trigger.map(|r| r.event_id.clone()).unwrap_or_default();
+    let trigger_channel = trigger
+        .map(|r| r.channel_h.clone())
+        .unwrap_or_else(|| rec.channel_h.clone());
+    Ok(Some(PendingPrompt {
+        text,
+        chat_ids,
+        trigger_event_id,
+        trigger_channel,
+    }))
 }
 
 pub(super) async fn inject_planned_messages_pty(
@@ -93,6 +107,16 @@ pub(super) async fn inject_planned_messages_pty(
             format!("failed to mark injected inbox rows for echo suppression: {e:#}"),
         );
         anyhow::bail!("failed to mark injected inbox rows for echo suppression: {e:#}");
+    }
+    // The mention is now in the agent's PTY. Arm a turn-end auto-reply so the
+    // channel still hears back if the agent finishes the turn without publishing
+    // its own `chat write`.
+    if !prompt.trigger_event_id.is_empty() {
+        crate::daemon::server::auto_reply::arm(
+            &rec.session_id,
+            &prompt.trigger_channel,
+            &prompt.trigger_event_id,
+        );
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
     crate::pty::inject(pty_id, "", false, true)?;

@@ -26,6 +26,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
 
 mod agent_roster;
+pub(crate) mod auto_reply;
 mod background;
 mod delivery_drive;
 mod demux;
@@ -35,7 +36,6 @@ mod membership_cleanup;
 mod orchestration_handler;
 mod pty_rpc;
 mod rpc;
-
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
 use demux::{spawn_demux, warm_profiles};
 use management_command::{handle_management_command, is_management_command_for_backend};

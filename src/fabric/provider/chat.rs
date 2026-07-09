@@ -4,7 +4,10 @@ use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate};
 use crate::fabric::NostrEventCodec;
 use crate::state::{RecordMessage, RelayEvent, Store};
 use anyhow::Result;
-use nostr_sdk::prelude::{Event, EventId, Keys};
+use nostr_sdk::prelude::{Event, EventId, Keys, Tag};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone)]
 pub(crate) struct OutboundChatRecord {
@@ -23,8 +26,19 @@ pub(crate) struct PublishedChat {
 }
 
 impl Nip29Provider {
-    pub(crate) async fn sign_chat_message(&self, chat: &ChatMessage, keys: &Keys) -> Result<Event> {
-        let builder = self.wire.encode(&DomainEvent::ChatMessage(chat.clone()))?;
+    /// Sign a kind:9 chat event. `reply_to`, when set, appends an `e` tag so the
+    /// message threads as a reply to the triggering event — reusing the wire
+    /// encoder rather than hand-building a parallel event.
+    pub(crate) async fn sign_chat_message(
+        &self,
+        chat: &ChatMessage,
+        reply_to: Option<&str>,
+        keys: &Keys,
+    ) -> Result<Event> {
+        let mut builder = self.wire.encode(&DomainEvent::ChatMessage(chat.clone()))?;
+        if let Some(id) = reply_to.filter(|id| !id.is_empty()) {
+            builder = builder.tags([Tag::parse(["e", id])?]);
+        }
         self.transport.sign(builder, keys).await
     }
 
@@ -34,7 +48,20 @@ impl Nip29Provider {
         keys: &Keys,
         record: &OutboundChatRecord,
     ) -> Result<PublishedChat> {
-        let signed = self.sign_chat_message(chat, keys).await?;
+        let signed = self.sign_chat_message(chat, None, keys).await?;
+        self.publish_signed_chat_checked(&signed, record).await
+    }
+
+    /// Like [`publish_chat_checked`] but threads the kind:9 as a reply to
+    /// `reply_to` via an `e` tag. Used by the turn-end auto-reply path.
+    pub(crate) async fn publish_chat_reply_checked(
+        &self,
+        chat: &ChatMessage,
+        reply_to: &str,
+        keys: &Keys,
+        record: &OutboundChatRecord,
+    ) -> Result<PublishedChat> {
+        let signed = self.sign_chat_message(chat, Some(reply_to), keys).await?;
         self.publish_signed_chat_checked(&signed, record).await
     }
 

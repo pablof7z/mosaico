@@ -60,7 +60,6 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // lookup is independent from destination targeting; `channel` below is a
     // chat destination only, never a session-resolution hint.
     let scope = rec.channel_h.clone();
-
     let target =
         resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel send").await?;
     let explicit_dest =
@@ -149,6 +148,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
             },
         )
         .await?;
+    auto_reply::note_published(&rec.session_id); // published; cancel turn-end auto-reply
     let event_id = published.event_id;
     let created_at = published.created_at;
 

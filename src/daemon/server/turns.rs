@@ -215,6 +215,15 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
         }
         crate::session_host::ring_doorbells(state.clone());
     }
+
+    // The turn is over. If it was a pty-injected mention that the agent never
+    // answered via `chat write`, auto-publish its last transcript text as the
+    // reply so the channel sees a response instead of silence.
+    if let Some(rec) = rec.as_ref() {
+        if let Some(pending) = auto_reply::take(&rec.session_id) {
+            auto_reply::publish_last_response(state, rec, pending).await;
+        }
+    }
     Ok(serde_json::json!({ "ok": true }))
 }
 
