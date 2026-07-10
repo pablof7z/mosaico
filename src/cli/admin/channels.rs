@@ -65,6 +65,17 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 crate::cli::messaging::resolve_send_message_body(message_flag.or(message))?;
             crate::cli::messaging::chat_write(message, channel, session, long_message).await?;
         }
+        ChannelAction::Reply {
+            id,
+            message,
+            message_flag,
+            session,
+            long_message,
+        } => {
+            let message =
+                crate::cli::messaging::resolve_send_message_body(message_flag.or(message))?;
+            crate::cli::messaging::chat_reply(id, message, session, long_message).await?;
+        }
         ChannelAction::Create {
             path,
             about,

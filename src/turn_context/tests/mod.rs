@@ -264,7 +264,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
         "post-join ambient chat must also appear; got:\n{ctx}"
     );
     assert!(
-        ctx.contains("<chatter>") && ctx.contains("[MENTIONS YOU]"),
+        ctx.contains("<chatter>") && ctx.contains("tenex-edge channel reply ev-dm-"),
         "ambient chat and mention must render in the fabric context; got:\n{ctx}"
     );
     assert!(

@@ -198,13 +198,13 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
-    assert!(text.contains("[MENTIONS YOU]"));
-    assert!(text.contains("for=\"@coder\""));
+    assert!(text.contains("<channel name=\"#main\" ref=\"main\""));
+    assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\">"));
+    assert!(text.contains("Reply via: `tenex-edge channel reply mentio --message \"hello world\"`"));
     assert!(!text.contains("mention=\"true\""));
     assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("<important>"));
     assert!(text.contains("message_id=\"mentio\""));
-    assert!(text.contains("tenex-edge channel read --id mentio"));
 }
 
 #[test]

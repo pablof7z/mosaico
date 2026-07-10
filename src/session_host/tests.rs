@@ -259,16 +259,21 @@ fn pending_message_prompt_contains_the_actual_message_body() {
         delivered_at: 0,
     };
 
-    // No whitelist → the sender is treated as another agent, so the paste form is
-    // the framed `[tenex-edge mention] <@name> body` line. With no cached slug the
-    // name falls back to the short sender pubkey ("pk-sende").
+    // No whitelist → the sender is treated as another agent. With no cached slug
+    // the name falls back to the short sender pubkey ("pk-sende"), and with no
+    // channel metadata the source room falls back to the raw h-tag.
     let store = crate::state::Store::open_memory().unwrap();
     let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
 
     assert_eq!(
         prompt,
-        "[tenex-edge mention] <@pk-sende> please review the PTY delivery path\n\
-         [reply via `tenex-edge channel send --message \"...\"` — replies do not auto-publish]"
+         "<tenex-edge>\n\
+         \u{20}\u{20}<channel ref=\"proj\">\n\
+         \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\">please review the PTY delivery path</message>\n\
+         \u{20}\u{20}</channel>\n\
+         \n\
+         \u{20}\u{20}Reply via: `tenex-edge channel reply abcdef --message \"hello world\"`\n\
+         </tenex-edge>"
     );
 }
 
@@ -280,19 +285,30 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
         target_session: rec.session_id.clone(),
         state: "pending".into(),
         from_pubkey: "human-pk".into(),
-        channel_h: "proj".into(),
+        channel_h: "channel-writer-test".into(),
         body: "@developer hey there".into(),
         created_at: 100,
         delivered_at: 0,
     };
     let store = crate::state::Store::open_memory().unwrap();
-    // Sender is whitelisted → minimal provenance, no `[tenex-edge mention]` frame.
+    store
+        .upsert_channel("tenex-edge", "tenex-edge", "", "", 1)
+        .unwrap();
+    store
+        .upsert_channel("channel-writer-test", "writer-test", "", "tenex-edge", 100)
+        .unwrap();
+    // Sender is whitelisted, but the injected line still carries the source room.
     let prompt =
         crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120)
             .unwrap();
     assert_eq!(
         prompt,
-        "<@human-pk> @developer hey there\n\
-         [reply via `tenex-edge channel send --message \"...\"` — replies do not auto-publish]"
+         "<tenex-edge>\n\
+         \u{20}\u{20}<channel ref=\"tenex-edge.writer-test\">\n\
+         \u{20}\u{20}\u{20}\u{20}<message from=\"@human-pk\" id=\"ev-hum\">@developer hey there</message>\n\
+         \u{20}\u{20}</channel>\n\
+         \n\
+         \u{20}\u{20}Reply via: `tenex-edge channel reply ev-hum --message \"hello world\"`\n\
+         </tenex-edge>"
     );
 }

@@ -344,3 +344,35 @@ fn channel_send_accepts_explicit_session_anchor() {
         _ => panic!("expected channel send command"),
     }
 }
+
+#[test]
+fn channel_reply_parses_short_id_and_message_flag() {
+    let cli = crate::cli::args::Cli::try_parse_from([
+        "tenex-edge",
+        "channel",
+        "reply",
+        "abc123",
+        "--message",
+        "hello",
+        "--session",
+        "session-1",
+    ])
+    .unwrap();
+
+    match cli.cmd {
+        crate::cli::args::Cmd::Channel {
+            action:
+                ChannelAction::Reply {
+                    id,
+                    message_flag,
+                    session,
+                    ..
+                },
+        } => {
+            assert_eq!(id, "abc123");
+            assert_eq!(message_flag.as_deref(), Some("hello"));
+            assert_eq!(session.as_deref(), Some("session-1"));
+        }
+        _ => panic!("expected channel reply command"),
+    }
+}

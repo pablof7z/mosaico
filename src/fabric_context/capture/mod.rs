@@ -123,6 +123,8 @@ pub(super) struct ChannelCap {
     pub(super) h: String,
     pub(super) name: String,
     #[serde(default)]
+    pub(super) reference: String,
+    #[serde(default)]
     pub(super) workspace: String,
     pub(super) about: String,
     pub(super) subchannels: Vec<SummaryCap>,
@@ -201,6 +203,7 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         channels.push(ChannelCap {
             h: h.clone(),
             name: summary.name,
+            reference: crate::channel_ref::full_channel_ref(store, h),
             workspace: read::channel_workspace(store, h),
             about: summary.about,
             subchannels: read::subchannel_caps(store, h),

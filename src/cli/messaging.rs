@@ -1,7 +1,6 @@
 use super::*;
 
 mod args;
-mod send_guard;
 pub(super) use args::{publish, PublishArgs};
 
 pub(super) async fn chat_write(
@@ -10,7 +9,6 @@ pub(super) async fn chat_write(
     session: Option<String>,
     long_message: bool,
 ) -> Result<()> {
-    send_guard::check(&message)?;
     let params = crate::cli::rpc_params(serde_json::json!({
         "message": message,
         "long_message": long_message,
@@ -30,6 +28,29 @@ pub(super) async fn chat_write(
     } else {
         println!("sent chat {}", event_short_id(event_id));
     }
+    Ok(())
+}
+
+pub(super) async fn chat_reply(
+    id: String,
+    message: String,
+    session: Option<String>,
+    long_message: bool,
+) -> Result<()> {
+    let params = crate::cli::rpc_params(serde_json::json!({
+        "id": id,
+        "message": message,
+        "long_message": long_message,
+        "session": session,
+    }));
+    let v = daemon_call_async("chat_reply", params).await?;
+    let event_id = v["event_id"].as_str().unwrap_or("?");
+    let reply_to = v["reply_to"].as_str().unwrap_or("?");
+    println!(
+        "sent reply {} to {}",
+        crate::util::short_id(event_id),
+        crate::util::short_id(reply_to)
+    );
     Ok(())
 }
 

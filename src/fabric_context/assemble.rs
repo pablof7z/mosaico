@@ -71,6 +71,7 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
         }
         view.channels.push(ChannelBlock {
             name: chan.name.clone(),
+            reference: chan.reference.clone(),
             workspace: chan.workspace.clone(),
             about: chan.about.clone(),
             members: if full {

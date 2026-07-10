@@ -7,10 +7,12 @@ use anyhow::bail;
 
 mod body;
 mod recipient;
+mod reply;
 #[cfg(test)]
 mod tests;
 
 pub(in crate::daemon::server) use recipient::resolve_recipient;
+pub(in crate::daemon::server) use reply::rpc_chat_reply;
 
 #[derive(serde::Deserialize, Default)]
 #[allow(dead_code)]

@@ -232,7 +232,7 @@ use channels_rpc::{
     rpc_channels_list,
 };
 use chat_read_tail::{handle_chat_read, handle_tail};
-use chat_write::rpc_chat_write;
+use chat_write::{rpc_chat_reply, rpc_chat_write};
 use diagnostics::{
     log_nip29_role_decision, refresh_channel_members_cache, rpc_debug_outbox, rpc_doctor,
     rpc_explain, rpc_local_backend,
@@ -264,6 +264,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_end" => rpc_session_end(state, &req.params).await,
         "session_kill" => rpc_session_kill(state, &req.params).await,
         "chat_write" => rpc_chat_write(state, &req.params).await,
+        "chat_reply" => rpc_chat_reply(state, &req.params).await,
         "publish" => rpc_propose(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params).await,

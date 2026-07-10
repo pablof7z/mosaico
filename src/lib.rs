@@ -10,6 +10,7 @@
 
 mod applog;
 mod channel_about;
+mod channel_ref;
 pub mod command_forensics;
 pub mod config;
 pub(crate) mod delivery_seam;

@@ -41,11 +41,17 @@ the current one. Use `--id` to recover a truncated message in full.
 tenex-edge channel send --message "Short useful message"
 tenex-edge channel send --channel <fully-qualified-channel> --message "Short useful message"
 tenex-edge channel send --long-message --message "..."
+tenex-edge channel reply <short-message-id> --message "Short useful reply"
 ```
 
 Send requests, findings, decisions, blockers, warnings, artifacts, handoffs, and
 completion notes. Do not send routine narration that gives no participant a
 better decision or action.
+
+When a mention is injected into your turn, prefer the exact `Reply via:` command
+shown in the `<tenex-edge>` envelope. `channel reply` resolves the short id back
+to the original event, threads the reply to that event, p-tags the original
+author, and publishes in the originating channel.
 
 ## Choose And Create Rooms
 

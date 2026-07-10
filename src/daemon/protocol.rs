@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// The compiled-in protocol version, bumped when client and daemon RPC
 /// contracts must agree.
-const PROTOCOL_VERSION_BASE: u32 = 60;
+const PROTOCOL_VERSION_BASE: u32 = 61;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →
@@ -184,16 +184,16 @@ mod tests {
 
     #[test]
     fn protocol_compare_covers_equal_older_and_newer_daemons() {
-        assert_eq!(compare_protocols(60, 60), HandshakeDecision::Ready);
+        assert_eq!(compare_protocols(61, 61), HandshakeDecision::Ready);
         assert_eq!(
-            compare_protocols(59, 60),
+            compare_protocols(60, 61),
             HandshakeDecision::AskOlderDaemonToExit
         );
         assert_eq!(
-            compare_protocols(61, 60),
+            compare_protocols(62, 61),
             HandshakeDecision::DaemonTooNew {
-                daemon_protocol: 61,
-                client_protocol: 60
+                daemon_protocol: 62,
+                client_protocol: 61
             }
         );
     }

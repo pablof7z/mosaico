@@ -1,11 +1,16 @@
 //! Prompt rendering for fabric message injection.
 //!
-//! Two terminal-injection envelope forms, chosen by `(sender, directedness)`:
+//! Terminal-injected mentions use a structured envelope:
 //!
-//!   1. **human mention** — submitted as a real turn with minimal provenance:
-//!      `<@pablo> @developer hey there`.
-//!   2. **agent mention** — submitted as a turn, framed so the agent knows it
-//!      arrived via the fabric: `[tenex-edge mention] <@agent1> hi @developer`.
+//! ```text
+//! <tenex-edge>
+//!   <channel ref="workspace.channel.qa">
+//!     <message from="@developer/session" id="abc123">hello</message>
+//!   </channel>
+//!
+//!   Reply via: `tenex-edge channel reply abc123 --message "hello world"`
+//! </tenex-edge>
+//! ```
 //!
 //! Publishing no longer happens automatically on the agent's behalf — the
 //! envelope carries an explicit reminder to respond via `tenex-edge channel
@@ -21,10 +26,6 @@
 use crate::state::{InboxRow, Store};
 use crate::util::pubkey_short;
 
-fn speaker_chip(name: &str) -> String {
-    format!("<@{name}>")
-}
-
 /// Display name for a pubkey: its cached `kind:0` slug, else a short hex form.
 fn speaker_label(store: &Store, pubkey: &str) -> String {
     store
@@ -35,45 +36,39 @@ fn speaker_label(store: &Store, pubkey: &str) -> String {
         .unwrap_or_else(|| pubkey_short(pubkey))
 }
 
-/// True when `pubkey` is one of the operator's whitelisted humans, i.e. the
-/// mention came from a person rather than another agent.
-fn is_whitelisted(whitelisted: &[String], pubkey: &str) -> bool {
-    whitelisted.iter().any(|w| w.eq_ignore_ascii_case(pubkey))
-}
-
-/// Reminder appended to every mention envelope: since nothing auto-publishes a
-/// reply on the agent's behalf, the agent must explicitly run `channel send` to
-/// be heard.
-const REPLY_REMINDER: &str =
-    "[reply via `tenex-edge channel send --message \"...\"` — replies do not auto-publish]";
-
-/// Form ① / ② — direct mentions submitted into a live terminal as a real turn.
-/// Human senders render bare with a `<@name>` prefix (it reads as a near-natural
-/// turn that still carries provenance); agent senders are prefixed
-/// `[tenex-edge mention]` so the agent knows it is a fabric relay, not its
-/// operator typing. No message id — replies target `@name` — but every
-/// envelope carries an explicit reminder to reply via `channel send`, since
-/// replies no longer auto-publish.
+/// Direct mentions submitted into a live terminal as a real turn.
 pub(crate) fn render_terminal_mention(
     store: &Store,
     rows: &[InboxRow],
-    whitelisted: &[String],
+    _whitelisted: &[String],
     _now: u64,
 ) -> Option<String> {
     if rows.is_empty() {
         return None;
     }
-    let mut lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
+    let mut lines: Vec<String> = Vec::with_capacity(rows.len() * 3 + 4);
+    lines.push("<tenex-edge>".to_string());
     for row in rows {
-        let name = speaker_label(store, &row.from_pubkey);
-        let chip = speaker_chip(&name);
-        if is_whitelisted(whitelisted, &row.from_pubkey) {
-            lines.push(format!("{chip} {}", row.body));
-        } else {
-            lines.push(format!("[tenex-edge mention] {chip} {}", row.body));
-        }
+        lines.push(format!(
+            "  <channel ref=\"{}\">",
+            esc_attr(&crate::channel_ref::full_channel_ref(store, &row.channel_h))
+        ));
+        lines.push(format!(
+            "    <message from=\"{}\" id=\"{}\">{}</message>",
+            esc_attr(&format!("@{}", speaker_label(store, &row.from_pubkey))),
+            esc_attr(&crate::util::short_id(&row.event_id)),
+            esc_text(&row.body)
+        ));
+        lines.push("  </channel>".to_string());
     }
-    lines.push(REPLY_REMINDER.to_string());
+    if let Some(row) = rows.last() {
+        let id = crate::util::short_id(&row.event_id);
+        lines.push(String::new());
+        lines.push(format!(
+            "  Reply via: `tenex-edge channel reply {id} --message \"hello world\"`"
+        ));
+    }
+    lines.push("</tenex-edge>".to_string());
     Some(lines.join("\n"))
 }
 
@@ -87,4 +82,15 @@ pub(crate) fn channel_display(store: &Store, channel_h: &str) -> String {
         .flatten()
         .and_then(|c| c.human_name().map(str::to_string))
         .unwrap_or_else(|| channel_h.to_string())
+}
+
+fn esc_attr(input: &str) -> String {
+    esc_text(input).replace('"', "&quot;")
+}
+
+fn esc_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

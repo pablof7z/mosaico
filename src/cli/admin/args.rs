@@ -153,6 +153,23 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         long_message: bool,
     },
+    /// Reply to a specific channel message by short id.
+    Reply {
+        /// Short or full message/event id from a mention envelope.
+        id: String,
+        /// Reply body. Positional, or via --message, or piped on stdin.
+        #[arg(value_name = "MESSAGE")]
+        message: Option<String>,
+        #[arg(long = "message", value_name = "MESSAGE")]
+        message_flag: Option<String>,
+        /// Explicit sender session id instead of resolving from the current
+        /// PTY/harness process or root scan.
+        #[arg(long)]
+        session: Option<String>,
+        /// Allow publishing a message longer than the default 600-character cap.
+        #[arg(long)]
+        long_message: bool,
+    },
     /// Create a subgroup task channel and focus it. When run as an agent
     /// the new channel nests under your CURRENT channel by default, and the
     /// running session auto-joins it. If `--agent slug@backend-label` targets

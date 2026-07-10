@@ -65,6 +65,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         let summary = channel_summary(store, &channel);
         view.channels.push(ChannelBlock {
             name: summary.name,
+            reference: crate::channel_ref::full_channel_ref(store, &channel),
             workspace: channel_workspace(store, &channel),
             about: summary.about,
             members: if full {

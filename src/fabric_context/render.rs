@@ -75,8 +75,9 @@ fn render_agents(out: &mut String, agents: &[AgentRow]) {
 fn render_channel(out: &mut String, channel: &ChannelBlock, show_workspace: bool) {
     let _ = write!(
         out,
-        "\n\n    <channel name=\"#{}\"",
-        esc_attr(&channel.name)
+        "\n\n    <channel name=\"#{}\" ref=\"{}\"",
+        esc_attr(&channel.name),
+        esc_attr(&channel.reference)
     );
     if let Some(workspace) = channel_workspace(channel, show_workspace) {
         let _ = write!(out, " workspace=\"{}\"", esc_attr(workspace));
@@ -158,6 +159,10 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
         );
     }
     for m in &channel.messages {
+        if m.mention {
+            render_mention_message(out, m);
+            continue;
+        }
         out.push_str("\n        <message");
         let short = crate::util::short_id(&m.id);
         if m.truncated {
@@ -174,9 +179,6 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
             let _ = write!(out, " for=\"{}\"", esc_attr(&recipients));
         }
         let _ = write!(out, " age=\"{}\">", esc_attr(&m.age));
-        if m.mention {
-            out.push_str("[MENTIONS YOU] ");
-        }
         out.push_str(&esc_text(&m.body));
         if m.truncated {
             let _ = write!(
@@ -185,15 +187,25 @@ fn render_messages(out: &mut String, channel: &ChannelBlock) {
                 esc_text(&short)
             );
         }
-        if m.mention {
-            out.push_str(
-                "\n          [reply via `tenex-edge channel send --message \"...\"` \
-                 — replies do not auto-publish]",
-            );
-        }
         out.push_str("</message>");
     }
     out.push_str("\n      </chatter>");
+}
+
+fn render_mention_message(out: &mut String, m: &MessageRow) {
+    let short = crate::util::short_id(&m.id);
+    let _ = write!(
+        out,
+        "\n        <message from=\"@{}\" id=\"{}\">{}</message>",
+        esc_attr(&m.from),
+        esc_attr(&short),
+        esc_text(&m.body)
+    );
+    let _ = write!(
+        out,
+        "\n        Reply via: `tenex-edge channel reply {} --message \"hello world\"`",
+        esc_text(&short)
+    );
 }
 
 fn render_unjoined(out: &mut String, unjoined: &[UnjoinedChannelRow]) {
