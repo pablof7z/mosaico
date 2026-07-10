@@ -28,9 +28,9 @@ pub(super) fn list_sessions(state: &Arc<DaemonState>, scope_root: Option<&str>) 
         let state_word = if row.busy { "busy" } else { "idle" };
         let text = status_text(&row);
         lines.push(format!(
-            "- {} {} [{}] {}: {} (last active {})",
-            super::short(&row.session_id),
+            "- @{} ({}) [{}] {}: {} (last active {})",
             row.agent,
+            super::short(&row.session_id),
             row.channels.into_iter().collect::<Vec<_>>().join(", "),
             state_word,
             text,
@@ -75,7 +75,7 @@ fn session_summaries_from_store(
         }
         let label = channel_label_from_map(&channels, &status.channel_h);
         let profile = store.get_profile(&status.pubkey).ok().flatten();
-        let agent = agent_label(&status, profile.as_ref());
+        let agent = session_handle(&status, profile.as_ref());
         let key = (status.pubkey.clone(), status.session_id.clone());
         rows.entry(key)
             .and_modify(|row| {
@@ -149,7 +149,13 @@ fn is_descendant(
     false
 }
 
-fn agent_label(status: &Status, profile: Option<&crate::state::Profile>) -> String {
+fn session_handle(status: &Status, profile: Option<&crate::state::Profile>) -> String {
+    if let Some(agent) = profile
+        .and_then(|p| (!p.agent_slug.is_empty()).then_some(p.agent_slug.as_str()))
+        .or_else(|| crate::idref::parse_session_handle(&status.slug).map(|(agent, _)| agent))
+    {
+        return crate::idref::session_handle(agent, &status.session_id);
+    }
     let slug = if !status.slug.is_empty() {
         status.slug.as_str()
     } else if let Some(profile) = profile {
@@ -159,6 +165,9 @@ fn agent_label(status: &Status, profile: Option<&crate::state::Profile>) -> Stri
     };
     if slug.is_empty() {
         return crate::util::pubkey_short(&status.pubkey);
+    }
+    if crate::idref::parse_session_handle(slug).is_some() {
+        return slug.to_string();
     }
     let host = profile.map(|p| p.host.as_str()).unwrap_or_default();
     if host.is_empty() {

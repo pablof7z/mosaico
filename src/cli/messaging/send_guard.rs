@@ -1,11 +1,11 @@
 //! `channel send` bare-`@role` guard.
 //!
 //! In the per-session identity model there is no durable, addressable role
-//! identity — a live participant is `@codename@host`, never `@role`. So a message
-//! mentioning a bare `@<role>` that names a KNOWN local agent role (but no live
-//! codename) is almost always a mistake: the author wanted a fresh session of
-//! that role. Fail fast and point at `channel add --new-session` rather than
-//! silently publishing a mention that resolves to nobody.
+//! identity — a live participant is `@agent/session`, never `@role`. So a
+//! message mentioning a bare `@<role>` that names a KNOWN local agent role (but
+//! no session handle) is almost always a mistake: the author wanted a fresh
+//! session of that role. Fail fast and point at `channel add --new-session`
+//! rather than silently publishing a mention that resolves to nobody.
 
 use anyhow::{bail, Result};
 
@@ -19,9 +19,11 @@ pub(super) fn check(message: &str) -> Result<()> {
         return Ok(());
     }
     for mention in crate::idref::extract_mentions(message) {
-        // A live member handle is `codename@host`; the codename never matches a
-        // role slug. So a mention whose label equals a known role slug is a bare
-        // `@role`, not a member reference.
+        if crate::idref::parse_session_handle(&mention).is_some() {
+            continue;
+        }
+        // A mention whose label equals a known role slug is a bare `@role`, not
+        // a member reference.
         let label = mention.split('@').next().unwrap_or(&mention);
         if roles.iter().any(|role| role == label) {
             bail!(
@@ -41,6 +43,9 @@ mod tests {
         // Mirror `check`'s matching against an explicit role list (avoids reading
         // the real keystore in a unit test).
         for mention in crate::idref::extract_mentions(message) {
+            if crate::idref::parse_session_handle(&mention).is_some() {
+                continue;
+            }
             let label = mention.split('@').next().unwrap_or(&mention);
             if roles.contains(&label) {
                 bail!("did you mean to launch a new session of {label}?");
@@ -56,7 +61,12 @@ mod tests {
     }
 
     #[test]
-    fn codename_member_is_allowed() {
+    fn session_handle_member_is_allowed() {
+        assert!(roles_from("thanks @reviewer/bright-otter-042", &["reviewer"]).is_ok());
+    }
+
+    #[test]
+    fn legacy_codename_member_is_allowed() {
         assert!(roles_from("thanks @bright-otter-042@laptop", &["reviewer"]).is_ok());
     }
 

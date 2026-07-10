@@ -65,7 +65,7 @@ pub(crate) struct MetaInput {
     pub(super) warnings: Vec<String>,
     pub(super) self_pubkey: String,
     pub(super) self_ref: String,
-    /// This daemon's host label — the bare-vs-`@host` pivot for member codenames.
+    /// This daemon's host label for non-session fallback refs.
     #[serde(default)]
     pub(super) local_host: String,
     pub(super) force: bool,
@@ -136,13 +136,12 @@ pub(super) struct UnjoinedCap {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct StatusCap {
     pub(super) pubkey: String,
-    /// The owning session's canonical id — `friendly_short_code(session_id)` is
-    /// this member's codename, joined onto the roster by `member_rows`.
     #[serde(default)]
     pub(super) session_id: String,
-    /// The owning member's raw profile host (empty ⇒ local), for `codename@host`.
     #[serde(default)]
     pub(super) host: String,
+    #[serde(default)]
+    pub(super) slug: String,
     pub(super) busy: bool,
     pub(super) activity: String,
     pub(super) title: String,
@@ -219,6 +218,7 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
             .into_iter()
             .map(|s| StatusCap {
                 host: read::profile_host(store, &s.pubkey),
+                slug: s.slug,
                 session_id: s.session_id,
                 pubkey: s.pubkey,
                 busy: s.busy,

@@ -11,7 +11,7 @@ pub(in crate::cli) struct WhoArgs {
     /// Keep a full-screen live view open, refreshing automatically.
     #[arg(long)]
     live: bool,
-    /// List this machine's expired (dead/old) sessions by codename so you can
+    /// List this machine's expired (dead/old) sessions by public handle so you can
     /// resume one, instead of the live fabric snapshot.
     #[arg(long, conflicts_with = "live")]
     expired: bool,

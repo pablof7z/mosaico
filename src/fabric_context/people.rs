@@ -1,5 +1,5 @@
 use super::model::{MemberRow, PresenceRow};
-use super::refs::{codename_ref, profile_host, pubkey_ref};
+use super::refs::{pubkey_ref, session_ref};
 use super::FabricContextInput;
 use crate::state::{Status, Store};
 use crate::util::relative_time;
@@ -49,12 +49,18 @@ pub(super) fn member_rows(
         .collect()
 }
 
-/// A non-self member's reference: `@codename@host` when its owning session is
+/// A non-self member's reference: `@agent/session` when its owning session is
 /// known (a live status carrying a session id), else the slug/npub fallback.
 /// Mirrors `assemble::member_reference` exactly so both paths agree.
 fn member_reference(store: &Store, pk: &str, status: Option<&Status>, local_host: &str) -> String {
     if let Some(s) = status.filter(|s| !s.session_id.is_empty()) {
-        return codename_ref(&s.session_id, &profile_host(store, pk), local_host);
+        let profile_agent_slug = store
+            .get_profile(pk)
+            .ok()
+            .flatten()
+            .map(|p| p.agent_slug)
+            .unwrap_or_default();
+        return session_ref(&s.session_id, &s.slug, &profile_agent_slug);
     }
     pubkey_ref(store, pk, local_host)
 }
@@ -89,11 +95,24 @@ pub(super) fn presence_rows(
         .filter(|s| s.updated_at > input.cursor)
         .filter(|s| s.pubkey != input.self_pubkey)
         .map(|s| PresenceRow {
-            reference: pubkey_ref(store, &s.pubkey, input.local_host),
+            reference: presence_reference(store, &s, input.local_host),
             status: status_text(&s),
             seen: relative_time(s.last_seen, input.now),
         })
         .collect()
+}
+
+fn presence_reference(store: &Store, status: &Status, local_host: &str) -> String {
+    if !status.session_id.is_empty() {
+        let profile_agent_slug = store
+            .get_profile(&status.pubkey)
+            .ok()
+            .flatten()
+            .map(|p| p.agent_slug)
+            .unwrap_or_default();
+        return session_ref(&status.session_id, &status.slug, &profile_agent_slug);
+    }
+    pubkey_ref(store, &status.pubkey, local_host)
 }
 
 fn status_map(store: &Store, channel: &str, now: u64) -> BTreeMap<String, Status> {

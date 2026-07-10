@@ -19,7 +19,7 @@ sources:
 
 ## Overview
 
-This guide governs the family of `tenex-edge` agent skills written to `./skills/tenex-edge/` with symlinks from `~/.agents/skills/tenex-edge` and `~/.claude/skills/tenex-edge` pointing to the repo-local skill directory. The original skill taught agent operator commands (`who`, `chat`, `tail`, project groups, subgroup rooms, install, and keystore commands), but it has gone stale: self-identity now lives in `who` agent-context output, and targeting uses codename handles like `@brave-otter-417@laptop`. The current guide restructures that material into a set of focused skills, each kept short with volatile details in `reference/` files.
+This guide governs the family of `tenex-edge` agent skills written to `./skills/tenex-edge/` with symlinks from `~/.agents/skills/tenex-edge` and `~/.claude/skills/tenex-edge` pointing to the repo-local skill directory. The original skill taught agent operator commands (`who`, `chat`, `tail`, project groups, subgroup rooms, install, and keystore commands), but it has gone stale: self-identity now lives in `who` agent-context output, and targeting uses public session handles like `@codex/echo123`. The current guide restructures that material into a set of focused skills, each kept short with volatile details in `reference/` files.
 
 <!-- citations: [^019f1-7100b] [^019f1-106a9] -->
 ## Skill Set

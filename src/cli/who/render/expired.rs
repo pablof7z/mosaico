@@ -4,8 +4,8 @@ use crate::expired_sessions::ExpiredSessionRow;
 use owo_colors::OwoColorize as _;
 use std::fmt::Write as _;
 
-/// Render the expired-session listing: each session as `@codename@host` with its
-/// channel, last-seen age, and whether it can be resumed. Newest first (as
+/// Render the expired-session listing: each session as `@agent/session_id` with
+/// its channel, last-seen age, and whether it can be resumed. Newest first (as
 /// returned by the daemon).
 pub(in crate::cli::who) fn render_expired(rows: &[ExpiredSessionRow]) -> String {
     let mut out = String::new();
@@ -17,7 +17,10 @@ pub(in crate::cli::who) fn render_expired(rows: &[ExpiredSessionRow]) -> String 
     }
     let now = crate::util::now_secs();
     for row in rows {
-        let handle = format!("@{}@{}", row.codename, row.host);
+        let handle = format!(
+            "@{}",
+            crate::idref::session_handle(&row.agent_slug, &row.session_id)
+        );
         let seen = crate::util::relative_time(row.last_seen, now);
         let resumable = if row.resumable {
             "resumable".green().to_string()
@@ -42,6 +45,8 @@ mod tests {
 
     fn row(codename: &str, resumable: bool) -> ExpiredSessionRow {
         ExpiredSessionRow {
+            agent_slug: "coder".into(),
+            session_id: "sess-abc".into(),
             codename: codename.into(),
             host: "laptop".into(),
             channel: "main".into(),
@@ -51,9 +56,9 @@ mod tests {
     }
 
     #[test]
-    fn renders_codename_host_and_resumability() {
+    fn renders_agent_session_handle_and_resumability() {
         let out = render_expired(&[row("amber-echo-001", true), row("cedar-mesa-002", false)]);
-        assert!(out.contains("@amber-echo-001@laptop"), "got: {out}");
+        assert!(out.contains("@coder/sess-abc"), "got: {out}");
         assert!(out.contains("#main"), "got: {out}");
         assert!(out.contains("resumable"), "got: {out}");
         assert!(out.contains("not resumable"), "got: {out}");

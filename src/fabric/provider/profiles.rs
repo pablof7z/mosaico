@@ -23,7 +23,8 @@ impl Nip29Provider {
         let host = host_tag(&event).unwrap_or_default();
         let is_backend = backend_tag(&event);
         let agent_slug = agent_slug_tag(&event).unwrap_or_default();
-        let (name, slug) = profile_cache_fields(&display_name, &host, is_backend);
+        let (name, slug) =
+            profile_cache_fields_with_agent_slug(&display_name, &host, &agent_slug, is_backend);
 
         self.with_store(|s| {
             s.upsert_profile_with_agent_slug(
@@ -83,17 +84,18 @@ fn tag_value(event: &nostr_sdk::Event, name: &str) -> Option<String> {
     })
 }
 
-fn profile_cache_fields(display_name: &str, host: &str, is_backend: bool) -> (String, String) {
-    let slug = if is_backend {
+fn profile_cache_fields_with_agent_slug(
+    display_name: &str,
+    host: &str,
+    agent_slug: &str,
+    is_backend: bool,
+) -> (String, String) {
+    let name = if is_backend {
         display_name.trim().to_string()
     } else {
-        crate::idref::slug_from_profile_name(display_name, host)
+        crate::idref::session_handle_from_profile_name(display_name, host, agent_slug)
     };
-    let name = if is_backend {
-        slug.clone()
-    } else {
-        crate::idref::agent_label(&slug, host)
-    };
+    let slug = name.clone();
     (name, slug)
 }
 
@@ -123,17 +125,28 @@ mod tests {
     #[test]
     fn cache_fields_keep_qualified_name_and_bare_slug() {
         assert_eq!(
-            profile_cache_fields("developer1@remoteBackend", "remoteBackend", false),
-            (
-                "developer1@remoteBackend".to_string(),
-                "developer1".to_string()
-            )
+            profile_cache_fields_with_agent_slug(
+                "developer1@remoteBackend",
+                "remoteBackend",
+                "",
+                false
+            ),
+            ("developer1".to_string(), "developer1".to_string())
         );
         assert_eq!(
-            profile_cache_fields("developer1", "remoteBackend", false),
+            profile_cache_fields_with_agent_slug("developer1", "remoteBackend", "", false),
+            ("developer1".to_string(), "developer1".to_string())
+        );
+        assert_eq!(
+            profile_cache_fields_with_agent_slug(
+                "developer1@remoteBackend",
+                "remoteBackend",
+                "developer",
+                false
+            ),
             (
-                "developer1@remoteBackend".to_string(),
-                "developer1".to_string()
+                "developer/developer1".to_string(),
+                "developer/developer1".to_string()
             )
         );
     }

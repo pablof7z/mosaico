@@ -107,10 +107,9 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         text.contains("<channel name=\"#main\""),
         "awareness should name the channel; got: {text:?}"
     );
-    let expected_code = crate::util::friendly_short_code("sess-intro");
     assert!(
-        text.contains(&format!("You are @{expected_code}, a coder agent.")),
-        "awareness should identify this agent by codename and agent slug; got: {text:?}"
+        text.contains("You are @coder/sess-intro, a coder agent."),
+        "awareness should identify this agent by agent/session handle; got: {text:?}"
     );
     assert!(
         !text.contains("[session"),
@@ -168,12 +167,12 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
     let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("You are @coder-vale-071, a coder agent."),
-        "snapshot must render the bound session codename; got: {text:?}"
+        text.contains(&format!("You are @coder/{sid}, a coder agent.")),
+        "snapshot must render the bound session handle; got: {text:?}"
     );
     assert!(
         !text.contains("You are @coder,"),
-        "raw session slug must not override the bound codename; got: {text:?}"
+        "bare agent slug must not override the bound session handle; got: {text:?}"
     );
 }
 

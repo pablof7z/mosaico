@@ -9,4 +9,7 @@ source_refs:
 
 # SessionIdentity
 
-A lean read-side struct (pubkey, slug, codename) replacing the old AgentInstance. display_slug() returns the codename; agent_ref() returns AgentRef(pubkey, codename). Codename = friendly_short_code(session_id). Used for routing, rendering, and member display.
+A lean read-side struct (pubkey, agent slug, session id, legacy code) replacing
+the old AgentInstance. `display_slug()` returns `agent/session`, and
+`agent_ref()` returns `AgentRef(pubkey, agent/session)`. Used for routing,
+rendering, and member display.

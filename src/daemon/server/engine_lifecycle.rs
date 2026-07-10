@@ -265,7 +265,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
 #[allow(clippy::too_many_arguments)]
 pub(in crate::daemon::server) fn engine_params_for(
     cfg: &Config,
-    // The session's read-side identity: pubkey, agent slug, codename.
+    // The session's read-side identity: pubkey, agent slug, public handle.
     identity: crate::identity::SessionIdentity,
     // The session's own minted signing keypair.
     keys: Keys,

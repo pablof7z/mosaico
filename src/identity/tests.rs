@@ -137,11 +137,16 @@ fn ac1_resumed_session_derives_same_pubkey() {
 
 #[test]
 fn session_identity_agent_ref_names_pubkey_by_codename() {
-    let inst = SessionIdentity::new("deadbeef".into(), "claude".into(), "willow-echo-042".into());
-    assert_eq!(inst.display_slug(), "willow-echo-042");
+    let inst = SessionIdentity::new(
+        "deadbeef".into(),
+        "claude".into(),
+        "sess-123".into(),
+        "willow-echo-042".into(),
+    );
+    assert_eq!(inst.display_slug(), "claude/sess-123");
     let aref = inst.agent_ref();
     assert_eq!(aref.pubkey, "deadbeef");
-    assert_eq!(aref.slug, "willow-echo-042");
+    assert_eq!(aref.slug, "claude/sess-123");
 }
 
 #[test]
@@ -149,5 +154,7 @@ fn session_identity_fallback_codename_is_short_code_of_session() {
     let inst = SessionIdentity::fallback("sess-xyz", "claude".into(), "deadbeef".into());
     assert_eq!(inst.pubkey, "deadbeef");
     assert_eq!(inst.slug, "claude");
+    assert_eq!(inst.session_id, "sess-xyz");
     assert_eq!(inst.codename, crate::util::friendly_short_code("sess-xyz"));
+    assert_eq!(inst.display_slug(), "claude/sess-xyz");
 }

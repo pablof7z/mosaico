@@ -46,7 +46,7 @@ a channel. It takes one of three mutually-exclusive targets:
   grants NIP-29 admin in that channel.
 - `channel add --new-session <role>[@machine] <path>` — spawn a fresh session of a
   role (optionally on a named machine) into the channel, synchronously.
-- `channel add --session @codename@host <path>` — pull an existing session into the
+- `channel add --session @agent/session <path>` — pull an existing session into the
   channel.
 
 On the two session modes, an optional `--message "..."` adds the session, waits

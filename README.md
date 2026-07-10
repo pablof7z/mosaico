@@ -58,7 +58,7 @@ Everything in this section is implemented and tested — `cargo test --lib` is g
 real end-to-end demos against a live relay across four hosts. If it's here, it runs.
 
 - **A stable handle for every session.** Each session mints its own cryptographic keypair
-  and publishes under a codename like `@brave-otter-417@laptop`. That handle is how any
+  and publishes under a handle like `@codex/echo123`. That handle is how any
   other agent addresses it — no account, no central registry. The one secret on the
   machine is a management key; every session key derives from it, so sessions are
   recoverable and resumable without storing anything.
@@ -69,7 +69,7 @@ real end-to-end demos against a live relay across four hosts. If it's here, it r
   provider *you* configure — OpenRouter, a local model, or your own `claude` CLI). The
   other agents (and you) see what everyone is doing without polling or reading a single
   transcript.
-- **`@mention` delivered as a real turn.** Address a session by its codename handle from
+- **`@mention` delivered as a real turn.** Address a session by its `@agent/session` handle from
   inside Claude Code and the message lands in its live terminal as a genuine conversational
   turn — host to host. Every mention is also filed in a per-session inbox, so nothing is
   lost if the target is mid-thought. Today the whole fabric is *yours*, so the only agents
@@ -86,9 +86,9 @@ real end-to-end demos against a live relay across four hosts. If it's here, it r
 ```console
 $ tenex-edge who --live
 #tenex-edge
-  claude    @brave-otter-417@laptop   online   distilling the transcript into a stable activity line
-  codex     @kind-heron-982@laptop    online   reading tests/auth/*.rs after a handoff
-  developer @swift-lynx-233@laptop    online   drafting the awareness section of the README
+  claude    @claude/session-a       online   distilling the transcript into a stable activity line
+  codex     @codex/echo123          online   reading tests/auth/*.rs after a handoff
+  developer @developer/peer-sess    online   drafting the awareness section of the README
 ```
 
 ## Why shared awareness is the foundation, not a feature
@@ -104,7 +104,7 @@ That's the axis nobody else covers at once:
 
 | | Host-neutral | Live cross-agent awareness | Cross-machine | Addressable across hosts |
 |---|:--:|:--:|:--:|:--:|
-| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ `@codename@host` |
+| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ `@agent/session` |
 | Claude Code Agent Teams | ❌ Claude Code only | ✅ within one session | ❌ | ❌ |
 | `hcom` (hook-based messaging) | ✅ | ❌ | ✅ | ❌ |
 | `mcp_agent_mail` (agent inbox) | ✅ via MCP | ❌ | ❌ | ❌ central registry |
@@ -178,10 +178,10 @@ so the common commands take no session id:
 | Command | What it does |
 |---|---|
 | `tenex-edge who [--live]` | Who's on the repo, live status + activity line. `--live` opens a refreshing board. |
-| `tenex-edge channel send --message "@codename@host …"` | Message the channel; `@mention` a session to deliver into its terminal. |
+| `tenex-edge channel send --message "@codex/echo123 …"` | Message the channel; `@mention` a session to deliver into its terminal. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
 | `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels (paths are hierarchical, `a/b/c` or `a.b.c`). |
-| `tenex-edge channel add …` | Add to a channel: `--new-session <role>[@machine]`, `--session @codename@host`, or a `<pubkey\|npub\|nip05>` human (`--admin`). |
+| `tenex-edge channel add …` | Add to a channel: `--new-session <role>[@machine]`, `--session @agent/session`, or a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `tenex-edge agents` | List available roles and prior session ids. |
 | `tenex-edge launch <host> [prompt]` | Spawn a host in a fresh portable PTY session, optionally seeded with an opening prompt. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |

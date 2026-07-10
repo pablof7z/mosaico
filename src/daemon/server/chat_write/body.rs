@@ -29,10 +29,12 @@ fn first_mention_span(body: &str, raw_label: &str) -> Option<(usize, usize)> {
         let start = at + 1;
         let after = &body[start..];
         let end_rel = after
-            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@')))
+            .find(|c: char| {
+                !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@'))
+            })
             .unwrap_or(after.len());
         let mut end = start + end_rel;
-        while end > start && matches!(body[..end].chars().next_back(), Some('.' | '@')) {
+        while end > start && matches!(body[..end].chars().next_back(), Some('.' | '@' | '/')) {
             end -= body[..end]
                 .chars()
                 .next_back()
@@ -71,6 +73,17 @@ mod tests {
 
         assert!(out.starts_with("ping nostr:npub1"));
         assert!(out.ends_with('.'));
+    }
+
+    #[test]
+    fn rewrites_full_agent_session_handle() {
+        let out =
+            rewrite_first_resolved_mention("hey @codex/echo123 now", "codex/echo123", TARGET_PK);
+
+        assert!(out.starts_with("hey nostr:npub1"));
+        assert!(out.ends_with(" now"));
+        assert!(!out.contains("@codex"));
+        assert!(!out.contains("/echo123"));
     }
 
     #[test]

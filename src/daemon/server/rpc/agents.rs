@@ -32,8 +32,16 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| pubkey_short(&st.pubkey))
             };
+            let agent_slug = profile
+                .as_ref()
+                .map(|p| p.agent_slug.clone())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    crate::idref::parse_session_handle(&slug).map(|(agent, _)| agent.to_string())
+                })
+                .unwrap_or_else(|| slug.clone());
             if let Some(t) = &target {
-                if t.slug != slug && t.slug != st.pubkey {
+                if t.slug != agent_slug && t.slug != slug && t.slug != st.pubkey {
                     continue;
                 }
                 if let Some(backend) = &t.backend {
@@ -47,9 +55,12 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
             } else {
                 format!("{slug}@{host}")
             };
+            let handle = crate::idref::session_handle(&agent_slug, &st.session_id);
             out.push(serde_json::json!({
                 "channel": st.channel_h,
                 "agent": agent,
+                "agent_slug": agent_slug,
+                "handle": handle,
                 "session_id": st.session_id,
                 "title": st.title,
                 "activity": st.activity,

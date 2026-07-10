@@ -10,4 +10,5 @@ source_refs:
 
 # per-session kind:0 name
 
-@session-codename@hostname — the p-taggable handle for a live session. Each session publishes its own kind:0; there is no base agent pubkey.
+`@agent/session` — the p-taggable handle for a live session. Each session
+publishes its own kind:0; there is no base agent pubkey.

@@ -32,7 +32,7 @@ Full catalog audited (`catalog.rs` SPECS + `tools.rs` dispatch): the exposed too
 
 ### Feature 2 — TUI live session browser (`src/cli/tui/**`)
 **Verdict: fully coherent as-is. No changes.**
-Renders `agent` slug + title/activity + channels + PTY + cwd + command; keybind hints are attach/pane/kill/refresh/quit. Grep for `invite|ordinal|instance|project init|role slug|chat` across the module returns nothing. It never labels anything "ordinal", never exposes a removed command, and shows the local-view identity (agent slug + session id) which is the correct local model. The fabric `@codename@host` handle is not surfaced, which is fine per the task brief (local browser, not fabric addressing).
+Renders `agent` slug + title/activity + channels + PTY + cwd + command; keybind hints are attach/pane/kill/refresh/quit. Grep for `invite|ordinal|instance|project init|role slug|chat` across the module returns nothing. It never labels anything "ordinal", never exposes a removed command, and shows the local-view identity (agent slug + session id) which is the correct local model. The fabric `@agent/session` handle is not surfaced, which is fine per the task brief (local browser, not fabric addressing).
 
 ### Feature 3 — mgmt chat commands (`src/daemon/server/management_command*`)
 **Verdict: coherent. No changes.**
@@ -42,6 +42,6 @@ Renders `agent` slug + title/activity + channels + PTY + cwd + command; keybind 
 ## What I flagged for human review (implemented conservative option: left as-is)
 1. **MCP tool rename `chat_read→channel_read`, `chat_write→channel_send`:** technically safe (tool name maps to RPC method in `tools.rs`, so RPC dispatch wouldn't break), and more aligned with shipped `channel read`/`channel send`. Not done because it's a client-facing breaking change to already-published MCP tool names; per instructions I kept names and fixed descriptions only.
 2. **No MCP `channel add` / recruit tool exists.** The existing catalog is coherent, but there's no MCP equivalent of the shipped `channel add` (human / `--new-session` / `--session`) despite `channels_create` accepting an `agents` array. Adding one is net-new surface + RPC wiring, so I did not add it — flagging as a possible follow-up.
-3. **mgmt `add` covers only the new-session path** (`slug[@backend]`), not `channel add`'s human-add or `--session @codename@host` existing-session modes. This is a coherent subset for a chat command, not an incoherence; noted in case parity is desired.
+3. **mgmt `add` covers only the new-session path** (`slug[@backend]`), not `channel add`'s human-add or `--session @agent/session` existing-session modes. This is a coherent subset for a chat command, not an incoherence; noted in case parity is desired.
 
 Diff: 2 lines in `src/cli/mcp/catalog.rs`. Gates: `cargo build` OK, `just fmt-check` OK, `just lint` OK, `just loc-check` OK, `just test-unit` 877 passed / 0 failed. Uncommitted.

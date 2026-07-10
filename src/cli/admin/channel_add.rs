@@ -1,7 +1,7 @@
 //! `channel add` — add a member to a channel in one of three shapes:
 //!   * human by id:        `channel add <pubkey|npub|nip05> <channel> [--admin]`
 //!   * spawn a new session: `channel add --new-session <role>[@machine] <channel>`
-//!   * pull an existing one:`channel add --session @codename@host <channel>`
+//!   * pull an existing one:`channel add --session @agent/session <channel>`
 //!
 //! Human adds route to the daemon's `channel_add_member`; both session modes route to
 //! `invite` (fresh spawn vs. resume/pull). `--message` posts a chat mentioning
@@ -80,7 +80,7 @@ async fn new_session_add(
         print_ambiguous(&format!("--new-session {role}"), &channel, &v);
     }
     // Synchronous success line: the fresh session is confirmed online, named by
-    // its own codename.
+    // its own public handle.
     println!(
         "a {role} is now on #{channel}: @{}",
         online_label(&v).bold()
@@ -95,9 +95,9 @@ async fn session_add(
     message: Option<String>,
 ) -> Result<()> {
     let Some(channel) = channel else {
-        anyhow::bail!("channel add --session @codename@host <channel>");
+        anyhow::bail!("channel add --session @agent/session <channel>");
     };
-    // Strip a leading `@` so both `@codename@host` and `codename@host` are accepted.
+    // Strip a leading `@` so both `@agent/session` and `agent/session` are accepted.
     let selector = codehost.strip_prefix('@').unwrap_or(codehost);
     let v = invite_call(
         &channel,
@@ -129,13 +129,14 @@ async fn invite_call(
     daemon_call_async("invite", crate::cli::rpc_params(params)).await
 }
 
-/// The brought-online session's `codename@host` handle from an invite response.
-/// Remote responses already carry `codename@backend`; local ones need the host
-/// appended.
+/// The brought-online session's public handle from an invite response. Remote
+/// legacy responses may still carry `codename@backend`; local slash handles are
+/// already complete.
 fn online_label(v: &serde_json::Value) -> String {
     let label = v["online_agent"].as_str().unwrap_or("session");
     let host = v["host"].as_str().unwrap_or("");
-    if label.contains('@') || host.is_empty() {
+    if label.contains('@') || crate::idref::parse_session_handle(label).is_some() || host.is_empty()
+    {
         label.to_string()
     } else {
         format!("{label}@{host}")
@@ -191,11 +192,9 @@ mod tests {
     }
 
     #[test]
-    fn session_pull_accepts_codename_and_message() {
-        let a = parse_add(
-            "tenex-edge channel add --session @bright-otter-042@laptop ops --message welcome",
-        );
-        assert_eq!(a.session.as_deref(), Some("@bright-otter-042@laptop"));
+    fn session_pull_accepts_handle_and_message() {
+        let a = parse_add("tenex-edge channel add --session @coder/sess-abc ops --message welcome");
+        assert_eq!(a.session.as_deref(), Some("@coder/sess-abc"));
         assert_eq!(a.first.as_deref(), Some("ops"));
         assert_eq!(a.message.as_deref(), Some("welcome"));
     }
@@ -217,7 +216,7 @@ mod tests {
     #[test]
     fn new_session_conflicts_with_session() {
         let kind =
-            parse_err("tenex-edge channel add --new-session reviewer --session @code@host ops");
+            parse_err("tenex-edge channel add --new-session reviewer --session @coder/sess ops");
         assert_eq!(kind, ErrorKind::ArgumentConflict);
     }
 

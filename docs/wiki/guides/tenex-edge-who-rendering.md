@@ -26,6 +26,6 @@ The old `src/cli/who/render.rs` + `src/who_snapshot.rs` markdown-table renderer 
 <!-- citations: [^7d6bf-cad7a] [^7d6bf-5aab0] -->
 ## `who --all-projects` Block Layout
 
-`render_fabric_all_projects`/`_human` in `fabric_context.rs` renders one project block per root channel. Within each block, per-member entries are listed as `role @codename@host - status` (for example, `developer @brave-otter-417@laptop - working`), followed by the available-agent roster materialized from kind:30555 events for that root channel. Availability rows show the advertised role slug, host, and use criteria; they are the role types that can be added to the channel, not concrete members.
+`render_fabric_all_projects`/`_human` in `fabric_context.rs` renders one project block per root channel. Within each block, per-member entries are listed as `role @agent/session - status` (for example, `developer @developer/peer-sess - working`), followed by the available-agent roster materialized from kind:30555 events for that root channel. Availability rows show the advertised role slug, host, and use criteria; they are the role types that can be added to the channel, not concrete members.
 
 <!-- citations: [^7d6bf-bafea] [^7d6bf-db5d3] -->

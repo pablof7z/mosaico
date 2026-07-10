@@ -271,7 +271,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         effective_endpoint.clone(),
         pty_session.is_some(),
         minted.identity.pubkey.clone(),
-        minted.identity.codename.clone(),
+        minted.identity.display_slug(),
         already_running,
         needs_chat_replay,
         now,

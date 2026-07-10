@@ -1,6 +1,6 @@
 //! Idempotent migration: add `relay_profiles.agent_slug` for the raw agent kind
 //! carried by kind:0 profile tags. The existing `slug` column remains the
-//! display/routing handle, which can be a per-session codename.
+//! display/routing handle, which can be a per-session `agent/session` handle.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;

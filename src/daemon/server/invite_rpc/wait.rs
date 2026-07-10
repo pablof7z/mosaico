@@ -86,7 +86,7 @@ pub(super) async fn wait_remote_agent_online(
             if fallback.is_none() {
                 fallback = Some(label.clone());
             }
-            if slug_matches(base_slug, label.split('@').next().unwrap_or("")) {
+            if slug_matches(base_slug, label_agent(&label)) {
                 return Some(label);
             }
         }
@@ -148,11 +148,20 @@ fn label_for_pubkey(
             })
     });
     let slug = slug.unwrap_or_else(|| crate::util::pubkey_short(pubkey));
-    if backend.is_empty() || backend == state.host {
+    if crate::idref::parse_session_handle(&slug).is_some()
+        || backend.is_empty()
+        || backend == state.host
+    {
         slug
     } else {
         format!("{slug}@{backend}")
     }
+}
+
+fn label_agent(label: &str) -> &str {
+    crate::idref::parse_session_handle(label)
+        .map(|(agent, _)| agent)
+        .unwrap_or_else(|| label.split('@').next().unwrap_or(label))
 }
 
 fn slug_matches(base: &str, candidate: &str) -> bool {

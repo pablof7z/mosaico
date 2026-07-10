@@ -10,4 +10,6 @@ source_refs:
 
 # members
 
-Concrete *sessions* (codenames), not role types. The members of a channel are live sessions addressed by @codename@host; available-agents (role configs) are the types you can invite.
+Concrete *sessions*, not role types. The members of a channel are live sessions
+addressed by `@agent/session`; available-agents (role configs) are the types you
+can invite.

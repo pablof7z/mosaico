@@ -144,13 +144,13 @@ async fn agents_roster() -> Result<()> {
         };
         match criteria.is_empty() {
             true => println!(
-                "  @{}  #{}  add: {}",
+                "  {}  #{}  add: {}",
                 agent.bold(),
                 channel.dimmed(),
                 invite_spec.dimmed()
             ),
             false => println!(
-                "  @{} — {}  #{}  add: {}",
+                "  {} — {}  #{}  add: {}",
                 agent.bold(),
                 criteria,
                 channel.dimmed(),
@@ -186,7 +186,10 @@ async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<(
             current = channel.to_string();
             println!("#{}:", current);
         }
-        let agent = row["agent"].as_str().unwrap_or("?");
+        let handle = row["handle"]
+            .as_str()
+            .or_else(|| row["agent"].as_str())
+            .unwrap_or("?");
         let session_id = row["session_id"].as_str().unwrap_or("?");
         let title = row["title"]
             .as_str()
@@ -199,8 +202,8 @@ async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<(
             relative_time(last_seen, now)
         };
         println!(
-            "  * {} [{}] - {} - last seen: {}",
-            agent.bold(),
+            "  * @{} [{}] - {} - last seen: {}",
+            handle.bold(),
             session_id.dimmed(),
             title,
             seen

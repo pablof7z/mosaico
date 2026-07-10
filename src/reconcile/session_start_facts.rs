@@ -25,7 +25,7 @@ pub struct SessionStartRequestFact {
     pub ring_doorbell: bool,
     /// The session's own minted pubkey.
     pub signer_pubkey: String,
-    /// The session's memorable codename (its kind:0 name / mention handle).
+    /// The session's public kind:0 name / mention handle.
     pub signer_label: String,
     pub already_running: bool,
     pub channel_already_subscribed: bool,

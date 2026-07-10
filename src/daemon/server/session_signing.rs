@@ -1,7 +1,7 @@
 use super::*;
 
 /// A freshly minted per-session identity: the session's own signing keys plus
-/// its read-side projection (pubkey, slug, codename).
+/// its read-side projection (pubkey, agent slug, session id).
 pub(in crate::daemon::server) struct MintedSession {
     pub keys: Keys,
     pub identity: crate::identity::SessionIdentity,
@@ -15,9 +15,8 @@ pub(in crate::daemon::server) struct MintedSession {
 /// no occupancy/ordinal/collision logic — every session simply gets its own key.
 ///
 /// Records the minted pubkey into the append-only `identities` cache, binding it
-/// to this live session + its harness-native id (the resume key) and the
-/// memorable codename it publishes under, so a later `#p`-tagged mention resolves
-/// back to the right session.
+/// to this live session + its harness-native id (the resume key), so a later
+/// `#p`-tagged mention resolves back to the right session.
 pub(in crate::daemon::server) fn mint_session_identity(
     state: &Arc<DaemonState>,
     session_id: &str,
@@ -51,6 +50,11 @@ pub(in crate::daemon::server) fn mint_session_identity(
     }
     Ok(MintedSession {
         keys,
-        identity: crate::identity::SessionIdentity::new(pubkey, agent_slug.to_string(), codename),
+        identity: crate::identity::SessionIdentity::new(
+            pubkey,
+            agent_slug.to_string(),
+            session_id.to_string(),
+            codename,
+        ),
     })
 }

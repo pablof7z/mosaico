@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 /// heartbeat within this many seconds is treated as crashed/abandoned: its
 /// channel memberships are torn down and the row is marked dead. 10 minutes —
 /// long enough to ride out a transient stall, short enough that a crashed
-/// session's codename stops occupying a channel roster promptly.
+/// session's public handle stops occupying a channel roster promptly.
 pub(in crate::daemon::server) const STALE_MEMBERSHIP_SECS: u64 = 600;
 
 fn joined_channels_for_session(

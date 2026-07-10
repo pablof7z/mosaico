@@ -144,6 +144,46 @@ fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
 }
 
 #[test]
+fn slash_session_handle_resolves_live_session_and_validates_agent() {
+    let store = Store::open_memory().unwrap();
+    register_session(&store, "echo123", "codex", "channel");
+
+    let resolved = resolve_recipient(&store, "channel", "localBackend", "codex/echo123").unwrap();
+
+    assert_eq!(resolved.pubkey, "codex-pubkey");
+    assert_eq!(resolved.target_session.as_deref(), Some("echo123"));
+    assert_eq!(resolved.channel, "channel");
+
+    let err = match resolve_recipient(&store, "channel", "localBackend", "haiku/echo123") {
+        Ok(_) => panic!("mismatched agent/session handle should not resolve"),
+        Err(e) => e,
+    };
+    assert!(err.to_string().contains("can't resolve recipient"));
+}
+
+#[test]
+fn slash_session_handle_resolves_profile_cache() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile_with_agent_slug(
+            "remote-pk",
+            "codex/echo123",
+            "codex/echo123",
+            "codex",
+            "remoteBackend",
+            false,
+            1,
+        )
+        .unwrap();
+
+    let resolved = resolve_recipient(&store, "channel", "localBackend", "codex/echo123").unwrap();
+
+    assert_eq!(resolved.pubkey, "remote-pk");
+    assert_eq!(resolved.target_session, None);
+    assert_eq!(resolved.channel, "channel");
+}
+
+#[test]
 fn local_chat_cache_scope_matches_signed_event_target() {
     assert_eq!(chat_publish_scope("sender-room", None, None), "sender-room");
     assert_eq!(

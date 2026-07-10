@@ -43,13 +43,13 @@ Mention tokens in message bodies are normalized to `@<name>` display form by `re
 
 Whitelisted human operators (checked against config `whitelistedPubkeys` via `is_whitelisted`) who have no session or host are rendered with a bare `<@name>` (no host segment) instead of `<name@?>` in both `channel read` CLI output and the fabric_context snapshot path — consistent with the bare rendering already used in terminal-injected mention rendering.
 
-Chat mentions use `@<codename>@<host>` (e.g. @brave-otter-417@laptop), the session's kind:0 profile name. The `extract_mentions` tokenizer accepts any handle-shaped token matching `[A-Za-z0-9._-]+` optionally host-qualified as `codename@host`. Unresolvable mention tokens are silently treated as no-mention rather than blocking chat delivery. Mention resolution reverse-looks-up `relay_profiles` by codename handle to return the target session's pubkey.
+Chat mentions use `@<agent>/<session>` (e.g. `@codex/echo123`), the session's kind:0 profile name. The `extract_mentions` tokenizer accepts handle-shaped tokens with `/` so slash session handles survive body parsing. Unresolvable mention tokens are silently treated as no-mention rather than blocking chat delivery. Mention resolution reverse-looks-up `relay_profiles` by public handle, with legacy `codename@host` aliases accepted for older profiles.
 
-The channel-send confirmation line reads `mentioning @{codename}@{host}`, driven by the RPC's mentioned handle, falling back to plain `sent chat {id}` when no mention is present. README.md documentation references `@<codename>@<host>` targeting.
+The channel-send confirmation line reads `mentioning @agent/session`, driven by the RPC's mentioned handle, falling back to plain `sent chat {id}` when no mention is present. README.md documentation references `@<agent>/<session>` targeting.
 
 `tenex-edge channel send` refuses messages longer than 600 characters, erroring out and offering `--long-message` for longer messages.
 
-@-mentioning someone from a subchannel they are not in is a cross-channel mention using `@codename@host` addressing, with no membership side-effects from mentions; replying or joining requires an explicit `channel add` or `channel switch`.
+@-mentioning someone from a subchannel they are not in is a cross-channel mention using `@agent/session` addressing, with no membership side-effects from mentions; replying or joining requires an explicit `channel add` or `channel switch`.
 
 <!-- citations: [^bdb6c-1833e] [^d39d3-7d6ac] [^bd868-1c088] [^bd868-dce28] [^bd868-f7785] [^75f62-ebb61] [^e0eba-b9cc1] [^e0eba-5f8a4] [^e0eba-7764c] [^fea53-85a33] [^a6282-aa4e7] -->
 ## Ambient Chatter
@@ -72,7 +72,7 @@ Echo suppression uses explicit inbox ledger states. When pty pastes delivered me
 
 ## Session Identity and Display
 
-The `who` command, when run inside an agent session, displays a self-identity header (codename handle, channel, host, pubkey, status, member, pending), so the roster command also answers "who am I here?". The self-header reads `You are **@{codename}@{host}** on **{channel}**.` with pubkey, status, member, and pending info, and shows the raw session id only as an internal correlation handle. Concurrent sessions of the same role render directly by their distinct codename handles, needing no duplicate-name disambiguation. Session-start and hook echo responses carry only the canonical `session_id` when they need an internal correlation handle. <!-- [^bd868-e816c] -->
+The `who` command, when run inside an agent session, displays a self-identity header (public handle, channel, host, pubkey, status, member, pending), so the roster command also answers "who am I here?". The self-header reads `You are **@{agent}/{session}** on **{channel}**.` with pubkey, status, member, and pending info. Concurrent sessions of the same role render directly by their distinct `@agent/session` handles, needing no duplicate-name disambiguation. Session-start and hook echo responses carry only the canonical `session_id` when they need an internal correlation handle. <!-- [^bd868-e816c] -->
 
 ## Backend Management Traffic
 

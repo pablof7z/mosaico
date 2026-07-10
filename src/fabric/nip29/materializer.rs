@@ -83,19 +83,24 @@ impl Nip29Materializer {
     // ── relay_profiles (kind:0) ──────────────────────────────────────────────
 
     /// Materialise a decoded kind:0 profile into `relay_profiles`. Newer
-    /// `updated_at` wins. Agent profile `name` is the backend-qualified display
-    /// label, while `slug` stays bare for `(slug, backend)` routing.
+    /// `updated_at` wins. Agent profile `name`/`slug` are the canonical
+    /// `agent/session` handle; backend profiles keep their backend name.
     pub fn materialize_profile(store: &Store, pf: &Profile, updated_at: u64) {
         let slug = pf.agent.slug.as_str();
         let name = if pf.is_backend {
             slug.to_string()
         } else {
-            crate::idref::agent_label(slug, &pf.host)
+            crate::idref::session_handle_from_profile_name(slug, &pf.host, &pf.agent_slug)
+        };
+        let slug = if pf.is_backend {
+            slug.to_string()
+        } else {
+            name.clone()
         };
         if let Err(e) = store.upsert_profile_with_agent_slug(
             &pf.agent.pubkey,
             &name,
-            slug,
+            &slug,
             &pf.agent_slug,
             &pf.host,
             pf.is_backend,
@@ -103,7 +108,7 @@ impl Nip29Materializer {
         ) {
             tracing::error!(
                 pubkey = %pf.agent.pubkey,
-                slug,
+                slug = %slug,
                 error = %e,
                 "materialize_profile: relay_profiles upsert failed — relay truth diverged from cache"
             );

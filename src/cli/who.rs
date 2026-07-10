@@ -25,7 +25,7 @@ fn who_value_via_daemon(root: &Option<String>, all_roots: bool) -> Result<serde_
 }
 
 /// `who --expired`: fetch this machine's dead/old sessions from the daemon and
-/// render them (codename + channel + last_seen + resumable) for resume.
+/// render them (public handle + channel + last_seen + resumable) for resume.
 fn who_expired() -> Result<()> {
     let v = crate::daemon::blocking::call(
         "who",

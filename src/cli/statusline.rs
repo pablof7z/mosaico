@@ -155,12 +155,12 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
     };
     let mut segs: Vec<String> = Vec::new();
 
-    // Identity: the agent's published kind:0 name @ the backend label.
-    let ident = if v.host.trim().is_empty() {
-        v.agent.clone()
-    } else {
-        format!("{}@{}", v.agent, v.host.trim())
-    };
+    let ident =
+        if crate::idref::parse_session_handle(&v.agent).is_some() || v.host.trim().is_empty() {
+            v.agent.clone()
+        } else {
+            format!("{}@{}", v.agent, v.host.trim())
+        };
     segs.push(paint(
         ident, "36", // cyan
     ));

@@ -74,12 +74,21 @@ fn agent_slug(inputs: &ViewInputs, pk: &str) -> String {
 
 fn member_reference(
     members: &MembersInput,
-    meta_local_host: &str,
+    _meta_local_host: &str,
     pk: &str,
     status: Option<&&StatusCap>,
 ) -> String {
     if let Some(s) = status.filter(|s| !s.session_id.is_empty()) {
-        return crate::fabric_context::refs::codename_ref(&s.session_id, &s.host, meta_local_host);
+        let profile_agent_slug = members
+            .agent_slugs
+            .get(pk)
+            .map(String::as_str)
+            .unwrap_or("");
+        return crate::fabric_context::refs::session_ref(
+            &s.session_id,
+            &s.slug,
+            profile_agent_slug,
+        );
     }
     members.refs.get(pk).cloned().unwrap_or_default()
 }

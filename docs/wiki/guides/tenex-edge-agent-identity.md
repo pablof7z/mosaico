@@ -33,13 +33,13 @@ recoverable and resumable without ever storing an nsec.
 an identity. Launching a role produces a fresh session with a fresh derived key;
 the role file contributes behavior, not a signing identity.
 
-## Codename Handle
+## Agent/Session Handle
 
-Each session publishes a kind:0 profile whose `name` is `@<codename>@<hostname>`,
-where the codename is `friendly_short_code(session_id)` — a stable `word-word-NNN`
-handle derived from the session id. That `@codename@host` is the p-taggable
-mention target peers use to address the session. Since the codename is derived
-from the session id, a resumed session keeps its handle.
+Each session publishes a kind:0 profile whose `name` is `@<agent-slug>/<session-id>`.
+For example, a Codex session can be mentioned as `@codex/echo123`. That
+`@agent/session` handle is the p-taggable mention target peers use to address the
+session. Since the handle contains the canonical session id, a resumed session
+keeps its handle.
 
 ## Trust Is Channel Membership
 
@@ -53,29 +53,29 @@ membership is presence, not the definition of the session's identity.
 
 The roster (`available-agents`) is the set of role configs on the machine — the
 *types* you can add to a channel. Channel *members* are concrete sessions,
-rendered as their role plus `@codename@host`. Adding a role to a channel spawns a
+rendered as their role plus `@agent/session`. Adding a role to a channel spawns a
 new session; that session is what becomes a member.
 
 ## Session Identification and Routing
 
 The raw `session_id` is the internal correlation id, and the derived pubkey is
-what signs and is routed to. Peers reference a session by its codename handle
-(`@codename@host`), never by raw pubkey. A mention that cannot be resolved to a
+what signs and is routed to. Peers reference a session by its `@agent/session`
+handle, never by raw pubkey. A mention that cannot be resolved to a
 current member is silently treated as no-mention rather than erroring, so mention
 resolution never blocks chat delivery.
 
 ## Session Resume
 
 Resume resolves sessions by exact raw `session_id`, then by `session_id` prefix.
-Because the signing key and the codename are both derived from the session id,
-resuming a session reconstitutes the same identity and handle without any stored
+Because the signing key and the handle are both derived from the session id,
+resuming a session reconstitutes the same identity without any stored
 secret beyond the machine's management key.
 
 ## Identity Commands
 
 `tenex-edge who`, run inside an agent session, shows the caller who they are and
 which channel they are on: a self header of the form
-"You are **@codename@host** on **{channel}**." followed by pubkey, status,
+"You are **@agent/session** on **{channel}**." followed by pubkey, status,
 membership, and pending counts. The self header is prepended to both `who` and the
 `who --live` fabric view. The `(you)` member match keys on the session's derived
 pubkey.

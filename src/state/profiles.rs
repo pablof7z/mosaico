@@ -95,6 +95,24 @@ impl Store {
         Ok(None)
     }
 
+    /// Reverse lookup for the public per-session handle (`agent/session`).
+    pub fn resolve_profile_handle_pubkey(&self, handle: &str) -> Result<Option<String>> {
+        let handle = handle.trim();
+        if crate::idref::parse_session_handle(handle).is_none() {
+            return Ok(None);
+        }
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT pubkey FROM relay_profiles
+                 WHERE is_backend=0 AND (name=?1 OR slug=?1)
+                 ORDER BY updated_at DESC LIMIT 1",
+                params![handle],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?)
+    }
+
     /// Reverse lookup: the pubkey of a backend with exactly this config
     /// `backendName` label. Invite/orchestration surfaces do not accept OS/DNS
     /// hostnames, pubkeys, NIP-05, or slugified display strings here.
@@ -117,12 +135,20 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT slug, host FROM relay_profiles WHERE pubkey=?1",
+                "SELECT slug, host, agent_slug FROM relay_profiles WHERE pubkey=?1",
                 params![pubkey],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()?
-            .map(|(slug, host)| crate::idref::slug_from_profile_name(&slug, &host))
+            .map(|(slug, host, agent_slug)| {
+                crate::idref::session_handle_from_profile_name(&slug, &host, &agent_slug)
+            })
             .filter(|s| !s.is_empty()))
     }
 }

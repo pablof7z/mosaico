@@ -67,7 +67,7 @@ pub(in crate::cli) enum AgentsAction {
 /// `channel add` targets. Exactly one of three shapes: a human member by id
 /// (two positionals `<id> <channel>`), a freshly spawned session
 /// (`--new-session <role>[@machine] <channel>`), or an existing session pulled in
-/// (`--session @codename@host <channel>`). Flag modes take ONE positional (the
+/// (`--session @agent/session <channel>`). Flag modes take ONE positional (the
 /// channel); human mode takes TWO. `--admin` is human-only; `--message` posts a
 /// chat mentioning the brought-online session and is valid only in the session
 /// modes.
@@ -83,8 +83,8 @@ pub(in crate::cli) struct AddArgs {
     /// Spawn a fresh session of `ROLE[@machine]` and add it to the channel.
     #[arg(long = "new-session", value_name = "ROLE", conflicts_with_all = ["session", "admin"])]
     pub(in crate::cli::admin) new_session: Option<String>,
-    /// Pull an existing session, named `@codename@host`, into the channel.
-    #[arg(long, value_name = "CODENAME", conflicts_with_all = ["new_session", "admin"])]
+    /// Pull an existing session, named `@agent/session`, into the channel.
+    #[arg(long, value_name = "HANDLE", conflicts_with_all = ["new_session", "admin"])]
     pub(in crate::cli::admin) session: Option<String>,
     /// Grant admin rather than member. Human target only.
     #[arg(long)]
@@ -99,7 +99,7 @@ pub(in crate::cli) struct AddArgs {
 #[derive(Subcommand)]
 pub(in crate::cli) enum ChannelAction {
     /// Add a member to a channel: a human by id, a freshly spawned session
-    /// (`--new-session <role>`), or an existing one (`--session @codename@host`).
+    /// (`--new-session <role>`), or an existing one (`--session @agent/session`).
     Add(AddArgs),
     /// Read channel chat history.
     Read {

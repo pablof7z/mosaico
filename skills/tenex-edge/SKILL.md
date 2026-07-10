@@ -121,7 +121,7 @@ existing session, or add a human:
 
 ```bash
 tenex-edge channel add --new-session <role>[@machine] <path>   # spawn fresh, synchronous
-tenex-edge channel add --session @codename@host <path>         # pull an existing session
+tenex-edge channel add --session @agent/session <path>         # pull an existing session
 tenex-edge channel add <pubkey|npub|nip05> <path> [--admin]    # add a human (optionally admin)
 ```
 

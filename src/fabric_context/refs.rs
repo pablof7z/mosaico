@@ -9,21 +9,21 @@ pub(super) fn display_name(store: &Store, channel: &str) -> String {
         .unwrap_or_else(|| channel.to_string())
 }
 
-/// The codename-bearing member reference: `codename` (local) / `codename@host`
-/// (remote), where `codename = friendly_short_code(session_id)`. Shared by the
-/// legacy (`people`) and pure (`assemble`) member-row paths so they can never
-/// drift. `host` is the member's raw profile host (empty ⇒ treated as local).
-pub(super) fn codename_ref(session_id: &str, host: &str, local_host: &str) -> String {
-    crate::idref::agent_ref_from(
-        &crate::util::friendly_short_code(session_id),
-        host,
-        local_host,
-    )
+/// The session-bearing member reference: `agent/session`. Shared by the legacy
+/// (`people`) and pure (`assemble`) member-row paths so they can never drift.
+pub(super) fn session_ref(session_id: &str, status_slug: &str, profile_agent_slug: &str) -> String {
+    if !profile_agent_slug.trim().is_empty() {
+        return crate::idref::session_handle(profile_agent_slug, session_id);
+    }
+    if crate::idref::parse_session_handle(status_slug).is_some() {
+        return status_slug.to_string();
+    }
+    session_id.to_string()
 }
 
 /// The raw profile host for a pubkey (empty when unknown). Kept separate from
-/// [`pubkey_ref`] so the codename-ref path can reconstruct `codename@host`
-/// identically in both the legacy and pure derivations.
+/// [`pubkey_ref`] so fallback member rendering can stay identical in both the
+/// legacy and pure derivations.
 pub(super) fn profile_host(store: &Store, pubkey: &str) -> String {
     store
         .get_profile(pubkey)
@@ -45,5 +45,9 @@ pub(super) fn pubkey_ref(store: &Store, pubkey: &str, local_host: &str) -> Strin
         .map(|p| p.host.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| local_host.to_string());
-    crate::idref::agent_ref_from(&slug, &host, local_host)
+    if crate::idref::parse_session_handle(&slug).is_some() {
+        slug
+    } else {
+        crate::idref::agent_ref_from(&slug, &host, local_host)
+    }
 }

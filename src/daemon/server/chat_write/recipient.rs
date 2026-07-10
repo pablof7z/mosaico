@@ -72,7 +72,28 @@ pub(in crate::daemon::server) fn resolve_recipient(
             })
         }
         Ref::Token(tok) => {
-            // 1. Exact canonical id or harness alias.
+            // 1. Public `agent/session` handle. Do this before raw session
+            // matching so a bad slash handle never falls through to a bare role.
+            if crate::idref::parse_session_handle(&tok).is_some() {
+                if let Some(found) = find_session_by_public_handle(store, my_channel, &tok)? {
+                    return Ok(session_recipient(
+                        store,
+                        found.session_id,
+                        found.pubkey,
+                        found.channel,
+                    ));
+                }
+                if let Some(pk) = store.resolve_profile_handle_pubkey(&tok)? {
+                    return Ok(ResolvedRecipient {
+                        pubkey: pk,
+                        target_session: None,
+                        channel: my_channel.to_string(),
+                    });
+                }
+                anyhow::bail!("can't resolve recipient {target:?} (try `tenex-edge who`)");
+            }
+
+            // 2. Exact canonical id or harness alias.
             if let Some(s) = store.get_session(&tok)? {
                 return Ok(session_recipient(
                     store,
@@ -81,7 +102,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     s.channel_h,
                 ));
             }
-            // 2. Local session id prefix. A store error here must NOT collapse into
+            // 3. Local session id prefix. A store error here must NOT collapse into
             // "no such recipient" — propagate it so a DB failure is loud, not a
             // silent unknown-mention.
             if tok.len() >= 6 {
@@ -99,7 +120,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     ));
                 }
             }
-            // 3. Live local agent-instance label from `who` (`haiku`, `haiku1`, ...).
+            // 4. Live local legacy agent-instance label from `who`.
             if let Some(found) = find_session_by_agent_label(store, my_channel, &tok)? {
                 return Ok(session_recipient(
                     store,
@@ -108,7 +129,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     found.channel,
                 ));
             }
-            // 4. Bare agent-instance label → that instance on the LOCAL host
+            // 5. Bare agent-instance label → that instance on the LOCAL host
             //    (profile fallback for remote/snapshotted peers).
             if let Some(pk) = store.resolve_agent_pubkey(&tok, local_host.trim())? {
                 return Ok(ResolvedRecipient {
@@ -129,6 +150,36 @@ struct SessionMatch {
     channel: String,
 }
 
+fn find_session_by_public_handle(
+    store: &Store,
+    my_channel: &str,
+    handle: &str,
+) -> Result<Option<SessionMatch>> {
+    let Some((agent_slug, session_ref)) = crate::idref::parse_session_handle(handle) else {
+        return Ok(None);
+    };
+    let agent_slug = agent_slug.to_ascii_lowercase();
+    let session_ref = session_ref.to_ascii_lowercase();
+    let matches = candidate_sessions(store, my_channel)?
+        .into_iter()
+        .filter(|(session, instance)| {
+            session.agent_slug.to_ascii_lowercase() == agent_slug
+                || instance.slug.to_ascii_lowercase() == agent_slug
+        })
+        .filter(|(session, instance)| {
+            let session_id = session.session_id.to_ascii_lowercase();
+            let codename = instance.codename.to_ascii_lowercase();
+            let short = crate::util::friendly_short_code(&session.session_id).to_ascii_lowercase();
+            session_id == session_ref
+                || codename == session_ref
+                || short == session_ref
+                || (session_ref.len() >= 6 && session_id.starts_with(&session_ref))
+        })
+        .map(|(session, instance)| session_match(store, my_channel, session, instance))
+        .collect::<Vec<_>>();
+    choose_unique_session_label_match(handle, "all channels", matches)
+}
+
 fn find_session_by_agent_label(
     store: &Store,
     my_channel: &str,
@@ -144,37 +195,14 @@ fn find_session_by_agent_label(
     let mut same_root = Vec::new();
     let mut global = Vec::new();
 
-    for session in store
-        .list_alive_sessions()
-        .context("find_session_by_agent_label: listing live sessions")?
-    {
-        let instance = store
-            .session_identity_for_session(&session.session_id)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| {
-                crate::identity::SessionIdentity::fallback(
-                    &session.session_id,
-                    session.agent_slug.clone(),
-                    session.agent_pubkey.clone(),
-                )
-            });
-        if instance.display_slug().to_ascii_lowercase() != wanted {
+    for (session, instance) in candidate_sessions(store, my_channel)? {
+        let display = instance.display_slug().to_ascii_lowercase();
+        let legacy_codename = instance.codename.to_ascii_lowercase();
+        if display != wanted && legacy_codename != wanted {
             continue;
         }
-        let joined_current = store
-            .is_session_joined_channel(&session.session_id, my_channel)
-            .unwrap_or(session.channel_h == my_channel);
-        let channel = if joined_current {
-            my_channel.to_string()
-        } else {
-            session.channel_h.clone()
-        };
-        let matched = SessionMatch {
-            pubkey: instance.pubkey,
-            session_id: session.session_id.clone(),
-            channel,
-        };
+        let matched = session_match(store, my_channel, session.clone(), instance);
+        let joined_current = matched.channel == my_channel;
         if joined_current {
             same_scope.push(matched.clone());
         } else if work_root_for(store, &session.channel_h) == my_root {
@@ -191,6 +219,53 @@ fn find_session_by_agent_label(
         return Ok(Some(matched));
     }
     choose_unique_session_label_match(label, "all channels", global)
+}
+
+fn candidate_sessions(
+    store: &Store,
+    context: &str,
+) -> Result<Vec<(crate::state::Session, crate::identity::SessionIdentity)>> {
+    let sessions = store
+        .list_alive_sessions()
+        .with_context(|| format!("{context}: listing live sessions"))?;
+    Ok(sessions
+        .into_iter()
+        .map(|session| {
+            let instance = store
+                .session_identity_for_session(&session.session_id)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| {
+                    crate::identity::SessionIdentity::fallback(
+                        &session.session_id,
+                        session.agent_slug.clone(),
+                        session.agent_pubkey.clone(),
+                    )
+                });
+            (session, instance)
+        })
+        .collect())
+}
+
+fn session_match(
+    store: &Store,
+    my_channel: &str,
+    session: crate::state::Session,
+    instance: crate::identity::SessionIdentity,
+) -> SessionMatch {
+    let joined_current = store
+        .is_session_joined_channel(&session.session_id, my_channel)
+        .unwrap_or(session.channel_h == my_channel);
+    let channel = if joined_current {
+        my_channel.to_string()
+    } else {
+        session.channel_h.clone()
+    };
+    SessionMatch {
+        pubkey: instance.pubkey,
+        session_id: session.session_id,
+        channel,
+    }
 }
 
 fn choose_unique_session_label_match(

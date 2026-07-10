@@ -10,4 +10,6 @@ source_refs:
 
 # members (new definition)
 
-The members of a channel are the *sessions* (concrete live sessions identified by codename), not agent instances or roles. This is the roster=role-types / members=sessions distinction.
+The members of a channel are the *sessions* (concrete live sessions identified by
+`@agent/session`), not agent instances or roles. This is the roster=role-types /
+members=sessions distinction.

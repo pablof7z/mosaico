@@ -10,4 +10,5 @@ source_refs:
 
 # kind:0 name (per-session handle)
 
-Per-session kind:0 profile, named @session-codename@hostname. The codename is friendly_short_code(session_id) — a deterministic word-word-NNN hash. This is the p-taggable handle for mentions and invites.
+Per-session kind:0 profile, named `@agent/session`. This is the p-taggable
+handle for mentions and invites.

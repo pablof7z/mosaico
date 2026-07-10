@@ -10,4 +10,5 @@ source_refs:
 
 # members (of a channel)
 
-Concrete sessions identified by codenames, not roles. available-agents = role configs (types you can invite); members = live sessions (codenames).
+Concrete sessions identified by `@agent/session`, not roles. available-agents =
+role configs (types you can invite); members = live sessions.

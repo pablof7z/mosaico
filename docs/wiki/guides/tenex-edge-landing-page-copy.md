@@ -103,7 +103,7 @@ The existing README voice is **dry, precise, proof-heavy, and zero hype** — th
 
 **Beat 2 — Pain in their words.** The README pain headline reads **"The problem is the wire. The wire is you."** (two sentences), harmonized with the landing page's punchier version. Uses verbatim developer quotes about parallel-agent collisions, capped at 3–4 sentences, then turns to: **"The agents aren't the bottleneck. The bus between them is — and the bus is you."**
 
-**Beat 3 — What ships today.** A plain bullet list using only present-tense, verified facts: a stable `@codename@host` handle per session; presence/liveness; LLM-distilled one-line activity broadcast per turn; session-targeted @mentions injected as real turns; one daemon/one store/one relay connection; verified live on Claude Code, Codex, OpenCode, and Grok.
+**Beat 3 — What ships today.** A plain bullet list using only present-tense, verified facts: a stable `@agent/session` handle per session; presence/liveness; LLM-distilled one-line activity broadcast per turn; session-targeted @mentions injected as real turns; one daemon/one store/one relay connection; verified live on Claude Code, Codex, OpenCode, and Grok.
 
 **Beat 4 — Why shared awareness is the foundation.** Includes a comparison table against **Claude Code Agent Teams, hcom, and mcp_agent_mail** evaluating host-neutral, live cross-agent awareness, cross-machine, and cross-host addressability dimensions. The table is labeled **"mid-2026 snapshot"** to acknowledge competitor feature sets may change. The comparison cell contrasting tenex-edge's open fabric with competitors' identity model reads **"central registry"** rather than the cryptic "registered names" or "named."
 

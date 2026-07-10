@@ -96,9 +96,7 @@ pub(super) async fn rpc_invite(
     Ok(result)
 }
 
-/// `channel add --message`: after the target is online, post the courtesy chat
-/// line mentioning it. The membership add already succeeded, so a publish failure
-/// is surfaced as a non-fatal `message_error` on the result rather than an error.
+/// `channel add --message`: post a courtesy chat once the target is online.
 async fn maybe_post_add_message(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -117,11 +115,12 @@ async fn maybe_post_add_message(
         .as_str()
         .unwrap_or(state.host.as_str())
         .to_string();
-    let label_with_host = if label.contains('@') {
-        label
-    } else {
-        format!("{label}@{host}")
-    };
+    let label_with_host =
+        if label.contains('@') || crate::idref::parse_session_handle(&label).is_some() {
+            label
+        } else {
+            format!("{label}@{host}")
+        };
     if let Some(err) =
         message::post_add_message(state, params, channel_h, &label_with_host, message).await
     {

@@ -173,12 +173,12 @@ pub struct SessionAlias {
 }
 
 /// A per-session minted signing key the daemon publishes as. Binds the session's
-/// own pubkey to its session, codename, and harness-native resume id.
+/// own pubkey to its session, legacy alias, and harness-native resume id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub pubkey: String,
     pub agent_slug: String,
-    /// Memorable per-session codename (`word-word-NNN`); the kind:0 name.
+    /// Legacy per-session friendly code kept for migration and older selectors.
     pub codename: String,
     pub session_id: String,
     pub channel_h: String,

@@ -38,7 +38,7 @@ The agent-context fabric output includes a self-header line showing the caller's
 
 ## Chat Mention Confirmation
 
-CLI confirmation for chat mentions prints the resolved codename handle (e.g. mentioning @brave-otter-417@laptop) from the mentioned pubkey. <!-- [^bd868-d64da] -->
+CLI confirmation for chat mentions prints the resolved session handle (e.g. mentioning `@codex/echo123`) from the mentioned pubkey. <!-- [^bd868-d64da] -->
 
 ## Who Command
 

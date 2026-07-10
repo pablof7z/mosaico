@@ -164,9 +164,8 @@ impl DaemonState {
             .get(pubkey)
             .map(|h| h.keys.clone())
     }
-    /// The read-side session identity for a hosted session (pubkey, slug,
-    /// codename). Prefers the bound `identities`-row projection; falls back to a
-    /// codename derived from the session id when none is bound yet.
+    /// The read-side session identity for a hosted session (pubkey, agent slug,
+    /// session id, legacy alias). Prefers the bound `identities`-row projection.
     pub(in crate::daemon) fn session_instance(
         &self,
         rec: &crate::state::Session,

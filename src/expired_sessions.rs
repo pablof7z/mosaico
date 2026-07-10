@@ -1,15 +1,21 @@
 //! `who --expired`: the dead/old local sessions a user can list and then resume.
 //!
 //! A session row that is no longer `alive` (its process exited) is an expired
-//! session — the resume-candidate set. Each is surfaced by its codename
-//! (`friendly_short_code(session_id)`) so it can be addressed as `@codename@host`.
+//! session — the resume-candidate set. Each is surfaced by its public
+//! `agent/session_id` handle.
 
 use crate::state::Store;
 
-/// One expired (not-currently-live) local session, named by its codename.
+/// One expired (not-currently-live) local session, named by `agent/session_id`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ExpiredSessionRow {
-    /// `friendly_short_code(session_id)` — the session's stable codename.
+    /// Stable agent slug from the session row.
+    #[serde(default)]
+    pub(crate) agent_slug: String,
+    /// Canonical session id used in the public session handle.
+    #[serde(default)]
+    pub(crate) session_id: String,
+    /// Legacy friendly code retained for old stores and compatibility.
     pub(crate) codename: String,
     /// The daemon host these sessions belong to (they are always local).
     pub(crate) host: String,
@@ -22,7 +28,7 @@ pub(crate) struct ExpiredSessionRow {
 }
 
 /// The not-currently-live local sessions (process exited), newest first, each
-/// named by its codename. Reads [`Store::list_resumable_sessions`] (alive OR
+/// named by its public handle. Reads [`Store::list_resumable_sessions`] (alive OR
 /// dead, capped) and keeps only the dead rows.
 pub(crate) fn load_expired_sessions(
     store: &Store,
@@ -35,6 +41,8 @@ pub(crate) fn load_expired_sessions(
         .into_iter()
         .filter(|s| !s.alive)
         .map(|s| ExpiredSessionRow {
+            agent_slug: s.agent_slug,
+            session_id: s.session_id.clone(),
             codename: crate::util::friendly_short_code(&s.session_id),
             host: host.to_string(),
             channel: channel_name(store, &s.channel_h),
@@ -86,6 +94,8 @@ mod tests {
         let rows = load_expired_sessions(&store, "laptop", 50);
         assert_eq!(rows.len(), 1, "only the dead session is expired: {rows:?}");
         let row = &rows[0];
+        assert_eq!(row.agent_slug, "coder");
+        assert_eq!(row.session_id, dead_id);
         assert_eq!(row.codename, crate::util::friendly_short_code(&dead_id));
         assert_ne!(row.codename, crate::util::friendly_short_code(&alive_id));
         assert_eq!(row.host, "laptop");

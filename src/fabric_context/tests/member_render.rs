@@ -1,4 +1,4 @@
-//! `<members>` rendering: `@codename@host` per member, with the legacy (`people`)
+//! `<members>` rendering: `@agent/session` per member, with the legacy (`people`)
 //! and pure (`assemble`) paths proven byte-identical.
 
 use crate::fabric_context::{assemble, capture_inputs, render_fabric_context, render_view_text};
@@ -7,9 +7,9 @@ use crate::state::Status;
 use super::{input, seed_store, session, OTHER_PK};
 
 /// A member whose session is known (a live status carries its session id) renders
-/// as `@<codename>`; the pure and legacy paths agree.
+/// as `@agent/session`; the pure and legacy paths agree.
 #[test]
-fn member_row_shows_codename_without_role_for_peer_session() {
+fn member_row_shows_session_handle_without_role_for_peer_session() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -32,18 +32,15 @@ fn member_row_shows_codename_without_role_for_peer_session() {
         })
         .unwrap();
 
-    let codename = crate::util::friendly_short_code("peer-sess");
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("context should render");
-    // Self keeps its slug ref; the peer session renders under its codename.
+    // Self keeps its fallback slug ref; the peer session renders under its public handle.
     assert!(
         text.contains("<member ref=\"@coder\" agentSlug=\"coder\" status=\""),
         "got: {text}"
     );
     assert!(
-        text.contains(&format!(
-            "<member ref=\"@{codename}\" agentSlug=\"reviewer\" status=\""
-        )),
+        text.contains("<member ref=\"@reviewer/peer-sess\" agentSlug=\"reviewer\" status=\""),
         "got: {text}"
     );
     assert!(

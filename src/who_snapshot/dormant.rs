@@ -20,7 +20,11 @@ pub(super) fn push_claim_rows(
         if scope::is_archived_channel(store, &scope) {
             continue;
         }
-        let slug = claim.codename.clone();
+        let slug = if !claim.agent_slug.is_empty() && !claim.session_id.is_empty() {
+            crate::idref::session_handle(&claim.agent_slug, &claim.session_id)
+        } else {
+            claim.codename.clone()
+        };
         if current_root
             .map(|p| scope::scope_contains_channel(store, p, &scope))
             .unwrap_or(true)

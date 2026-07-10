@@ -57,20 +57,22 @@ fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &
 }
 
 /// The read-side identity of one running session: its per-session pubkey, the
-/// underlying agent slug (for the roster / local keystore), and the memorable
-/// per-session codename it publishes as (the kind:0 name and mention handle).
+/// underlying agent slug (for the roster / local keystore), the canonical
+/// session id, and the legacy memorable codename.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionIdentity {
     pub pubkey: String,
     pub slug: String,
+    pub session_id: String,
     pub codename: String,
 }
 
 impl SessionIdentity {
-    pub fn new(pubkey: String, slug: String, codename: String) -> Self {
+    pub fn new(pubkey: String, slug: String, session_id: String, codename: String) -> Self {
         Self {
             pubkey,
             slug,
+            session_id,
             codename,
         }
     }
@@ -82,17 +84,18 @@ impl SessionIdentity {
         Self {
             pubkey,
             slug,
+            session_id: session_id.to_string(),
             codename: crate::util::friendly_short_code(session_id),
         }
     }
 
-    /// The per-session display name: its codename.
+    /// The per-session display name: `agentSlug/session_id`.
     pub fn display_slug(&self) -> String {
-        self.codename.clone()
+        crate::idref::session_handle(&self.slug, &self.session_id)
     }
 
-    /// The wire reference: the session's own pubkey named by its codename.
+    /// The wire reference: the session's own pubkey named by its public handle.
     pub fn agent_ref(&self) -> crate::domain::AgentRef {
-        crate::domain::AgentRef::new(self.pubkey.clone(), self.codename.clone())
+        crate::domain::AgentRef::new(self.pubkey.clone(), self.display_slug())
     }
 }

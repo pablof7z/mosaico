@@ -9,9 +9,9 @@ source_refs:
 
 # agent_ordinal_label
 
-Superseded by the session codename. Concurrent sessions of the same role are no
+Superseded by the session handle. Concurrent sessions of the same role are no
 longer disambiguated by an ordinal (`smith1`, `smith2`); each session has its own
-codename handle `@<codename>@<host>` derived from its session id. That handle is
+public handle `@<agent-slug>/<session-id>`. That handle is
 the addressable identity peers see. See
-[session_codename](session-codename.md) and
+[session handle](session-handle.md) and
 [Tenex-Edge Agent Identity](../guides/tenex-edge-agent-identity.md).

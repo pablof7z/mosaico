@@ -10,4 +10,6 @@ source_refs:
 
 # per-session kind:0
 
-Per-session kind:0 is OBVIOUSLY the only right answer (there is no base agent pubkey). The kind:0 name is @session-codename@hostname, so an agent using `channel send "@session-codename@hostname are you done?"` has the p-tagging it needs.
+Per-session kind:0 is OBVIOUSLY the only right answer (there is no base agent
+pubkey). The kind:0 name is `@agent/session`, so an agent using
+`channel send "@codex/echo123 are you done?"` has the p-tagging it needs.

@@ -10,4 +10,5 @@ source_refs:
 
 # kind:0 (new model)
 
-Per-session kind:0 profile, named @session-codename@hostname — the p-taggable handle. Each session publishes its own kind:0; the codename is friendly_short_code(session_id), a deterministic word-word-NNN hash.
+Per-session kind:0 profile, named `@agent/session` — the p-taggable handle.
+Each session publishes its own kind:0 under the role slug plus session id.

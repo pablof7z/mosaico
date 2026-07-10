@@ -125,7 +125,7 @@ pub(in crate::daemon::server) async fn rpc_chat_write(
     // scope.
     let deliver_scope = publish_scope.clone();
 
-    // Sign + label from the session's own minted identity (its pubkey + codename).
+    // Sign + label from the session's own minted identity.
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.session_id)?;
     let from_pubkey = instance.pubkey.clone();

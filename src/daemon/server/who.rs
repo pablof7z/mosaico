@@ -24,7 +24,7 @@ pub(in crate::daemon::server) struct WhoParams {
     group: Option<String>,
     #[serde(default)]
     human_color: bool,
-    /// `who --expired`: list this machine's dead/old sessions (by codename) so a
+    /// `who --expired`: list this machine's dead/old sessions by public handle so a
     /// user can pick one to resume, instead of the live fabric snapshot.
     #[serde(default)]
     expired: bool,

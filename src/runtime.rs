@@ -35,7 +35,7 @@ type DistillOutput = (
 
 pub struct EngineParams {
     /// The session's read-side identity: its per-session pubkey, agent slug, and
-    /// codename. Every publish this engine makes (kind:0, kind:9, kind:30315)
+    /// public `agent/session` handle. Every publish this engine makes (kind:0, kind:9, kind:30315)
     /// derives its wire identity from this.
     pub identity: crate::identity::SessionIdentity,
     /// The session's OWN minted keypair — the one and only key it signs with.

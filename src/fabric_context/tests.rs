@@ -321,7 +321,7 @@ fn recent_presence_uses_status_source() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("presence delta should render");
     assert!(text.contains("<recent-presence>"));
-    assert!(text.contains("ref=\"@reviewer\""));
+    assert!(text.contains("ref=\"@reviewer/other-session\""));
     assert!(text.contains("text=\"checking tests\""));
 }
 

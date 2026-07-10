@@ -24,9 +24,8 @@ result: {"session_id": "te-…"}   // session_id printed verbatim to stdout
 ```
 The `session_id` is the raw canonical id — an internal correlation handle for
 hooks, PTY session binding, resume, and DB rows. It is never rendered as a
-user-facing identity; a session is addressed by its **codename handle** —
-`@<codename>@<host>` (`friendly_short_code(session_id)`), backed by the session's
-own minted pubkey.
+user-facing identity; a session is addressed by its **agent/session handle** —
+`@<agent-slug>/<session-id-or-prefix>`, backed by the session's own minted pubkey.
 The provider opens the project's NIP-29 group and adds the session agent as a
 relay member before the engine publishes presence. There is no local agent
 allow/block file in the NIP-29 path.
@@ -191,7 +190,7 @@ Pure-read snapshot for the host statusline integration — no drain, no writes.
 
 ### `who` (self-identity)
 When run inside an agent session (`session`/`agent`/`group` signal present), `who`
-attaches a `self` block — the caller's codename handle (`@<codename>@<host>`),
+attaches a `self` block — the caller's public handle (`@<agent-slug>/<session-id>`),
 its per-session pubkey, current channel, membership, and status.
 
 ### `ping`

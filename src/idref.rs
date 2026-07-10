@@ -1,22 +1,70 @@
-//! The SINGLE canonical way to refer to agents and sessions across every
-//! tenex-edge interface (identifier standardization).
+//! The canonical reference helpers for tenex-edge identities.
 //!
-//! Identity is the durable AGENT-INSTANCE = `(slug, backend-label)` →
-//! **`agent@backend-label`** (e.g. `codex@laptop`, `haiku1@myBackend`). A single
-//! run (SESSION) is only a correlation handle (the raw `session_id`); it is never
-//! a separate display name and is never accepted as a chat target.
+//! User-facing session identity is **`agent/session`** (for example
+//! `codex/echo123`). Backend-qualified agent references (`agent@backend-label`)
+//! remain an operator/backend selection syntax for invite and legacy lookup
+//! paths, not the public session handle.
 //!
-//! Rules that hold EVERYWHERE:
-//!   - `@` always means backend label, never channel. An agent is
-//!     `(slug, backend-label)`; channel is only where a message goes, never who it
-//!     is.
-//!   - backend labels are config.json `backendName` values and are preserved
+//! Rules that hold everywhere:
+//!   - Agent session handles are rendered with [`session_handle`].
+//!   - Backend labels are config.json `backendName` values and are preserved
 //!     exactly after trimming. They are not DNS hostnames and are not slugified.
-//!   - identity is the agent-instance label, resolving to the instance's selected
-//!     pubkey; correlation is the raw `session_id`.
+//!   - Raw session ids are internal correlation handles. A friendly session
+//!     codename may appear as the right side of `agent/session`.
 //!
-//! Every renderer formats via [`agent_label`] / [`session_label`]; every input
-//! is classified via [`parse_ref`]. Nothing hand-rolls `format!("{slug}@…")`.
+//! Every renderer formats through this module; every input is classified via
+//! [`parse_ref`] or normalized through the session-handle helpers.
+
+/// Canonical user-facing session handle: `agentSlug/session`.
+pub fn session_handle(agent_slug: &str, session: &str) -> String {
+    let agent_slug = agent_slug.trim();
+    let session = session.trim();
+    if session.is_empty() {
+        return agent_slug.to_string();
+    }
+    if agent_slug.is_empty() {
+        return session.to_string();
+    }
+    let prefix = format!("{agent_slug}/");
+    if session.starts_with(&prefix) {
+        session.to_string()
+    } else {
+        format!("{agent_slug}/{session}")
+    }
+}
+
+/// Parse `agentSlug/session` into its two routing-visible parts.
+pub fn parse_session_handle(handle: &str) -> Option<(&str, &str)> {
+    let handle = handle.trim();
+    let (agent_slug, session) = handle.split_once('/')?;
+    let agent_slug = agent_slug.trim();
+    let session = session.trim();
+    if agent_slug.is_empty() || session.is_empty() || session.contains('/') {
+        return None;
+    }
+    Some((agent_slug, session))
+}
+
+/// Convert a kind:0 `name` plus tags into the canonical session handle.
+///
+/// New profiles already publish `agent/session`. Legacy profiles published
+/// `session@backend`; when an `agent-slug` tag is present, normalize that cache
+/// row to `agent/session` while still accepting the old event.
+pub fn session_handle_from_profile_name(name: &str, host: &str, agent_slug: &str) -> String {
+    let name = name.trim();
+    if parse_session_handle(name).is_some() {
+        return name.to_string();
+    }
+    let session = slug_from_profile_name(name, host);
+    if parse_session_handle(&session).is_some() {
+        return session;
+    }
+    if agent_slug.trim().is_empty() {
+        session
+    } else {
+        session_handle(agent_slug, &session)
+    }
+}
 
 /// Canonical label for a durable agent: `agent@backend-label`. When the backend
 /// label is unknown (empty), degrades to the bare `agent` rather than `agent@`.
@@ -61,12 +109,14 @@ pub fn agent_ref_from(slug: &str, host: &str, local_host: &str) -> String {
     }
 }
 
-/// Display for a sender on an envelope "From" line: the agent-instance label
-/// `agent@backend-label`. When the agent slug is unknown, degrades to the raw
-/// `session_id` as a bare correlation handle.
+/// Display for a sender on an envelope "From" line. `slug` is expected to be an
+/// already-normalized session handle; legacy callers that still provide a bare
+/// slug plus host degrade through the backend-qualified form.
 pub fn session_label(session_id: &str, slug: &str, host: &str) -> String {
     if slug.is_empty() {
         session_id.to_string()
+    } else if parse_session_handle(slug).is_some() {
+        slug.to_string()
     } else {
         agent_label(slug, host)
     }
@@ -145,14 +195,11 @@ fn is_pubkey(s: &str) -> bool {
     (s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())) || s.starts_with("npub1")
 }
 
-/// Extract inline `@<agent-instance-label>` mentions from free chat text, in
-/// order of appearance, deduped. A mention is `@` followed by an agent-instance
-/// label token — a run of `[A-Za-z0-9._-]`, optionally backend-qualified as
-/// `label@backend-label` (so both `@haiku1` and `@haiku@laptop` are captured; the
-/// resolver understands `agent@backend-label`). Used so
-/// `channel send "hey @haiku1"` routes to that instance. Trailing punctuation (`,`,
-/// `.` at the end of a word, `!`, `?`, `:`) is ignored. Tokens that don't resolve
-/// are silently treated as no mention.
+/// Extract inline `@<agent-session-handle>` mentions from free chat text, in
+/// order of appearance, deduped. A mention is `@` followed by a run of
+/// `[A-Za-z0-9._-/]`, with a single legacy `@` still accepted for
+/// `agent@backend-label`. Trailing punctuation is ignored. Tokens that don't
+/// resolve are silently treated as no mention.
 pub fn extract_mentions(body: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in body.split(|c: char| c.is_whitespace()) {
@@ -165,14 +212,16 @@ pub fn extract_mentions(body: &str) -> Vec<String> {
         {
             continue;
         }
-        // Take the run of label/host characters immediately after the '@' sigil,
-        // allowing a single internal '@' for a host-qualified `label@host`.
+        // Take the run of handle characters immediately after the '@' sigil,
+        // allowing a single internal '@' for legacy host-qualified labels.
         let after = &raw[at + 1..];
         let end = after
-            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@')))
+            .find(|c: char| {
+                !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@'))
+            })
             .unwrap_or(after.len());
-        // Drop trailing dots/sigils so `@haiku1.` and `@haiku@` degrade cleanly.
-        let candidate = after[..end].trim_end_matches(['.', '@']);
+        // Drop trailing separators so `@codex/echo.` and `@haiku@` degrade cleanly.
+        let candidate = after[..end].trim_end_matches(['.', '@', '/']);
         if !candidate.is_empty() && !out.iter().any(|m| m == candidate) {
             out.push(candidate.to_string());
         }
@@ -181,116 +230,4 @@ pub fn extract_mentions(body: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_label_preserves_backend_label() {
-        assert_eq!(agent_label("codex", "myBackend"), "codex@myBackend");
-        assert_eq!(agent_label("claude", "laptop"), "claude@laptop");
-    }
-
-    #[test]
-    fn slug_from_profile_name_strips_matching_backend_suffix() {
-        assert_eq!(
-            slug_from_profile_name("developer1@remoteBackend", "remoteBackend"),
-            "developer1"
-        );
-        assert_eq!(
-            slug_from_profile_name("developer1", "remoteBackend"),
-            "developer1"
-        );
-        assert_eq!(
-            slug_from_profile_name("developer1@otherBackend", "remoteBackend"),
-            "developer1@otherBackend"
-        );
-        assert_eq!(
-            slug_from_profile_name("developer1@remoteBackend", ""),
-            "developer1@remoteBackend"
-        );
-    }
-
-    #[test]
-    fn agent_ref_from_is_bare_local_and_qualified_remote() {
-        // Same backend label → bare slug; you'd type just `developer`.
-        assert_eq!(agent_ref_from("developer", "laptop", "laptop"), "developer");
-        // Unknown backend → bare (can't qualify what we don't know).
-        assert_eq!(agent_ref_from("developer", "", "laptop"), "developer");
-        // Different backend → backend-qualified so a same-slug remote stays distinct.
-        assert_eq!(
-            agent_ref_from("developer", "myBackend", "laptop"),
-            "developer@myBackend"
-        );
-    }
-
-    #[test]
-    fn session_label_is_agent_at_backend_label() {
-        // The sender's "From" identity is the agent-instance label.
-        assert_eq!(session_label("te-abc-0", "codex", "laptop"), "codex@laptop");
-        // Unknown slug degrades to the raw session id as a correlation handle.
-        assert_eq!(session_label("te-abc-0", "", "laptop"), "te-abc-0");
-    }
-
-    #[test]
-    fn event_short_id_truncates_to_eight() {
-        assert_eq!(event_short_id("0123456789abcdef"), "01234567");
-        assert_eq!(event_short_id("abc"), "abc");
-    }
-
-    #[test]
-    fn parse_at_is_backend_label_not_channel() {
-        match parse_ref("codex@myBackend") {
-            Ref::Agent { slug, host } => {
-                assert_eq!(slug, "codex");
-                assert_eq!(host, "myBackend");
-            }
-            other => panic!("{other:?}"),
-        }
-    }
-
-    #[test]
-    fn agent_backend_ref_preserves_backend_label() {
-        let r = parse_agent_backend_ref("claude@myBackend").unwrap();
-        assert_eq!(r.slug, "claude");
-        assert_eq!(r.backend.as_deref(), Some("myBackend"));
-
-        let local = parse_agent_backend_ref("codex").unwrap();
-        assert_eq!(local.slug, "codex");
-        assert_eq!(local.backend, None);
-
-        assert!(parse_agent_backend_ref("claude@").is_none());
-        assert!(parse_agent_backend_ref("@laptop").is_none());
-    }
-
-    #[test]
-    fn parse_pubkey_and_token() {
-        let hex = "a".repeat(64);
-        assert!(matches!(parse_ref(&hex), Ref::Pubkey(_)));
-        assert!(matches!(parse_ref("npub1abcdef"), Ref::Pubkey(_)));
-        assert!(matches!(parse_ref("haiku1"), Ref::Token(_)));
-        assert!(matches!(parse_ref("codex"), Ref::Token(_)));
-    }
-
-    #[test]
-    fn extract_inline_mentions() {
-        // Agent-instance labels (bare and ordinal) are now accepted mentions.
-        assert_eq!(
-            extract_mentions("hey @haiku1 and @codex, look"),
-            vec!["haiku1".to_string(), "codex".to_string()]
-        );
-        // Host-qualified `label@host` is captured intact for the resolver.
-        assert_eq!(
-            extract_mentions("ping @claude@tower please"),
-            vec!["claude@tower".to_string()]
-        );
-        // Trailing punctuation is trimmed.
-        assert_eq!(extract_mentions("ping @codex."), vec!["codex".to_string()]);
-        // Email-ish substrings are not mentions.
-        assert!(extract_mentions("email dev@example.com please").is_empty());
-        // dedup
-        assert_eq!(
-            extract_mentions("@haiku1 @haiku1"),
-            vec!["haiku1".to_string()]
-        );
-    }
-}
+mod tests;

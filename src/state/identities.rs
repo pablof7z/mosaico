@@ -1,7 +1,7 @@
 //! `identities` — per-session minted keys the daemon publishes as.
 //!
-//! Each row maps a session's own pubkey to its owning session, its codename, and
-//! a resume binding. Bounds the `#p` subscription (the set of pubkeys the daemon
+//! Each row maps a session's own pubkey to its owning session, legacy alias, and
+//! resume binding. Bounds the `#p` subscription (the set of pubkeys the daemon
 //! listens for) and resumes the right session when a mention arrives for an
 //! offline agent.
 
@@ -162,9 +162,9 @@ impl Store {
         &self,
         session_id: &str,
     ) -> Result<Option<crate::identity::SessionIdentity>> {
-        Ok(self
-            .identity_for_session(session_id)?
-            .map(|i| crate::identity::SessionIdentity::new(i.pubkey, i.agent_slug, i.codename)))
+        Ok(self.identity_for_session(session_id)?.map(|i| {
+            crate::identity::SessionIdentity::new(i.pubkey, i.agent_slug, i.session_id, i.codename)
+        }))
     }
 
     /// Mark every identity bound to a session dead (alive=0) while KEEPING the row
