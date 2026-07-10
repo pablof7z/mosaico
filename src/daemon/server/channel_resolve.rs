@@ -8,6 +8,10 @@
 
 use super::*;
 
+mod paths;
+pub(in crate::daemon::server) use paths::channel_reference_for;
+use paths::{channel_reference_from_paths, path_ends_with, subtree_paths};
+
 /// Resolve `name` to a `channel_h` using ONLY locally-known state — no minting,
 /// no relay calls. Returns `Some(h)` when the value resolves without provisioning:
 ///   1. An existing `(parent, name)` row wins (the durable key for that handle).
@@ -297,62 +301,12 @@ fn finish_resolution(mut hits: Vec<(String, Vec<String>)>) -> ChannelResolution 
         _ => {
             let mut refs: Vec<String> = hits
                 .iter()
-                .map(|(id, segs)| {
-                    let path = segs.join("/");
-                    let path_unique = hits.iter().filter(|(_, s)| s.join("/") == path).count() == 1;
-                    if path_unique && !path.is_empty() {
-                        path
-                    } else {
-                        format!("@{}", &id[..id.len().min(8)])
-                    }
-                })
+                .map(|(id, segs)| channel_reference_from_paths(&hits, id, segs))
                 .collect();
             refs.sort();
             ChannelResolution::Ambiguous(refs)
         }
     }
-}
-
-/// Every channel in `root`'s subtree (excluding root) as `(channel_h, name_path)`,
-/// where `name_path` is the chain of kind:39000 NAMES from root's child down to
-/// the channel. Unnamed nodes (per [`Channel::human_name`] — e.g. session rooms
-/// whose name defaulted to their opaque id) are not path-referenceable, so they
-/// and their subtrees are skipped.
-fn subtree_paths(store: &crate::state::Store, root: &str) -> Vec<(String, Vec<String>)> {
-    use std::collections::BTreeMap;
-    let channels = store.list_channels().unwrap_or_default();
-    let mut by_parent: BTreeMap<String, Vec<crate::state::Channel>> = BTreeMap::new();
-    for c in channels {
-        by_parent.entry(c.parent.clone()).or_default().push(c);
-    }
-    let mut out: Vec<(String, Vec<String>)> = Vec::new();
-    let mut stack: Vec<(String, Vec<String>)> = vec![(root.to_string(), Vec::new())];
-    let mut guard = 0usize;
-    while let Some((id, path)) = stack.pop() {
-        guard += 1;
-        if guard > 10_000 {
-            break;
-        }
-        let Some(children) = by_parent.get(&id) else {
-            continue;
-        };
-        for c in children {
-            let Some(name) = c.human_name() else {
-                continue; // unnamed → not referenceable by path; skip its subtree
-            };
-            let mut child_path = path.clone();
-            child_path.push(name.to_lowercase());
-            out.push((c.channel_h.clone(), child_path.clone()));
-            stack.push((c.channel_h.clone(), child_path));
-        }
-    }
-    out
-}
-
-/// True when `segs` ends with `want` (both already lowercased), i.e. `want` is a
-/// path suffix of `segs`. `["epic999","planning"]` ends with `["planning"]`.
-fn path_ends_with(segs: &[String], want: &[String]) -> bool {
-    segs.len() >= want.len() && segs[segs.len() - want.len()..] == *want
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-use super::resolution::work_root_for;
 use super::*;
 
 pub(in crate::daemon::server) struct ChatTarget {
@@ -35,7 +34,7 @@ pub(in crate::daemon::server) fn resolve_chat_target(
             let refs = state.with_store(|s| {
                 joined
                     .iter()
-                    .map(|(h, _)| chat_channel_reference(s, h))
+                    .map(|(h, _)| super::channel_resolve::channel_reference_for(s, h))
                     .collect::<Vec<_>>()
             });
             anyhow::bail!(
@@ -111,16 +110,9 @@ fn resolve_chat_channel_ref(
     }
 }
 
-fn chat_channel_reference(store: &crate::state::Store, channel_h: &str) -> String {
-    let root = work_root_for(store, channel_h);
-    if root == channel_h {
-        return channel_h.to_string();
-    }
-    format!("@{}", &channel_h[..channel_h.len().min(8)])
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::channel_resolve::channel_reference_for;
     use super::*;
     use crate::state::{Session, Store};
 
@@ -209,10 +201,24 @@ mod tests {
         assert_eq!(joined.len(), 2);
         let refs = joined
             .iter()
-            .map(|(h, _)| chat_channel_reference(&store, h))
+            .map(|(h, _)| channel_reference_for(&store, h))
             .collect::<Vec<_>>();
         assert!(refs.contains(&"root".to_string()));
         assert!(refs.contains(&"other".to_string()));
         assert_eq!(rec.channel_h, "root");
+    }
+
+    #[test]
+    fn multi_join_rerun_refs_use_relative_channel_paths() {
+        let store = Store::open_memory().unwrap();
+        store.upsert_channel("root", "root", "", "", 1).unwrap();
+        store
+            .upsert_channel("h-epic", "epic", "", "root", 1)
+            .unwrap();
+        store
+            .upsert_channel("h-plan", "planning", "", "h-epic", 1)
+            .unwrap();
+
+        assert_eq!(channel_reference_for(&store, "h-plan"), "epic/planning");
     }
 }

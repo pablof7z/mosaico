@@ -1,4 +1,6 @@
-use super::{resolve_channel_ref, resolve_locally, root_channel, ChannelResolution};
+use super::{
+    channel_reference_for, resolve_channel_ref, resolve_locally, root_channel, ChannelResolution,
+};
 use crate::state::Store;
 
 fn chan(store: &Store, id: &str, name: &str, parent: &str) {
@@ -147,6 +149,29 @@ fn same_level_name_collision_falls_back_to_id_escape_hatch() {
         resolve_channel_ref(&store, "h-root", "@h-aaaa1"),
         ChannelResolution::Unique(ref id) if id == "h-aaaa1111"
     ));
+}
+
+#[test]
+fn channel_reference_prefers_unique_relative_path() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "h-root", "proj", "");
+    chan(&store, "h-epic", "epic", "h-root");
+    chan(&store, "h-plan", "planning", "h-epic");
+
+    assert_eq!(channel_reference_for(&store, "h-plan"), "epic/planning");
+}
+
+#[test]
+fn channel_reference_falls_back_to_id_on_duplicate_path() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "h-root", "proj", "");
+    chan(&store, "h-epic-a", "epic", "h-root");
+    chan(&store, "h-epic-b", "epic", "h-root");
+    chan(&store, "h-plan-a111", "planning", "h-epic-a");
+    chan(&store, "h-plan-b222", "planning", "h-epic-b");
+
+    assert_eq!(channel_reference_for(&store, "h-plan-a111"), "@h-plan-a");
+    assert_eq!(channel_reference_for(&store, "h-plan-b222"), "@h-plan-b");
 }
 
 #[test]
