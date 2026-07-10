@@ -2,6 +2,12 @@ use super::resolution::work_root_for;
 use super::resolve_session;
 use super::*;
 
+mod status;
+
+pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
+    status::rpc_pty_status(state).await
+}
+
 fn pty_session_for_session(state: &Arc<DaemonState>, session_id: &str) -> Option<String> {
     let aliases = state
         .with_store(|s| s.aliases_for_session(session_id))
@@ -10,35 +16,6 @@ fn pty_session_for_session(state: &Arc<DaemonState>, session_id: &str) -> Option
         .into_iter()
         .find(|a| a.external_id_kind == "pty_session")
         .map(|a| a.external_id)
-}
-
-// ── pty_status ────────────────────────────────────────────────────────────────
-
-pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
-    let session_by_pty = state
-        .with_store(|s| s.list_aliases_of_kind("pty_session"))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| (a.external_id, a.session_id))
-        .collect::<std::collections::HashMap<_, _>>();
-    let arr: Vec<serde_json::Value> = crate::pty::read_all_metadata()
-        .into_iter()
-        .map(|meta| {
-            let live = crate::pty::is_live(&meta.id);
-            let session_id = session_by_pty.get(&meta.id).cloned();
-            serde_json::json!({
-                "pty_id": meta.id,
-                "session_id": session_id,
-                "socket": meta.socket,
-                "agent": meta.agent,
-                "root": meta.root,
-                "cwd": meta.cwd,
-                "command": meta.command,
-                "live": live,
-            })
-        })
-        .collect();
-    Ok(serde_json::json!({ "endpoints": arr }))
 }
 
 // ── pty_send (manual pending-message injection) ───────────────────────────────
