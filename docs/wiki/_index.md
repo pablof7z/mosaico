@@ -2,7 +2,7 @@
 
 > Derived cache — do not hand-edit. Rebuilt by proactive-context after each capture.
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 
 ## agent-skills (2 guides)
 
@@ -60,7 +60,7 @@ Last updated: 2026-07-09
 | [tenex-edge-session-distill](guides/tenex-edge-session-distill.md) | Tenex-Edge Session Distill | Distill is the LLM-powered process that turns the live conversation transcript into a stable session title and a live one-line NOW activity broadcast in a singl | capture | warm | 2026-07-03 | tenex-edge |
 | [tenex-edge-who-rendering](guides/tenex-edge-who-rendering.md) | Tenex-Edge Who Rendering | `tenex-edge who --all-projects` renders through the unified fabric-context pipeline (`build_view` â `render_view`/`render_human_view`), producing the same for | capture | warm | 2026-07-03 | tenex-edge |
 
-## Research Records (8 records)
+## Research Records (10 records)
 
 | Record | Date | Finding | Agent |
 |--------|------|---------|-------|
@@ -71,9 +71,11 @@ Last updated: 2026-07-09
 | [2026-07-09-b70718e17221-cb4e41ba-1-coherence-audit-of-three-concurrent-features](research/2026-07-09-b70718e17221-cb4e41ba-1-coherence-audit-of-three-concurrent-features.md) | 2026-07-09 | Coherence audit of three concurrent features (MCP, TUI, mgmt) against the redesign — verdicts: coherent with one vocabulary fix, fully coherent, coherent; flagged 3 items for human review | subagent (coherence audit agent) |
 | [2026-07-09-b70718e17221-cb4e41ba-1-full-project-wording-purge-report-184](research/2026-07-09-b70718e17221-cb4e41ba-1-full-project-wording-purge-report-184.md) | 2026-07-09 | Full project-wording purge report: 184-file rename verified via 890 unit + 46 integration tests and grep confirmation of zero 'project' in human-facing surfaces — verdict: complete, all gates green | a394ed0ea4e0a487f |
 | [2026-07-09-b70718e17221-cb4e41ba-1-integration-test-flakiness-root-cause-investigation](research/2026-07-09-b70718e17221-cb4e41ba-1-integration-test-flakiness-root-cause-investigation.md) | 2026-07-09 | Integration test flakiness root-cause investigation: 14 baseline runs + C probe found croissant POSIX-semaphore leak as root cause; verdict = infrastructure bug not test race, verified with 12/12 green runs | subagent (de-flake agent aa19b7c822aeeb6da) |
+| [2026-07-10-b70718e17221-cb4e41ba-1-root-cause-investigation-of-integration-test](research/2026-07-10-b70718e17221-cb4e41ba-1-root-cause-investigation-of-integration-test.md) | 2026-07-10 | Root-cause investigation of integration test flakiness: identified croissant POSIX-semaphore leak as cause via 14-run baseline + minimal C probe; verdict = infrastructure bug, not test race. | a067926378f0c4ada (de-flake agent) |
+| [2026-07-10-b70718e17221-cb4e41ba-2-residual-per-test-flake-investigation-found](research/2026-07-10-b70718e17221-cb4e41ba-2-residual-per-test-flake-investigation-found.md) | 2026-07-10 | Residual per-test flake investigation: found and fixed 6 propagation races + 1 production bug across ~85 runs; verdict = 20/20 consecutive green, all flakes eliminated. | a067926378f0c4ada (residual de-flake agent) |
 | [AGENTS](research/AGENTS.md) |  |  |  |
 
-## Episode Cards (49 cards)
+## Episode Cards (52 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
@@ -113,7 +115,7 @@ Last updated: 2026-07-09
 | [2026-07-09-a62822c5d09c-fbf565a0-4-distillation-silent-failure-root-cause-and](episodes/2026-07-09-a62822c5d09c-fbf565a0-4-distillation-silent-failure-root-cause-and.md) | 2026-07-09 | Distillation silent-failure root cause and agent-facing notice directive | root-cause | superseded |
 | [2026-07-09-a62822c5d09c-fbf565a0-4-persistent-status-generation-failures-now-surfaced](episodes/2026-07-09-a62822c5d09c-fbf565a0-4-persistent-status-generation-failures-now-surfaced.md) | 2026-07-09 | Persistent status-generation failures now surfaced to agents via throttled turn-start warning | product | active |
 | [2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-expressed-as-dotted-paths](episodes/2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-expressed-as-dotted-paths.md) | 2026-07-09 | Channel hierarchy expressed as dotted paths; `chat` command replaced by `channel read/send` | reversal | superseded |
-| [2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-redesign-dotted-paths-project](episodes/2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-redesign-dotted-paths-project.md) | 2026-07-09 | Channel hierarchy redesign: dotted paths, project concept eliminated, CLI commands unified under `channel` | reversal | active |
+| [2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-redesign-dotted-paths-project](episodes/2026-07-09-b70718e17221-cb4e41ba-1-channel-hierarchy-redesign-dotted-paths-project.md) | 2026-07-09 | Channel hierarchy redesign: dotted paths, project concept eliminated, CLI commands unified under `channel` | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-1-full-project-vocabulary-purge-workspace-root](episodes/2026-07-09-b70718e17221-cb4e41ba-1-full-project-vocabulary-purge-workspace-root.md) | 2026-07-09 | Full "project" vocabulary purge → workspace + root channel | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-1-project-cli-command-removed-functions-rehomed](episodes/2026-07-09-b70718e17221-cb4e41ba-1-project-cli-command-removed-functions-rehomed.md) | 2026-07-09 | Project CLI command removed, functions rehomed under channel | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-1-project-concept-fully-purged-replaced-by](episodes/2026-07-09-b70718e17221-cb4e41ba-1-project-concept-fully-purged-replaced-by.md) | 2026-07-09 | "Project" concept fully purged — replaced by workspace + root channel | reversal | superseded |
@@ -121,13 +123,16 @@ Last updated: 2026-07-09
 | [2026-07-09-b70718e17221-cb4e41ba-2-durable-identity-mechanism-retired-in-docs](episodes/2026-07-09-b70718e17221-cb4e41ba-2-durable-identity-mechanism-retired-in-docs.md) | 2026-07-09 | Durable identity mechanism retired in docs — self-organization frame kept | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-2-durable-per-agent-identity-mechanism-retired](episodes/2026-07-09-b70718e17221-cb4e41ba-2-durable-per-agent-identity-mechanism-retired.md) | 2026-07-09 | Durable per-agent identity mechanism retired in docs, per-session keys confirmed as shipped model | architecture | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-2-full-project-vocabulary-purge-project-workspace](episodes/2026-07-09-b70718e17221-cb4e41ba-2-full-project-vocabulary-purge-project-workspace.md) | 2026-07-09 | Full 'project' vocabulary purge — project → workspace / root channel across all surfaces | reversal | superseded |
-| [2026-07-09-b70718e17221-cb4e41ba-2-integration-test-flakiness-root-cause-croissant](episodes/2026-07-09-b70718e17221-cb4e41ba-2-integration-test-flakiness-root-cause-croissant.md) | 2026-07-09 | Integration test flakiness root cause: croissant LMDB POSIX semaphore leak on SIGKILL | root-cause | active |
+| [2026-07-09-b70718e17221-cb4e41ba-2-integration-test-flakiness-root-cause-croissant](episodes/2026-07-09-b70718e17221-cb4e41ba-2-integration-test-flakiness-root-cause-croissant.md) | 2026-07-09 | Integration test flakiness root cause: croissant LMDB POSIX semaphore leak on SIGKILL | root-cause | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-2-per-session-pubkey-model-inverts-shared](episodes/2026-07-09-b70718e17221-cb4e41ba-2-per-session-pubkey-model-inverts-shared.md) | 2026-07-09 | Per-session pubkey model inverts shared-pubkey design rationale in docs | root-cause | active |
 | [2026-07-09-b70718e17221-cb4e41ba-3-full-project-wording-purge-project-workspace](episodes/2026-07-09-b70718e17221-cb4e41ba-3-full-project-wording-purge-project-workspace.md) | 2026-07-09 | Full project-wording purge: project → workspace / root channel across entire codebase | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-3-non-mention-test-cold-relay-readiness](episodes/2026-07-09-b70718e17221-cb4e41ba-3-non-mention-test-cold-relay-readiness.md) | 2026-07-09 | non_mention test cold-relay readiness race: wait for channel materialization before send | root-cause | active |
 | [2026-07-09-b70718e17221-cb4e41ba-3-per-session-key-model-inverts-shared](episodes/2026-07-09-b70718e17221-cb4e41ba-3-per-session-key-model-inverts-shared.md) | 2026-07-09 | Per-session key model inverts shared-pubkey reply-envelope rationale | root-cause | superseded |
+| [2026-07-10-b70718e17221-cb4e41ba-1-channel-hierarchy-notation-dotted-paths-replace](episodes/2026-07-10-b70718e17221-cb4e41ba-1-channel-hierarchy-notation-dotted-paths-replace.md) | 2026-07-10 | Channel hierarchy notation: dotted paths replace slash-separated paths; 'project' concept fully collapsed | reversal | active |
+| [2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off](episodes/2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off.md) | 2026-07-10 | Daemon startup: relay connect moved off critical path to background spawn | root-cause | active |
+| [2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant](episodes/2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant.md) | 2026-07-10 | Integration test flakiness root cause: croissant relay leaks POSIX named semaphores on SIGKILL | root-cause | active |
 
-## Nouns (184 entities)
+## Nouns (186 entities)
 
 | Noun | Name | Origin | Definition |
 |------|------|--------|------------|
@@ -234,6 +239,8 @@ Last updated: 2026-07-09
 | [ordinalslot](nouns/ordinalslot.md) | OrdinalSlot | extracted | Superseded by per-session identity. Ordinals are gone: sessions are no longer |
 | [pendingattach](nouns/pendingattach.md) | PendingAttach | extracted | A struct holding a pane to attach to once the event loop yields, plus a fallback session id to resume if attaching fails because the pane is stale/gone; attaching is best-effort so a pane-not-found error never surfaces to the user. |
 | [per-session-key](nouns/per-session-key.md) | per-session key | extracted | There is no base agent key. Every session mints its own pubkey; nsec = derive(mgmt_secret, session_id). Mgmt_secret is per-machine so the same session_id on two machines produces different keys. Nothing stored as a secret except the mgmt key; any session is recoverable by re-derivation. |
+| [per-session-key-model](nouns/per-session-key-model.md) | per-session key model | extracted | There is no base agent key; all keys are created at session start. nsec = derive(mgmt_secret, session_id), where mgmt_secret is per-machine, so the same session_id on two machines yields different keys automatically. Nothing is stored as a secret except the mgmt key plus an append-only pubkey→session_id map. |
+| [per-session-kind-0](nouns/per-session-kind-0.md) | per-session kind:0 | extracted | Per-session kind:0 is OBVIOUSLY the only right answer (there is no base agent pubkey). The kind:0 name is @session-codename@hostname, so an agent using `channel send "@session-codename@hostname are you done?"` has the p-tagging it needs. |
 | [per-session-kind-0-name](nouns/per-session-kind-0-name.md) | per-session kind:0 name | extracted | @session-codename@hostname — the p-taggable handle for a live session. Each session publishes its own kind:0; there is no base agent pubkey. |
 | [per-session-pubkey-model](nouns/per-session-pubkey-model.md) | per-session pubkey model | extracted | No base agent key exists. Every session mints its own keypair: nsec = derive(mgmt_secret, session_id). mgmt_secret is per-machine, so the same session_id on two machines yields different keys. Nothing is stored as a secret except the mgmt key; an append-only pubkey→session_id map lets the backend recognize, route, and resume. |
 | [per-session-pubkey-new-identity-model](nouns/per-session-pubkey-new-identity-model.md) | per-session pubkey (new identity model) | extracted | Every session mints its own keypair; nsec = HKDF(mgmt_secret, session_id). mgmt_secret is per-machine, so the same session_id on two machines yields different keys. No base agent key, no ordinals, no occupancy/reservation logic. Only the mgmt key and an append-only pubkey→session_id map are stored. |
