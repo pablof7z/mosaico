@@ -1,0 +1,18 @@
+[
+  [
+    "user",
+    "the mcp server -- how does it work? when the mcp server runs `who` tool what do we show it if it's been started without the context of an agent?"
+  ],
+  [
+    "assistant",
+    "The MCP server is a stateless stdio JSON-RPC loop that forwards all tool calls to a per-machine daemon. With no agent context, `who` degrades gracefully: it returns an anonymous, session-less fabric snapshot with no self-row and no `(you)` marker, rather than erroring or showing a sentinel value."
+  ],
+  [
+    "user",
+    "with no agent context it should create an agent context for that session, ideally showing it as \"chatgpt/echo123\" for chatgpt or \"grok/echo123\" for grok -- I think we can associate, at least for chatgpt, based on session-id x-openai header or something like that"
+  ],
+  [
+    "assistant",
+    "The MCP `initialize` handshake already receives `clientInfo` (name/version) from the client, which is more reliable than HTTP header-sniffing (only works in `--http` mode). I recommend capturing `clientInfo.name` at `initialize`, stashing it in the daemon, and having `rpc_who`'s no-anchor fallback auto-provision a session like `<clientInfo.name>/<random-suffix>` instead of collapsing to an anonymous snapshot. Tradeoff: this adds a side effect to `who`, and `clientInfo.name` is self-reported (identity-by-assertion), fine for display but not security-sensitive uses."
+  ]
+]

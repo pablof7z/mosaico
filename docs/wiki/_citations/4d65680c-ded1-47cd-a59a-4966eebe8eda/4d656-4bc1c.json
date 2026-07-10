@@ -1,0 +1,6 @@
+{
+  "id": "4d656-4bc1c",
+  "ts": "2026-07-10T11:53:38Z",
+  "session": "4d65680c-ded1-47cd-a59a-4966eebe8eda",
+  "text": "- **Tools**: `who`, `channels_list`, `chat_read`, `chat_write`, `channels_create`, `channels_join/leave/switch` (`src/cli/mcp/catalog.rs:29-109`)."
+}

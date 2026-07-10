@@ -1,0 +1,6 @@
+{
+  "id": "4d656-d7fb2",
+  "ts": "2026-07-10T11:53:38Z",
+  "session": "4d65680c-ded1-47cd-a59a-4966eebe8eda",
+  "text": "- **Wiring**: `tenex-edge mcp` (`src/cli/mcp.rs:50`) runs a stdio JSON-RPC loop by default (`stdio()`, `src/cli/mcp.rs:57-91`) — this is spawned as a per-session subprocess by the harness (e.g. Claude Code). It's stateless itself.\n- **Real state lives elsewhere**: every tool call is forwarded over a Unix domain socket to a separate, long-running per-machine daemon (`src/daemon/client.rs`), which auto-spawns if not already running. So the MCP process is just an RPC translator; sessions/channels/roster all live in the daemon."
+}

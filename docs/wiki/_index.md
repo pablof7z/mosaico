@@ -43,7 +43,7 @@ Last updated: 2026-07-10
 | [github-issue-queue](guides/github-issue-queue.md) | GitHub Issue Queue | The repository has exactly one canonical tactical queue: GitHub Issues (`gh issue list`) | capture | warm | 2026-06-29 | repo-discipline |
 | [planning-vs-durable-docs](guides/planning-vs-durable-docs.md) | Planning vs Durable Docs | Scattered notes, ad-hoc `TODO.md`, `NOTES.md`, `ROADMAP.md`, `PLAN-foo.md` files, parallel planning docs, and inline `// TODO:` annotations used as a substitute | capture | warm | 2026-06-29 | repo-discipline |
 
-## tenex-edge (19 guides)
+## tenex-edge (20 guides)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
@@ -61,6 +61,7 @@ Last updated: 2026-07-10
 | [tenex-edge-home-directory](guides/tenex-edge-home-directory.md) | Tenex-Edge Home Directory | The `edge_home()` function returns tenex-edge's data root, including `state.db`, agents, and logs, and is overridable via `TENEX_EDGE_HOME`. | capture | warm | 2026-07-03 | tenex-edge |
 | [tenex-edge-inbox-delivery](guides/tenex-edge-inbox-delivery.md) | Tenex-Edge Inbox Delivery | Inbox delivery uses an atomic `UPDATE â¦ SET state='delivered' â¦ RETURNING` claim so the first drainer (pty paste or hook) wins and the other gets nothing | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-launch](guides/tenex-edge-launch.md) | Tenex-Edge Launch | When `tenex-edge launch` spawns an agent harness in pty, `default-terminal` and `terminal-overrides` are set globally (`-g`) before `new-session` forks the chi | capture | warm | 2026-07-07 | tenex-edge |
+| [tenex-edge-mcp-server](guides/tenex-edge-mcp-server.md) | Tenex-Edge MCP Server | The MCP server (`tenex-edge mcp`) is a stateless stdio JSON-RPC loop spawned as a per-session subprocess by the harness | capture | warm | 2026-07-10 | tenex-edge |
 | [tenex-edge-message-formatting](guides/tenex-edge-message-formatting.md) | Tenex-Edge Message Formatting | The @mention is a session-targeted Nostr kind:9 event with a p-tag addressed to another agent's pubkey that gets server-side-routed into the target session's in | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-model-config](guides/tenex-edge-model-config.md) | Tenex-Edge Model Config | `providers.json` and `llms.json` are config files living under `~/.tenex-edge` that drive model selection per role | capture | warm | 2026-07-03 | tenex-edge |
 | [tenex-edge-presence](guides/tenex-edge-presence.md) | Tenex-Edge Presence | Agent online presence is channel membership; kind:30315 carries per-session activity and resumable session history. | capture | warm | 2026-06-29 | tenex-edge |
@@ -82,7 +83,7 @@ Last updated: 2026-07-10
 | [2026-07-10-b70718e17221-cb4e41ba-2-residual-per-test-flake-investigation-found](research/2026-07-10-b70718e17221-cb4e41ba-2-residual-per-test-flake-investigation-found.md) | 2026-07-10 | Residual per-test flake investigation: found and fixed 6 propagation races + 1 production bug across ~85 runs; verdict = 20/20 consecutive green, all flakes eliminated. | a067926378f0c4ada (residual de-flake agent) |
 | [AGENTS](research/AGENTS.md) |  |  |  |
 
-## Episode Cards (57 cards)
+## Episode Cards (58 cards)
 
 | Card | Date | Title | Salience | Status |
 |------|------|-------|----------|--------|
@@ -135,6 +136,7 @@ Last updated: 2026-07-10
 | [2026-07-09-b70718e17221-cb4e41ba-3-full-project-wording-purge-project-workspace](episodes/2026-07-09-b70718e17221-cb4e41ba-3-full-project-wording-purge-project-workspace.md) | 2026-07-09 | Full project-wording purge: project → workspace / root channel across entire codebase | reversal | superseded |
 | [2026-07-09-b70718e17221-cb4e41ba-3-non-mention-test-cold-relay-readiness](episodes/2026-07-09-b70718e17221-cb4e41ba-3-non-mention-test-cold-relay-readiness.md) | 2026-07-09 | non_mention test cold-relay readiness race: wait for channel materialization before send | root-cause | active |
 | [2026-07-09-b70718e17221-cb4e41ba-3-per-session-key-model-inverts-shared](episodes/2026-07-09-b70718e17221-cb4e41ba-3-per-session-key-model-inverts-shared.md) | 2026-07-09 | Per-session key model inverts shared-pubkey reply-envelope rationale | root-cause | superseded |
+| [2026-07-10-4d65680cded1-c78c1b5f-1-mcp-who-tool-auto-provisions-agent](episodes/2026-07-10-4d65680cded1-c78c1b5f-1-mcp-who-tool-auto-provisions-agent.md) | 2026-07-10 | MCP `who` tool auto-provisions agent context instead of degrading anonymously | product | active |
 | [2026-07-10-4d78f854d5e5-873fdd2e-1-chief-of-staff-home-dir-must](episodes/2026-07-10-4d78f854d5e5-873fdd2e-1-chief-of-staff-home-dir-must.md) | 2026-07-10 | Chief-of-staff home dir must be symlinked into a git repo, not loose local files | architecture | superseded |
 | [2026-07-10-4d78f854d5e5-873fdd2e-1-chief-of-staff-home-directory-must](episodes/2026-07-10-4d78f854d5e5-873fdd2e-1-chief-of-staff-home-directory-must.md) | 2026-07-10 | Chief-of-staff home directory must be symlinked into a git repo, not a local dir | architecture | active |
 | [2026-07-10-4d78f854d5e5-873fdd2e-1-workflows-must-live-in-a-git](episodes/2026-07-10-4d78f854d5e5-873fdd2e-1-workflows-must-live-in-a-git.md) | 2026-07-10 | Workflows must live in a git repo, not a local home directory | architecture | superseded |
@@ -144,7 +146,7 @@ Last updated: 2026-07-10
 | [2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off](episodes/2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off.md) | 2026-07-10 | Daemon startup: relay connect moved off critical path to background spawn | root-cause | active |
 | [2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant](episodes/2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant.md) | 2026-07-10 | Integration test flakiness root cause: croissant relay leaks POSIX named semaphores on SIGKILL | root-cause | active |
 
-## Nouns (197 entities)
+## Nouns (199 entities)
 
 | Noun | Name | Origin | Definition |
 |------|------|--------|------------|
@@ -190,6 +192,7 @@ Last updated: 2026-07-10
 | [citizen-identity-retired](nouns/citizen-identity-retired.md) | citizen (identity, retired) | extracted | A sovereign cryptographic keypair plus fabric membership (Nostr) — nothing more, nothing less. This concept was retired as a product positioning element; the durable per-agent keypair no longer exists. |
 | [citizen-identity-retired-model](nouns/citizen-identity-retired-model.md) | citizen (identity) [retired model] | extracted | Previously defined as a sovereign cryptographic keypair plus fabric membership (Nostr) — nothing more, nothing less. This durable-key model was retired by the redesign in favor of per-session keys and agentic self-organization positioning. |
 | [cli-split](nouns/cli-split.md) | cli-split | extracted | A label for splitting an oversized CLI submodule. |
+| [clientinfo](nouns/clientinfo.md) | clientInfo | extracted | A field (name/version) the MCP client sends during the `initialize` handshake, identifying the connecting client — currently logged but discarded, not threaded through to session resolution. |
 | [config-json](nouns/config-json.md) | config.json | extracted | The file tenex-edge reads from ~/.tenex-edge for whitelistedPubkeys, optional relays, and backendName (host label); tenex-edge keeps all of its own writable state under ~/.tenex-edge alongside it. |
 | [croissant](nouns/croissant.md) | croissant | extracted | The NIP-29 relay binary running at /opt/nip29-f7z-io on port 3336, serving nip29.f7z.io as a groups provider. |
 | [daemon](nouns/daemon.md) | daemon | extracted | ONE daemon per machine is the sole owner of state.db, the single relay connection, the inbox, presence, membership cache, and peer pruning; every CLI invocation and every per-session engine becomes a thin client that talks to it over a Unix domain socket. |
@@ -234,6 +237,7 @@ Last updated: 2026-07-10
 | [liverow](nouns/liverow.md) | LiveRow | extracted | A TUI data-struct representing a live session row with fields slug, host, project, session_id (full raw id for RPC calls + correlation), status, and attachable (whether it has a live pty endpoint). |
 | [llms-json](nouns/llms-json.md) | llms.json | extracted | A file under edge_home() containing a "configurations" map of named entries { "model": "...", "provider": "..." } plus top-level role keys mapping a role name to a configuration name. |
 | [management-nsec](nouns/management-nsec.md) | management_nsec | extracted | The backend's own tenexPrivateKey used for group-management operations (put-admin/remove-user/edit-metadata); the operator's userNsec is no longer used for group management |
+| [mcp-server-mcp-process](nouns/mcp-server-mcp-process.md) | MCP server / MCP process | extracted | A thin RPC translator — a stateless stdio JSON-RPC subprocess spawned per-session by an agent harness; every tool call is forwarded to a separate long-running daemon, holding no persistent state itself. |
 | [members](nouns/members.md) | members | extracted | Concrete *sessions*, not role types. The members of a channel are live sessions |
 | [members-new-definition](nouns/members-new-definition.md) | members (new definition) | extracted | The members of a channel are the *sessions* (concrete live sessions identified by |
 | [members-of-a-channel](nouns/members-of-a-channel.md) | members (of a channel) | extracted | Concrete sessions identified by `@agent/session`, not roles. available-agents = |
