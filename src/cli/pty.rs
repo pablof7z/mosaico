@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
+mod list;
+
 #[derive(Subcommand)]
 pub(in crate::cli) enum PtyAction {
     /// List experimental portable-pty sessions.
@@ -54,8 +56,8 @@ pub(in crate::cli) struct PtySupervisorArgs {
 
 pub(in crate::cli) fn pty(action: PtyAction) -> Result<()> {
     match action {
-        PtyAction::List => crate::pty::list(),
-        PtyAction::Attach { id } => crate::pty::attach(&id),
+        PtyAction::List => list::list(),
+        PtyAction::Attach { id } => crate::pty::attach(&resolve_endpoint_id(&id)),
         PtyAction::Inject(args) => {
             let text = match args.text {
                 Some(text) => text,
@@ -66,11 +68,26 @@ pub(in crate::cli) fn pty(action: PtyAction) -> Result<()> {
                     text
                 }
             };
-            crate::pty::inject(&args.id, &text, args.bracketed, !args.no_submit)
+            crate::pty::inject(
+                &resolve_endpoint_id(&args.id),
+                &text,
+                args.bracketed,
+                !args.no_submit,
+            )
         }
-        PtyAction::Resize(args) => crate::pty::resize(&args.id, args.rows, args.cols),
-        PtyAction::Kill { id } => crate::pty::kill(&id),
+        PtyAction::Resize(args) => {
+            crate::pty::resize(&resolve_endpoint_id(&args.id), args.rows, args.cols)
+        }
+        PtyAction::Kill { id } => crate::pty::kill(&resolve_endpoint_id(&id)),
     }
+}
+
+fn resolve_endpoint_id(id: &str) -> String {
+    crate::daemon::blocking::call_no_spawn("pty_attach", serde_json::json!({ "session": id }))
+        .ok()
+        .and_then(|v| v["pty_id"].as_str().map(str::to_string))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| id.to_string())
 }
 
 pub(in crate::cli) fn pty_supervisor(args: PtySupervisorArgs) -> Result<()> {
