@@ -43,11 +43,12 @@ Last updated: 2026-07-10
 | [github-issue-queue](guides/github-issue-queue.md) | GitHub Issue Queue | The repository has exactly one canonical tactical queue: GitHub Issues (`gh issue list`) | capture | warm | 2026-06-29 | repo-discipline |
 | [planning-vs-durable-docs](guides/planning-vs-durable-docs.md) | Planning vs Durable Docs | Scattered notes, ad-hoc `TODO.md`, `NOTES.md`, `ROADMAP.md`, `PLAN-foo.md` files, parallel planning docs, and inline `// TODO:` annotations used as a substitute | capture | warm | 2026-06-29 | repo-discipline |
 
-## tenex-edge (18 guides)
+## tenex-edge (19 guides)
 
 | Slug | Title | Summary | Tags | Volatility | Verified | Topic |
 |------|-------|---------|------|------------|----------|-------|
 | [croissant-test-relay](guides/croissant-test-relay.md) | Croissant Test Relay | Croissant is a local NIP-29 relay binary used for fully isolated, writable test relay environments | capture | warm | 2026-07-03 | tenex-edge |
+| [tenex-edge-agent-display-handles](guides/tenex-edge-agent-display-handles.md) | Tenex-Edge Agent Display Handles | The `agent/session` display handle uses the friendly codename (e.g | capture | warm | 2026-07-10 | tenex-edge |
 | [tenex-edge-agent-identity](guides/tenex-edge-agent-identity.md) | Tenex-Edge Agent Identity | Identity is per session — each session derives its own Nostr keypair from the machine's management key; trust is NIP-29 channel membership. | capture | warm | 2026-07-09 | tenex-edge |
 | [tenex-edge-architecture](guides/tenex-edge-architecture.md) | Tenex-Edge Architecture | Tenex-edge is a Rust project (38.5k LOC in src/) providing durable Nostr-keypair identity, presence, and cross-agent messaging for AI coding-agent sessions via | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-channel-create](guides/tenex-edge-channel-create.md) | Tenex-Edge Channel Create | `channels create` resolves the parent channel in this precedence: `--parent-channel <ref>`, then the creating agent's current channel (the default), then an exp | capture | warm | 2026-06-29 | tenex-edge |

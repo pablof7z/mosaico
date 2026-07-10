@@ -1,0 +1,6 @@
+{
+  "id": "af454-c9ca2",
+  "ts": "2026-07-10T11:07:09Z",
+  "session": "af454e46-7c4f-4182-ab2b-ebc50b1eb9ad",
+  "text": "Assistant: Now `who_snapshot/dormant.rs` and `cli/who/render/expired.rs`: [...] - `who_snapshot/dormant.rs` and `cli/who/render/expired.rs` — both already computed a `codename` field but were ignoring it in favor of the raw `session_id`; now they use it."
+}

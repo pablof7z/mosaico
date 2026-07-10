@@ -1,0 +1,6 @@
+{
+  "id": "af454-69c80",
+  "ts": "2026-07-10T11:07:09Z",
+  "session": "af454e46-7c4f-4182-ab2b-ebc50b1eb9ad",
+  "text": "User: ok, we are using the wrong session id in the name -- it should be the otan-like codename, not `/te-123123122` [...] Confirmed: commit `86b2a9fd` (\"Use agent session handles for agent profiles\", earlier today) deliberately switched the `agent/session` display handle from the friendly codename to the raw internal `session_id` — that's why you're seeing `@developer/te-18c0e6e30d9c3c80-0` instead of something like `@developer/lark-summit-042`. The test names it broke were literally called things like `session_identity_agent_ref_names_pubkey_by_codename` and `first_turn_renders_awareness_snapshot_not_session_code`, and the commit edited their assertions to expect the raw id — a strong signal this was a regression the commit introduced, not an intended tradeoff.\n\nFixed by making the session segment always the codename again, everywhere it's rendered:\n- `identity/keys.rs::display_slug()` — the root source used for kind:0 name, chat \"From\" labels, statusline, `who`, invite wait, pty_rpc — now uses `self.codename` instead of `self.session_id`."
+}

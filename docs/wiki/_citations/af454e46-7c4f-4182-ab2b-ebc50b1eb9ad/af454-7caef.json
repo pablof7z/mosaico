@@ -1,0 +1,6 @@
+{
+  "id": "af454-7caef",
+  "ts": "2026-07-10T11:07:09Z",
+  "session": "af454e46-7c4f-4182-ab2b-ebc50b1eb9ad",
+  "text": "Assistant: Now the three remaining daemon RPC/resolve sites: [...] - Three daemon RPC/resolve call sites (`invite_rpc/resolve.rs`, `management_command/sessions.rs`, `rpc/agents.rs`) that reconstructed handles the same way — now use `friendly_short_code`."
+}

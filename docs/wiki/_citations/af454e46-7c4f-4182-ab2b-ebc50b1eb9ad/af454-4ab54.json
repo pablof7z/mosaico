@@ -1,0 +1,6 @@
+{
+  "id": "af454-4ab54",
+  "ts": "2026-07-10T11:07:09Z",
+  "session": "af454e46-7c4f-4182-ab2b-ebc50b1eb9ad",
+  "text": "Assistant: Now the peer-rendering path in `fabric_context/refs.rs`: [...] - `fabric_context/refs.rs::session_ref()` — peer/member rendering (both the legacy and \"pure\" assemble paths, which share this function) now builds `agent/friendly_short_code(session_id)` instead of `agent/session_id`."
+}

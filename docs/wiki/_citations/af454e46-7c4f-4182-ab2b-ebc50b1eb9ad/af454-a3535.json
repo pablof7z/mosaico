@@ -1,0 +1,6 @@
+{
+  "id": "af454-a3535",
+  "ts": "2026-07-10T11:07:09Z",
+  "session": "af454e46-7c4f-4182-ab2b-ebc50b1eb9ad",
+  "text": "Mention resolution is untouched and already accepts codename, short code, raw id, or prefix, so nothing breaks there. Updated the ~7 tests whose assertions had been changed to lock in the buggy behavior. Not committed — let me know if you want these staged."
+}
