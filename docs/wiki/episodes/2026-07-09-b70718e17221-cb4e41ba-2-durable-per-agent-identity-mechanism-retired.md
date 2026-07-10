@@ -4,7 +4,7 @@ date: 2026-07-09
 session: b70718e1-7221-496a-bc81-1ae5d1706296
 transcript: /Users/pablofernandez/.claude/projects/-Users-pablofernandez-src-tenex-edge/b70718e1-7221-496a-bc81-1ae5d1706296.jsonl
 salience: architecture
-status: active
+status: superseded
 subjects:
   - identity-model
   - per-session-keys
