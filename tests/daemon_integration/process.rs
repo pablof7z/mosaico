@@ -126,14 +126,14 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
         "parent chain should be captured"
     );
 
-    // who --all-roots shows the agent (blocking client + real renderer).
+    // who --all-workspaces shows the agent (blocking client + real renderer).
     assert!(
         wait_until(std::time::Duration::from_secs(5), || {
-            let out = run_cli(&home, &["who", "--all-roots"]);
+            let out = run_cli(&home, &["who", "--all-workspaces"]);
             out.status.success() && String::from_utf8_lossy(&out.stdout).contains("opencode")
         }),
         "who output missing agent: {}",
-        String::from_utf8_lossy(&run_cli(&home, &["who", "--all-roots"]).stdout)
+        String::from_utf8_lossy(&run_cli(&home, &["who", "--all-workspaces"]).stdout)
     );
 
     // turn end (stop hook) is a sync blocking write — must succeed, print nothing.
@@ -277,10 +277,10 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
 }
 
 #[test]
-fn who_all_roots_uses_unified_fabric_render_not_old_table() {
-    // Regression for the divergence the user flagged live: `who --all-roots`
+fn who_all_workspaces_uses_unified_fabric_render_not_old_table() {
+    // Regression for the divergence the user flagged live: `who --all-workspaces`
     // must render through the SAME fabric pipeline as single-channel `who`
-    // (one channel block per root channel), not the old flat markdown table.
+    // (one channel block per workspace), not the old flat markdown table.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
     rt().block_on(async {
@@ -318,24 +318,24 @@ fn who_all_roots_uses_unified_fabric_render_not_old_table() {
     );
     assert!(out.status.success(), "session-start (proj2) failed");
 
-    let out = run_cli(&home, &["who", "--all-roots"]);
+    let out = run_cli(&home, &["who", "--all-workspaces"]);
     assert!(
         out.status.success(),
-        "who --all-roots failed: {}",
+        "who --all-workspaces failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let who = String::from_utf8_lossy(&out.stdout);
     assert!(
         !who.contains("| Agent | Host | Title | Status |"),
-        "who --all-roots still uses the old markdown table renderer:\n{who}"
+        "who --all-workspaces still uses the old markdown table renderer:\n{who}"
     );
     assert!(
         who.contains("opencode"),
-        "who --all-roots missing agent:\n{who}"
+        "who --all-workspaces missing agent:\n{who}"
     );
     assert!(
         who.contains("tmp") && who.contains("proj2"),
-        "who --all-roots missing a channel block:\n{who}"
+        "who --all-workspaces missing a channel block:\n{who}"
     );
 
     stop_daemon(&home);
@@ -350,7 +350,7 @@ fn version_skew_client_detects_and_respawns() {
     let home = Home::new().with_backend_key();
 
     // Start a daemon pinned to protocol 1 via a normal subprocess CLI call.
-    let out = run_cli_proto(&home, &["who", "--all-roots"], Some("1"));
+    let out = run_cli_proto(&home, &["who", "--all-workspaces"], Some("1"));
     assert!(
         out.status.success(),
         "proto-1 who failed: {}",
@@ -360,7 +360,7 @@ fn version_skew_client_detects_and_respawns() {
 
     // A "newer" client (protocol 2): connect_or_spawn must re-exec the daemon
     // and the call must still succeed.
-    let out = run_cli_proto(&home, &["who", "--all-roots"], Some("2"));
+    let out = run_cli_proto(&home, &["who", "--all-workspaces"], Some("2"));
     assert!(
         out.status.success(),
         "proto-2 client failed to respawn+succeed: {}",

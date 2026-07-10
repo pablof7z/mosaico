@@ -20,7 +20,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Add {
             slug,
-            roots,
+            workspaces,
             command_str,
             command,
         } => {
@@ -47,14 +47,14 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     crate::identity::set_local_agent_byline(&edge_home, &slug, Some(byline))?;
                 }
             }
-            if !roots.is_empty() {
+            if !workspaces.is_empty() {
                 println!(
-                    "  root-specific assignment is not implemented; roster is advertised to every root channel"
+                    "  workspace-specific assignment is not implemented; roster is advertised to every workspace"
                 );
             }
             publish_roster(None).await;
         }
-        AgentAction::Assign { slug, roots } => {
+        AgentAction::Assign { slug, workspaces } => {
             let found = crate::identity::list_local_agent_details(&edge_home)
                 .into_iter()
                 .any(|a| a.slug == slug);
@@ -63,9 +63,9 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"
                 );
             }
-            if !roots.is_empty() {
+            if !workspaces.is_empty() {
                 println!(
-                    "root-specific assignment is not implemented; roster is advertised to every root channel"
+                    "workspace-specific assignment is not implemented; roster is advertised to every workspace"
                 );
             }
             publish_roster(None).await;

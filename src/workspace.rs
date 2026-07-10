@@ -91,7 +91,7 @@ pub fn rel_cwd(cwd: &Path) -> String {
 pub fn resolve_or_bail(cwd: &Path) -> Result<String> {
     resolve(cwd).map_err(|e| {
         anyhow::anyhow!(
-            "{e}; run `tenex-edge channel init` or `git init` first, or pass `--root <slug>`"
+            "{e}; run `tenex-edge channel init` or `git init` first, or pass `--workspace <slug>`"
         )
     })
 }

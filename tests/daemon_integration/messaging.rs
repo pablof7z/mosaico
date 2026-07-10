@@ -45,7 +45,10 @@ fn session_start_runs_engine_and_records_alive_session() {
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
-            .call("who", serde_json::json!({"all": true, "all_roots": true}))
+            .call(
+                "who",
+                serde_json::json!({"all": true, "all_workspaces": true}),
+            )
             .await
             .unwrap();
         let rows = v["rows"].as_array().unwrap();
@@ -110,7 +113,10 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
-            .call("who", serde_json::json!({"all": true, "all_roots": true}))
+            .call(
+                "who",
+                serde_json::json!({"all": true, "all_workspaces": true}),
+            )
             .await
             .unwrap();
         let rows = v["rows"].as_array().unwrap();

@@ -11,7 +11,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
 
     let scope = if snapshot.root == "*" {
-        "all root channels".to_string()
+        "all workspaces".to_string()
     } else {
         snapshot.root_display.clone()
     };
@@ -34,7 +34,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
         let _ = writeln!(out);
         let _ = writeln!(
             out,
-            "{} other agent(s) in other root channels:",
+            "{} other agent(s) in other workspaces:",
             snapshot.other_roots.len()
         );
         for op in &snapshot.other_roots {
@@ -78,18 +78,18 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     let _ = writeln!(out, "# tenex-edge who");
     let _ = writeln!(out);
     if snapshot.root == "*" {
-        let _ = writeln!(out, "Root: all root channels");
+        let _ = writeln!(out, "Workspace: all workspaces");
     } else if let Some(parent) = &snapshot.channel_parent {
         // The current scope is this session's own room — show it as the channel,
-        // with the work-root channel it's nested under.
+        // with the workspace it's nested under.
         let _ = writeln!(
             out,
             "Channel: {} (your session room)",
             snapshot.root_display
         );
-        let _ = writeln!(out, "Root: {parent}");
+        let _ = writeln!(out, "Workspace: {parent}");
     } else {
-        let _ = writeln!(out, "Root: {}", snapshot.root_display);
+        let _ = writeln!(out, "Workspace: {}", snapshot.root_display);
     }
     let _ = writeln!(out);
 
@@ -136,10 +136,10 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
 
     if snapshot.root != "*" {
         let _ = writeln!(out);
-        let _ = writeln!(out, "## Other root channels");
+        let _ = writeln!(out, "## Other workspaces");
         if snapshot.other_roots.is_empty() {
             let _ = writeln!(out);
-            let _ = writeln!(out, "_No other root channels visible._");
+            let _ = writeln!(out, "_No other workspaces visible._");
         } else {
             let _ = writeln!(out);
             for op in &snapshot.other_roots {

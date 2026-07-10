@@ -33,8 +33,8 @@ pub(crate) struct WhoSnapshot {
     #[serde(default)]
     pub(crate) channel_parent: Option<String>,
     /// The human DISPLAY label for `root`: its kind:39000 `name` when set, else
-    /// the raw scope id. Rendered in the `Channel:`/`Root:` headers so the
-    /// opaque channel id never surfaces when a name exists. `*` for all-roots.
+    /// the raw scope id. Rendered in the `Channel:`/`Workspace:` headers so the
+    /// opaque channel id never surfaces when a name exists. `*` for all workspaces.
     #[serde(default)]
     pub(crate) root_display: String,
 }
@@ -167,7 +167,7 @@ pub(crate) fn load_who_snapshot(
 
     // ── peers: relay_status across all channels, minus our own keys ────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
-    // become rows, root channels out of scope feed the other-roots summary.
+    // become rows, root channels out of scope feed the other-workspaces summary.
     let mut channels: Vec<String> = store
         .list_channels()
         .context("who snapshot: failed to list channels")?

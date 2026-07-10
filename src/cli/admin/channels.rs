@@ -3,8 +3,8 @@ use super::*;
 // ── channels (NIP-29 subgroup task rooms) ────────────────────────────────────
 
 pub async fn channels(action: ChannelAction) -> Result<()> {
-    fn resolve_root(root: Option<String>) -> Result<String> {
-        match root {
+    fn resolve_workspace(workspace: Option<String>) -> Result<String> {
+        match workspace {
             Some(p) => Ok(p),
             None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default()),
         }
@@ -115,26 +115,28 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
         ChannelAction::Init { force } => {
             let cwd = std::env::current_dir().unwrap_or_default();
             let (slug, path) = crate::workspace::register_workspace(&cwd, force)?;
-            println!("initialized root {slug} at {}", path.display());
+            println!("initialized workspace {slug} at {}", path.display());
         }
-        // `--roots`: every top-level root on the relay (the old `root list`).
-        ChannelAction::List { roots: true, .. } => {
+        // `--all-workspaces`: every top-level workspace on the relay.
+        ChannelAction::List {
+            workspaces: true, ..
+        } => {
             let v = daemon_call_async("root_channels", serde_json::json!({})).await?;
-            let roots = v["channels"]
+            let workspaces = v["channels"]
                 .as_array()
                 .map(|a| a.as_slice())
                 .unwrap_or(&[]);
-            if roots.is_empty() {
+            if workspaces.is_empty() {
                 println!("No NIP-29 groups found on the relay.");
                 return Ok(());
             }
-            let max_slug = roots
+            let max_slug = workspaces
                 .iter()
                 .filter_map(|p| p["slug"].as_str())
                 .map(|s| s.len())
                 .max()
                 .unwrap_or(0);
-            for p in roots {
+            for p in workspaces {
                 let slug = p["slug"].as_str().unwrap_or("");
                 let about = p["about"].as_str().unwrap_or("");
                 if about.is_empty() {
@@ -144,9 +146,9 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 }
             }
         }
-        ChannelAction::List { root, .. } => {
+        ChannelAction::List { workspace, .. } => {
             use owo_colors::Stream::Stdout;
-            let parent = resolve_root(root)?;
+            let parent = resolve_workspace(workspace)?;
             let v = daemon_call_async("channels_list", serde_json::json!({ "channel": parent }))
                 .await?;
             let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);

@@ -29,7 +29,7 @@ pub(crate) async fn launch(
     let command = super::launch_command::append_launch_args(base_command.clone(), &extra_args);
     // Show the interactive picker only when --channel "" is explicitly passed.
     // A bare `tenex-edge launch <agent>` with no --channel defaults to the
-    // root channel.
+    // workspace channel.
     let want_picker = matches!(channel, Some(ref s) if s.is_empty());
     let channel = if want_picker {
         use std::io::IsTerminal;
@@ -46,7 +46,7 @@ pub(crate) async fn launch(
     // Resolve a channel NAME (or a literal id) to its opaque `channel_h` BEFORE
     // spawning, so TENEX_EDGE_CHANNEL and provisioning both see ONE id (creating
     // it if absent). A picker selection is already an id and round-trips unchanged.
-    // When no channel was specified, default to the root channel.
+    // When no channel was specified, default to the workspace channel.
     let channel = match channel {
         None => Some(root.clone()),
         Some(name) if !name.is_empty() => {
@@ -105,6 +105,7 @@ pub(crate) async fn launch(
 }
 
 /// Fetch all rooms under `root` and present an interactive fuzzy picker.
+/// Here `root` is the top-level channel backing the user-facing workspace.
 /// Includes a "＋ Create new channel…" entry at the top; selecting it prompts
 /// for a name, creates the channel via the daemon, and returns the new id.
 /// `agent_slug` is used as the default agent spec when creating.

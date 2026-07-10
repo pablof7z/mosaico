@@ -31,15 +31,16 @@ pub(super) async fn call(params: &Value) -> Result<Value> {
 
 async fn who(args: &Value) -> Result<Value> {
     let channel = opt_string(args, "channel");
-    let all_roots = args
-        .get("all_roots")
+    let all_workspaces = args
+        .get("all_workspaces")
+        .or_else(|| args.get("all_roots"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let extra = json!({
         "channel": channel,
-        "all_roots": all_roots,
+        "all_workspaces": all_workspaces,
     });
-    let params = if channel.is_some() || all_roots {
+    let params = if channel.is_some() || all_workspaces {
         operator_params(extra)
     } else {
         crate::cli::rpc_params(extra)

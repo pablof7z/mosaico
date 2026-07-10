@@ -11,12 +11,12 @@ pub(in crate::cli) struct LaunchArgs {
     /// from stdin.
     #[arg(index = 2, value_name = "PROMPT")]
     prompt: Option<String>,
-    /// Root slug; defaults to root resolved from current directory.
-    #[arg(long)]
-    root: Option<String>,
+    /// Workspace slug; defaults to the workspace resolved from current directory.
+    #[arg(long = "workspace", alias = "root", value_name = "WORKSPACE")]
+    workspace: Option<String>,
     /// Channel name to scope this agent into; resolved to its opaque id and
     /// created if absent. Omit the value (`--channel` with no argument) to
-    /// open an interactive fuzzy picker over all known rooms for the root.
+    /// open an interactive fuzzy picker over all known rooms for the workspace.
     /// When per-session rooms are disabled (the default), omitting `--channel`
     /// entirely also opens the picker; with per-session rooms enabled, omitting
     /// it mints a fresh per-session room instead. The daemon's tenexPrivateKey
@@ -46,7 +46,7 @@ pub(in crate::cli) async fn launch(args: LaunchArgs) -> Result<()> {
         .unwrap_or_default();
     super::verbs::launch(
         args.slug,
-        args.root,
+        args.workspace,
         args.channel,
         args.command_name,
         override_command,
@@ -132,6 +132,25 @@ mod tests {
             crate::cli::args::Cmd::Launch(args) => {
                 assert_eq!(args.command_name.as_deref(), Some("safe"));
                 assert!(args.command_str.is_none());
+            }
+            _ => panic!("expected launch command"),
+        }
+    }
+
+    #[test]
+    fn launch_workspace_flag_parses() {
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "tenex-edge",
+            "launch",
+            "codex",
+            "--workspace",
+            "tenex-edge",
+        ])
+        .expect("launch --workspace parses");
+
+        match cli.cmd {
+            crate::cli::args::Cmd::Launch(args) => {
+                assert_eq!(args.workspace.as_deref(), Some("tenex-edge"));
             }
             _ => panic!("expected launch command"),
         }

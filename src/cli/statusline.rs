@@ -98,7 +98,7 @@ pub struct StatuslineView {
     #[allow(dead_code)]
     session_id: String,
     /// The work-root channel the session's room hangs under (== `who`'s
-    /// "Root:" line). For an ordinary root session this is `root`
+    /// "Workspace:" line). For an ordinary root session this is `root`
     /// itself; for a per-session room it's the parent root.
     #[serde(default)]
     work_root: String,
@@ -165,7 +165,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
         ident, "36", // cyan
     ));
 
-    // Root: the work-root channel the session's room hangs under.
+    // Workspace: the work-root channel the session's room hangs under.
     segs.push(paint(v.work_root.clone(), "2"));
 
     // Session: the channel the session is currently on (its `channel` when set,

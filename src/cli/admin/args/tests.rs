@@ -28,6 +28,77 @@ fn agents_list_sessions_filter_still_parses() {
 }
 
 #[test]
+fn agent_add_workspace_flag_parses() {
+    let cli = crate::cli::args::Cli::try_parse_from([
+        "tenex-edge",
+        "agent",
+        "add",
+        "reviewer",
+        "--workspace",
+        "tenex-edge",
+    ])
+    .expect("agent add --workspace parses");
+
+    match cli.cmd {
+        crate::cli::args::Cmd::Agent {
+            action: AgentAction::Add {
+                slug, workspaces, ..
+            },
+        } => {
+            assert_eq!(slug, "reviewer");
+            assert_eq!(workspaces, vec!["tenex-edge".to_string()]);
+        }
+        _ => panic!("expected agent add command"),
+    }
+}
+
+#[test]
+fn channel_list_workspace_flags_parse() {
+    let one = crate::cli::args::Cli::try_parse_from([
+        "tenex-edge",
+        "channel",
+        "list",
+        "--workspace",
+        "tenex-edge",
+    ])
+    .expect("channel list --workspace parses");
+    match one.cmd {
+        crate::cli::args::Cmd::Channel {
+            action:
+                ChannelAction::List {
+                    workspace,
+                    workspaces,
+                },
+        } => {
+            assert_eq!(workspace.as_deref(), Some("tenex-edge"));
+            assert!(!workspaces);
+        }
+        _ => panic!("expected channel list command"),
+    }
+
+    let all = crate::cli::args::Cli::try_parse_from([
+        "tenex-edge",
+        "channel",
+        "list",
+        "--all-workspaces",
+    ])
+    .expect("channel list --all-workspaces parses");
+    match all.cmd {
+        crate::cli::args::Cmd::Channel {
+            action:
+                ChannelAction::List {
+                    workspace,
+                    workspaces,
+                },
+        } => {
+            assert_eq!(workspace, None);
+            assert!(workspaces);
+        }
+        _ => panic!("expected channel list command"),
+    }
+}
+
+#[test]
 fn channels_create_help_shows_about_limit() {
     let err = parse_err(&["tenex-edge", "channels", "create", "--help"]);
     let help = err.to_string();

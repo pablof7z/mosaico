@@ -11,16 +11,16 @@ pub(in crate::cli) enum AgentAction {
     /// interactive launch prompts for one and daemon/TUI spawns use built-in
     /// defaults only for built-in harness slugs.
     ///
-    /// Repeat `--root <p>` to document the intended assignment. Per-root
+    /// Repeat `--workspace <p>` to document the intended assignment. Per-workspace
     /// roster scoping is not implemented yet; current roster publish advertises
-    /// every local capability to every root channel.
+    /// every local capability to every workspace.
     Add {
         /// Agent slug ([A-Za-z0-9._-]).
         slug: String,
-        /// Intended root assignment (repeatable). Currently triggers a
-        /// roster republish; per-root scoping is not implemented yet.
-        #[arg(long = "root", value_name = "ROOT")]
-        roots: Vec<String>,
+        /// Intended workspace assignment (repeatable). Currently triggers a
+        /// roster republish; per-workspace scoping is not implemented yet.
+        #[arg(long = "workspace", alias = "root", value_name = "WORKSPACE")]
+        workspaces: Vec<String>,
         /// Set the harness command as a string (shell-word split). Takes priority
         /// over `--` args. Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
         #[arg(short = 'c', long = "command", value_name = "COMMAND")]
@@ -29,15 +29,20 @@ pub(in crate::cli) enum AgentAction {
         #[arg(last = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
-    /// Assign an existing local agent to one or more roots. Per-root
+    /// Assign an existing local agent to one or more workspaces. Per-workspace
     /// roster scoping is not implemented yet; this republished roster still
-    /// advertises every local capability to every root channel.
+    /// advertises every local capability to every workspace.
     Assign {
         /// Agent slug (must already exist in the local keystore).
         slug: String,
-        /// Root to assign to (repeatable; at least one required).
-        #[arg(long = "root", value_name = "ROOT", required = true)]
-        roots: Vec<String>,
+        /// Workspace to assign to (repeatable; at least one required).
+        #[arg(
+            long = "workspace",
+            alias = "root",
+            value_name = "WORKSPACE",
+            required = true
+        )]
+        workspaces: Vec<String>,
     },
     /// Remove a local agent. Its key file is parked at `<slug>.json.removed`
     /// (not deleted) so a mistake is recoverable; the agent stops being spawnable
@@ -187,17 +192,20 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// List the subgroup task channels under a root, or every top-level
-    /// root on the relay with `--roots`.
+    /// List the subgroup task channels under a workspace, or every workspace
+    /// on the relay with `--all-workspaces`.
     List {
-        /// Parent root slug. Defaults to the root resolved from the current
-        /// directory. Ignored with `--roots`.
-        #[arg(long)]
-        root: Option<String>,
-        /// List every top-level root channel on the relay instead of one root's
-        /// subgroup tree.
-        #[arg(long, conflicts_with = "root")]
-        roots: bool,
+        /// Workspace slug. Defaults to the workspace resolved from the current
+        /// directory. Ignored with `--all-workspaces`.
+        #[arg(long = "workspace", alias = "root", value_name = "WORKSPACE")]
+        workspace: Option<String>,
+        /// List every workspace on the relay instead of one workspace's subgroup tree.
+        #[arg(
+            long = "all-workspaces",
+            aliases = ["roots", "all-roots"],
+            conflicts_with = "workspace"
+        )]
+        workspaces: bool,
     },
     /// Register the current directory as a tenex-edge workspace. Maps
     /// the directory's basename as a slug in `~/.tenex-edge/workspaces.json` so a

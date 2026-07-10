@@ -48,7 +48,7 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
             .as_str()
             .expect("human who should include fabric_human");
         assert!(human.starts_with(&format!("{channel}\n\n")), "got: {human}");
-        assert!(human.contains("Other root channels"), "got: {human}");
+        assert!(human.contains("Other workspaces"), "got: {human}");
         assert!(human.contains(&other_root), "got: {human}");
         assert!(human.contains("@reviewer"), "got: {human}");
         assert!(human.contains("1 agent"), "got: {human}");

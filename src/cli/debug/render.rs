@@ -35,7 +35,7 @@ pub(super) fn render_hook_tail(
         ])
         .split(area);
 
-    let root_label: String = if state.root_filters.is_empty() {
+    let workspace_label: String = if state.root_filters.is_empty() {
         "*".to_string()
     } else {
         state
@@ -53,8 +53,8 @@ pub(super) fn render_hook_tail(
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  root="),
-        Span::styled(root_label, Style::default().fg(Color::Yellow)),
+        Span::raw("  workspace="),
+        Span::styled(workspace_label, Style::default().fg(Color::Yellow)),
         Span::raw("  session="),
         Span::styled(session, Style::default().fg(Color::Yellow)),
         Span::raw("  panes="),
@@ -78,7 +78,7 @@ pub(super) fn render_hook_tail(
     } else if state.focus_mode {
         "[↑↓] select  [enter] open  [tab/←/→] pane  [f/esc] exit zoom  [q] quit"
     } else {
-        "[enter/f] zoom  [tab/←/→] pane  [+/-] panes  [p] roots  [s] session  [a] clear  [q] quit"
+        "[enter/f] zoom  [tab/←/→] pane  [+/-] panes  [p] workspaces  [s] session  [a] clear  [q] quit"
     };
     let status = if state.status.is_empty()
         || state.popup.is_some()
@@ -208,9 +208,9 @@ fn render_root_popup(
         .collect();
 
     let title = if state.root_filters.is_empty() {
-        " Roots (all) ".to_string()
+        " Workspaces (all) ".to_string()
     } else {
-        format!(" Roots ({} selected) ", state.root_filters.len())
+        format!(" Workspaces ({} selected) ", state.root_filters.len())
     };
 
     f.render_widget(

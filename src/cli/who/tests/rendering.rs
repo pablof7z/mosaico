@@ -66,12 +66,12 @@ fn who_renderer_summarizes_other_roots() {
 
     assert!(once.contains("a (laptop) - idle"));
     assert!(!once.contains("[session"));
-    assert!(once.contains("1 other agent(s) in other root channels:"));
+    assert!(once.contains("1 other agent(s) in other workspaces:"));
     assert!(once.contains("  * other - Other work"));
 }
 
 #[test]
-fn who_all_roots_includes_root_in_agent_names() {
+fn who_all_workspaces_includes_workspace_in_agent_names() {
     let snapshot = WhoSnapshot {
         root: "*".to_string(),
         now: 1_000,
@@ -100,7 +100,7 @@ fn who_all_roots_includes_root_in_agent_names() {
     };
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.starts_with("all root channels\n\n"));
+    assert!(once.starts_with("all workspaces\n\n"));
     assert!(once.contains("reviewer (tower) - idle"));
 }
 
@@ -144,7 +144,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
     };
 
     let out = render_who_plain(&snapshot);
-    assert!(out.starts_with("# tenex-edge who\n\nRoot: proj\n\n## Agents in this channel\n"));
+    assert!(out.starts_with("# tenex-edge who\n\nWorkspace: proj\n\n## Agents in this channel\n"));
     assert!(out.contains("| Agent | Host | Title | Status |"));
     assert!(out.contains(
         "| reviewer | tower, remote [worktree] | Review plan | checking patch \\| tests |"
@@ -155,7 +155,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
     assert!(out.contains("| Agent | Host | When to use |"));
     assert!(out.contains("| codex | laptop | Use for autonomous coding tasks |"));
     assert!(!out.contains("| codex | laptop | `codex` |"));
-    assert!(out.contains("## Other root channels\n\n- other"));
+    assert!(out.contains("## Other workspaces\n\n- other"));
 }
 
 /// Concurrent same-agent instances now carry DISTINCT ordinal slugs
@@ -236,9 +236,9 @@ fn render_labels_session_room_as_channel_with_parent_root() {
         out.contains("Channel: session-a1b2c3d4e5f60718 (your session room)"),
         "got: {out}"
     );
-    assert!(out.contains("Root: lsjkd"), "got: {out}");
+    assert!(out.contains("Workspace: lsjkd"), "got: {out}");
     assert!(
-        !out.contains("Root: session-a1b2c3d4e5f60718"),
+        !out.contains("Workspace: session-a1b2c3d4e5f60718"),
         "got: {out}"
     );
 }

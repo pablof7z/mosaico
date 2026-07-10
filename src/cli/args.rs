@@ -32,7 +32,7 @@ pub(super) enum Cmd {
     // corresponding private fn (session_start_inner / turn_start / turn_check /
     // turn_end). Session end has a small public surface for agents to end
     // themselves explicitly.
-    /// List agents currently visible in the channel/channel.
+    /// List agents currently visible in the workspace/channel.
     Who(WhoArgs),
     /// Interactively configure model providers and role-to-model assignments.
     Config(ConfigArgs),

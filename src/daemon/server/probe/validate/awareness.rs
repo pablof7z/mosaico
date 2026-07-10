@@ -20,7 +20,7 @@ pub(super) fn awareness_evidence(
                 "supported": true,
                 "found": false,
                 "channel_confirmed": false,
-                "summary": "awareness target has no resolved channel/channel context",
+                "summary": "awareness target has no resolved workspace/channel context",
                 "reason": reason,
             });
         }
@@ -51,7 +51,7 @@ pub(super) fn push_awareness_check(
     let passed = bool_at(evidence, "found") && bool_at(evidence, "channel_confirmed");
     let status = if failed {
         "failed"
-    } else if passed || bool_at(evidence, "all_roots") {
+    } else if passed || bool_at(evidence, "all_workspaces") || bool_at(evidence, "all_roots") {
         "passed"
     } else {
         "not_proven"
@@ -86,12 +86,12 @@ fn build_evidence(
     let spawnable = snapshot.spawnable.len();
     let known_channels = store.list_channels()?.len();
 
-    if scope.all_roots() {
+    if scope.all_workspaces() {
         return Ok(json!({
             "target": target,
             "supported": true,
             "found": true,
-            "all_roots": true,
+            "all_workspaces": true,
             "channel_confirmed": true,
             "known_channel_count": known_channels,
             "row_count": rows,
@@ -99,9 +99,9 @@ fn build_evidence(
             "peer_row_count": peer_rows,
             "fresh_row_count": fresh_rows,
             "spawnable_count": spawnable,
-            "other_root_count": snapshot.other_roots.len(),
+            "other_workspace_count": snapshot.other_roots.len(),
             "summary": format!(
-                "all-channel awareness has {rows} live row(s) across {known_channels} known channel(s); {spawnable} local spawnable agent(s) are separate"
+                "all-workspace awareness has {rows} live row(s) across {known_channels} known channel(s); {spawnable} local spawnable agent(s) are separate"
             ),
         }));
     }
@@ -124,7 +124,7 @@ fn build_evidence(
         "target": target,
         "supported": true,
         "found": confirmed,
-        "all_roots": false,
+        "all_workspaces": false,
         "channel_h": channel_h,
         "channel_confirmed": confirmed,
         "channel_name": channel.as_ref().map(|c| c.human_name().unwrap_or(&c.name)),
@@ -138,7 +138,7 @@ fn build_evidence(
         "peer_row_count": peer_rows,
         "fresh_row_count": fresh_rows,
         "spawnable_count": spawnable,
-        "other_root_count": snapshot.other_roots.len(),
+        "other_workspace_count": snapshot.other_roots.len(),
         "summary": summary,
         "reason": (!confirmed).then_some(
             "awareness must be backed by confirmed relay channel metadata; local/default names and spawnable agents are not channel presence"
@@ -148,7 +148,7 @@ fn build_evidence(
 
 enum Scope {
     Channel(String),
-    AllRoots,
+    AllWorkspaces,
     Missing(String),
 }
 
@@ -156,29 +156,35 @@ impl Scope {
     fn channel(&self) -> Option<&str> {
         match self {
             Scope::Channel(channel) => Some(channel.as_str()),
-            Scope::AllRoots | Scope::Missing(_) => None,
+            Scope::AllWorkspaces | Scope::Missing(_) => None,
         }
     }
 
-    fn all_roots(&self) -> bool {
-        matches!(self, Scope::AllRoots)
+    fn all_workspaces(&self) -> bool {
+        matches!(self, Scope::AllWorkspaces)
     }
 }
 
 fn requested_scope(params: &Value, requested: &str) -> Scope {
     let requested = requested.trim();
     if requested == "*" {
-        return Scope::AllRoots;
+        return Scope::AllWorkspaces;
+    }
+    if requested.eq_ignore_ascii_case("all_workspaces")
+        || requested.eq_ignore_ascii_case("all-workspaces")
+    {
+        return Scope::AllWorkspaces;
     }
     if !requested.is_empty() {
         return Scope::Channel(requested.to_string());
     }
     if params
-        .get("all_roots")
+        .get("all_workspaces")
+        .or_else(|| params.get("all_roots"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        return Scope::AllRoots;
+        return Scope::AllWorkspaces;
     }
     for key in ["group", "channel"] {
         if let Some(value) = params

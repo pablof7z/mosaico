@@ -32,7 +32,11 @@ const SPECS: &[ToolSpec] = &[
         description: "Read current tenex-edge awareness.",
         props: &[
             Prop::new("channel", "string", "Channel or channel id to inspect."),
-            Prop::new("all_roots", "boolean", "Return all channel awareness."),
+            Prop::new(
+                "all_workspaces",
+                "boolean",
+                "Return awareness across every workspace.",
+            ),
         ],
         required: &[],
         read_only: true,

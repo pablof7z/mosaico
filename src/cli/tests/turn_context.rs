@@ -109,13 +109,10 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
     );
     let expected_code = crate::util::friendly_short_code("sess-intro");
     assert!(
-<<<<<<< HEAD
-        text.contains(&format!("You are @coder/{expected_code}, a coder agent.")),
-        "awareness should identify this agent by agent/codename handle; got: {text:?}"
-=======
-        text.contains("You are @coder/sess-intro, running on laptop."),
+        text.contains(&format!(
+            "You are @coder/{expected_code}, running on laptop."
+        )),
         "awareness should identify this agent by agent/session handle; got: {text:?}"
->>>>>>> 8f58c2ea (chore: update agent self line to backend host)
     );
     assert!(
         !text.contains("[session"),

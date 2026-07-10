@@ -102,11 +102,11 @@ pub(crate) fn render_fabric_context_human(
     Some(render_human_view(&view, color))
 }
 
-/// `--all-roots`: the same fabric renderer as a single-scope `who`, one
-/// root-channel block per root channel in `roots`. No single caller session
-/// exists across root channels, so each block is built session-less (no self row, no
+/// `--all-workspaces`: the same fabric renderer as a single-scope `who`, one
+/// workspace block per root channel in `roots`. No single caller session
+/// exists across workspaces, so each block is built session-less (no self row, no
 /// chatter — `build_view` only pulls messages when a session is present).
-pub(crate) fn render_fabric_all_roots(
+pub(crate) fn render_fabric_all_workspaces(
     store: &Store,
     roots: &[String],
     now: u64,
@@ -122,8 +122,8 @@ pub(crate) fn render_fabric_all_roots(
     out
 }
 
-/// Human-rendered counterpart of [`render_fabric_all_roots`].
-pub(crate) fn render_fabric_all_roots_human(
+/// Human-rendered counterpart of [`render_fabric_all_workspaces`].
+pub(crate) fn render_fabric_all_workspaces_human(
     store: &Store,
     roots: &[String],
     now: u64,

@@ -6,10 +6,10 @@ use std::fmt::Write as _;
 
 #[derive(serde::Deserialize, Default)]
 pub(in crate::daemon::server) struct WhoParams {
-    #[serde(default)]
-    root: Option<String>,
-    #[serde(default)]
-    all_roots: bool,
+    #[serde(default, alias = "root")]
+    workspace: Option<String>,
+    #[serde(default, alias = "all_roots")]
+    all_workspaces: bool,
     #[serde(default)]
     cwd: Option<String>,
     #[serde(default, alias = "env_session")]
@@ -35,7 +35,7 @@ const EXPIRED_SESSION_LIMIT: u32 = 100;
 
 /// `who`: build the snapshot with the SAME function the CLI used. The client
 /// renders it with the existing renderers, so output is byte-identical. The
-/// daemon resolves the current root the same way the old CLI did.
+/// daemon resolves the current workspace the same way the old CLI did.
 pub(in crate::daemon::server) fn rpc_who(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -49,7 +49,7 @@ pub(in crate::daemon::server) fn rpc_who(
         return Ok(serde_json::json!({ "expired": rows }));
     }
     let anchor = CallerAnchor::from_params(params);
-    let caller_rec = if p.all_roots {
+    let caller_rec = if p.all_workspaces {
         None
     } else if p.pty_session.as_deref().filter(|s| !s.is_empty()).is_some()
         || p.harness_session
@@ -68,12 +68,12 @@ pub(in crate::daemon::server) fn rpc_who(
     } else {
         None
     };
-    let current_root = if p.all_roots {
+    let current_root = if p.all_workspaces {
         None
     } else if let Some(rec) = caller_rec.as_ref() {
         Some(rec.channel_h.clone())
     } else {
-        Some(p.root.clone().unwrap_or_else(|| {
+        Some(p.workspace.clone().unwrap_or_else(|| {
             let cwd = p
                 .cwd
                 .clone()
@@ -94,8 +94,8 @@ pub(in crate::daemon::server) fn rpc_who(
     let mut out = serde_json::to_value(&snapshot)?;
 
     // Attach the UNIFIED fabric view (same format as the hook injection — decision
-    // A) whenever a single current channel resolves. `--all-roots` has no single
-    // scope, so it keeps the cross-root snapshot table. The caller (this session,
+    // A) whenever a single current channel resolves. `--all-workspaces` has no single
+    // scope, so it keeps the cross-workspace snapshot table. The caller (this session,
     // when run inside an agent) is marked `(you)` and excluded from peer echoes.
     if let Some(scope) = current_root.as_deref() {
         // Reuse the exact caller session, when present, for both the fabric
@@ -174,18 +174,18 @@ pub(in crate::daemon::server) fn rpc_who(
                 }
             }
         }
-    } else if p.all_roots {
-        // No single scope exists across all roots, so `--all-roots` gets
+    } else if p.all_workspaces {
+        // No single scope exists across all workspaces, so `--all-workspaces` gets
         // the same fabric renderer applied once per root channel instead of
         // falling back to the old snapshot table (issue: `who` and
-        // `who --all-roots` must not diverge in output format).
+        // `who --all-workspaces` must not diverge in output format).
         let roots = state.with_store(root_channels)?;
         let fabric = state.with_store(|s| {
-            crate::fabric_context::render_fabric_all_roots(s, &roots, now, &host, &backend_pk)
+            crate::fabric_context::render_fabric_all_workspaces(s, &roots, now, &host, &backend_pk)
         });
         out["fabric"] = serde_json::Value::String(fabric);
         let human = state.with_store(|s| {
-            crate::fabric_context::render_fabric_all_roots_human(
+            crate::fabric_context::render_fabric_all_workspaces_human(
                 s,
                 &roots,
                 now,
@@ -200,7 +200,7 @@ pub(in crate::daemon::server) fn rpc_who(
 }
 
 /// Top-level root channels (`parent` empty), non-archived — the set
-/// `--all-roots` fans its unified fabric render across.
+/// `--all-workspaces` fans its unified fabric render across.
 fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> {
     let mut roots = store
         .reader()
@@ -225,7 +225,7 @@ fn append_other_roots_human(out: &mut String, other_roots: &[OtherRootSummary], 
     let _ = writeln!(
         out,
         "{}",
-        human_style("Other root channels", color, HumanStyle::Header)
+        human_style("Other workspaces", color, HumanStyle::Header)
     );
     for root in other_roots {
         let name = human_style(&root.root, color, HumanStyle::Root);

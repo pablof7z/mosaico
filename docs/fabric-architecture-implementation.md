@@ -13,7 +13,7 @@ legacy access once tests prove the projections are authoritative.
 ### Guardrails
 
 - Existing host adapters stay thin and keep their current CLI/RPC surface:
-  `who`, `channel read/send`, `channel list --roots/init/edit`,
+  `who`, `channel read/send`, `channel list --all-workspaces/init/edit`,
   `channel create/list/join/leave/switch/add`, `agents`,
   `harness hook`, `harness statusline`, `publish`, `launch`, `tui`, and `mcp`.
 - The daemon remains the only SQLite writer. New provider code must not open its

@@ -91,8 +91,8 @@ fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
     let Ok(v) = crate::daemon::blocking::call_no_spawn(
         "who",
         serde_json::json!({
-            "root": null,
-            "all_roots": true,
+            "workspace": null,
+            "all_workspaces": true,
             "cwd": std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
         }),
     ) else {

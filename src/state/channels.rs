@@ -152,7 +152,7 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Read-model metadata for a channel/channel.
+    /// Read-model metadata for a workspace/channel.
     pub fn channel_meta_read_model(&self, channel_h: &str) -> Result<Option<Channel>> {
         self.get_channel(channel_h)
     }

@@ -3,11 +3,12 @@ use clap::Args;
 
 #[derive(Args)]
 pub(in crate::cli) struct WhoArgs {
-    #[arg(long)]
-    root: Option<String>,
-    /// Show agents across all root channels (overrides --root / cwd resolution).
-    #[arg(long)]
-    all_roots: bool,
+    /// Workspace slug; defaults to the workspace resolved from current directory.
+    #[arg(long = "workspace", alias = "root", value_name = "WORKSPACE")]
+    workspace: Option<String>,
+    /// Show agents across all workspaces (overrides --workspace / cwd resolution).
+    #[arg(long = "all-workspaces", alias = "all-roots")]
+    all_workspaces: bool,
     /// Keep a full-screen live view open, refreshing automatically.
     #[arg(long)]
     live: bool,
@@ -21,9 +22,9 @@ pub(in crate::cli) fn who(args: WhoArgs) -> Result<()> {
     if args.expired {
         super::who_expired()
     } else if args.live {
-        super::who_live(args.root, args.all_roots)
+        super::who_live(args.workspace, args.all_workspaces)
     } else {
-        super::who_once(args.root, args.all_roots)
+        super::who_once(args.workspace, args.all_workspaces)
     }
 }
 
@@ -32,18 +33,33 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn who_all_roots_live_parse_with_owner_args() {
-        let cli =
-            crate::cli::args::Cli::try_parse_from(["tenex-edge", "who", "--all-roots", "--live"])
-                .expect("who parses");
+    fn who_all_workspaces_live_parse_with_owner_args() {
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "tenex-edge",
+            "who",
+            "--all-workspaces",
+            "--live",
+        ])
+        .expect("who parses");
 
         match cli.cmd {
             crate::cli::args::Cmd::Who(args) => {
-                assert!(args.all_roots);
+                assert!(args.all_workspaces);
                 assert!(args.live);
                 assert!(!args.expired);
-                assert_eq!(args.root, None);
+                assert_eq!(args.workspace, None);
             }
+            _ => panic!("expected who command"),
+        }
+    }
+
+    #[test]
+    fn legacy_who_all_roots_alias_still_parses() {
+        let cli = crate::cli::args::Cli::try_parse_from(["tenex-edge", "who", "--all-roots"])
+            .expect("legacy who alias parses");
+
+        match cli.cmd {
+            crate::cli::args::Cmd::Who(args) => assert!(args.all_workspaces),
             _ => panic!("expected who command"),
         }
     }
