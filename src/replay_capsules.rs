@@ -15,6 +15,7 @@ macro_rules! status_fact {
                 slug: $aref.slug.clone(),
                 pubkey: $aref.pubkey.clone(),
                 rel_cwd: $p.rel_cwd.clone(),
+                dispatch_event: $p.dispatch_event.clone(),
                 channels: $channels.clone(),
                 working: $session.working,
                 title: $session.title.clone(),

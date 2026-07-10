@@ -130,6 +130,7 @@ async fn simulate_new_status_session_labels_preview_only_nodes() {
         working: true,
         title: "T".into(),
         activity: "reading".into(),
+        dispatch_event: None,
         at: 100,
     }));
 

@@ -9,8 +9,7 @@
 //! Captures are SUPERSETS: every status is kept regardless of NIP-40 expiration
 //! and every chat row since time 0 is kept, so the `expiration >= now` liveness
 //! window and the `created_at > since` chat window remain pure functions of the
-//! `now`/`cursor` inputs at assemble time rather than ambient reads. The leaf
-//! store readers live in [`read`].
+//! `now`/`cursor` inputs at assemble time rather than ambient reads.
 
 mod read;
 
@@ -119,11 +118,12 @@ pub(super) struct AgentCap {
     pub(super) about: String,
     pub(super) created_at: u64,
 }
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ChannelCap {
     pub(super) h: String,
     pub(super) name: String,
+    #[serde(default)]
+    pub(super) workspace: String,
     pub(super) about: String,
     pub(super) subchannels: Vec<SummaryCap>,
 }
@@ -201,13 +201,12 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         channels.push(ChannelCap {
             h: h.clone(),
             name: summary.name,
+            workspace: read::channel_workspace(store, h),
             about: summary.about,
             subchannels: read::subchannel_caps(store, h),
         });
 
-        // Roster + status pubkeys → resolve refs and backend flags once. The
-        // Keep relay roles in the frozen input for parity with the store snapshot;
-        // rendered member rows intentionally do not expose them.
+        // Keep relay roles in the frozen input; rendered rows do not expose them.
         let members: BTreeMap<String, String> = store
             .list_channel_members(h)
             .unwrap_or_default()

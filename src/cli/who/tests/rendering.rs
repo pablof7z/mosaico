@@ -21,6 +21,7 @@ fn live_renderer_same_as_once_with_hint() {
             remote: false,
             attachable: false,
             work_root: "proj".to_string(),
+            work_root_display: "proj".to_string(),
             pubkey: String::new(),
         }],
         other_roots: vec![],
@@ -91,6 +92,7 @@ fn who_all_workspaces_includes_workspace_in_agent_names() {
             remote: false,
             attachable: false,
             work_root: "other".to_string(),
+            work_root_display: "other".to_string(),
             pubkey: String::new(),
         }],
         other_roots: vec![],
@@ -101,7 +103,7 @@ fn who_all_workspaces_includes_workspace_in_agent_names() {
 
     let once = strip_ansi(&render_who_once(&snapshot));
     assert!(once.starts_with("all workspaces\n\n"));
-    assert!(once.contains("reviewer (tower) - idle"));
+    assert!(once.contains("reviewer@other (tower) - idle"));
 }
 
 #[test]
@@ -125,6 +127,7 @@ fn agent_renderer_uses_markdown_sections_and_agent_table() {
             remote: true,
             attachable: false,
             work_root: "proj".to_string(),
+            work_root_display: "proj".to_string(),
             pubkey: String::new(),
         }],
         other_roots: vec![OtherRootSummary {
@@ -183,6 +186,7 @@ fn agent_renderer_renders_ordinal_slugs_directly() {
                 remote: false,
                 attachable: false,
                 work_root: "proj".to_string(),
+                work_root_display: "proj".to_string(),
                 pubkey: String::new(),
             },
             WhoRow {
@@ -201,6 +205,7 @@ fn agent_renderer_renders_ordinal_slugs_directly() {
                 remote: true,
                 attachable: false,
                 work_root: "proj".to_string(),
+                work_root_display: "proj".to_string(),
                 pubkey: String::new(),
             },
         ],

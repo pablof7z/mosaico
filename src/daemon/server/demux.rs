@@ -13,6 +13,7 @@
 
 use super::*;
 
+mod chat_ops;
 mod offline_mention;
 mod route_reaction;
 
@@ -211,36 +212,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         }
     }
 
-    // Subgroup orchestration (issue #3): a kind:9 carrying the add-agents op tag
-    // asks backends to provision agent roles into a child group. Parse tags ONLY
-    // (prose is ignored); dispatch the async handler off the demux loop. Durable
-    // idempotency lives inside the handler, not `first_sight` (which is in-memory
-    // and would respawn agents after a daemon restart).
-    if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
-        if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(event) {
-            tracing::info!(
-                event_id = %&event.id.to_hex()[..8],
-                parent = %op.parent,
-                child = %op.child_h,
-                "dispatching orchestration handler"
-            );
-            let st = state.clone();
-            let ev = event.clone();
-            tokio::spawn(async move {
-                handle_orchestration(&st, &ev, op).await;
-            });
-        } else if is_management_command_for_backend(state, event) {
-            tracing::info!(
-                event_id = %&event.id.to_hex()[..8],
-                "dispatching management command handler"
-            );
-            let st = state.clone();
-            let ev = event.clone();
-            tokio::spawn(async move {
-                handle_management_command(&st, &ev).await;
-            });
-        }
-    }
+    chat_ops::dispatch(state, event);
 }
 
 /// Convert a decoded `DomainEvent` into zero or more `TailEvent`s and emit them.

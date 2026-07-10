@@ -11,6 +11,7 @@ mod refs;
 mod render;
 #[cfg(test)]
 mod tests;
+mod workspace_labels;
 
 pub(crate) use capture::{
     capture_inputs, MembersInput, MessagesInput, MetaInput, PresenceInput, ViewInputs,

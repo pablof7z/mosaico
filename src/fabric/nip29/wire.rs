@@ -139,6 +139,7 @@ impl Nip29WireCodec {
                 busy,
                 rel_cwd,
                 expires_at,
+                dispatch_event,
             }) => {
                 // The self-contained per-session signal. The replaceable address is
                 // `(author_pubkey, d=session_id)`; repeated h tags make the same
@@ -164,6 +165,9 @@ impl Nip29WireCodec {
                 }
                 if let Some(exp) = expires_at {
                     tags.push(tag(&["expiration", &exp.to_string()])?);
+                }
+                if let Some(dispatch_event) = dispatch_event.as_deref().filter(|s| !s.is_empty()) {
+                    tags.push(tag(&["e", dispatch_event])?);
                 }
                 EventBuilder::new(kind(KIND_STATUS), activity.clone()).tags(tags)
             }
@@ -232,6 +236,7 @@ impl Nip29WireCodec {
                     rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                     // NIP-40 expiration → liveness clock. Absent → None.
                     expires_at: first_tag(event, "expiration").and_then(|s| s.parse().ok()),
+                    dispatch_event: first_tag(event, "e").map(str::to_string),
                 }))
             }
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {

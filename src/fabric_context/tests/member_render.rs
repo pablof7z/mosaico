@@ -1,10 +1,12 @@
 //! `<members>` rendering: `@agent/codename` per member, with the legacy (`people`)
 //! and pure (`assemble`) paths proven byte-identical.
 
-use crate::fabric_context::{assemble, capture_inputs, render_fabric_context, render_view_text};
-use crate::state::Status;
+use crate::fabric_context::{
+    assemble, capture_inputs, render_fabric_context, render_fabric_context_human, render_view_text,
+};
+use crate::state::{Status, Store};
 
-use super::{input, seed_store, session, OTHER_PK};
+use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
 
 /// A member whose session is known (a live status carries its session id) renders
 /// as `@agent/codename`; the pure and legacy paths agree.
@@ -83,4 +85,100 @@ fn agent_render_uses_workspace_and_never_leaks_project() {
         !text.to_ascii_lowercase().contains("project"),
         "agent-facing render must never contain \"project\"; got: {text}"
     );
+}
+
+#[test]
+fn same_named_channels_under_different_workspaces_show_workspace_context() {
+    let store = Store::open_memory().unwrap();
+    store.upsert_channel("test1", "test1", "", "", 1).unwrap();
+    store.upsert_channel("test2", "test2", "", "", 1).unwrap();
+    store
+        .upsert_channel("test1-xxx", "xxx", "", "test1", 2)
+        .unwrap();
+    store
+        .upsert_channel("test2-xxx", "xxx", "", "test2", 2)
+        .unwrap();
+    store
+        .upsert_profile_with_agent_slug(SELF_PK, "coder", "coder", "coder", "laptop", false, 1)
+        .unwrap();
+    for (pk, slug) in [("peer-test1", "reviewer"), ("peer-test2", "tester")] {
+        store
+            .upsert_profile_with_agent_slug(pk, slug, slug, slug, "laptop", false, 1)
+            .unwrap();
+    }
+    store
+        .replace_channel_members(
+            "test1-xxx",
+            &[SELF_PK.to_string(), "peer-test1".to_string()],
+            3,
+        )
+        .unwrap();
+    store
+        .replace_channel_members(
+            "test2-xxx",
+            &[SELF_PK.to_string(), "peer-test2".to_string()],
+            3,
+        )
+        .unwrap();
+    let rec = session_record(&store, "cross-workspace", "test1-xxx");
+    store
+        .join_session_channel(&rec.session_id, "test2-xxx", 20)
+        .unwrap();
+    for (pk, session_id, channel, slug, activity) in [
+        (
+            "peer-test1",
+            "peer-test1-session",
+            "test1-xxx",
+            "reviewer",
+            "checking test1",
+        ),
+        (
+            "peer-test2",
+            "peer-test2-session",
+            "test2-xxx",
+            "tester",
+            "checking test2",
+        ),
+    ] {
+        store
+            .upsert_status(&Status {
+                pubkey: pk.into(),
+                session_id: session_id.into(),
+                channel_h: channel.into(),
+                slug: slug.into(),
+                title: String::new(),
+                activity: activity.into(),
+                busy: true,
+                last_seen: 250,
+                updated_at: 250,
+                expiration: 500,
+            })
+            .unwrap();
+    }
+
+    let request = input(Some(&rec), "test1-xxx", 200, 300, true);
+    let text = render_fabric_context(&store, request).expect("context should render");
+    assert!(
+        text.contains("<channel name=\"#xxx\" workspace=\"test1\""),
+        "got: {text}"
+    );
+    assert!(
+        text.contains("<channel name=\"#xxx\" workspace=\"test2\""),
+        "got: {text}"
+    );
+    assert!(text.contains("ref=\"@reviewer/"), "got: {text}");
+    assert!(text.contains("ref=\"@tester/"), "got: {text}");
+
+    let captured = capture_inputs(&store, &input(Some(&rec), "test1-xxx", 200, 300, true));
+    let trellis = render_view_text(&assemble::assemble_view(&captured, 200, 300));
+    assert_eq!(trellis, text);
+
+    let human = render_fabric_context_human(
+        &store,
+        input(Some(&rec), "test1-xxx", 200, 300, true),
+        false,
+    )
+    .expect("human context should render");
+    assert!(human.contains("#xxx  workspace test1"), "got: {human}");
+    assert!(human.contains("#xxx  workspace test2"), "got: {human}");
 }

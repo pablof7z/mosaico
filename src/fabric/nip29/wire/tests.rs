@@ -43,9 +43,8 @@ fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
         },
         busy,
         rel_cwd: rel_cwd.into(),
-        // Default helper builds a non-expiring status; the expiration
-        // roundtrip is covered by `status_expiration_roundtrips_and_emits_tag`.
         expires_at: None,
+        dispatch_event: None,
     })
 }
 
@@ -133,6 +132,7 @@ fn status_slug_is_convenience_hint_not_agent_tag() {
         busy: true,
         rel_cwd: String::new(),
         expires_at: None,
+        dispatch_event: None,
     });
     let signed = Nip29WireCodec
         .encode_event(&ev)

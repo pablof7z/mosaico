@@ -145,10 +145,12 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         "the two concurrent instances must select distinct pubkeys"
     );
 
-    // Each session reports its OWN (pubkey, codename) pair through the identity
-    // that backs `who`: each codename is the friendly short code of its session id.
+    // Each session reports its OWN (pubkey, agent/codename) pair through the
+    // identity that backs `who`.
     let first_code = tenex_edge::util::friendly_short_code(&first_id);
     let second_code = tenex_edge::util::friendly_short_code(&second_id);
+    let first_handle = tenex_edge::idref::session_handle("claude", &first_code);
+    let second_handle = tenex_edge::idref::session_handle("claude", &second_code);
     let first_instance = store
         .session_identity_for_session(&first_id)
         .unwrap()
@@ -158,19 +160,17 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         .unwrap()
         .expect("second session identity");
     assert_eq!(first_instance.pubkey, first_pubkey);
-    assert_eq!(first_instance.display_slug(), first_code);
+    assert_eq!(first_instance.display_slug(), first_handle);
     assert_eq!(second_instance.pubkey, second_pubkey);
-    assert_eq!(second_instance.display_slug(), second_code);
+    assert_eq!(second_instance.display_slug(), second_handle);
 
-    // kind:0 on the relay: each pubkey is named for ITS OWN codename, never
+    // kind:0 on the relay: each pubkey is named for ITS OWN handle, never
     // clobbering another session's profile.
-    let first_name = format!("{first_code}@test-host");
-    let second_name = format!("{second_code}@test-host");
     assert!(
         wait_until(std::time::Duration::from_secs(20), || {
-            relay::kind0_name_for_author(&relay, &first_pubkey).as_deref() == Some(&first_name)
+            relay::kind0_name_for_author(&relay, &first_pubkey).as_deref() == Some(&first_handle)
                 && relay::kind0_name_for_author(&relay, &second_pubkey).as_deref()
-                    == Some(&second_name)
+                    == Some(&second_handle)
         }),
         "kind:0 names must be self-consistent: first={:?} second={:?}",
         relay::kind0_name_for_author(&relay, &first_pubkey),

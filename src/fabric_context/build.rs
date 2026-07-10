@@ -65,6 +65,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         let summary = channel_summary(store, &channel);
         view.channels.push(ChannelBlock {
             name: summary.name,
+            workspace: channel_workspace(store, &channel),
             about: summary.about,
             members: if full {
                 member_rows(store, &channel, &input)
@@ -228,4 +229,9 @@ fn workspace_summary(store: &Store, channel: &str) -> WorkspaceRow {
             .unwrap_or_else(|| display_name(store, channel)),
         about: ch.map(|c| c.about).unwrap_or_default(),
     }
+}
+
+fn channel_workspace(store: &Store, channel: &str) -> String {
+    let root = root_channel(store, channel);
+    workspace_summary(store, &root).name
 }

@@ -6,6 +6,11 @@ use crate::session_host::registry::{
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
+pub struct DispatchedSpawn {
+    pub pty_id: String,
+    pub session_id: String,
+}
+
 pub(super) fn workspace_abs_path(
     state: &Arc<DaemonState>,
     channel: &str,
@@ -100,6 +105,32 @@ pub async fn spawn_ephemeral_agent(
     .await
 }
 
+pub async fn spawn_dispatched_ephemeral_agent(
+    state: &Arc<DaemonState>,
+    slug: &str,
+    root: &str,
+    channels: &[String],
+    dispatch_event: &str,
+) -> Result<DispatchedSpawn> {
+    if channels.is_empty() {
+        anyhow::bail!("dispatch spawn requires at least one channel");
+    }
+    let (pty_id, session_id) = spawn_agent_inner_full(
+        state,
+        slug,
+        root,
+        Vec::new(),
+        None,
+        Some(&channels[0]),
+        Some(channels),
+        Some(dispatch_event),
+        None,
+        true,
+    )
+    .await?;
+    Ok(DispatchedSpawn { pty_id, session_id })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn spawn_agent_inner(
     state: &Arc<DaemonState>,
@@ -111,6 +142,35 @@ async fn spawn_agent_inner(
     client_cwd: Option<&std::path::Path>,
     ephemeral: bool,
 ) -> Result<String> {
+    Ok(spawn_agent_inner_full(
+        state,
+        slug,
+        root,
+        launch_args,
+        base_override,
+        group,
+        None,
+        None,
+        client_cwd,
+        ephemeral,
+    )
+    .await?
+    .0)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn spawn_agent_inner_full(
+    state: &Arc<DaemonState>,
+    slug: &str,
+    root: &str,
+    launch_args: Vec<String>,
+    base_override: Option<Vec<String>>,
+    group: Option<&str>,
+    joined_channels: Option<&[String]>,
+    dispatch_event: Option<&str>,
+    client_cwd: Option<&std::path::Path>,
+    ephemeral: bool,
+) -> Result<(String, String)> {
     let (base_command, agent_def) = match base_override {
         Some(cmd) => (cmd, None),
         None => resolve_spawn_entry(slug)?,
@@ -124,14 +184,25 @@ async fn spawn_agent_inner(
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
     let meta = open_agent_session(slug, root, &abs_path, &agent_command, group, ephemeral).await?;
     let pty_id = meta.id.clone();
-    if let Err(e) =
-        crate::daemon::server::session_start::bootstrap_pty_session_start(state, &meta, group, None)
-            .await
+    let empty_channels: &[String] = &[];
+    let channels = joined_channels.unwrap_or(empty_channels);
+    let session_id = match crate::daemon::server::session_start::bootstrap_pty_session_start(
+        state,
+        &meta,
+        group,
+        channels,
+        None,
+        dispatch_event,
+    )
+    .await
     {
-        let _ = crate::pty::kill(&pty_id);
-        return Err(e.context("registering PTY-hosted session"));
-    }
-    Ok(pty_id)
+        Ok(session_id) => session_id,
+        Err(e) => {
+            let _ = crate::pty::kill(&pty_id);
+            return Err(e.context("registering PTY-hosted session"));
+        }
+    };
+    Ok((pty_id, session_id))
 }
 
 /// Resume a prior session by replaying its harness with the native resume token.
@@ -174,7 +245,9 @@ pub async fn resume_agent_in_channel(
         state,
         &meta,
         Some(group),
+        &[],
         Some(resume_id),
+        None,
     )
     .await
     {

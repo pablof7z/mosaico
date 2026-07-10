@@ -1,6 +1,9 @@
 use super::*;
 
+mod params;
 mod session_watch;
+
+pub(in crate::daemon::server) use params::engine_params_for;
 
 pub(in crate::daemon::server) async fn spawn_session(
     state: &Arc<DaemonState>,
@@ -239,6 +242,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             &session_id,
             &snap.channel_h,
             "",
+            None,
             snap.child_pid,
         );
         if let Err(e) = spawn_session(state, ep).await {
@@ -260,39 +264,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
     }
     // Any registration/end transitions above enqueued publishes.
     state.outbox_notify.notify_waiters();
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(in crate::daemon::server) fn engine_params_for(
-    cfg: &Config,
-    // The session's read-side identity: pubkey, agent slug, public handle.
-    identity: crate::identity::SessionIdentity,
-    // The session's own minted signing keypair.
-    keys: Keys,
-    session_id: &str,
-    channel: &str,
-    rel_cwd: &str,
-    watch_pid: Option<i32>,
-) -> EngineParams {
-    EngineParams {
-        identity,
-        keys,
-        channel: channel.to_string(),
-        session_id: session_id.to_string(),
-        host: cfg.host.clone(),
-        rel_cwd: rel_cwd.to_string(),
-        owners: cfg.whitelisted_pubkeys.clone(),
-        relays: cfg.relays.clone(),
-        watch_pid,
-        store_path: store_path(),
-        heartbeat: env_duration("TENEX_EDGE_HEARTBEAT_MS", Duration::from_secs(30)),
-        obs_interval: env_duration("TENEX_EDGE_OBS_MS", Duration::from_secs(5)),
-        status_ttl: status_ttl_duration(),
-        turn_first: Duration::from_secs(env_u64("TENEX_EDGE_TURN_FIRST_S", 30)),
-        // 0 = disabled: the title re-distills on each new user message, so an
-        // in-turn safety re-distill is opt-in (set TENEX_EDGE_TURN_REPEAT_S > 0).
-        turn_repeat: Duration::from_secs(env_u64("TENEX_EDGE_TURN_REPEAT_S", 0)),
-    }
 }
 
 pub(in crate::daemon::server) fn pid_alive(pid: i32) -> bool {

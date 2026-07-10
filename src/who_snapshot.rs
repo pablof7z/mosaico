@@ -1,10 +1,12 @@
-use crate::state::{Session, Status, Store, StoreReader};
+use crate::state::{Store, StoreReader};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 mod dormant;
+mod row_builders;
 mod scope;
 
+use row_builders::{local_instance, local_row, peer_row, peer_slug};
 use scope::{is_archived_channel, is_root_channel, scope_contains_channel, work_root_for};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -39,7 +41,7 @@ pub(crate) struct WhoSnapshot {
     pub(crate) root_display: String,
 }
 
-fn display_name(store: StoreReader<'_>, id: &str) -> String {
+pub(super) fn display_name(store: StoreReader<'_>, id: &str) -> String {
     let channel = match store.get_channel(id) {
         Ok(c) => c,
         Err(e) => {
@@ -100,6 +102,9 @@ pub(crate) struct WhoRow {
     /// routing scope (session room or task channel); this is the root-channel tab.
     #[serde(default)]
     pub(crate) work_root: String,
+    /// Human display label for `work_root`.
+    #[serde(default)]
+    pub(crate) work_root_display: String,
     /// Hex pubkey others route to: per-session when derived, else durable agent.
     #[serde(default)]
     pub(crate) pubkey: String,
@@ -300,113 +305,4 @@ pub(crate) fn load_who_snapshot(
         channel_parent,
         root_display,
     })
-}
-
-/// Build a local-session row. Title/activity/busy come from the agent's own
-/// relay_status row when published, else the local pre-publish draft on the
-/// session.
-fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, now: u64) -> WhoRow {
-    let instance = local_instance(store, s);
-    let live = store
-        .get_status(&instance.pubkey, &s.session_id, &s.channel_h)
-        .ok()
-        .flatten()
-        .filter(|st| st.expiration == 0 || st.expiration >= now);
-    let (title, activity, busy) = match live {
-        Some(st) => (
-            st.title,
-            if st.busy { st.activity } else { String::new() },
-            st.busy,
-        ),
-        None => (
-            s.title.clone(),
-            if s.working {
-                s.activity.clone()
-            } else {
-                String::new()
-            },
-            s.working,
-        ),
-    };
-    let fresh = now.saturating_sub(s.last_seen) <= crate::session::STATUS_TTL_SECS;
-    WhoRow {
-        source: WhoSource::Local,
-        fresh,
-        slug: instance.display_slug(),
-        channel: s.channel_h.clone(),
-        status: title,
-        activity,
-        active: busy,
-        dormant: false,
-        host: local_host.to_string(),
-        session_id: s.session_id.clone(),
-        age_secs: Some(now.saturating_sub(s.last_seen)),
-        rel_cwd: String::new(),
-        remote: false,
-        attachable: false,
-        work_root: work_root_for(store, &s.channel_h),
-        pubkey: instance.pubkey,
-    }
-}
-
-fn local_instance(store: StoreReader<'_>, s: &Session) -> crate::identity::SessionIdentity {
-    store
-        .session_identity_for_session(&s.session_id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| {
-            crate::identity::SessionIdentity::fallback(
-                &s.session_id,
-                s.agent_slug.clone(),
-                s.agent_pubkey.clone(),
-            )
-        })
-}
-
-/// Build a peer row from a relay-confirmed status. Host (and thus remoteness)
-/// comes from the peer's kind:0 profile; an unknown host is treated as local.
-fn peer_row(store: StoreReader<'_>, st: &Status, local_host: &str, now: u64) -> WhoRow {
-    let host = store
-        .get_profile(&st.pubkey)
-        .ok()
-        .flatten()
-        .map(|p| p.host)
-        .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| local_host.to_string());
-    let remote = host.trim() != local_host;
-    WhoRow {
-        source: WhoSource::Peer,
-        fresh: true, // live_status_for_channel only returns unexpired rows
-        slug: peer_slug(store, st),
-        channel: st.channel_h.clone(),
-        status: st.title.clone(),
-        activity: if st.busy {
-            st.activity.clone()
-        } else {
-            String::new()
-        },
-        active: st.busy,
-        dormant: false,
-        host,
-        session_id: st.session_id.clone(),
-        age_secs: Some(now.saturating_sub(st.last_seen)),
-        rel_cwd: String::new(),
-        remote,
-        attachable: false,
-        work_root: work_root_for(store, &st.channel_h),
-        // Peer status is session-signed, so the status pubkey IS the address to
-        // route to.
-        pubkey: st.pubkey.clone(),
-    }
-}
-
-fn peer_slug(store: StoreReader<'_>, st: &Status) -> String {
-    if !st.slug.is_empty() {
-        return st.slug.clone();
-    }
-    store
-        .resolve_slug_for_pubkey(&st.pubkey)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| crate::util::pubkey_short(&st.pubkey))
 }

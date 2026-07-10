@@ -34,9 +34,8 @@ type DistillOutput = (
 );
 
 pub struct EngineParams {
-    /// The session's read-side identity: its per-session pubkey, agent slug, and
-    /// public `agent/session` handle. Every publish this engine makes (kind:0, kind:9, kind:30315)
-    /// derives its wire identity from this.
+    /// The session's read-side identity: per-session pubkey, slug, and handle.
+    /// Every live publish derives its wire identity from this.
     pub identity: crate::identity::SessionIdentity,
     /// The session's OWN minted keypair — the one and only key it signs with.
     pub keys: Keys,
@@ -45,6 +44,7 @@ pub struct EngineParams {
     pub host: String,
     /// Channel-relative working directory (§8e), advertised on presence/status.
     pub rel_cwd: String,
+    pub dispatch_event: Option<String>,
     /// The human owner pubkey(s) — p-tagged on our profile + presence.
     pub owners: Vec<String>,
     pub relays: Vec<String>,
@@ -54,8 +54,7 @@ pub struct EngineParams {
     /// How often the engine polls turn state to decide whether to distill.
     pub obs_interval: Duration,
     pub status_ttl: Duration,
-    /// Delay from turn-start to the first title distillation (default 30s) —
-    /// short turns that finish before this never cost an LLM call.
+    /// Delay from turn-start to first title distillation; short turns skip LLM cost.
     pub turn_first: Duration,
     /// Safety re-distillation interval WITHIN a single long-running turn that has
     /// no new user message (default 0 = disabled).
@@ -204,7 +203,7 @@ pub async fn run_session_in_daemon(
             None,
             status_fact!(started, p, aref, session, chans, now),
             |r| {
-                r.on_session_started(
+                r.on_session_started_with_dispatch(
                     &p.session_id,
                     &p.host,
                     &aref.slug,
@@ -214,6 +213,7 @@ pub async fn run_session_in_daemon(
                     session.working,
                     &session.title,
                     &session.activity,
+                    p.dispatch_event.clone(),
                     now,
                 )
             }

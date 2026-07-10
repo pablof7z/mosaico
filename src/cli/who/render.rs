@@ -5,7 +5,10 @@ mod expired;
 mod labels;
 
 pub(super) use expired::render_expired;
-use labels::{rel_cwd_bracket, row_host_label, row_state_label, row_title_label, status_colored};
+use labels::{
+    rel_cwd_bracket, row_agent_label, row_host_label, row_state_label, row_title_label,
+    rows_need_root, status_colored,
+};
 
 pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
     let mut out = String::new();
@@ -20,7 +23,7 @@ pub(super) fn render_who_once(snapshot: &WhoSnapshot) -> String {
 
     if snapshot.rows.is_empty() {
         let _ = writeln!(out, "(no live agents — start a session)");
-    } else if snapshot.root == "*" {
+    } else if rows_need_root(snapshot) {
         for row in &snapshot.rows {
             render_who_row(&mut out, row, true);
         }
@@ -105,8 +108,9 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
         for line in AGENT_TABLE_HEADER {
             let _ = writeln!(out, "{line}");
         }
+        let include_root = rows_need_root(snapshot);
         for row in &snapshot.rows {
-            render_who_markdown_row(&mut out, row, snapshot.root == "*");
+            render_who_markdown_row(&mut out, row, include_root);
         }
     }
 
@@ -151,10 +155,10 @@ pub(super) fn render_who_plain(snapshot: &WhoSnapshot) -> String {
     out
 }
 
-fn render_who_markdown_row(out: &mut String, row: &WhoRow, _include_root: bool) {
+fn render_who_markdown_row(out: &mut String, row: &WhoRow, include_root: bool) {
     // Concurrent same-agent instances now carry DISTINCT ordinal slugs
     // ("haiku"/"haiku1"), so the slug alone disambiguates.
-    let agent = row.slug.clone();
+    let agent = row_agent_label(row, include_root);
     let host = row_host_label(row);
     let title = row_title_label(row);
     let status = row_state_label(row);
@@ -199,9 +203,8 @@ fn render_who_row(out: &mut String, row: &WhoRow, include_root: bool) {
     let dir = rel_cwd_bracket(&row.rel_cwd)
         .map(|d| format!(" {}", format!("[{d}]").dimmed()))
         .unwrap_or_default();
-    let _ = include_root;
     // Distinct ordinal slugs already disambiguate concurrent same-agent rows.
-    let name = row.slug.clone().cyan().to_string();
+    let name = row_agent_label(row, include_root).cyan().to_string();
     let _ = writeln!(
         out,
         "{} ({}){}{} - {}",

@@ -6,31 +6,17 @@ mod alias_resolution;
 mod bootstrap;
 mod channel_ready;
 mod effects;
+mod joined_channels;
+mod lookup;
 mod params;
 mod stale;
 
 use abort::abort_session_start;
 use alias_resolution::resolve_session_id;
+use lookup::{session_endpoint, work_root_for_scope};
 use params::SessionStartParams;
 
 pub(crate) use bootstrap::{bootstrap_exec_session_start, bootstrap_pty_session_start};
-
-/// The top-level root channel for a route scope.
-fn work_root_for_scope(s: &Store, scope: &str) -> String {
-    s.root_channel_of(scope)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| scope.to_string())
-}
-
-/// The PTY endpoint currently bound to a session, via its `pty_session` alias.
-fn session_endpoint(s: &Store, session_id: &str) -> Option<String> {
-    s.aliases_for_session(session_id)
-        .ok()?
-        .into_iter()
-        .find(|a| a.external_id_kind == "pty_session")
-        .map(|a| a.external_id)
-}
 
 pub(in crate::daemon::server) async fn rpc_session_start(
     state: &Arc<DaemonState>,
@@ -263,7 +249,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         &native_id,
         &work_root,
         &channel,
-        channel_for_upsert,
+        channel_for_upsert.clone(),
         &rel_cwd,
         room_parent.clone(),
         channel_provision_name.clone(),
@@ -291,6 +277,13 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         now: plan.row.now,
     };
     state.with_store(|s| s.upsert_session_row(&session_id, &reg))?;
+    let joined_channels = joined_channels::record(
+        state,
+        &session_id,
+        channel_for_upsert.clone(),
+        p.channels.clone(),
+        now,
+    );
 
     // Ring on endpoint registration so delivery does not depend on a later
     // mention event.
@@ -345,6 +338,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     if plan.replay_chat {
         effects::schedule_replay_chat(state.clone(), channel.clone());
     }
+    joined_channels::schedule_subscriptions(state, &joined_channels, &channel);
 
     let Some(spawn) = &plan.spawn else {
         anyhow::bail!("session_start advisory plan did not include spawn intent");
@@ -356,6 +350,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         &spawn.session_id,
         &spawn.channel_h,
         &spawn.rel_cwd,
+        p.dispatch_event.clone().filter(|s| !s.is_empty()),
         spawn.watch_pid,
     );
     if let Some(prog) = &progress {

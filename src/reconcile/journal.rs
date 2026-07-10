@@ -79,7 +79,6 @@ impl StatusDrive {
     }
 }
 
-/// Arguments for `StatusReconciler::on_session_started`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusSessionStartedArgs {
     pub session_id: String,
@@ -91,9 +90,10 @@ pub struct StatusSessionStartedArgs {
     pub working: bool,
     pub title: String,
     pub activity: String,
+    #[serde(default)]
+    pub dispatch_event: Option<String>,
     pub at: Timestamp,
 }
-
 /// A frozen hook-context render input. `inputs_json` is the serde form of
 /// `fabric_context::ViewInputs`; it remains JSON here so the public `InputFact`
 /// type does not expose that private render-capture structure as API.

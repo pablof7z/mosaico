@@ -1,4 +1,4 @@
-use super::{scope, StoreReader, WhoRow, WhoSource};
+use super::{display_name, scope, StoreReader, WhoRow, WhoSource};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -57,6 +57,8 @@ fn dormant_row(
         .flatten()
         .map(|s| s.title)
         .unwrap_or_default();
+    let work_root = scope::work_root_for(store, &claim.channel_h);
+    let work_root_display = display_name(store, &work_root);
     WhoRow {
         source: WhoSource::Local,
         fresh: false,
@@ -72,7 +74,8 @@ fn dormant_row(
         rel_cwd: String::new(),
         remote,
         attachable: false,
-        work_root: scope::work_root_for(store, &claim.channel_h),
+        work_root,
+        work_root_display,
         pubkey: claim.pubkey,
     }
 }

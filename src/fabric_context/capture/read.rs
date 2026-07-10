@@ -282,6 +282,11 @@ pub(super) fn workspace_summary(store: &Store, channel: &str) -> SummaryCap {
     }
 }
 
+pub(super) fn channel_workspace(store: &Store, channel: &str) -> String {
+    let root = root_channel(store, channel);
+    workspace_summary(store, &root).name
+}
+
 fn channel_readiness(store: &Store, channel: &str) -> ChannelReadiness {
     match store.get_channel(channel) {
         Ok(Some(ch)) if !ch.is_archived() => ChannelReadiness::Ready,

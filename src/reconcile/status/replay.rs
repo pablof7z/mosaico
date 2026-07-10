@@ -25,6 +25,7 @@ impl StatusReconciler {
             slug: last.slug.clone(),
             pubkey: last.pubkey.clone(),
             rel_cwd: last.rel_cwd.clone(),
+            dispatch_event: last.dispatch_event.clone(),
             channels: self
                 .graph
                 .input_value(nodes.channels)
@@ -82,6 +83,7 @@ impl ReplayState {
                     slug: args.slug.clone(),
                     pubkey: args.pubkey.clone(),
                     rel_cwd: args.rel_cwd.clone(),
+                    dispatch_event: args.dispatch_event.clone(),
                 };
                 let nodes = stage_session(
                     tx,
@@ -197,6 +199,7 @@ mod tests {
                     working: true,
                     title: "T".into(),
                     activity: "reading".into(),
+                    dispatch_event: None,
                     at: 100,
                 },
             )))

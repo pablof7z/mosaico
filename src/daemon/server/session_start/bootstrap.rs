@@ -4,7 +4,9 @@ pub(crate) async fn bootstrap_pty_session_start(
     state: &Arc<DaemonState>,
     meta: &crate::pty::LaunchMetadata,
     channel: Option<&str>,
+    channels: &[String],
     resume_id: Option<&str>,
+    dispatch_event: Option<&str>,
 ) -> Result<String> {
     let harness = infer_harness(&meta.command);
     let watch_pid = i32::try_from(meta.supervisor_pid).ok();
@@ -15,10 +17,12 @@ pub(crate) async fn bootstrap_pty_session_start(
             "harness": harness.as_str(),
             "cwd": &meta.cwd,
             "channel": channel,
+            "channels": channels,
             "watch_pid": watch_pid,
             "pty_session": &meta.id,
             "pty_socket": &meta.socket,
             "resume_id": resume_id,
+            "dispatch_event": dispatch_event,
         }),
         None,
     )

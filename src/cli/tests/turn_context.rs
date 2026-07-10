@@ -112,7 +112,7 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         text.contains(&format!(
             "You are @coder/{expected_code}, running on laptop."
         )),
-        "awareness should identify this agent by agent/session handle; got: {text:?}"
+        "awareness should identify this agent by agent/codename handle; got: {text:?}"
     );
     assert!(
         !text.contains("[session"),

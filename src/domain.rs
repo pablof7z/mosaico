@@ -188,6 +188,9 @@ pub struct Status {
     /// heartbeat re-arm; `None` publishes without an expiry. Liveness IS the
     /// freshness of this state.
     pub expires_at: Option<u64>,
+    /// Dispatch kind:9 event id that caused this session to start, when any.
+    /// Encoded as a status `e` tag so requesters can correlate the ACK.
+    pub dispatch_event: Option<String>,
 }
 
 impl Status {
@@ -258,6 +261,7 @@ mod tests {
             busy: false,
             rel_cwd: String::new(),
             expires_at: None,
+            dispatch_event: None,
         };
         let busy = Status {
             agent,
@@ -269,6 +273,7 @@ mod tests {
             busy: true,
             rel_cwd: String::new(),
             expires_at: None,
+            dispatch_event: None,
         };
         assert!(idle.is_idle());
         assert!(!busy.is_idle());

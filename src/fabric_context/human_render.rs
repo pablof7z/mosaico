@@ -1,6 +1,11 @@
 use crate::fabric_context::model::*;
+use crate::fabric_context::workspace_labels::channels_need_workspace;
 use owo_colors::OwoColorize as _;
 use std::fmt::Write as _;
+
+mod channel;
+
+use channel::render_channel;
 
 pub(in crate::fabric_context) fn render_human_view(view: &FabricView, color: bool) -> String {
     let mut out = String::new();
@@ -23,8 +28,9 @@ pub(in crate::fabric_context) fn render_human_view(view: &FabricView, color: boo
     }
 
     render_agents(&mut out, &view.agents, color);
+    let show_workspace = channels_need_workspace(&view.channels, &view.workspace.name);
     for channel in &view.channels {
-        render_channel(&mut out, channel, color);
+        render_channel(&mut out, channel, color, show_workspace);
     }
     render_unjoined(&mut out, &view.unjoined, color);
     render_important(&mut out, &view.important, color);
@@ -45,25 +51,6 @@ fn render_agents(out: &mut String, agents: &[AgentRow], color: bool) {
             let _ = writeln!(out, "  {}  {}", style(&name, color, Style::Agent), a.about);
         }
     }
-    out.push('\n');
-}
-
-fn render_channel(out: &mut String, channel: &ChannelBlock, color: bool) {
-    let name = format!("#{}", channel.name);
-    if channel.about.is_empty() {
-        let _ = writeln!(out, "{}", style(&name, color, Style::Channel));
-    } else {
-        let _ = writeln!(
-            out,
-            "{}  {}",
-            style(&name, color, Style::Channel),
-            channel.about
-        );
-    }
-    render_members(out, &channel.members, color);
-    render_presence(out, &channel.presence, color);
-    render_subchannels(out, &channel.subchannels, color);
-    render_messages(out, channel, color);
     out.push('\n');
 }
 

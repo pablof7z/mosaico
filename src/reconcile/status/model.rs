@@ -23,6 +23,7 @@ pub(super) struct StaticInfo {
     pub slug: String,
     pub pubkey: String,
     pub rel_cwd: String,
+    pub dispatch_event: Option<String>,
 }
 
 /// The change-detected half of a session's status. Deliberately EXCLUDES the
@@ -83,6 +84,7 @@ fn command_of(id: &str, v: &StatusValue) -> StatusCommand {
         slug: v.info.slug.clone(),
         pubkey: v.info.pubkey.clone(),
         rel_cwd: v.info.rel_cwd.clone(),
+        dispatch_event: v.info.dispatch_event.clone(),
     }
 }
 

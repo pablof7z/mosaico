@@ -30,4 +30,11 @@ pub(super) struct SessionStartParams {
     /// NIP-29 channel (`h`) this hosted process was spawned into.
     #[serde(default)]
     pub(super) channel: Option<String>,
+    /// Full channel set this hosted process should join. `channel` remains the
+    /// compatibility active channel; this list drives status h-tags/inbox scope.
+    #[serde(default)]
+    pub(super) channels: Vec<String>,
+    /// Dispatch kind:9 event id that caused this hosted process to start.
+    #[serde(default)]
+    pub(super) dispatch_event: Option<String>,
 }

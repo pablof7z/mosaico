@@ -36,30 +36,15 @@ mod membership_cleanup;
 mod orchestration_handler;
 mod pty_rpc;
 mod rpc;
+mod session_dispatch;
+mod session_dispatch_handler;
+mod session_records;
 use background::{spawn_pruner, spawn_trellis_oracle_sampler};
 use demux::{spawn_demux, warm_profiles};
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
-#[derive(Clone)]
-struct HostedAgent {
-    keys: Keys,
-}
-
-struct SessionHandle {
-    cancel: Arc<Notify>,
-}
-
-/// Metadata tracked per live peer session for join/leave derivation.
-#[derive(Clone)]
-struct PeerTracked {
-    first_seen: u64,
-    channel: String,
-    slug: String,
-    host: String,
-}
-
-type StatusTailKey = (String, String, String);
-type StatusTailSnapshot = (String, bool);
+use session_dispatch_handler::handle_session_dispatch;
+use session_records::{HostedAgent, PeerTracked, SessionHandle, StatusTailKey, StatusTailSnapshot};
 
 /// Shared daemon state. Store guards are held only across synchronous rusqlite
 /// calls, never across `.await`. One process + one connection = one writer.
@@ -303,6 +288,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channels_join" => rpc_channels_join(state, &req.params).await,
         "channels_leave" => rpc_channels_leave(state, &req.params).await,
         "channels_switch" => rpc_channels_switch(state, &req.params).await,
+        "dispatch" => session_dispatch::rpc_dispatch(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),
         "pty_status" => pty_rpc::rpc_pty_status(state).await,
         "pty_send" => pty_rpc::rpc_pty_send(state, &req.params).await,

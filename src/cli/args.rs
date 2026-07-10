@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use super::admin::{AgentAction, AgentsAction, ChannelAction};
 use super::config::ConfigArgs;
 use super::debug::DebugAction;
+use super::dispatch::DispatchArgs;
 use super::harness::HarnessAction;
 use super::install::InstallArgs;
 use super::launch_cli::LaunchArgs;
@@ -55,6 +56,8 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: Option<AgentsAction>,
     },
+    /// Start an agent session on a backend/workspace and hand it a message after ACK.
+    Dispatch(DispatchArgs),
     /// Hook integration and statusline for any supported agent harness.
     Harness {
         #[command(subcommand)]

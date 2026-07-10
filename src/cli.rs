@@ -21,6 +21,7 @@ mod args;
 mod config;
 mod context;
 mod debug;
+mod dispatch;
 mod explain;
 mod harness;
 mod hooks;
@@ -119,6 +120,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Channel { action } => admin::channels(action).await,
         Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Agents { action } => admin::agents(action).await,
+        Cmd::Dispatch(args) => dispatch::dispatch(args).await,
         Cmd::Harness { action } => harness::harness(action).await,
         Cmd::Launch(args) => launch_cli::launch(args).await,
         Cmd::Mcp(args) => mcp::mcp(args).await,

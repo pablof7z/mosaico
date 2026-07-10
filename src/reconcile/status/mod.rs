@@ -7,6 +7,7 @@ mod model;
 mod preview;
 pub(crate) mod probe;
 pub(crate) mod replay;
+mod status_build;
 #[cfg(test)]
 mod tests;
 
@@ -18,9 +19,8 @@ use trellis_core::{
     TransactionResult,
 };
 
-use crate::domain::{AgentRef, Status};
+use crate::domain::Status;
 use crate::reconcile::labels::NodeLabels;
-use crate::util::SessionId;
 
 use model::{create_session, opts, status_key, SessionNodes, StaticInfo};
 
@@ -37,6 +37,7 @@ pub struct StatusCommand {
     pub slug: String,
     pub pubkey: String,
     pub rel_cwd: String,
+    pub dispatch_event: Option<String>,
 }
 
 /// Why the reconciler is asking the host to publish.
@@ -119,6 +120,26 @@ impl StatusReconciler {
         activity: &str,
         now: u64,
     ) -> GraphResult<StatusOutcome> {
+        self.on_session_started_with_dispatch(
+            id, host, slug, pubkey, rel_cwd, channels, working, title, activity, None, now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn on_session_started_with_dispatch(
+        &mut self,
+        id: &str,
+        host: &str,
+        slug: &str,
+        pubkey: &str,
+        rel_cwd: &str,
+        channels: BTreeSet<String>,
+        working: bool,
+        title: &str,
+        activity: &str,
+        dispatch_event: Option<String>,
+        now: u64,
+    ) -> GraphResult<StatusOutcome> {
         if self.sessions.contains_key(id) {
             return self.empty_commit();
         }
@@ -127,6 +148,7 @@ impl StatusReconciler {
             slug: slug.to_string(),
             pubkey: pubkey.to_string(),
             rel_cwd: rel_cwd.to_string(),
+            dispatch_event,
         };
         let (nodes, result) = create_session(
             &mut self.graph,
@@ -272,28 +294,7 @@ impl StatusReconciler {
         effects
     }
 
-    /// Build the wire status from a command. `expiring` clears the live activity,
-    /// marks it idle, and sets NIP-40 expiration to `now` (immediate teardown);
-    /// otherwise it is a live status with a fresh `now + ttl` window.
     fn to_status(&self, cmd: &StatusCommand, now: u64, expiring: bool) -> Status {
-        Status {
-            agent: AgentRef::new(cmd.pubkey.clone(), cmd.slug.clone()),
-            channels: cmd.channels.clone(),
-            session_id: SessionId::new(cmd.session_id.clone()),
-            host: cmd.host.clone(),
-            title: cmd.title.clone(),
-            activity: if expiring {
-                String::new()
-            } else {
-                cmd.activity.clone()
-            },
-            busy: !expiring && cmd.busy,
-            rel_cwd: cmd.rel_cwd.clone(),
-            expires_at: Some(if expiring {
-                now
-            } else {
-                now.saturating_add(self.ttl_secs)
-            }),
-        }
+        status_build::to_status(cmd, self.ttl_secs, now, expiring)
     }
 }

@@ -1,4 +1,5 @@
 use crate::fabric_context::model::*;
+use crate::fabric_context::workspace_labels::{channel_workspace, channels_need_workspace};
 use std::fmt::Write as _;
 
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
@@ -19,8 +20,9 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     }
     out.push('>');
     render_agents(&mut out, &view.agents);
+    let show_workspace = channels_need_workspace(&view.channels, &view.workspace.name);
     for channel in &view.channels {
-        render_channel(&mut out, channel);
+        render_channel(&mut out, channel, show_workspace);
     }
     render_unjoined(&mut out, &view.unjoined);
     out.push_str("\n  </workspace>");
@@ -70,12 +72,15 @@ fn render_agents(out: &mut String, agents: &[AgentRow]) {
     out.push_str("\n    </available-agents>");
 }
 
-fn render_channel(out: &mut String, channel: &ChannelBlock) {
+fn render_channel(out: &mut String, channel: &ChannelBlock, show_workspace: bool) {
     let _ = write!(
         out,
         "\n\n    <channel name=\"#{}\"",
         esc_attr(&channel.name)
     );
+    if let Some(workspace) = channel_workspace(channel, show_workspace) {
+        let _ = write!(out, " workspace=\"{}\"", esc_attr(workspace));
+    }
     if !channel.about.is_empty() {
         let _ = write!(out, " about=\"{}\"", esc_attr(&channel.about));
     }

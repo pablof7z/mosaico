@@ -1,4 +1,4 @@
-use crate::who_snapshot::WhoRow;
+use crate::who_snapshot::{WhoRow, WhoSnapshot};
 use owo_colors::OwoColorize;
 
 pub(super) fn row_host_label(row: &WhoRow) -> String {
@@ -11,6 +11,37 @@ pub(super) fn row_host_label(row: &WhoRow) -> String {
     rel_cwd_bracket(&row.rel_cwd)
         .map(|dir| format!("{host} [{dir}]"))
         .unwrap_or(host)
+}
+
+pub(super) fn rows_need_root(snapshot: &WhoSnapshot) -> bool {
+    if snapshot.root == "*" {
+        return true;
+    }
+    snapshot.rows.iter().any(|row| {
+        let root = row_root_label(row);
+        !root.is_empty() && root != snapshot.root_display
+    })
+}
+
+pub(super) fn row_agent_label(row: &WhoRow, include_root: bool) -> String {
+    if !include_root {
+        return row.slug.clone();
+    }
+    let root = row_root_label(row);
+    if root.is_empty() {
+        row.slug.clone()
+    } else {
+        format!("{}@{}", row.slug, root)
+    }
+}
+
+fn row_root_label(row: &WhoRow) -> String {
+    let display = row.work_root_display.trim();
+    if !display.is_empty() {
+        display.to_string()
+    } else {
+        row.work_root.trim().to_string()
+    }
 }
 
 pub(super) fn row_title_label(row: &WhoRow) -> String {

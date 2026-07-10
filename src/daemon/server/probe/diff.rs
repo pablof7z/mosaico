@@ -141,6 +141,7 @@ mod tests {
                     working: true,
                     title: "T".into(),
                     activity: "reading".into(),
+                    dispatch_event: None,
                     at: 100,
                 },
             )))

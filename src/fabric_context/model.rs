@@ -66,6 +66,7 @@ pub(in crate::fabric_context) struct AgentRow {
 #[derive(Clone, PartialEq)]
 pub(in crate::fabric_context) struct ChannelBlock {
     pub(in crate::fabric_context) name: String,
+    pub(in crate::fabric_context) workspace: String,
     pub(in crate::fabric_context) about: String,
     pub(in crate::fabric_context) members: Vec<MemberRow>,
     pub(in crate::fabric_context) presence: Vec<PresenceRow>,
