@@ -7,7 +7,7 @@
 {"canonical":"container state","name":"container-state","signed":1,"status":"provisional"}
 {"canonical":"hacker new","name":"Hacker News","signed":0,"status":"provisional"}
 {"canonical":"haiku 1","name":"haiku1","signed":1,"status":"provisional"}
-{"canonical":"kind 0","name":"kind:0","signed":10,"status":"real"}
+{"canonical":"kind 0","name":"kind:0","signed":11,"status":"real"}
 {"canonical":"kind 9","name":"kind:9","signed":7,"status":"real"}
 {"canonical":"member pablo","name":"Members Pablo","signed":0,"status":"provisional"}
 {"canonical":"mtok ollama","name":"Mtok Ollama","signed":0,"status":"provisional"}

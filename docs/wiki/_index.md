@@ -198,7 +198,7 @@ Last updated: 2026-07-10
 | [canonical-session-id](nouns/canonical-session-id.md) | canonical session id | extracted | A daemon-owned, opaque id stable across harness id rotation, formatted as te-<nanos_hex>-<counter_hex> using wall-clock nanos plus a monotonic counter. |
 | [canonical-session-id-mint-session-id](nouns/canonical-session-id-mint-session-id.md) | canonical session id (mint_session_id) | extracted | A daemon-owned, opaque, stable-across-harness-id-rotation session id formatted as `te-<nanos_hex>-<counter_hex>`, using wall-clock nanos plus a monotonic counter. |
 | [channel](nouns/channel.md) | channel | extracted | A pure social/coordination construct: has members, messages, a name, a parent. Has no body. A NIP-29 group with a parent set; identity is (parent, name). |
-| [channel-add](nouns/channel-add.md) | channel add | extracted | The single 'put someone/something in this channel' verb with three |
+| [channel-add](nouns/channel-add.md) | channel add | extracted | The verb for putting an existing participant into a channel, with two |
 | [channel-h](nouns/channel-h.md) | channel_h | extracted | the relay group the session was actually in |
 | [channel-id](nouns/channel-id.md) | channel id | extracted | The NIP-29 `h` value: an opaque random value, never derived from the channel name. |
 | [channel-name](nouns/channel-name.md) | channel name | extracted | The durable human handle for a channel (e.g. "support"), unique per parent project; distinct from the opaque channel id. |
