@@ -100,7 +100,7 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
 
     let agent = render_fabric_context(&store, input(Some(&rec), "root", 0, 1_000, false))
         .expect("session view should render");
-    assert!(agent.contains("You are @coder, a coder agent."));
+    assert!(agent.contains("You are @coder, running on laptop."));
     assert!(agent.contains("<chatter>"));
     assert!(agent.contains("post join context"));
     assert!(agent.contains("<subchannels>"));
@@ -296,7 +296,7 @@ fn empty_delta_is_silent_unless_forced() {
 
     let forced = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("explicit who context should still render");
-    assert!(forced.contains("You are @coder, a coder agent."));
+    assert!(forced.contains("You are @coder, running on laptop."));
 }
 
 #[test]
@@ -388,7 +388,7 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("forced who should always render");
-    assert!(text.contains("You are @coder, a coder agent."));
+    assert!(text.contains("You are @coder, running on laptop."));
     assert!(text.contains("<no-new-activity workspace=\"main\">"));
     assert!(text.contains("The fabric surfaces only what changed"));
     // The tell-tale empty skeleton must NOT appear: no channel/members blocks.

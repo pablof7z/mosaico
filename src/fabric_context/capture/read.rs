@@ -27,6 +27,7 @@ pub(super) fn self_cap(s: &Session, input: &FabricContextInput<'_>) -> SelfCap {
     SelfCap {
         agent: input.self_slug.to_string(),
         agent_slug: s.agent_slug.clone(),
+        host: input.local_host.to_string(),
     }
 }
 

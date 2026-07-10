@@ -31,6 +31,7 @@ pub(super) fn build_view(store: &Store, input: FabricContextInput<'_>) -> Fabric
         self_row: input.session.map(|s| SelfRow {
             agent: input.self_slug.to_string(),
             agent_slug: s.agent_slug.clone(),
+            host: input.local_host.to_string(),
         }),
         workspace,
         agents: agents(store, &root, input.cursor, input.now, input.local_host),

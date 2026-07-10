@@ -54,6 +54,7 @@ pub(in crate::fabric_context) struct WorkspaceRow {
 pub(in crate::fabric_context) struct SelfRow {
     pub(in crate::fabric_context) agent: String,
     pub(in crate::fabric_context) agent_slug: String,
+    pub(in crate::fabric_context) host: String,
 }
 
 #[derive(Clone, PartialEq)]

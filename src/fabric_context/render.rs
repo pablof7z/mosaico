@@ -47,17 +47,12 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
     let Some(row) = row else {
         return;
     };
-    let agent_slug = row.agent_slug.trim();
-    if agent_slug.is_empty() {
-        let _ = write!(out, "\n  You are @{}.", esc_text(&row.agent));
-    } else {
-        let _ = write!(
-            out,
-            "\n  You are @{}, a {} agent.",
-            esc_text(&row.agent),
-            esc_text(agent_slug)
-        );
-    }
+    let _ = write!(
+        out,
+        "\n  You are @{}, running on {}.",
+        esc_text(&row.agent),
+        esc_text(&row.host)
+    );
 }
 
 fn render_agents(out: &mut String, agents: &[AgentRow]) {

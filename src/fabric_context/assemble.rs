@@ -30,6 +30,7 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
         self_row: meta.self_row.as_ref().map(|s| SelfRow {
             agent: s.agent.clone(),
             agent_slug: s.agent_slug.clone(),
+            host: s.host.clone(),
         }),
         workspace: WorkspaceRow {
             name: meta.workspace.name.clone(),
