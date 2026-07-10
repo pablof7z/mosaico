@@ -320,8 +320,9 @@ fn recent_presence_uses_status_source() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("presence delta should render");
+    let other_codename = crate::util::friendly_short_code("other-session");
     assert!(text.contains("<recent-presence>"));
-    assert!(text.contains("ref=\"@reviewer/other-session\""));
+    assert!(text.contains(&format!("ref=\"@reviewer/{other_codename}\"")));
     assert!(text.contains("text=\"checking tests\""));
 }
 

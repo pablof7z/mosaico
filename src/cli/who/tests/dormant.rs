@@ -27,13 +27,13 @@ fn who_snapshot_renders_active_claim_as_dormant_presence() {
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let row = snapshot.rows.first().expect("dormant row");
     assert!(row.dormant);
-    assert_eq!(row.slug, "codex/sid-codex");
+    assert_eq!(row.slug, "codex/codex-summit-042");
     assert_eq!(row.age_secs, Some(100));
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("codex/sid-codex (laptop) - last active 1m ago"));
+    assert!(once.contains("codex/codex-summit-042 (laptop) - last active 1m ago"));
     let plain = render_who_plain(&snapshot);
-    assert!(plain.contains("| codex/sid-codex | laptop | — | last active 1m ago |"));
+    assert!(plain.contains("| codex/codex-summit-042 | laptop | — | last active 1m ago |"));
 }
 
 #[test]
@@ -50,5 +50,5 @@ fn who_snapshot_marks_remote_owned_claims_remote() {
     assert_eq!(row.host, "tower");
 
     let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("codex/sid-codex (tower, remote) - last active 1m ago"));
+    assert!(once.contains("codex/codex-summit-042 (tower, remote) - last active 1m ago"));
 }

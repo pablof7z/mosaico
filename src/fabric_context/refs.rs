@@ -9,16 +9,20 @@ pub(super) fn display_name(store: &Store, channel: &str) -> String {
         .unwrap_or_else(|| channel.to_string())
 }
 
-/// The session-bearing member reference: `agent/session`. Shared by the legacy
-/// (`people`) and pure (`assemble`) member-row paths so they can never drift.
+/// The session-bearing member reference: `agent/codename` (never the raw
+/// internal `session_id`). Shared by the legacy (`people`) and pure
+/// (`assemble`) member-row paths so they can never drift.
 pub(super) fn session_ref(session_id: &str, status_slug: &str, profile_agent_slug: &str) -> String {
     if !profile_agent_slug.trim().is_empty() {
-        return crate::idref::session_handle(profile_agent_slug, session_id);
+        return crate::idref::session_handle(
+            profile_agent_slug,
+            &crate::util::friendly_short_code(session_id),
+        );
     }
     if crate::idref::parse_session_handle(status_slug).is_some() {
         return status_slug.to_string();
     }
-    session_id.to_string()
+    crate::util::friendly_short_code(session_id)
 }
 
 /// The raw profile host for a pubkey (empty when unknown). Kept separate from

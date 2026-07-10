@@ -172,7 +172,10 @@ fn remote_session_from_public_handle(
                 continue;
             }
             let backend = profile.as_ref().map(|p| p.host.clone()).unwrap_or_default();
-            let slug = crate::idref::session_handle(agent, &st.session_id);
+            let slug = crate::idref::session_handle(
+                agent,
+                &crate::util::friendly_short_code(&st.session_id),
+            );
             out.push(RemoteSession {
                 session_id: st.session_id,
                 pubkey: st.pubkey,

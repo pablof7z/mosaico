@@ -55,7 +55,10 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
             } else {
                 format!("{slug}@{host}")
             };
-            let handle = crate::idref::session_handle(&agent_slug, &st.session_id);
+            let handle = crate::idref::session_handle(
+                &agent_slug,
+                &crate::util::friendly_short_code(&st.session_id),
+            );
             out.push(serde_json::json!({
                 "channel": st.channel_h,
                 "agent": agent,

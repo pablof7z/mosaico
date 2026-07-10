@@ -154,7 +154,10 @@ fn session_handle(status: &Status, profile: Option<&crate::state::Profile>) -> S
         .and_then(|p| (!p.agent_slug.is_empty()).then_some(p.agent_slug.as_str()))
         .or_else(|| crate::idref::parse_session_handle(&status.slug).map(|(agent, _)| agent))
     {
-        return crate::idref::session_handle(agent, &status.session_id);
+        return crate::idref::session_handle(
+            agent,
+            &crate::util::friendly_short_code(&status.session_id),
+        );
     }
     let slug = if !status.slug.is_empty() {
         status.slug.as_str()

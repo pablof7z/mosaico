@@ -20,8 +20,8 @@ pub(super) fn push_claim_rows(
         if scope::is_archived_channel(store, &scope) {
             continue;
         }
-        let slug = if !claim.agent_slug.is_empty() && !claim.session_id.is_empty() {
-            crate::idref::session_handle(&claim.agent_slug, &claim.session_id)
+        let slug = if !claim.agent_slug.is_empty() && !claim.codename.is_empty() {
+            crate::idref::session_handle(&claim.agent_slug, &claim.codename)
         } else {
             claim.codename.clone()
         };

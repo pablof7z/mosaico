@@ -1,4 +1,4 @@
-//! `<members>` rendering: `@agent/session` per member, with the legacy (`people`)
+//! `<members>` rendering: `@agent/codename` per member, with the legacy (`people`)
 //! and pure (`assemble`) paths proven byte-identical.
 
 use crate::fabric_context::{assemble, capture_inputs, render_fabric_context, render_view_text};
@@ -7,7 +7,7 @@ use crate::state::Status;
 use super::{input, seed_store, session, OTHER_PK};
 
 /// A member whose session is known (a live status carries its session id) renders
-/// as `@agent/session`; the pure and legacy paths agree.
+/// as `@agent/codename`; the pure and legacy paths agree.
 #[test]
 fn member_row_shows_session_handle_without_role_for_peer_session() {
     let store = seed_store();
@@ -39,8 +39,11 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
         text.contains("<member ref=\"@coder\" agentSlug=\"coder\" status=\""),
         "got: {text}"
     );
+    let peer_codename = crate::util::friendly_short_code("peer-sess");
     assert!(
-        text.contains("<member ref=\"@reviewer/peer-sess\" agentSlug=\"reviewer\" status=\""),
+        text.contains(&format!(
+            "<member ref=\"@reviewer/{peer_codename}\" agentSlug=\"reviewer\" status=\""
+        )),
         "got: {text}"
     );
     assert!(
