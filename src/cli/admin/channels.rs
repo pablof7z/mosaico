@@ -66,57 +66,12 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             crate::cli::messaging::chat_write(message, channel, session, long_message).await?;
         }
         ChannelAction::Create {
-            name,
+            path,
             about,
             agents,
-            parent_channel,
             session,
         } => {
-            // `--agent` is optional; each is `slug@backend-label` (a config label).
-            let mut parsed: Vec<serde_json::Value> = Vec::with_capacity(agents.len());
-            for a in &agents {
-                let target = crate::idref::parse_agent_backend_ref(a).with_context(|| {
-                    format!("malformed --agent {a:?}: expected slug@backend-label")
-                })?;
-                let backend = target.backend.with_context(|| {
-                    format!("malformed --agent {a:?}: expected slug@backend-label")
-                })?;
-                parsed.push(serde_json::json!({ "slug": target.slug, "backend": backend }));
-            }
-            let v = daemon_call_async(
-                "channels_create",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({
-                        // No `parent`: the daemon defaults the new channel under the
-                        // creating session's CURRENT channel; `--parent-channel` overrides.
-                        "parent_channel": parent_channel,
-                        "name": name,
-                        "about": about,
-                        "agents": parsed,
-                    }),
-                    session.as_deref(),
-                )),
-            )
-            .await?;
-            // Ambiguous `--parent-channel`: daemon returns candidate paths; print re-runs, exit 2.
-            if let Some(refs) = v["ambiguous"].as_array() {
-                let name = v["reference"].as_str().unwrap_or("");
-                eprintln!("'{name}' is ambiguous — re-run with an exact --parent-channel:");
-                for r in refs.iter().filter_map(|r| r.as_str()) {
-                    eprintln!("  tenex-edge channel create --name {name} --parent-channel {r}");
-                }
-                std::process::exit(2);
-            }
-            let oid = v["orchestration_event_id"].as_str().unwrap_or("");
-            let switched = v["switched"].as_bool().unwrap_or(false);
-            if switched {
-                println!("#{} created and switched to it", name);
-            } else {
-                println!("#{} created", name);
-            }
-            if !oid.is_empty() {
-                println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
-            }
+            return super::channel_create::channel_create(path, about, agents, session).await;
         }
         ChannelAction::Edit {
             channel,

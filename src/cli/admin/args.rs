@@ -158,11 +158,11 @@ pub(in crate::cli) enum ChannelAction {
     /// are named, one kind:9 orchestration event asks those backends to add
     /// their agents.
     Create {
-        /// Human-readable channel name, e.g. "support". The channel id (NIP-29
-        /// `h` value) is an opaque random value, never derived from the name;
-        /// the name is the durable human handle. Unique per parent root channel.
-        #[arg(long)]
-        name: String,
+        /// Channel-relative path to create, e.g. "support" or "epic/planning".
+        /// Parent segments address the parent channel; the final segment is the
+        /// new channel's durable human name.
+        #[arg(value_name = "PATH")]
+        path: String,
         /// Short, stable channel description (max 80 chars), not status text.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
@@ -171,11 +171,6 @@ pub(in crate::cli) enum ChannelAction {
         /// empty channel.
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]
         agents: Vec<String>,
-        /// Parent channel the new channel hangs under. Defaults to the channel
-        /// you are currently in; pass a channel-relative reference (e.g.
-        /// `planning` or `epic999/planning`) to nest it elsewhere in the root.
-        #[arg(long = "parent-channel", value_name = "CHANNEL")]
-        parent_channel: Option<String>,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.
         #[arg(long)]

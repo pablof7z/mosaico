@@ -32,6 +32,7 @@ fn channels_create_help_shows_about_limit() {
     let err = parse_err(&["tenex-edge", "channels", "create", "--help"]);
     let help = err.to_string();
 
+    assert!(help.contains("<PATH>"));
     assert!(help.contains("Short, stable channel description (max 80 chars)"));
 }
 
@@ -42,7 +43,6 @@ fn channels_create_about_rejects_more_than_80_chars() {
         "tenex-edge",
         "channels",
         "create",
-        "--name",
         "ops",
         "--about",
         &too_long,
@@ -54,6 +54,41 @@ fn channels_create_about_rejects_more_than_80_chars() {
             .contains("--about must be 80 characters or fewer (got 81)"),
         "{err}"
     );
+}
+
+#[test]
+fn channels_create_parses_hierarchical_path() {
+    let cli = crate::cli::args::Cli::try_parse_from([
+        "tenex-edge",
+        "channels",
+        "create",
+        "epic/planning",
+        "--about",
+        "planning room",
+        "--agent",
+        "codex@laptop",
+        "--session",
+        "session-1",
+    ])
+    .expect("channels create parses with positional path");
+
+    match cli.cmd {
+        crate::cli::args::Cmd::Channel {
+            action:
+                ChannelAction::Create {
+                    path,
+                    about,
+                    agents,
+                    session,
+                },
+        } => {
+            assert_eq!(path, "epic/planning");
+            assert_eq!(about, "planning room");
+            assert_eq!(agents, vec!["codex@laptop".to_string()]);
+            assert_eq!(session.as_deref(), Some("session-1"));
+        }
+        _ => panic!("expected channels create command"),
+    }
 }
 
 #[test]

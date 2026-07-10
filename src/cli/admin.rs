@@ -3,6 +3,7 @@ use super::*;
 mod agent;
 mod args;
 mod channel_add;
+mod channel_create;
 mod channels;
 mod doctor;
 mod tail;
