@@ -31,12 +31,12 @@ pub fn group_create(channel: &str) -> Result<EventBuilder> {
 }
 
 /// kind:9002 edit-metadata that locks the group `closed` (only members may write)
-/// while keeping it `public`. Every workspace root is named `general`; its `h`
-/// remains the workspace namespace.
+/// while keeping it `public`. The workspace is the root channel, so its visible
+/// name and durable `h` use the same workspace slug.
 pub fn group_lock_closed(channel: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags([
         h_tag(channel)?,
-        tag(&["name", "general"])?,
+        tag(&["name", channel])?,
         tag(&["closed"])?,
         tag(&["public"])?,
         picture_tag(channel)?,
@@ -170,7 +170,7 @@ mod tests {
         let ev = b.sign_with_keys(&Keys::generate()).unwrap();
         assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
         assert!(has_tag(&ev, "h", "tenex-edge"));
-        assert!(has_tag(&ev, "name", "general"));
+        assert!(has_tag(&ev, "name", "tenex-edge"));
         assert!(has_tag_name(&ev, "closed"));
         assert!(has_tag_name(&ev, "public"));
         // Must NOT be private — would blind the non-member daemon connection.

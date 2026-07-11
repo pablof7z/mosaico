@@ -2,9 +2,8 @@ use crate::state::Store;
 
 const MAX_CHANNEL_REF_DEPTH: usize = 32;
 
-/// Full, agent-facing channel path for reply instructions. The workspace's
-/// durable root `h` is an address namespace; its root channel is always named
-/// `general`, so every path starts `workspace.general`.
+/// Full, agent-facing channel path for reply instructions. The workspace is its
+/// root channel, so descendants extend the durable root `h` directly.
 pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
     let mut parts = Vec::new();
     let mut cur = channel_h.to_string();
@@ -12,7 +11,7 @@ pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
     for _ in 0..MAX_CHANNEL_REF_DEPTH {
         let Some(channel) = store.get_channel(&cur).ok().flatten() else {
             if parts.is_empty() {
-                return format!("{channel_h}.general");
+                return channel_h.to_string();
             }
             parts.push(cur);
             break;
@@ -30,7 +29,7 @@ pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
         cur = channel.parent;
     }
     parts.reverse();
-    let mut reference = vec![workspace, "general".to_string()];
+    let mut reference = vec![workspace];
     reference.extend(parts);
     reference.join(".")
 }
@@ -52,26 +51,23 @@ mod tests {
             .upsert_channel("qa-h", "qa", "", "child-h", 3)
             .unwrap();
 
-        assert_eq!(
-            full_channel_ref(&store, "qa-h"),
-            "root-h.general.channel.qa"
-        );
+        assert_eq!(full_channel_ref(&store, "qa-h"), "root-h.channel.qa");
     }
 
     #[test]
     fn full_channel_ref_falls_back_to_unknown_h() {
         let store = Store::open_memory().unwrap();
 
-        assert_eq!(full_channel_ref(&store, "opaque"), "opaque.general");
+        assert_eq!(full_channel_ref(&store, "opaque"), "opaque");
     }
 
     #[test]
-    fn workspace_root_is_general() {
+    fn workspace_is_the_root_channel() {
         let store = Store::open_memory().unwrap();
         store
-            .upsert_channel("workspace", "general", "", "", 1)
+            .upsert_channel("workspace", "workspace", "", "", 1)
             .unwrap();
 
-        assert_eq!(full_channel_ref(&store, "workspace"), "workspace.general");
+        assert_eq!(full_channel_ref(&store, "workspace"), "workspace");
     }
 }

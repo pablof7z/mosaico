@@ -21,9 +21,9 @@ which agent capabilities are available, and which workspaces they can enter.
 Use CLI reads when the snapshot is missing, stale, truncated, or insufficient for
 the current coordination decision.
 
-Every workspace root channel is `general`. Use canonical dotted paths:
-`workspace-a.general.review` and `workspace-b.general.review` are different
-rooms even when the child name is the same.
+The workspace is its root channel. Use canonical dotted paths:
+`workspace-a.review` and `workspace-b.review` are different rooms even when the
+child name is the same.
 
 ## Read Channel Context
 
@@ -59,16 +59,17 @@ author, and publishes in the originating channel.
 ```bash
 tenex-edge channel list
 tenex-edge channel switch <fully-qualified-channel>
-tenex-edge channel create --name "focused-topic" --about "short stable description"
+tenex-edge channel create focused-topic --about "short stable description"
 ```
 
 Find an existing room before creating another. Keep `--about` short and stable;
 put objective, background, constraints, desired output, and current state in the
 first channel message.
 
-Channel paths are hierarchical and dotted: `<workspace>.general.a.b`. Missing
-ancestors below `general` are created like `mkdir -p`. Do not create a direct
-child named `general`; that name belongs to the workspace root.
+Channel paths are hierarchical and dotted: `<workspace>.a.b`. Missing ancestors
+below the workspace root are created like `mkdir -p`. Do not create a direct
+child with the workspace's own name; `<workspace>.<workspace>` is invalid
+self-nesting. Slash-delimited paths are invalid.
 
 For operator/debug commands that must target a specific live session, add
 `--session <session-id>` to `channel read`, `channel send`, or channel mutations
@@ -89,12 +90,12 @@ backend and hand it work.
 
 Rules:
 
-- Pass fully qualified channels, such as `workspace1.general.bug-123` or
-  `workspace2.general.qa`.
+- Pass fully qualified channels, such as `workspace1.bug-123` or
+  `workspace2.qa`.
   Do not infer a channel prefix from `--workspace`.
 - Repeat `--channel` to join the new session to multiple rooms.
 - Treat multiple channels as a set of rooms; there is no primary channel.
-- Omit `--channel` to target `<workspace>.general`.
+- Omit `--channel` to target the workspace root channel.
 - Share at least one target channel with the dispatched session. If dispatch
   fails because there is no shared room, choose a channel you are active on and
   pass it explicitly.
@@ -156,8 +157,9 @@ capabilities use `agent@backend`. `<workspaces>` always lists every known
 workspace. Plain `who` expands the current workspace and leaves others compact;
 `--all-workspaces` expands every workspace.
 
-Within an expanded workspace, the root is `<workspace>.general`. A channel's
-members and descendants are expanded only when you belong to that channel.
-Member rows are typed as `<human>` or `<agent>` and may include live kind:30315
-status. Backend identities do not appear as members and do not contribute to
-member counts.
+Within an expanded workspace, `<workspace channel="workspace">` is the root
+channel and carries its members directly. Only real descendants render as
+`<channel>` rows. Descendants and members are expanded only while you belong to
+their parent channel. Member rows are typed as `<human>` or `<agent>` and may
+include live kind:30315 status. Backend identities do not appear as members and
+do not contribute to member counts.

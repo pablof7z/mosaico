@@ -21,7 +21,12 @@ sources:
 
 An exact live agent session receives XML with `<self>`, a global `<agents>` capability inventory, and `<workspaces>`. A bare operator receives terminal-oriented text. Both are read projections over the daemon-owned store; neither renderer queries the relay directly.
 
-Every known workspace appears in agent XML. By default only the caller's workspace is expanded; `--all-workspaces` expands every workspace. Channel contents recurse only while the caller is a member of each parent channel. Compact channels expose `id`, `about`, and a member count that excludes backend keys.
+Every known workspace appears in agent XML. The workspace is its root channel,
+so `<workspace channel="workspace" ... members="N">` carries root membership
+directly and only real descendants render as `<channel>` rows. By default only
+the caller's workspace is expanded; `--all-workspaces` expands every workspace
+the caller has joined. Channel contents recurse only while the caller is a
+member of each parent channel. Member counts exclude backend keys.
 
 <!-- citations: [^7d6bf-cad7a] [^7d6bf-5aab0] -->
 ## Capability Availability

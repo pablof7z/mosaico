@@ -144,25 +144,26 @@ pub(in crate::daemon::server) async fn resolve_channel(
     Ok(child_h)
 }
 
-/// `mkdir -p` for channel paths: resolve a channel-relative NAME path within
-/// `root`, provisioning EVERY missing ancestor (not just the leaf) when
-/// `create_if_absent`. Segments split on both `/` and `.`, so `a.b.c` and
-/// `a/b/c` create the same three-deep chain. Each segment resolves as a child of
-/// the previous via [`resolve_channel`]; a missing segment is minted and
-/// provisioned (upsert + ready + sub) and becomes the parent for the next. There
-/// is no depth cap — arbitrarily deep chains provision one level at a time.
+/// Resolve a dotted path within `root`, provisioning each missing ancestor via
+/// [`resolve_channel`] when requested. There is no depth cap.
 pub(in crate::daemon::server) async fn resolve_channel_path(
     state: &Arc<DaemonState>,
     root: &str,
     reference: &str,
     create_if_absent: bool,
 ) -> Result<String> {
+    if reference.contains('/') {
+        anyhow::bail!("channel paths use dots, not slashes: {reference:?}");
+    }
     let segments = canonical_segments(root, reference);
     if segments.is_empty() {
         return Ok(root.to_string());
     }
     let mut parent = root.to_string();
     for seg in &segments {
+        if parent == root && seg.eq_ignore_ascii_case(root) {
+            anyhow::bail!("{seg} is already the workspace root channel; use {root:?} instead");
+        }
         parent = resolve_channel(state, &parent, seg, None, create_if_absent).await?;
     }
     Ok(parent)
@@ -273,9 +274,8 @@ pub(in crate::daemon::server) fn resolve_channel_ref(
         return finish_resolution(hits, root);
     }
 
-    // Name path: suffix-match the requested segments against each descendant's
-    // relative NAME path (case-insensitive). Both `/` and `.` delimit path
-    // segments, so `a/b/c` and `a.b.c` resolve identically.
+    // Name path: suffix-match dotted requested segments against each
+    // descendant's relative NAME path (case-insensitive).
     let hits: Vec<(String, Vec<String>)> = paths
         .into_iter()
         .filter(|(_, segs)| path_ends_with(segs, &want))

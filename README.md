@@ -180,7 +180,7 @@ so the common commands take no session id:
 | `tenex-edge who [--live] [--all-workspaces]` | Show agents, members, and workspaces. Agents receive XML; operators receive terminal text. Other workspaces stay compact unless `--all-workspaces` is set. |
 | `tenex-edge channel send --message "@codex-quill-peak-369 …"` | Message the channel; `@mention` a session to deliver into its terminal. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
-| `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. Canonical paths begin `<workspace>.general`, such as `nmp.general.reviews`. |
+| `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. The workspace is its root channel; descendants use dotted paths such as `nmp.reviews`. |
 | `tenex-edge channel add …` | Add to a channel: `--session @codex-quill-peak-369` or a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
 | `tenex-edge agents` | List available roles and prior session ids. |

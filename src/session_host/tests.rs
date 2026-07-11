@@ -270,7 +270,7 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     assert_eq!(
         prompt,
         "<tenex-edge>\n\
-         \u{20}\u{20}<channel ref=\"proj.general\">\n\
+         \u{20}\u{20}<channel ref=\"proj\">\n\
          \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\">please review the PTY delivery path</message>\n\
          \u{20}\u{20}</channel>\n\
          \n\
@@ -306,7 +306,7 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
     assert_eq!(
         prompt,
         "<tenex-edge>\n\
-         \u{20}\u{20}<channel ref=\"tenex-edge.general.writer-test\">\n\
+         \u{20}\u{20}<channel ref=\"tenex-edge.writer-test\">\n\
          \u{20}\u{20}\u{20}\u{20}<message from=\"@human-pk\" id=\"ev-hum\">@developer hey there</message>\n\
          \u{20}\u{20}</channel>\n\
          \n\

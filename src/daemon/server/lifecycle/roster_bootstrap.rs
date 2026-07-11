@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 pub(super) async fn publish_startup_roster(state: &Arc<DaemonState>) {
     state.provider.refresh_root_channels().await.ok();
-    normalize_workspace_root_names(state).await;
+    restore_workspace_root_names(state).await;
     match publish_local_agent_roster(state, None).await {
         Ok(report) => tracing::info!(
             published = report.published,
@@ -15,29 +15,29 @@ pub(super) async fn publish_startup_roster(state: &Arc<DaemonState>) {
     }
 }
 
-async fn normalize_workspace_root_names(state: &Arc<DaemonState>) {
+async fn restore_workspace_root_names(state: &Arc<DaemonState>) {
     let Some(backend_pubkey) = state.backend_pubkey() else {
         return;
     };
-    let roots = state.with_store(|store| roots_needing_general_name(store, &backend_pubkey));
+    let roots = state.with_store(|store| roots_needing_workspace_name(store, &backend_pubkey));
     for root in roots {
-        if state.provider.nip29_set_group_name(&root, "general").await {
+        if state.provider.nip29_set_group_name(&root, &root).await {
             state.provider.fetch_and_materialize_channel(&root).await;
         } else {
             tracing::warn!(
                 channel = %root,
-                "workspace root name migration to general was rejected"
+                "workspace root name repair was rejected"
             );
         }
     }
 }
 
-fn roots_needing_general_name(store: &crate::state::Store, backend_pubkey: &str) -> Vec<String> {
+fn roots_needing_workspace_name(store: &crate::state::Store, backend_pubkey: &str) -> Vec<String> {
     store
         .list_root_channels()
         .unwrap_or_default()
         .into_iter()
-        .filter(|channel| channel.name.trim() != "general")
+        .filter(|channel| channel.name.trim() != channel.channel_h)
         .filter(|channel| {
             store
                 .is_channel_admin(&channel.channel_h, backend_pubkey)
@@ -92,12 +92,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_managed_non_general_roots_need_migration() {
+    fn only_managed_misnamed_roots_need_repair() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.upsert_channel("one", "one", "", "", 1).unwrap();
-        store.upsert_channel("two", "general", "", "", 1).unwrap();
+        store.upsert_channel("one", "wrong", "", "", 1).unwrap();
+        store.upsert_channel("two", "two", "", "", 1).unwrap();
         store.upsert_channel("remote", "remote", "", "", 1).unwrap();
-        store.upsert_channel("bound", "bound", "", "", 1).unwrap();
+        store.upsert_channel("bound", "wrong", "", "", 1).unwrap();
         store.upsert_workspace("bound", "/work/bound", 1).unwrap();
         store
             .upsert_channel_member("one", "backend", "admin", 1)
@@ -107,7 +107,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            roots_needing_general_name(&store, "backend"),
+            roots_needing_workspace_name(&store, "backend"),
             vec!["bound", "one"]
         );
     }

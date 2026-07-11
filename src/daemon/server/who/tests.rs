@@ -44,10 +44,7 @@ async fn agent_who_renders_full_snapshot_after_cursor_advanced() {
         .expect("who should include fabric context");
 
     assert!(fabric.contains("<members>"), "got:\n{fabric}");
-    assert!(
-        fabric.contains("id=\"root.general.task\""),
-        "got:\n{fabric}"
-    );
+    assert!(fabric.contains("id=\"root.task\""), "got:\n{fabric}");
     assert!(
         fabric.contains("<agent name=\"@coder-"),
         "caller must stay typed as an agent on a cold status cache:\n{fabric}"

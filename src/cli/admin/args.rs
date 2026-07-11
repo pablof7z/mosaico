@@ -171,7 +171,7 @@ pub(in crate::cli) enum ChannelAction {
     /// are named, one kind:9 orchestration event asks those backends to add
     /// their agents.
     Create {
-        /// Channel-relative path to create, e.g. "support" or "epic/planning".
+        /// Channel-relative path to create, e.g. "support" or "epic.planning".
         /// Parent segments address the parent channel; the final segment is the
         /// new channel's durable human name.
         #[arg(value_name = "PATH")]

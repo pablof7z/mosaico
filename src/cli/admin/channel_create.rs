@@ -45,15 +45,18 @@ struct CreateTarget {
 
 fn create_target(path: &str) -> Result<CreateTarget> {
     let path = path.trim();
+    if path.contains('/') {
+        anyhow::bail!("channel paths use dots, not slashes: {path:?}");
+    }
     let segments: Vec<&str> = path
-        .split(['/', '.'])
+        .split('.')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
     let Some(name) = segments.last() else {
         anyhow::bail!("channel create <path> requires a non-empty path");
     };
-    let parent_channel = (segments.len() > 1).then(|| segments[..segments.len() - 1].join("/"));
+    let parent_channel = (segments.len() > 1).then(|| segments[..segments.len() - 1].join("."));
     Ok(CreateTarget {
         parent_channel,
         name: (*name).to_string(),
@@ -97,7 +100,7 @@ fn print_ambiguous_create(
         .unwrap_or_else(|| path.to_string());
     eprintln!("'{reference}' is ambiguous — re-run with an exact path:");
     for r in refs.iter().filter_map(|r| r.as_str()) {
-        let full_path = format!("{r}/{leaf}");
+        let full_path = format!("{r}.{leaf}");
         let mut cmd = format!(
             "  tenex-edge channel create {} --about {}",
             shell_quote(&full_path),
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn create_target_splits_leaf_from_parent_path() {
-        let target = create_target("epic/planning").unwrap();
+        let target = create_target("epic.planning").unwrap();
         assert_eq!(target.parent_channel.as_deref(), Some("epic"));
         assert_eq!(target.name, "planning");
     }
@@ -134,7 +137,16 @@ mod tests {
     #[test]
     fn create_target_accepts_dotted_paths() {
         let target = create_target("epic.planning.research").unwrap();
-        assert_eq!(target.parent_channel.as_deref(), Some("epic/planning"));
+        assert_eq!(target.parent_channel.as_deref(), Some("epic.planning"));
         assert_eq!(target.name, "research");
+    }
+
+    #[test]
+    fn create_target_rejects_slash_paths() {
+        let error = match create_target("epic/planning") {
+            Ok(_) => panic!("slash path must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("use dots, not slashes"));
     }
 }

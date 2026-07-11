@@ -16,9 +16,12 @@ pub(super) struct AvailableAgent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct WorkspaceView {
     pub(super) name: String,
+    pub(super) channel: String,
     pub(super) path: String,
     pub(super) about: String,
+    pub(super) member_count: usize,
     pub(super) expanded: bool,
+    pub(super) members: Vec<MemberView>,
     pub(super) channels: Vec<ChannelView>,
 }
 
