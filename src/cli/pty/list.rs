@@ -1,4 +1,6 @@
 use anyhow::Result;
+use owo_colors::OwoColorize as _;
+use std::io::IsTerminal as _;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PtyListRow {
@@ -10,8 +12,12 @@ struct PtyListRow {
 
 pub(super) fn list() -> Result<()> {
     let rows = daemon_rows().unwrap_or_else(local_rows);
-    print!("{}", render_rows(&rows));
+    print!("{}", render_rows_with_color(&rows, stdout_color_enabled()));
     Ok(())
+}
+
+fn stdout_color_enabled() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
 fn daemon_rows() -> Option<Vec<PtyListRow>> {
@@ -90,20 +96,51 @@ fn session_display_names(
         .collect()
 }
 
+#[cfg(test)]
 fn render_rows(rows: &[PtyListRow]) -> String {
+    render_rows_with_color(rows, false)
+}
+
+fn render_rows_with_color(rows: &[PtyListRow], color: bool) -> String {
     if rows.is_empty() {
         return "No portable-pty sessions found.\n".to_string();
     }
-    let mut out = format!("{:<28} {:<10} {:<5} command\n", "id", "agent", "live");
+    let header_id = format!("{:<28} ", "id");
+    let header_agent = format!("{:<10} ", "agent");
+    let header_live = format!("{:<5} ", "live");
+    let mut out = if color {
+        format!(
+            "{}{}{}{}\n",
+            header_id.bold().cyan(),
+            header_agent.bold().cyan(),
+            header_live.bold().cyan(),
+            "command".bold()
+        )
+    } else {
+        format!("{header_id}{header_agent}{header_live}command\n")
+    };
     for row in rows {
         let live = if row.live { "yes" } else { "no" };
-        out.push_str(&format!(
-            "{:<28} {:<10} {:<5} {}\n",
-            row.display_id,
-            row.agent,
-            live,
-            row.command.join(" ")
-        ));
+        let id = format!("{:<28} ", row.display_id);
+        let agent = format!("{:<10} ", row.agent);
+        let live = format!("{live:<5} ");
+        let command = row.command.join(" ");
+        if color {
+            let live = if row.live {
+                live.bold().green().to_string()
+            } else {
+                live.dimmed().to_string()
+            };
+            out.push_str(&format!(
+                "{}{}{}{}\n",
+                id.cyan(),
+                agent.magenta(),
+                live,
+                command.dimmed()
+            ));
+        } else {
+            out.push_str(&format!("{id}{agent}{live}{command}\n"));
+        }
     }
     out
 }
@@ -174,5 +211,44 @@ mod tests {
         assert_eq!(rows[0].display_id, "haiku/willow-echo-042");
         assert!(rendered.contains("haiku/willow-echo-042"));
         assert!(!rendered.contains("haiku-1783694933-98782"));
+    }
+
+    #[test]
+    fn render_colorizes_columns_without_changing_plain_output() {
+        let rows = vec![PtyListRow {
+            display_id: "haiku-opal-spark-938".to_string(),
+            agent: "haiku".to_string(),
+            live: true,
+            command: vec![
+                "claude".to_string(),
+                "--model".to_string(),
+                "haiku".to_string(),
+            ],
+        }];
+
+        let plain = render_rows(&rows);
+        let colored = render_rows_with_color(&rows, true);
+
+        assert!(!plain.contains("\u{1b}["), "plain output: {plain:?}");
+        assert!(colored.contains("\u{1b}["), "colored output: {colored:?}");
+        assert_eq!(strip_ansi(&colored), plain);
+    }
+
+    fn strip_ansi(input: &str) -> String {
+        let mut out = String::new();
+        let mut chars = input.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' && chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
     }
 }
