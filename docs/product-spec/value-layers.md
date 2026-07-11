@@ -27,8 +27,8 @@ These are valuable on day one, single-player, with no consensus problem and no t
 problem. They're the things a *society* needs to exist at all (see
 [agent-society.md](agent-society.md)), which is why they're foundational rather than optional.
 
-- **Per-session identity + channel membership.** Each session shows up under a stable handle
-  and joins the shared fabric the moment it starts — instantly addressable and trusted, with
+- **Per-session identity + channel membership.** Each session has a permanent npub plus a short
+  leased handle and joins the shared fabric the moment it starts — instantly addressable and trusted, with
   no setup. The root of everything; nothing else works without it.
 - **Presence & awareness of your own fleet.** Knowing what your agents are doing, across
   devices — without going and asking each one.

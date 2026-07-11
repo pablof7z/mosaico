@@ -1,22 +1,20 @@
 //! `who --expired`: the dead/old local sessions a user can list and then resume.
 //!
 //! A session row that is no longer `alive` (its process exited) is an expired
-//! session — the resume-candidate set. Each is surfaced by its public
-//! `sessionCode-agent` handle.
+//! session. Its npub is the permanent resume selector; a current leased handle
+//! is optional presentation data.
 
 use crate::state::Store;
 
-/// One expired (not-currently-live) local session, named by `sessionCode-agent`.
+/// One expired local session, permanently named by npub with an optional lease.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ExpiredSessionRow {
     /// Stable agent slug from the session row.
     #[serde(default)]
     pub(crate) agent_slug: String,
-    /// Canonical session id used in the public session handle.
-    #[serde(default)]
-    pub(crate) session_id: String,
-    /// Friendly code used as the leading component of the public handle.
-    pub(crate) codename: String,
+    pub(crate) pubkey: String,
+    pub(crate) npub: String,
+    pub(crate) handle: Option<String>,
     /// The daemon host these sessions belong to (they are always local).
     pub(crate) host: String,
     /// Human channel name (falls back to the raw channel id when unnamed).
@@ -42,8 +40,9 @@ pub(crate) fn load_expired_sessions(
         .filter(|s| !s.alive)
         .map(|s| ExpiredSessionRow {
             agent_slug: s.agent_slug,
-            session_id: s.session_id.clone(),
-            codename: crate::util::friendly_short_code(&s.session_id),
+            pubkey: s.agent_pubkey.clone(),
+            npub: crate::idref::npub(&s.agent_pubkey).unwrap_or_default(),
+            handle: store.handle_for_pubkey(&s.agent_pubkey).ok().flatten(),
             host: host.to_string(),
             channel: channel_name(store, &s.channel_h),
             last_seen: s.last_seen,
@@ -84,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn only_dead_sessions_are_listed_by_codename() {
+    fn only_dead_sessions_are_listed_by_permanent_pubkey() {
         let store = Store::open_memory().unwrap();
         store.upsert_channel("proj", "main", "", "", 1).unwrap();
         let alive_id = register(&store, "alive", "proj");
@@ -95,9 +94,13 @@ mod tests {
         assert_eq!(rows.len(), 1, "only the dead session is expired: {rows:?}");
         let row = &rows[0];
         assert_eq!(row.agent_slug, "coder");
-        assert_eq!(row.session_id, dead_id);
-        assert_eq!(row.codename, crate::util::friendly_short_code(&dead_id));
-        assert_ne!(row.codename, crate::util::friendly_short_code(&alive_id));
+        assert_eq!(row.pubkey, "pk-dead");
+        assert!(row.handle.is_none());
+        assert!(
+            row.npub.is_empty(),
+            "fixture pubkey is intentionally invalid"
+        );
+        assert_ne!(dead_id, alive_id);
         assert_eq!(row.host, "laptop");
         assert_eq!(row.channel, "main");
         assert!(row.resumable, "row carries a resume token");

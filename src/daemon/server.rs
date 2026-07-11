@@ -246,7 +246,7 @@ use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, res
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
-use session_signing::mint_session_identity;
+use session_signing::{mint_session_identity, retire_reclaimed_profile};
 use session_start::rpc_session_start;
 use status_publish::spawn_outbox_drainer;
 use statusline::rpc_statusline;

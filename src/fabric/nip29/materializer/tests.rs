@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
+use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
 mod agent_roster;
@@ -116,13 +117,41 @@ fn profile_materializes_to_relay_profiles() {
     assert_eq!(profile.name, "willow-echo-042-developer");
     assert_eq!(profile.slug, "willow-echo-042-developer");
     assert_eq!(profile.agent_slug, "developer");
-    assert_eq!(
+    assert!(
         store
             .resolve_profile_handle_pubkey("willow-echo-042-developer")
             .unwrap()
-            .as_deref(),
-        Some(pk.as_str())
+            .is_none(),
+        "profile names alone are not lease authority"
     );
+}
+
+#[test]
+fn retired_profile_materializes_npub_without_recreating_handle() {
+    let store = Store::open_memory().unwrap();
+    let agent = Keys::generate();
+    let pk = agent.public_key().to_hex();
+    let npub = agent.public_key().to_bech32().unwrap();
+    let event = build(
+        &agent,
+        0,
+        &serde_json::json!({ "name": npub }).to_string(),
+        vec![
+            make_tag(&["host", "laptop"]),
+            make_tag(&["agent-slug", "developer"]),
+        ],
+    );
+    let Some(crate::domain::DomainEvent::Profile(profile)) =
+        crate::fabric::nip29::wire::Nip29WireCodec.decode_event(&event)
+    else {
+        panic!("expected profile");
+    };
+    Nip29Materializer::materialize_profile(&store, &profile, event.created_at.as_secs());
+
+    let cached = store.get_profile(&pk).unwrap().unwrap();
+    assert_eq!(cached.name, npub);
+    assert_eq!(cached.slug, npub);
+    assert_eq!(cached.agent_slug, "developer");
 }
 
 #[test]

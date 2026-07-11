@@ -93,6 +93,7 @@ pub struct StatuslineView {
     #[serde(default)]
     agent: String,
     #[serde(default)]
+    #[allow(dead_code)]
     host: String,
     #[serde(default)]
     #[allow(dead_code)]
@@ -155,12 +156,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
     };
     let mut segs: Vec<String> = Vec::new();
 
-    let ident =
-        if crate::idref::parse_session_handle(&v.agent).is_some() || v.host.trim().is_empty() {
-            v.agent.clone()
-        } else {
-            format!("{}@{}", v.agent, v.host.trim())
-        };
+    let ident = v.agent.clone();
     segs.push(paint(
         ident, "36", // cyan
     ));
@@ -247,7 +243,7 @@ mod tests {
 
     fn view() -> StatuslineView {
         StatuslineView {
-            agent: "claude".into(),
+            agent: "amber-claude".into(),
             host: "Kubrick's Mac".into(),
             session_id: "some-long-uuid".into(),
             work_root: "tenex-edge".into(),
@@ -273,7 +269,7 @@ mod tests {
         // id; the distilled session title follows in its own `[…]` segment.
         assert_eq!(
             s,
-            "claude@Kubrick's Mac tenex-edge support \
+            "amber-claude tenex-edge support \
              [Refactoring the inbox] [writing tests]"
         );
     }

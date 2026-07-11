@@ -170,7 +170,7 @@ Switch into it instead: tenex-edge channel switch {}",
         adds.push(AddTarget {
             backend_pubkey,
             slug: a.slug.clone(),
-            session_id: None,
+            session_pubkey: None,
         });
     }
 

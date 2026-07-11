@@ -8,8 +8,9 @@ Coarse, lifecycle/intent-level — **not** fine-grained DB ops. The engine lives
 inside the daemon, so there is no per-DB-op RPC chatter; the surface is
 low-frequency lifecycle signals from hooks, CLI reads, and channel sends.
 
-All params/results are JSON. `session` fields are full session ids. For
-agent-facing commands the daemon resolves the caller from the explicit session
+All params/results are JSON. Hook-owned `session` fields are internal canonical
+session ids. Agent-facing resume selectors are full npub/hex pubkeys (or a
+session's current leased handle), never raw session ids. The daemon resolves the caller from the explicit session
 when present, then the PTY session, harness-native session id, watched harness
 process, and finally the cwd+agent scan where that fallback is safe. **The
 resolution stays daemon-side** so every client path observes the same identity
@@ -25,7 +26,8 @@ result: {"session_id": "te-…"}   // session_id printed verbatim to stdout
 The `session_id` is the raw canonical id — an internal correlation handle for
 hooks, PTY session binding, resume, and DB rows. It is never rendered as a
 user-facing identity; a session is addressed by its dashed public handle, such
-as `@quill-peak-369-codex`, backed by the session's own minted pubkey.
+as `@quill-codex`, backed by the session's own minted pubkey. The npub is its
+permanent copy-paste resume value; the handle is a seven-day offline lease.
 The provider opens the workspace root NIP-29 group, named by the workspace slug,
 and adds the session agent as a relay member before the engine publishes presence.
 The workspace and root channel are one entity with the public address `<workspace>`.
@@ -242,9 +244,14 @@ Returns the PTY target string needed to attach to a session.
 
 ### `pty_resume`
 Reconstitutes a dead harness session in pty (re-opens the agent in its worktree).
+```jsonc
+params: {"session": "npub1…"}
+result: {"pty_id": "…", "npub": "npub1…", "agent": "coder"}
+```
 
 ### `pty_resumable`
-Returns the list of sessions that can be resumed (have no live PTY session but retain a session row).
+Returns resumable rows with `pubkey`, `npub`, and an optional current `handle`.
+Raw session ids are not exposed.
 
 ### Control / handshake (not user verbs)
 - `hello` / `welcome` (§4)

@@ -209,7 +209,7 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
         .upsert_identity(&Identity {
             pubkey: agent_pubkey.clone(),
             agent_slug: agent.to_string(),
-            codename: tenex_edge::util::friendly_short_code("offline-seed"),
+            codename: String::new(),
             session_id: String::new(),
             channel_h: channel.clone(),
             native_id: String::new(),

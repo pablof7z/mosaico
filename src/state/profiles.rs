@@ -81,7 +81,7 @@ impl Store {
         let name = crate::idref::agent_label(slug, host);
         let mut stmt = self.conn.prepare(
             "SELECT pubkey, host FROM relay_profiles
-                 WHERE is_backend=0 AND (slug=?1 OR name=?2)",
+                 WHERE is_backend=0 AND agent_slug='' AND (slug=?1 OR name=?2)",
         )?;
         let rows = stmt.query_map(params![slug, name], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -95,22 +95,29 @@ impl Store {
         Ok(None)
     }
 
-    /// Reverse lookup for the public per-session handle (`sessionCode-agent`).
+    /// Resolve a remote handle only for a pubkey with session-status history.
+    /// Expired status remains valid because an offline lease stays addressable
+    /// until its owner publishes the replacement profile during reclamation.
     pub fn resolve_profile_handle_pubkey(&self, handle: &str) -> Result<Option<String>> {
         let handle = handle.trim();
-        if crate::idref::parse_session_handle(handle).is_none() {
-            return Ok(None);
-        }
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT pubkey FROM relay_profiles
-                 WHERE is_backend=0 AND (name=?1 OR slug=?1)
-                 ORDER BY updated_at DESC LIMIT 1",
-                params![handle],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?)
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT pubkey FROM relay_profiles
+             WHERE is_backend=0 AND agent_slug<>'' AND (name=?1 OR slug=?1)",
+        )?;
+        let matches = stmt
+            .query_map([handle], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let pubkey = match matches.as_slice() {
+            [] => return Ok(None),
+            [one] => one,
+            _ => anyhow::bail!("remote handle {handle:?} is ambiguous"),
+        };
+        let has_status = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM relay_status WHERE pubkey=?1)",
+            [pubkey],
+            |row| row.get::<_, bool>(0),
+        )?;
+        Ok(has_status.then(|| pubkey.clone()))
     }
 
     /// Reverse lookup: the pubkey of a backend with exactly this config

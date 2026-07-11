@@ -149,7 +149,7 @@ pub(super) async fn invite_agent(
             crate::fabric::nip29::orchestration::AddTarget {
                 backend_pubkey: backend_pubkey.clone(),
                 slug: target.slug.clone(),
-                session_id: None,
+                session_pubkey: None,
             },
         )
         .await?;
@@ -237,7 +237,7 @@ async fn publish_invite_orchestration(
     target: crate::fabric::nip29::orchestration::AddTarget,
 ) -> Result<String> {
     let keys = state.management_keys()?;
-    let prose = if target.session_id.is_some() {
+    let prose = if target.session_pubkey.is_some() {
         format!("resume {} in this channel", target.slug)
     } else {
         format!("add {} to this channel", target.slug)

@@ -52,7 +52,7 @@ pub(in crate::cli) enum AgentAction {
 pub(in crate::cli) enum AgentsAction {
     /// List the agents this backend can spawn locally.
     List,
-    /// List prior session ids grouped by channel.
+    /// List prior sessions by permanent npub, grouped by channel.
     ListSessions {
         /// Filter to an agent label or pubkey. `agent@backend-label` preserves the
         /// backend label exactly.
@@ -66,7 +66,7 @@ pub(in crate::cli) enum AgentsAction {
 
 /// `channel add` targets. Exactly one of two shapes: a human member by id
 /// (two positionals `<id> <channel>`) or an existing session pulled in
-/// (`--session @sessionCode-agent <channel>`). Session mode takes ONE positional
+/// (`--session <npub|hex|current-handle> <channel>`). Session mode takes ONE positional
 /// (the channel); human mode takes TWO. `--admin` is human-only; `--message`
 /// posts a chat mentioning the brought-online session and is valid only with
 /// `--session`.
@@ -79,7 +79,7 @@ pub(in crate::cli) struct AddArgs {
     /// Human mode only: the channel-relative channel (second positional).
     #[arg(value_name = "CHANNEL")]
     pub(in crate::cli::admin) second: Option<String>,
-    /// Pull an existing session, named `@sessionCode-agent`, into the channel.
+    /// Pull an exact existing session by npub/hex or its current handle.
     #[arg(long, value_name = "HANDLE", conflicts_with = "admin")]
     pub(in crate::cli::admin) session: Option<String>,
     /// Grant admin rather than member. Human target only.
@@ -95,7 +95,7 @@ pub(in crate::cli) struct AddArgs {
 #[derive(Subcommand)]
 pub(in crate::cli) enum ChannelAction {
     /// Add a member to a channel: a human by id or an existing session
-    /// (`--session @sessionCode-agent`).
+    /// (`--session <npub|hex|current-handle>`).
     Add(AddArgs),
     /// Read channel chat history.
     Read {

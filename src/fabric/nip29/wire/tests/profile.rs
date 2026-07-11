@@ -22,6 +22,29 @@ fn profile_roundtrip() {
 }
 
 #[test]
+fn retired_profile_roundtrip_keeps_npub_as_the_name() {
+    let keys = Keys::generate();
+    let npub = keys.public_key().to_bech32().unwrap();
+    let profile = DomainEvent::Profile(crate::domain::Profile {
+        agent: crate::domain::AgentRef::new(keys.public_key().to_hex(), npub.clone()),
+        agent_slug: "developer".into(),
+        host: "remoteBackend".into(),
+        owners: Vec::new(),
+        is_backend: false,
+    });
+    let signed = Nip29WireCodec
+        .encode_event(&profile)
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap();
+    assert_eq!(
+        signed.content,
+        serde_json::json!({ "name": npub }).to_string()
+    );
+    assert_eq!(roundtrip(profile.clone(), &keys), profile);
+}
+
+#[test]
 fn profile_decode_builds_handle_from_session_code_and_canonical_tag() {
     let keys = Keys::generate();
     let event = EventBuilder::new(Kind::from(KIND_PROFILE), r#"{"name":"willow-echo-042"}"#)

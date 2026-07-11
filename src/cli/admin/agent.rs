@@ -188,11 +188,8 @@ async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<(
             current = channel.to_string();
             println!("#{}:", current);
         }
-        let handle = row["handle"]
-            .as_str()
-            .or_else(|| row["agent"].as_str())
-            .unwrap_or("?");
-        let session_id = row["session_id"].as_str().unwrap_or("?");
+        let handle = row["handle"].as_str();
+        let npub = row["npub"].as_str().unwrap_or("?");
         let title = row["title"]
             .as_str()
             .filter(|s| !s.trim().is_empty())
@@ -203,13 +200,16 @@ async fn list_sessions(agent: Option<String>, since: Option<String>) -> Result<(
         } else {
             relative_time(last_seen, now)
         };
-        println!(
-            "  * @{} [{}] - {} - last seen: {}",
-            handle.bold(),
-            session_id.dimmed(),
-            title,
-            seen
-        );
+        match handle {
+            Some(handle) => println!(
+                "  * @{} [{}] - {} - last seen: {}",
+                handle.bold(),
+                npub.dimmed(),
+                title,
+                seen
+            ),
+            None => println!("  * {} - {} - last seen: {}", npub.bold(), title, seen),
+        }
     }
     Ok(())
 }

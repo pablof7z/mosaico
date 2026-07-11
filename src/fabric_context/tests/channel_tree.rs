@@ -48,7 +48,7 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
             pubkey: OTHER_PK.into(),
             session_id: "other-session".into(),
             channel_h: "root".into(),
-            slug: "reviewer".into(),
+            slug: "amber-reviewer".into(),
             title: "Reviewing".into(),
             activity: "checking tests".into(),
             busy: true,
@@ -60,9 +60,8 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("presence delta should render");
-    let other_codename = crate::util::friendly_short_code("other-session");
     assert!(text.contains("<recent-presence>"));
-    assert!(text.contains(&format!("ref=\"@{other_codename}-reviewer\"")));
+    assert!(text.contains("ref=\"@amber-reviewer\""));
     assert!(text.contains("text=\"checking tests\""));
     assert!(
         !text.contains("root.task"),

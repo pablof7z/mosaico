@@ -110,7 +110,7 @@ Use `channel add` for membership changes after a session or human already
 exists:
 
 ```bash
-tenex-edge channel add --session @friendly-session-123-agent <fully-qualified-channel>
+tenex-edge channel add --session <npub|hex|current-handle> <fully-qualified-channel>
 tenex-edge channel add <pubkey|npub|nip05> <fully-qualified-channel> [--admin]
 ```
 

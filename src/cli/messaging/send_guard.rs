@@ -19,9 +19,6 @@ pub(super) fn check(message: &str) -> Result<()> {
         return Ok(());
     }
     for mention in crate::idref::extract_mentions(message) {
-        if crate::idref::parse_session_handle(&mention).is_some() {
-            continue;
-        }
         // A mention whose label equals a known role slug is a bare `@role`, not
         // a member reference.
         let label = mention.split('@').next().unwrap_or(&mention);
@@ -44,9 +41,6 @@ mod tests {
         // Mirror `check`'s matching against an explicit role list (avoids reading
         // the real keystore in a unit test).
         for mention in crate::idref::extract_mentions(message) {
-            if crate::idref::parse_session_handle(&mention).is_some() {
-                continue;
-            }
             let label = mention.split('@').next().unwrap_or(&mention);
             if roles.contains(&label) {
                 bail!("did you mean to launch a new session of {label}?");

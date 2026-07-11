@@ -106,37 +106,18 @@ pub fn short_id(id: &str) -> String {
     id.chars().take(6).collect()
 }
 
-const CODE_WORDS_A: [&str; 32] = [
+pub(crate) const CODE_WORDS_A: [&str; 32] = [
     "amber", "atlas", "birch", "cedar", "clay", "comet", "coral", "dawn", "ember", "flint", "gale",
     "hazel", "indigo", "ivy", "jet", "juno", "kite", "lark", "lumen", "maple", "nova", "onyx",
     "opal", "pearl", "quill", "quinn", "reed", "sable", "slate", "tide", "willow", "zephyr",
 ];
 
-const CODE_WORDS_B: [&str; 32] = [
+pub(crate) const CODE_WORDS_B: [&str; 32] = [
     "arrow", "bravo", "canyon", "cliff", "delta", "drift", "echo", "falcon", "fjord", "grove",
     "harbor", "haven", "kilo", "lima", "meadow", "mesa", "orbit", "pace", "peak", "quest", "range",
     "ridge", "river", "shore", "sierra", "spark", "summit", "tango", "trail", "vale", "wave",
     "yonder",
 ];
-
-/// Deterministic, memorable short code for a long/opaque id (e.g. a raw
-/// session id) — `word-word-NNN`. Cheaper to read, say, and hold in context
-/// than a hex/UUID correlation handle. `DefaultHasher` is fixed-seed (see
-/// [`session_room_id`]), so the same input always maps to the same code, both
-/// within a run and across daemon restarts. Purely a display transform: the
-/// underlying id is unchanged and this code is never resolved back to it.
-pub fn friendly_short_code(id: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    id.hash(&mut hasher);
-    let h = hasher.finish();
-    let a = CODE_WORDS_A[(h as usize) % CODE_WORDS_A.len()];
-    let b = CODE_WORDS_B[((h >> 20) as usize) % CODE_WORDS_B.len()];
-    let n = (h >> 40) % 1000;
-    format!("{a}-{b}-{n:03}")
-}
 
 pub const CHAT_RENDER_WORD_LIMIT: usize = 300;
 
@@ -326,22 +307,6 @@ mod tests {
     fn short_id_truncates_to_six() {
         assert_eq!(short_id("0123456789abcdef"), "012345");
         assert_eq!(short_id("abc"), "abc");
-    }
-
-    #[test]
-    fn friendly_short_code_is_deterministic_and_shaped() {
-        let a = friendly_short_code("te-18be8e4753ae57e0-dc");
-        let b = friendly_short_code("te-18be8e4753ae57e0-dc");
-        assert_eq!(a, b, "same input must always map to the same code");
-        let parts: Vec<&str> = a.split('-').collect();
-        assert_eq!(parts.len(), 3, "expected word-word-NNN, got {a:?}");
-        assert_eq!(parts[2].len(), 3);
-        assert!(parts[2].chars().all(|c| c.is_ascii_digit()));
-        assert_ne!(
-            friendly_short_code("session-a"),
-            friendly_short_code("session-b"),
-            "distinct ids should (almost always) map to distinct codes"
-        );
     }
 
     #[test]

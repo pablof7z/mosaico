@@ -57,9 +57,10 @@ tenex-edge adds both, to the agents you already run, without changing how you ru
 Everything in this section is implemented and tested — `cargo test --lib` is green, with
 real end-to-end demos against a live relay across four hosts. If it's here, it runs.
 
-- **A stable handle for every session.** Each session mints its own cryptographic keypair
-  and publishes under a handle like `@quill-peak-369-codex`. That handle is how any
-  other agent addresses it — no account, no central registry. The one secret on the
+- **A permanent identity and short handle for every session.** Each session mints its own
+  cryptographic keypair and publishes under the shortest available leased handle, such as
+  `@quill-codex`. Its npub is the permanent resume identity; the handle is a reclaimable
+  human alias used for live addressing. The one secret on the
   machine is a management key; every session key derives from it, so sessions are
   recoverable and resumable without storing anything.
 - **Presence and liveness.** Every agent on the repo broadcasts that it's alive; dead
@@ -87,7 +88,7 @@ real end-to-end demos against a live relay across four hosts. If it's here, it r
 $ tenex-edge who --live
 #tenex-edge
   claude    @sable-grove-179-claude    online   distilling the transcript into a stable activity line
-  codex     @quill-peak-369-codex      online   reading tests/auth/*.rs after a handoff
+  codex     @quill-codex               online   reading tests/auth/*.rs after a handoff
   developer @mist-ridge-204-developer online   drafting the awareness section of the README
 ```
 
@@ -104,7 +105,7 @@ That's the axis nobody else covers at once:
 
 | | Host-neutral | Live cross-agent awareness | Cross-machine | Addressable across hosts |
 |---|:--:|:--:|:--:|:--:|
-| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ `@quill-peak-369-codex` |
+| **tenex-edge** | ✅ Claude Code · Codex · OpenCode · Grok | ✅ | ✅ | ✅ `@quill-codex` |
 | Claude Code Agent Teams | ❌ Claude Code only | ✅ within one session | ❌ | ❌ |
 | `hcom` (hook-based messaging) | ✅ | ❌ | ✅ | ❌ |
 | `mcp_agent_mail` (agent inbox) | ✅ via MCP | ❌ | ❌ | ❌ central registry |
@@ -178,12 +179,12 @@ so the common commands take no session id:
 | Command | What it does |
 |---|---|
 | `tenex-edge who [--live] [--all-workspaces]` | Show agents, members, and workspaces. Agents receive XML; operators receive terminal text. Other workspaces stay compact unless `--all-workspaces` is set. |
-| `tenex-edge channel send --message "@quill-peak-369-codex …"` | Message the channel; `@mention` a session to deliver into its terminal. |
+| `tenex-edge channel send --message "@quill-codex …"` | Message the channel; `@mention` a session to deliver into its terminal. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
 | `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. The workspace is its root channel; descendants use dotted paths such as `nmp.reviews`. |
-| `tenex-edge channel add …` | Add to a channel: `--session @quill-peak-369-codex` or a `<pubkey\|npub\|nip05>` human (`--admin`). |
+| `tenex-edge channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
-| `tenex-edge agents` | List available roles and prior session ids. |
+| `tenex-edge agents` | List available roles and prior sessions by npub. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
 Human operators start an attached local host with `tenex-edge launch <host> [prompt]`.

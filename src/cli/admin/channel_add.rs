@@ -1,6 +1,6 @@
 //! `channel add` — add a member to a channel in one of two shapes:
 //!   * human by id:        `channel add <pubkey|npub|nip05> <channel> [--admin]`
-//!   * pull an existing one:`channel add --session @sessionCode-agent <channel>`
+//!   * pull an existing one:`channel add --session <npub|hex|current-handle> <channel>`
 //!
 //! Human adds route to the daemon's `channel_add_member`; existing-session adds
 //! route to `invite`. `--message` posts a chat mentioning the brought-online
@@ -60,7 +60,7 @@ async fn human_add(
 
 async fn session_add(channel: Option<String>, handle: &str, message: Option<String>) -> Result<()> {
     let Some(channel) = channel else {
-        anyhow::bail!("channel add --session @sessionCode-agent <channel>");
+        anyhow::bail!("channel add --session <npub|hex|current-handle> <channel>");
     };
     // Strip the mention sigil before sending the canonical handle to the daemon.
     let selector = handle.strip_prefix('@').unwrap_or(handle);

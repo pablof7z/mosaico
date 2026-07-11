@@ -15,6 +15,16 @@
 //! Every renderer formats through this module; every input is classified via
 //! [`parse_ref`] or normalized through the session-handle helpers.
 
+use nostr_sdk::prelude::{PublicKey, ToBech32};
+
+pub fn normalize_pubkey(value: &str) -> Option<String> {
+    PublicKey::parse(value.trim()).ok().map(|pk| pk.to_hex())
+}
+
+pub fn npub(pubkey: &str) -> Option<String> {
+    PublicKey::parse(pubkey).ok()?.to_bech32().ok()
+}
+
 /// Canonical user-facing session handle: `sessionCode-agentSlug`.
 pub fn session_handle(agent_slug: &str, session: &str) -> String {
     let agent_slug = agent_slug.trim();
@@ -25,35 +35,16 @@ pub fn session_handle(agent_slug: &str, session: &str) -> String {
     if agent_slug.is_empty() {
         return session.to_string();
     }
-    if let Some((agent, session_ref)) = parse_session_handle(session) {
-        if agent == agent_slug {
-            return format!("{session_ref}-{agent}");
-        }
-        return session.to_string();
-    }
-    if !friendly_session_code(session) {
+    if session.ends_with(&format!("-{agent_slug}")) {
         return session.to_string();
     }
     format!("{session}-{agent_slug}")
 }
 
-/// Parse a public session handle into its two routing-visible parts.
-pub fn parse_session_handle(handle: &str) -> Option<(&str, &str)> {
-    parse_dashed_session_handle(handle.trim())
-}
-
 /// Convert a kind:0 `name` plus tags into the canonical session handle.
 pub fn session_handle_from_profile_name(name: &str, agent_slug: &str) -> String {
     let name = name.trim();
-    if let Some((agent, session)) = parse_session_handle(name) {
-        let agent = if agent_slug.trim().is_empty() {
-            agent
-        } else {
-            agent_slug.trim()
-        };
-        return session_handle(agent, session);
-    }
-    if agent_slug.trim().is_empty() {
+    if agent_slug.trim().is_empty() || normalize_pubkey(name).is_some() {
         name.to_string()
     } else {
         session_handle(agent_slug, name)
@@ -94,52 +85,10 @@ pub fn agent_ref_from(slug: &str, host: &str, local_host: &str) -> String {
 pub fn session_label(session_id: &str, slug: &str, host: &str) -> String {
     if slug.is_empty() {
         session_id.to_string()
-    } else if let Some((agent, session)) = parse_session_handle(slug) {
-        session_handle(agent, session)
     } else {
-        agent_label(slug, host)
+        let _ = host;
+        slug.to_string()
     }
-}
-
-fn parse_dashed_session_handle(handle: &str) -> Option<(&str, &str)> {
-    let mut parts = handle.splitn(4, '-');
-    let a = parts.next()?;
-    let b = parts.next()?;
-    let n = parts.next()?;
-    let agent_slug = parts.next()?.trim();
-    if agent_slug.is_empty() || !friendly_code_parts(a, b, n) {
-        return None;
-    }
-    let session_end = a.len() + b.len() + n.len() + 2;
-    Some((agent_slug, &handle[..session_end]))
-}
-
-pub(crate) fn looks_like_agent_first_session_handle(handle: &str) -> bool {
-    let mut parts = handle.trim().rsplitn(4, '-');
-    let Some(n) = parts.next() else { return false };
-    let Some(b) = parts.next() else { return false };
-    let Some(a) = parts.next() else { return false };
-    let Some(agent_slug) = parts.next() else {
-        return false;
-    };
-    !agent_slug.trim().is_empty() && friendly_code_parts(a, b, n)
-}
-
-fn friendly_session_code(code: &str) -> bool {
-    let mut parts = code.split('-');
-    let Some(a) = parts.next() else { return false };
-    let Some(b) = parts.next() else { return false };
-    let Some(n) = parts.next() else { return false };
-    parts.next().is_none() && friendly_code_parts(a, b, n)
-}
-
-fn friendly_code_parts(a: &str, b: &str, n: &str) -> bool {
-    !a.is_empty()
-        && !b.is_empty()
-        && a.chars().all(|c| c.is_ascii_alphanumeric())
-        && b.chars().all(|c| c.is_ascii_alphanumeric())
-        && n.len() == 3
-        && n.chars().all(|c| c.is_ascii_digit())
 }
 
 /// A short prefix of a message/event id for envelope IDs and send confirmations.
@@ -155,9 +104,8 @@ pub enum Ref {
     Agent { slug: String, host: String },
     /// A 64-char hex pubkey or `npub1…`.
     Pubkey(String),
-    /// Anything else: a session (canonical id / harness alias / id prefix) OR a
-    /// bare agent-instance label. The daemon resolver disambiguates by trying
-    /// session lookups first, then `slug@<local-host>`.
+    /// Anything else: an opaque current handle or a bare local agent label.
+    /// The daemon resolver consults the authoritative store for the surface.
     Token(String),
 }
 

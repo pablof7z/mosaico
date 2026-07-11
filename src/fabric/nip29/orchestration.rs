@@ -14,7 +14,7 @@ use nostr_sdk::prelude::*;
 use std::collections::HashMap;
 
 /// Marker `te-op` value identifying the add-agents orchestration event.
-pub const TE_OP_ADD_AGENTS: &str = "subgroup.add-agents.v1";
+pub const TE_OP_ADD_AGENTS: &str = "subgroup.add-agents.v2";
 
 fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)
@@ -26,8 +26,8 @@ pub struct AddTarget {
     pub backend_pubkey: String,
     /// Agent identity slug (the `~/.tenex-edge/agents/*.json` filename stem).
     pub slug: String,
-    /// Optional prior session id to resume instead of spawning a fresh session.
-    pub session_id: Option<String>,
+    /// Optional permanent session pubkey to resume instead of spawning fresh.
+    pub session_pubkey: Option<String>,
 }
 
 /// Build the `kind:9` add-agents orchestration event.
@@ -39,7 +39,7 @@ pub struct AddTarget {
 ///   `["h", parent_h]`, `["te-op", TE_OP_ADD_AGENTS]`, `["parent", parent_h]`,
 ///   `["h-target", child_h]`, one `["p", backend_pubkey]` per DISTINCT backend
 ///   (deduped, sorted for stable order), then one `["add", backend_pubkey,
-///   slug, optional-session-id]` per entry in `adds` (input order preserved).
+///   slug, optional-session-pubkey]` per entry in `adds` (input order preserved).
 ///   Content = `prose`.
 pub fn build_add_agents_event(
     parent_h: &str,
@@ -64,8 +64,8 @@ pub fn build_add_agents_event(
 
     // One add tag per entry, preserving caller order.
     for a in adds {
-        if let Some(session_id) = a.session_id.as_deref().filter(|s| !s.is_empty()) {
-            tags.push(tag(&["add", &a.backend_pubkey, &a.slug, session_id])?);
+        if let Some(session_pubkey) = a.session_pubkey.as_deref().filter(|s| !s.is_empty()) {
+            tags.push(tag(&["add", &a.backend_pubkey, &a.slug, session_pubkey])?);
         } else {
             tags.push(tag(&["add", &a.backend_pubkey, &a.slug])?);
         }
@@ -133,7 +133,7 @@ pub fn parse_orchestration(event: &Event) -> Option<AddAgentsOp> {
                     adds.push(AddTarget {
                         backend_pubkey: pk.clone(),
                         slug: slug.clone(),
-                        session_id: s.get(3).cloned().filter(|s| !s.is_empty()),
+                        session_pubkey: s.get(3).cloned().filter(|s| !s.is_empty()),
                     });
                 }
             }
@@ -190,15 +190,15 @@ mod tests {
         AddTarget {
             backend_pubkey: pk.to_string(),
             slug: slug.to_string(),
-            session_id: None,
+            session_pubkey: None,
         }
     }
 
-    fn resume(pk: &str, slug: &str, session_id: &str) -> AddTarget {
+    fn resume(pk: &str, slug: &str, session_pubkey: &str) -> AddTarget {
         AddTarget {
             backend_pubkey: pk.to_string(),
             slug: slug.to_string(),
-            session_id: Some(session_id.to_string()),
+            session_pubkey: Some(session_pubkey.to_string()),
         }
     }
 
@@ -251,8 +251,8 @@ mod tests {
     }
 
     #[test]
-    fn build_parse_preserves_optional_session_id() {
-        let adds = vec![resume("bk1", "architect", "sess-123")];
+    fn build_parse_preserves_optional_session_pubkey() {
+        let adds = vec![resume("bk1", "architect", &"11".repeat(32))];
         let ev = sign(build_add_agents_event("p", "c", &adds, "x").unwrap());
         let op = parse_orchestration(&ev).unwrap();
         assert_eq!(op.adds, adds);

@@ -16,7 +16,13 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
     let rec = session(&store);
     store
         .upsert_profile_with_agent_slug(
-            OTHER_PK, "reviewer", "reviewer", "reviewer", "laptop", false, 2,
+            OTHER_PK,
+            "amber-reviewer",
+            "amber-reviewer",
+            "reviewer",
+            "laptop",
+            false,
+            2,
         )
         .unwrap();
     store
@@ -24,7 +30,7 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
             pubkey: OTHER_PK.into(),
             session_id: "peer-sess".into(),
             channel_h: "root".into(),
-            slug: "reviewer".into(),
+            slug: "amber-reviewer".into(),
             title: "Reviewing".into(),
             activity: String::new(),
             busy: false,
@@ -41,11 +47,8 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
         text.contains("<member ref=\"@coder\" status=\""),
         "got: {text}"
     );
-    let peer_codename = crate::util::friendly_short_code("peer-sess");
     assert!(
-        text.contains(&format!(
-            "<member ref=\"@{peer_codename}-reviewer\" status=\""
-        )),
+        text.contains("<member ref=\"@amber-reviewer\" status=\""),
         "got: {text}"
     );
     assert!(
@@ -133,14 +136,14 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
             "peer-test1",
             "peer-test1-session",
             "test1-xxx",
-            "reviewer",
+            "amber-reviewer",
             "checking test1",
         ),
         (
             "peer-test2",
             "peer-test2-session",
             "test2-xxx",
-            "tester",
+            "atlas-tester",
             "checking test2",
         ),
     ] {
@@ -170,14 +173,8 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
         text.contains("<channel name=\"#xxx\" ref=\"test2.xxx\""),
         "got: {text}"
     );
-    let reviewer = crate::idref::session_handle(
-        "reviewer",
-        &crate::util::friendly_short_code("peer-test1-session"),
-    );
-    let tester = crate::idref::session_handle(
-        "tester",
-        &crate::util::friendly_short_code("peer-test2-session"),
-    );
+    let reviewer = "amber-reviewer";
+    let tester = "atlas-tester";
     assert!(
         text.contains(&format!("ref=\"@{reviewer}\"")),
         "got: {text}"

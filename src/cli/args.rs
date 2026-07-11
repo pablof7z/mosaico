@@ -40,7 +40,7 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: ChannelAction,
     },
-    /// List invitable agents and prior session ids.
+    /// List invitable agents and prior sessions by npub.
     Agents {
         #[command(subcommand)]
         action: Option<AgentsAction>,

@@ -147,10 +147,6 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
 
     // Each session reports its OWN (pubkey, codename-agent) pair through the
     // identity that backs `who`.
-    let first_code = tenex_edge::util::friendly_short_code(&first_id);
-    let second_code = tenex_edge::util::friendly_short_code(&second_id);
-    let first_handle = tenex_edge::idref::session_handle("claude", &first_code);
-    let second_handle = tenex_edge::idref::session_handle("claude", &second_code);
     let first_instance = store
         .session_identity_for_session(&first_id)
         .unwrap()
@@ -159,6 +155,8 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         .session_identity_for_session(&second_id)
         .unwrap()
         .expect("second session identity");
+    let first_handle = first_instance.display_slug();
+    let second_handle = second_instance.display_slug();
     assert_eq!(first_instance.pubkey, first_pubkey);
     assert_eq!(first_instance.display_slug(), first_handle);
     assert_eq!(second_instance.pubkey, second_pubkey);

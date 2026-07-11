@@ -1,6 +1,5 @@
-//! Resolve a `channel add --session` selector to a concrete session. Selectors
-//! arrive as a raw opaque session id, or — the recruiting-facing form — an
-//! `@sessionCode-agent` handle.
+//! Resolve `channel add --session` by permanent npub/hex identity or by the
+//! exact current leased handle. Raw session ids are internal and never accepted.
 
 use crate::daemon::server::DaemonState;
 use crate::state::Session;
@@ -8,156 +7,130 @@ use anyhow::Result;
 use std::sync::Arc;
 
 pub(super) struct RemoteSession {
-    pub(super) session_id: String,
     pub(super) pubkey: String,
     pub(super) slug: String,
     pub(super) backend: String,
 }
 
-/// A LOCAL session for the selector: public `sessionCode-agent`, then raw id/prefix.
 pub(super) fn local_session(state: &Arc<DaemonState>, selector: &str) -> Option<Session> {
-    let selector = selector.trim().strip_prefix('@').unwrap_or(selector.trim());
-    if let Some(rec) = local_session_by_public_handle(state, selector) {
-        return Some(rec);
-    }
+    let selector = selector.trim().trim_start_matches('@');
+    let pubkey = crate::idref::normalize_pubkey(selector).or_else(|| {
+        state
+            .with_store(|s| s.pubkey_for_handle(selector))
+            .ok()
+            .flatten()
+    })?;
     state
-        .with_store(|s| s.get_session(selector))
+        .with_store(|s| s.session_for_pubkey(&pubkey))
         .ok()
         .flatten()
-        .or_else(|| {
-            state
-                .with_store(|s| s.find_session_by_prefix(selector))
-                .ok()
-                .flatten()
-        })
 }
 
-fn local_session_by_public_handle(state: &Arc<DaemonState>, selector: &str) -> Option<Session> {
-    let selector = selector.trim().strip_prefix('@').unwrap_or(selector.trim());
-    let (agent, session_ref) = crate::idref::parse_session_handle(selector)?;
-    state.with_store(|s| {
-        s.list_alive_sessions()
-            .unwrap_or_default()
-            .into_iter()
-            .find(|rec| {
-                if rec.agent_slug != agent {
-                    return false;
-                }
-                rec.session_id == session_ref
-                    || rec.session_id.starts_with(session_ref)
-                    || crate::util::friendly_short_code(&rec.session_id) == session_ref
+pub(super) fn remote_session(state: &Arc<DaemonState>, selector: &str) -> Result<RemoteSession> {
+    let selector = selector.trim().trim_start_matches('@');
+    let matches = state.with_store(|s| remote_sessions(s, selector))?;
+    one_remote_session(selector, matches)
+}
+
+fn remote_sessions(store: &crate::state::Store, selector: &str) -> Result<Vec<RemoteSession>> {
+    if let Some(pubkey) = crate::idref::normalize_pubkey(selector) {
+        let Some(profile) = store.get_profile(&pubkey)? else {
+            return Ok(Vec::new());
+        };
+        if profile.is_backend || profile.agent_slug.is_empty() {
+            return Ok(Vec::new());
+        }
+        return Ok(vec![RemoteSession {
+            pubkey,
+            slug: profile.slug,
+            backend: profile.host,
+        }]);
+    }
+
+    let Some(pubkey) = store.resolve_profile_handle_pubkey(selector)? else {
+        return Ok(Vec::new());
+    };
+    let Some(profile) = store.get_profile(&pubkey)? else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![RemoteSession {
+        pubkey,
+        slug: profile.slug,
+        backend: profile.host,
+    }])
+}
+
+fn one_remote_session(selector: &str, matches: Vec<RemoteSession>) -> Result<RemoteSession> {
+    match matches.as_slice() {
+        [one] => Ok(RemoteSession {
+            pubkey: one.pubkey.clone(),
+            slug: one.slug.clone(),
+            backend: one.backend.clone(),
+        }),
+        [] => anyhow::bail!("no session matching {selector:?}; use its npub or current handle"),
+        _ => anyhow::bail!("session selector is ambiguous; use the full npub"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{Status, Store};
+    use nostr_sdk::prelude::{Keys, ToBech32};
+
+    fn profile(store: &Store, pubkey: &str, handle: &str) {
+        store
+            .upsert_profile_with_agent_slug(pubkey, handle, handle, "codex", "remote", false, 1)
+            .unwrap();
+    }
+
+    #[test]
+    fn historical_remote_npub_resolves_without_status() {
+        let store = Store::open_memory().unwrap();
+        let pubkey = Keys::generate().public_key();
+        profile(&store, &pubkey.to_hex(), "old-codex");
+
+        let matches = remote_sessions(&store, &pubkey.to_bech32().unwrap()).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pubkey, pubkey.to_hex());
+        assert_eq!(matches[0].backend, "remote");
+    }
+
+    #[test]
+    fn expired_remote_handle_remains_resolvable() {
+        let store = Store::open_memory().unwrap();
+        let pubkey = Keys::generate().public_key().to_hex();
+        profile(&store, &pubkey, "old-codex");
+        store
+            .upsert_status(&Status {
+                pubkey: pubkey.clone(),
+                session_id: String::new(),
+                channel_h: "root".into(),
+                slug: "old-codex".into(),
+                title: String::new(),
+                activity: String::new(),
+                busy: false,
+                last_seen: 1,
+                updated_at: 1,
+                expiration: 1,
             })
-    })
-}
+            .unwrap();
 
-/// A REMOTE session for the selector, from the materialized status cache. Matches
-/// `@sessionCode-agent` or a raw id (exact/prefix).
-pub(super) fn remote_session_from_status(
-    state: &Arc<DaemonState>,
-    selector: &str,
-) -> Result<RemoteSession> {
-    let selector = selector.trim().strip_prefix('@').unwrap_or(selector.trim());
-    if let Some((agent, session_ref)) = crate::idref::parse_session_handle(selector) {
-        return remote_session_from_public_handle(state, selector, agent, session_ref);
+        let matches = remote_sessions(&store, "old-codex").unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pubkey, pubkey);
     }
-    let matches = state.with_store(|s| -> Result<Vec<RemoteSession>> {
-        let mut out = Vec::new();
-        for st in s.list_status_sessions(None, None)? {
-            let by_id = st.session_id == selector || st.session_id.starts_with(selector);
-            if !by_id {
-                continue;
-            }
-            let Some(profile) = s.get_profile(&st.pubkey)? else {
-                continue;
-            };
-            let slug = if profile.slug.is_empty() {
-                st.slug.clone()
-            } else {
-                profile.slug.clone()
-            };
-            out.push(RemoteSession {
-                session_id: st.session_id,
-                pubkey: st.pubkey,
-                slug,
-                backend: profile.host,
-            });
-        }
-        out.sort_by(|a, b| {
-            a.session_id
-                .cmp(&b.session_id)
-                .then(a.pubkey.cmp(&b.pubkey))
-        });
-        out.dedup_by(|a, b| a.session_id == b.session_id && a.pubkey == b.pubkey);
-        Ok(out)
-    })?;
-    match matches.as_slice() {
-        [one] => Ok(RemoteSession {
-            session_id: one.session_id.clone(),
-            pubkey: one.pubkey.clone(),
-            slug: one.slug.clone(),
-            backend: one.backend.clone(),
-        }),
-        [] => anyhow::bail!("no session matching {selector:?}"),
-        _ => anyhow::bail!(
-            "session {selector:?} is ambiguous; use the full session id or @sessionCode-agent"
-        ),
-    }
-}
 
-fn remote_session_from_public_handle(
-    state: &Arc<DaemonState>,
-    selector: &str,
-    agent: &str,
-    session_ref: &str,
-) -> Result<RemoteSession> {
-    let matches = state.with_store(|s| -> Result<Vec<RemoteSession>> {
-        let mut out = Vec::new();
-        for st in s.list_status_sessions(None, None)? {
-            let profile = s.get_profile(&st.pubkey)?;
-            let profile_agent = profile
-                .as_ref()
-                .map(|p| p.agent_slug.as_str())
-                .filter(|slug| !slug.is_empty())
-                .or_else(|| crate::idref::parse_session_handle(&st.slug).map(|(slug, _)| slug));
-            if profile_agent != Some(agent) {
-                continue;
-            }
-            let by_session = st.session_id == session_ref
-                || st.session_id.starts_with(session_ref)
-                || crate::util::friendly_short_code(&st.session_id) == session_ref;
-            if !by_session {
-                continue;
-            }
-            let backend = profile.as_ref().map(|p| p.host.clone()).unwrap_or_default();
-            let slug = crate::idref::session_handle(
-                agent,
-                &crate::util::friendly_short_code(&st.session_id),
-            );
-            out.push(RemoteSession {
-                session_id: st.session_id,
-                pubkey: st.pubkey,
-                slug,
-                backend,
-            });
-        }
-        out.sort_by(|a, b| {
-            a.session_id
-                .cmp(&b.session_id)
-                .then(a.pubkey.cmp(&b.pubkey))
-        });
-        out.dedup_by(|a, b| a.session_id == b.session_id && a.pubkey == b.pubkey);
-        Ok(out)
-    })?;
-    match matches.as_slice() {
-        [one] => Ok(RemoteSession {
-            session_id: one.session_id.clone(),
-            pubkey: one.pubkey.clone(),
-            slug: one.slug.clone(),
-            backend: one.backend.clone(),
-        }),
-        [] => anyhow::bail!("no session matching {selector:?}"),
-        _ => anyhow::bail!(
-            "session {selector:?} is ambiguous; use the full sessionCode-agent handle"
-        ),
+    #[test]
+    fn backend_npub_is_not_a_resumable_session() {
+        let store = Store::open_memory().unwrap();
+        let pubkey = Keys::generate().public_key();
+        store
+            .upsert_profile(&pubkey.to_hex(), "remote", "remote", "remote", true, 1)
+            .unwrap();
+
+        assert!(remote_sessions(&store, &pubkey.to_bech32().unwrap())
+            .unwrap()
+            .is_empty());
     }
 }

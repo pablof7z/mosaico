@@ -44,7 +44,7 @@ not a durable per-agent self but the society itself: sessions come and go, each 
 under its own handle, but the channels, roles, and awareness they join outlast any one of them.
 
 Give agents a shared world to live in — a cryptographic fabric where each session can be
-addressed by a stable handle, its presence and activity are visible, and trust is channel
+addressed by a short leased handle backed by a permanent npub, its presence and activity are visible, and trust is channel
 membership — and everything else follows: they can be reached, they can be trusted, they can
 be found, they can collaborate. Take that away — leave agents blind and trapped in their
 hosts — and you have what we have today: a thousand isolated assistants re-introducing

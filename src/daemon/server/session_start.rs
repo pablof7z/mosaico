@@ -228,6 +228,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
     // a p-tagged mention reaches exactly this session. Membership admission for the
     // minted pubkey happens after channel-ready.
     let minted = mint_session_identity(state, &session_id, &p.agent, &channel, &native_id)?;
+    retire_reclaimed_profile(state, minted.reclaimed_pubkey.as_deref()).await?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
     // channel rather than stomping it with whatever TENEX_EDGE_CHANNEL the new

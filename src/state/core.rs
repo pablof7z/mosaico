@@ -42,6 +42,7 @@ impl Store {
             .context("setting busy_timeout")?;
         schema::initialize_file(&conn, path)?;
         let store = Self { conn };
+        store.backfill_handle_leases()?;
         store.backfill_messages_from_relay_events()?;
         Ok(store)
     }
@@ -50,6 +51,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         schema::initialize_memory(&conn)?;
         let store = Self { conn };
+        store.backfill_handle_leases()?;
         store.backfill_messages_from_relay_events()?;
         Ok(store)
     }

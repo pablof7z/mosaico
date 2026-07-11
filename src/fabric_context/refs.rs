@@ -12,17 +12,12 @@ pub(super) fn display_name(store: &Store, channel: &str) -> String {
 /// The session-bearing member reference: `codename-agent` (never the raw
 /// internal `session_id`). Shared by the legacy (`people`) and pure
 /// (`assemble`) member-row paths so they can never drift.
-pub(super) fn session_ref(session_id: &str, status_slug: &str, profile_agent_slug: &str) -> String {
-    if !profile_agent_slug.trim().is_empty() {
-        return crate::idref::session_handle(
-            profile_agent_slug,
-            &crate::util::friendly_short_code(session_id),
-        );
-    }
-    if crate::idref::parse_session_handle(status_slug).is_some() {
-        return status_slug.to_string();
-    }
-    crate::util::friendly_short_code(session_id)
+pub(super) fn session_ref(
+    _session_id: &str,
+    status_slug: &str,
+    _profile_agent_slug: &str,
+) -> String {
+    status_slug.to_string()
 }
 
 /// The raw profile host for a pubkey (empty when unknown). Kept separate from
@@ -49,7 +44,7 @@ pub(crate) fn pubkey_ref(store: &Store, pubkey: &str, local_host: &str) -> Strin
         .map(|p| p.host.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| local_host.to_string());
-    if crate::idref::parse_session_handle(&slug).is_some() {
+    if profile.as_ref().is_some_and(|p| !p.agent_slug.is_empty()) {
         slug
     } else {
         crate::idref::agent_ref_from(&slug, &host, local_host)

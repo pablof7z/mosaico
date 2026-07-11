@@ -165,7 +165,12 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .expect("receiver session row");
     let receiver_scope = receiver_row.channel_h.clone();
-    let receiver_codename = tenex_edge::util::friendly_short_code(&receiver_canon);
+    let receiver_handle = Store::open(&home.store_path())
+        .unwrap()
+        .session_identity_for_session(&receiver_canon)
+        .unwrap()
+        .expect("receiver identity")
+        .display_slug();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -174,15 +179,15 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .upsert_profile(
             &receiver_row.agent_pubkey,
-            &receiver_codename,
-            &receiver_codename,
+            &receiver_handle,
+            &receiver_handle,
             "test-host",
             false,
             now,
         )
         .unwrap();
-    let body = format!("hello @{receiver_codename}@test-host from redirected stdin");
-    let read_body = target_wire::redirected_stdin_rendered_body(&receiver_codename);
+    let body = format!("hello @{receiver_handle} from redirected stdin");
+    let read_body = target_wire::redirected_stdin_rendered_body(&receiver_handle);
     let wire_body =
         target_wire::redirected_stdin_body_for_session(&home, &receiver_canon, &receiver_row);
     let out = run_cli_stdin_with_env_in_dir(

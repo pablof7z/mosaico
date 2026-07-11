@@ -108,12 +108,9 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         text.contains("<workspace name=\"proj\" channel=\"proj\""),
         "awareness should name the channel; got: {text:?}"
     );
-    let expected_code = crate::util::friendly_short_code("sess-intro");
     assert!(
-        text.contains(&format!(
-            "You are @{expected_code}-coder, running on laptop."
-        )),
-        "awareness should identify this agent by codename-agent handle; got: {text:?}"
+        text.contains("You are @coder, running on laptop."),
+        "awareness should not derive a handle from the session id; got: {text:?}"
     );
     assert!(
         !text.contains("[session"),
@@ -382,7 +379,7 @@ fn turn_check_direct_mentions_surface_from_inbox() {
 
 fn view<'a>() -> EnvelopeView<'a> {
     EnvelopeView {
-        from_slug: "codex",
+        from_slug: "amber-codex",
         from_session: "sender-session-id",
         host: "",
         self_host: "my-box",
@@ -401,7 +398,7 @@ fn view<'a>() -> EnvelopeView<'a> {
 fn envelope_has_email_like_headers_then_body() {
     let out = format_envelope(&view());
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines[0], "From: codex@my-box");
+    assert_eq!(lines[0], "From: amber-codex");
     assert!(lines[1].starts_with("Date: ") && lines[1].ends_with("(3 min ago)"));
     assert_eq!(lines[2], "Subject: NIP-29 group creation failing");
     assert_eq!(lines[3], "Branch: features/oauth (a1b2c3d)");
@@ -416,7 +413,7 @@ fn dirty_count_and_remote_host_annotate() {
     v.dirty = 1;
     v.host = "prodBackend";
     let out = format_envelope(&v);
-    assert!(out.contains("From: codex@prodBackend"));
+    assert!(out.contains("From: amber-codex"));
     assert!(out.contains("Branch: features/oauth (a1b2c3d) [1 file dirty]"));
     v.dirty = 3;
     assert!(format_envelope(&v).contains("[3 files dirty]"));

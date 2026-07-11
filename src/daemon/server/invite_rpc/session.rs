@@ -1,4 +1,4 @@
-use super::resolve::{local_session, remote_session_from_status};
+use super::resolve::{local_session, remote_session};
 use super::wait::{wait_local_session_online, wait_remote_session_online};
 use super::*;
 
@@ -32,7 +32,7 @@ async fn pull_live_session(
     let online = wait_local_session_online(state, channel_h, &rec.session_id).await?;
     Ok(serde_json::json!({
         "pty_id": pty_id,
-        "session_id": rec.session_id,
+        "npub": crate::idref::npub(&rec.agent_pubkey),
         "agent": rec.agent_slug,
         "online_agent": online,
         "channel": channel_h,
@@ -70,7 +70,7 @@ async fn resume_local_session(
     let online = wait_local_session_online(state, channel_h, &rec.session_id).await?;
     Ok(serde_json::json!({
         "pty_id": pty_id,
-        "session_id": rec.session_id,
+        "npub": crate::idref::npub(&rec.agent_pubkey),
         "agent": rec.agent_slug,
         "online_agent": online,
         "channel": channel_h,
@@ -83,11 +83,11 @@ async fn invite_remote_session(
     channel_h: &str,
     selector: &str,
 ) -> Result<serde_json::Value> {
-    let remote = remote_session_from_status(state, selector)?;
+    let remote = remote_session(state, selector)?;
     if remote.backend == state.host {
         anyhow::bail!(
-            "session {} appears to belong to this backend, but no local session row exists",
-            remote.session_id
+            "session {} appears to belong to this backend, but no local identity row exists",
+            crate::idref::npub(&remote.pubkey).unwrap_or_else(|| remote.pubkey.clone())
         );
     }
     let backend_pubkey = resolve_backend_pubkey(state, &remote.backend).await?;
@@ -98,14 +98,14 @@ async fn invite_remote_session(
         crate::fabric::nip29::orchestration::AddTarget {
             backend_pubkey,
             slug: remote.slug.clone(),
-            session_id: Some(remote.session_id.clone()),
+            session_pubkey: Some(remote.pubkey.clone()),
         },
     )
     .await?;
     let online = wait_remote_session_online(state, channel_h, &remote).await?;
     Ok(serde_json::json!({
         "pty_id": "",
-        "session_id": remote.session_id,
+        "npub": crate::idref::npub(&remote.pubkey),
         "agent": remote.slug,
         "online_agent": online,
         "channel": channel_h,

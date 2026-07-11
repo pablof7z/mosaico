@@ -18,6 +18,7 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
         .agent
         .as_deref()
         .and_then(crate::idref::parse_agent_backend_ref);
+    let now = now_secs();
     let rows = state.with_store(|s| -> Result<Vec<serde_json::Value>> {
         let mut out = Vec::new();
         for st in s.list_status_sessions(None, p.since)? {
@@ -36,9 +37,6 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
                 .as_ref()
                 .map(|p| p.agent_slug.clone())
                 .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    crate::idref::parse_session_handle(&slug).map(|(agent, _)| agent.to_string())
-                })
                 .unwrap_or_else(|| slug.clone());
             if let Some(t) = &target {
                 if t.slug != agent_slug && t.slug != slug && t.slug != st.pubkey {
@@ -55,16 +53,24 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
             } else {
                 format!("{slug}@{host}")
             };
-            let handle = crate::idref::session_handle(
-                &agent_slug,
-                &crate::util::friendly_short_code(&st.session_id),
-            );
+            let handle = s.handle_for_pubkey(&st.pubkey)?.or_else(|| {
+                profile
+                    .as_ref()
+                    .filter(|p| {
+                        !p.agent_slug.is_empty()
+                            && st.expiration >= now
+                            && crate::idref::normalize_pubkey(&p.slug).is_none()
+                    })
+                    .map(|p| p.slug.clone())
+                    .filter(|h| !h.is_empty())
+            });
+            let npub = crate::idref::npub(&st.pubkey).unwrap_or_default();
             out.push(serde_json::json!({
                 "channel": st.channel_h,
                 "agent": agent,
                 "agent_slug": agent_slug,
                 "handle": handle,
-                "session_id": st.session_id,
+                "npub": npub,
                 "title": st.title,
                 "activity": st.activity,
                 "busy": st.busy,

@@ -197,6 +197,17 @@ CREATE INDEX IF NOT EXISTS idx_identities_channel
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session
     ON identities(session_id) WHERE session_id <> '';
 
+CREATE TABLE IF NOT EXISTS handle_leases (
+    handle          TEXT PRIMARY KEY,
+    pubkey          TEXT NOT NULL UNIQUE,
+    agent_slug      TEXT NOT NULL,
+    leased_at       INTEGER NOT NULL,
+    last_active_at  INTEGER NOT NULL,
+    live            INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_handle_leases_reclaim
+    ON handle_leases(agent_slug, live, last_active_at);
+
 CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', codename TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
 CREATE INDEX IF NOT EXISTS idx_session_claims_expires ON session_claims(expires_at);
 CREATE INDEX IF NOT EXISTS idx_session_claims_session ON session_claims(session_id);

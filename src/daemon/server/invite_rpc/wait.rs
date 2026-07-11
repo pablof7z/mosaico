@@ -86,7 +86,14 @@ pub(super) async fn wait_remote_agent_online(
             if fallback.is_none() {
                 fallback = Some(label.clone());
             }
-            if slug_matches(base_slug, label_agent(&label)) {
+            let agent_slug = state.with_store(|s| {
+                s.get_profile(pk)
+                    .ok()
+                    .flatten()
+                    .map(|profile| profile.agent_slug)
+                    .unwrap_or_default()
+            });
+            if slug_matches(base_slug, &agent_slug) {
                 return Some(label);
             }
         }
@@ -133,35 +140,27 @@ fn label_for_pubkey(
     pubkey: &str,
     backend: &str,
 ) -> String {
-    let slug = state.with_store(|s| {
-        s.get_profile(pubkey)
-            .ok()
-            .flatten()
+    let (slug, is_session) = state.with_store(|s| {
+        let profile = s.get_profile(pubkey).ok().flatten();
+        let is_session = profile.as_ref().is_some_and(|p| !p.agent_slug.is_empty());
+        let slug = profile
             .map(|p| p.slug)
-            .filter(|s| !s.is_empty())
+            .filter(|slug| !slug.is_empty())
             .or_else(|| {
                 s.get_status(pubkey, "", channel_h)
                     .ok()
                     .flatten()
                     .map(|st| st.slug)
-                    .filter(|s| !s.is_empty())
-            })
+                    .filter(|slug| !slug.is_empty())
+            });
+        (slug, is_session)
     });
     let slug = slug.unwrap_or_else(|| crate::util::pubkey_short(pubkey));
-    if crate::idref::parse_session_handle(&slug).is_some()
-        || backend.is_empty()
-        || backend == state.host
-    {
+    if is_session || backend.is_empty() || backend == state.host {
         slug
     } else {
         format!("{slug}@{backend}")
     }
-}
-
-fn label_agent(label: &str) -> &str {
-    crate::idref::parse_session_handle(label)
-        .map(|(agent, _)| agent)
-        .unwrap_or_else(|| label.split('@').next().unwrap_or(label))
 }
 
 fn slug_matches(base: &str, candidate: &str) -> bool {

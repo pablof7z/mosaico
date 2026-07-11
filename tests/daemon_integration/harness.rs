@@ -150,7 +150,7 @@ fn cli_command(home: &Home, args: &[&str]) -> std::process::Command {
     let mut cmd = std::process::Command::new(bin());
     cmd.args(args)
         // Isolate from the invoking shell's tenex-edge env (a live claude/codex
-        // shell exports these), so sessionCode-agent resolution is deterministic.
+        // shell exports these), so session pubkey derivation is deterministic.
         .env_remove("TENEX_EDGE_AGENT")
         .env_remove("TENEX_EDGE_AGENT_FALLBACK")
         .env_remove("TENEX_EDGE_SESSION")

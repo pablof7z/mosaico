@@ -176,17 +176,15 @@ The current schema stores provider-shaped projections here; future read-model
 work should wrap them rather than reintroduce parallel membership tables.
 
 **The message row must carry its own return envelope.** A reader that surfaces an
-inbound message has to know *who to reply to* — and that means the exact sender
-*session*, not just the author pubkey: sibling sessions of one agent share a
-pubkey, so the author key alone can't address a reply. So
+inbound message has to know *who to reply to*. Each session has its own permanent
+pubkey; `messages.author_session` additionally preserves the local return
+envelope needed by terminal delivery. So
 `messages.author_session` is a canonical column derived from kind:30315 status
 or local runtime state, never from a session-specific chat wire tag. The
-`inbox` table remains delivery state, not the message read model. The **reply handle** is
-then a *read-side derivation* over store rows — the session id when it resolves to
-a known session, else `slug@project` — exactly the same shape as the `is_member`
-read-query: a pure `SELECT`-time computation, never a trip to the wire. When a
-fabric can't supply a sender session the handle degrades honestly to agent-level,
-the same `Option`/derived concession as everywhere else.
+`inbox` table remains delivery state, not the message read model. A public handle
+comes only from the authoritative handle-lease projection; it is never rebuilt
+from a session id or inferred by parsing kind:0. When no current lease is known,
+the permanent pubkey/npub is the honest identity.
 
 **Three consequences that make "how we hydrate is irrelevant" true:**
 

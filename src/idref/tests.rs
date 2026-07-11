@@ -19,32 +19,8 @@ fn session_handle_is_session_code_dash_agent() {
     assert_eq!(session_handle("", "willow-echo-042"), "willow-echo-042");
     assert_eq!(
         session_handle("codex", "profiled-member"),
-        "profiled-member"
+        "profiled-member-codex"
     );
-}
-
-#[test]
-fn parses_session_handle() {
-    assert_eq!(
-        parse_session_handle("willow-echo-042-codex"),
-        Some(("codex", "willow-echo-042"))
-    );
-    assert_eq!(
-        parse_session_handle("willow-echo-042-chief-of-staff"),
-        Some(("chief-of-staff", "willow-echo-042"))
-    );
-    assert_eq!(parse_session_handle("codex-willow-echo-042"), None);
-    assert_eq!(parse_session_handle("codex/echo123"), None);
-    assert_eq!(parse_session_handle("codex"), None);
-    assert_eq!(parse_session_handle("codex/"), None);
-    assert_eq!(parse_session_handle("codex/echo/extra"), None);
-    assert_eq!(parse_session_handle("chief-of-staff-smith"), None);
-    assert!(looks_like_agent_first_session_handle(
-        "codex-willow-echo-042"
-    ));
-    assert!(!looks_like_agent_first_session_handle(
-        "willow-echo-042-codex"
-    ));
 }
 
 #[test]
@@ -75,7 +51,7 @@ fn session_label_preserves_session_handle() {
         session_label("te-abc-0", "willow-echo-042-codex", "laptop"),
         "willow-echo-042-codex"
     );
-    assert_eq!(session_label("te-abc-0", "codex", "laptop"), "codex@laptop");
+    assert_eq!(session_label("te-abc-0", "codex", "laptop"), "codex");
     assert_eq!(session_label("te-abc-0", "", "laptop"), "te-abc-0");
 }
 
@@ -83,6 +59,25 @@ fn session_label_preserves_session_handle() {
 fn event_short_id_truncates_to_eight() {
     assert_eq!(event_short_id("0123456789abcdef"), "01234567");
     assert_eq!(event_short_id("abc"), "abc");
+}
+
+#[test]
+fn npub_and_hex_normalize_to_the_same_permanent_identity() {
+    let keys = nostr_sdk::prelude::Keys::generate();
+    let hex = keys.public_key().to_hex();
+    let bech32 = npub(&hex).expect("npub");
+    assert_eq!(normalize_pubkey(&hex).as_deref(), Some(hex.as_str()));
+    assert_eq!(normalize_pubkey(&bech32).as_deref(), Some(hex.as_str()));
+    assert!(normalize_pubkey("raw-session-id").is_none());
+}
+
+#[test]
+fn permanent_pubkey_profile_name_is_not_turned_into_a_handle() {
+    let keys = nostr_sdk::prelude::Keys::generate();
+    let hex = keys.public_key().to_hex();
+    let npub = npub(&hex).unwrap();
+    assert_eq!(session_handle_from_profile_name(&npub, "codex"), npub);
+    assert_eq!(session_handle_from_profile_name(&hex, "codex"), hex);
 }
 
 #[test]

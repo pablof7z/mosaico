@@ -89,7 +89,11 @@ pub(super) async fn handle_orchestration(
             continue;
         }
 
-        let completed = if target.session_id.as_deref().is_some_and(|s| !s.is_empty()) {
+        let completed = if target
+            .session_pubkey
+            .as_deref()
+            .is_some_and(|s| !s.is_empty())
+        {
             resume_target(state, &op, target).await
         } else {
             spawn_target(state, &op, target).await
@@ -116,7 +120,7 @@ fn orchestration_target_key(
     target_index: usize,
     target: &crate::fabric::nip29::orchestration::AddTarget,
 ) -> String {
-    let session = target.session_id.as_deref().unwrap_or("");
+    let session = target.session_pubkey.as_deref().unwrap_or("");
     format!(
         "orchestration:{backend_pk}:{target_index}:{}:{session}",
         target.slug
@@ -124,7 +128,7 @@ fn orchestration_target_key(
 }
 
 fn orchestration_target_body(target: &crate::fabric::nip29::orchestration::AddTarget) -> String {
-    match target.session_id.as_deref().filter(|s| !s.is_empty()) {
+    match target.session_pubkey.as_deref().filter(|s| !s.is_empty()) {
         Some(session) => format!("resume {} {session}", target.slug),
         None => format!("spawn {}", target.slug),
     }
@@ -135,21 +139,16 @@ async fn resume_target(
     op: &crate::fabric::nip29::orchestration::AddAgentsOp,
     target: &crate::fabric::nip29::orchestration::AddTarget,
 ) -> bool {
-    let session_id = target.session_id.as_deref().unwrap_or_default();
+    let session_pubkey = target.session_pubkey.as_deref().unwrap_or_default();
     let rec = match state
-        .with_store(|s| s.get_session(session_id))
+        .with_store(|s| s.session_for_pubkey(session_pubkey))
         .ok()
         .flatten()
-        .or_else(|| {
-            state
-                .with_store(|s| s.find_session_by_prefix(session_id))
-                .ok()
-                .flatten()
-        }) {
+    {
         Some(rec) => rec,
         None => {
             tracing::warn!(
-                session_id,
+                session_pubkey,
                 child = %op.child_h,
                 "orchestration resume target is not known on this backend"
             );

@@ -66,8 +66,21 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
         .upsert_channel("leaf-b", "Leaf B", "", "task-b", 5)
         .unwrap();
     register_session(&store, "helper-session", "helper", "leaf-b");
+    let allocation = store.allocate_handle("helper-pubkey", "helper", 1).unwrap();
+    store
+        .upsert_identity(&crate::state::Identity {
+            pubkey: "helper-pubkey".into(),
+            agent_slug: "helper".into(),
+            codename: allocation.codename,
+            session_id: "helper-session".into(),
+            channel_h: "leaf-b".into(),
+            native_id: "helper-session".into(),
+            alive: true,
+            created_at: 1,
+        })
+        .unwrap();
 
-    let resolved = resolve_recipient(&store, "leaf-a", "local", "helper").unwrap();
+    let resolved = resolve_recipient(&store, "leaf-a", "local", &allocation.handle).unwrap();
 
     assert_eq!(resolved.target_session.as_deref(), Some("helper-session"));
     assert_eq!(resolved.channel, "leaf-b");
@@ -147,8 +160,20 @@ fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
 fn dashed_session_handle_resolves_live_session_and_validates_agent() {
     let store = Store::open_memory().unwrap();
     register_session(&store, "echo123", "codex", "channel");
-    let code = crate::util::friendly_short_code("echo123");
-    let handle = crate::idref::session_handle("codex", &code);
+    let allocation = store.allocate_handle("codex-pubkey", "codex", 1).unwrap();
+    store
+        .upsert_identity(&crate::state::Identity {
+            pubkey: "codex-pubkey".into(),
+            agent_slug: "codex".into(),
+            codename: allocation.codename.clone(),
+            session_id: "echo123".into(),
+            channel_h: "channel".into(),
+            native_id: "echo123".into(),
+            alive: true,
+            created_at: 1,
+        })
+        .unwrap();
+    let handle = allocation.handle;
 
     let resolved = resolve_recipient(&store, "channel", "localBackend", &handle).unwrap();
 
@@ -156,7 +181,7 @@ fn dashed_session_handle_resolves_live_session_and_validates_agent() {
     assert_eq!(resolved.target_session.as_deref(), Some("echo123"));
     assert_eq!(resolved.channel, "channel");
 
-    let wrong = crate::idref::session_handle("haiku", &code);
+    let wrong = format!("{}-haiku", allocation.codename);
     let err = match resolve_recipient(&store, "channel", "localBackend", &wrong) {
         Ok(_) => panic!("mismatched agent-session handle should not resolve"),
         Err(e) => e,
@@ -178,6 +203,20 @@ fn dashed_session_handle_resolves_profile_cache() {
             1,
         )
         .unwrap();
+    store
+        .upsert_status(&crate::state::Status {
+            pubkey: "remote-pk".into(),
+            session_id: "remote-session".into(),
+            channel_h: "channel".into(),
+            slug: "willow-echo-042-codex".into(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            last_seen: 1,
+            updated_at: 1,
+            expiration: i64::MAX as u64,
+        })
+        .unwrap();
 
     let resolved =
         resolve_recipient(&store, "channel", "localBackend", "willow-echo-042-codex").unwrap();
@@ -188,7 +227,7 @@ fn dashed_session_handle_resolves_profile_cache() {
 }
 
 #[test]
-fn agent_first_session_handle_does_not_fall_through_to_profile_label_resolution() {
+fn stale_profile_name_without_live_status_does_not_resolve() {
     let store = Store::open_memory().unwrap();
     store
         .upsert_profile_with_agent_slug(
@@ -203,11 +242,86 @@ fn agent_first_session_handle_does_not_fall_through_to_profile_label_resolution(
         .unwrap();
 
     let err = match resolve_recipient(&store, "channel", "localBackend", "codex-willow-echo-042") {
-        Ok(_) => panic!("agent-first session handles must stay removed"),
+        Ok(_) => panic!("stale profile names are not handle authority"),
         Err(err) => err,
     };
 
-    assert!(err.to_string().contains("@sessionCode-agent"));
+    assert!(err.to_string().contains("can't resolve recipient"));
+}
+
+#[test]
+fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile_with_agent_slug(
+            "old-pk",
+            "shared-codex",
+            "shared-codex",
+            "codex",
+            "remote",
+            false,
+            1,
+        )
+        .unwrap();
+    store
+        .upsert_status(&crate::state::Status {
+            pubkey: "old-pk".into(),
+            session_id: String::new(),
+            channel_h: "channel".into(),
+            slug: "shared-codex".into(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            last_seen: 1,
+            updated_at: 1,
+            expiration: 1,
+        })
+        .unwrap();
+    store
+        .upsert_profile_with_agent_slug(
+            "new-pk",
+            "shared-codex",
+            "shared-codex",
+            "codex",
+            "remote",
+            false,
+            2,
+        )
+        .unwrap();
+
+    let error = match resolve_recipient(&store, "channel", "local", "shared-codex") {
+        Ok(_) => panic!("duplicate profile projections must be ambiguous"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("ambiguous"));
+}
+
+#[test]
+fn untyped_profile_with_status_is_not_a_session_handle() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile("human-pk", "shared-name", "shared-name", "remote", false, 1)
+        .unwrap();
+    store
+        .upsert_status(&crate::state::Status {
+            pubkey: "human-pk".into(),
+            session_id: String::new(),
+            channel_h: "channel".into(),
+            slug: "shared-name".into(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            last_seen: 1,
+            updated_at: 1,
+            expiration: 1,
+        })
+        .unwrap();
+
+    let error = match resolve_recipient(&store, "channel", "local", "shared-name") {
+        Ok(_) => panic!("untyped profiles are not session handles"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("can't resolve recipient"));
 }
 
 #[test]

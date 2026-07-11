@@ -71,6 +71,13 @@ impl Store {
             .optional()?)
     }
 
+    pub fn session_for_pubkey(&self, pubkey: &str) -> Result<Option<crate::state::Session>> {
+        let Some(identity) = self.get_identity(pubkey)? else {
+            return Ok(None);
+        };
+        self.get_session(&identity.session_id)
+    }
+
     /// Fetch the identity row for a derived pubkey in a specific channel.
     pub fn get_identity_for_channel(
         &self,

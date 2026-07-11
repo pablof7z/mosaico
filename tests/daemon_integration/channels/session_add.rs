@@ -90,13 +90,30 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
     });
     let pty_count = tenex_edge::pty::read_all_metadata().len();
 
-    let added = rt().block_on(async {
+    let raw_id_error = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "invite",
             serde_json::json!({
                 "channel": &side,
                 "session": &rec.session_id,
+                "cwd": &work_dir,
+            }),
+        )
+        .await
+        .expect_err("raw session ids are not public resume selectors")
+    });
+    assert!(raw_id_error
+        .to_string()
+        .contains("use its npub or current handle"));
+
+    let added = rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        c.call(
+            "invite",
+            serde_json::json!({
+                "channel": &side,
+                "session": &rec.agent_pubkey,
                 "cwd": &work_dir,
             }),
         )

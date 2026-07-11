@@ -241,18 +241,23 @@ pub(super) async fn rpc_pty_resume(
     let p: PtyResumeParams =
         serde_json::from_value(params.clone()).context("parsing pty_resume params")?;
 
-    let rec = match state
-        .with_store(|s| s.get_session(&p.session))
-        .ok()
-        .flatten()
-    {
-        Some(r) => r,
-        None => state
-            .with_store(|s| s.find_session_by_prefix(&p.session))
-            .ok()
-            .flatten()
-            .with_context(|| format!("no session matching {:?}", p.session))?,
-    };
+    let selector = p.session.trim().trim_start_matches('@');
+    let pubkey = crate::idref::normalize_pubkey(selector)
+        .or_else(|| {
+            state
+                .with_store(|s| s.pubkey_for_handle(selector))
+                .ok()
+                .flatten()
+        })
+        .with_context(|| "resume requires a full npub/hex pubkey or current handle")?;
+    let rec = state
+        .with_store(|s| s.session_for_pubkey(&pubkey))?
+        .with_context(|| {
+            format!(
+                "no local session for {}",
+                crate::idref::npub(&pubkey).unwrap_or(pubkey)
+            )
+        })?;
 
     let resume_id = match resume_token_for(&rec) {
         Some(id) => id,
@@ -267,7 +272,7 @@ pub(super) async fn rpc_pty_resume(
     match crate::session_host::resume_agent(state, &rec.agent_slug, &scope, &resume_id).await {
         Ok(pty_id) => Ok(serde_json::json!({
             "pty_id": pty_id,
-            "session_id": rec.session_id,
+            "npub": crate::idref::npub(&rec.agent_pubkey),
             "agent": rec.agent_slug,
         })),
         Err(e) => Ok(serde_json::json!({ "error": format!("{e:#}") })),
@@ -295,10 +300,13 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
             continue;
         }
         let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h));
-        let slug = state.session_instance(&rec).display_slug();
+        let pubkey = rec.agent_pubkey.clone();
+        let npub = crate::idref::npub(&pubkey).unwrap_or_default();
+        let handle = state.with_store(|s| s.handle_for_pubkey(&pubkey).ok().flatten());
         arr.push(serde_json::json!({
-            "session_id": rec.session_id,
-            "slug": slug,
+            "pubkey": pubkey,
+            "npub": npub,
+            "handle": handle,
             "root": rec.channel_h,
             "work_root": work_root,
             "rel_cwd": "",

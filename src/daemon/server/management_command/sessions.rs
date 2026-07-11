@@ -150,15 +150,6 @@ fn is_descendant(
 }
 
 fn session_handle(status: &Status, profile: Option<&crate::state::Profile>) -> String {
-    if let Some(agent) = profile
-        .and_then(|p| (!p.agent_slug.is_empty()).then_some(p.agent_slug.as_str()))
-        .or_else(|| crate::idref::parse_session_handle(&status.slug).map(|(agent, _)| agent))
-    {
-        return crate::idref::session_handle(
-            agent,
-            &crate::util::friendly_short_code(&status.session_id),
-        );
-    }
     let slug = if !status.slug.is_empty() {
         status.slug.as_str()
     } else if let Some(profile) = profile {
@@ -169,7 +160,7 @@ fn session_handle(status: &Status, profile: Option<&crate::state::Profile>) -> S
     if slug.is_empty() {
         return crate::util::pubkey_short(&status.pubkey);
     }
-    if crate::idref::parse_session_handle(slug).is_some() {
+    if profile.is_some_and(|p| !p.agent_slug.is_empty()) {
         return slug.to_string();
     }
     let host = profile.map(|p| p.host.as_str()).unwrap_or_default();

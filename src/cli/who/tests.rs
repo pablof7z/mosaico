@@ -113,10 +113,9 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     let store = Store::open_memory().unwrap();
     // Local coder is a hosted session; pk-coder is one of our signing keys.
     own_identity(&store, "pk-coder", "coder");
-    let coder_sid = register_local(&store, "coder", "pk-coder", "sid-coder", 1_000);
+    let _coder_sid = register_local(&store, "coder", "pk-coder", "sid-coder", 1_000);
     // With no bound identity row, the local row displays the public session handle.
-    let coder_handle =
-        crate::idref::session_handle("coder", &crate::util::friendly_short_code(&coder_sid));
+    let coder_handle = "coder".to_string();
     // A relay echo of our own status (pk-coder) must be deduped out of peers.
     record_peer(&store, "pk-coder", "coder", "laptop", "", false, 1_000);
     // A genuine remote peer on a different host.
