@@ -152,7 +152,6 @@ static REGISTRATIONS: [SurfaceRegistration; 9] = [
         facts: &["InputFact::DeliveryScan"],
         trellis_inputs: &[
             "pending inbox ids",
-            "session working state",
             "PTY endpoint liveness",
             "debounce clock",
         ],
