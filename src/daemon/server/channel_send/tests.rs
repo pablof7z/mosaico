@@ -297,6 +297,34 @@ fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
 }
 
 #[test]
+fn untyped_profile_with_status_is_not_a_session_handle() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile("human-pk", "shared-name", "shared-name", "remote", false, 1)
+        .unwrap();
+    store
+        .upsert_status(&crate::state::Status {
+            pubkey: "human-pk".into(),
+            session_id: String::new(),
+            channel_h: "channel".into(),
+            slug: "shared-name".into(),
+            title: String::new(),
+            activity: String::new(),
+            busy: false,
+            last_seen: 1,
+            updated_at: 1,
+            expiration: 1,
+        })
+        .unwrap();
+
+    let error = match resolve_recipient(&store, "channel", "local", "shared-name") {
+        Ok(_) => panic!("untyped profiles are not session handles"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("can't resolve recipient"));
+}
+
+#[test]
 fn local_chat_cache_scope_matches_signed_event_target() {
     assert_eq!(chat_publish_scope("sender-room", None, None), "sender-room");
     assert_eq!(

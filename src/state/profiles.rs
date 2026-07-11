@@ -102,7 +102,7 @@ impl Store {
         let handle = handle.trim();
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT pubkey FROM relay_profiles
-             WHERE is_backend=0 AND (name=?1 OR slug=?1)",
+             WHERE is_backend=0 AND agent_slug<>'' AND (name=?1 OR slug=?1)",
         )?;
         let matches = stmt
             .query_map([handle], |row| row.get::<_, String>(0))?
