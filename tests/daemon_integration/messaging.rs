@@ -3,6 +3,8 @@ use std::time::Duration;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
+#[path = "messaging/explicit_destination.rs"]
+mod explicit_destination;
 #[path = "messaging/inbox_rows.rs"]
 mod inbox_rows;
 #[path = "messaging/non_mention.rs"]
@@ -295,75 +297,6 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
             .unwrap()
             .is_empty(),
         "sender should not receive its own chat row"
-    );
-
-    stop_daemon(&home);
-}
-
-#[test]
-fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
-
-    let store = Store::open(&home.store_path()).unwrap();
-    let canonical = store
-        .register_session(&tenex_edge::state::RegisterSession {
-            harness: "codex".to_string(),
-            external_id_kind: "harness_session".to_string(),
-            external_id: "multi-chat-session".to_string(),
-            agent_pubkey: "pk-multi-chat".to_string(),
-            agent_slug: "multi-chat".to_string(),
-            channel_h: "root-chat-channel".to_string(),
-            child_pid: None,
-            transcript_path: None,
-            resume_id: String::new(),
-            now: 1,
-        })
-        .unwrap();
-    store
-        .join_session_channel(&canonical, "root-chat-channel", 1)
-        .unwrap();
-    store
-        .join_session_channel(&canonical, "other-chat-channel", 2)
-        .unwrap();
-
-    let write_err = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "channel_send",
-            serde_json::json!({
-                "message": "ambiguous write",
-                "session": &canonical
-            }),
-        )
-        .await
-        .expect_err("channel send without --channel should fail")
-        .to_string()
-    });
-    assert!(
-        write_err.contains("channel send is ambiguous")
-            && write_err.contains("tenex-edge channel send --channel"),
-        "unexpected channel send error: {write_err}"
-    );
-
-    let read_err = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.stream(
-            "channel_read",
-            serde_json::json!({
-                "session": &canonical,
-                "tail": true
-            }),
-            |_| {},
-        )
-        .await
-        .expect_err("channel read without --channel should fail")
-        .to_string()
-    });
-    assert!(
-        read_err.contains("channel read is ambiguous")
-            && read_err.contains("tenex-edge channel read --channel"),
-        "unexpected channel read error: {read_err}"
     );
 
     stop_daemon(&home);

@@ -33,13 +33,13 @@ pub(in crate::daemon::server) struct ChannelSendParams {
 }
 
 fn chat_publish_scope(
-    current_scope: &str,
-    explicit_dest: Option<&str>,
+    selected_destination: &str,
+    pinned_destination: Option<&str>,
     mention_channel: Option<&str>,
 ) -> String {
-    explicit_dest
+    pinned_destination
         .or(mention_channel)
-        .unwrap_or(current_scope)
+        .unwrap_or(selected_destination)
         .to_string()
 }
 
@@ -59,35 +59,30 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let rec = resolve_session(state, &anchor)?;
     let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
     let durable_pubkey = id.pubkey_hex();
-    // Routing scope: the channel this session currently publishes into. Caller
-    // lookup is independent from destination targeting; `channel` below is a
-    // chat destination only, never a session-resolution hint.
-    let scope = rec.channel_h.clone();
     let target =
         resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel send").await?;
-    let explicit_dest =
-        (target.explicit && target.channel_h != scope).then_some(target.channel_h.clone());
+    // `--channel` is destination selection only. When present it pins the event
+    // to that channel; it never changes caller identity or message content.
+    let destination = target.channel_h;
+    let pinned_destination = target.explicit.then_some(destination.clone());
     // Mention target: the FIRST inline `@<agent-instance-label>` in the body that
-    // resolves to a known instance pubkey. A redirect is a plain channel post, not
-    // a mention. An unresolvable token is silently treated as no mention — it must
-    // never bail or block the chat.
-    let mention_token: Option<String> = if explicit_dest.is_some() {
-        None
-    } else {
-        crate::idref::extract_mentions(&p.message)
-            .into_iter()
-            .next()
-    };
+    // resolves to a known instance pubkey in the selected destination. An
+    // unresolvable token is silently treated as no mention — it must never bail
+    // or block the chat.
+    let mention_token = crate::idref::extract_mentions(&p.message)
+        .into_iter()
+        .next();
     let mention = if let Some(raw) = mention_token {
-        match state.with_store(|s| resolve_recipient(s, &scope, &state.host, &raw)) {
+        match state.with_store(|s| resolve_recipient(s, &destination, &state.host, &raw)) {
             Ok(target) => {
-                let same_work_root = state
-                    .with_store(|s| work_root_for(s, &scope) == work_root_for(s, &target.channel));
-                if target.channel != scope && !same_work_root {
+                let same_work_root = state.with_store(|s| {
+                    work_root_for(s, &destination) == work_root_for(s, &target.channel)
+                });
+                if target.channel != destination && !same_work_root {
                     anyhow::bail!(
                         "mention target is in channel {:?}, but this chat is for channel {:?}",
                         target.channel,
-                        scope
+                        destination
                     );
                 }
                 Some((target.pubkey, target.target_session, target.channel, raw))
@@ -107,20 +102,14 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let mentioned_session = mention.as_ref().and_then(|(_, sid, ..)| sid.clone());
     let mentioned_label = mention.as_ref().map(|(.., raw)| raw.clone());
     let publish_scope = chat_publish_scope(
-        &scope,
-        explicit_dest.as_deref(),
+        &destination,
+        pinned_destination.as_deref(),
         mention.as_ref().map(|(_, _, channel, _)| channel.as_str()),
     );
-    let body_to_send = match &explicit_dest {
-        Some(_) => format!(
-            "[from @{} working in #{scope}]: {}",
-            rec.agent_slug, p.message
-        ),
-        None => mention
-            .as_ref()
-            .map(|(pk, _, _, raw)| body::rewrite_first_resolved_mention(&p.message, raw, pk))
-            .unwrap_or_else(|| p.message.clone()),
-    };
+    let body_to_send = mention
+        .as_ref()
+        .map(|(pk, _, _, raw)| body::rewrite_first_resolved_mention(&p.message, raw, pk))
+        .unwrap_or_else(|| p.message.clone());
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
     // with the locally-seeded row and the primary-key de-dupe preserves the wrong
