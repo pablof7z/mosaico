@@ -1,4 +1,4 @@
-const IDLE_NUDGE: &str = "[tenex-edge] Are you done with this spawned session? If so, run `tenex-edge session end --self`; otherwise continue.";
+const IDLE_NUDGE: &str = "[tenex-edge] Are you done with this spawned session? If so, run `tenex-edge my session end --self`; otherwise continue.";
 
 pub(super) fn inject_idle_nudge(agent_slug: &str) {
     let pty_session = crate::cli::pty_session_env();
@@ -43,6 +43,6 @@ mod tests {
 
     #[test]
     fn nudge_names_self_end_command() {
-        assert!(IDLE_NUDGE.contains("tenex-edge session end --self"));
+        assert!(IDLE_NUDGE.contains("tenex-edge my session end --self"));
     }
 }

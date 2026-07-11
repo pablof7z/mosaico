@@ -42,7 +42,7 @@ mod who;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
 pub use args::Cli;
-use args::Cmd;
+use args::{Cmd, MgmtAction};
 
 pub(crate) fn select_agent_env(active: Option<String>, fallback: Option<String>) -> Option<String> {
     active
@@ -117,16 +117,17 @@ pub async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Publish(args) => messaging::publish(args).await,
         Cmd::Who(args) => who::who(args),
-        Cmd::Config(args) => config::config(args).await,
         Cmd::Channel { action } => admin::channels(action).await,
-        Cmd::Agent { action } => admin::agent(action).await,
         Cmd::Agents { action } => admin::agents(action).await,
+        Cmd::Mgmt { action } => match action {
+            MgmtAction::Agent { action } => admin::agent(action).await,
+            MgmtAction::Config(args) => config::config(args).await,
+        },
         Cmd::Dispatch(args) => dispatch::dispatch(args).await,
         Cmd::Harness { action } => harness::harness(action).await,
         Cmd::Launch(args) => launch_cli::launch(args).await,
         Cmd::Mcp(args) => mcp::mcp(args).await,
         Cmd::My { action } => my::my(action),
-        Cmd::Session { action } => session::session(action),
         Cmd::Tui(args) => tui::tui(args).await,
         Cmd::Stop => stop_daemon(),
         Cmd::Debug { action } => debug::debug(action).await,

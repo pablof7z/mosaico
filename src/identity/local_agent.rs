@@ -13,7 +13,7 @@ pub type SpawnAgentEntry = (
     Option<String>,
 );
 
-/// A local agent as listed by `tenex-edge agent list`: its slug, hex pubkey, and
+/// A local agent as listed by `tenex-edge mgmt agent list`: its slug, hex pubkey, and
 /// configured harness launch commands. Distinct from `list_local_agents` (which
 /// the spawn path uses) in that it also surfaces the pubkey for the operator.
 #[derive(Debug, Clone)]

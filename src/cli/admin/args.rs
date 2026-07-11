@@ -6,7 +6,7 @@ pub(in crate::cli) enum AgentAction {
     List,
     /// Add a local agent: mint + persist its keypair if the slug is new. Pass a
     /// harness launch command after `--` to set its default named command (e.g.
-    /// `tenex-edge agent add reviewer -- claude --dangerously-skip-permissions`);
+    /// `tenex-edge mgmt agent add reviewer -- claude --dangerously-skip-permissions`);
     /// re-running with a new command overwrites that default. With no commands,
     /// interactive launch prompts for one and daemon/TUI spawns use built-in
     /// defaults only for built-in harness slugs.

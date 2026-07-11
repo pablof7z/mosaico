@@ -9,7 +9,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
             let rows = crate::identity::list_local_agent_details(&edge_home);
             if rows.is_empty() {
                 println!("No local agents in {}", edge_home.join("agents").display());
-                println!("Add one with: tenex-edge agent add <slug> [-- <command>]");
+                println!("Add one with: tenex-edge mgmt agent add <slug> [-- <command>]");
                 return Ok(());
             }
             let max_slug = rows.iter().map(|r| r.slug.len()).max().unwrap_or(0);
@@ -60,7 +60,7 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                 .any(|a| a.slug == slug);
             if !found {
                 anyhow::bail!(
-                    "no such local agent: {slug} (add it with `tenex-edge agent add {slug}`)"
+                    "no such local agent: {slug} (add it with `tenex-edge mgmt agent add {slug}`)"
                 );
             }
             if !workspaces.is_empty() {
@@ -113,7 +113,7 @@ fn prompt_use_criteria() -> Result<Option<String>> {
 }
 
 /// `tenex-edge agents` — the advertised roster from materialized kind:30555
-/// events. Distinct from `agent list` (a local keystore-management view of
+/// events. Distinct from `mgmt agent list` (a local keystore-management view of
 /// commands): this is the recruiting screen an agent or human consults before an
 /// `invite`.
 pub async fn agents(action: Option<AgentsAction>) -> Result<()> {

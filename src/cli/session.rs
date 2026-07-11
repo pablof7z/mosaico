@@ -41,7 +41,7 @@ fn self_session_anchor() -> Result<String> {
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "`tenex-edge session end --self` must run inside a tenex-edge PTY session"
+                "`tenex-edge my session end --self` must run inside a tenex-edge PTY session"
             )
         })
 }

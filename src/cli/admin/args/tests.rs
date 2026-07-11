@@ -31,25 +31,44 @@ fn agents_list_sessions_filter_still_parses() {
 fn agent_add_workspace_flag_parses() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "tenex-edge",
+        "mgmt",
         "agent",
         "add",
         "reviewer",
         "--workspace",
         "tenex-edge",
     ])
-    .expect("agent add --workspace parses");
+    .expect("mgmt agent add --workspace parses");
 
     match cli.cmd {
-        crate::cli::args::Cmd::Agent {
-            action: AgentAction::Add {
-                slug, workspaces, ..
-            },
+        crate::cli::args::Cmd::Mgmt {
+            action:
+                crate::cli::args::MgmtAction::Agent {
+                    action:
+                        AgentAction::Add {
+                            slug, workspaces, ..
+                        },
+                },
         } => {
             assert_eq!(slug, "reviewer");
             assert_eq!(workspaces, vec!["tenex-edge".to_string()]);
         }
-        _ => panic!("expected agent add command"),
+        _ => panic!("expected mgmt agent add command"),
     }
+}
+
+#[test]
+fn removed_agent_add_command_stays_unavailable() {
+    let err = parse_err(&[
+        "tenex-edge",
+        "agent",
+        "add",
+        "reviewer",
+        "--workspace",
+        "tenex-edge",
+    ]);
+
+    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
 }
 
 #[test]

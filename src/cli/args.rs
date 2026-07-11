@@ -12,7 +12,6 @@ use super::messaging::PublishArgs;
 use super::my::MyAction;
 use super::probe::ProbeArgs;
 use super::pty::{PtyAction, PtySupervisorArgs};
-use super::session::SessionAction;
 use super::tui::TuiArgs;
 use super::who::WhoArgs;
 
@@ -36,25 +35,20 @@ pub(super) enum Cmd {
     // themselves explicitly.
     /// List agents currently visible in the workspace/channel.
     Who(WhoArgs),
-    /// Interactively configure model providers and role-to-model assignments.
-    Config(ConfigArgs),
     /// Read/send chat and manage NIP-29 channels (read, send, create, edit, list, init, join, leave, archive, switch).
     Channel {
         #[command(subcommand)]
         action: ChannelAction,
     },
-    /// Manage the local agent keystore: agents that have a private key on THIS
-    /// machine under `<edge_home>/agents/<slug>.json`. These are the identities
-    /// you can spawn locally; channel membership is governed separately by the
-    /// codec (e.g. the NIP-29 group's member list), not here.
-    Agent {
-        #[command(subcommand)]
-        action: AgentAction,
-    },
     /// List invitable agents and prior session ids.
     Agents {
         #[command(subcommand)]
         action: Option<AgentsAction>,
+    },
+    /// Manage local setup and operator-owned configuration.
+    Mgmt {
+        #[command(subcommand)]
+        action: MgmtAction,
     },
     /// Start an agent session on a backend/workspace and hand it a message after ACK.
     Dispatch(DispatchArgs),
@@ -73,11 +67,6 @@ pub(super) enum Cmd {
     My {
         #[command(subcommand)]
         action: MyAction,
-    },
-    /// Manage the current local session.
-    Session {
-        #[command(subcommand)]
-        action: SessionAction,
     },
     /// Browse live sessions and attach to PTY-governed sessions.
     Tui(TuiArgs),
@@ -110,9 +99,24 @@ pub(super) enum Cmd {
     Daemon,
 }
 
+#[derive(Subcommand)]
+pub(super) enum MgmtAction {
+    /// Manage the local agent keystore: agents that have a private key on THIS
+    /// machine under `<edge_home>/agents/<slug>.json`. These are the identities
+    /// you can spawn locally; channel membership is governed separately by the
+    /// codec (e.g. the NIP-29 group's member list), not here.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+    /// Interactively configure model providers and role-to-model assignments.
+    Config(ConfigArgs),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::session::SessionAction;
     use clap::{error::ErrorKind, Parser};
 
     fn parse_err(args: &[&str]) -> clap::Error {
@@ -144,6 +148,27 @@ mod tests {
     }
 
     #[test]
+    fn removed_agent_command_stays_unavailable() {
+        let err = parse_err(&["tenex-edge", "agent", "list"]);
+
+        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn removed_config_command_stays_unavailable() {
+        let err = parse_err(&["tenex-edge", "config", "providers"]);
+
+        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn removed_session_command_stays_unavailable() {
+        let err = parse_err(&["tenex-edge", "session", "end", "--self"]);
+
+        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
     fn removed_channels_alias_stays_unavailable() {
         let err = parse_err(&["tenex-edge", "channels", "list"]);
 
@@ -159,16 +184,25 @@ mod tests {
 
     #[test]
     fn session_end_self_parses() {
-        let cli = Cli::try_parse_from(["tenex-edge", "session", "end", "--self"]).unwrap();
+        let cli = Cli::try_parse_from(["tenex-edge", "my", "session", "end", "--self"]).unwrap();
         match cli.cmd {
-            Cmd::Session {
-                action: SessionAction::End(args),
+            Cmd::My {
+                action:
+                    MyAction::Session {
+                        action: SessionAction::End(args),
+                    },
             } => {
                 assert!(args.self_session);
                 assert!(args.session.is_none());
             }
-            _ => panic!("expected session end action"),
+            _ => panic!("expected my session end action"),
         }
+    }
+
+    #[test]
+    fn mgmt_config_parses() {
+        let cli = Cli::try_parse_from(["tenex-edge", "mgmt", "config", "providers"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Mgmt { .. }));
     }
 
     #[test]

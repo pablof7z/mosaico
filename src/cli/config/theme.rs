@@ -1,4 +1,4 @@
-//! Color palette and prompt chrome for `tenex-edge config`'s interactive
+//! Color palette and prompt chrome for `tenex-edge mgmt config`'s interactive
 //! flows: one accent color, heavy dimming for secondary text, no borders —
 //! matching the existing ratatui session picker. These ANSI-256 values are
 //! chosen to hold ≥3:1 contrast on both a near-black and a near-white

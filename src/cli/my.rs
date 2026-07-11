@@ -1,10 +1,17 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+use super::session::SessionAction;
+
 #[derive(Subcommand)]
 pub(super) enum MyAction {
     /// Declare your current broad work topic.
     Status(MyStatusArgs),
+    /// Manage the current local session.
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
 }
 
 #[derive(Args)]
@@ -17,6 +24,7 @@ pub(super) struct MyStatusArgs {
 pub(super) fn my(action: MyAction) -> Result<()> {
     match action {
         MyAction::Status(args) => status(args),
+        MyAction::Session { action } => super::session::session(action),
     }
 }
 

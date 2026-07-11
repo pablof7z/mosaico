@@ -10,6 +10,7 @@
 - [Add Existing Sessions Or Humans](#add-existing-sessions-or-humans)
 - [Find Prior Sessions](#find-prior-sessions)
 - [Set A Work Topic](#set-a-work-topic)
+- [End Your Session](#end-your-session)
 - [Refresh Awareness](#refresh-awareness)
 
 ## Use The Snapshot First
@@ -140,6 +141,15 @@ mechanical step, or progress narration: avoid topics such as "working on X" or
 Setting a topic pauses automatic work distillation for 30 minutes. Once that
 window ends, your hook-provided identity context shows the visible topic and
 reminds you to update it if the work has drifted.
+
+## End Your Session
+
+```bash
+tenex-edge my session end --self
+```
+
+Use this only when you are done with a spawned session and need to end your own
+local session record explicitly.
 
 ## Refresh Awareness
 

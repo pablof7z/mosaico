@@ -20,7 +20,7 @@
 {"canonical":"tenex edge channel invite agent slug","name":"tenex-edge channel invite agentSlug","signed":8,"status":"real"}
 {"canonical":"tenex edge channel read","name":"tenex-edge channel read","signed":4,"status":"real"}
 {"canonical":"tenex edge chat","name":"tenex-edge chat","signed":-16,"status":"suppressed"}
-{"canonical":"tenex edge config","name":"tenex-edge config","signed":3,"status":"real"}
+{"canonical":"tenex edge config","name":"tenex-edge mgmt config","signed":3,"status":"real"}
 {"canonical":"tenex edge daemon","name":"tenex-edge daemon","signed":3,"status":"real"}
 {"canonical":"tenex edge invite blah blah blah","name":"tenex-edge invite blah blah blah","signed":8,"status":"real"}
 {"canonical":"tenex edge launch","name":"tenex-edge launch","signed":1,"status":"provisional"}

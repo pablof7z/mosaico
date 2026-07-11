@@ -29,11 +29,11 @@ The `edge-distillation` role resolves to the `claude-cli` provider with model `c
 `llms.json` is pruned to contain only the `edge-distillation` role and the single `claude-haiku` configuration it points to, with no dead keys or fields. When pruning, a backup of the original file is saved at `~/.tenex-edge/llms.json.bak`.
 
 <!-- citations: [^026d1-d15cd] [^dae38-a2ce1] [^026d1-deaa8] -->
-## `tenex-edge config` Command
+## `tenex-edge mgmt config` Command
 
-The `tenex-edge config` command is a TUI for configuring providers and models, built with the `inquire` crate. (Previously: tenex-edge had no TUI or subcommand for configuring models; `providers.json` and `llms.json` were edited by hand.) It was developed with a parallel Fable UX/design agent to produce a UX/UI spec covering palette, screen mockups, fuzzy-row anatomy, iconography, confirm-before-write pattern, and inquire RenderConfig mapping; that spec is stored at a scratchpad path as a 478-line markdown file.
+The `tenex-edge mgmt config` command is a TUI for configuring providers and models, built with the `inquire` crate. (Previously: tenex-edge had no TUI or subcommand for configuring models; `providers.json` and `llms.json` were edited by hand.) It was developed with a parallel Fable UX/design agent to produce a UX/UI spec covering palette, screen mockups, fuzzy-row anatomy, iconography, confirm-before-write pattern, and inquire RenderConfig mapping; that spec is stored at a scratchpad path as a 478-line markdown file.
 
-The `tenex-edge config` menu offers two top-level options: configuring providers and configuring models. The only other TUI in the tenex-edge codebase (`pty_cli/tui_*.rs`) is the session-spawner picker, which is unrelated to model config.
+The `tenex-edge mgmt config` menu offers two top-level options: configuring providers and configuring models. The only other TUI in the tenex-edge codebase (`pty_cli/tui_*.rs`) is the session-spawner picker, which is unrelated to model config.
 
 The command was committed as a code-only commit (source + Cargo files), excluding docs/wiki to avoid bundling other concurrent agent sessions' output.
 
