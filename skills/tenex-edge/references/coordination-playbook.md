@@ -43,6 +43,12 @@ Prefer, in order:
 2. An existing session whose continuity matters.
 3. A newly recruited agent with the required specialization.
 
+Check agent status before routing urgent or time-sensitive work. Status reflects
+live activity and current focus: an offline agent cannot handle immediate work,
+while an already-working agent may still be the right target when it owns the
+relevant context. Use the `who` command or hook-provided snapshot to see current
+status and workspace availability.
+
 Do not ask the human to forward information that you can send directly and
 safely.
 

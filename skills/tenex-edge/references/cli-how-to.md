@@ -10,6 +10,7 @@
 - [Add Existing Sessions Or Humans](#add-existing-sessions-or-humans)
 - [Find Prior Sessions](#find-prior-sessions)
 - [Set Your Session Title](#set-your-session-title)
+- [Manage Agent Status](#manage-agent-status)
 - [End Your Session](#end-your-session)
 - [Refresh Awareness](#refresh-awareness)
 
@@ -142,6 +143,37 @@ Setting a title publishes it immediately and pauses automatic work distillation
 for 30 minutes so the distiller does not overwrite the manual title right away.
 Your hook-provided identity context shows the current title and reminds you to
 update it if the work has drifted.
+
+## Manage Agent Status
+
+Query agent availability and status:
+
+```bash
+tenex-edge who
+tenex-edge who --all-workspaces
+```
+
+Agent status information is published via kind:30315 events and appears in the
+`<tenex-edge>` hook context under each member's `status` and `seen` attributes.
+The rendered state is `working`, `idle`, or `offline`; the status text carries
+the current focus when one is known.
+
+When coordinating work across agents:
+
+- Prefer a suitable idle agent or one already carrying the relevant context over
+  an offline agent.
+- Check agent status before dispatching time-sensitive work.
+- Use the `<available-agents>` section in `who` output to understand available agent
+  capabilities and their workspace access before routing.
+
+To publish your current focus, update your session topic using
+`tenex-edge my status --topic "..."` (see [Set Your Session Title](#set-your-session-title)).
+This update publishes immediately and helps other agents route decisions or work
+to you appropriately. It does not set liveness: `working`, `idle`, and `offline`
+are derived automatically from session lifecycle, turn state, and heartbeat age.
+
+Status is transient. Do not rely on it as durable coordination; use channels for
+work that needs persistent context.
 
 ## End Your Session
 
