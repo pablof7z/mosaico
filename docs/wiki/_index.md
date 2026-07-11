@@ -67,7 +67,7 @@ Last updated: 2026-07-11
 | [tenex-edge-model-config](guides/tenex-edge-model-config.md) | Tenex-Edge Model Config | `providers.json` and `llms.json` are config files living under `~/.tenex-edge` that drive model selection per role | capture | warm | 2026-07-03 | tenex-edge |
 | [tenex-edge-presence](guides/tenex-edge-presence.md) | Tenex-Edge Presence | Agent online presence is channel membership; kind:30315 carries per-session activity and resumable session history. | capture | warm | 2026-06-29 | tenex-edge |
 | [tenex-edge-session-distill](guides/tenex-edge-session-distill.md) | Tenex-Edge Session Distill | Distill is the LLM-powered process that turns the live conversation transcript into a stable session title and a live one-line NOW activity broadcast in a singl | capture | warm | 2026-07-03 | tenex-edge |
-| [tenex-edge-who-rendering](guides/tenex-edge-who-rendering.md) | Tenex-Edge Who Rendering | `tenex-edge who --all-projects` renders through the unified fabric-context pipeline (`build_view` â `render_view`/`render_human_view`), producing the same for | capture | warm | 2026-07-03 | tenex-edge |
+| [tenex-edge-who-rendering](guides/tenex-edge-who-rendering.md) | Tenex-Edge Who Rendering | `tenex-edge who` renders terminal text for operators and structured workspace awareness XML for exact agent sessions. | capture | warm | 2026-07-11 | tenex-edge |
 
 ## Research Records (11 records)
 
@@ -161,9 +161,9 @@ Last updated: 2026-07-11
 | [2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off](episodes/2026-07-10-b70718e17221-cb4e41ba-2-daemon-startup-relay-connect-moved-off.md) | 2026-07-10 | Daemon startup: relay connect moved off critical path to background spawn | root-cause | active |
 | [2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant](episodes/2026-07-10-b70718e17221-cb4e41ba-3-integration-test-flakiness-root-cause-croissant.md) | 2026-07-10 | Integration test flakiness root cause: croissant relay leaks POSIX named semaphores on SIGKILL | root-cause | active |
 
-## Nouns (228 entities)
+## Noun Definition Files (228 records)
 
-| Noun | Name | Origin | Definition |
+| Record | Name | Origin | Definition |
 |------|------|--------|------------|
 | [activity](nouns/activity.md) | activity | extracted | A distilled one-line intent — the agent's broadcast 'what I'm doing right now,' produced by LLM distillation of the live transcript each turn. |
 | [add-agents-orchestration-event](nouns/add-agents-orchestration-event.md) | add-agents orchestration event | extracted | A parsed kind:9 orchestration event that asks named backends to add fresh agents |
@@ -178,8 +178,8 @@ Last updated: 2026-07-11
 | [agent-keystore](nouns/agent-keystore.md) | agent role config | extracted | The set of role configs on this machine, stored under |
 | [agent-online-presence](nouns/agent-online-presence.md) | agent online presence | extracted | Agent online presence is active channel membership |
 | [agent-ordinal-label](nouns/agent-ordinal-label.md) | agent_ordinal_label | extracted | Superseded by the session handle. Concurrent sessions of the same role are no |
-| [agent-session](nouns/agent-session.md) | @agent-session-code | extracted | A live session addressed by its dashed, p-taggable kind:0 name, such as @codex-quill-peak-369. |
-| [agent-session-handle](nouns/agent-session-handle.md) | @agent-session-code | extracted | The dashed public handle combining a role slug with a deterministic friendly session code. |
+| [agent-session](nouns/agent-session.md) | @agent-session-code | extracted | A live session you can summon by its p-taggable kind:0 name. The handle combines |
+| [agent-session-handle](nouns/agent-session-handle.md) | @agent-session-code | extracted | A live session you can summon by its p-taggable kind:0 name. The handle combines |
 | [agent-slug](nouns/agent-slug.md) | agent_slug | extracted | The harness/hook client's declared agent, taken verbatim from the hook payload (p.agent); never derived or defaulted server-side. |
 | [agent1](nouns/agent1.md) | agent1 | extracted | The claude1 profile launched in direct mode — a raw Claude session, host-pty-observed but not daemon-anchored, into which the user types the initial mention instruction. |
 | [agent2](nouns/agent2.md) | agent2 | extracted | The claude2 profile launched via tenex-edge launch — expected to receive a live daemon-pushed, attributed mention from agent1 and reply back. |
@@ -214,7 +214,7 @@ Last updated: 2026-07-11
 | [citizen-identity-retired](nouns/citizen-identity-retired.md) | citizen (identity, retired) | extracted | A sovereign cryptographic keypair plus fabric membership (Nostr) — nothing more, nothing less. This concept was retired as a product positioning element; the durable per-agent keypair no longer exists. |
 | [citizen-identity-retired-model](nouns/citizen-identity-retired-model.md) | citizen (identity) [retired model] | extracted | Previously defined as a sovereign cryptographic keypair plus fabric membership (Nostr) — nothing more, nothing less. This durable-key model was retired by the redesign in favor of per-session keys and agentic self-organization positioning. |
 | [cli-split](nouns/cli-split.md) | cli-split | extracted | A label for splitting an oversized CLI submodule. |
-| [codename](nouns/codename.md) | codename | extracted | A deterministic human-readable code derived from the session id and used in dashed session handles. |
+| [codename](nouns/codename.md) | codename | extracted | `friendly_short_code(session_id)` is a deterministic human-readable code used in |
 | [config-json](nouns/config-json.md) | config.json | extracted | The file tenex-edge reads from ~/.tenex-edge for whitelistedPubkeys, optional relays, and backendName (host label); tenex-edge keeps all of its own writable state under ~/.tenex-edge alongside it. |
 | [croissant](nouns/croissant.md) | croissant | extracted | The NIP-29 relay binary running at /opt/nip29-f7z-io on port 3336, serving nip29.f7z.io as a groups provider. |
 | [daemon](nouns/daemon.md) | daemon | extracted | ONE daemon per machine is the sole owner of state.db, the single relay connection, the inbox, presence, membership cache, and peer pruning; every CLI invocation and every per-session engine becomes a thin client that talks to it over a Unix domain socket. |
@@ -236,8 +236,8 @@ Last updated: 2026-07-11
 | [envelope-hook-mention](nouns/envelope-hook-mention.md) | envelope (hook mention) | extracted | hooks-only format: wrapped in `<tenex-edge>` tags with a reply CLI hint and no message-id |
 | [epic](nouns/epic.md) | epic | extracted | A parent issue tracking a body of work in the project. |
 | [error-writedisabled](nouns/error-writedisabled.md) | Error::WriteDisabled | extracted | A client-side error from nostr-relay-pool 0.44.1 whose Display text is 'write actions are disabled'. It fires when the daemon's in-memory Relay object has RelayServiceFlags missing WRITE, causing the SDK to refuse to put EVENT messages on the wire — the relay never sees or rejects the publish. |
-| [expired-session](nouns/expired-session.md) | expired session | extracted | A non-live session surfaced for resume by its public dashed handle. |
-| [expiredsessionrow](nouns/expiredsessionrow.md) | ExpiredSessionRow | extracted | One expired local session that can still be resumed. |
+| [expired-session](nouns/expired-session.md) | expired session | extracted | A session row that is no longer `alive` (its process exited). Resume candidates |
+| [expiredsessionrow](nouns/expiredsessionrow.md) | ExpiredSessionRow | extracted | One expired local session, named by its `agent-session-code` handle. These rows |
 | [fabric](nouns/fabric.md) | fabric | extracted | The shared awareness substrate built on Nostr — server-less, with relays as dumb replaceable infrastructure rather than authorities. The fabric and the identity are the asset; the plugin/hooks are just distribution (straws, not the milkshake). |
 | [god-object](nouns/god-object.md) | god-object | extracted | A file that exceeds the project's 500-LOC ceiling with multiple concerns, used as a GitHub issue label. |
 | [harness-session-id](nouns/harness-session-id.md) | harness_session_id | extracted | The harness-owned external session id, present only for harnesses that own an id of their own (claude-code, codex); None for programmatic hosts (opencode). It is ONLY a locator for session_aliases, never the identity — the daemon resolves the canonical id. |
@@ -346,13 +346,13 @@ Last updated: 2026-07-11
 | [session-identity](nouns/session-identity.md) | session identity | extracted | The keypair a session signs and is routed by, derived at start as |
 | [session-key-new-model](nouns/session-key-new-model.md) | session key (new model) | extracted | No base agent key exists; all keys are created at session start. nsec = derive(mgmt_secret, session_id), where mgmt_secret is per-machine, so the same session_id on two machines yields different keys. Every session is re-derivable and resumable from mgmt_key + session_id alone. |
 | [session-local-row](nouns/session-local-row.md) | Session (local row) | extracted | A local agent process this daemon hosts. OS handles only — never agent identity (that lives in relay_status/relay_profiles). Carries session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, transcript_path, alive, created_at, last_seen, working, title, activity, resume_id. |
-| [session-ref](nouns/session-ref.md) | session_ref | extracted | The dashed session-bearing member reference shared by render and resolution paths. |
+| [session-ref](nouns/session-ref.md) | session_ref | extracted | The session-bearing member reference: `agent-session-code`, shared by member-row |
 | [session-start-py](nouns/session-start-py.md) | session_start.py | extracted | A single deterministic entrypoint script the agent runs at session start instead of following a static 'list workflows' instruction; it decides what to inject — the setup guide (SETUP.md) when the home dir is not yet tracked in a git repo, or the session brief (tracked location, workflow list, BRIEF.md) when it is. |
 | [session-state-row](nouns/session-state-row.md) | Session (state row) | extracted | A local agent process THIS daemon hosts. OS handles only — never agent identity (that lives in relay_status/relay_profiles). |
 | [session-state-session](nouns/session-state-session.md) | Session (state::Session) | extracted | A local agent process this daemon hosts. OS handles only (session_id, pid, transcript_path, liveness) — never agent identity, which lives in relay_status/relay_profiles. |
 | [session-struct](nouns/session-struct.md) | Session (struct) | extracted | The OS/process-level record: session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, transcript_path, alive. agent_pubkey is the per-session minted pubkey the session currently signs as. |
 | [sessionid](nouns/sessionid.md) | SessionId | extracted | A newtype wrapping the canonical raw session id (serde-transparent). as_str() returns the raw id, and its Display impl renders the raw id directly. |
-| [sessionidentity](nouns/sessionidentity.md) | SessionIdentity | extracted | A lean read-side struct (pubkey, agent slug, session id, legacy code) replacing |
+| [sessionidentity](nouns/sessionidentity.md) | SessionIdentity | extracted | A lean read-side struct containing the pubkey, agent slug, session id, and |
 | [short-id](nouns/short-id.md) | short_id | extracted | A short prefix of a message/event id (its first 6 hex chars) — cheap to include inline in agent-facing context. The daemon resolves any unambiguous prefix back to the full event on channel read --id, so it stays round-trippable without spending tokens on a full 64-char id. |
 | [signerreservations](nouns/signerreservations.md) | SignerReservations | extracted | Superseded by per-session identity. There are no ordinal slots to reserve: every |
 | [single-writer](nouns/single-writer.md) | single-writer | extracted | The daemon's architectural property of collapsing N per-session SQLite writers and N relay connections into 1, fixing a real multi-writer corruption class (a genuine incident in the project's git history). |
@@ -366,7 +366,7 @@ Last updated: 2026-07-11
 | [te-session-not-set-error](nouns/te-session-not-set-error.md) | @te_session not set error | extracted | Is daemon/CLI version skew, not a repo bug — the stale daemon vs. rebuilt CLI mismatch causes the error, fixed by restarting the daemon rather than a code change. |
 | [tenex-edge](nouns/tenex-edge.md) | tenex-edge | extracted | A host-neutral substrate providing durable agent identity, awareness, and messaging on the Nostr fabric; nothing in the core knows about any specific host (no pc, no claude). |
 | [tenex-edge-chat-write](nouns/tenex-edge-chat-write.md) | tenex-edge channel send | extracted | The canonical CLI command for explicitly sending messages to a channel (formerly |
-| [tenex-edge-config](nouns/tenex-edge-config.md) | tenex-edge config | extracted | An interactive CLI subcommand built on the inquire prompt library for setting up providers.json and llms.json — configuring provider credentials/endpoints and assigning models to roles with fuzzy-searched live model listing from configured providers. |
+| [tenex-edge-config](nouns/tenex-edge-config.md) | tenex-edge mgmt config | extracted | An interactive CLI subcommand built on the inquire prompt library for setting up providers.json and llms.json — configuring provider credentials/endpoints and assigning models to roles with fuzzy-searched live model listing from configured providers. |
 | [tenex-edge-dev](nouns/tenex-edge-dev.md) | tenex-edge-dev | extracted | A skill used for tenex-edge development live labs: run a local croissant relay, configure container backends with real host AI auth, launch Claude/Codex/OpenCode agents, and inspect portable PTY sessions, hook logs, relay logs, and Nostr events with nak. |
 | [tenex-edge-dev-live-lab](nouns/tenex-edge-dev-live-lab.md) | tenex-edge-dev (live lab) | extracted | The replacement mindset for the old scripted e2e — a skill for validating tenex-edge changes in a real, inspectable local environment with a host croissant relay, container backends, real host AI auth, live agent UIs in pty, relay-level traffic, hook logs, and Nostr events inspected with nak. |
 | [tenex-role](nouns/tenex-role.md) | TENEX role | extracted | A named key in llms.json (e.g. edge-distillation) that maps to a configuration name, which in turn resolves to {provider, model} and credentials from providers.json. |
