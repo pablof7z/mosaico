@@ -151,10 +151,12 @@ fn session_identity_agent_ref_names_pubkey_by_codename() {
 
 #[test]
 fn session_identity_fallback_does_not_invent_a_handle() {
-    let inst = SessionIdentity::fallback("sess-xyz", "claude".into(), "deadbeef".into());
-    assert_eq!(inst.pubkey, "deadbeef");
+    let keys = nostr_sdk::prelude::Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let inst = SessionIdentity::fallback("sess-xyz", "claude".into(), pubkey.clone());
+    assert_eq!(inst.pubkey, pubkey);
     assert_eq!(inst.slug, "claude");
     assert_eq!(inst.session_id, "sess-xyz");
     assert!(inst.codename.is_empty());
-    assert_eq!(inst.display_slug(), "claude");
+    assert_eq!(inst.display_slug(), crate::idref::npub(&pubkey).unwrap());
 }

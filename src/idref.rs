@@ -44,7 +44,7 @@ pub fn session_handle(agent_slug: &str, session: &str) -> String {
 /// Convert a kind:0 `name` plus tags into the canonical session handle.
 pub fn session_handle_from_profile_name(name: &str, agent_slug: &str) -> String {
     let name = name.trim();
-    if agent_slug.trim().is_empty() {
+    if agent_slug.trim().is_empty() || normalize_pubkey(name).is_some() {
         name.to_string()
     } else {
         session_handle(agent_slug, name)
@@ -104,9 +104,8 @@ pub enum Ref {
     Agent { slug: String, host: String },
     /// A 64-char hex pubkey or `npub1…`.
     Pubkey(String),
-    /// Anything else: a session (canonical id / harness alias / id prefix) OR a
-    /// bare agent-instance label. The daemon resolver disambiguates by trying
-    /// session lookups first, then `slug@<local-host>`.
+    /// Anything else: an opaque current handle or a bare local agent label.
+    /// The daemon resolver consults the authoritative store for the surface.
     Token(String),
 }
 

@@ -200,23 +200,6 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Find a session (alive or dead) whose canonical id starts with `prefix`,
-    /// newest first. Used by resume flows to accept a short id prefix.
-    pub fn find_session_by_prefix(&self, prefix: &str) -> Result<Option<Session>> {
-        let pattern = format!("{}%", prefix.replace(['%', '_'], ""));
-        Ok(self
-            .conn
-            .query_row(
-                &format!(
-                    "SELECT {COLS} FROM sessions WHERE session_id LIKE ?1
-                     ORDER BY created_at DESC LIMIT 1"
-                ),
-                params![pattern],
-                row_to_session,
-            )
-            .optional()?)
-    }
-
     /// Set the working/turn flag for a session (resolves id first). When entering
     /// a turn, pass the start timestamp; when leaving, pass `working=false`.
     pub fn set_working(&self, id: &str, working: bool, turn_started_at: u64) -> Result<()> {

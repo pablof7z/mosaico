@@ -91,7 +91,11 @@ impl SessionIdentity {
     /// The per-session display name: `codename-agentSlug` (e.g. `willow-echo-042-codex`),
     /// never the raw internal `session_id`.
     pub fn display_slug(&self) -> String {
-        crate::idref::session_handle(&self.slug, &self.codename)
+        if self.codename.is_empty() {
+            crate::idref::npub(&self.pubkey).unwrap_or_else(|| self.slug.clone())
+        } else {
+            crate::idref::session_handle(&self.slug, &self.codename)
+        }
     }
 
     /// The wire reference: the session's own pubkey named by its public handle.

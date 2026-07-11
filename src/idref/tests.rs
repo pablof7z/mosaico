@@ -72,6 +72,15 @@ fn npub_and_hex_normalize_to_the_same_permanent_identity() {
 }
 
 #[test]
+fn permanent_pubkey_profile_name_is_not_turned_into_a_handle() {
+    let keys = nostr_sdk::prelude::Keys::generate();
+    let hex = keys.public_key().to_hex();
+    let npub = npub(&hex).unwrap();
+    assert_eq!(session_handle_from_profile_name(&npub, "codex"), npub);
+    assert_eq!(session_handle_from_profile_name(&hex, "codex"), hex);
+}
+
+#[test]
 fn parse_at_is_backend_label_not_channel() {
     match parse_ref("codex@myBackend") {
         Ref::Agent { slug, host } => {

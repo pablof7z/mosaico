@@ -78,9 +78,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     ));
                 }
             }
-            if let Some(pubkey) =
-                store.resolve_live_profile_handle_pubkey(&tok, crate::util::now_secs())?
-            {
+            if let Some(pubkey) = store.resolve_profile_handle_pubkey(&tok)? {
                 return Ok(ResolvedRecipient {
                     pubkey,
                     target_session: None,

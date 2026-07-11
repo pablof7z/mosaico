@@ -95,21 +95,18 @@ impl Store {
         Ok(None)
     }
 
-    /// Resolve a remote handle only when the named pubkey has a live status.
-    /// Historical kind:0 names are presentation cache, never lease authority.
-    pub fn resolve_live_profile_handle_pubkey(
-        &self,
-        handle: &str,
-        now: u64,
-    ) -> Result<Option<String>> {
+    /// Resolve a remote handle only for a pubkey with session-status history.
+    /// Expired status remains valid because an offline lease stays addressable
+    /// until its owner publishes the replacement profile during reclamation.
+    pub fn resolve_profile_handle_pubkey(&self, handle: &str) -> Result<Option<String>> {
         let handle = handle.trim();
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT p.pubkey FROM relay_profiles p
              JOIN relay_status st ON st.pubkey=p.pubkey
-             WHERE p.is_backend=0 AND (p.name=?1 OR p.slug=?1) AND st.expiration>=?2",
+             WHERE p.is_backend=0 AND (p.name=?1 OR p.slug=?1)",
         )?;
         let rows = stmt
-            .query_map(params![handle, now], |row| row.get::<_, String>(0))?
+            .query_map([handle], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match rows.as_slice() {
             [] => Ok(None),

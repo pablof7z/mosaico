@@ -1,4 +1,4 @@
-use super::resolve::{local_session, remote_session_from_status};
+use super::resolve::{local_session, remote_session};
 use super::wait::{wait_local_session_online, wait_remote_session_online};
 use super::*;
 
@@ -83,7 +83,7 @@ async fn invite_remote_session(
     channel_h: &str,
     selector: &str,
 ) -> Result<serde_json::Value> {
-    let remote = remote_session_from_status(state, selector)?;
+    let remote = remote_session(state, selector)?;
     if remote.backend == state.host {
         anyhow::bail!(
             "session {} appears to belong to this backend, but no local identity row exists",
