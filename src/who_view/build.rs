@@ -83,28 +83,35 @@ fn workspace_view(
     input: &AgentWhoInput<'_>,
 ) -> WorkspaceView {
     let meta = store.get_channel(root).ok().flatten();
-    let expanded = input.all_workspaces || root == input.current_root;
+    let members = member_views(store, root, input);
+    let expanded = (input.all_workspaces || root == input.current_root)
+        && store
+            .is_channel_member(root, input.self_pubkey)
+            .unwrap_or(false);
     let channels = if expanded {
-        vec![channel_view(
-            store,
-            by_parent,
-            root,
-            root,
-            input,
-            &mut BTreeSet::new(),
-        )]
+        let mut seen = BTreeSet::from([root.to_string()]);
+        by_parent
+            .get(root)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .map(|child| channel_view(store, by_parent, root, &child.channel_h, input, &mut seen))
+            .collect()
     } else {
         Vec::new()
     };
     WorkspaceView {
         name: root.to_string(),
+        channel: root.to_string(),
         path: store
             .workspace_path(root)
             .ok()
             .flatten()
             .unwrap_or_default(),
         about: meta.map(|channel| channel.about).unwrap_or_default(),
+        member_count: members.len(),
         expanded,
+        members: if expanded { members } else { Vec::new() },
         channels,
     }
 }
@@ -121,15 +128,11 @@ fn channel_view(
         return empty_channel(workspace, channel_h);
     }
     let meta = store.get_channel(channel_h).ok().flatten();
-    let is_root = channel_h == workspace;
-    let name = if is_root {
-        "general".to_string()
-    } else {
-        meta.as_ref()
-            .and_then(Channel::human_name)
-            .unwrap_or(channel_h)
-            .to_string()
-    };
+    let name = meta
+        .as_ref()
+        .and_then(Channel::human_name)
+        .unwrap_or(channel_h)
+        .to_string();
     let members = member_views(store, channel_h, input);
     let expanded = store
         .is_channel_member(channel_h, input.self_pubkey)
@@ -159,7 +162,7 @@ fn channel_view(
 fn empty_channel(workspace: &str, channel_h: &str) -> ChannelView {
     ChannelView {
         name: channel_h.to_string(),
-        id: format!("{workspace}.general"),
+        id: format!("{workspace}.{channel_h}"),
         about: String::new(),
         member_count: 0,
         expanded: false,

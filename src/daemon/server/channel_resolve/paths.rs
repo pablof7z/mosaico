@@ -2,18 +2,12 @@ use std::collections::BTreeMap;
 
 pub(super) fn canonical_segments(root: &str, reference: &str) -> Vec<String> {
     let mut segments = reference
-        .split(['/', '.'])
+        .split('.')
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
     if segments.first().is_some_and(|segment| segment == root) {
-        segments.remove(0);
-    }
-    if segments
-        .first()
-        .is_some_and(|segment| segment.eq_ignore_ascii_case("general"))
-    {
         segments.remove(0);
     }
     segments
@@ -46,7 +40,7 @@ pub(super) fn channel_reference_from_paths(
     let path = segs.join(".");
     let path_unique = paths.iter().filter(|(_, s)| s.join(".") == path).count() == 1;
     if path_unique && !path.is_empty() {
-        format!("{root}.general.{path}")
+        format!("{root}.{path}")
     } else {
         channel_id_reference(id)
     }

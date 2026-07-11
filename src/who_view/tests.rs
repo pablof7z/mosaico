@@ -107,34 +107,39 @@ fn lists_global_agents_and_compacts_other_workspaces() {
         "{xml}"
     );
     assert!(
-        xml.contains("<workspace name=\"alpha\" path=\"/work/alpha\""),
+        xml.contains("<workspace name=\"alpha\" channel=\"alpha\" path=\"/work/alpha\""),
         "{xml}"
     );
-    assert!(xml.contains("<workspace name=\"beta\" about=\"Beta workspace\" />"));
+    assert!(xml.contains(
+        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"0\" />"
+    ));
 }
 
 #[test]
-fn uses_general_root_typed_members_and_membership_gated_children() {
+fn workspace_carries_root_members_and_membership_gated_children() {
     let xml = render(false);
     assert!(
-        xml.contains("<channel name=\"general\" id=\"alpha.general\" members=\"2\""),
+        xml.contains(
+            "<workspace name=\"alpha\" channel=\"alpha\" path=\"/work/alpha\" about=\"Alpha workspace\" members=\"2\""
+        ),
         "{xml}"
     );
     assert!(xml.contains("<human name=\"@Pablo\" state=\"offline\""));
     assert!(xml.contains(
         "<agent name=\"@codex-quill-peak-369\" state=\"idle\" status=\"Implement awareness\""
     ));
+    assert!(xml.contains("members=\"2\">\n      <members>"), "{xml}");
     assert!(xml.contains(
-        "<channel name=\"small-talk\" id=\"alpha.general.small-talk\" members=\"1\" about=\"Chit chat\" />"
+        "<channel name=\"small-talk\" id=\"alpha.small-talk\" members=\"1\" about=\"Chit chat\" />"
     ));
+    assert!(!xml.contains("general"), "synthetic root leaked: {xml}");
     assert!(!xml.contains("@remote\" state="), "backend leaked: {xml}");
 }
 
 #[test]
 fn all_workspaces_expands_workspace_but_not_unjoined_root_membership() {
     let xml = render(true);
-    assert!(xml.contains("<workspace name=\"beta\" about=\"Beta workspace\">"));
     assert!(xml.contains(
-        "<channel name=\"general\" id=\"beta.general\" members=\"0\" about=\"Beta workspace\" />"
+        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"0\" />"
     ));
 }

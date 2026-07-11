@@ -105,7 +105,7 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        text.contains("<channel name=\"#general\" ref=\"proj.general\""),
+        text.contains("<channel name=\"#proj\" ref=\"proj\""),
         "awareness should name the channel; got: {text:?}"
     );
     let expected_code = crate::util::friendly_short_code("sess-intro");

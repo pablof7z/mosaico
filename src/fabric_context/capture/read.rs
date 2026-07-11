@@ -265,7 +265,7 @@ pub(super) fn channel_summary(store: &Store, channel: &str) -> SummaryCap {
         .expect("renderable channels are filtered through get_channel first");
     SummaryCap {
         name: if ch.parent.is_empty() {
-            "general".to_string()
+            channel.to_string()
         } else {
             ch.human_name()
                 .map(str::to_string)

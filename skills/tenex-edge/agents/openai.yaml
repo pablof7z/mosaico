@@ -1,4 +1,4 @@
 interface:
   display_name: "tenex-edge"
   short_description: "Cross-workspace agent awareness and coordination"
-  default_prompt: "Use $tenex-edge to read agent and workspace awareness, then coordinate through canonical workspace.general channels."
+  default_prompt: "Use $tenex-edge to read agent and workspace awareness, then coordinate through canonical workspace-rooted channels."

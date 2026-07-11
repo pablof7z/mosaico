@@ -35,18 +35,26 @@ fn render_agents(out: &mut String, agents: &[AvailableAgent]) {
 }
 
 fn render_workspace(out: &mut String, workspace: &WorkspaceView) {
-    let _ = write!(out, "\n    <workspace name=\"{}\"", attr(&workspace.name));
+    let _ = write!(
+        out,
+        "\n    <workspace name=\"{}\" channel=\"{}\"",
+        attr(&workspace.name),
+        attr(&workspace.channel)
+    );
     if !workspace.path.is_empty() {
         let _ = write!(out, " path=\"{}\"", attr(&workspace.path));
     }
     if !workspace.about.is_empty() {
         let _ = write!(out, " about=\"{}\"", attr(&workspace.about));
     }
+    let _ = write!(out, " members=\"{}\"", workspace.member_count);
     if !workspace.expanded {
         out.push_str(" />");
         return;
     }
-    out.push_str(">\n      <channels>");
+    out.push('>');
+    render_members(out, &workspace.members, 6);
+    out.push_str("\n      <channels>");
     for channel in &workspace.channels {
         render_channel(out, channel, 8);
     }

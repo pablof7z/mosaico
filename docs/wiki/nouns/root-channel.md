@@ -10,6 +10,6 @@ source_refs:
 
 # root channel
 
-A channel with `parent == ''`, forming the top-level ancestor. Its durable
-`channel_h` is the workspace slug and its channel name is `general`, producing
-the canonical address `<workspace>.general`.
+A channel with `parent == ''`, forming the top-level ancestor. The workspace is
+this root channel: its `channel_h`, display name, and canonical address use the
+workspace slug. Descendants append dotted names directly.

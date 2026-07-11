@@ -124,14 +124,13 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         );
     };
 
-    let parent_is_workspace_root = state.with_store(|store| {
-        store
-            .get_channel(&parent)
-            .ok()
-            .flatten()
-            .is_none_or(|channel| channel.parent.is_empty())
-    });
-    crate::channel_name::validate_child(&p.name, parent_is_workspace_root)?;
+    let workspace_root =
+        state.with_store(|store| match store.get_channel(&parent).ok().flatten() {
+            Some(channel) if channel.parent.is_empty() => Some(channel.channel_h),
+            None => Some(parent.clone()),
+            _ => None,
+        });
+    crate::channel_name::validate_child(&p.name, workspace_root.as_deref())?;
 
     // Names are unique per parent. A duplicate is an error, not a silent no-op.
     if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &p.name))? {

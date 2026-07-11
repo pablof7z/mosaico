@@ -56,16 +56,16 @@ delegated agent sessions with `tenex-edge dispatch <agent[@backend]>
 ## Channel Switch
 
 `tenex-edge channel switch` is an agent-only command. Channel paths are
-project-relative with no project prefix—for example, `planning` or
-`epic999/planning`. When ambiguous, it returns a structured error with exit code 2
+workspace-relative—for example, `planning` or `epic999.planning`. When
+ambiguous, it returns a structured error with exit code 2
 and provides copy-paste-ready command re-runs instead of an interactive prompt.
 <!-- [^661eb-a80c7] -->
 
 ## Channel Paths
 
-Channel paths are hierarchical and accept either delimiter: forward slashes or
-dots (`a/b/c` or `a.b.c`). Missing ancestor channels are auto-created like
-`mkdir -p`, and there is no depth cap. <!-- [^661eb-ba480] -->
+Channel paths are hierarchical and dotted (`a.b.c`). Missing ancestor channels
+are auto-created like `mkdir -p`, and there is no depth cap.
+<!-- [^661eb-ba480] -->
 
 ## Channel Creation
 

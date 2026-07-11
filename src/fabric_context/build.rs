@@ -217,7 +217,7 @@ fn channel_summary(store: &Store, channel: &str) -> WorkspaceRow {
         .expect("renderable channels are filtered through get_channel first");
     WorkspaceRow {
         name: if ch.parent.is_empty() {
-            "general".to_string()
+            channel.to_string()
         } else {
             ch.human_name()
                 .map(str::to_string)
