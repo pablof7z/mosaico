@@ -1,4 +1,4 @@
 interface:
   display_name: "tenex-edge"
-  short_description: "Social operating model for agent coordination"
-  default_prompt: "Use $tenex-edge to route work through the agent society and reduce manual human handoffs."
+  short_description: "Cross-workspace agent awareness and coordination"
+  default_prompt: "Use $tenex-edge to read agent and workspace awareness, then coordinate through canonical workspace.general channels."

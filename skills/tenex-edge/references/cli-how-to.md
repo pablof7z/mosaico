@@ -14,16 +14,16 @@
 
 ## Use The Snapshot First
 
-The hook-provided fabric snapshot is the normal awareness path. It tells you who
-you are, which rooms you are in, who else is present, recent activity, and which
-roles can be contacted.
+The hook-provided `<tenex-edge>` snapshot is the normal awareness path. It tells
+you who you are, which rooms you are in, who else is present, recent activity,
+which agent capabilities are available, and which workspaces they can enter.
 
 Use CLI reads when the snapshot is missing, stale, truncated, or insufficient for
 the current coordination decision.
 
-Read channel names with workspace context. `workspace-a.review` and
-`workspace-b.review` are different rooms even when the local channel name is the
-same.
+Every workspace root channel is `general`. Use canonical dotted paths:
+`workspace-a.general.review` and `workspace-b.general.review` are different
+rooms even when the child name is the same.
 
 ## Read Channel Context
 
@@ -66,8 +66,9 @@ Find an existing room before creating another. Keep `--about` short and stable;
 put objective, background, constraints, desired output, and current state in the
 first channel message.
 
-Channel paths are hierarchical (`a/b/c` or `a.b.c`). Missing ancestors are
-created like `mkdir -p`.
+Channel paths are hierarchical and dotted: `<workspace>.general.a.b`. Missing
+ancestors below `general` are created like `mkdir -p`. Do not create a direct
+child named `general`; that name belongs to the workspace root.
 
 For operator/debug commands that must target a specific live session, add
 `--session <session-id>` to `channel read`, `channel send`, or channel mutations
@@ -83,16 +84,17 @@ tenex-edge dispatch <agent[@backend]> --workspace <workspace> \
   [--channel <fully-qualified-channel>]... --message "..."
 ```
 
-Use dispatch when an agent in one workspace or project needs to start a new
-agent session in another workspace, project, or backend and hand it work.
+Use dispatch when an agent needs to start a new session in another workspace or
+backend and hand it work.
 
 Rules:
 
-- Pass fully qualified channels, such as `project1.bug-123` or `project2.qa`.
+- Pass fully qualified channels, such as `workspace1.general.bug-123` or
+  `workspace2.general.qa`.
   Do not infer a channel prefix from `--workspace`.
 - Repeat `--channel` to join the new session to multiple rooms.
 - Treat multiple channels as a set of rooms; there is no primary channel.
-- Omit `--channel` to target the top-level channel for `--workspace`.
+- Omit `--channel` to target `<workspace>.general`.
 - Share at least one target channel with the dispatched session. If dispatch
   fails because there is no shared room, choose a channel you are active on and
   pass it explicitly.
@@ -105,13 +107,13 @@ Use `channel add` for membership changes after a session or human already
 exists:
 
 ```bash
-tenex-edge channel add --session @agent/session <fully-qualified-channel>
+tenex-edge channel add --session @agent-friendly-session-123 <fully-qualified-channel>
 tenex-edge channel add <pubkey|npub|nip05> <fully-qualified-channel> [--admin]
 ```
 
 Use this to pull an existing live session into a room or add a human participant.
-Prefer agent/session handles for agents when available; agents normally should
-not need raw pubkeys.
+Use the dashed public session handle shown in awareness output; agents normally
+should not need raw pubkeys.
 
 ## Find Prior Sessions
 
@@ -142,7 +144,20 @@ reminds you to update it if the work has drifted.
 
 ```bash
 tenex-edge who
+tenex-edge who --all-workspaces
 ```
 
 Use `who` only when the injected snapshot is unavailable, stale, or lost after
 context compression. It is a fallback, not a ritual preflight.
+
+In an exact live agent session, `who` returns XML. Its global `<agents>` section
+lists local and remote capabilities, including `workspace-availability`; remote
+capabilities use `agent@backend`. `<workspaces>` always lists every known
+workspace. Plain `who` expands the current workspace and leaves others compact;
+`--all-workspaces` expands every workspace.
+
+Within an expanded workspace, the root is `<workspace>.general`. A channel's
+members and descendants are expanded only when you belong to that channel.
+Member rows are typed as `<human>` or `<agent>` and may include live kind:30315
+status. Backend identities do not appear as members and do not contribute to
+member counts.
