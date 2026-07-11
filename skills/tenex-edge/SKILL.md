@@ -1,6 +1,6 @@
 ---
 name: tenex-edge
-description: Gain awareness of agents in this workspace and other workspaces, then use that awareness to coordinate, route work, choose channels, dispatch agents, or escalate decisions.
+description: Gain awareness of agents in this workspace and other workspaces, then use that awareness to self-organize: coordinate, route work, choose channels, dispatch agents, or escalate decisions.
 ---
 
 # tenex-edge
