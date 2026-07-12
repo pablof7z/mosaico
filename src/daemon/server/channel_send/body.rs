@@ -94,4 +94,16 @@ mod tests {
 
         assert!(body.ends_with(": @human: hello"));
     }
+
+    #[test]
+    fn tagged_body_preserves_other_inline_handles_literally() {
+        let body = format_tagged_body(
+            "hello, @a2 keeps ignoring me today",
+            &[recipient("a1", FIRST_PK)],
+        )
+        .unwrap();
+
+        assert!(body.starts_with("nostr:npub1"));
+        assert!(body.ends_with(": hello, @a2 keeps ignoring me today"));
+    }
 }

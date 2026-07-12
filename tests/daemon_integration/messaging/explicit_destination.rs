@@ -166,7 +166,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     }));
 
     let inline_body = format!("@{receiver_handle}: this stays ambient");
-    let ambient = rt().block_on(async {
+    let guard_error = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
             .call(
@@ -175,6 +175,25 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                     "session": &sender,
                     "channel": "tmp",
                     "message": &inline_body
+                }),
+            )
+            .await
+            .expect_err("inline mention text without --tag or --force must fail")
+            .to_string()
+    });
+    assert!(guard_error.contains("did you mean to mention"));
+    assert!(guard_error.contains("--tag"));
+    assert!(guard_error.contains("--force"));
+    let ambient = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_send",
+                serde_json::json!({
+                    "session": &sender,
+                    "channel": "tmp",
+                    "message": &inline_body,
+                    "force": true
                 }),
             )
             .await

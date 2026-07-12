@@ -3,6 +3,7 @@ use super::*;
 pub(in crate::cli) async fn channel_send(
     message: String,
     tags: Vec<String>,
+    force: bool,
     channel: Option<String>,
     session: Option<String>,
     long_message: bool,
@@ -10,6 +11,7 @@ pub(in crate::cli) async fn channel_send(
     let params = crate::cli::rpc_params(serde_json::json!({
         "message": message,
         "tags": tags,
+        "force": force,
         "long_message": long_message,
         "session": session,
         // Explicit `--channel` is destination targeting only. Caller identity

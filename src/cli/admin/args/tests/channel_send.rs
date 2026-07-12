@@ -12,6 +12,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "agent1",
         "--tag",
         "agent2",
+        "--force",
         "--channel",
         "ops",
         "--session",
@@ -25,6 +26,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
                 ChannelAction::Send {
                     message,
                     tags,
+                    force,
                     channel,
                     session,
                     ..
@@ -32,6 +34,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         } => {
             assert_eq!(message.as_deref(), Some("hello"));
             assert_eq!(tags, vec!["agent1", "agent2"]);
+            assert!(force);
             assert_eq!(channel.as_deref(), Some("ops"));
             assert_eq!(session.as_deref(), Some("session-1"));
         }

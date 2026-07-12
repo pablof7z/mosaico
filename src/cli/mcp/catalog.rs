@@ -74,6 +74,11 @@ const SPECS: &[ToolSpec] = &[
         props: &[
             Prop::new("message", "string", "Message body."),
             Prop::new("tags", "array", "Agent names to tag."),
+            Prop::new(
+                "force",
+                "boolean",
+                "Allow literal mention-like text without tags.",
+            ),
             Prop::new("channel", "string", "Optional destination channel."),
             Prop::new("session", "string", "Explicit tenex-edge session id."),
             Prop::new("long_message", "boolean", "Allow long messages."),
