@@ -204,6 +204,7 @@ mod profile_rpc;
 mod proposal;
 mod resolution;
 mod session_end;
+mod session_pty_wrap;
 mod session_signing;
 pub(crate) mod session_start;
 mod status_publish;
@@ -239,6 +240,7 @@ use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, res
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
+use session_pty_wrap::rpc_session_pty_wrap;
 use session_signing::{
     mint_session_identity, retire_reclaimed_profile, validate_agent_identity_admission,
     validate_launch_reservation, validate_live_session_identity,
@@ -262,6 +264,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params).await,
         "session_kill" => rpc_session_kill(state, &req.params).await,
+        "session_pty_wrap" => rpc_session_pty_wrap(state, &req.params).await,
         "channel_send" => rpc_channel_send(state, &req.params).await,
         "channel_reply" => channel_send::rpc_channel_reply(state, &req.params).await,
         "channel_react" => channel_send::rpc_channel_react(state, &req.params).await,

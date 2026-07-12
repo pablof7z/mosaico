@@ -249,6 +249,28 @@ pub(super) fn session_kill(session: String) -> Result<()> {
     bail!("could not kill session {session}: {reason}")
 }
 
+/// Re-home the caller's own session into a fresh daemon-owned PTY. Runs
+/// server-side as one RPC (`session_pty_wrap`) — see
+/// `src/daemon/server/session_pty_wrap.rs` for the kill-then-resume sequence.
+pub(super) fn session_pty_wrap_me(session: String) -> Result<()> {
+    if crate::daemon::is_inhibited() {
+        return Ok(());
+    }
+    let v =
+        crate::daemon::blocking::call("session_pty_wrap", serde_json::json!({"session": session}))?;
+    if v["wrapped"].as_bool().unwrap_or(false) {
+        let pty_id = v["pty_id"].as_str().unwrap_or("?");
+        eprintln!("session {session} re-homed into daemon PTY {pty_id}");
+        return Ok(());
+    }
+    let reason = v["reason"].as_str().unwrap_or("re-home refused");
+    if v["refusal"].as_str() == Some("already_wrapped") {
+        eprintln!("{reason}");
+        return Ok(());
+    }
+    bail!("cannot pty-wrap-me: {reason}")
+}
+
 pub(super) fn session_end_hook(session: String) -> Result<()> {
     if crate::daemon::is_inhibited() {
         return Ok(());

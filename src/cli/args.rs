@@ -267,6 +267,54 @@ mod tests {
     }
 
     #[test]
+    fn session_pty_wrap_me_self_parses() {
+        let cli =
+            Cli::try_parse_from(["tenex-edge", "my", "session", "pty-wrap-me", "--self"]).unwrap();
+        match cli.cmd {
+            Cmd::My {
+                action:
+                    MyAction::Session {
+                        action: SessionAction::PtyWrapMe(args),
+                    },
+            } => {
+                assert!(args.self_session);
+            }
+            _ => panic!("expected my session pty-wrap-me action"),
+        }
+    }
+
+    #[test]
+    fn session_pty_wrap_me_requires_self() {
+        let err = parse_err(&["tenex-edge", "my", "session", "pty-wrap-me"]);
+
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn session_pty_wrap_me_rejects_positional_target() {
+        let err = parse_err(&[
+            "tenex-edge",
+            "my",
+            "session",
+            "pty-wrap-me",
+            "--self",
+            "some-other-session",
+        ]);
+
+        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn session_pty_wrap_me_rejects_positional_target_without_self() {
+        let err = parse_err(&["tenex-edge", "my", "session", "pty-wrap-me", "te-123"]);
+
+        assert!(matches!(
+            err.kind(),
+            ErrorKind::UnknownArgument | ErrorKind::MissingRequiredArgument
+        ));
+    }
+
+    #[test]
     fn mgmt_config_parses() {
         let cli = Cli::try_parse_from(["tenex-edge", "mgmt", "config", "providers"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Mgmt { .. }));

@@ -7,6 +7,17 @@ pub(super) enum SessionAction {
     End(SessionEndArgs),
     /// Kill this session's hosted process and mark it offline.
     Kill(SessionKillArgs),
+    /// Re-home the caller's own session into a fresh daemon-owned PTY.
+    ///
+    /// For an agent whose harness was started manually outside a
+    /// daemon-owned PTY (e.g. `codex --yolo resume <id>` typed into a raw
+    /// terminal tab), so it has no live `pty_session` alias and idle
+    /// mentions silently black-hole. This kills the manually-started
+    /// process and resumes the SAME harness session (same resume token,
+    /// same channel) inside a fresh daemon PTY supervisor. Only the
+    /// harness's own persisted session state survives the hop — terminal
+    /// scrollback from the killed process is lost.
+    PtyWrapMe(SessionPtyWrapMeArgs),
 }
 
 #[derive(Args)]
@@ -27,10 +38,20 @@ pub(super) struct SessionKillArgs {
     pub(super) self_session: bool,
 }
 
+#[derive(Args)]
+pub(super) struct SessionPtyWrapMeArgs {
+    /// Confirm this re-homes the session this command runs inside.
+    /// `pty-wrap-me` may only target the caller's own session — there is no
+    /// positional target.
+    #[arg(long = "self", required = true)]
+    pub(super) self_session: bool,
+}
+
 pub(super) fn session(action: SessionAction) -> Result<()> {
     match action {
         SessionAction::End(args) => end(args),
         SessionAction::Kill(args) => kill(args),
+        SessionAction::PtyWrapMe(args) => pty_wrap_me(args),
     }
 }
 
@@ -54,6 +75,18 @@ fn kill(args: SessionKillArgs) -> Result<()> {
     }
     let session = self_session_anchor("kill")?;
     super::session_kill(session)
+}
+
+fn pty_wrap_me(args: SessionPtyWrapMeArgs) -> Result<()> {
+    // Same rationale as `kill`: clap's `required = true` already enforces
+    // this, but the check keeps the invariant correct (and testable) if that
+    // constraint is ever relaxed. `pty-wrap-me` never accepts a target other
+    // than the caller's own session.
+    if !args.self_session {
+        bail!("`tenex-edge my session pty-wrap-me` requires `--self`");
+    }
+    let session = self_session_anchor("pty-wrap-me")?;
+    super::session_pty_wrap_me(session)
 }
 
 fn self_session_anchor(verb: &str) -> Result<String> {
@@ -130,5 +163,27 @@ mod tests {
         assert!(err
             .to_string()
             .contains("provide a session id or use `--self`"));
+    }
+
+    #[test]
+    fn pty_wrap_me_requires_self_flag() {
+        let err = pty_wrap_me(SessionPtyWrapMeArgs {
+            self_session: false,
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("requires `--self`"));
+    }
+
+    #[test]
+    fn pty_wrap_me_outside_session_reports_clear_diagnostic() {
+        let _env = outside_any_session();
+
+        let err = pty_wrap_me(SessionPtyWrapMeArgs { self_session: true }).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "`tenex-edge my session pty-wrap-me --self` must run inside a tenex-edge PTY session"
+        );
     }
 }
