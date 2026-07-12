@@ -157,10 +157,21 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             pid = ?snap.child_pid,
             "reviving session from previous daemon instance"
         );
+        let agent_identity = match crate::identity::load_or_create(
+            &crate::config::edge_home(),
+            &snap.agent_slug,
+            now,
+        ) {
+            Ok(identity) => identity,
+            Err(e) => {
+                tracing::warn!(session = %session_id, error = %e, "agent config load failed during reconcile; skipping session");
+                continue;
+            }
+        };
         let minted = match mint_session_identity(
             state,
             &session_id,
-            &snap.agent_slug,
+            &agent_identity,
             &snap.channel_h,
             &snap.resume_id,
         ) {

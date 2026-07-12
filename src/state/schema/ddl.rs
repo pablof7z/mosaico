@@ -192,10 +192,10 @@ CREATE TABLE IF NOT EXISTS identities (
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (pubkey, session_id)
 );
-CREATE INDEX IF NOT EXISTS idx_identities_channel
-    ON identities(channel_h);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session
-    ON identities(session_id) WHERE session_id <> '';
+CREATE INDEX IF NOT EXISTS idx_identities_channel ON identities(channel_h);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session ON identities(session_id) WHERE session_id <> '';
+
+CREATE TABLE IF NOT EXISTS durable_agent_sessions (pubkey TEXT PRIMARY KEY, agent_slug TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE, live INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS handle_leases (
     handle          TEXT PRIMARY KEY,

@@ -57,12 +57,14 @@ tenex-edge adds both, to the agents you already run, without changing how you ru
 Everything in this section is implemented and tested — `cargo test --lib` is green, with
 real end-to-end demos against a live relay across four hosts. If it's here, it runs.
 
-- **A permanent identity and short handle for every session.** Each session mints its own
+- **A permanent identity and short handle for every session.** By default, each session mints its own
   cryptographic keypair and publishes under the shortest available leased handle, such as
   `@quill-codex`. Its npub is the permanent resume identity; the handle is a reclaimable
   human alias used for live addressing. The one secret on the
-  machine is a management key; every session key derives from it, so sessions are
-  recoverable and resumable without storing anything.
+  machine is a management key; default session keys derive from it, so sessions are
+  recoverable and resumable without storing anything. Agents configured with
+  `perSessionKey: false` instead reuse the key persisted in their agent JSON, publish
+  under the bare agent slug, allow one live session on the backend, and always start fresh.
 - **Presence and liveness.** Every agent on the repo broadcasts that it's alive; dead
   ones fall off on their own after a short heartbeat timeout.
 - **A live activity line.** Each turn, an LLM distills the running transcript into one

@@ -24,3 +24,15 @@ pub(super) fn kind0_name_for_author(relay: &str, pubkey: &str) -> Option<String>
             meta.get("name")?.as_str().map(str::to_string)
         })
 }
+
+pub(super) fn event_author(relay: &str, event_id: &str) -> Option<String> {
+    let output = Command::new("nak")
+        .args(["req", "-i", event_id, "-l", "1", relay])
+        .output()
+        .expect("run nak req by event id");
+    output.status.success().then_some(())?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|event| event.get("pubkey")?.as_str().map(str::to_string))
+}

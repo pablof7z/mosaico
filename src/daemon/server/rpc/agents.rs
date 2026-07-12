@@ -23,6 +23,12 @@ pub(in crate::daemon::server) fn rpc_agents_list_sessions(
         let mut out = Vec::new();
         for st in s.list_status_sessions(None, p.since)? {
             let profile = s.get_profile(&st.pubkey).ok().flatten();
+            if profile.as_ref().is_some_and(|profile| {
+                !profile.agent_slug.is_empty()
+                    && (profile.name == profile.agent_slug || profile.slug == profile.agent_slug)
+            }) {
+                continue;
+            }
             let host = profile.as_ref().map(|p| p.host.clone()).unwrap_or_default();
             let slug = if !st.slug.is_empty() {
                 st.slug.clone()

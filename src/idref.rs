@@ -44,7 +44,8 @@ pub fn session_handle(agent_slug: &str, session: &str) -> String {
 /// Convert a kind:0 `name` plus tags into the canonical session handle.
 pub fn session_handle_from_profile_name(name: &str, agent_slug: &str) -> String {
     let name = name.trim();
-    if agent_slug.trim().is_empty() || normalize_pubkey(name).is_some() {
+    if agent_slug.trim().is_empty() || name == agent_slug.trim() || normalize_pubkey(name).is_some()
+    {
         name.to_string()
     } else {
         session_handle(agent_slug, name)

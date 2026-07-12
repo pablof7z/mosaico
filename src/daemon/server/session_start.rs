@@ -36,14 +36,14 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             format!("loading local key for agent {}", p.agent),
         );
     }
-    // Provision the agent keystore + spawn command (side effect). The durable
-    // agent key is no longer used for signing — every session mints its own key.
-    identity::load_or_create_with_command(
+    // Provision the agent keystore + spawn command and select its identity mode.
+    let agent_identity = identity::load_or_create_with_command(
         &edge,
         &p.agent,
         now_secs(),
         p.provision_command.clone(),
     )?;
+    let durable_agent = !agent_identity.per_session_key;
     let cwd = p
         .cwd
         .map(std::path::PathBuf::from)
@@ -153,6 +153,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         harness_session_id.as_deref(),
         resume_id.as_deref(),
         p.watch_pid,
+        durable_agent,
         now,
     )?;
     if let Some(prog) = &progress {
@@ -222,12 +223,9 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         channel = existing.clone();
     }
 
-    // Mint this session's OWN keypair (deterministic from the management secret +
-    // session id), THEN write its row carrying that pubkey. A resumed session
-    // re-derives the identical pubkey. `route_chat` keys on this `agent_pubkey`, so
-    // a p-tagged mention reaches exactly this session. Membership admission for the
-    // minted pubkey happens after channel-ready.
-    let minted = mint_session_identity(state, &session_id, &p.agent, &channel, &native_id)?;
+    // Select the derived per-session or configured durable signer, then write
+    // the row carrying that pubkey. Membership admission happens after channel-ready.
+    let minted = mint_session_identity(state, &session_id, &agent_identity, &channel, &native_id)?;
     retire_reclaimed_profile(state, minted.reclaimed_pubkey.as_deref()).await?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
@@ -247,7 +245,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         harness_str,
         ext_kind,
         ext_id.clone(),
-        &native_id,
+        if durable_agent { "" } else { &native_id },
         &work_root,
         &channel,
         channel_for_upsert.clone(),

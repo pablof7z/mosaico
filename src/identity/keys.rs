@@ -20,8 +20,8 @@ fn hkdf_sha256_32(ikm: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
 }
 
 /// Deterministically derive a session's OWN keypair from the per-machine
-/// management secret and the canonical session id. Every session mints its own
-/// keypair; the management key (`tenexPrivateKey`) is the only stored secret.
+/// management secret and the canonical session id. Every normal session mints
+/// its own keypair; the management key (`tenexPrivateKey`) is its stored root.
 ///
 /// Determinism: a resumed session (same `session_id`) re-derives the identical
 /// pubkey, so a p-tagged mention can route back to it. Cross-machine divergence:
@@ -56,15 +56,15 @@ fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &
     }
 }
 
-/// The read-side identity of one running session: its per-session pubkey, the
-/// underlying agent slug (for the roster / local keystore), the canonical
-/// session id, and the memorable session code.
+/// The read-side identity of one running session: its selected pubkey, agent
+/// slug, canonical session id, optional leased code, and identity mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionIdentity {
     pub pubkey: String,
     pub slug: String,
     pub session_id: String,
     pub codename: String,
+    pub durable_agent: bool,
 }
 
 impl SessionIdentity {
@@ -74,6 +74,17 @@ impl SessionIdentity {
             slug,
             session_id,
             codename,
+            durable_agent: false,
+        }
+    }
+
+    pub fn durable_agent(pubkey: String, slug: String, session_id: String) -> Self {
+        Self {
+            pubkey,
+            slug,
+            session_id,
+            codename: String::new(),
+            durable_agent: true,
         }
     }
 
@@ -85,13 +96,16 @@ impl SessionIdentity {
             slug,
             session_id: session_id.to_string(),
             codename: String::new(),
+            durable_agent: false,
         }
     }
 
     /// The per-session display name: `codename-agentSlug` (e.g. `willow-echo-042-codex`),
     /// never the raw internal `session_id`.
     pub fn display_slug(&self) -> String {
-        if self.codename.is_empty() {
+        if self.durable_agent {
+            self.slug.clone()
+        } else if self.codename.is_empty() {
             crate::idref::npub(&self.pubkey).unwrap_or_else(|| self.slug.clone())
         } else {
             crate::idref::session_handle(&self.slug, &self.codename)

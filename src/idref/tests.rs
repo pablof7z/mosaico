@@ -81,6 +81,14 @@ fn permanent_pubkey_profile_name_is_not_turned_into_a_handle() {
 }
 
 #[test]
+fn durable_agent_profile_keeps_bare_slug() {
+    assert_eq!(
+        session_handle_from_profile_name("chief-of-staff", "chief-of-staff"),
+        "chief-of-staff"
+    );
+}
+
+#[test]
 fn parse_at_is_backend_label_not_channel() {
     match parse_ref("codex@myBackend") {
         Ref::Agent { slug, host } => {

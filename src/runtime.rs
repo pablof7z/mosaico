@@ -34,10 +34,10 @@ type DistillOutput = (
 );
 
 pub struct EngineParams {
-    /// The session's read-side identity: per-session pubkey, slug, and handle.
+    /// The session's read-side identity: selected pubkey, slug, and display name.
     /// Every live publish derives its wire identity from this.
     pub identity: crate::identity::SessionIdentity,
-    /// The session's OWN minted keypair — the one and only key it signs with.
+    /// The keypair selected for this session: derived or durable-agent config.
     pub keys: Keys,
     pub channel: String,
     pub session_id: String,
@@ -62,7 +62,7 @@ pub struct EngineParams {
 }
 
 impl EngineParams {
-    /// Keys used to SIGN this session's live events: its own minted key.
+    /// Keys used to sign this session's live events.
     fn signing_keys(&self) -> Keys {
         self.keys.clone()
     }

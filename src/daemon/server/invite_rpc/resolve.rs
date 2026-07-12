@@ -37,7 +37,11 @@ fn remote_sessions(store: &crate::state::Store, selector: &str) -> Result<Vec<Re
         let Some(profile) = store.get_profile(&pubkey)? else {
             return Ok(Vec::new());
         };
-        if profile.is_backend || profile.agent_slug.is_empty() {
+        if profile.is_backend
+            || profile.agent_slug.is_empty()
+            || profile.name == profile.agent_slug
+            || profile.slug == profile.agent_slug
+        {
             return Ok(Vec::new());
         }
         return Ok(vec![RemoteSession {
@@ -53,6 +57,9 @@ fn remote_sessions(store: &crate::state::Store, selector: &str) -> Result<Vec<Re
     let Some(profile) = store.get_profile(&pubkey)? else {
         return Ok(Vec::new());
     };
+    if profile.name == profile.agent_slug || profile.slug == profile.agent_slug {
+        return Ok(Vec::new());
+    }
     Ok(vec![RemoteSession {
         pubkey,
         slug: profile.slug,

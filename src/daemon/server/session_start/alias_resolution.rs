@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_session_id(
     state: &Arc<DaemonState>,
     harness: &str,
@@ -7,6 +8,7 @@ pub(super) fn resolve_session_id(
     harness_session_id: Option<&str>,
     resume_id: Option<&str>,
     watch_pid: Option<i32>,
+    durable_agent: bool,
     now: u64,
 ) -> Result<(String, &'static str, String)> {
     // Canonical identity: the daemon MINTS a stable session id; the harness id /
@@ -39,6 +41,8 @@ pub(super) fn resolve_session_id(
     let session_id = if let Some(session_id) = existing_pty_session {
         state.with_store(|s| s.put_alias(harness, ext_kind, &ext_id, &session_id, now))?;
         session_id
+    } else if durable_agent {
+        state.with_store(|s| s.resolve_live_or_mint_session_id(harness, ext_kind, &ext_id, now))?
     } else {
         state.with_store(|s| s.resolve_or_mint_session_id(harness, ext_kind, &ext_id, now))?
     };

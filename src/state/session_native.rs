@@ -14,6 +14,10 @@ impl Store {
         let Some(canonical) = self.resolve_canonical_id(id)? else {
             return Ok(());
         };
+        if self.is_durable_agent_session(&canonical)? {
+            self.put_alias(harness, "harness_session", native_id, &canonical, now)?;
+            return Ok(());
+        }
         self.conn.execute(
             "UPDATE sessions SET resume_id=?2 WHERE session_id=?1",
             params![canonical, native_id],

@@ -190,16 +190,6 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Recent sessions (alive OR dead), newest first, capped. The resume picker's
-    /// candidate set — a dead row with a resume token can be reconstituted.
-    pub fn list_resumable_sessions(&self, limit: u32) -> Result<Vec<Session>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM sessions ORDER BY created_at DESC LIMIT ?1"
-        ))?;
-        let rows = stmt.query_map(params![limit], row_to_session)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
     /// Set the working/turn flag for a session (resolves id first). When entering
     /// a turn, pass the start timestamp; when leaving, pass `working=false`.
     pub fn set_working(&self, id: &str, working: bool, turn_started_at: u64) -> Result<()> {
@@ -369,6 +359,7 @@ impl Store {
             [&canonical],
         )?;
         self.mark_handle_offline_for_session(&canonical)?;
+        self.release_durable_agent_session(&canonical)?;
         Ok(())
     }
 }

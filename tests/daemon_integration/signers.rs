@@ -3,6 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
+#[path = "signers/durable_agent.rs"]
+mod durable_agent;
 #[path = "signers/relay.rs"]
 mod relay;
 

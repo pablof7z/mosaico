@@ -167,7 +167,7 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 | Entity | Today's table(s) | Holds | Within |
 |--------|------------------|-------|--------|
 | project/channel metadata | `relay_channels` | slug/name, about text, parent channel | — |
-| agents + identity | `relay_profiles`, `identities` | identity card and per-session key binding | — |
+| agents + identity | `relay_profiles`, `identities`, `durable_agent_sessions` | identity card plus per-session or configured durable binding | — |
 | membership | `relay_channel_members`, `relay_channel_member_sets` | which pubkeys belong to a channel | a project/channel |
 | status | `relay_status`, `sessions` | who's online, plus per-session activity, title, and history | a project/channel |
 | messages + recipients | `messages`, `message_recipients` | chat body, author return envelope, sync state, recipient edges | a project/channel |

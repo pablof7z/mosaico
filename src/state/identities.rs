@@ -72,6 +72,12 @@ impl Store {
     }
 
     pub fn session_for_pubkey(&self, pubkey: &str) -> Result<Option<crate::state::Session>> {
+        if self.is_durable_agent_pubkey(pubkey)? {
+            let Some(session_id) = self.live_durable_session_for_pubkey(pubkey)? else {
+                return Ok(None);
+            };
+            return self.get_session(&session_id);
+        }
         let Some(identity) = self.get_identity(pubkey)? else {
             return Ok(None);
         };
@@ -169,9 +175,23 @@ impl Store {
         &self,
         session_id: &str,
     ) -> Result<Option<crate::identity::SessionIdentity>> {
-        Ok(self.identity_for_session(session_id)?.map(|i| {
-            crate::identity::SessionIdentity::new(i.pubkey, i.agent_slug, i.session_id, i.codename)
-        }))
+        let Some(i) = self.identity_for_session(session_id)? else {
+            return Ok(None);
+        };
+        if self.is_durable_agent_pubkey(&i.pubkey)? {
+            Ok(Some(crate::identity::SessionIdentity::durable_agent(
+                i.pubkey,
+                i.agent_slug,
+                i.session_id,
+            )))
+        } else {
+            Ok(Some(crate::identity::SessionIdentity::new(
+                i.pubkey,
+                i.agent_slug,
+                i.session_id,
+                i.codename,
+            )))
+        }
     }
 
     /// Mark every identity bound to a session dead (alive=0) while KEEPING the row

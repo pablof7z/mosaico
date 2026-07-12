@@ -120,10 +120,9 @@ pub(super) async fn handle(
         }
     }
 
-    // No live session and no active claim to resume. Look up the minted identity
-    // bound to the p-tagged pubkey to learn which agent + native session it
-    // belongs to. A per-session pubkey is unique, so this resolves to exactly one
-    // session — resuming it (via its native id) reproduces the same pubkey.
+    // No live session and no active claim to resume. Look up the identity bound
+    // to the p-tagged pubkey. Per-session identities retain a native resume id;
+    // durable-agent identities leave it empty and therefore start fresh below.
     let identity = state.with_store(|s| {
         s.get_identity_for_channel(mentioned_pk, channel)
             .ok()

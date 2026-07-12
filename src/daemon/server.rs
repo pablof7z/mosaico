@@ -170,14 +170,6 @@ impl DaemonState {
         })
     }
 
-    /// Re-derive the keys a session signs with, from the management secret + id.
-    pub(in crate::daemon) fn session_signing_keys(&self, session_id: &str) -> Result<Keys> {
-        let mgmt = self.management_keys()?;
-        Ok(crate::identity::derive_session_keys_v2(
-            mgmt.secret_key(),
-            session_id,
-        ))
-    }
     /// Return live per-session derived pubkeys. Callers in `resubscribe` and
     /// `handle_incoming` extend their sets with this so transient duplicates are
     /// subscribed and recognized as local authors/recipients.

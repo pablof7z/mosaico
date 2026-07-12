@@ -9,14 +9,18 @@
 An agent today *is* its host. It is born when a Claude Code session starts, knows only that
 session's context, and dies when the session ends. The next session is a stranger.
 
-We reject that the host is the unit — but we do not replace it with a durable per-agent self.
-Each **session** is ephemeral: it mints its own key from the machine's root secret, shows up
-under a friendly handle, and is gone when it ends. What persists across sessions is not a
-carried-forward identity but the **shared fabric** — the channels, roles, and live awareness
-that sessions join and leave.
+The default identity unit is the **session**: it mints its own key from the machine's root
+secret, shows up under a friendly handle, and is gone when it ends. What persists across
+those sessions is the **shared fabric** — the channels, roles, and live awareness that
+sessions join and leave.
+
+An explicitly configured durable agent is the narrow exception. With
+`perSessionKey: false`, sequential fresh sessions reuse the agent JSON key and bare slug,
+and the backend admits only one live session for that identity. It has continuity of
+address, not durable standing: channel membership still controls trust.
 
 Consequence: everything valuable — role, presence, membership, the ongoing coordination —
-attaches to the fabric, never to the host session and never to a permanent per-agent key.
+attaches to the fabric, never merely to possession of a host session or permanent key.
 Anything pinned to the host (or to a key one session carries alone) is lost the moment that
 body or session ends.
 
@@ -24,8 +28,8 @@ body or session ends.
 
 A process executes and exits. We still want agents to have **standing** — to be addressed, to
 be trusted (or not), and to be part of a coordinated group rather than an isolated loop. But
-standing is not a durable per-agent identity an agent accumulates and carries. It is conferred
-by one thing: **current membership in a shared channel.**
+standing is not conferred by a durable per-agent identity. It comes from one thing:
+**current membership in a shared channel.**
 
 A machine's root key admits a session to a channel; the session is a member while it is alive
 and heartbeating, and drops out (a ten-minute prune) once it goes quiet. Being trusted *is*

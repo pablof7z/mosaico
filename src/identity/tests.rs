@@ -38,6 +38,23 @@ fn persists_to_expected_path() {
 }
 
 #[test]
+fn per_session_key_defaults_true_and_can_select_durable_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let default = load_or_create(dir.path(), "coder", 1).unwrap();
+    assert!(default.per_session_key);
+
+    let path = dir.path().join("agents").join("coder.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    config["perSessionKey"] = serde_json::json!(false);
+    std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+
+    let durable = load_or_create(dir.path(), "coder", 2).unwrap();
+    assert!(!durable.per_session_key);
+    assert_eq!(default.pubkey_hex(), durable.pubkey_hex());
+}
+
+#[test]
 fn add_local_agent_creates_then_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let (a, created) = add_local_agent(dir.path(), "coder", None, 1).unwrap();
@@ -159,4 +176,16 @@ fn session_identity_fallback_does_not_invent_a_handle() {
     assert_eq!(inst.session_id, "sess-xyz");
     assert!(inst.codename.is_empty());
     assert_eq!(inst.display_slug(), crate::idref::npub(&pubkey).unwrap());
+}
+
+#[test]
+fn durable_agent_identity_uses_bare_agent_slug() {
+    let keys = Keys::generate();
+    let identity = SessionIdentity::durable_agent(
+        keys.public_key().to_hex(),
+        "chief-of-staff".into(),
+        "session".into(),
+    );
+    assert_eq!(identity.display_slug(), "chief-of-staff");
+    assert!(identity.durable_agent);
 }

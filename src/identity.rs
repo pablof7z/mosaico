@@ -1,8 +1,8 @@
 //! Agent keystore (M1 §4).
 //!
-//! `--agent <slug>` resolves to a durable Nostr keypair, generated on first use
-//! and persisted under `<edge_home>/agents/<slug>.json`. Identity is
-//! `(agent, machine)`: the same slug on another machine is a different key.
+//! `--agent <slug>` resolves an agent configuration and persisted Nostr keypair.
+//! Normal sessions derive their own signer from the backend root; agents with
+//! `perSessionKey:false` sign with this persisted key across sequential runs.
 //!
 //! NOTE: agent keypairs live under `<edge_home>/agents/<slug>.json`, which
 //! defaults to `~/.tenex-edge/agents/`. `edge_home()` defaults to `~/.tenex-edge`.
@@ -42,6 +42,14 @@ struct StoredKey {
     /// One-line "when to use this agent" note, surfaced in `who`'s agent table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     byline: Option<String>,
+    /// When false, this persisted key signs every fresh session for the agent.
+    /// The default keeps the normal per-session derived-key contract.
+    #[serde(default = "default_per_session_key", rename = "perSessionKey")]
+    per_session_key: bool,
+}
+
+const fn default_per_session_key() -> bool {
+    true
 }
 
 impl StoredKey {
@@ -69,6 +77,7 @@ pub struct AgentIdentity {
     pub slug: String,
     pub keys: Keys,
     pub commands: Vec<LaunchCommand>,
+    pub per_session_key: bool,
 }
 
 impl AgentIdentity {
@@ -125,6 +134,7 @@ pub fn load_or_create_with_command(
             slug: slug.to_string(),
             keys,
             commands: commands::normalize_commands(stored.commands),
+            per_session_key: stored.per_session_key,
         });
     }
 
@@ -141,6 +151,7 @@ pub fn load_or_create_with_command(
         commands,
         agent: None,
         byline: None,
+        per_session_key: true,
     };
     std::fs::create_dir_all(agents_dir(edge_home))
         .with_context(|| format!("creating {}", agents_dir(edge_home).display()))?;
@@ -151,6 +162,7 @@ pub fn load_or_create_with_command(
         slug: slug.to_string(),
         keys,
         commands: stored.commands,
+        per_session_key: stored.per_session_key,
     })
 }
 

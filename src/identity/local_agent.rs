@@ -21,6 +21,7 @@ pub struct LocalAgent {
     pub slug: String,
     pub pubkey: String,
     pub commands: Vec<LaunchCommand>,
+    pub per_session_key: bool,
 }
 
 /// Every agent in the local keystore (their hex pubkeys). Your own fleet trusts
@@ -151,6 +152,7 @@ pub fn list_local_agent_details(edge_home: &Path) -> Vec<LocalAgent> {
                         slug: k.slug,
                         pubkey: k.public_key,
                         commands: commands::normalize_commands(k.commands),
+                        per_session_key: k.per_session_key,
                     }),
                     Err(e) => tracing::warn!(
                         path = %path.display(),
@@ -214,6 +216,7 @@ pub(crate) fn add_local_agent_with_commands(
                 slug: slug.to_string(),
                 keys,
                 commands,
+                per_session_key: stored.per_session_key,
             },
             false,
         ));
@@ -228,6 +231,7 @@ pub(crate) fn add_local_agent_with_commands(
         commands: commands.clone(),
         agent: None,
         byline: None,
+        per_session_key: true,
     };
     std::fs::create_dir_all(agents_dir(edge_home))
         .with_context(|| format!("creating {}", agents_dir(edge_home).display()))?;
@@ -238,6 +242,7 @@ pub(crate) fn add_local_agent_with_commands(
             slug: slug.to_string(),
             keys,
             commands,
+            per_session_key: stored.per_session_key,
         },
         true,
     ))

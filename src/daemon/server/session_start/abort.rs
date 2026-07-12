@@ -3,6 +3,13 @@ use super::super::*;
 /// Roll back a half-started session before `rpc_session_start` returns an error.
 pub(super) fn abort_session_start(state: &Arc<DaemonState>, session_id: &str) {
     state.release_session_signer(session_id);
+    if let Err(e) = state.with_store(|s| s.release_durable_agent_session(session_id)) {
+        tracing::error!(
+            session = %session_id,
+            error = %e,
+            "failed to release durable-agent binding while aborting session start"
+        );
+    }
     if let Err(e) = state.with_store(|s| s.mark_dead(session_id)) {
         tracing::error!(
             session = %session_id,

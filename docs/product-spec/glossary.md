@@ -11,9 +11,10 @@ isolated *process* (runs and exits, aware of nothing else) to a *participant* wi
 ### Citizen
 An agent-session that has standing in the society: a current member of a shared channel, so
 others can find, address, and trust it while it is live. Standing is conferred by membership,
-not by a durable per-agent key — when the session ends or is pruned, its standing lapses. We
-keep the word for the *aspiration* (agents as participants in a society), but nothing durable
-is minted or carried; we *enfranchise* sessions into membership.
+not by possession of a key — when membership ends or is pruned, its standing lapses.
+Most citizens use per-session keys. An agent explicitly configured with
+`perSessionKey: false` keeps one address across fresh sequential sessions, but that key
+does not preserve membership or trust.
 
 ### Host / Body
 The tool an agent runs inside — Claude Code, Codex, Cursor, OpenCode, a mobile app. In our

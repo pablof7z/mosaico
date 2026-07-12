@@ -19,6 +19,12 @@ pub(super) const DURABLE_TABLES: &[TableCoverage] = &[
         "pending channel-name reservations",
     ),
     row(
+        "durable_agent_sessions",
+        "direct",
+        "identity:<pubkey> | agent:<slug> | session:<session>",
+        "durable-agent single-live-session ownership",
+    ),
+    row(
         "handle_leases",
         "aggregate",
         "identity:<pubkey> | profile:<pubkey>",
