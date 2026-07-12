@@ -232,6 +232,23 @@ pub(super) fn session_end(session: String) -> Result<()> {
     Ok(())
 }
 
+/// Ask the daemon's `session_kill` RPC to stop this session's hosted process
+/// and mark it offline (the process-termination counterpart to
+/// [`session_end`], which only touches metadata). Exits non-zero when the
+/// daemon reports process termination failed.
+pub(super) fn session_kill(session: String) -> Result<()> {
+    if crate::daemon::is_inhibited() {
+        return Ok(());
+    }
+    let v = crate::daemon::blocking::call("session_kill", serde_json::json!({"session": session}))?;
+    if v["killed"].as_bool().unwrap_or(false) {
+        eprintln!("session {session} killed");
+        return Ok(());
+    }
+    let reason = v["reason"].as_str().unwrap_or("process termination failed");
+    bail!("could not kill session {session}: {reason}")
+}
+
 pub(super) fn session_end_hook(session: String) -> Result<()> {
     if crate::daemon::is_inhibited() {
         return Ok(());

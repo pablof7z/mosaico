@@ -39,9 +39,28 @@ allow/block file in the NIP-29 path.
 params: {"session": "te-…"}
 result: {"ended": true|false}    // false ⇒ no such session
 ```
-Stops the `SessionTask` (which publishes idle presence/status and marks the
-session dead). stderr message (`session … ended` / `no such session: …`) is
-produced client-side to match today's output.
+Metadata-only. Stops the `SessionTask` (which publishes idle presence/status
+and marks the session dead) but does **not** touch the hosted PTY/child
+process — a process left running after `session_end` keeps executing
+unsupervised. stderr message (`session … ended` / `no such session: …`) is
+produced client-side to match today's output. CLI: `tenex-edge my session
+end --self` (or a positional session id/alias in place of `--self`).
+
+### `session_kill`
+```jsonc
+params: {"session": "te-…"}
+result: {"killed": true|false, "ended": true|false, "note": "pty=…"|"pid=…", "reason": "…"}
+```
+Process-kill, the counterpart to `session_end`. Stops the session's hosted
+process (kills the owning PTY if one is tracked, else `SIGTERM`s the tracked
+child pid), then internally calls `session_end` to mark the session's
+metadata dead. `killed` reflects whether process termination itself
+succeeded; `reason` is populated on failure (including "no local session
+matched" when `session` doesn't resolve). Reachable from the TUI's kill-session
+keybinding and from the CLI: `tenex-edge my session kill --self`, which
+resolves the caller from the PTY/session environment and refuses a
+positional target — an agent may only kill its own session. The CLI exits
+non-zero when `killed` is `false`.
 
 
 ### `who`

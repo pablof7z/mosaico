@@ -227,6 +227,46 @@ mod tests {
     }
 
     #[test]
+    fn session_kill_self_parses() {
+        let cli = Cli::try_parse_from(["tenex-edge", "my", "session", "kill", "--self"]).unwrap();
+        match cli.cmd {
+            Cmd::My {
+                action:
+                    MyAction::Session {
+                        action: SessionAction::Kill(args),
+                    },
+            } => {
+                assert!(args.self_session);
+            }
+            _ => panic!("expected my session kill action"),
+        }
+    }
+
+    #[test]
+    fn session_kill_without_self_is_rejected() {
+        let err = parse_err(&["tenex-edge", "my", "session", "kill"]);
+
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn session_kill_rejects_positional_target() {
+        let err = parse_err(&["tenex-edge", "my", "session", "kill", "--self", "te-123"]);
+
+        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn session_kill_rejects_positional_target_without_self() {
+        let err = parse_err(&["tenex-edge", "my", "session", "kill", "te-123"]);
+
+        assert!(matches!(
+            err.kind(),
+            ErrorKind::UnknownArgument | ErrorKind::MissingRequiredArgument
+        ));
+    }
+
+    #[test]
     fn mgmt_config_parses() {
         let cli = Cli::try_parse_from(["tenex-edge", "mgmt", "config", "providers"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Mgmt { .. }));
