@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use super::admin::{AgentAction, AgentsAction, ChannelAction};
 use super::config::ConfigArgs;
@@ -70,9 +70,6 @@ pub(super) enum Cmd {
     },
     /// Browse live sessions and attach to PTY-governed sessions.
     Tui(TuiArgs),
-    /// Stop the daemon and prevent hooks from restarting it.
-    #[command(hide = true)]
-    Stop,
     /// Local debugging tools for hook injection and command telemetry.
     #[command(hide = true)]
     Debug {
@@ -94,12 +91,26 @@ pub(super) enum Cmd {
     /// Detect local agent harnesses and wire tenex-edge's hook entries into each.
     #[command(hide = true)]
     Install(InstallArgs),
-    /// Start the per-machine daemon in the foreground.
-    #[command(name = "daemon", hide = true)]
-    Daemon,
+    /// Manage the per-machine daemon.
+    #[command(name = "daemon")]
+    Daemon(DaemonArgs),
     /// Debug: drive a harness over the ACP / app-server transport end-to-end.
     #[command(name = "__acp-smoke", hide = true)]
     AcpSmoke(super::acp_smoke::AcpSmokeArgs),
+}
+
+#[derive(Args)]
+pub(super) struct DaemonArgs {
+    #[command(subcommand)]
+    pub(super) action: Option<DaemonAction>,
+}
+
+#[derive(Subcommand)]
+pub(super) enum DaemonAction {
+    /// Restart the daemon while preserving detached agent sessions.
+    Restart,
+    /// Stop the daemon and prevent hooks from restarting it.
+    Stop,
 }
 
 #[derive(Subcommand)]
@@ -179,10 +190,23 @@ mod tests {
     }
 
     #[test]
-    fn removed_daemon_alias_stays_unavailable() {
-        let err = parse_err(&["tenex-edge", "__daemon"]);
+    fn daemon_stop_parses() {
+        let cli = Cli::try_parse_from(["tenex-edge", "daemon", "stop"]).unwrap();
 
-        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+        match cli.cmd {
+            Cmd::Daemon(args) => assert!(matches!(args.action, Some(DaemonAction::Stop))),
+            _ => panic!("expected daemon stop action"),
+        }
+    }
+
+    #[test]
+    fn daemon_restart_parses() {
+        let cli = Cli::try_parse_from(["tenex-edge", "daemon", "restart"]).unwrap();
+
+        match cli.cmd {
+            Cmd::Daemon(args) => assert!(matches!(args.action, Some(DaemonAction::Restart))),
+            _ => panic!("expected daemon restart action"),
+        }
     }
 
     #[test]

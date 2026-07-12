@@ -84,8 +84,9 @@ pub fn store_path() -> PathBuf {
 }
 
 /// `$TENEX_EDGE_HOME/daemon.inhibit` — presence of this file tells hook-path
-/// callers not to spawn the daemon. Written by `tenex-edge stop`; removed the
-/// next time any non-hook command (who, chat, tail, …) needs the daemon.
+/// callers not to spawn the daemon. Written by `tenex-edge daemon stop`; removed
+/// by `tenex-edge daemon restart` or the next non-hook command that needs the
+/// daemon.
 pub fn inhibit_path() -> PathBuf {
     config::edge_home().join("daemon.inhibit")
 }

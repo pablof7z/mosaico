@@ -124,7 +124,7 @@ cross-host, which is exactly the gap tenex-edge fills.
   hook mechanism and shells out to the `tenex-edge` binary. tenex-edge knows nothing about
   any host — hosts adapt to it from the outside. A host can absorb one of these features
   tomorrow and the shared awareness still lives on the open fabric.
-- **One daemon owns the truth.** `tenex-edge __daemon` (spawned automatically) is the sole
+- **One daemon owns the truth.** `tenex-edge daemon` (spawned automatically) is the sole
   writer of the local SQLite store and holds the single relay connection. Every CLI call
   is a thin client over a Unix socket. One writer by construction — no races, no
   corruption.

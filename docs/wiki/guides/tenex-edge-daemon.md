@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-03
+updated: 2026-07-12
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -24,12 +24,12 @@ sources:
 
 Daemon `cleanup()` does not delete the lock file, so the flock persists on the same inode until the old daemon process exits. This prevents a two-daemon race over state.db.
 
-The `daemon.inhibit` file is the `tenex-edge stop` mechanism that prevents hooks from respawning a daemon the user explicitly killed. Any non-hook `tenex-edge` command (everything except `hook`) clears the `daemon.inhibit` file at dispatch time, before command dispatch, so that hooks resume working after a prior `tenex-edge stop`. The `clear_inhibit` logic lives at the dispatch level before `match cli.cmd`, removing the redundant clear that previously ran inside `daemon_call_async`.
+The `daemon.inhibit` file is the `tenex-edge daemon stop` mechanism that prevents hooks from respawning a daemon the user explicitly killed. Any non-hook `tenex-edge` command (everything except `hook`) clears the `daemon.inhibit` file at dispatch time, before command dispatch, so that hooks resume working after a prior `tenex-edge daemon stop`. The `clear_inhibit` logic lives at the dispatch level before `match cli.cmd`, removing the redundant clear that previously ran inside `daemon_call_async`.
 
 <!-- citations: [^b07a5-50304] [^38650-4ff91] [^38650-1f1f4] -->
 ## Command Surface and Output Modes
 
-The `tenex-edge daemon` command is exposed as a visible subcommand with alias `__daemon` so the auto-spawner still works without modification. It runs in the foreground and produces colorized output on stdout while simultaneously writing the same output to a daemon.log file. When stdout is not a terminal (detached daemon), a single plain-text layer is used instead of dual ANSI-stdout plus file output. <!-- [^47f3c-0c97b] -->
+The `tenex-edge daemon` command is exposed as a visible subcommand and is the command used by the auto-spawner. It runs in the foreground and produces colorized output on stdout while simultaneously writing the same output to a daemon.log file. When stdout is not a terminal (detached daemon), a single plain-text layer is used instead of dual ANSI-stdout plus file output. <!-- [^47f3c-0c97b] -->
 
 ## Daemon Model and Concurrency
 

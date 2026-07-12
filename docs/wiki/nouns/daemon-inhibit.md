@@ -10,4 +10,4 @@ source_refs:
 
 # daemon.inhibit
 
-A sentinel file ($TENEX_EDGE_HOME/daemon.inhibit) whose presence tells hook-path daemon calls to fail open (return Ok(Null)) rather than spawning or contacting the daemon; created by `tenex-edge stop`, cleared by non-hook commands.
+A sentinel file ($TENEX_EDGE_HOME/daemon.inhibit) whose presence tells hook-path daemon calls to fail open (return Ok(Null)) rather than spawning or contacting the daemon; created by `tenex-edge daemon stop`, cleared by non-hook commands.

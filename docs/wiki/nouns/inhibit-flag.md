@@ -10,4 +10,4 @@ source_refs:
 
 # inhibit flag
 
-The tenex-edge stop mechanism to prevent hooks from respawning a daemon the user explicitly killed; when set (stop-inhibit file exists), hook-path daemon calls return Ok(Null) so hooks fail open rather than spawning.
+The `tenex-edge daemon stop` mechanism to prevent hooks from respawning a daemon the user explicitly killed; when set (stop-inhibit file exists), hook-path daemon calls return Ok(Null) so hooks fail open rather than spawning.

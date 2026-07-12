@@ -43,7 +43,7 @@ mod who;
 #[cfg(test)]
 use admin::{parse_since, render_tail_event};
 pub use args::Cli;
-use args::{Cmd, MgmtAction};
+use args::{Cmd, DaemonAction, MgmtAction};
 
 pub(crate) fn select_agent_env(active: Option<String>, fallback: Option<String>) -> Option<String> {
     active
@@ -104,8 +104,8 @@ pub(crate) fn rpc_params(extra: serde_json::Value) -> serde_json::Value {
 
 pub async fn run(cli: Cli) -> Result<()> {
     // Any explicit command (except `harness hook`) signals intent to use tenex-edge, so
-    // clear the stop-inhibit. Hooks honour the sentinel — they must never
-    // restart a daemon the operator explicitly stopped. `stop` re-arms it
+    // clear the daemon stop-inhibit. Hooks honour the sentinel — they must never
+    // restart a daemon the operator explicitly stopped. `daemon stop` re-arms it
     // unconditionally, so clearing first is harmless.
     if !matches!(
         cli.cmd,
@@ -130,13 +130,16 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Mcp(args) => mcp::mcp(args).await,
         Cmd::My { action } => my::my(action),
         Cmd::Tui(args) => tui::tui(args).await,
-        Cmd::Stop => stop_daemon(),
+        Cmd::Daemon(args) => match args.action {
+            Some(DaemonAction::Restart) => restart_daemon().await,
+            Some(DaemonAction::Stop) => stop_daemon(),
+            None => crate::daemon::server::run().await,
+        },
         Cmd::Debug { action } => debug::debug(action).await,
         Cmd::Probe(args) => probe::probe(args).await,
         Cmd::Pty { action } => pty::pty(action),
         Cmd::PtySupervisor(args) => pty::pty_supervisor(args),
         Cmd::Install(args) => install::install(args).await,
-        Cmd::Daemon => crate::daemon::server::run().await,
         Cmd::AcpSmoke(args) => acp_smoke::acp_smoke(args).await,
     }
 }
@@ -145,24 +148,44 @@ pub async fn run(cli: Cli) -> Result<()> {
 // store live INSIDE the daemon now (it is the sole writer). The CLI verbs below
 // are thin clients that forward to it over the UDS.
 
-// ── stop ─────────────────────────────────────────────────────────────────────
+// ── daemon lifecycle ─────────────────────────────────────────────────────────
 
 /// How long `stop` waits for a shut-down daemon to actually exit (release its
 /// startup flock) before giving up and reporting it as still-running.
 const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn stop_daemon() -> Result<()> {
-    // Try to gracefully shut down a running daemon without spawning one.
-    match crate::daemon::blocking::call_no_spawn("shutdown", serde_json::json!({})) {
-        Ok(_) => wait_for_daemon_exit(),
-        Err(_) => eprintln!("[tenex-edge] daemon was not running"),
-    }
+    request_daemon_shutdown();
     crate::daemon::set_inhibit();
     eprintln!(
         "[tenex-edge] hooks will not restart the daemon; \
-         run any non-hook command (e.g. `tenex-edge who`) to resume"
+         run `tenex-edge daemon restart` to resume"
     );
     Ok(())
+}
+
+async fn restart_daemon() -> Result<()> {
+    if !request_daemon_shutdown() {
+        bail!("daemon shutdown did not complete; refusing to start a second daemon")
+    }
+
+    crate::daemon::clear_inhibit();
+    let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
+    client.call("ping", serde_json::json!({})).await?;
+    eprintln!("[tenex-edge] daemon restarted");
+    Ok(())
+}
+
+/// Ask a running daemon to exit without spawning one. Returns whether it is
+/// safe for a caller to start a replacement daemon.
+fn request_daemon_shutdown() -> bool {
+    match crate::daemon::blocking::call_no_spawn("shutdown", serde_json::json!({})) {
+        Ok(_) => wait_for_daemon_exit(),
+        Err(_) => {
+            eprintln!("[tenex-edge] daemon was not running");
+            true
+        }
+    }
 }
 
 /// The RPC layer acks `shutdown` the instant it wakes the daemon's shutdown
@@ -170,25 +193,25 @@ fn stop_daemon() -> Result<()> {
 /// removed its socket, and dropped its startup flock. Poll that flock
 /// (non-blocking `try_acquire`) so `stop` doesn't return until the old
 /// process has genuinely exited and released it.
-fn wait_for_daemon_exit() {
+fn wait_for_daemon_exit() -> bool {
     let deadline = Instant::now() + DAEMON_SHUTDOWN_TIMEOUT;
     loop {
         match crate::daemon::client::StartupLock::try_acquire() {
             Ok(Some(_lock)) => {
                 eprintln!("[tenex-edge] daemon stopped");
-                return;
+                return true;
             }
             Ok(None) => {}
             Err(e) => {
                 eprintln!("[tenex-edge] daemon shutdown requested but could not confirm exit: {e}");
-                return;
+                return false;
             }
         }
         if Instant::now() >= deadline {
             eprintln!(
                 "[tenex-edge] daemon shutdown requested but it did not exit within {DAEMON_SHUTDOWN_TIMEOUT:?}"
             );
-            return;
+            return false;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -236,7 +259,7 @@ pub(super) async fn daemon_call_async(
 const HOOK_DAEMON_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Hook-path daemon call: returns `Ok(Null)` when the daemon is inhibited
-/// (after `tenex-edge stop`) so hooks fail open rather than spawning it.
+/// (after `tenex-edge daemon stop`) so hooks fail open rather than spawning it.
 pub(super) async fn daemon_call_hook_async(
     method: &str,
     params: serde_json::Value,
