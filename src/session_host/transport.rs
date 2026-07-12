@@ -149,15 +149,68 @@ impl TransportImpl {
 /// is always the PTY, preserving current behavior byte-for-byte. A bundle whose
 /// transport is `Acp`/`AppServer` selects [`AcpTransport`]; anything else
 /// (`Pty`/`HeadlessExec`) selects [`PtyTransport`].
+///
+/// Defect #3 contract: this launch-time entry point **fails open to the PTY**
+/// (with a loud `WARN`) when `harnesses.json` is missing or malformed, rather
+/// than aborting a launch that previously worked. A configured-but-unresolvable
+/// bundle is almost always a corrupt/edited config, and a bundle-carrying agent
+/// that used to launch on the PTY (its bundle resolving to `Pty`) must not be
+/// bricked by an unrelated config error. This mirrors the `agent_harness_bundle`
+/// "absent config => `None` => PTY" fail-open. The pure core
+/// [`select_transport_with`] / [`transport_kind_for`] stay fail-loud so the
+/// strict resolution contract remains unit-testable; only this IO wrapper softens
+/// it. The cost — a genuinely-ACP agent silently launching on the PTY under a
+/// corrupt config — surfaces loudly downstream (an ACP-only agent has no PTY
+/// `commands` entry, so the PTY launch then fails at command resolution).
 pub fn select_transport(bundle: Option<&str>) -> Result<TransportImpl> {
+    Ok(match resolve_kind_fail_open(bundle) {
+        TransportKind::Acp => TransportImpl::Acp(AcpTransport),
+        TransportKind::Pty => TransportImpl::Pty(PtyTransport),
+    })
+}
+
+/// Resolve the transport kind for an agent `slug` from its configured harness
+/// bundle, failing open to [`TransportKind::Pty`] on any resolution error
+/// (mirrors [`select_transport`]). Used by the transport-aware delivery path,
+/// which must classify a live session's endpoint as PTY vs. ACP.
+pub fn transport_kind_for_slug(slug: &str) -> TransportKind {
+    let bundle = crate::identity::agent_harness_bundle(&crate::config::edge_home(), slug);
+    resolve_kind_fail_open(bundle.as_deref())
+}
+
+/// Shared fail-open resolution: `None`/empty bundle => PTY (no config touched);
+/// otherwise load `harnesses.json` and resolve the kind, falling back to PTY with
+/// a `WARN` if the config is missing/malformed or the bundle is unresolvable.
+fn resolve_kind_fail_open(bundle: Option<&str>) -> TransportKind {
     // Short-circuit the no-bundle case WITHOUT touching harnesses.json: an agent
     // with no configured bundle always launches on the PTY, and must not be made
     // to depend on (or fail because of) a malformed harnesses.json it never uses.
     let Some(bundle) = bundle.filter(|b| !b.is_empty()) else {
-        return Ok(TransportImpl::Pty(PtyTransport));
+        return TransportKind::Pty;
     };
-    let cfg = HarnessesConfig::load()?;
-    select_transport_with(&cfg, Some(bundle))
+    resolve_kind_fail_open_with(bundle, HarnessesConfig::load())
+}
+
+/// Testable core of [`resolve_kind_fail_open`]: given a non-empty bundle and the
+/// (possibly failed) config load, resolve the kind, failing open to PTY with a
+/// `WARN` on any error (defect #3). Kept separate from the IO so the fail-open
+/// contract is unit-testable without touching the filesystem/`edge_home`.
+fn resolve_kind_fail_open_with(
+    bundle: &str,
+    cfg: anyhow::Result<HarnessesConfig>,
+) -> TransportKind {
+    match cfg.and_then(|cfg| transport_kind_for(&cfg, Some(bundle))) {
+        Ok(kind) => kind,
+        Err(e) => {
+            tracing::warn!(
+                bundle = %bundle,
+                error = %format!("{e:#}"),
+                "harness bundle transport resolution failed (missing/malformed harnesses.json?); \
+                 falling back to PTY transport"
+            );
+            TransportKind::Pty
+        }
+    }
 }
 
 /// Testable core of [`select_transport`] that takes the config explicitly.

@@ -8,6 +8,21 @@
 
 use serde_json::Value;
 
+/// How a between/mid-turn steer must be dispatched for an app-server session,
+/// derived from the running-turn state. Distinguishing `AwaitingId` from `Idle`
+/// is what closes defect #2: a turn that is running but whose id has not yet
+/// arrived must NOT be treated as "no turn" (which would start a second
+/// concurrent turn) — the steer waits for the id instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SteerState {
+    /// A turn is running and its id is known — steer it directly.
+    Ready(String),
+    /// A turn is running but its id has not been observed yet — gate until known.
+    AwaitingId,
+    /// No turn is running — a fresh turn may be started.
+    Idle,
+}
+
 /// Shared, lock-guarded state for one live RPC child.
 #[derive(Default)]
 pub(super) struct AcpRuntime {
@@ -53,12 +68,12 @@ impl AcpRuntime {
         self.turn_id = None;
     }
 
-    /// The live turn id to steer, if a turn is running and its id is known.
-    pub(super) fn steerable_turn(&self) -> Option<String> {
-        if self.turn_active {
-            self.turn_id.clone()
-        } else {
-            None
+    /// Classify how a steer must be dispatched given the running-turn state.
+    pub(super) fn steer_state(&self) -> SteerState {
+        match (self.turn_active, &self.turn_id) {
+            (true, Some(id)) => SteerState::Ready(id.clone()),
+            (true, None) => SteerState::AwaitingId,
+            (false, _) => SteerState::Idle,
         }
     }
 

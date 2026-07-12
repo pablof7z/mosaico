@@ -66,21 +66,22 @@ fn runtime_tracks_turn_lifecycle_and_transcript() {
         &json!({ "update": { "sessionUpdate": "agent_message_chunk",
                              "content": { "type": "text", "text": "abc" } } }),
     );
-    assert_eq!(rt.steerable_turn().as_deref(), Some("t9"));
+    assert_eq!(rt.steer_state(), SteerState::Ready("t9".into()));
     assert_eq!(rt.transcript(), "abc");
     // The turn ends: no longer steerable.
     rt.note_update("turn/completed", &json!({ "turnId": "t9" }));
-    assert_eq!(rt.steerable_turn(), None);
+    assert_eq!(rt.steer_state(), SteerState::Idle);
 }
 
 #[test]
 fn mark_helpers_flip_active_flag() {
     let mut rt = AcpRuntime::default();
     rt.mark_turn_started();
-    // Active but no id yet -> nothing to steer.
-    assert_eq!(rt.steerable_turn(), None);
+    // Active but no id yet -> gate the steer until the id is known (defect #2):
+    // must NOT read as Idle, which would start a second concurrent turn.
+    assert_eq!(rt.steer_state(), SteerState::AwaitingId);
     rt.note_update("x/update", &json!({ "turnId": "z" }));
-    assert_eq!(rt.steerable_turn().as_deref(), Some("z"));
+    assert_eq!(rt.steer_state(), SteerState::Ready("z".into()));
     rt.mark_turn_finished();
-    assert_eq!(rt.steerable_turn(), None);
+    assert_eq!(rt.steer_state(), SteerState::Idle);
 }

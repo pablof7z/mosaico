@@ -19,6 +19,20 @@ pub(crate) async fn launch(
         Some(p) => p,
         None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
+
+    // An agent whose harness bundle resolves to an RPC transport (ACP/app-server)
+    // is headless: there is no PTY to attach and no interactive command to select
+    // — its launch argv comes from the bundle. Dispatch it through the daemon
+    // (where the ACP child must live for mention delivery) instead of the
+    // client-side PTY supervisor. `-c <override>` forces the PTY path regardless.
+    if override_command.is_empty()
+        && crate::session_host::transport::transport_kind_for_slug(&agent)
+            == crate::session_host::transport::TransportKind::Acp
+    {
+        let channel = resolve_launch_channel(&root, &agent, channel).await?;
+        return launch_acp_headless(agent, root, channel, extra_args, prompt).await;
+    }
+
     let base_command = if override_command.is_empty() {
         super::launch_command::resolve_launch_command(&agent, command_name.as_deref(), &extra_args)?
     } else {
@@ -27,48 +41,7 @@ pub(crate) async fn launch(
     let extra_args =
         super::launch_command::extra_args_without_duplicate_suffix(&base_command, extra_args);
     let command = super::launch_command::append_launch_args(base_command.clone(), &extra_args);
-    // Show the interactive picker only when --channel "" is explicitly passed.
-    // A bare `tenex-edge launch <agent>` with no --channel defaults to the
-    // workspace channel.
-    let want_picker = matches!(channel, Some(ref s) if s.is_empty());
-    let channel = if want_picker {
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
-            anyhow::bail!(
-                "channel selection needs a TTY to open the interactive picker; \
-                 pass --channel <id> to scope into a specific channel non-interactively"
-            );
-        }
-        Some(pick_channel(&root, &agent).await?)
-    } else {
-        channel
-    };
-    // Resolve a channel NAME (or a literal id) to its opaque `channel_h` BEFORE
-    // spawning, so TENEX_EDGE_CHANNEL and provisioning both see ONE id (creating
-    // it if absent). A picker selection is already an id and round-trips unchanged.
-    // When no channel was specified, default to the workspace channel.
-    let channel = match channel {
-        None => Some(root.clone()),
-        Some(name) if !name.is_empty() => {
-            let v = super::super::daemon_call_async(
-                "channel_resolve",
-                serde_json::json!({
-                    "root": root.clone(),
-                    "name": name,
-                    "agent": agent.clone(),
-                    "create_if_absent": true,
-                }),
-            )
-            .await?;
-            Some(
-                v["channel_h"]
-                    .as_str()
-                    .context("channel_resolve did not return channel_h")?
-                    .to_string(),
-            )
-        }
-        other => other,
-    };
+    let channel = resolve_launch_channel(&root, &agent, channel).await?;
     let cwd = std::env::current_dir()
         .ok()
         .map(|p| p.to_string_lossy().to_string());
@@ -125,6 +98,90 @@ pub(crate) async fn launch(
         return Ok(());
     }
     crate::pty::attach(&meta.socket)
+}
+
+/// Resolve the launch channel shared by the PTY and ACP paths. `--channel ""`
+/// opens the interactive picker (TTY required); a bare launch defaults to the
+/// workspace channel; a name/id is resolved to its opaque `channel_h` (created if
+/// absent) BEFORE spawning, so TENEX_EDGE_CHANNEL and provisioning see one id.
+async fn resolve_launch_channel(
+    root: &str,
+    agent: &str,
+    channel: Option<String>,
+) -> Result<Option<String>> {
+    let want_picker = matches!(channel, Some(ref s) if s.is_empty());
+    let channel = if want_picker {
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!(
+                "channel selection needs a TTY to open the interactive picker; \
+                 pass --channel <id> to scope into a specific channel non-interactively"
+            );
+        }
+        Some(pick_channel(root, agent).await?)
+    } else {
+        channel
+    };
+    match channel {
+        None => Ok(Some(root.to_string())),
+        Some(name) if !name.is_empty() => {
+            let v = super::super::daemon_call_async(
+                "channel_resolve",
+                serde_json::json!({
+                    "root": root,
+                    "name": name,
+                    "agent": agent,
+                    "create_if_absent": true,
+                }),
+            )
+            .await?;
+            Ok(Some(
+                v["channel_h"]
+                    .as_str()
+                    .context("channel_resolve did not return channel_h")?
+                    .to_string(),
+            ))
+        }
+        other => Ok(other),
+    }
+}
+
+/// Launch a headless ACP/app-server agent through the daemon. The daemon opens
+/// and registers the RPC child (so the doorbell delivery path can reach it),
+/// synthesizes the launch argv from the harness bundle, appends `extra_args`, and
+/// — if a `--prompt` was given — opens the session on it. There is no TTY to
+/// attach; the agent thereafter responds to channel mentions.
+async fn launch_acp_headless(
+    agent: String,
+    root: String,
+    channel: Option<String>,
+    extra_args: Vec<String>,
+    prompt: Option<String>,
+) -> Result<()> {
+    let cwd = std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+    // Admission (the durable-agent reservation) is handled daemon-side by
+    // `spawn_agent`, so no client-side preflight reservation is taken here.
+    let mut params = serde_json::json!({
+        "agent": agent,
+        "root": root,
+        "command": extra_args,
+        "channel": channel,
+        "cwd": cwd,
+    });
+    if let Some(prompt) = prompt.filter(|s| !s.is_empty()) {
+        params["prompt"] = serde_json::Value::String(prompt);
+    }
+    let v = super::super::daemon_call_async("pty_spawn", params)
+        .await
+        .with_context(|| format!("headless ACP launch of agent {agent:?} failed"))?;
+    let session = v["pty_id"].as_str().unwrap_or_default();
+    eprintln!("[tenex-edge acp] session: {session}");
+    eprintln!(
+        "[tenex-edge acp] headless agent launched; it responds to channel mentions (no PTY to attach)"
+    );
+    Ok(())
 }
 
 /// Fetch all rooms under `root` and present an interactive fuzzy picker.

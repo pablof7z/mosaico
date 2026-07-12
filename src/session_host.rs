@@ -19,7 +19,9 @@ mod launch;
 mod registry;
 pub mod transport;
 
-pub use delivery::{inject_pending_messages_pty, inject_spawn_message, ring_doorbells};
+pub use delivery::{
+    deliver_spawn_prompt, inject_pending_messages_pty, inject_spawn_message, ring_doorbells,
+};
 pub(crate) use exec::{
     agent_supports_headless_exec, bind_native_id_from_log, spawn_agent_exec, ExecLaunch,
 };

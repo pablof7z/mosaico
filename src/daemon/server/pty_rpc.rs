@@ -89,6 +89,11 @@ struct PtySpawnParams {
     /// The resolved opaque channel id to scope the spawned session into.
     #[serde(default)]
     channel: Option<String>,
+    /// Optional initial prompt to open the fresh session on. Used by the headless
+    /// (ACP) launch path, where the child lives in the daemon and the client
+    /// cannot inject into it directly.
+    #[serde(default)]
+    prompt: Option<String>,
 }
 
 pub(super) async fn rpc_pty_spawn(
@@ -117,6 +122,15 @@ pub(super) async fn rpc_pty_spawn(
         client_cwd,
     )
     .await?;
+
+    // Deliver the initial prompt, if any, over the session's own transport. For a
+    // headless ACP launch this is the ONLY way the opening prompt reaches the
+    // child (it lives in the daemon, not the client). For a daemon-spawned PTY it
+    // matches the client-side `inject_spawn_message` behavior.
+    let prompt = p.prompt.filter(|s| !s.is_empty());
+    if let Some(prompt) = prompt.as_deref() {
+        crate::session_host::deliver_spawn_prompt(&p.agent, &pty_id, prompt).await;
+    }
     Ok(serde_json::json!({ "pty_id": pty_id, "agent": p.agent, "root": p.root }))
 }
 

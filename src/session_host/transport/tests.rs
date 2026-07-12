@@ -60,6 +60,50 @@ fn unknown_bundle_fails_loud() {
     assert!(transport_kind_for(&cfg, Some("not-a-harness")).is_err());
 }
 
+// ── defect #3: launch-time transport resolution fails open to PTY ─────────────
+
+#[test]
+fn fail_open_resolves_acp_bundle_when_config_loads() {
+    let json = r#"{ "claude-acp": { "harness": "claude", "transport": "acp" } }"#;
+    let cfg: crate::harness::config::HarnessesConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        resolve_kind_fail_open_with("claude-acp", Ok(cfg)),
+        TransportKind::Acp
+    );
+}
+
+#[test]
+fn fail_open_falls_back_to_pty_on_malformed_config() {
+    // A malformed harnesses.json surfaces as an Err from the loader. The launch
+    // path must NOT abort — it degrades to the PTY (a bundle-carrying agent that
+    // previously launched on the PTY keeps working under a corrupt config).
+    let load_err = Err(anyhow::anyhow!("parsing harnesses config: trailing comma"));
+    assert_eq!(
+        resolve_kind_fail_open_with("claude-acp", load_err),
+        TransportKind::Pty
+    );
+}
+
+#[test]
+fn fail_open_falls_back_to_pty_on_unknown_bundle() {
+    // Config loaded fine but the bundle is neither configured nor a built-in slug:
+    // strict resolution errors, fail-open degrades to PTY.
+    let cfg = crate::harness::config::HarnessesConfig::default();
+    assert_eq!(
+        resolve_kind_fail_open_with("not-a-harness", Ok(cfg)),
+        TransportKind::Pty
+    );
+}
+
+#[test]
+fn fail_open_builtin_slug_stays_pty() {
+    let cfg = crate::harness::config::HarnessesConfig::default();
+    assert_eq!(
+        resolve_kind_fail_open_with("claude", Ok(cfg)),
+        TransportKind::Pty
+    );
+}
+
 #[test]
 fn pty_transport_reports_pty_kind() {
     assert_eq!(PtyTransport.kind(), TransportKind::Pty);
@@ -141,6 +185,70 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
     );
     transport.kill(&ep).await.unwrap();
     std::env::remove_var("TENEX_EDGE_HOME");
+}
+
+/// LIVE: an ACP agent RECEIVES a delivered prompt. Launches a real `opencode acp`
+/// child, delivers a prompt via `AcpTransport::deliver` (the same call the
+/// transport-aware doorbell uses for ACP endpoints), then polls the captured
+/// transcript for assistant output — proof the prompt was actually received and
+/// answered. Gated so CI without opencode/auth skips it. Run with:
+///   TENEX_EDGE_RPC_LIVE=1 cargo test --lib -- --ignored \
+///     session_host::transport::transport_tests::live_acp_agent_receives_delivered_prompt
+#[tokio::test]
+#[ignore]
+async fn live_acp_agent_receives_delivered_prompt() {
+    if std::env::var("TENEX_EDGE_RPC_LIVE").ok().as_deref() != Some("1") {
+        eprintln!("skipping live test (set TENEX_EDGE_RPC_LIVE=1)");
+        return;
+    }
+    let home = std::env::temp_dir().join(format!("te-acp-deliver-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    std::env::set_var("TENEX_EDGE_HOME", &home);
+    std::fs::write(
+        home.join("harnesses.json"),
+        r#"{ "opencode-acp": { "harness": "opencode", "transport": "acp" } }"#,
+    )
+    .unwrap();
+
+    let transport = select_transport(Some("opencode-acp")).unwrap();
+    assert_eq!(transport.kind(), TransportKind::Acp);
+    let cwd = home.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let spec = LaunchSpec {
+        slug: "opencode-acp".into(),
+        root: "live".into(),
+        abs_path: cwd.to_string_lossy().into_owned(),
+        group: None,
+        ephemeral: true,
+        base_command: vec!["opencode".into()],
+    };
+    let endpoint = transport.launch(&spec).await.expect("launch opencode acp");
+    let ep = EndpointRef {
+        kind: endpoint.kind,
+        endpoint_id: endpoint.endpoint_id.clone(),
+    };
+
+    // `deliver` is fire-and-forget (returns before the turn completes); the reply
+    // streams back as `session/update` notifications the runtime folds into the
+    // transcript. Poll it for any assistant output.
+    transport
+        .deliver(&ep, "Reply with the single word: pong", true)
+        .await
+        .expect("deliver prompt to acp child");
+    let mut got = String::new();
+    for _ in 0..120 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        got = super::acp::transcript_snapshot(&endpoint.endpoint_id).unwrap_or_default();
+        if !got.trim().is_empty() {
+            break;
+        }
+    }
+    transport.kill(&ep).await.unwrap();
+    std::env::remove_var("TENEX_EDGE_HOME");
+    assert!(
+        !got.trim().is_empty(),
+        "acp agent produced no output for the delivered prompt"
+    );
 }
 
 #[tokio::test]

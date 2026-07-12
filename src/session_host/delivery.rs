@@ -6,7 +6,27 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 mod prompt;
-use prompt::inject_planned_messages_pty;
+use crate::session_host::transport::{
+    transport_kind_for_slug, AcpTransport, EndpointRef, SessionTransport, TransportKind,
+};
+use prompt::{inject_planned_messages_acp, inject_planned_messages_pty};
+
+#[cfg(test)]
+#[path = "delivery/tests.rs"]
+mod delivery_tests;
+
+/// Liveness of a session's recorded endpoint, dispatched by transport. The
+/// endpoint id lives under the same `pty_session` alias for both transports; only
+/// the liveness probe differs (PTY unix socket vs. registered ACP child).
+fn endpoint_is_live(kind: TransportKind, endpoint_id: &str) -> bool {
+    match kind {
+        TransportKind::Pty => crate::pty::is_live(endpoint_id),
+        TransportKind::Acp => AcpTransport.is_live(&EndpointRef {
+            kind: TransportKind::Acp,
+            endpoint_id: endpoint_id.to_string(),
+        }),
+    }
+}
 
 /// How long to wait after `session_start` fires before typing into the PTY.
 /// The hook fires early in harness startup; we need to wait until the input
@@ -50,6 +70,41 @@ pub async fn inject_spawn_message(pty_id: &str, text: &str) -> Result<()> {
 
     crate::pty::inject(pty_id, text, true, true)?;
     Ok(())
+}
+
+/// Deliver a fresh session's opening prompt over whichever transport hosts it:
+/// ACP via a JSON-RPC `deliver` (submit=true → a fresh turn), PTY via the
+/// bracketed-paste spawn inject. The ACP child lives in the daemon registry, so
+/// this MUST run in the daemon (the caller that spawned it). Failures are logged,
+/// not propagated: the session is already live and can still receive mentions via
+/// the doorbell path.
+pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &str) {
+    match transport_kind_for_slug(agent_slug) {
+        TransportKind::Acp => {
+            let ep = EndpointRef {
+                kind: TransportKind::Acp,
+                endpoint_id: endpoint_id.to_string(),
+            };
+            if let Err(e) = AcpTransport.deliver(&ep, text, true).await {
+                tracing::warn!(
+                    agent = %agent_slug,
+                    endpoint = %endpoint_id,
+                    error = %format!("{e:#}"),
+                    "failed to deliver ACP spawn prompt"
+                );
+            }
+        }
+        TransportKind::Pty => {
+            if let Err(e) = inject_spawn_message(endpoint_id, text).await {
+                tracing::warn!(
+                    agent = %agent_slug,
+                    endpoint = %endpoint_id,
+                    error = %format!("{e:#}"),
+                    "failed to inject PTY spawn prompt"
+                );
+            }
+        }
+    }
 }
 
 pub async fn inject_pending_messages_pty(
@@ -160,16 +215,23 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             }
         };
 
-        let pty_id = aliases
+        // The transport that hosts this session decides how its endpoint is
+        // probed for liveness AND how a mention is delivered (PTY bracketed paste
+        // vs. ACP JSON-RPC). The reconciler's `pty_id`/`pty_live` fields are the
+        // transport-neutral "endpoint id / endpoint live" inputs.
+        let kind = transport_kind_for_slug(&rec.agent_slug);
+        let endpoint_id = aliases
             .iter()
             .find(|a| a.external_id_kind == "pty_session")
             .map(|a| a.external_id.clone());
-        let pty_live = pty_id.as_deref().is_some_and(crate::pty::is_live);
+        let endpoint_live = endpoint_id
+            .as_deref()
+            .is_some_and(|id| endpoint_is_live(kind, id));
         let fact = delivery_scan_fact(
             &rec,
             pending.into_iter().map(|row| row.event_id).collect(),
-            pty_id,
-            pty_live,
+            endpoint_id,
+            endpoint_live,
             false,
         );
         let effects = match state.drive_delivery_scan("doorbell", fact) {
@@ -184,7 +246,7 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
                 continue;
             }
         };
-        apply_delivery_effects(state, &rec, effects).await;
+        apply_delivery_effects(state, &rec, kind, effects).await;
     }
     Ok(())
 }
@@ -192,31 +254,50 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
 async fn apply_delivery_effects(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
+    kind: TransportKind,
     effects: Vec<crate::reconcile::DeliveryEffect>,
 ) {
     for effect in effects {
         match effect {
             crate::reconcile::DeliveryEffect::Inject {
                 session_id,
-                pty_id,
+                pty_id: endpoint_id,
                 event_ids,
-            } => match inject_planned_messages_pty(state, rec, &pty_id, &event_ids).await {
-                Ok(true) => {
-                    record_message_injection(&session_id);
-                    if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
-                        eprintln!(
-                                "[pty] pending messages injected into session {pty_id} for {session_id}"
-                            );
+            } => {
+                // Route the rendered mention to the transport hosting this
+                // endpoint: ACP endpoints get a JSON-RPC `deliver`, PTY endpoints
+                // the bracketed-paste inject. The reconciler's `pty_id` is the
+                // transport-neutral endpoint id.
+                let result = match kind {
+                    TransportKind::Pty => {
+                        inject_planned_messages_pty(state, rec, &endpoint_id, &event_ids).await
                     }
+                    TransportKind::Acp => {
+                        inject_planned_messages_acp(state, rec, &endpoint_id, &event_ids).await
+                    }
+                };
+                match result {
+                    Ok(true) => {
+                        record_message_injection(&session_id);
+                        if std::env::var("TENEX_EDGE_DEBUG").is_ok() {
+                            eprintln!(
+                                "[{}] pending messages delivered to endpoint {endpoint_id} for {session_id}",
+                                kind.as_str()
+                            );
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => state.emit_delivery_failure(
+                        &rec.channel_h,
+                        &rec.agent_slug,
+                        &session_id,
+                        format!(
+                            "pending message delivery failed for {} endpoint {endpoint_id}: {e:#}",
+                            kind.as_str()
+                        ),
+                    ),
                 }
-                Ok(false) => {}
-                Err(e) => state.emit_delivery_failure(
-                    &rec.channel_h,
-                    &rec.agent_slug,
-                    &session_id,
-                    format!("pending message injection failed for pty {pty_id}: {e:#}"),
-                ),
-            },
+            }
             crate::reconcile::DeliveryEffect::RetryAfter {
                 session_id,
                 delay_secs,

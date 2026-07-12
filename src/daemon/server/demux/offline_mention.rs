@@ -223,7 +223,7 @@ pub(super) async fn handle(
     {
         Ok(pty_id) => {
             tracing::info!(agent = %agent_slug, pty_id = %pty_id, channel, "agent spawned successfully");
-            inject_spawn_prompt(agent_slug.clone(), channel.to_string(), pty_id, body);
+            inject_spawn_prompt(agent_slug.clone(), pty_id, body);
         }
         Err(e) => {
             tracing::warn!(agent = %agent_slug, channel, error = %e, "agent spawn failed");
@@ -269,11 +269,13 @@ fn notice_context(
     }
 }
 
-fn inject_spawn_prompt(agent: String, channel: String, pty_id: String, body: &str) {
+fn inject_spawn_prompt(agent: String, pty_id: String, body: &str) {
     let prompt = mention_prompt(body);
+    // Transport-aware: an ACP spawn's child lives in the daemon registry and is
+    // driven over JSON-RPC; a PTY spawn is bracketed-paste injected. The endpoint
+    // id (`pty_id`) is the same alias value for both. `deliver_spawn_prompt` logs
+    // its own failures, so the fresh-spawn mention is never silently PTY-only.
     tokio::spawn(async move {
-        if let Err(e) = crate::session_host::inject_spawn_message(&pty_id, &prompt).await {
-            tracing::warn!(agent = %agent, channel = %channel, pty_id = %pty_id, error = %e, "failed to inject mention prompt into fresh PTY spawn");
-        }
+        crate::session_host::deliver_spawn_prompt(&agent, &pty_id, &prompt).await;
     });
 }
