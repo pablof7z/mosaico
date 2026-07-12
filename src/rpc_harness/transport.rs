@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::callbacks::Callbacks;
 use super::io_tasks::{reader_task, stderr_task, writer_task};
@@ -69,6 +69,10 @@ pub struct RpcHandle {
     turn_waiters: TurnWaiters,
     alive: Arc<AtomicBool>,
     child: Arc<tokio::sync::Mutex<Child>>,
+    /// Flips to `true` exactly once when the child's stdout closes (reader EOF)
+    /// or `kill()` is called. A reaper task awaits this to remove the child from
+    /// its registry and `wait()` the zombie — no per-child polling.
+    exit: watch::Receiver<bool>,
     pub dialect: Dialect,
     pub pid: Option<u32>,
 }
@@ -105,6 +109,7 @@ impl RpcHandle {
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let turn_waiters: TurnWaiters = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
+        let (exit_tx, exit_rx) = watch::channel(false);
 
         // Writer task.
         tokio::spawn(writer_task(stdin, write_rx));
@@ -119,6 +124,7 @@ impl RpcHandle {
             update_tx,
             cfg.callbacks,
             alive.clone(),
+            exit_tx,
         ));
 
         Ok((
@@ -129,6 +135,7 @@ impl RpcHandle {
                 turn_waiters,
                 alive,
                 child: Arc::new(tokio::sync::Mutex::new(child)),
+                exit: exit_rx,
                 dialect: cfg.dialect,
                 pid,
             },
@@ -219,7 +226,24 @@ impl RpcHandle {
         self.alive.load(Ordering::Relaxed)
     }
 
-    /// Kill the child process.
+    /// Await the child's exit (stdout EOF or `kill()`), then `wait()` it so the
+    /// OS releases the zombie. Returns promptly if the child has already exited.
+    /// A single reaper task per child owns this; it never blocks `kill()` because
+    /// it only takes the child lock *after* the exit signal fires, by which point
+    /// the process is already terminating.
+    pub async fn wait_exit(&self) {
+        let mut rx = self.exit.clone();
+        // If not yet dead, wait for the flip; ignore a closed sender (means the
+        // reader task dropped after signalling).
+        if !*rx.borrow() {
+            let _ = rx.wait_for(|dead| *dead).await;
+        }
+        let mut child = self.child.lock().await;
+        let _ = child.wait().await;
+    }
+
+    /// Kill the child process. The reader task observes the resulting stdout EOF
+    /// and fires the exit signal, which the reaper turns into a `wait()`.
     pub async fn kill(&self) {
         self.alive.store(false, Ordering::Relaxed);
         let mut child = self.child.lock().await;

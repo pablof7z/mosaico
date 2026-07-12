@@ -2,19 +2,30 @@
 //! use `src/pty/*`. ACP has no unix socket, so liveness = child alive; the
 //! per-session child lives in a process-global registry keyed by our endpoint
 //! id.
+//!
+//! Lifecycle: `open`/`resume` spawn the child, register it, and start two tasks
+//! per child — an update-drain task that folds the `session/update` stream into
+//! [`AcpRuntime`] (transcript + running-turn tracking), and a reaper that awaits
+//! child exit, then drops the registry entry and `wait()`s the zombie. Without
+//! the reaper a self-exiting child leaks its entry and a zombie (the daemon
+//! RAM-leak pattern), so it is not optional.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
+use tokio::sync::mpsc;
 
+use super::acp_runtime::AcpRuntime;
 use super::{
     EndpointRef, LaunchSpec, ResumeSpec, SessionEndpoint, SessionTransport, TransportKind,
 };
-use crate::harness::{self, Transport};
+use crate::harness::{self, config::HarnessesConfig, Transport};
 use crate::rpc_harness::{
     spawn_config_from_driver, AcpClient, AppServerClient, Callbacks, Dialect, RpcHandle,
+    SessionUpdate,
 };
+use crate::session::Harness;
 
 /// A live ACP/app-server child plus its native session token.
 struct AcpChild {
@@ -22,6 +33,8 @@ struct AcpChild {
     /// ACP `sessionId` or app-server `threadId`.
     native_id: String,
     cwd: std::path::PathBuf,
+    /// Captured transcript + running-turn state, fed by the update-drain task.
+    runtime: Arc<Mutex<AcpRuntime>>,
 }
 
 fn registry() -> &'static Mutex<HashMap<String, AcpChild>> {
@@ -41,14 +54,28 @@ pub struct AcpOpen {
 
 impl AcpTransport {
     /// Resolve the harness bundle for `slug` and spawn its RPC child, returning
-    /// the live handle + dialect. Shared by launch/resume.
+    /// the live handle + dialect + the update stream. Shared by launch/resume.
     async fn spawn_child(
         spec: &LaunchSpec,
-    ) -> Result<(RpcHandle, Dialect, harness::ResolvedHarness)> {
-        let scratch = crate::config::edge_home()
-            .join("harness-profiles")
-            .join(&spec.slug);
-        let resolved = harness::resolve(&spec.slug, &scratch)
+    ) -> Result<(RpcHandle, Dialect, mpsc::Receiver<SessionUpdate>)> {
+        let cwd = std::path::PathBuf::from(&spec.abs_path);
+        // Profile placement (defect #5): a CwdSettingsFile profile must land where
+        // the harness actually reads it. The claude-code-acp adapter reads
+        // `<cwd>/.claude/settings.json` and ignores `--settings`, so its profile
+        // scratch dir MUST be the session cwd — an out-of-tree scratch would never
+        // be consulted. opencode instead reads `OPENCODE_CONFIG` (pointed at an
+        // out-of-tree scratch), so it stays there and never clobbers a repo file.
+        let cfg = HarnessesConfig::load()?;
+        let harness_kind = harness::bundle_harness_with(&cfg, &spec.slug)
+            .with_context(|| format!("resolving harness for bundle {:?}", spec.slug))?;
+        let scratch = if harness_kind == Harness::ClaudeCode {
+            cwd.clone()
+        } else {
+            crate::config::edge_home()
+                .join("harness-profiles")
+                .join(&spec.slug)
+        };
+        let resolved = harness::resolve_with(&cfg, &spec.slug, &scratch)
             .with_context(|| format!("resolving harness bundle {:?}", spec.slug))?;
         if !matches!(resolved.transport, Transport::Acp | Transport::AppServer) {
             anyhow::bail!(
@@ -66,7 +93,6 @@ impl AcpTransport {
             std::fs::write(path, contents)
                 .with_context(|| format!("writing profile file {}", path.display()))?;
         }
-        let cwd = std::path::PathBuf::from(&spec.abs_path);
         let callbacks = Callbacks::allow_all(cwd.clone());
         let cfg = spawn_config_from_driver(
             resolved.driver,
@@ -76,22 +102,36 @@ impl AcpTransport {
             callbacks,
         )?;
         let dialect = cfg.dialect;
-        let (handle, _updates) = RpcHandle::spawn(cfg)
+        let (handle, updates) = RpcHandle::spawn(cfg)
             .await
             .map_err(|e| anyhow::anyhow!("spawning RPC harness for {:?}: {e}", spec.slug))?;
-        Ok((handle, dialect, resolved))
+        Ok((handle, dialect, updates))
     }
 
     fn endpoint_id(slug: &str) -> String {
+        // Must be unique across every concurrent session — two same-slug sessions
+        // launched in the same wall-clock second would otherwise collide, silently
+        // evicting one from the registry and mis-targeting its reaper (defect #1).
+        // A process-global monotonic counter makes the id collision-free.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
         let now = crate::util::now_secs();
-        format!("te-acp-{slug}-{now}-{}", std::process::id())
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        format!("te-acp-{slug}-{now}-{}-{seq}", std::process::id())
     }
 
-    fn synth_meta(spec: &LaunchSpec, endpoint_id: &str) -> crate::pty::LaunchMetadata {
+    fn synth_meta(
+        spec: &LaunchSpec,
+        endpoint_id: &str,
+        pid: Option<u32>,
+    ) -> crate::pty::LaunchMetadata {
         crate::pty::LaunchMetadata {
             id: endpoint_id.to_string(),
             socket: String::new(),
-            supervisor_pid: 0,
+            // ACP has no PTY supervisor; the child *is* the process the daemon
+            // must watch for liveness, so carry its pid here (bootstrap turns
+            // `supervisor_pid` into the session's `watch_pid`).
+            supervisor_pid: pid.unwrap_or(0),
             agent: spec.slug.clone(),
             root: spec.root.clone(),
             cwd: spec.abs_path.clone(),
@@ -100,9 +140,50 @@ impl AcpTransport {
         }
     }
 
+    /// Register a freshly-opened child: store it, drain its update stream into a
+    /// shared [`AcpRuntime`], and start the reaper that reclaims it on exit.
+    fn register_child(
+        endpoint_id: &str,
+        handle: RpcHandle,
+        native_id: String,
+        cwd: std::path::PathBuf,
+        mut updates: mpsc::Receiver<SessionUpdate>,
+    ) {
+        let runtime = Arc::new(Mutex::new(AcpRuntime::default()));
+        // Update-drain task (defect #6): keep the receiver alive and fold each
+        // notification into the runtime so RPC sessions capture a transcript and
+        // track the live turn id.
+        let rt_updates = runtime.clone();
+        tokio::spawn(async move {
+            while let Some(u) = updates.recv().await {
+                if let Ok(mut rt) = rt_updates.lock() {
+                    rt.note_update(&u.method, &u.params);
+                }
+            }
+        });
+        // Reaper task (defect #1): await child exit, drop the registry entry, and
+        // `wait()` the zombie.
+        let reaper_handle = handle.clone();
+        let reaper_id = endpoint_id.to_string();
+        tokio::spawn(async move {
+            reaper_handle.wait_exit().await;
+            registry().lock().unwrap().remove(&reaper_id);
+            tracing::debug!(endpoint = %reaper_id, "acp child exited; registry entry reaped");
+        });
+        registry().lock().unwrap().insert(
+            endpoint_id.to_string(),
+            AcpChild {
+                handle,
+                native_id,
+                cwd,
+                runtime,
+            },
+        );
+    }
+
     /// Open a fresh session and register it; returns the open descriptor.
     pub async fn open(&self, spec: &LaunchSpec) -> Result<AcpOpen> {
-        let (handle, dialect, _resolved) = Self::spawn_child(spec).await?;
+        let (handle, dialect, updates) = Self::spawn_child(spec).await?;
         let cwd = std::path::PathBuf::from(&spec.abs_path);
         let native_id = match dialect {
             Dialect::Acp => {
@@ -130,14 +211,7 @@ impl AcpTransport {
         };
         let endpoint_id = Self::endpoint_id(&spec.slug);
         let pid = handle.pid;
-        registry().lock().unwrap().insert(
-            endpoint_id.clone(),
-            AcpChild {
-                handle,
-                native_id: native_id.clone(),
-                cwd,
-            },
-        );
+        Self::register_child(&endpoint_id, handle, native_id.clone(), cwd, updates);
         Ok(AcpOpen {
             endpoint_id,
             native_id,
@@ -157,7 +231,7 @@ impl SessionTransport for AcpTransport {
             kind: TransportKind::Acp,
             endpoint_id: open.endpoint_id.clone(),
             watch_pid: open.pid.and_then(|p| i32::try_from(p).ok()),
-            meta: Self::synth_meta(spec, &open.endpoint_id),
+            meta: Self::synth_meta(spec, &open.endpoint_id, open.pid),
         })
     }
 
@@ -165,7 +239,7 @@ impl SessionTransport for AcpTransport {
         if resume.native_id.is_empty() {
             anyhow::bail!("session has no resume token (not resumable)");
         }
-        let (handle, dialect, _resolved) = Self::spawn_child(spec).await?;
+        let (handle, dialect, updates) = Self::spawn_child(spec).await?;
         let cwd = std::path::PathBuf::from(&spec.abs_path);
         match dialect {
             Dialect::Acp => {
@@ -193,25 +267,18 @@ impl SessionTransport for AcpTransport {
         }
         let endpoint_id = Self::endpoint_id(&spec.slug);
         let pid = handle.pid;
-        registry().lock().unwrap().insert(
-            endpoint_id.clone(),
-            AcpChild {
-                handle,
-                native_id: resume.native_id.clone(),
-                cwd,
-            },
-        );
+        Self::register_child(&endpoint_id, handle, resume.native_id.clone(), cwd, updates);
         Ok(SessionEndpoint {
             kind: TransportKind::Acp,
             endpoint_id: endpoint_id.clone(),
             watch_pid: pid.and_then(|p| i32::try_from(p).ok()),
-            meta: Self::synth_meta(spec, &endpoint_id),
+            meta: Self::synth_meta(spec, &endpoint_id, pid),
         })
     }
 
     async fn deliver(&self, ep: &EndpointRef, text: &str, submit: bool) -> Result<()> {
         // Snapshot the pieces we need without holding the lock across await.
-        let (handle, native_id, dialect) = {
+        let (handle, native_id, dialect, runtime) = {
             let reg = registry().lock().unwrap();
             let child = reg
                 .get(&ep.endpoint_id)
@@ -220,38 +287,40 @@ impl SessionTransport for AcpTransport {
                 child.handle.clone(),
                 child.native_id.clone(),
                 child.handle.dialect,
+                child.runtime.clone(),
             )
         };
-        match (dialect, submit) {
-            (Dialect::Acp, _) => {
-                // ACP has no steer RPC; both submit and non-submit map to a
-                // fresh prompt (between-turns delivery).
-                let client = AcpClient::new(handle);
-                client
-                    .session_prompt(&native_id, text)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("ACP session/prompt: {e}"))?;
-                Ok(())
+        // Fire-and-forget (defect #3): injecting a prompt/turn must return
+        // promptly like `PtyTransport::deliver`, never block for the whole turn
+        // (up to 300s). The turn runs in a detached task; its outcome is logged.
+        let text = text.to_string();
+        match dialect {
+            Dialect::Acp => {
+                // ACP has no steer RPC; both submit and non-submit map to a fresh
+                // prompt (between-turns delivery).
+                if let Ok(mut rt) = runtime.lock() {
+                    rt.mark_turn_started();
+                }
+                spawn_acp_prompt(handle, native_id, text, runtime);
             }
-            (Dialect::AppServer, true) => {
-                let client = AppServerClient::new(handle);
-                client
-                    .turn_start(&native_id, text)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("app-server turn/start: {e}"))?;
-                Ok(())
-            }
-            (Dialect::AppServer, false) => {
-                // Mid-turn steer needs the running turn id, which we do not track
-                // here; fall back to starting a fresh turn.
-                let client = AppServerClient::new(handle);
-                client
-                    .turn_start(&native_id, text)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("app-server turn/start (steer fallback): {e}"))?;
-                Ok(())
+            Dialect::AppServer => {
+                let steer = if submit {
+                    None
+                } else {
+                    runtime.lock().ok().and_then(|rt| rt.steerable_turn())
+                };
+                match steer {
+                    Some(turn_id) => spawn_app_server_steer(handle, native_id, turn_id, text),
+                    None => {
+                        if let Ok(mut rt) = runtime.lock() {
+                            rt.mark_turn_started();
+                        }
+                        spawn_app_server_turn(handle, native_id, text, runtime);
+                    }
+                }
             }
         }
+        Ok(())
     }
 
     fn is_live(&self, ep: &EndpointRef) -> bool {
@@ -264,9 +333,12 @@ impl SessionTransport for AcpTransport {
     }
 
     async fn kill(&self, ep: &EndpointRef) -> Result<()> {
+        // Remove eagerly so a concurrent is_live() stops reporting it; the reaper
+        // (which may also fire on the resulting exit) tolerates a missing entry.
         let child = registry().lock().unwrap().remove(&ep.endpoint_id);
         if let Some(child) = child {
             let _ = child.cwd; // retained for parity/debugging
+            let _ = child.runtime;
             if child.handle.dialect == Dialect::Acp {
                 AcpClient::new(child.handle.clone())
                     .session_cancel(&child.native_id)
@@ -277,3 +349,64 @@ impl SessionTransport for AcpTransport {
         Ok(())
     }
 }
+
+/// A snapshot of the captured assistant transcript for an ACP endpoint, if it is
+/// still registered. Used by the status distiller for RPC-hosted sessions.
+pub fn transcript_snapshot(endpoint_id: &str) -> Option<String> {
+    let reg = registry().lock().unwrap();
+    let child = reg.get(endpoint_id)?;
+    child.runtime.lock().ok().map(|rt| rt.transcript())
+}
+
+fn spawn_acp_prompt(
+    handle: RpcHandle,
+    native_id: String,
+    text: String,
+    runtime: Arc<Mutex<AcpRuntime>>,
+) {
+    tokio::spawn(async move {
+        let res = AcpClient::new(handle)
+            .session_prompt(&native_id, &text)
+            .await;
+        if let Ok(mut rt) = runtime.lock() {
+            rt.mark_turn_finished();
+        }
+        if let Err(e) = res {
+            tracing::warn!(session = %native_id, "ACP session/prompt failed: {e}");
+        }
+    });
+}
+
+fn spawn_app_server_turn(
+    handle: RpcHandle,
+    native_id: String,
+    text: String,
+    runtime: Arc<Mutex<AcpRuntime>>,
+) {
+    tokio::spawn(async move {
+        let res = AppServerClient::new(handle)
+            .turn_start(&native_id, &text)
+            .await;
+        if let Ok(mut rt) = runtime.lock() {
+            rt.mark_turn_finished();
+        }
+        if let Err(e) = res {
+            tracing::warn!(thread = %native_id, "app-server turn/start failed: {e}");
+        }
+    });
+}
+
+fn spawn_app_server_steer(handle: RpcHandle, native_id: String, turn_id: String, text: String) {
+    tokio::spawn(async move {
+        if let Err(e) = AppServerClient::new(handle)
+            .turn_steer(&native_id, &turn_id, &text)
+            .await
+        {
+            tracing::warn!(thread = %native_id, turn = %turn_id, "app-server turn/steer failed: {e}");
+        }
+    });
+}
+
+#[cfg(test)]
+#[path = "acp_reaper_tests.rs"]
+mod acp_reaper_tests;

@@ -42,6 +42,45 @@ pub fn resolve(bundle: &str, session_scratch: &Path) -> anyhow::Result<ResolvedH
     resolve_with(&cfg, bundle, session_scratch)
 }
 
+/// Resolve just the [`Transport`] a bundle drives, without planning its profile
+/// or argv. Used by transport selection, which only needs the capability axis.
+/// Fails loud on the same conditions as [`resolve`] (unknown bundle that is not
+/// a built-in harness slug).
+pub fn bundle_transport_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Transport> {
+    match cfg.get(bundle) {
+        Some(b) => Ok(b.transport),
+        None => {
+            let harness = Harness::from_str(bundle);
+            if harness == Harness::Unknown {
+                anyhow::bail!(
+                    "no harness bundle {bundle:?} in harnesses.json and it is not a built-in \
+                     harness slug (claude|codex|opencode|grok)"
+                );
+            }
+            // Built-in default: bundle name IS a harness slug -> interactive PTY.
+            Ok(Transport::Pty)
+        }
+    }
+}
+
+/// Resolve just the [`Harness`] a bundle drives (the underlying CLI), without
+/// planning its profile. Mirrors [`bundle_transport_with`]'s fallback rules.
+pub fn bundle_harness_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Harness> {
+    match cfg.get(bundle) {
+        Some(b) => Ok(b.harness),
+        None => {
+            let harness = Harness::from_str(bundle);
+            if harness == Harness::Unknown {
+                anyhow::bail!(
+                    "no harness bundle {bundle:?} in harnesses.json and it is not a built-in \
+                     harness slug (claude|codex|opencode|grok)"
+                );
+            }
+            Ok(harness)
+        }
+    }
+}
+
 /// Testable core of [`resolve`] that takes the config explicitly.
 pub fn resolve_with(
     cfg: &HarnessesConfig,

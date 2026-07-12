@@ -20,8 +20,9 @@ pub use commands::{LaunchCommand, DEFAULT_COMMAND_NAME};
 pub use keys::{derive_session_keys_v2, SessionIdentity};
 pub(crate) use local_agent::add_local_agent_with_commands;
 pub use local_agent::{
-    add_local_agent, list_invitable_agents, list_local_agent_details, list_local_agents,
-    list_local_pubkeys, remove_local_agent, set_local_agent_byline, LocalAgent, SpawnAgentEntry,
+    add_local_agent, agent_harness_bundle, list_invitable_agents, list_local_agent_details,
+    list_local_agents, list_local_pubkeys, remove_local_agent, set_local_agent_byline, LocalAgent,
+    SpawnAgentEntry,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,6 +47,12 @@ struct StoredKey {
     /// The default keeps the normal per-session derived-key contract.
     #[serde(default = "default_per_session_key", rename = "perSessionKey")]
     per_session_key: bool,
+    /// Name of the `~/.tenex-edge/harnesses.json` bundle that hosts this agent.
+    /// `None` (the default) means the built-in PTY spawn — behavior is unchanged
+    /// for every agent that does not opt into a bundle. A bundle whose transport
+    /// is `acp`/`app-server` launches the agent over the RPC transport instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    harness: Option<String>,
 }
 
 const fn default_per_session_key() -> bool {
@@ -78,6 +85,9 @@ pub struct AgentIdentity {
     pub keys: Keys,
     pub commands: Vec<LaunchCommand>,
     pub per_session_key: bool,
+    /// Configured harness bundle name (see [`StoredKey::harness`]); `None` for the
+    /// built-in PTY spawn.
+    pub harness: Option<String>,
 }
 
 impl AgentIdentity {
@@ -135,6 +145,7 @@ pub fn load_or_create_with_command(
             keys,
             commands: commands::normalize_commands(stored.commands),
             per_session_key: stored.per_session_key,
+            harness: stored.harness,
         });
     }
 
@@ -152,6 +163,7 @@ pub fn load_or_create_with_command(
         agent: None,
         byline: None,
         per_session_key: true,
+        harness: None,
     };
     std::fs::create_dir_all(agents_dir(edge_home))
         .with_context(|| format!("creating {}", agents_dir(edge_home).display()))?;
@@ -163,6 +175,7 @@ pub fn load_or_create_with_command(
         keys,
         commands: stored.commands,
         per_session_key: stored.per_session_key,
+        harness: stored.harness,
     })
 }
 

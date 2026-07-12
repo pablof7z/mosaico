@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use super::callbacks::Callbacks;
 use super::protocol::{classify, Inbound, RpcErrorObject, SessionUpdate};
@@ -42,6 +42,7 @@ pub(super) async fn reader_task(
     update_tx: mpsc::Sender<SessionUpdate>,
     callbacks: Callbacks,
     alive: Arc<AtomicBool>,
+    exit_tx: watch::Sender<bool>,
 ) {
     let mut reader = BufReader::new(stdout).lines();
     // `while let Ok(Some(..))` exits on both EOF (`Ok(None)`) and read error.
@@ -66,6 +67,9 @@ pub(super) async fn reader_task(
     }
     // Child stream closed: mark dead + fail all pending waiters.
     alive.store(false, Ordering::Relaxed);
+    // Signal the reaper that the child has exited so it can `wait()` the zombie
+    // and drop the process-global registry entry. Ignore a closed receiver.
+    let _ = exit_tx.send(true);
     let drained: Vec<_> = pending.lock().unwrap().drain().collect();
     for (_, tx) in drained {
         let _ = tx.send(Err(RpcErrorObject {

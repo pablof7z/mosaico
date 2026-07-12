@@ -10,9 +10,12 @@
 //! The [`SessionTransport`] trait documents the contract each backend fulfils.
 
 pub mod acp;
+mod acp_runtime;
 pub mod pty;
 
 use anyhow::Result;
+
+use crate::harness::{self, config::HarnessesConfig, Transport};
 
 /// Which transport hosts a session. Stringifies to `"pty"` / `"acp"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,12 +142,43 @@ impl TransportImpl {
     }
 }
 
-/// Phase-1 selector: PTY for every harness (behavior unchanged). The
-/// per-agent `(harness, transport)` selection that would return `Acp` is the
-/// deferred post-#380 rebase; until then callers that want ACP construct
-/// `AcpTransport` explicitly (e.g. the `__acp-smoke` debug command).
-pub fn select_transport(_slug: &str) -> TransportImpl {
-    TransportImpl::Pty(PtyTransport)
+/// Pick the transport for an agent from its configured harness bundle.
+///
+/// `bundle` is the agent's `harness` field (a `harnesses.json` bundle name), or
+/// `None` when the agent has no bundle configured — in which case the transport
+/// is always the PTY, preserving current behavior byte-for-byte. A bundle whose
+/// transport is `Acp`/`AppServer` selects [`AcpTransport`]; anything else
+/// (`Pty`/`HeadlessExec`) selects [`PtyTransport`].
+pub fn select_transport(bundle: Option<&str>) -> Result<TransportImpl> {
+    // Short-circuit the no-bundle case WITHOUT touching harnesses.json: an agent
+    // with no configured bundle always launches on the PTY, and must not be made
+    // to depend on (or fail because of) a malformed harnesses.json it never uses.
+    let Some(bundle) = bundle.filter(|b| !b.is_empty()) else {
+        return Ok(TransportImpl::Pty(PtyTransport));
+    };
+    let cfg = HarnessesConfig::load()?;
+    select_transport_with(&cfg, Some(bundle))
+}
+
+/// Testable core of [`select_transport`] that takes the config explicitly.
+pub fn select_transport_with(cfg: &HarnessesConfig, bundle: Option<&str>) -> Result<TransportImpl> {
+    Ok(match transport_kind_for(cfg, bundle)? {
+        TransportKind::Acp => TransportImpl::Acp(AcpTransport),
+        TransportKind::Pty => TransportImpl::Pty(PtyTransport),
+    })
+}
+
+/// Resolve a bundle name to the [`TransportKind`] that will host it. `None`/empty
+/// bundle => `Pty`. Fails loud if the bundle is neither in `harnesses.json` nor a
+/// built-in harness slug (mirrors `harness::resolve`).
+pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: Option<&str>) -> Result<TransportKind> {
+    let Some(bundle) = bundle.filter(|b| !b.is_empty()) else {
+        return Ok(TransportKind::Pty);
+    };
+    Ok(match harness::bundle_transport_with(cfg, bundle)? {
+        Transport::Acp | Transport::AppServer => TransportKind::Acp,
+        Transport::Pty | Transport::HeadlessExec => TransportKind::Pty,
+    })
 }
 
 #[cfg(test)]

@@ -22,6 +22,8 @@ pub struct LocalAgent {
     pub pubkey: String,
     pub commands: Vec<LaunchCommand>,
     pub per_session_key: bool,
+    /// Configured harness bundle name, if any (see [`agent_harness_bundle`]).
+    pub harness: Option<String>,
 }
 
 /// Every agent in the local keystore (their hex pubkeys). Your own fleet trusts
@@ -153,6 +155,7 @@ pub fn list_local_agent_details(edge_home: &Path) -> Vec<LocalAgent> {
                         pubkey: k.public_key,
                         commands: commands::normalize_commands(k.commands),
                         per_session_key: k.per_session_key,
+                        harness: k.harness,
                     }),
                     Err(e) => tracing::warn!(
                         path = %path.display(),
@@ -217,6 +220,7 @@ pub(crate) fn add_local_agent_with_commands(
                 keys,
                 commands,
                 per_session_key: stored.per_session_key,
+                harness: stored.harness,
             },
             false,
         ));
@@ -232,6 +236,7 @@ pub(crate) fn add_local_agent_with_commands(
         agent: None,
         byline: None,
         per_session_key: true,
+        harness: None,
     };
     std::fs::create_dir_all(agents_dir(edge_home))
         .with_context(|| format!("creating {}", agents_dir(edge_home).display()))?;
@@ -243,9 +248,20 @@ pub(crate) fn add_local_agent_with_commands(
             keys,
             commands,
             per_session_key: stored.per_session_key,
+            harness: stored.harness,
         },
         true,
     ))
+}
+
+/// The configured harness bundle name for `slug`, if the agent opted into one.
+/// `None` means the built-in PTY spawn (unchanged behavior). A missing or
+/// unreadable keystore file is treated as "no bundle" (fail-open to PTY).
+pub fn agent_harness_bundle(edge_home: &Path, slug: &str) -> Option<String> {
+    let path = key_path(edge_home, slug);
+    let s = std::fs::read_to_string(&path).ok()?;
+    let stored: StoredKey = serde_json::from_str(&s).ok()?;
+    stored.harness.filter(|h| !h.trim().is_empty())
 }
 
 /// Set the local "when to use this agent" byline for an existing agent.

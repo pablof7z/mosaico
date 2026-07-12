@@ -10,6 +10,7 @@ async fn dropping_guard_after_claim_rolls_back_every_provisional_binding() {
         keys,
         commands: Vec::new(),
         per_session_key: false,
+        harness: None,
     };
     let minted = mint_session_identity(&state, "orphan", &agent, "root", "", None).unwrap();
     assert!(minted.durable_claim_acquired);
