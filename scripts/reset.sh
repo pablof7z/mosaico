@@ -39,8 +39,19 @@ if [[ ! -d "$EDGE_HOME" ]]; then
   exit 1
 fi
 
-echo "==> Killing local tenex-edge processes..."
-pkill -9 -x tenex-edge 2>/dev/null || true
+# reset.sh is a WIPE tool: it deletes state.db AND the sessions dir, so any
+# surviving PTY supervisor would be orphaned against a wiped DB — hence a reset
+# reaps the supervisors too. Do NOT copy this kill into a plain daemon *restart*:
+# the daemon and every detached PTY supervisor are the SAME binary (`tenex-edge`),
+# so a bare `pkill -x tenex-edge` reaps live agent sessions along with the daemon.
+# A restart must kill ONLY the daemon (`pkill -f 'tenex-edge daemon'`); the daemon
+# then re-adopts the still-running supervisors on boot (reconcile_sessions), and a
+# systemd unit must use `KillMode=process`. Target argv explicitly here instead of
+# the shared binary name so we never reap an unrelated `tenex-edge` on the box.
+echo "==> Killing local tenex-edge daemon..."
+pkill -9 -f 'tenex-edge daemon' 2>/dev/null || true
+echo "==> Killing local tenex-edge PTY supervisors (state is being wiped)..."
+pkill -9 -f 'tenex-edge __pty-supervisor' 2>/dev/null || true
 sleep 0.5
 
 echo "==> Wiping local state..."

@@ -112,9 +112,14 @@ pub(in crate::daemon::server) fn cancel_session(
 }
 
 /// Revive sessions a previous daemon left behind (skew re-exec / crash),
-/// rebuilding from the `sessions` table. For each ALIVE session: respawn the
-/// engine task if its `child_pid` is still alive, else mark it dead (so
-/// `who`/presence don't lie after a restart) and crash-GC its ordinal member.
+/// rebuilding from the `sessions` table. Invariant: **a session whose process is
+/// still live is never reaped by reconcile.** For each ALIVE row we respawn the
+/// engine task iff the session is still live ([`session_still_live`]: PID alive
+/// AND, for PTY sessions, the supervisor socket answers). Only a genuinely-gone
+/// session is marked dead (so `who`/presence don't lie after a restart) and has
+/// its ordinal member crash-GC'd. Transient conditions — a cold relay
+/// (`ChannelGate::Degraded`) or a spawn hiccup — no longer reap a live session;
+/// correctness on a not-yet-ready channel is upheld by the send-time gate.
 pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonState>) {
     let now = now_secs();
     let cleaned = state.with_store(|s| s.cleanup_orphan_durable_sessions().unwrap_or_default());
@@ -131,14 +136,16 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
     );
     for snap in snaps {
         let session_id = snap.session_id.clone();
-        let pid_ok = snap.child_pid.map(pid_alive).unwrap_or(false);
-        if !pid_ok {
+        // Only a genuinely-gone session is reaped. `child_pid` liveness alone is
+        // unsafe (PIDs recycle, reviving a ghost), so for PTY sessions the
+        // supervisor socket PING is the authoritative signal (risk #1).
+        if !session_still_live(state, &snap) {
             tracing::warn!(
                 session = %session_id,
                 agent = %snap.agent_slug,
                 channel = %snap.channel_h,
                 pid = ?snap.child_pid,
-                "session process dead; marking dead and leaving membership for stale cleanup"
+                "session process gone (pid dead or pty socket unreachable); marking dead and leaving membership for stale cleanup"
             );
             state.with_store(|s| {
                 if let Err(e) = s.mark_dead(&session_id) {
@@ -216,28 +223,20 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                 repair_whitelisted_admins: true,
             })
             .await;
-        // `Degraded` means the channel was NOT verified ready on the relay.
-        // Respawning the engine against an unverified channel would publish into a
-        // phantom scope, so quarantine the session (mark it dead) instead of
-        // reviving it — loudly, since a revival that silently degrades hides relay
-        // breakage behind a "running" session.
+        // `Degraded` means the channel was NOT verified ready on the relay (e.g.
+        // the freshly-reconnected relay is still cold / not yet NIP-42 authed).
+        // A LIVE session must never be reaped for a transient relay condition, so
+        // we revive the engine anyway and log loudly. Correctness is preserved by
+        // the send-time readiness gate (per #157), which still refuses to publish
+        // into an unverified channel — only session *liveness* is decoupled from
+        // relay *readiness* here (risk #2).
         if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-            tracing::error!(
+            tracing::warn!(
                 session = %session_id,
                 agent = %snap.agent_slug,
                 channel = %snap.channel_h,
-                "channel not verified ready on reconcile; quarantining session instead of respawning"
+                "channel not verified ready on reconcile; reviving live session anyway (send-time gate still enforced), will re-verify on next heartbeat"
             );
-            state.with_store(|s| {
-                if let Err(e) = s.mark_dead(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "failed to mark session dead during reconcile quarantine");
-                }
-                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "failed to mark identity dead during reconcile quarantine");
-                }
-            });
-            state.release_session_signer(&session_id);
-            continue;
         }
 
         // Rebind the row to the minted session pubkey so mention routing keys on
@@ -267,20 +266,15 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
             snap.child_pid,
         );
         if let Err(e) = spawn_session(state, ep).await {
+            // The supervisor process is still alive (we checked above), so do NOT
+            // mark the session dead — that would blink a running agent offline.
+            // Leave the row ALIVE with its signer reserved; the next daemon
+            // restart's reconcile retries the engine spawn.
             tracing::error!(
                 session = %session_id,
                 error = %e,
-                "reconcile: failed to respawn session engine; releasing selected signer"
+                "reconcile: failed to respawn session engine for a live session; leaving row alive for retry on next restart"
             );
-            state.release_session_signer(&session_id);
-            state.with_store(|s| {
-                if let Err(e) = s.mark_dead(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "failed to mark session dead after reconcile spawn failure");
-                }
-                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "failed to mark identity dead after reconcile spawn failure");
-                }
-            });
         }
     }
     // Any registration/end transitions above enqueued publishes.
@@ -289,4 +283,69 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
 
 pub(in crate::daemon::server) fn pid_alive(pid: i32) -> bool {
     nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
+}
+
+/// Whether reconcile should treat a session left behind by a previous daemon as
+/// still alive (and therefore revive it rather than reap it).
+///
+/// `child_pid` liveness alone is unsafe: PIDs recycle, so a dead supervisor's
+/// reused PID could revive a ghost session against an unrelated process. When the
+/// session owns a PTY supervisor socket, that socket answering a PING
+/// ([`crate::pty::is_live`]) is the authoritative, unspoofable signal; exec
+/// sessions with no socket fall back to the PID check alone (risk #1).
+fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) -> bool {
+    let pid_ok = snap.child_pid.map(pid_alive).unwrap_or(false);
+    let pty_live = pty_socket_for(state, &snap.session_id).map(|sock| crate::pty::is_live(&sock));
+    revive_decision(pid_ok, pty_live)
+}
+
+/// Pure revive decision, split out for unit testing. `pty_live` is `None` for a
+/// session with no PTY supervisor socket (an exec/native session), in which case
+/// the PID check is authoritative.
+fn revive_decision(pid_ok: bool, pty_live: Option<bool>) -> bool {
+    pid_ok && pty_live.unwrap_or(true)
+}
+
+/// The PTY supervisor socket path bound to a session, if it launched under a PTY.
+/// Read from the durable `pty_socket` alias (an absolute path), so
+/// [`crate::pty::is_live`] connects to it directly.
+fn pty_socket_for(state: &Arc<DaemonState>, session_id: &str) -> Option<String> {
+    state.with_store(|s| {
+        s.aliases_for_session(session_id).ok().and_then(|aliases| {
+            aliases
+                .into_iter()
+                .find(|a| a.external_id_kind == "pty_socket")
+                .map(|a| a.external_id)
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::revive_decision;
+
+    #[test]
+    fn dead_pid_is_never_revived() {
+        assert!(!revive_decision(false, None));
+        assert!(!revive_decision(false, Some(true)));
+        assert!(!revive_decision(false, Some(false)));
+    }
+
+    #[test]
+    fn exec_session_revives_on_pid_alone() {
+        // No PTY socket => PID liveness is authoritative.
+        assert!(revive_decision(true, None));
+    }
+
+    #[test]
+    fn live_pid_with_live_pty_is_revived() {
+        assert!(revive_decision(true, Some(true)));
+    }
+
+    #[test]
+    fn live_pid_with_dead_pty_is_not_revived() {
+        // Guards against PID recycling: the process at `child_pid` is alive but
+        // its supervisor socket is gone, so it is not our session.
+        assert!(!revive_decision(true, Some(false)));
+    }
 }

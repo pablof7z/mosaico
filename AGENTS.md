@@ -43,3 +43,11 @@ Rules — enforced strictly:
 - **When in doubt, fewer planning files.** The cost of a duplicate plan is divergence. If a new planning file feels necessary, justify why it cannot be a GitHub issue plus a durable doc.
 
 > **Migration note.** The `Plans/` directory is empty and `M1.md` has been drained into `docs/daemon-design.md`, `docs/fabric-architecture.md`, and `docs/product-spec/`. Do not add new files under `Plans/` or new top-level plan docs; the canonical surfaces are GitHub Issues plus the durable docs.
+
+## Daemon restart & deploy
+
+A daemon restart (or binary swap) must **not** kill live agent/PTY sessions. The daemon and every detached PTY supervisor are the **same binary** (`tenex-edge`, re-invoked as `__pty-supervisor`), so killing by process name reaps the whole fleet.
+
+- **Never kill the daemon by bare binary name.** A restart kills only the daemon process (`pkill -f 'tenex-edge daemon'`), never `pkill -x tenex-edge` / a process group / a cgroup. The daemon re-adopts the still-running supervisors on boot via `reconcile_sessions`.
+- **systemd units must set `KillMode=process`** so stopping the unit signals only the main daemon PID, leaving the detached supervisors alive across the restart.
+- `scripts/reset.sh` is a full **wipe** (deletes `state.db` and the sessions dir), so it deliberately reaps supervisors too — do not model a restart on it.
