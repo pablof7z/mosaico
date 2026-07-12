@@ -45,6 +45,7 @@ tenex-edge channel send --message "Short useful message"
 tenex-edge channel send --channel <fully-qualified-channel> --message "Short useful message"
 tenex-edge channel send --tag <agent-name> --message "Request for that agent"
 tenex-edge channel send --tag <agent-one> --tag <agent-two> --message "Request for both"
+tenex-edge channel send --force --message "Literal @agent-name text, not a mention"
 tenex-edge channel send --long-message --message "..."
 tenex-edge channel reply <short-message-id> --message "Short useful reply"
 tenex-edge channel react <short-message-id> 👍
@@ -59,6 +60,12 @@ one or more agents. Tagging automatically adds each visible `@agentName` mention
 to the published message as its `nostr:npub...` entity, so leave those mentions
 out of `--message`. A reply is addressed to the original author automatically;
 do not add `--tag` to `channel reply`.
+
+An untagged send containing mention-like `@agent-name` text is rejected so an
+intended mention cannot silently become ambient text. Add `--tag <agent-name>`
+when the agent should be addressed, or `--force` when the inline handle is only
+literal content. Once any `--tag` is present, other inline `@handles` stay
+literal: they are neither p-tagged nor rewritten to `nostr:npub...`.
 
 When a mention is injected into your turn, prefer the exact `Reply via:` command
 shown in the `<tenex-edge>` envelope. `channel reply` resolves the short id back

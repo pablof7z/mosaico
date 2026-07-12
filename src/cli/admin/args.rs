@@ -139,6 +139,9 @@ pub(in crate::cli) enum ChannelAction {
         /// visible `nostr:npub...` address prefix is added automatically.
         #[arg(long = "tag", value_name = "AGENT")]
         tags: Vec<String>,
+        /// Publish mention-like `@agent` text literally when no --tag is used.
+        #[arg(long)]
+        force: bool,
         /// Channel-relative channel name/path/id to write to. Required when
         /// this session is joined to more than one channel; inferred only when
         /// exactly one joined channel exists.

@@ -6,6 +6,7 @@ use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::bail;
 
 mod body;
+mod mention_guard;
 mod react;
 mod recipient;
 mod reply;
@@ -22,6 +23,8 @@ pub(in crate::daemon::server) struct ChannelSendParams {
     message: String,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    force: bool,
     #[serde(default)]
     harness_session: Option<String>,
     #[serde(default)]
@@ -53,6 +56,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 ) -> Result<serde_json::Value> {
     let p: ChannelSendParams =
         serde_json::from_value(params.clone()).context("parsing channel_send params")?;
+    mention_guard::check(&p.message, &p.tags, p.force)?;
     let mut anchor = CallerAnchor::from_params(params);
     anchor.group = None;
     let rec = resolve_session(state, &anchor)?;

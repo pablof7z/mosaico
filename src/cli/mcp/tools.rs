@@ -125,6 +125,7 @@ fn channel_send_params(args: &Value) -> Result<Value> {
         json!({
             "message": required_string(args, "message")?,
             "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
             "channel": opt_string(args, "channel"),
             "long_message": args
                 .get("long_message")
