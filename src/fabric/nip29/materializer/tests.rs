@@ -1,10 +1,10 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
-use nostr_sdk::prelude::ToBech32;
-use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag, Timestamp};
+use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag, Timestamp, ToBech32};
 
 mod agent_roster;
 mod membership;
+mod repeated_tags;
 
 fn make_tag(parts: &[&str]) -> Tag {
     Tag::parse(parts.iter().copied()).unwrap()
@@ -211,7 +211,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
         from: crate::domain::AgentRef::new(sender_pk.clone(), String::new()),
         channel: "proj".into(),
         body: "ambient".into(),
-        mentioned_pubkey: None,
+        mentioned_pubkeys: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &ambient_event));
     assert!(!Nip29Materializer::route_chat(
@@ -235,7 +235,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
         from: crate::domain::AgentRef::new(sender_pk, String::new()),
         channel: "proj".into(),
         body: "ship it".into(),
-        mentioned_pubkey: Some(receiver_pk),
+        mentioned_pubkeys: vec![receiver_pk],
     };
     assert!(Nip29Materializer::materialize_event(&store, &mention_event));
     assert!(Nip29Materializer::route_chat(
@@ -282,7 +282,7 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
         from: crate::domain::AgentRef::new(sender_pk, String::new()),
         channel: "proj".into(),
         body: "hey one ordinal".into(),
-        mentioned_pubkey: Some(ord0_pk),
+        mentioned_pubkeys: vec![ord0_pk],
     };
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
 

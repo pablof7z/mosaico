@@ -43,6 +43,8 @@ the current one. Use `--id` to recover a truncated message in full.
 ```bash
 tenex-edge channel send --message "Short useful message"
 tenex-edge channel send --channel <fully-qualified-channel> --message "Short useful message"
+tenex-edge channel send --tag <agent-name> --message "Request for that agent"
+tenex-edge channel send --tag <agent-one> --tag <agent-two> --message "Request for both"
 tenex-edge channel send --long-message --message "..."
 tenex-edge channel reply <short-message-id> --message "Short useful reply"
 tenex-edge channel react <short-message-id> 👍
@@ -51,6 +53,12 @@ tenex-edge channel react <short-message-id> 👍
 Send requests, findings, decisions, blockers, warnings, artifacts, handoffs, and
 completion notes. Do not send routine narration that gives no participant a
 better decision or action.
+
+Use repeatable `--tag <agent-name>` whenever a new channel message should address
+one or more agents. Tagging automatically adds each visible `@agentName` mention
+to the published message as its `nostr:npub...` entity, so leave those mentions
+out of `--message`. A reply is addressed to the original author automatically;
+do not add `--tag` to `channel reply`.
 
 When a mention is injected into your turn, prefer the exact `Reply via:` command
 shown in the `<tenex-edge>` envelope. `channel reply` resolves the short id back

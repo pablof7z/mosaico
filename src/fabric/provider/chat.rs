@@ -10,12 +10,26 @@ use nostr_sdk::prelude::{Event, EventId, Keys, Tag};
 mod tests;
 
 #[derive(Clone)]
+pub(crate) struct OutboundChatRecipient {
+    pub pubkey: String,
+    pub session: Option<String>,
+}
+
+impl OutboundChatRecipient {
+    pub(crate) fn new(pubkey: impl Into<String>, session: Option<String>) -> Self {
+        Self {
+            pubkey: pubkey.into(),
+            session,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct OutboundChatRecord {
     pub from_session: Option<String>,
     pub channel_h: String,
     pub body: String,
-    pub mentioned_pubkey: Option<String>,
-    pub mentioned_session: Option<String>,
+    pub recipients: Vec<OutboundChatRecipient>,
     pub created_at: Option<u64>,
     pub direction: &'static str,
 }
@@ -176,12 +190,16 @@ fn seed_chat_read_models(
             "{context}: seeding chat into messages failed"
         );
     }
-    if let Some(pk) = &record.mentioned_pubkey {
-        if let Err(e) =
-            store.add_message_recipient(event_id, pk, record.mentioned_session.as_deref(), None)
-        {
+    for recipient in &record.recipients {
+        if let Err(e) = store.add_message_recipient(
+            event_id,
+            &recipient.pubkey,
+            recipient.session.as_deref(),
+            None,
+        ) {
             tracing::error!(
                 event_id,
+                recipient = %recipient.pubkey,
                 channel = %record.channel_h,
                 error = %e,
                 "{context}: seeding message recipient failed"

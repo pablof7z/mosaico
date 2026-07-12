@@ -188,7 +188,7 @@ mod tests {
             from: AgentRef::new(sender_pk, String::new()),
             channel: channel.to_string(),
             body: body.to_string(),
-            mentioned_pubkey: mention,
+            mentioned_pubkeys: mention.into_iter().collect(),
         }
     }
 

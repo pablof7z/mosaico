@@ -121,25 +121,3 @@ fn parse_pubkey_and_token() {
     assert!(matches!(parse_ref("haiku1"), Ref::Token(_)));
     assert!(matches!(parse_ref("codex"), Ref::Token(_)));
 }
-
-#[test]
-fn extract_inline_mentions() {
-    assert_eq!(
-        extract_mentions("hey @sable-grove-179-haiku and @codex, look"),
-        vec!["sable-grove-179-haiku".to_string(), "codex".to_string()]
-    );
-    assert_eq!(
-        extract_mentions("ping @claude@tower please"),
-        vec!["claude@tower".to_string()]
-    );
-    assert_eq!(
-        extract_mentions("hey @willow-echo-042-codex how are you?"),
-        vec!["willow-echo-042-codex".to_string()]
-    );
-    assert_eq!(extract_mentions("ping @codex."), vec!["codex".to_string()]);
-    assert!(extract_mentions("email dev@example.com please").is_empty());
-    assert_eq!(
-        extract_mentions("@haiku1 @haiku1"),
-        vec!["haiku1".to_string()]
-    );
-}

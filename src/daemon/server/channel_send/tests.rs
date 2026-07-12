@@ -1,33 +1,5 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
-use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
-
-fn message(chars: usize) -> String {
-    "a".repeat(chars)
-}
-
-#[test]
-fn long_message_guard_requires_explicit_override() {
-    let long = ChannelSendParams {
-        message: message(CHANNEL_MESSAGE_CHAR_LIMIT + 1),
-        long_message: false,
-        ..Default::default()
-    };
-    assert!(long_message_requires_override(&long));
-
-    let allowed = ChannelSendParams {
-        long_message: true,
-        ..long
-    };
-    assert!(!long_message_requires_override(&allowed));
-
-    let short = ChannelSendParams {
-        message: message(CHANNEL_MESSAGE_CHAR_LIMIT),
-        long_message: false,
-        ..Default::default()
-    };
-    assert!(!long_message_requires_override(&short));
-}
 
 fn register_session(store: &Store, session_id: &str, agent_slug: &str, channel_h: &str) {
     store
@@ -84,24 +56,6 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
 
     assert_eq!(resolved.target_session.as_deref(), Some("helper-session"));
     assert_eq!(resolved.channel, "leaf-b");
-}
-
-#[test]
-fn mention_resolution_store_errors_are_visible() {
-    let err = handle_mention_resolution_error(
-        "helper",
-        anyhow::Error::new(rusqlite::Error::InvalidQuery),
-    )
-    .unwrap_err();
-
-    assert!(err
-        .to_string()
-        .contains("failed to resolve mention @helper"));
-}
-
-#[test]
-fn mention_resolution_unknown_handles_remain_silent() {
-    handle_mention_resolution_error("ghost", anyhow::anyhow!("can't resolve recipient")).unwrap();
 }
 
 #[test]

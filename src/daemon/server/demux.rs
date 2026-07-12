@@ -165,17 +165,12 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             derive_and_emit_tail_events(state, &de, &hosted, now);
             if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
                 if let DomainEvent::ChatMessage(ref chat) = de {
-                    if let Some(ref mentioned_pk) = chat.mentioned_pubkey {
-                        let routed_to_local = hosted.contains(mentioned_pk);
-                        offline_mention::dispatch(state, chat, mentioned_pk);
-
-                        if routed_to_local {
-                            let st = state.clone();
-                            let ev = event.clone();
-                            tokio::spawn(async move {
-                                route_reaction::publish_eye_reaction(&st, &ev).await;
-                            });
-                        }
+                    if offline_mention::dispatch_all(state, chat, &hosted) {
+                        let st = state.clone();
+                        let ev = event.clone();
+                        tokio::spawn(async move {
+                            route_reaction::publish_eye_reaction(&st, &ev).await;
+                        });
                     }
                 }
             }
@@ -316,11 +311,15 @@ fn derive_and_emit_tail_events(
             } else {
                 chat.from.slug.clone()
             };
-            let to = chat
-                .mentioned_pubkey
-                .as_deref()
-                .map(pubkey_short)
-                .unwrap_or_else(|| "channel-chat".to_string());
+            let to = if chat.mentioned_pubkeys.is_empty() {
+                "channel-chat".to_string()
+            } else {
+                chat.mentioned_pubkeys
+                    .iter()
+                    .map(|pubkey| pubkey_short(pubkey))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
             state.emit_tail(TailEvent::Msg {
                 ts: now,
                 channel: chat.channel.clone(),

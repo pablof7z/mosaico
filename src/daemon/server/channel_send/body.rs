@@ -1,99 +1,97 @@
+use super::TaggedRecipient;
+use anyhow::{Context, Result};
 use nostr_sdk::prelude::{PublicKey, ToBech32};
 
-pub(super) fn rewrite_first_resolved_mention(body: &str, raw_label: &str, pubkey: &str) -> String {
-    let Some((start, end)) = first_mention_span(body, raw_label) else {
-        return body.to_string();
-    };
-    let Ok(pk) = PublicKey::parse(pubkey) else {
-        return body.to_string();
-    };
-    let npub = pk.to_bech32().expect("public key encodes as npub");
-    let mut out = String::with_capacity(body.len() + npub.len());
-    out.push_str(&body[..start]);
-    out.push_str("nostr:");
-    out.push_str(&npub);
-    out.push_str(&body[end..]);
-    out
+pub(super) fn format_tagged_body(message: &str, tagged: &[TaggedRecipient]) -> Result<String> {
+    if tagged.is_empty() {
+        return Ok(message.to_string());
+    }
+    let addresses = tagged
+        .iter()
+        .map(|target| {
+            let public_key = PublicKey::parse(&target.pubkey)
+                .with_context(|| format!("invalid pubkey for --tag {:?}", target.label))?;
+            Ok(format!("nostr:{}", public_key.to_bech32()?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let message = strip_existing_tag_prefix(message, tagged);
+    Ok(format!("{}: {message}", addresses.join(", ")))
 }
 
-fn first_mention_span(body: &str, raw_label: &str) -> Option<(usize, usize)> {
-    for (at, _) in body.match_indices('@') {
-        if at > 0
-            && body[..at]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_ascii_alphanumeric())
-        {
-            continue;
-        }
-        let start = at + 1;
-        let after = &body[start..];
-        let end_rel = after
-            .find(|c: char| {
-                !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@'))
-            })
-            .unwrap_or(after.len());
-        let mut end = start + end_rel;
-        while end > start && matches!(body[..end].chars().next_back(), Some('.' | '@' | '/')) {
-            end -= body[..end]
-                .chars()
-                .next_back()
-                .map(char::len_utf8)
-                .unwrap_or(1);
-        }
-        if &body[start..end] == raw_label {
-            return Some((at, end));
-        }
+fn strip_existing_tag_prefix<'a>(message: &'a str, tagged: &[TaggedRecipient]) -> &'a str {
+    let Some((prefix, body)) = message.split_once(':') else {
+        return message;
+    };
+    let already_addressed = prefix.split(',').all(|part| {
+        let Some(label) = part.trim().strip_prefix('@') else {
+            return false;
+        };
+        !label.is_empty() && tagged.iter().any(|target| target.label == label)
+    });
+    if already_addressed {
+        body.strip_prefix(' ').unwrap_or(body)
+    } else {
+        message
     }
-    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TARGET_PK: &str = "379e863e8357163b5bce5d2688dc4f1dcc2d505222fb8d74db600f30535dfdfe";
+    const FIRST_PK: &str = "379e863e8357163b5bce5d2688dc4f1dcc2d505222fb8d74db600f30535dfdfe";
+    const SECOND_PK: &str = "83d3c36a3b1f1d96a65a506c965d185a02d3145039e0c0056014e366474f83aa";
+
+    fn recipient(label: &str, pubkey: &str) -> TaggedRecipient {
+        TaggedRecipient {
+            label: label.to_string(),
+            pubkey: pubkey.to_string(),
+            session: None,
+            channel: "root".to_string(),
+        }
+    }
 
     #[test]
-    fn rewrites_resolved_handle_to_nostr_entity() {
-        let out = rewrite_first_resolved_mention(
-            "@flint-range-108@laptop heads up",
-            "flint-range-108@laptop",
-            TARGET_PK,
+    fn adds_one_nostr_address_prefix() {
+        let body = format_tagged_body("hello", &[recipient("agent1", FIRST_PK)]).unwrap();
+
+        assert!(body.starts_with("nostr:npub1"));
+        assert!(body.ends_with(": hello"));
+    }
+
+    #[test]
+    fn adds_multiple_nostr_address_prefixes_in_tag_order() {
+        let body = format_tagged_body(
+            "hello",
+            &[
+                recipient("agent1", FIRST_PK),
+                recipient("agent2", SECOND_PK),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(body.matches("nostr:npub1").count(), 2);
+        assert!(body.contains(", nostr:npub1"));
+        assert!(body.ends_with(": hello"));
+    }
+
+    #[test]
+    fn replaces_an_existing_agent_prefix_instead_of_duplicating_it() {
+        let body = format_tagged_body("@agent1: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
+
+        assert_eq!(
+            body.matches(':').count(),
+            2,
+            "one in nostr and one separator"
         );
-
-        assert!(out.starts_with("nostr:npub1"));
-        assert!(out.ends_with(" heads up"));
-        assert!(!out.contains("@flint-range-108@laptop"));
+        assert!(body.ends_with(": hello"));
+        assert!(!body.contains("@agent1"));
     }
 
     #[test]
-    fn preserves_punctuation_after_mention() {
-        let out = rewrite_first_resolved_mention("ping @codex.", "codex", TARGET_PK);
+    fn preserves_unrelated_leading_address_text() {
+        let body = format_tagged_body("@human: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
 
-        assert!(out.starts_with("ping nostr:npub1"));
-        assert!(out.ends_with('.'));
-    }
-
-    #[test]
-    fn rewrites_full_agent_session_handle() {
-        let out = rewrite_first_resolved_mention(
-            "hey @willow-echo-042-codex now",
-            "willow-echo-042-codex",
-            TARGET_PK,
-        );
-
-        assert!(out.starts_with("hey nostr:npub1"));
-        assert!(out.ends_with(" now"));
-        assert!(!out.contains("@codex"));
-        assert!(!out.contains("willow-echo-042"));
-    }
-
-    #[test]
-    fn skips_email_like_substrings() {
-        let out =
-            rewrite_first_resolved_mention("mail dev@codex first, then @codex", "codex", TARGET_PK);
-
-        assert!(out.starts_with("mail dev@codex first, then nostr:npub1"));
+        assert!(body.ends_with(": @human: hello"));
     }
 }

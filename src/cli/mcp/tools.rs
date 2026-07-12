@@ -124,6 +124,7 @@ fn channel_send_params(args: &Value) -> Result<Value> {
     Ok(with_session(
         json!({
             "message": required_string(args, "message")?,
+            "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
             "channel": opt_string(args, "channel"),
             "long_message": args
                 .get("long_message")

@@ -164,37 +164,5 @@ fn is_pubkey(s: &str) -> bool {
     (s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())) || s.starts_with("npub1")
 }
 
-/// Extract inline `@<agent-session-handle>` mentions from free chat text, in
-/// order of appearance, deduped. A mention is `@` followed by a run of
-/// `[A-Za-z0-9._-]`, with a single internal `@` still accepted for
-/// `agent@backend-label`. Trailing punctuation is ignored. Tokens that don't
-/// resolve are silently treated as no mention.
-pub fn extract_mentions(body: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for raw in body.split(|c: char| c.is_whitespace()) {
-        let Some(at) = raw.find('@') else { continue };
-        if at > 0
-            && raw[..at]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_ascii_alphanumeric())
-        {
-            continue;
-        }
-        // Take the run of handle characters immediately after the '@' sigil,
-        // allowing a single internal '@' for host-qualified labels.
-        let after = &raw[at + 1..];
-        let end = after
-            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@')))
-            .unwrap_or(after.len());
-        // Drop trailing separators so `@codex.` and `@haiku@` degrade cleanly.
-        let candidate = after[..end].trim_end_matches(['.', '@']);
-        if !candidate.is_empty() && !out.iter().any(|m| m == candidate) {
-            out.push(candidate.to_string());
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests;

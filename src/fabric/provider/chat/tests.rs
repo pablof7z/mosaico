@@ -16,13 +16,13 @@ fn chat() -> ChatMessage {
         from: AgentRef::new("pk", "agent"),
         channel: "chan".into(),
         body: "root cause was a retry storm".into(),
-        mentioned_pubkey: None,
+        mentioned_pubkeys: Vec::new(),
     }
 }
 
 fn addressed_chat(recipient: &str) -> ChatMessage {
     ChatMessage {
-        mentioned_pubkey: Some(recipient.to_string()),
+        mentioned_pubkeys: vec![recipient.to_string()],
         ..chat()
     }
 }
@@ -113,8 +113,7 @@ async fn local_relay_event_preserves_signed_reply_tags() {
             from_session: Some("s1".into()),
             channel_h: "chan".into(),
             body: "root cause was a retry storm".into(),
-            mentioned_pubkey: None,
-            mentioned_session: None,
+            recipients: Vec::new(),
             created_at: Some(signed.created_at.as_secs()),
             direction: "outbound",
         },

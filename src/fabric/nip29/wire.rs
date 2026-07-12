@@ -6,7 +6,7 @@
 //! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
 //! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", session_id]`, one or more `["h", channel]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | AgentRoster | kind:30555, backend management-key signed, `["d", capability_slug]`, `["hostname", host]`, `["use-criteria", text]`, one or more root-channel `["h", channel]` |
-//! | Chat        | kind:9,     `["h", channel]`, optional `["p", mentioned_pubkey]` |
+//! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]` |
 //!
 //! Status is the single self-contained per-session signal: ONE kind:30315 event
 //! per `(author_pubkey, session_id)` carries the whole live state (busy/idle, the
@@ -175,10 +175,10 @@ impl Nip29WireCodec {
                 from: _from,
                 channel,
                 body,
-                mentioned_pubkey,
+                mentioned_pubkeys,
             }) => {
                 let mut tags = vec![h_tag(channel)?];
-                if let Some(pk) = mentioned_pubkey {
+                for pk in mentioned_pubkeys {
                     tags.push(tag(&["p", pk])?);
                 }
                 EventBuilder::new(kind(KIND_CHAT), body.clone())
@@ -259,7 +259,7 @@ impl Nip29WireCodec {
                 from: AgentRef::new(pubkey, String::new()),
                 channel: channel_from_tags(event)?,
                 body: event.content.clone(),
-                mentioned_pubkey: first_tag(event, "p").map(str::to_string),
+                mentioned_pubkeys: all_tag_values(event, "p"),
             })),
             1 => {
                 // kind:1 notes: decode as Activity for social narrative (no routing).

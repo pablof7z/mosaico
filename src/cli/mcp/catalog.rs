@@ -73,6 +73,7 @@ const SPECS: &[ToolSpec] = &[
         description: "Send a message to a channel.",
         props: &[
             Prop::new("message", "string", "Message body."),
+            Prop::new("tags", "array", "Agent names to tag."),
             Prop::new("channel", "string", "Optional destination channel."),
             Prop::new("session", "string", "Explicit tenex-edge session id."),
             Prop::new("long_message", "boolean", "Allow long messages."),

@@ -1,6 +1,8 @@
 use super::*;
 use clap::{error::ErrorKind, Parser};
 
+mod channel_send;
+
 fn parse_err(args: &[&str]) -> clap::Error {
     match crate::cli::args::Cli::try_parse_from(args) {
         Ok(_) => panic!("expected parse failure for {args:?}"),
@@ -311,38 +313,6 @@ fn channel_read_alias_via_channels_is_removed() {
     let err = parse_err(&["tenex-edge", "channels", "read", "--channel", "ops"]);
 
     assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
-}
-
-#[test]
-fn channel_send_accepts_explicit_session_anchor() {
-    let cli = crate::cli::args::Cli::try_parse_from([
-        "tenex-edge",
-        "channel",
-        "send",
-        "hello",
-        "--channel",
-        "ops",
-        "--session",
-        "session-1",
-    ])
-    .unwrap();
-
-    match cli.cmd {
-        crate::cli::args::Cmd::Channel {
-            action:
-                ChannelAction::Send {
-                    message,
-                    channel,
-                    session,
-                    ..
-                },
-        } => {
-            assert_eq!(message.as_deref(), Some("hello"));
-            assert_eq!(channel.as_deref(), Some("ops"));
-            assert_eq!(session.as_deref(), Some("session-1"));
-        }
-        _ => panic!("expected channel send command"),
-    }
 }
 
 #[test]

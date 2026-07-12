@@ -214,8 +214,8 @@ pub struct ChatMessage {
     pub from: AgentRef,
     pub channel: String,
     pub body: String,
-    /// Optional pubkey for the @-mentioned agent.
-    pub mentioned_pubkey: Option<String>,
+    /// Pubkeys explicitly tagged by the sender.
+    pub mentioned_pubkeys: Vec<String>,
 }
 
 /// Largest reaction payload we accept. Comfortably fits any single emoji,

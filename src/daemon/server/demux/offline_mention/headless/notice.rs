@@ -1,7 +1,7 @@
 use crate::daemon::server::DaemonState;
 use crate::daemon::tail_event::TailEvent;
 use crate::domain::{AgentRef, ChatMessage};
-use crate::fabric::provider::chat::OutboundChatRecord;
+use crate::fabric::provider::chat::{OutboundChatRecipient, OutboundChatRecord};
 use crate::util::now_secs;
 use std::sync::Arc;
 
@@ -84,14 +84,21 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
         from: AgentRef::new(keys.public_key().to_hex(), from.clone()),
         channel: notice.channel.to_string(),
         body: body.clone(),
-        mentioned_pubkey: notice.requester_pubkey.map(str::to_string),
+        mentioned_pubkeys: notice
+            .requester_pubkey
+            .map(str::to_string)
+            .into_iter()
+            .collect(),
     };
     let record = OutboundChatRecord {
         from_session: None,
         channel_h: notice.channel.to_string(),
         body: body.clone(),
-        mentioned_pubkey: notice.requester_pubkey.map(str::to_string),
-        mentioned_session: None,
+        recipients: notice
+            .requester_pubkey
+            .map(|pubkey| OutboundChatRecipient::new(pubkey, None))
+            .into_iter()
+            .collect(),
         created_at: Some(now),
         direction: "outbound",
     };

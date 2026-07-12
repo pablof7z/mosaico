@@ -1,4 +1,5 @@
 use super::*;
+use crate::fabric::provider::chat::OutboundChatRecipient;
 use anyhow::Context;
 use nostr_sdk::prelude::{PublicKey, ToBech32};
 use std::collections::HashSet;
@@ -238,7 +239,7 @@ async fn send_dispatch_message(
         from: instance.agent_ref(),
         channel: channel.to_string(),
         body: message.to_string(),
-        mentioned_pubkey: Some(ack.pubkey.clone()),
+        mentioned_pubkeys: vec![ack.pubkey.clone()],
     };
     let published = state
         .provider
@@ -249,8 +250,10 @@ async fn send_dispatch_message(
                 from_session: Some(caller.session_id.clone()),
                 channel_h: channel.to_string(),
                 body: message.to_string(),
-                mentioned_pubkey: Some(ack.pubkey.clone()),
-                mentioned_session: Some(ack.session_id.clone()),
+                recipients: vec![OutboundChatRecipient::new(
+                    ack.pubkey.clone(),
+                    Some(ack.session_id.clone()),
+                )],
                 created_at: Some(now_secs()),
                 direction: "outbound",
             },

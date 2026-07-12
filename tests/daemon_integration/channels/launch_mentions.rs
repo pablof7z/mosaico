@@ -160,7 +160,7 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
         from: AgentRef::new(keys.public_key().to_hex(), ""),
         channel: channel.to_string(),
         body: body.to_string(),
-        mentioned_pubkey: Some(mentioned_pubkey.to_string()),
+        mentioned_pubkeys: vec![mentioned_pubkey.to_string()],
     };
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))

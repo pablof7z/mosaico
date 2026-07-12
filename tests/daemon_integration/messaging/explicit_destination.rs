@@ -5,11 +5,11 @@ use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
 #[test]
-fn explicit_channel_is_pure_destination_selection_and_preserves_mentions() {
+fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
 
-    let (sender, receiver) = rt().block_on(async {
+    let (sender, receiver, second_receiver) = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         let sender = client
             .call(
@@ -33,9 +33,21 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_mentions() {
             )
             .await
             .expect("start receiver");
+        let second_receiver = client
+            .call(
+                "session_start",
+                serde_json::json!({
+                    "agent": "second-receiver",
+                    "session_id": "explicit-destination-second-receiver",
+                    "cwd": "/tmp"
+                }),
+            )
+            .await
+            .expect("start second receiver");
         (
             sender["session_id"].as_str().unwrap().to_string(),
             receiver["session_id"].as_str().unwrap().to_string(),
+            second_receiver["session_id"].as_str().unwrap().to_string(),
         )
     });
 
@@ -80,15 +92,26 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_mentions() {
         .session_identity_for_session(&receiver)
         .unwrap()
         .expect("receiver identity");
+    let second_receiver_identity = store
+        .session_identity_for_session(&second_receiver)
+        .unwrap()
+        .expect("second receiver identity");
     let receiver_handle = receiver_identity.display_slug();
+    let second_receiver_handle = second_receiver_identity.display_slug();
     let receiver_npub = PublicKey::parse(&receiver_identity.pubkey)
+        .unwrap()
+        .to_bech32()
+        .unwrap();
+    let second_receiver_npub = PublicKey::parse(&second_receiver_identity.pubkey)
         .unwrap()
         .to_bech32()
         .unwrap();
     drop(store);
 
-    let original_body = format!("@{receiver_handle} destination-selected message");
-    let expected_wire_body = format!("nostr:{receiver_npub} destination-selected message");
+    let original_body = "destination-selected message";
+    let expected_wire_body = format!(
+        "nostr:{receiver_npub}, nostr:{second_receiver_npub}: destination-selected message"
+    );
     let sent = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
@@ -97,19 +120,20 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_mentions() {
                 serde_json::json!({
                     "session": &sender,
                     "channel": "tmp",
-                    "message": &original_body
+                    "message": original_body,
+                    "tags": [&receiver_handle, &second_receiver_handle]
                 }),
             )
             .await
             .expect("send to explicitly selected root channel")
     });
     assert_eq!(
-        sent["mentioned_pubkey"].as_str(),
-        Some(receiver_identity.pubkey.as_str())
+        sent["mentioned_pubkeys"],
+        serde_json::json!([&receiver_identity.pubkey, &second_receiver_identity.pubkey])
     );
     assert_eq!(
-        sent["mentioned_label"].as_str(),
-        Some(receiver_handle.as_str())
+        sent["mentioned_labels"],
+        serde_json::json!([&receiver_handle, &second_receiver_handle])
     );
     let event_id = sent["event_id"].as_str().unwrap().to_string();
 
@@ -136,6 +160,46 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_mentions() {
         tag.first().map(String::as_str) == Some("p")
             && tag.get(1).map(String::as_str) == Some(receiver_identity.pubkey.as_str())
     }));
+    assert!(tags.iter().any(|tag| {
+        tag.first().map(String::as_str) == Some("p")
+            && tag.get(1).map(String::as_str) == Some(second_receiver_identity.pubkey.as_str())
+    }));
+
+    let inline_body = format!("@{receiver_handle}: this stays ambient");
+    let ambient = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_send",
+                serde_json::json!({
+                    "session": &sender,
+                    "channel": "tmp",
+                    "message": &inline_body
+                }),
+            )
+            .await
+            .expect("send inline text without an explicit tag")
+    });
+    assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
+    let ambient_id = ambient["event_id"].as_str().unwrap().to_string();
+    let mut ambient_event = None;
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            ambient_event = Store::open(&home.store_path()).ok().and_then(|store| {
+                chat_in_channel(&store, "tmp")
+                    .into_iter()
+                    .find(|event| event.id == ambient_id)
+            });
+            ambient_event.is_some()
+        }),
+        "ambient inline-address event did not materialize"
+    );
+    let ambient_event = ambient_event.unwrap();
+    assert_eq!(ambient_event.content, inline_body);
+    let ambient_tags: Vec<Vec<String>> = serde_json::from_str(&ambient_event.tags_json).unwrap();
+    assert!(!ambient_tags
+        .iter()
+        .any(|tag| tag.first().map(String::as_str) == Some("p")));
 
     stop_daemon(&home);
 }

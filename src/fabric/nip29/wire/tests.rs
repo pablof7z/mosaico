@@ -1,5 +1,6 @@
 use super::*;
 
+mod chat;
 mod profile;
 
 pub(super) fn roundtrip(ev: DomainEvent, keys: &Keys) -> DomainEvent {
@@ -369,32 +370,4 @@ fn t_only_channel_notes_are_ignored() {
         .sign_with_keys(&keys)
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
-}
-
-#[test]
-fn chat_message_encodes_as_kind9_with_group_and_pubkey_mention_only() {
-    let keys = Keys::generate();
-    let mentioned_pk = "dd".repeat(32);
-    let ev = DomainEvent::ChatMessage(ChatMessage {
-        from: agent(&keys, "codex"),
-        channel: "mychannel".into(),
-        body: "status: tests are green".into(),
-        mentioned_pubkey: Some(mentioned_pk.clone()),
-    });
-    let codec = Nip29WireCodec;
-    let builder = codec.encode_event(&ev).expect("encode");
-    let signed = builder.sign_with_keys(&keys).expect("sign");
-
-    assert_eq!(signed.kind.as_u16(), KIND_CHAT);
-    assert!(has_tag(&signed, "h", "mychannel"));
-    assert!(has_tag(&signed, "p", &mentioned_pk));
-
-    match codec.decode_event(&signed) {
-        Some(DomainEvent::ChatMessage(chat)) => {
-            assert_eq!(chat.channel, "mychannel");
-            assert_eq!(chat.body, "status: tests are green");
-            assert_eq!(chat.mentioned_pubkey, Some(mentioned_pk));
-        }
-        other => panic!("expected ChatMessage, got {other:?}"),
-    }
 }

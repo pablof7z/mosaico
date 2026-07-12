@@ -8,6 +8,19 @@ pub(super) mod liveness;
 use headless::{mention_prompt, spawn_headless_mention};
 use liveness::has_alive_session_for;
 
+pub(super) fn dispatch_all(
+    state: &Arc<DaemonState>,
+    chat: &crate::domain::ChatMessage,
+    hosted: &[String],
+) -> bool {
+    for mentioned_pk in &chat.mentioned_pubkeys {
+        dispatch(state, chat, mentioned_pk);
+    }
+    chat.mentioned_pubkeys
+        .iter()
+        .any(|pubkey| hosted.contains(pubkey))
+}
+
 pub(super) fn dispatch(
     state: &Arc<DaemonState>,
     chat: &crate::domain::ChatMessage,

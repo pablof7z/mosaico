@@ -1,7 +1,7 @@
 use super::chat_target::resolve_chat_target_provisioning;
 use super::resolution::work_root_for;
 use super::*;
-use crate::fabric::provider::chat::OutboundChatRecord;
+use crate::fabric::provider::chat::{OutboundChatRecipient, OutboundChatRecord};
 use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::bail;
 
@@ -20,6 +20,8 @@ pub(in crate::daemon::server) use reply::rpc_channel_reply;
 #[allow(dead_code)]
 pub(in crate::daemon::server) struct ChannelSendParams {
     message: String,
+    #[serde(default)]
+    tags: Vec<String>,
     #[serde(default)]
     harness_session: Option<String>,
     #[serde(default)]
@@ -51,11 +53,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 ) -> Result<serde_json::Value> {
     let p: ChannelSendParams =
         serde_json::from_value(params.clone()).context("parsing channel_send params")?;
-    if long_message_requires_override(&p) {
-        bail!(
-            "your message is too long; keep it under {CHANNEL_MESSAGE_CHAR_LIMIT} characters or pass --long-message"
-        );
-    }
     let mut anchor = CallerAnchor::from_params(params);
     anchor.group = None;
     let rec = resolve_session(state, &anchor)?;
@@ -67,51 +64,60 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // to that channel; it never changes caller identity or message content.
     let destination = target.channel_h;
     let pinned_destination = target.explicit.then_some(destination.clone());
-    // Mention target: the FIRST inline `@<agent-instance-label>` in the body that
-    // resolves to a known instance pubkey in the selected destination. An
-    // unresolvable token is silently treated as no mention — it must never bail
-    // or block the chat.
-    let mention_token = crate::idref::extract_mentions(&p.message)
-        .into_iter()
-        .next();
-    let mention = if let Some(raw) = mention_token {
-        match state.with_store(|s| resolve_recipient(s, &destination, &state.host, &raw)) {
-            Ok(target) => {
-                let same_work_root = state.with_store(|s| {
-                    work_root_for(s, &destination) == work_root_for(s, &target.channel)
-                });
-                if target.channel != destination && !same_work_root {
-                    anyhow::bail!(
-                        "mention target is in channel {:?}, but this chat is for channel {:?}",
-                        target.channel,
-                        destination
-                    );
-                }
-                Some((target.pubkey, target.target_session, target.channel, raw))
-            }
-            // An unknown token is an expected "no mention" (silent). A genuine
-            // store failure underneath, however, silently DROPS a real mention —
-            // surface that loudly so DB errors aren't mistaken for unknown handles.
-            Err(e) => {
-                handle_mention_resolution_error(&raw, e)?;
-                None
-            }
+    let mut tagged = Vec::new();
+    for raw in &p.tags {
+        let label = raw.trim().trim_start_matches('@');
+        if label.is_empty() {
+            bail!("tag must not be empty");
         }
-    } else {
-        None
-    };
-    let mentioned_pubkey = mention.as_ref().map(|(pk, ..)| pk.clone());
-    let mentioned_session = mention.as_ref().and_then(|(_, sid, ..)| sid.clone());
-    let mentioned_label = mention.as_ref().map(|(.., raw)| raw.clone());
+        let target = state
+            .with_store(|s| resolve_recipient(s, &destination, &state.host, label))
+            .with_context(|| format!("resolving --tag {raw:?}"))?;
+        let same_work_root = state
+            .with_store(|s| work_root_for(s, &destination) == work_root_for(s, &target.channel));
+        if target.channel != destination && !same_work_root {
+            bail!(
+                "tagged agent is in channel {:?}, but this chat is for channel {:?}",
+                target.channel,
+                destination
+            );
+        }
+        if tagged
+            .iter()
+            .any(|entry: &TaggedRecipient| entry.pubkey == target.pubkey)
+        {
+            continue;
+        }
+        tagged.push(TaggedRecipient {
+            label: label.to_string(),
+            pubkey: target.pubkey,
+            session: target.target_session,
+            channel: target.channel,
+        });
+    }
+    let mentioned_pubkeys = tagged
+        .iter()
+        .map(|target| target.pubkey.clone())
+        .collect::<Vec<_>>();
+    let mentioned_sessions = tagged
+        .iter()
+        .filter_map(|target| target.session.clone())
+        .collect::<Vec<_>>();
+    let mentioned_labels = tagged
+        .iter()
+        .map(|target| target.label.clone())
+        .collect::<Vec<_>>();
     let publish_scope = chat_publish_scope(
         &destination,
         pinned_destination.as_deref(),
-        mention.as_ref().map(|(_, _, channel, _)| channel.as_str()),
+        tagged.first().map(|target| target.channel.as_str()),
     );
-    let body_to_send = mention
-        .as_ref()
-        .map(|(pk, _, _, raw)| body::rewrite_first_resolved_mention(&p.message, raw, pk))
-        .unwrap_or_else(|| p.message.clone());
+    let body_to_send = body::format_tagged_body(&p.message, &tagged)?;
+    if !p.long_message && body_to_send.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT {
+        bail!(
+            "your message is too long; keep it under {CHANNEL_MESSAGE_CHAR_LIMIT} characters or pass --long-message"
+        );
+    }
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
     // with the locally-seeded row and the primary-key de-dupe preserves the wrong
@@ -127,7 +133,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         from: instance.agent_ref(),
         channel: publish_scope.clone(),
         body: body_to_send.clone(),
-        mentioned_pubkey: mentioned_pubkey.clone(),
+        mentioned_pubkeys: mentioned_pubkeys.clone(),
     };
     let published = state
         .provider
@@ -138,8 +144,12 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 from_session: Some(rec.session_id.clone()),
                 channel_h: deliver_scope.clone(),
                 body: body_to_send.clone(),
-                mentioned_pubkey: mentioned_pubkey.clone(),
-                mentioned_session: mentioned_session.clone(),
+                recipients: tagged
+                    .iter()
+                    .map(|target| {
+                        OutboundChatRecipient::new(target.pubkey.clone(), target.session.clone())
+                    })
+                    .collect(),
                 created_at: Some(now_secs()),
                 direction: "outbound",
             },
@@ -170,7 +180,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             }
         };
         for target in targets {
-            let is_direct_target = mentioned_session.as_deref() == Some(target.session_id.as_str());
+            let is_direct_target = tagged.iter().any(|recipient| {
+                recipient.session.as_deref() == Some(target.session_id.as_str())
+            });
             let joined_target = s
                 .is_session_joined_channel(&target.session_id, &deliver_scope)
                 .unwrap_or(target.channel_h == deliver_scope);
@@ -187,7 +199,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             // Only ring the doorbell for explicitly mentioned sessions/pubkeys;
             // channel-broadcast messages stay in relay_events for ambient context.
             let is_mentioned = is_direct_target
-                || mentioned_pubkey.as_deref() == Some(target.agent_pubkey.as_str());
+                || mentioned_pubkeys
+                    .iter()
+                    .any(|pubkey| pubkey == &target.agent_pubkey);
             if !is_mentioned {
                 continue;
             }
@@ -241,20 +255,25 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         channel: deliver_scope.clone(),
         from: from_label,
         from_session: Some(rec.session_id),
-        to: mentioned_pubkey
-            .as_deref()
-            .map(pubkey_short)
-            .unwrap_or_else(|| "channel-chat".to_string()),
-        to_session: mentioned_session.clone(),
+        to: if mentioned_pubkeys.is_empty() {
+            "channel-chat".to_string()
+        } else {
+            mentioned_pubkeys
+                .iter()
+                .map(|pubkey| pubkey_short(pubkey))
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+        to_session: (mentioned_sessions.len() == 1).then(|| mentioned_sessions[0].clone()),
         body: body_to_send.chars().take(200).collect(),
     });
 
     Ok(serde_json::json!({
         "event_id": event_id,
         "channel": publish_scope,
-        "mentioned_pubkey": mentioned_pubkey,
-        "mentioned_session": mentioned_session,
-        "mentioned_label": mentioned_label,
+        "mentioned_pubkeys": mentioned_pubkeys,
+        "mentioned_sessions": mentioned_sessions,
+        "mentioned_labels": mentioned_labels,
     }))
 }
 
@@ -269,13 +288,9 @@ pub(super) fn note_explicit_chat_published(state: &Arc<DaemonState>, session_id:
     auto_reply::note_explicit_publish(session_id);
 }
 
-fn long_message_requires_override(p: &ChannelSendParams) -> bool {
-    !p.long_message && p.message.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT
-}
-
-fn handle_mention_resolution_error(raw: &str, e: anyhow::Error) -> Result<()> {
-    if e.chain().any(|c| c.is::<rusqlite::Error>()) {
-        anyhow::bail!("failed to resolve mention @{raw}: {e:#}");
-    }
-    Ok(())
+pub(super) struct TaggedRecipient {
+    label: String,
+    pubkey: String,
+    session: Option<String>,
+    channel: String,
 }

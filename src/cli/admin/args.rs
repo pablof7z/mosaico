@@ -135,6 +135,10 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
+        /// Agent to tag in the message. Repeat to tag multiple agents. The
+        /// visible `nostr:npub...` address prefix is added automatically.
+        #[arg(long = "tag", value_name = "AGENT")]
+        tags: Vec<String>,
         /// Channel-relative channel name/path/id to write to. Required when
         /// this session is joined to more than one channel; inferred only when
         /// exactly one joined channel exists.
