@@ -57,11 +57,38 @@ pub(in crate::daemon::server) async fn publish_local_agent_roster(
         }
     }
 
+    // Re-publish the backend kind:0 so its advertised `agent` tags track the
+    // managed set — clients (e.g. the 29er add-agent picker) see add/remove
+    // changes without a daemon restart, mirroring this roster republish.
+    publish_backend_profile(state).await;
+
     Ok(RosterPublishReport {
         published,
         removed,
         failed,
     })
+}
+
+/// Publish the backend process's own kind:0 identity, advertising the managed
+/// agents as `["agent", slug, description]` tags. Best-effort: a failure is
+/// logged and deferred to the next trigger (startup or the next roster change).
+/// Called from daemon startup and whenever the managed-agent set changes.
+pub(in crate::daemon::server) async fn publish_backend_profile(state: &Arc<DaemonState>) {
+    let Some(backend_keys) = state.provider.management_keys() else {
+        return;
+    };
+    let agents = crate::identity::list_advertised_agents(&crate::config::edge_home());
+    let profile = crate::domain::Profile::backend_named(
+        backend_keys.public_key().to_hex(),
+        format!("{} (tenex-edge)", state.host),
+        state.host.clone(),
+        state.owners.clone(),
+    )
+    .with_agents(agents);
+    let ev = crate::domain::DomainEvent::Profile(profile);
+    if let Err(e) = state.provider.publish(&ev, &backend_keys).await {
+        tracing::warn!(error = %e, "backend kind:0 profile publish failed");
+    }
 }
 
 fn root_channels(store: &Store) -> Vec<String> {

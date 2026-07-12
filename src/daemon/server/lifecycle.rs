@@ -143,19 +143,11 @@ pub async fn run() -> Result<()> {
         tracing::info!("relay warmup complete; opening subscriptions");
 
         // Publish the backend's own kind:0 so it is identifiable on the relay by
-        // Nostr clients. Best-effort: failure deferred to next restart.
-        // Intentionally NOT stored in the hosted set — the echo must NOT appear in
-        // `my session` or be injected into agent turn-context.
-        if let Some(backend_keys) = relay_state.provider.management_keys() {
-            let profile = crate::domain::Profile::backend_named(
-                backend_keys.public_key().to_hex(),
-                format!("{} (tenex-edge)", relay_state.host),
-                relay_state.host.clone(),
-                relay_state.owners.clone(),
-            );
-            let ev = crate::domain::DomainEvent::Profile(profile);
-            let _ = relay_state.provider.publish(&ev, &backend_keys).await;
-        }
+        // Nostr clients, advertising the managed agents as `agent` tags. Best-effort:
+        // failure deferred to next restart / roster change. Intentionally NOT stored
+        // in the hosted set — the echo must NOT appear in `who` or be injected into
+        // agent turn-context.
+        super::agent_roster::publish_backend_profile(&relay_state).await;
 
         // Proactively warm the profiles we already know we care about — the human
         // operator(s) and every durable agent identity — so the first awareness

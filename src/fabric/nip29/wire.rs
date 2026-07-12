@@ -2,7 +2,7 @@
 //!
 //! | Domain      | Wire |
 //! |-------------|------|
-//! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]` |
+//! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]`; backend profiles additionally carry `["backend"]` + one `["agent", slug, desc]` per managed agent |
 //! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
 //! | Status      | kind:30315, content = live activity (may be empty when idle), `["d", session_id]`, one or more `["h", channel]`, `["title", title]` (always), `["status", "busy"\|"idle"]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | AgentRoster | kind:30555, backend management-key signed, `["d", capability_slug]`, `["hostname", host]`, `["use-criteria", text]`, one or more root-channel `["h", channel]` |
@@ -24,8 +24,9 @@
 //! tag for the mentioned instance pubkey.
 //!
 //! Most events resolve slug downstream; status carries an optional render-hint slug. Authorization
-//! uses only event.pubkey (signer); self-asserted `agent` tags have no authority
-//! and are never written or read.
+//! uses only event.pubkey (signer). Self-asserted `agent` tags on *agent-session* kind:0s have no
+//! authority and are never written; only the **backend** management-key-signed kind:0 advertises
+//! `["agent", slug, desc]` tags (the managed-agent roster for client add-agent pickers).
 
 use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Proposal, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};

@@ -9,6 +9,7 @@ fn profile_roundtrip() {
         host: "pablos' laptop".into(),
         owners: vec!["09d4".repeat(16)],
         is_backend: false,
+        agents: Vec::new(),
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
 
@@ -22,6 +23,74 @@ fn profile_roundtrip() {
 }
 
 #[test]
+fn backend_profile_advertises_managed_agents_as_tags() {
+    let keys = Keys::generate();
+    let profile = crate::domain::Profile::backend_named(
+        keys.public_key().to_hex(),
+        "laptop (tenex-edge)",
+        "laptop",
+        Vec::new(),
+    )
+    .with_agents(vec![
+        ("developer".into(), "writes and reviews code".into()),
+        ("writer".into(), String::new()),
+    ]);
+    let ev = DomainEvent::Profile(profile);
+
+    // Round-trips: `["agent", slug, desc]` tags survive encode -> decode, and an
+    // empty description decodes back to empty (not dropped).
+    assert_eq!(roundtrip(ev.clone(), &keys), ev);
+
+    let signed = Nip29WireCodec
+        .encode_event(&ev)
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap();
+    let agent_tags: Vec<Vec<String>> = signed
+        .tags
+        .iter()
+        .map(|t| t.as_slice().to_vec())
+        .filter(|s| s.first().map(String::as_str) == Some("agent"))
+        .collect();
+    assert_eq!(
+        agent_tags,
+        vec![
+            vec![
+                "agent".to_string(),
+                "developer".to_string(),
+                "writes and reviews code".to_string()
+            ],
+            vec!["agent".to_string(), "writer".to_string(), String::new()],
+        ]
+    );
+}
+
+#[test]
+fn non_backend_profile_omits_agent_tags() {
+    let keys = Keys::generate();
+    // Agent (non-backend) profiles never advertise a managed set.
+    let mut profile = crate::domain::Profile::agent(
+        agent(&keys, "willow-echo-042-developer"),
+        "developer",
+        "laptop",
+        Vec::new(),
+    );
+    profile.agents = vec![("leaked".into(), "should not be encoded".into())];
+    let signed = Nip29WireCodec
+        .encode_event(&DomainEvent::Profile(profile))
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap();
+    assert!(
+        !signed
+            .tags
+            .iter()
+            .any(|t| t.as_slice().first().map(String::as_str) == Some("agent")),
+        "non-backend profile must not emit agent tags"
+    );
+}
+
+#[test]
 fn retired_profile_roundtrip_keeps_npub_as_the_name() {
     let keys = Keys::generate();
     let npub = keys.public_key().to_bech32().unwrap();
@@ -31,6 +100,7 @@ fn retired_profile_roundtrip_keeps_npub_as_the_name() {
         host: "remoteBackend".into(),
         owners: Vec::new(),
         is_backend: false,
+        agents: Vec::new(),
     });
     let signed = Nip29WireCodec
         .encode_event(&profile)

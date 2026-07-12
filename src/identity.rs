@@ -20,9 +20,9 @@ pub use commands::{LaunchCommand, DEFAULT_COMMAND_NAME};
 pub use keys::{derive_session_keys_v2, SessionIdentity};
 pub(crate) use local_agent::add_local_agent_with_commands;
 pub use local_agent::{
-    add_local_agent, agent_harness_bundle, list_invitable_agents, list_local_agent_details,
-    list_local_agents, list_local_pubkeys, remove_local_agent, set_local_agent_byline, LocalAgent,
-    SpawnAgentEntry,
+    add_local_agent, agent_harness_bundle, list_advertised_agents, list_invitable_agents,
+    list_local_agent_details, list_local_agents, list_local_pubkeys, remove_local_agent,
+    set_local_agent_byline, LocalAgent, SpawnAgentEntry,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
