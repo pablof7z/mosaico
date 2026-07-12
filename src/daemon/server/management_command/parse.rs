@@ -53,6 +53,28 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
     }
 }
 
+/// True when `body` *looks like* a management command: its first meaningful word
+/// (after stripping leading inline @mentions) is one of the known command verbs.
+///
+/// This is the gate that breaks the #375 reply feedback loop. An ordinary
+/// conversational reply that merely p-tags the backend is NOT command-shaped, so
+/// it is never routed to the management handler and never draws a "mgmt error"
+/// reply. A command-shaped body that then fails [`parse_command`] still gets one
+/// explicit error, but the agent's prose follow-up is not command-shaped and so
+/// cannot re-enter the loop.
+pub(super) fn is_command_shaped(body: &str) -> bool {
+    let stripped = strip_leading_inline_mentions(body.trim());
+    shlex::split(stripped)
+        .and_then(|words| words.into_iter().next())
+        .map(|verb| {
+            matches!(
+                verb.to_ascii_lowercase().as_str(),
+                "add" | "list" | "kill" | "archive"
+            )
+        })
+        .unwrap_or(false)
+}
+
 fn strip_leading_inline_mentions(mut body: &str) -> &str {
     loop {
         let trimmed = body.trim_start();
@@ -115,6 +137,53 @@ fn eq(a: &str, b: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // #375: the command-shape gate is what keeps ordinary prose replies (which
+    // p-tag the backend) out of the management handler, closing the reply loop.
+    #[test]
+    fn prose_replies_are_not_command_shaped() {
+        // The exact shape of the observed loop: an agent replying to a mgmt error.
+        assert!(!is_command_shaped("Acknowledged, no action needed."));
+        assert!(!is_command_shaped(
+            "@backend-mgmt thanks, I'll take a look at that."
+        ));
+        assert!(!is_command_shaped(
+            "mgmt error: unsupported management command"
+        ));
+        assert!(!is_command_shaped(
+            "please add the coder agent when you can"
+        ));
+        assert!(!is_command_shaped(""));
+        assert!(!is_command_shaped("   "));
+    }
+
+    #[test]
+    fn real_commands_are_command_shaped() {
+        for cmd in [
+            "add coder@laptop",
+            "list agents",
+            "list sessions",
+            "list all sessions",
+            "kill te-abc123",
+            "archive #planning",
+            // leading inline npub mention (the rendered p-tag) is stripped:
+            "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs add coder",
+            "ADD coder", // case-insensitive verb
+        ] {
+            assert!(is_command_shaped(cmd), "expected command-shaped: {cmd:?}");
+        }
+    }
+
+    #[test]
+    fn command_shaped_but_invalid_still_gets_an_explicit_error_path() {
+        // First word is a verb → command-shaped (so it reaches the handler and
+        // draws ONE explicit error), even though parse_command rejects it. The
+        // loop is still broken because the agent's prose follow-up is not shaped.
+        assert!(is_command_shaped("kill")); // missing session id
+        assert!(parse_command("kill").is_err());
+        assert!(is_command_shaped("add coder@")); // malformed spec
+        assert!(parse_command("add coder@").is_err());
+    }
 
     #[test]
     fn parse_management_commands() {

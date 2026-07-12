@@ -28,7 +28,9 @@ pub(super) fn is_management_command_for_backend(state: &Arc<DaemonState>, event:
     let Some(backend_pk) = state.backend_pubkey() else {
         return false;
     };
-    event.pubkey.to_hex() != backend_pk && p_tags(event).iter().any(|pk| pk == &backend_pk)
+    event.pubkey.to_hex() != backend_pk
+        && p_tags(event).iter().any(|pk| pk == &backend_pk)
+        && parse::is_command_shaped(&event.content) // #375: prose is not a command
 }
 
 pub(super) async fn handle_management_command(state: &Arc<DaemonState>, event: &Event) {
@@ -55,10 +57,7 @@ pub(super) async fn handle_management_command(state: &Arc<DaemonState>, event: &
         }
     };
     if !claimed {
-        tracing::debug!(
-            event_id = %short(&event_id),
-            "management command already complete or in flight"
-        );
+        tracing::debug!(event_id = %short(&event_id), "mgmt command already claimed");
         return;
     }
 

@@ -26,9 +26,12 @@ pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event) {
         let ev = event.clone();
         tokio::spawn(async move { handle_session_dispatch(&st, &ev, op).await });
     } else if is_management_command_for_backend(state, event) {
-        tracing::info!(
+        // Pre-claim match: can fire more than once for the same event, so keep it
+        // at debug and don't imply execution. The authoritative single-execution
+        // log is emitted post-claim inside handle_management_command (#375).
+        tracing::debug!(
             event_id = %&event.id.to_hex()[..8],
-            "dispatching management command handler"
+            "management command matched; claiming"
         );
         let st = state.clone();
         let ev = event.clone();
