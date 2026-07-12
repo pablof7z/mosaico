@@ -13,6 +13,9 @@ pub(super) async fn invite_session(
             if let Some(pty_id) = live_pty_for_session(state, &rec) {
                 return pull_live_session(state, channel_h, &rec, &pty_id).await;
             }
+            if state.with_store(|s| s.is_durable_agent_session(&rec.session_id))? {
+                return pull_live_session(state, channel_h, &rec, "").await;
+            }
         }
         return resume_local_session(state, channel_h, work_root, &rec).await;
     }

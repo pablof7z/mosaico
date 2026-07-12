@@ -20,6 +20,9 @@ pub(super) struct SessionStartParams {
     /// Portable-pty supervisor socket path from TENEX_EDGE_PTY_SOCKET.
     #[serde(default)]
     pub(super) pty_socket: Option<String>,
+    /// Daemon-owned reservation acquired before a manual PTY launch.
+    #[serde(default)]
+    pub(super) durable_reservation: Option<String>,
     /// Harness-native resume token. Opencode forwards its `ses_*` id here.
     #[serde(default)]
     pub(super) resume_id: Option<String>,

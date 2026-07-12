@@ -50,6 +50,11 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     cmd.env("TENEX_EDGE_AGENT", &args.agent);
     cmd.env("TENEX_EDGE_PTY_SESSION", &args.id);
     cmd.env("TENEX_EDGE_PTY_SOCKET", args.socket.as_os_str());
+    if let Ok(reservation) = std::env::var("TENEX_EDGE_DURABLE_RESERVATION") {
+        cmd.env("TENEX_EDGE_DURABLE_RESERVATION", reservation);
+    } else {
+        cmd.env_remove("TENEX_EDGE_DURABLE_RESERVATION");
+    }
     if args.ephemeral {
         cmd.env("TENEX_EDGE_EPHEMERAL", "1");
     } else {

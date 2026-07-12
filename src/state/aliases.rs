@@ -172,6 +172,14 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn clear_session_aliases(&self, session_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM session_aliases WHERE session_id=?1",
+            [session_id],
+        )?;
+        Ok(())
+    }
+
     /// All external-id aliases pointing at a canonical session (e.g. to retire
     /// them when the session dies).
     pub fn aliases_for_session(&self, session_id: &str) -> Result<Vec<SessionAlias>> {

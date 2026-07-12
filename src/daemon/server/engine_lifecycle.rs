@@ -117,6 +117,13 @@ pub(in crate::daemon::server) fn cancel_session(
 /// `who`/presence don't lie after a restart) and crash-GC its ordinal member.
 pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonState>) {
     let now = now_secs();
+    let cleaned = state.with_store(|s| s.cleanup_orphan_durable_sessions().unwrap_or_default());
+    if cleaned > 0 {
+        tracing::warn!(
+            cleaned,
+            "released orphan durable-agent claims during startup reconcile"
+        );
+    }
     let snaps = state.with_store(|s| s.list_alive_sessions().unwrap_or_default());
     tracing::info!(
         session_count = snaps.len(),
@@ -168,12 +175,21 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
                 continue;
             }
         };
+        if let Err(e) = validate_live_session_identity(state, &snap, &agent_identity) {
+            tracing::warn!(session = %session_id, error = %e, "live session identity configuration changed; retiring stale session");
+            state.with_store(|s| {
+                s.mark_dead(&session_id).ok();
+                s.mark_identity_dead_for_session(&session_id).ok();
+            });
+            continue;
+        }
         let minted = match mint_session_identity(
             state,
             &session_id,
             &agent_identity,
             &snap.channel_h,
             &snap.resume_id,
+            None,
         ) {
             Ok(minted) => minted,
             Err(e) => {

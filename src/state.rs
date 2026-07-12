@@ -219,7 +219,7 @@ static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Mint a fresh canonical session id (daemon-owned, opaque, stable across harness
 /// id rotation).
-pub(super) fn mint_session_id() -> String {
+pub(crate) fn mint_session_id() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)

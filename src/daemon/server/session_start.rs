@@ -11,8 +11,8 @@ mod lookup;
 mod params;
 mod stale;
 
-use abort::abort_session_start;
-use alias_resolution::resolve_session_id;
+use abort::{abort_session_start, DurableStartGuard};
+use alias_resolution::{record_secondary_aliases, resolve_session_id};
 use lookup::{session_endpoint, work_root_for_scope};
 use params::SessionStartParams;
 
@@ -156,6 +156,13 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         durable_agent,
         now,
     )?;
+    let already_running = state.sessions.lock().unwrap().contains_key(&session_id);
+    let existing_session = already_running
+        .then(|| state.with_store(|s| s.get_session(&session_id).ok().flatten()))
+        .flatten();
+    if let Some(existing) = existing_session.as_ref() {
+        validate_live_session_identity(state, existing, &agent_identity)?;
+    }
     if let Some(prog) = &progress {
         prog.emit(
             "session_registry",
@@ -163,36 +170,20 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         );
     }
 
-    // Record the secondary external-id aliases (endpoint/pid + any id not used
-    // as the primary) and the channel's absolute path on this machine. Reused
-    // endpoint/pid slots repoint to this newest owner via ON CONFLICT.
-    state.with_store(|s| {
-        if let Some(pty) = &pty_session {
-            s.put_alias(harness_str, "pty_session", pty, &session_id, now)
-                .ok();
-        }
-        if let Some(socket) = &pty_socket {
-            s.put_alias(harness_str, "pty_socket", socket, &session_id, now)
-                .ok();
-        }
-        if let Some(pid) = p.watch_pid {
-            s.put_alias(harness_str, "watch_pid", &pid.to_string(), &session_id, now)
-                .ok();
-        }
-        if let Some(hs) = &harness_session_id {
-            s.put_alias(harness_str, "harness_session", hs, &session_id, now)
-                .ok();
-        }
-        if let Some(r) = &resume_id {
-            s.put_alias(harness_str, "resume", r, &session_id, now).ok();
-        }
-        s.upsert_workspace(&work_root, &cwd.to_string_lossy(), now)
-            .ok();
-        if channel != work_root {
-            s.upsert_workspace(&channel, &cwd.to_string_lossy(), now)
-                .ok();
-        }
-    });
+    record_secondary_aliases(
+        state,
+        harness_str,
+        &session_id,
+        pty_session.as_deref(),
+        pty_socket.as_deref(),
+        harness_session_id.as_deref(),
+        resume_id.as_deref(),
+        p.watch_pid,
+        &work_root,
+        &cwd,
+        &channel,
+        now,
+    );
 
     membership_cleanup::cleanup_dead_local_sessions(state);
 
@@ -214,18 +205,23 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         );
     }
 
-    let already_running = state.sessions.lock().unwrap().contains_key(&session_id);
-    let existing_channel = already_running
-        .then(|| state.with_store(|s| s.get_session(&session_id).ok().flatten()))
-        .flatten()
-        .map(|r| r.channel_h);
+    let existing_channel = existing_session.map(|r| r.channel_h);
     if let Some(existing) = existing_channel.as_ref() {
         channel = existing.clone();
     }
 
     // Select the derived per-session or configured durable signer, then write
     // the row carrying that pubkey. Membership admission happens after channel-ready.
-    let minted = mint_session_identity(state, &session_id, &agent_identity, &channel, &native_id)?;
+    let minted = mint_session_identity(
+        state,
+        &session_id,
+        &agent_identity,
+        &channel,
+        &native_id,
+        p.durable_reservation.as_deref(),
+    )?;
+    let mut durable_guard =
+        DurableStartGuard::new(state, &session_id, minted.durable_claim_acquired);
     retire_reclaimed_profile(state, minted.reclaimed_pubkey.as_deref()).await?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
@@ -309,6 +305,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
             plan.row.child_pid,
             now_secs(),
         );
+        durable_guard.disarm();
         return Ok(serde_json::json!({
             "session_id": session_id,
         }));
@@ -390,6 +387,7 @@ pub(in crate::daemon::server) async fn rpc_session_start(
         plan.row.child_pid,
         now_secs(),
     );
+    durable_guard.disarm();
 
     Ok(serde_json::json!({
         "session_id": session_id,

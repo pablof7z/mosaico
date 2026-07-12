@@ -3,8 +3,10 @@ use super::super::*;
 use std::sync::Arc;
 
 mod headless;
+pub(super) mod liveness;
 
 use headless::{mention_prompt, spawn_headless_mention};
+use liveness::has_alive_session_for;
 
 pub(super) fn dispatch(
     state: &Arc<DaemonState>,
@@ -39,16 +41,7 @@ pub(super) async fn handle(
     body: &str,
     requester_pubkey: Option<&str>,
 ) {
-    let has_alive = state.with_store(|s| {
-        s.list_alive_sessions()
-            .unwrap_or_default()
-            .into_iter()
-            .any(|rec| {
-                rec.agent_pubkey == mentioned_pk
-                    && s.is_session_joined_channel(&rec.session_id, channel)
-                        .unwrap_or(rec.channel_h == channel)
-            })
-    });
+    let has_alive = state.with_store(|s| has_alive_session_for(s, mentioned_pk, channel));
     if has_alive {
         tracing::debug!(
             mentioned_pk = %crate::util::pubkey_short(mentioned_pk),

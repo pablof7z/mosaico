@@ -197,9 +197,9 @@ impl Store {
     /// Mark every identity bound to a session dead (alive=0) while KEEPING the row
     /// so a later mention can resume its bound native session. Resolves the id.
     pub fn mark_identity_dead_for_session(&self, session_id: &str) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(session_id)? else {
-            return Ok(());
-        };
+        let canonical = self
+            .resolve_canonical_id(session_id)?
+            .unwrap_or_else(|| session_id.to_string());
         self.conn.execute(
             "UPDATE identities SET alive=0 WHERE session_id=?1",
             params![canonical],

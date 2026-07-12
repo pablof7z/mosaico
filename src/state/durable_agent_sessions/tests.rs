@@ -112,3 +112,40 @@ fn preexisting_live_same_slug_session_blocks_durable_mode() {
         .unwrap_err();
     assert!(error.to_string().contains("already has a live session"));
 }
+
+#[test]
+fn startup_cleanup_releases_orphan_claim_but_preserves_registered_live_owner() {
+    let store = Store::open_memory().unwrap();
+    assert!(store
+        .claim_durable_agent_session("pk", "chief", "orphan", 1)
+        .unwrap());
+    assert_eq!(store.cleanup_orphan_durable_sessions().unwrap(), 1);
+    assert!(store
+        .claim_durable_agent_session("pk", "chief", "live", 2)
+        .unwrap());
+    store
+        .upsert_session_row(
+            "live",
+            &RegisterSession {
+                harness: "codex".into(),
+                external_id_kind: "harness_session".into(),
+                external_id: "native".into(),
+                agent_pubkey: "pk".into(),
+                agent_slug: "chief".into(),
+                channel_h: "root".into(),
+                child_pid: None,
+                transcript_path: None,
+                resume_id: String::new(),
+                now: 2,
+            },
+        )
+        .unwrap();
+    assert_eq!(store.cleanup_orphan_durable_sessions().unwrap(), 0);
+    assert_eq!(
+        store
+            .live_durable_session_for_pubkey("pk")
+            .unwrap()
+            .as_deref(),
+        Some("live")
+    );
+}

@@ -30,6 +30,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let conn = Connection::open(&path).unwrap();
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "trellis_replay_capsules"));
+    assert!(table_exists(&conn, "durable_agent_sessions"));
     assert!(!table_exists(&conn, "project_roots"));
 
     let identities = columns(&conn, "identities");
@@ -73,6 +74,30 @@ fn fresh_file_db_uses_only_canonical_schema() {
 }
 
 #[test]
+fn schema_v1_is_rejected_instead_of_upgraded_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        drop(store);
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute("DROP TABLE durable_agent_sessions", [])
+            .unwrap();
+    }
+
+    let error = match Store::open(&path) {
+        Ok(_) => panic!("schema v1 must be rejected"),
+        Err(error) => error,
+    };
+    assert!(error
+        .to_string()
+        .contains("schema version 1 is incompatible"));
+    let conn = Connection::open(&path).unwrap();
+    assert!(!table_exists(&conn, "durable_agent_sessions"));
+}
+
+#[test]
 fn stamped_non_canonical_file_db_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("state.db");
@@ -94,7 +119,7 @@ fn stamped_non_canonical_file_db_is_rejected() {
         "#,
     )
     .unwrap();
-    conn.pragma_update(None, "user_version", 1u32).unwrap();
+    conn.pragma_update(None, "user_version", 2u32).unwrap();
     drop(conn);
 
     let err = match Store::open(&path) {

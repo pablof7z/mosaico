@@ -36,6 +36,9 @@ pub(super) async fn report_observation(
     let pty_socket = std::env::var("TENEX_EDGE_PTY_SOCKET")
         .ok()
         .filter(|s| !s.is_empty());
+    let durable_reservation = std::env::var("TENEX_EDGE_DURABLE_RESERVATION")
+        .ok()
+        .filter(|s| !s.is_empty());
     let params = serde_json::json!({
         "agent": agent_slug,
         "harness": host.name,
@@ -45,6 +48,7 @@ pub(super) async fn report_observation(
         "watch_pid": watch_pid,
         "pty_session": pty_session,
         "pty_socket": pty_socket,
+        "durable_reservation": durable_reservation,
         // Real argv of a direct `claude --agent <slug>` invocation, detected
         // when TENEX_EDGE_AGENT was absent. Only used by the daemon to seed a
         // brand-new identity's spawn command; ignored for an existing one.

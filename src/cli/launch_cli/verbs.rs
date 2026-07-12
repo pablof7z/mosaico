@@ -76,15 +76,38 @@ pub(crate) async fn launch(
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let meta = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
+    let preflight = super::super::daemon_call_async(
+        "agent_launch_preflight",
+        serde_json::json!({ "agent": agent.clone() }),
+    )
+    .await
+    .context("launch refused before spawning harness")?;
+    let durable_reservation = preflight["durable_reservation"]
+        .as_str()
+        .map(str::to_string);
+    let spawned = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
         id: None,
         agent: agent.clone(),
         root,
         cwd: cwd_path,
         channel,
         ephemeral: false,
+        durable_reservation: durable_reservation.clone(),
         command,
-    })?;
+    });
+    let meta = match spawned {
+        Ok(meta) => meta,
+        Err(error) => {
+            if let Some(reservation) = durable_reservation {
+                let _ = super::super::daemon_call_async(
+                    "agent_launch_release",
+                    serde_json::json!({ "durable_reservation": reservation }),
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
     eprintln!("[tenex-edge pty] session: {}", meta.id);
     eprintln!("[tenex-edge pty] detach: close this attach terminal");
     eprintln!(

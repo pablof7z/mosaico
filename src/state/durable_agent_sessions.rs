@@ -8,7 +8,18 @@ impl Store {
         agent_slug: &str,
         session_id: &str,
         now: u64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        self.claim_durable_agent_session_with_reservation(pubkey, agent_slug, session_id, None, now)
+    }
+
+    pub(crate) fn claim_durable_agent_session_with_reservation(
+        &self,
+        pubkey: &str,
+        agent_slug: &str,
+        session_id: &str,
+        reservation_id: Option<&str>,
+        now: u64,
+    ) -> Result<bool> {
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let other_live_session = tx
             .query_row(
@@ -40,18 +51,22 @@ impl Store {
                 },
             )
             .optional()?;
-        if let Some((owner_pubkey, owner_slug, owner_session, live)) = existing {
+        let reasserted = if let Some((owner_pubkey, owner_slug, owner_session, live)) = existing {
             if owner_pubkey != pubkey || owner_slug != agent_slug {
                 anyhow::bail!(
                     "durable agent identity collision for {agent_slug:?}; configured key belongs to another agent"
                 );
             }
-            if live && owner_session != session_id {
+            let owns_reservation = reservation_id == Some(owner_session.as_str());
+            if live && owner_session != session_id && !owns_reservation {
                 anyhow::bail!(
                     "durable agent {agent_slug:?} already has a live session on this backend"
                 );
             }
-        }
+            live && owner_session == session_id
+        } else {
+            false
+        };
         tx.execute(
             "INSERT INTO durable_agent_sessions
                  (pubkey, agent_slug, session_id, live, updated_at)
@@ -64,7 +79,7 @@ impl Store {
             params![pubkey, agent_slug, session_id, now],
         )?;
         tx.commit()?;
-        Ok(())
+        Ok(!reasserted)
     }
 
     pub(crate) fn release_durable_agent_session(&self, session_id: &str) -> Result<()> {
@@ -101,6 +116,20 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()?)
+    }
+
+    pub(crate) fn cleanup_orphan_durable_sessions(&self) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE durable_agent_sessions SET live=0
+             WHERE live=1 AND NOT EXISTS (
+                 SELECT 1 FROM sessions s
+                 WHERE s.session_id=durable_agent_sessions.session_id
+                   AND s.agent_pubkey=durable_agent_sessions.pubkey
+                   AND s.agent_slug=durable_agent_sessions.agent_slug
+                   AND s.alive=1
+             )",
+            [],
+        )?)
     }
 }
 

@@ -13,6 +13,7 @@ pub struct SpawnSessionArgs {
     pub cwd: PathBuf,
     pub channel: Option<String>,
     pub ephemeral: bool,
+    pub durable_reservation: Option<String>,
     pub command: Vec<String>,
 }
 
@@ -48,6 +49,9 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     }
     if args.ephemeral {
         child.arg("--ephemeral");
+    }
+    if let Some(reservation) = &args.durable_reservation {
+        child.env("TENEX_EDGE_DURABLE_RESERVATION", reservation);
     }
     child.arg("--").args(&args.command);
     child

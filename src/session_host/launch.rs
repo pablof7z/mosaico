@@ -54,6 +54,7 @@ async fn open_agent_session(
         cwd: std::path::PathBuf::from(abs_path),
         channel: group.filter(|g| !g.is_empty()).map(str::to_string),
         ephemeral,
+        durable_reservation: None,
         command: command.to_vec(),
     })?;
     Ok(meta)

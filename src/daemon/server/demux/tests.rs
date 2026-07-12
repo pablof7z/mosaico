@@ -52,21 +52,6 @@ fn identity(pubkey: &str, codename: &str, slug: &str, channel: &str) -> Identity
 
 // ── has_alive gate ────────────────────────────────────────────────────────────
 
-/// `handle` returns early when the mentioned pubkey already has an alive session
-/// joined to the channel. This replicates the exact store query.
-fn has_alive_session_for(store: &Store, mentioned_pk: &str, channel: &str) -> bool {
-    store
-        .list_alive_sessions()
-        .unwrap_or_default()
-        .into_iter()
-        .any(|rec| {
-            rec.agent_pubkey == mentioned_pk
-                && store
-                    .is_session_joined_channel(&rec.session_id, channel)
-                    .unwrap_or(rec.channel_h == channel)
-        })
-}
-
 #[test]
 fn has_alive_gate_skips_when_agent_has_live_session_in_channel() {
     let store = Store::open_memory().unwrap();
@@ -74,7 +59,9 @@ fn has_alive_gate_skips_when_agent_has_live_session_in_channel() {
     // register_session with child_pid=Some sets alive=1.
     assert!(!sid.is_empty());
 
-    assert!(has_alive_session_for(&store, "pk-ord-1", "proj"));
+    assert!(offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-1", "proj"
+    ));
 }
 
 #[test]
@@ -83,7 +70,9 @@ fn has_alive_gate_does_not_skip_when_session_is_dead() {
     let sid = register(&store, "pk-ord-1", "codex", "proj", "ext-1");
     store.mark_dead(&sid).unwrap();
 
-    assert!(!has_alive_session_for(&store, "pk-ord-1", "proj"));
+    assert!(!offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-1", "proj"
+    ));
 }
 
 #[test]
@@ -91,7 +80,9 @@ fn has_alive_gate_does_not_skip_when_agent_in_different_channel() {
     let store = Store::open_memory().unwrap();
     let _sid = register(&store, "pk-ord-1", "codex", "other-proj", "ext-1");
 
-    assert!(!has_alive_session_for(&store, "pk-ord-1", "proj"));
+    assert!(!offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-1", "proj"
+    ));
 }
 
 #[test]
@@ -100,8 +91,12 @@ fn has_alive_gate_matches_derived_ordinal_pubkey_not_base() {
     // Session registered with the ordinal pubkey, not the base.
     let _sid = register(&store, "pk-ord-2", "codex", "proj", "ext-2");
 
-    assert!(has_alive_session_for(&store, "pk-ord-2", "proj"));
-    assert!(!has_alive_session_for(&store, "base-pk", "proj"));
+    assert!(offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-2", "proj"
+    ));
+    assert!(!offline_mention::liveness::has_alive_session_for(
+        &store, "base-pk", "proj"
+    ));
 }
 
 #[test]
@@ -111,7 +106,9 @@ fn has_alive_gate_matches_joined_subchannel_not_just_home_channel() {
     // Join a sub-channel
     store.join_session_channel(&sid, "sub-chan", 10).unwrap();
 
-    assert!(has_alive_session_for(&store, "pk-ord-1", "sub-chan"));
+    assert!(offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-1", "sub-chan"
+    ));
 }
 
 // ── remote backend claim gate ─────────────────────────────────────────────────
