@@ -1,7 +1,19 @@
 //! Code-owned `(harness, transport)` capability table.
 //!
-//! This static table is the single source of truth that replaces argv[0]
-//! sniffing (`registry.rs::{resume_shape_for_bin, headless_shape_for_bin}`).
+//! This static table is the source of truth for the **RPC transports it actually
+//! drives** — `Acp` / `AppServer` — supplying their `base_argv`, `base_env`,
+//! `resume`, `steer`, `turn`, and `profile` when `harness::resolve` plans an
+//! ACP/app-server launch. It is NOT (yet) the source of truth for driving PTY or
+//! headless sessions: PTY resume and headless exec are still shaped by the argv[0]
+//! sniffers in `session_host::registry::{resume_shape_for_bin,
+//! headless_shape_for_bin}`, which remain authoritative for those paths. The
+//! `Pty` / `HeadlessExec` rows here are therefore consulted only by
+//! `harness::resolve`'s built-in-PTY fallback (and capability enumeration); their
+//! `resume`/`steer`/`turn` fields do NOT drive a real session and duplicate the
+//! sniffers' knowledge — do not treat them as the drive path. Migrating PTY/
+//! headless onto this table (retiring the sniffers) is deliberately left as future
+//! work.
+//!
 //! Invalid cells (e.g. Codex x Acp — Codex has no native ACP) simply have no
 //! entry; `lookup` returns `None` and the caller fails loud.
 

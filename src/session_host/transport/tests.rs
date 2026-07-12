@@ -43,14 +43,30 @@ fn acp_and_app_server_bundles_select_acp() {
             .kind(),
         TransportKind::Acp
     );
-    // Non-RPC transports fall to PTY.
     assert_eq!(
         transport_kind_for(&cfg, Some("oc-pty")).unwrap(),
         TransportKind::Pty
     );
+    // Defect #5: strict resolution refuses to collapse headless-exec onto the PTY.
+    assert!(transport_kind_for(&cfg, Some("cx-exec")).is_err());
+}
+
+/// Defect #5: a `headless-exec` bundle must not be silently collapsed onto the
+/// interactive PTY. Launch selection hard-bails; the raw fail-open resolver does
+/// NOT special-case it (the launch mapping owns the refusal, not the resolver).
+#[test]
+fn headless_exec_bundle_is_unsupported_at_launch() {
+    let json = r#"{ "cx-exec": { "harness": "codex", "transport": "headless-exec" } }"#;
+    let cfg: crate::harness::config::HarnessesConfig = serde_json::from_str(json).unwrap();
+    // `TransportImpl` is not `Debug`, so match rather than `unwrap_err`.
+    let err = match select_transport_with(&cfg, Some("cx-exec")) {
+        Ok(_) => panic!("headless-exec bundle must not select a hosted-session transport"),
+        Err(e) => e,
+    };
+    assert!(err.to_string().contains("headless-exec"));
     assert_eq!(
-        transport_kind_for(&cfg, Some("cx-exec")).unwrap(),
-        TransportKind::Pty
+        resolve_transport_fail_open_with("cx-exec", Ok(cfg)),
+        crate::harness::Transport::HeadlessExec
     );
 }
 
@@ -67,20 +83,19 @@ fn fail_open_resolves_acp_bundle_when_config_loads() {
     let json = r#"{ "claude-acp": { "harness": "claude", "transport": "acp" } }"#;
     let cfg: crate::harness::config::HarnessesConfig = serde_json::from_str(json).unwrap();
     assert_eq!(
-        resolve_kind_fail_open_with("claude-acp", Ok(cfg)),
-        TransportKind::Acp
+        resolve_transport_fail_open_with("claude-acp", Ok(cfg)),
+        crate::harness::Transport::Acp
     );
 }
 
 #[test]
 fn fail_open_falls_back_to_pty_on_malformed_config() {
-    // A malformed harnesses.json surfaces as an Err from the loader. The launch
-    // path must NOT abort — it degrades to the PTY (a bundle-carrying agent that
-    // previously launched on the PTY keeps working under a corrupt config).
+    // A malformed harnesses.json surfaces as an Err from the loader; the launch
+    // path must NOT abort — it degrades to the PTY, not fail the launch.
     let load_err = Err(anyhow::anyhow!("parsing harnesses config: trailing comma"));
     assert_eq!(
-        resolve_kind_fail_open_with("claude-acp", load_err),
-        TransportKind::Pty
+        resolve_transport_fail_open_with("claude-acp", load_err),
+        crate::harness::Transport::Pty
     );
 }
 
@@ -90,8 +105,8 @@ fn fail_open_falls_back_to_pty_on_unknown_bundle() {
     // strict resolution errors, fail-open degrades to PTY.
     let cfg = crate::harness::config::HarnessesConfig::default();
     assert_eq!(
-        resolve_kind_fail_open_with("not-a-harness", Ok(cfg)),
-        TransportKind::Pty
+        resolve_transport_fail_open_with("not-a-harness", Ok(cfg)),
+        crate::harness::Transport::Pty
     );
 }
 
@@ -99,8 +114,8 @@ fn fail_open_falls_back_to_pty_on_unknown_bundle() {
 fn fail_open_builtin_slug_stays_pty() {
     let cfg = crate::harness::config::HarnessesConfig::default();
     assert_eq!(
-        resolve_kind_fail_open_with("claude", Ok(cfg)),
-        TransportKind::Pty
+        resolve_transport_fail_open_with("claude", Ok(cfg)),
+        crate::harness::Transport::Pty
     );
 }
 
@@ -112,24 +127,6 @@ fn pty_transport_reports_pty_kind() {
 #[test]
 fn acp_transport_reports_acp_kind() {
     assert_eq!(AcpTransport.kind(), TransportKind::Acp);
-}
-
-#[tokio::test]
-async fn pty_resume_without_token_errors() {
-    let spec = LaunchSpec {
-        slug: "claude".into(),
-        bundle: None,
-        root: "chan".into(),
-        abs_path: "/tmp".into(),
-        group: None,
-        ephemeral: false,
-        base_command: vec!["claude".into()],
-    };
-    let resume = ResumeSpec {
-        native_id: String::new(),
-    };
-    let err = PtyTransport.resume(&spec, &resume).await.unwrap_err();
-    assert!(err.to_string().contains("not resumable"));
 }
 
 /// LIVE: the launch dispatch selects `AcpTransport` for an acp-bundle agent and
@@ -144,9 +141,7 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
         eprintln!("skipping live test (set TENEX_EDGE_RPC_LIVE=1)");
         return;
     }
-    // Point edge_home at a temp dir carrying a harnesses.json bundle that maps
-    // opencode onto the ACP transport, so the *dispatch* (not a hand-built
-    // transport) resolves to AcpTransport.
+    // harnesses.json maps opencode onto ACP so the *dispatch* resolves AcpTransport.
     let home = std::env::temp_dir().join(format!("te-acp-launch-{}", std::process::id()));
     std::fs::create_dir_all(&home).unwrap();
     std::env::set_var("TENEX_EDGE_HOME", &home);
@@ -156,9 +151,13 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
     )
     .unwrap();
 
-    // Dispatch decision.
+    // Dispatch resolves this bundle to the ACP variant; drive the concrete backend
+    // (the PTY path no longer exposes SessionTransport methods via the enum).
     let transport = select_transport(Some("opencode-acp")).unwrap();
     assert_eq!(transport.kind(), TransportKind::Acp);
+    let TransportImpl::Acp(acp) = transport else {
+        panic!("expected ACP transport for an acp bundle");
+    };
 
     let cwd = home.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
@@ -171,7 +170,7 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
         ephemeral: true,
         base_command: vec!["opencode".into()],
     };
-    let endpoint = transport.launch(&spec).await.expect("launch opencode acp");
+    let endpoint = acp.launch(&spec).await.expect("launch opencode acp");
     let ep = EndpointRef {
         kind: endpoint.kind,
         endpoint_id: endpoint.endpoint_id.clone(),
@@ -181,11 +180,8 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
         endpoint.watch_pid.is_some(),
         "acp launch must expose the child pid as watch_pid"
     );
-    assert!(
-        transport.is_live(&ep),
-        "freshly launched child should be live"
-    );
-    transport.kill(&ep).await.unwrap();
+    assert!(acp.is_live(&ep), "freshly launched child should be live");
+    acp.kill(&ep).await.unwrap();
     std::env::remove_var("TENEX_EDGE_HOME");
 }
 
@@ -214,6 +210,9 @@ async fn live_acp_agent_receives_delivered_prompt() {
 
     let transport = select_transport(Some("opencode-acp")).unwrap();
     assert_eq!(transport.kind(), TransportKind::Acp);
+    let TransportImpl::Acp(acp) = transport else {
+        panic!("expected ACP transport for an acp bundle");
+    };
     let cwd = home.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let spec = LaunchSpec {
@@ -225,7 +224,7 @@ async fn live_acp_agent_receives_delivered_prompt() {
         ephemeral: true,
         base_command: vec!["opencode".into()],
     };
-    let endpoint = transport.launch(&spec).await.expect("launch opencode acp");
+    let endpoint = acp.launch(&spec).await.expect("launch opencode acp");
     let ep = EndpointRef {
         kind: endpoint.kind,
         endpoint_id: endpoint.endpoint_id.clone(),
@@ -234,8 +233,7 @@ async fn live_acp_agent_receives_delivered_prompt() {
     // `deliver` is fire-and-forget (returns before the turn completes); the reply
     // streams back as `session/update` notifications the runtime folds into the
     // transcript. Poll it for any assistant output.
-    transport
-        .deliver(&ep, "Reply with the single word: pong", true)
+    acp.deliver(&ep, "Reply with the single word: pong", true)
         .await
         .expect("deliver prompt to acp child");
     let mut got = String::new();
@@ -246,7 +244,7 @@ async fn live_acp_agent_receives_delivered_prompt() {
             break;
         }
     }
-    transport.kill(&ep).await.unwrap();
+    acp.kill(&ep).await.unwrap();
     std::env::remove_var("TENEX_EDGE_HOME");
     assert!(
         !got.trim().is_empty(),
