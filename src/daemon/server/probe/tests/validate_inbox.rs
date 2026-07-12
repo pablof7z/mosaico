@@ -72,6 +72,39 @@ async fn rpc_probe_validate_inbox_reports_management_completion() {
     assert_eq!(v["inbox_evidence"]["delivered_count"], 1);
 }
 
+#[tokio::test]
+async fn rpc_probe_validate_inbox_reports_offline_mention_tombstone() {
+    let state = DaemonState::new_for_test().await;
+    state
+        .with_store(|s| {
+            assert!(s.claim_offline_mention(
+                "evt-mention",
+                "pk-agent",
+                "pk-from",
+                "room",
+                "wake up",
+                100,
+            )?);
+            s.complete_offline_mention("evt-mention", "pk-agent", 120)?;
+            Ok::<(), anyhow::Error>(())
+        })
+        .unwrap();
+
+    let v = rpc_probe(
+        &state,
+        &json!({ "verb": "validate", "target": "inbox:evt-mention" }),
+    )
+    .unwrap();
+
+    assert_eq!(v["ok"], true);
+    assert_check_status(&v, "inbox", "passed");
+    assert_eq!(
+        v["inbox_evidence"]["rows"][0]["target_kind"],
+        "offline_mention"
+    );
+    assert_eq!(v["inbox_evidence"]["delivered_count"], 1);
+}
+
 fn seed_session(state: &std::sync::Arc<DaemonState>, session_id: &str) {
     state
         .with_store(|s| {

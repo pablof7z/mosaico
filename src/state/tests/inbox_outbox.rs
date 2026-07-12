@@ -19,6 +19,30 @@ fn inbox_idempotency_and_delivery() {
 }
 
 #[test]
+fn offline_mention_claim_survives_store_reopen_per_recipient() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.db");
+
+    {
+        let s = Store::open(&path).unwrap();
+        assert!(s
+            .claim_offline_mention("event-1", "agent-a", "from", "room", "do it", 100)
+            .unwrap());
+        s.complete_offline_mention("event-1", "agent-a", 101)
+            .unwrap();
+        s.prune_retained_state_before(1_000, 1_000).unwrap();
+    }
+
+    let reopened = Store::open(&path).unwrap();
+    assert!(!reopened
+        .claim_offline_mention("event-1", "agent-a", "from", "room", "do it", 200)
+        .unwrap());
+    assert!(reopened
+        .claim_offline_mention("event-1", "agent-b", "from", "room", "do it", 200)
+        .unwrap());
+}
+
+#[test]
 fn outbox_publish_and_retry() {
     let s = Store::open_memory().unwrap();
     let id = s.enqueue_outbox("{\"k\":1}", 100).unwrap();

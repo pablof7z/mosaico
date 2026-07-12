@@ -2,48 +2,18 @@ use super::super::resolution::work_root_for;
 use super::super::*;
 use std::sync::Arc;
 
+mod claim;
 mod headless;
 pub(super) mod liveness;
 
+pub(super) use claim::dispatch_all;
 use headless::{mention_prompt, spawn_headless_mention};
 use liveness::has_alive_session_for;
 
-pub(super) fn dispatch_all(
-    state: &Arc<DaemonState>,
-    chat: &crate::domain::ChatMessage,
-    hosted: &[String],
-) -> bool {
-    for mentioned_pk in &chat.mentioned_pubkeys {
-        dispatch(state, chat, mentioned_pk);
-    }
-    chat.mentioned_pubkeys
-        .iter()
-        .any(|pubkey| hosted.contains(pubkey))
-}
-
-pub(super) fn dispatch(
-    state: &Arc<DaemonState>,
-    chat: &crate::domain::ChatMessage,
-    mentioned_pk: &str,
-) {
-    let st = state.clone();
-    let mentioned_pk = mentioned_pk.to_string();
-    let channel = chat.channel.clone();
-    let body = chat.body.clone();
-    let requester_pubkey = chat.from.pubkey.clone();
-    tracing::info!(
-        mentioned_pk = %crate::util::pubkey_short(&mentioned_pk),
-        channel = %channel,
-        "dispatching offline-agent-mention handler"
-    );
-    tokio::spawn(async move {
-        handle(&st, &mentioned_pk, &channel, &body, Some(&requester_pubkey)).await;
-    });
-}
-
 /// Spawn a local agent that was p-tagged in a kind:9 message but had no alive
-/// session. Idempotency: `first_sight` prevents duplicate spawns within a run;
-/// `has_alive` prevents re-spawn across restarts when the previous spawn registered.
+/// session. The caller durably claims `(event_id, mentioned_pubkey)` before
+/// entering this handler, so relay replay cannot repeat the side effect after a
+/// daemon restart. `has_alive` still avoids unnecessary work on the first sight.
 /// Delivery: session start schedules subscription/replay work in the daemon;
 /// recent kind:9 events are re-materialized against the now-alive session and
 /// delivered via `ring_doorbells`.

@@ -175,6 +175,8 @@ fn target_kind(target_session: &str) -> &'static str {
         "management"
     } else if target_session.starts_with("orchestration:") {
         "orchestration"
+    } else if target_session.starts_with("offline-mention:") {
+        "offline_mention"
     } else {
         "session"
     }
@@ -185,7 +187,10 @@ fn synthetic_target(target_session: &str) -> bool {
 }
 
 fn delivered_state(state: &str) -> bool {
-    matches!(state, "delivered" | "injected" | "echo_consumed")
+    matches!(
+        state,
+        "delivered" | "injected" | "echo_consumed" | "offline_handled"
+    )
 }
 
 fn failed_state(state: &str) -> bool {

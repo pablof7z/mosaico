@@ -150,8 +150,8 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     // The relay pool notifies once PER MATCHING SUBSCRIPTION (scope filters ×
     // live sessions), so the same event reaches here many times. The tail
     // broadcast is NOT idempotent — emit only on first sight of the event id.
-    // Spawn-on-mention also runs inside first_sight so we attempt at most once
-    // per run; has_alive check in the handler covers daemon-restart idempotency.
+    // first_sight avoids redundant claims within one process; the durable
+    // event+recipient claim covers daemon-restart idempotency.
     if let Some(de) = outcome.tail {
         let kind = event.kind.as_u16();
         if state.first_sight(&event.id.to_hex()) {
@@ -165,7 +165,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             derive_and_emit_tail_events(state, &de, &hosted, now);
             if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
                 if let DomainEvent::ChatMessage(ref chat) = de {
-                    if offline_mention::dispatch_all(state, chat, &hosted) {
+                    if offline_mention::dispatch_all(state, &event.id.to_hex(), chat, &hosted) {
                         let st = state.clone();
                         let ev = event.clone();
                         tokio::spawn(async move {
