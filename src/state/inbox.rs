@@ -4,7 +4,8 @@
 //! because a row exists. Direct-message rows start `pending` (parked for the next
 //! hook), become `delivered` when surfaced by turn context, or `injected` when
 //! submitted through a hosted PTY as a prompt awaiting echo suppression. Consumed echoes
-//! become `echo_consumed`. Orchestration target claims reuse the same ledger with
+//! become `echo_consumed`. Offline mention side effects become `offline_handled`,
+//! a permanent replay tombstone. Orchestration target claims reuse the ledger with
 //! synthetic `target_session` keys: `processing` while a backend is mutating that
 //! target, `pending` when it should be retried, and `delivered` once that exact
 //! target is complete.
@@ -189,6 +190,47 @@ impl Store {
     pub fn complete_management_command(&self, event_id: &str, now: u64) -> Result<()> {
         self.complete_orchestration_target(event_id, "management", now)
     }
+
+    /// Claim one mention side effect for a stable recipient identity. Relay
+    /// subscription replay may surface the same kind:9 after a daemon restart,
+    /// and session ids are too transient to guard agent spawn/resume. The
+    /// recipient pubkey makes this claim durable across replacement sessions.
+    pub fn claim_offline_mention(
+        &self,
+        event_id: &str,
+        mentioned_pubkey: &str,
+        from_pubkey: &str,
+        channel_h: &str,
+        body: &str,
+        now: u64,
+    ) -> Result<bool> {
+        self.claim_orchestration_target(
+            event_id,
+            &offline_mention_target(mentioned_pubkey),
+            from_pubkey,
+            channel_h,
+            body,
+            now,
+        )
+    }
+
+    pub fn complete_offline_mention(
+        &self,
+        event_id: &str,
+        mentioned_pubkey: &str,
+        now: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE inbox SET state='offline_handled', delivered_at=?3
+             WHERE event_id=?1 AND target_session=?2",
+            params![event_id, offline_mention_target(mentioned_pubkey), now],
+        )?;
+        Ok(())
+    }
+}
+
+fn offline_mention_target(mentioned_pubkey: &str) -> String {
+    format!("offline-mention:{mentioned_pubkey}")
 }
 
 #[cfg(test)]
