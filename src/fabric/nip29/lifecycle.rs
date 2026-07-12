@@ -110,21 +110,6 @@ pub fn group_edit_metadata(channel: &str, about: &str) -> Result<EventBuilder> {
         .tags([h_tag(channel)?, tag(&["about", about])?]))
 }
 
-/// kind:9002 edit-metadata: set the full `child` list on a PARENT group.
-///
-/// Publishes `["child", ch]` for every entry in `children`, confirming each
-/// bidirectional parent↔child relationship. Callers must pass the COMPLETE
-/// desired child set (existing children + new one), because relay behaviour for
-/// incremental `child` additions is unspecified — a full replacement is safe
-/// regardless of whether the relay accumulates or overwrites.
-pub fn group_set_children(parent_h: &str, children: &[&str]) -> Result<EventBuilder> {
-    let mut tags = vec![h_tag(parent_h)?];
-    for ch in children {
-        tags.push(tag(&["child", ch])?);
-    }
-    Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "").tags(tags))
-}
-
 /// kind:9002 edit-metadata: set the group's display `name` (issue #6 — a
 /// per-session room is renamed to its distilled session title). The relay
 /// validates admin rights and re-publishes kind:39000.
@@ -215,32 +200,6 @@ mod tests {
             "picture",
             "https://api.dicebear.com/10.x/stripes/svg?seed=subgroup-support-a1b2c3d4"
         ));
-    }
-
-    #[test]
-    fn group_set_children_targets_parent_with_all_child_tags() {
-        let b = group_set_children(
-            "tenex-edge",
-            &["subgroup-support-a1b2c3d4", "subgroup-feature-b2c3d4e5"],
-        )
-        .unwrap();
-        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
-        assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
-        // Must address the PARENT group, not any child.
-        assert!(has_tag(&ev, "h", "tenex-edge"));
-        assert!(has_tag(&ev, "child", "subgroup-support-a1b2c3d4"));
-        assert!(has_tag(&ev, "child", "subgroup-feature-b2c3d4e5"));
-        // Must not accidentally declare a parent tag on the parent.
-        assert!(!has_tag_name(&ev, "parent"));
-    }
-
-    #[test]
-    fn group_set_children_empty_list_emits_only_h_tag() {
-        let b = group_set_children("tenex-edge", &[]).unwrap();
-        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
-        assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
-        assert!(has_tag(&ev, "h", "tenex-edge"));
-        assert!(!has_tag_name(&ev, "child"));
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub struct TestRelay {
     data_dir: Option<PathBuf>,
 }
 
-fn nak_bin() -> PathBuf {
+pub(crate) fn nak_bin() -> PathBuf {
     if let Ok(p) = std::env::var("NAK") {
         return PathBuf::from(p);
     }

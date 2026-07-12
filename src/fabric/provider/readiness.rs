@@ -232,6 +232,54 @@ fn ensure_channel_ready_inner<'a>(
             repaired = true;
         }
 
+        // A subgroup is not ready merely because its own metadata and roster are
+        // healthy: the parent must reciprocally list it (NIP-29 parent consent).
+        // Use the relay-declared parent rather than the caller's soft hint, then
+        // require the relay-owned reverse projection before opening the gate.
+        let declared_parent = match provider.try_fetch_group_parent(ctx.channel).await {
+            Ok(parent) => parent,
+            Err(e) => {
+                tracing::error!(
+                    channel = ctx.channel,
+                    error = %format!("{e:#}"),
+                    "ensure_channel_ready: could not verify subgroup parent metadata"
+                );
+                return attempt::degraded(
+                    provider,
+                    &ctx,
+                    format!("subgroup parent metadata fetch failed: {e:#}"),
+                );
+            }
+        };
+        if let Some(parent) = declared_parent {
+            if parent == ctx.channel {
+                return attempt::degraded(
+                    provider,
+                    &ctx,
+                    "relay metadata declares the channel as its own parent",
+                );
+            }
+            match provider
+                .confirm_parent_lists_child(&parent, ctx.channel)
+                .await
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    tracing::error!(
+                        channel = ctx.channel,
+                        parent,
+                        error = %format!("{e:#}"),
+                        "ensure_channel_ready: reciprocal parent child relationship was not confirmed"
+                    );
+                    return attempt::degraded(
+                        provider,
+                        &ctx,
+                        format!("reciprocal parent child relationship failed: {e:#}"),
+                    );
+                }
+            }
+        }
+
         // SOOT guarantee: a ready channel must be present in `relay_channels` from
         // the relay's OWN kind:39000 — not a local optimistic write. A freshly
         // created group was already materialized above; a pre-existing group hit by
@@ -306,6 +354,21 @@ fn store_locally_materialized_ready(
     if !channel_found {
         return false;
     }
+    let materialized_parent = store
+        .channel_parent(ctx.channel)
+        .ok()
+        .flatten()
+        .filter(|parent| !parent.is_empty());
+    if ctx
+        .parent_hint
+        .filter(|parent| !parent.is_empty())
+        .is_some()
+        || materialized_parent.is_some()
+    {
+        // relay_channels stores the child's declared parent, not the parent's
+        // reciprocal child list, so local state alone cannot prove consent.
+        return false;
+    }
     if !store
         .has_channel_membership_snapshot(ctx.channel)
         .unwrap_or(false)
@@ -323,87 +386,4 @@ fn store_locally_materialized_ready(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn materialized_relay_cache_proves_existing_member_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::state::Store::open(&dir.path().join("state.db")).unwrap();
-        store.upsert_channel("room", "room", "", "", 100).unwrap();
-        store
-            .replace_channel_admins("room", &["admin".to_string()], 101)
-            .unwrap();
-        store
-            .replace_channel_members("room", &["member".to_string()], 102)
-            .unwrap();
-
-        let ctx = ChannelCtx {
-            channel: "room",
-            expect_member: "member",
-            parent_hint: None,
-            name: None,
-            repair_whitelisted_admins: true,
-        };
-
-        assert!(store_locally_materialized_ready(
-            &store,
-            &ctx,
-            &["admin".to_string()]
-        ));
-    }
-
-    #[test]
-    fn materialized_relay_cache_does_not_prove_missing_member_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::state::Store::open(&dir.path().join("state.db")).unwrap();
-        store.upsert_channel("room", "room", "", "", 100).unwrap();
-        store
-            .replace_channel_admins("room", &["admin".to_string()], 101)
-            .unwrap();
-        store
-            .replace_channel_members("room", &["member".to_string()], 102)
-            .unwrap();
-
-        let ctx = ChannelCtx {
-            channel: "room",
-            expect_member: "other",
-            parent_hint: None,
-            name: None,
-            repair_whitelisted_admins: true,
-        };
-
-        assert!(!store_locally_materialized_ready(
-            &store,
-            &ctx,
-            &["admin".to_string()]
-        ));
-    }
-
-    #[test]
-    fn materialized_relay_cache_does_not_prove_missing_admin_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::state::Store::open(&dir.path().join("state.db")).unwrap();
-        store.upsert_channel("room", "room", "", "", 100).unwrap();
-        store
-            .replace_channel_admins("room", &["other-admin".to_string()], 101)
-            .unwrap();
-        store
-            .replace_channel_members("room", &["member".to_string()], 102)
-            .unwrap();
-
-        let ctx = ChannelCtx {
-            channel: "room",
-            expect_member: "member",
-            parent_hint: None,
-            name: None,
-            repair_whitelisted_admins: true,
-        };
-
-        assert!(!store_locally_materialized_ready(
-            &store,
-            &ctx,
-            &["admin".to_string()]
-        ));
-    }
-}
+mod tests;

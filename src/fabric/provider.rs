@@ -5,6 +5,7 @@ mod agent_roster;
 pub(crate) mod chat;
 mod group_management;
 mod group_state;
+mod group_topology;
 mod materialization;
 mod membership_confirmation;
 mod profiles;

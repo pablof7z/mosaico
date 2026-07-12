@@ -98,33 +98,47 @@ impl Nip29Provider {
 
     /// The `parent` group id declared in `group`'s relay-authored kind:39000 metadata.
     pub async fn fetch_group_parent(&self, group: &str) -> Option<String> {
+        match self.try_fetch_group_parent(group).await {
+            Ok(parent) => parent,
+            Err(e) => {
+                tracing::error!(
+                    group,
+                    error = %format!("{e:#}"),
+                    "fetch_group_parent: relay fetch failed — could not determine parent"
+                );
+                None
+            }
+        }
+    }
+
+    /// Fetch the declared parent without collapsing a transport failure into
+    /// `None`. Readiness uses this fail-closed surface before verifying the
+    /// reciprocal parent metadata.
+    pub(in crate::fabric::provider) async fn try_fetch_group_parent(
+        &self,
+        group: &str,
+    ) -> Result<Option<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
         use nostr_sdk::prelude::Filter;
         let filter = Filter::new()
             .kind(crate::fabric::nip29::wire::kind(KIND_GROUP_METADATA))
             .identifier(group);
-        let evs = match self.transport.fetch(filter, Duration::from_secs(5)).await {
-            Ok(evs) => evs,
-            Err(e) => {
-                // A fetch failure is not "no parent declared"; surface it loudly
-                // rather than silently returning None.
-                tracing::error!(
-                    group,
-                    error = %format!("{e:#}"),
-                    "fetch_group_parent: relay fetch failed — could not determine parent (returning None)"
-                );
-                return None;
-            }
+        let evs = self
+            .transport
+            .fetch(filter, Duration::from_secs(5))
+            .await
+            .context("fetch_group_parent: relay fetch of kind:39000 failed")?;
+        let Some(newest) = evs.iter().max_by_key(|e| e.created_at.as_secs()) else {
+            return Ok(None);
         };
-        let newest = evs.iter().max_by_key(|e| e.created_at.as_secs())?;
-        newest.tags.iter().find_map(|t| {
+        Ok(newest.tags.iter().find_map(|t| {
             let s = t.as_slice();
             if s.first().map(String::as_str) == Some("parent") {
-                s.get(1).cloned()
+                s.get(1).filter(|parent| !parent.is_empty()).cloned()
             } else {
                 None
             }
-        })
+        }))
     }
 
     /// Fetch the relay-authored kind:39000 for ONE `group` and materialize it into

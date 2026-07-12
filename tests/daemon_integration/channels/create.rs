@@ -11,13 +11,14 @@ fn channel_create_auto_creates_missing_parent_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
+    let relay = shared_nip29_relay_url();
     // A fresh parent channel that has NEVER been opened on the relay.
     let parent = unique_session("freshproj");
     let backend_pk = pubkey_of(EXAMPLE_BACKEND_SEC_HEX);
 
-    let child_h = rt().block_on(async {
+    let (child_h, sibling_h) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v = c
+        let first = c
             .call(
                 "channel_create",
                 serde_json::json!({
@@ -29,10 +30,45 @@ fn channel_create_auto_creates_missing_parent_channel() {
             )
             .await
             .expect("channel_create should succeed even when the parent is new");
-        v["child_h"].as_str().expect("child_h returned").to_string()
+        let second = c
+            .call(
+                "channel_create",
+                serde_json::json!({
+                    "parent": parent,
+                    "name": "reviewer",
+                    "about": "reviewer",
+                    "agents": [],
+                }),
+            )
+            .await
+            .expect("a sibling channel should preserve the first relationship");
+        (
+            first["child_h"]
+                .as_str()
+                .expect("first child_h returned")
+                .to_string(),
+            second["child_h"]
+                .as_str()
+                .expect("second child_h returned")
+                .to_string(),
+        )
     });
 
     assert!(!child_h.is_empty(), "channel_create returned a child id");
+    assert!(
+        !sibling_h.is_empty(),
+        "channel_create returned a sibling id"
+    );
+
+    let parent_metadata = fetch_group_metadata(&relay, &parent);
+    assert!(
+        has_metadata_tag(&parent_metadata, "child", &child_h),
+        "parent metadata must reciprocally confirm its first child"
+    );
+    assert!(
+        has_metadata_tag(&parent_metadata, "child", &sibling_h),
+        "adding a sibling must preserve the complete parent child set"
+    );
 
     // The parent channel group was created + locked, so the backend management
     // key is now an admin of it. (Manageability = `is_channel_admin`; the old
@@ -44,6 +80,34 @@ fn channel_create_auto_creates_missing_parent_channel() {
     );
 
     stop_daemon(&home);
+}
+
+fn fetch_group_metadata(relay: &str, group: &str) -> serde_json::Value {
+    let output = std::process::Command::new(crate::common::nak_bin())
+        .args(["req", "-k", "39000", "-d", group, relay])
+        .output()
+        .expect("run nak kind:39000 query");
+    assert!(
+        output.status.success(),
+        "nak metadata query failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .max_by_key(|event| event["created_at"].as_u64().unwrap_or_default())
+        .expect("relay returned kind:39000 metadata")
+}
+
+fn has_metadata_tag(event: &serde_json::Value, name: &str, value: &str) -> bool {
+    event["tags"].as_array().is_some_and(|tags| {
+        tags.iter().any(|tag| {
+            tag.as_array().is_some_and(|parts| {
+                parts.first().and_then(serde_json::Value::as_str) == Some(name)
+                    && parts.get(1).and_then(serde_json::Value::as_str) == Some(value)
+            })
+        })
+    })
 }
 
 /// `channel create` run as an agent (harness_session set) with NO `--agent` targets
