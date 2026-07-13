@@ -9,13 +9,13 @@ pub(super) fn redirected_stdin_body_for_session(
 ) -> String {
     let store = Store::open(&home.store_path()).unwrap();
     format!(
-        "hello nostr:{} from redirected stdin",
+        "nostr:{}: hello from redirected stdin",
         target_npub_for_session(&store, session_id, row)
     )
 }
 
 pub(super) fn redirected_stdin_rendered_body(codename: &str) -> String {
-    format!("hello @{codename} from redirected stdin")
+    format!("@{codename}: hello from redirected stdin")
 }
 
 pub(super) fn target_npub_for_session(store: &Store, session_id: &str, row: &Session) -> String {

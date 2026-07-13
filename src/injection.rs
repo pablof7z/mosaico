@@ -49,27 +49,79 @@ pub(crate) fn render_terminal_mention(
     let mut lines: Vec<String> = Vec::with_capacity(rows.len() * 3 + 4);
     lines.push("<tenex-edge>".to_string());
     for row in rows {
-        lines.push(format!(
-            "  <channel ref=\"{}\">",
-            esc_attr(&crate::channel_ref::full_channel_ref(store, &row.channel_h))
-        ));
-        lines.push(format!(
-            "    <message from=\"{}\" id=\"{}\">{}</message>",
-            esc_attr(&format!("@{}", speaker_label(store, &row.from_pubkey))),
-            esc_attr(&crate::util::short_id(&row.event_id)),
-            esc_text(&row.body)
-        ));
-        lines.push("  </channel>".to_string());
+        push_agent_message(
+            &mut lines,
+            &crate::channel_ref::full_channel_ref(store, &row.channel_h),
+            &speaker_label(store, &row.from_pubkey),
+            &row.event_id,
+            &row.body,
+        );
     }
     if let Some(row) = rows.last() {
-        let id = crate::util::short_id(&row.event_id);
         lines.push(String::new());
-        lines.push(format!(
-            "  Reply via: `tenex-edge channel reply {id} --message \"hello world\"`"
-        ));
+        push_reply_hint(&mut lines, &row.event_id);
     }
     lines.push("</tenex-edge>".to_string());
     Some(lines.join("\n"))
+}
+
+/// Render one blocking-wait success in the same agent-native envelope used for
+/// direct terminal delivery. The wait command intentionally has no alternate
+/// human or JSON renderer.
+pub(crate) fn render_agent_message(
+    channel_ref: &str,
+    from: &str,
+    event_id: &str,
+    body: &str,
+) -> String {
+    let mut lines = vec!["<tenex-edge>".to_string()];
+    push_agent_message(&mut lines, channel_ref, from, event_id, body);
+    lines.push(String::new());
+    push_reply_hint(&mut lines, event_id);
+    lines.push("</tenex-edge>".to_string());
+    lines.join("\n")
+}
+
+/// Render the expected timeout outcome without switching to a second output
+/// convention. Channel refs document the exact start-time scope snapshot.
+pub(crate) fn render_agent_wait_timeout(seconds: u64, channels: &[&str]) -> String {
+    let mut lines = vec![
+        "<tenex-edge>".to_string(),
+        format!("  <wait outcome=\"timeout\" after=\"{seconds}s\">"),
+    ];
+    lines.extend(
+        channels
+            .iter()
+            .map(|channel| format!("    <channel ref=\"{}\" />", esc_attr(channel))),
+    );
+    lines.push("  </wait>".to_string());
+    lines.push("</tenex-edge>".to_string());
+    lines.join("\n")
+}
+
+fn push_agent_message(
+    lines: &mut Vec<String>,
+    channel_ref: &str,
+    from: &str,
+    event_id: &str,
+    body: &str,
+) {
+    lines.push(format!("  <channel ref=\"{}\">", esc_attr(channel_ref)));
+    lines.push(format!(
+        "    <message from=\"@{}\" id=\"{}\">{}</message>",
+        esc_attr(from.trim_start_matches('@')),
+        esc_attr(&crate::util::short_id(event_id)),
+        esc_text(body)
+    ));
+    lines.push("  </channel>".to_string());
+}
+
+fn push_reply_hint(lines: &mut Vec<String>, event_id: &str) {
+    let id = crate::util::short_id(event_id);
+    lines.push(format!(
+        "  Reply via: `tenex-edge channel reply {} --message \"hello world\"`",
+        esc_text(&id)
+    ));
 }
 
 /// The human display label for a channel: its kind:39000 `name` when set, else

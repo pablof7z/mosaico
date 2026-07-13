@@ -17,6 +17,8 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "ops",
         "--session",
         "session-1",
+        "--wait",
+        "600",
     ])
     .unwrap();
 
@@ -29,6 +31,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
                     force,
                     channel,
                     session,
+                    wait,
                     ..
                 },
         } => {
@@ -37,6 +40,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
             assert!(force);
             assert_eq!(channel.as_deref(), Some("ops"));
             assert_eq!(session.as_deref(), Some("session-1"));
+            assert_eq!(wait, Some(600));
         }
         _ => panic!("expected channel send command"),
     }

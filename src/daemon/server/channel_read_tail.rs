@@ -9,7 +9,7 @@ mod tail_stream;
 #[cfg(test)]
 mod tests;
 
-use backend_filter::is_backend_row;
+pub(in crate::daemon::server) use backend_filter::is_backend_row;
 use read_scope::{channel_read_scopes_for_store, ChatCursor};
 pub(in crate::daemon::server) use tail_stream::handle_tail;
 
@@ -195,7 +195,11 @@ fn channel_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
 /// author's slug from the materialized profile/session caches and rewriting any
 /// `nostr:npub1…`/`nostr:nprofile1…` mentions in the body to `@name`, matching
 /// the hook-injected fabric snapshot (`fabric_context::messages::message_row`).
-fn chat_row_to_json(state: &Arc<DaemonState>, row: &Message, truncate: bool) -> serde_json::Value {
+pub(in crate::daemon::server) fn chat_row_to_json(
+    state: &Arc<DaemonState>,
+    row: &Message,
+    truncate: bool,
+) -> serde_json::Value {
     let (from_slug, host, mentioned_session) = chat_row_refs(state, row);
     let resolved_body = state.with_store(|s| crate::profile::rewrite_body_mentions(s, &row.body));
     let resolved_row = Message {

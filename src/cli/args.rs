@@ -8,7 +8,7 @@ use super::harness::HarnessAction;
 use super::install::InstallArgs;
 use super::launch_cli::LaunchArgs;
 use super::mcp::McpArgs;
-use super::messaging::PublishArgs;
+use super::messaging::{PublishArgs, WaitArgs};
 use super::my::MyAction;
 use super::probe::ProbeArgs;
 use super::pty::{PtyAction, PtySupervisorArgs};
@@ -39,6 +39,8 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: ChannelAction,
     },
+    /// Block until matching chat arrives or the timeout passes.
+    Wait(WaitArgs),
     /// List invitable agents and prior sessions by npub.
     Agents {
         #[command(subcommand)]

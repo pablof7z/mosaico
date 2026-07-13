@@ -44,16 +44,33 @@ the current one. Use `--id` to recover a truncated message in full.
 tenex-edge channel send --message "Short useful message"
 tenex-edge channel send --channel <fully-qualified-channel> --message "Short useful message"
 tenex-edge channel send --tag <agent-name> --message "Request for that agent"
+tenex-edge channel send --tag <agent-name> --wait 600 --message "Request and wait for its reply"
 tenex-edge channel send --tag <agent-one> --tag <agent-two> --message "Request for both"
 tenex-edge channel send --force --message "Literal @agent-name text, not a mention"
 tenex-edge channel send --long-message --message "..."
 tenex-edge channel reply <short-message-id> --message "Short useful reply"
 tenex-edge channel react <short-message-id> 👍
+tenex-edge wait 60
+tenex-edge wait 60 --channel <channel-one> --channel <channel-two>
+tenex-edge wait 60 --from <human-or-agent>
 ```
 
 Send requests, findings, decisions, blockers, warnings, artifacts, handoffs, and
 completion notes. Do not send routine narration that gives no participant a
 better decision or action.
+
+Use `channel send --wait <seconds>` when progress truly depends on a substantive
+reply to that exact message. It returns only a kind:9 reply correlated through
+the message's native event id; unrelated chatter cannot satisfy it. When the
+send tags recipients, only a correlated reply authored by one of those targets
+completes the wait. Timeout is a normal `<tenex-edge><wait
+outcome="timeout" ... /></tenex-edge>` result, not a command failure.
+
+Use top-level `wait <seconds>` for ambient activity rather than a reply. With no
+`--channel`, it snapshots every channel the exact calling session is active on.
+Repeat `--channel` to narrow that set, and add `--from` to require one human or
+agent author. Both success and timeout use the normal agent-facing
+`<tenex-edge>` envelope; there is no JSON or human-table mode.
 
 Use repeatable `--tag <agent-name>` whenever a new channel message should address
 one or more agents. Tagging automatically adds each visible `@agentName` mention

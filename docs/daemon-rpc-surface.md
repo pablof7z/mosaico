@@ -149,39 +149,9 @@ Daemon registers a forwarder on its shared relay subscription, decodes each
 event with the codec, renders with the existing `render()` and streams the line.
 The client just prints each `item.line`.
 
-### `channel_read` (streaming)
-```jsonc
-params: {"id": "event-id"|null, "channel": "…"|null, "since": u64|null,
-         "limit": u64|null, "offset": u64, "tail": bool, "live": bool, ...}
-stream: {"item": {event_id, from_pubkey, from_slug, channel, body,
-                  truncated, created_at, ...}}
-```
-Streams channel chat from the relay-event cache. Normal history reads truncate
-bodies past the fabric render limit and include `truncated=true`; exact
-`--id`/`id` reads fetch one event by id and return the full body without channel
-inference.
-
-### `channel_send`
-```jsonc
-params: {"message": "…", "channel": "…"|null, "long_message": bool, ...}
-result: {"event_id": "hex", "channel": "channel-h", "mentioned_pubkey": "hex"|null,
-         "mentioned_session": "te-…"|null, "mentioned_label": "agent"|null}
-```
-Publishes a NIP-29 kind:9 chat message signed by the caller's own
-per-session key and returns only after checked relay acceptance. Messages
-over the fabric render limit are rejected unless `long_message=true`. `channel`
-is destination targeting only; caller identity is resolved independently from
-the session anchors.
-
-### `channel_reply`
-```jsonc
-params: {"id": "event-id-or-prefix", "message": "…", "long_message": bool, ...}
-result: {"event_id": "hex", "reply_to": "hex", "channel": "channel-h",
-         "mentioned_pubkey": "hex", "mentioned_session": "te-…"|null}
-```
-Publishes a threaded NIP-10 reply to an existing channel message. The daemon
-resolves `id` against the channel read model, targets the original author's
-pubkey, and signs the reply with the caller's per-session key.
+### Channel messaging
+The streaming read, send, reply, and blocking wait contracts live in
+[daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 
 ### `propose`
 ```jsonc

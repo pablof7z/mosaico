@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// The compiled-in protocol version, bumped when client and daemon RPC
 /// contracts must agree.
-const PROTOCOL_VERSION_BASE: u32 = 62;
+const PROTOCOL_VERSION_BASE: u32 = 63;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →

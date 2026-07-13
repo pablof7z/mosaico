@@ -24,7 +24,6 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
-
 mod agent_roster;
 pub(crate) mod auto_reply;
 mod background;
@@ -194,6 +193,7 @@ mod channel_membership_rpc;
 mod channel_read_tail;
 mod channel_resolve;
 mod channel_send;
+mod channel_wait;
 mod channels_rpc;
 mod chat_target;
 mod cursor;
@@ -216,7 +216,6 @@ mod test_support;
 mod turn_lifecycle;
 mod turns;
 mod who;
-
 use agent_roster::{publish_local_agent_roster, rpc_agent_roster_publish};
 use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave, rpc_channel_switch};
 use channel_read_tail::{handle_channel_read, handle_tail};
@@ -267,6 +266,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_kill" => rpc_session_kill(state, &req.params).await,
         "session_pty_wrap" => rpc_session_pty_wrap(state, &req.params).await,
         "channel_send" => rpc_channel_send(state, &req.params).await,
+        "channel_wait" => channel_wait::rpc_channel_wait(state, &req.params).await,
         "channel_reply" => channel_send::rpc_channel_reply(state, &req.params).await,
         "channel_react" => channel_send::rpc_channel_react(state, &req.params).await,
         "publish" => rpc_propose(state, &req.params).await,

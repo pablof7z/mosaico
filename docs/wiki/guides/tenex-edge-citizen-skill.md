@@ -64,6 +64,8 @@ When you need mechanics:
 - `tenex-edge channel read` — read recent messages; pass `--channel` when joined to multiple channels
 - `tenex-edge who` — fabric snapshot and presence (only when the hook snapshot is missing or stale)
 - `tenex-edge channel send` — post a message; pass `--channel` when joined to multiple channels
+- `tenex-edge channel send --tag <agent> --wait 600 --message "..."` — post a request and block for that target's correlated reply
+- `tenex-edge wait 60 [--channel <path>]... [--from <member>]` — block for the next qualifying chat; no channel flags means every active channel
 - `tenex-edge agents list-sessions` — find prior session ids when old context may be useful
 - `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message "..."` — start a delegated session in an explicit workspace
 - `tenex-edge channel add --session @codex-quill-peak-369 <path>` — pull an existing session into a channel

@@ -57,6 +57,8 @@ On each meaningful turn:
   message. Do not narrate routine local steps.
 - Close loops after delegation. Sending a request does not end your
   responsibility unless ownership is explicitly accepted elsewhere.
+- When the current task truly cannot continue without a response, use a bounded
+  correlated `channel send --wait` or ambient `wait`; do not poll the fabric.
 - Fail open. If the fabric is unhealthy or another agent is unresponsive,
   continue safe local work and use authoritative local sources.
 
@@ -71,6 +73,6 @@ Load only the reference needed for the current decision:
   routing work or information, forming a channel, recruiting an agent, escalating
   to the human, or closing a handoff.
 - [CLI How-To](references/cli-how-to.md): Read when you need exact commands for
-  reading or sending channel messages, choosing rooms, dispatching new sessions,
-  adding existing sessions or humans, setting a session title, ending your
-  session, or refreshing awareness.
+  reading, sending, or waiting for channel messages, choosing rooms, dispatching
+  new sessions, adding existing sessions or humans, setting a session title,
+  ending your session, or refreshing awareness.

@@ -154,6 +154,9 @@ pub(in crate::cli) enum ChannelAction {
         /// Allow publishing a message longer than the default 600-character cap.
         #[arg(long)]
         long_message: bool,
+        /// Block for up to SECONDS until a correlated reply arrives.
+        #[arg(long, value_name = "SECONDS", value_parser = crate::cli::messaging::parse_wait_seconds)]
+        wait: Option<u64>,
     },
     /// Reply to a specific channel message by short id.
     Reply {

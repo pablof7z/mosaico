@@ -186,13 +186,13 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
             now,
         )
         .unwrap();
-    let body = format!("hello @{receiver_handle} from redirected stdin");
+    let body = "hello from redirected stdin";
     let read_body = target_wire::redirected_stdin_rendered_body(&receiver_handle);
     let wire_body =
         target_wire::redirected_stdin_body_for_session(&home, &receiver_canon, &receiver_row);
     let out = run_cli_stdin_with_env_in_dir(
         &home,
-        &["channel", "send"],
+        &["channel", "send", "--tag", &receiver_handle],
         &format!("{body}\n"),
         &[("TENEX_EDGE_AGENT", "chat-sender")],
         std::path::Path::new("/tmp"),

@@ -6,6 +6,8 @@
 
 use super::*;
 
+mod wait_cursor;
+
 const MESSAGE_COLS: &str = "message_id, thread_id, channel_h, author_pubkey, author_session, \
      body, created_at, direction, sync_state, native_event_id, error";
 const RECIPIENT_COLS: &str = "message_id, recipient_pubkey, target_session, delivered_at";

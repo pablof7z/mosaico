@@ -2,9 +2,9 @@ use super::super::*;
 use crate::state::Store;
 
 pub(in crate::daemon::server) struct ResolvedRecipient {
-    pub(super) pubkey: String,
-    pub(super) target_session: Option<String>,
-    pub(super) channel: String,
+    pub(in crate::daemon::server) pubkey: String,
+    pub(in crate::daemon::server) target_session: Option<String>,
+    pub(in crate::daemon::server) channel: String,
 }
 
 /// Resolve a recipient to a wire pubkey under the canonical scheme:

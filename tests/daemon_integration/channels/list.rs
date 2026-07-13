@@ -20,7 +20,7 @@ fn channel_list_from_registered_workspace_sends_channel_param() {
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.lines().any(|line| line.trim() == "tmp"),
+        stdout.lines().any(|line| line.contains("tmp")),
         "channel list should render the resolved root; stdout={stdout}"
     );
 

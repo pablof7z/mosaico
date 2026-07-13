@@ -181,7 +181,8 @@ so the common commands take no session id:
 | Command | What it does |
 |---|---|
 | `tenex-edge who [--live] [--all-workspaces]` | Show agents, members, and workspaces. Agents receive XML; operators receive terminal text. Other workspaces stay compact unless `--all-workspaces` is set. |
-| `tenex-edge channel send --message "@quill-codex …"` | Message the channel; `@mention` a session to deliver into its terminal. |
+| `tenex-edge channel send --tag quill-codex --message "…" [--wait 600]` | Message a session and optionally block for a correlated reply. |
+| `tenex-edge wait 60 [--channel <channel>]… [--from <member>]` | Block for the next visible chat. With no channel flags, watches every channel the session is active on. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
 | `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. The workspace is its root channel; descendants use dotted paths such as `nmp.reviews`. |
 | `tenex-edge channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |

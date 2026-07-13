@@ -24,6 +24,13 @@ fn removed_chat_command_stays_unavailable() {
 }
 
 #[test]
+fn duplicate_top_level_send_surface_stays_unavailable() {
+    let err = parse_err(&["tenex-edge", "send", "hello"]);
+
+    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
 fn removed_project_command_stays_unavailable() {
     let err = parse_err(&["tenex-edge", "project", "list"]);
 

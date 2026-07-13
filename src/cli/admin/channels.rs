@@ -62,6 +62,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             channel,
             session,
             long_message,
+            wait,
         } => {
             let message =
                 crate::cli::messaging::resolve_send_message_body(message_flag.or(message))?;
@@ -72,6 +73,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 channel,
                 session,
                 long_message,
+                wait,
             )
             .await?;
         }

@@ -1,10 +1,10 @@
 use super::*;
-
 mod args;
 pub(super) use args::{publish, PublishArgs};
 mod send;
 pub(super) use send::channel_send;
-
+mod wait;
+pub(super) use wait::{parse_wait_seconds, wait, WaitArgs};
 pub(super) async fn channel_reply(
     id: String,
     message: String,

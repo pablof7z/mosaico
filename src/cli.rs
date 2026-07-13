@@ -44,7 +44,6 @@ mod who;
 use admin::{parse_since, render_tail_event};
 pub use args::Cli;
 use args::{Cmd, DaemonAction, MgmtAction, MgmtSessionAction};
-
 pub(crate) fn select_agent_env(active: Option<String>, fallback: Option<String>) -> Option<String> {
     active
         .filter(|s| !s.is_empty())
@@ -119,6 +118,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Publish(args) => messaging::publish(args).await,
         Cmd::Who(args) => who::who(args),
         Cmd::Channel { action } => admin::channels(action).await,
+        Cmd::Wait(args) => messaging::wait(args).await,
         Cmd::Agents { action } => admin::agents(action).await,
         Cmd::Mgmt { action } => match action {
             MgmtAction::Agent { action } => admin::agent(action).await,

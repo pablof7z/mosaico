@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-09
+updated: 2026-07-13
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -48,6 +48,19 @@ Chat mentions use the session's dashed kind:0 profile name (for example, `@codex
 The channel-send confirmation line names the dashed mentioned handle returned by the RPC, falling back to plain `sent chat {id}` when no mention is present.
 
 `tenex-edge channel send` refuses messages longer than 600 characters, erroring out and offering `--long-message` for longer messages.
+
+`tenex-edge channel send --wait <seconds>` keeps the command open until an
+explicit kind:9 reply references the sent event. Unrelated channel chatter does
+not complete it; when the send tagged recipients, only replies authored by those
+targets qualify. A successful wait renders the same `<tenex-edge><channel><message>`
+envelope used for direct delivery.
+
+`tenex-edge wait <seconds>` blocks for the next visible kind:9 chat event. With
+no `--channel`, it snapshots every channel the exact calling session is active
+on; repeated `--channel` flags narrow the set and `--from` narrows the author.
+Backend-management traffic and the caller's own messages never qualify. Timeout
+is a normal exit-0 `<tenex-edge><wait outcome="timeout" ...>` envelope. These
+agent-only waits have no JSON or human-table rendering mode.
 
 @-mentioning someone from a subchannel they are not in is a cross-channel mention using their dashed session handle, with no membership side-effects; replying or joining requires an explicit `channel add` or `channel switch`.
 
