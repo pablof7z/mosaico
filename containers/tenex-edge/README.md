@@ -47,6 +47,9 @@ directories read-only, symlinks credential files into the isolated container
 home, and keeps writable hook config in container state. Set
 `TENEX_EDGE_CONTAINER_HOST_AUTH=0` only for non-agent smoke tests.
 
+`doctor` checks every installed transport command, then validates credentials
+and hook/plugin installation only for the selected profile's provider.
+
 Claude auth is staged into `/state/home/.claude` because Claude Code may keep
 the fresh OAuth credential in the macOS `Claude Code-credentials` Keychain item
 while the host JSON file is stale. The runner also sanitizes Claude settings so

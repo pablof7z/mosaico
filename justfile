@@ -18,7 +18,10 @@ install-hooks:
 
 test: test-all-local
 
-test-all-local: test-unit test-local-relay test-local-nip29
+test-all-local: test-dev-scripts test-unit test-local-relay test-local-nip29
+
+test-dev-scripts:
+    bash skills/tenex-edge-dev/tests/scripts.sh
 
 # Hermetic unit tests only. This is what CI runs.
 test-unit:

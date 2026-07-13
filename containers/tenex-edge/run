@@ -268,70 +268,8 @@ main() {
       build_image
       ;;
     doctor)
-      container_run readonly bash -c '
-        set -euo pipefail
-        echo "profile: '"${PROFILE}"'"
-        echo "agent: $TENEX_EDGE_AGENT"
-        echo "rust: $(rustc --version)"
-        echo "cargo: $(cargo --version)"
-        echo "claude: $(claude --version)"
-        echo "codex: $(codex --version)"
-        echo "opencode: $(opencode --version)"
-        echo "node: $(node --version)"
-        echo "claude-acp-adapter: $(command -v claude-agent-acp)"
-        codex app-server --help >/dev/null
-        opencode acp --help >/dev/null
-        echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp"
-        echo "nak: $(nak --version 2>/dev/null | head -1)"
-        echo "ollama_host: $OLLAMA_HOST"
-        echo "host_auth: '"${HOST_AUTH}"'"
-        test -f /workspace/Cargo.toml
-        echo "source: /workspace mounted"
-        if touch /workspace/.container-readonly-check 2>/dev/null; then
-          rm -f /workspace/.container-readonly-check
-          echo "source: writable (unexpected)"
-          exit 1
-        fi
-        touch /state/write-check
-        rm /state/write-check
-        echo "state: /state writable"
-        test -f /state/tenex/edge/providers.json
-        test -f /state/tenex/edge/llms.json
-        test -s "$HOME/.claude.json"
-        jq -e "has(\"oauthAccount\")" "$HOME/.claude.json" >/dev/null
-        test -s "$CLAUDE_CONFIG_DIR/.claude.json"
-        jq -e "has(\"oauthAccount\")" "$CLAUDE_CONFIG_DIR/.claude.json" >/dev/null
-        test -s "$CLAUDE_CONFIG_DIR/.credentials.json"
-        jq -e ".claudeAiOauth.accessToken and .claudeAiOauth.refreshToken" "$CLAUDE_CONFIG_DIR/.credentials.json" >/dev/null
-        test -f "$CODEX_HOME/auth.json"
-        test -f "$XDG_DATA_HOME/opencode/auth.json"
-        echo "host auth: mounted"
-        cargo build >/dev/null
-        tenex-edge install --harness claude-code >/dev/null
-        tenex-edge install --harness codex >/dev/null
-        tenex-edge install --harness opencode >/dev/null
-        test -f "$HOME/.claude/settings.json"
-        echo "claude hooks: host-auth install present"
-        test -f "$CODEX_HOME/hooks.json"
-        echo "codex hooks: isolated install present"
-        test -f "$XDG_CONFIG_HOME/opencode/plugin/tenex-edge.ts"
-        echo "opencode plugin: isolated install present"
-        if [[ -f "$TENEX_EDGE_HOME/harnesses.json" ]]; then
-          jq -e "
-            type == \"object\" and
-            all(.[]; (.harness | type == \"string\") and (.transport | type == \"string\"))
-          " "$TENEX_EDGE_HOME/harnesses.json" >/dev/null
-          for agent in "$TENEX_EDGE_HOME"/agents/*.json; do
-            [[ -e "$agent" ]] || continue
-            jq -e ".slug and .secret_key and .public_key and .harness" "$agent" >/dev/null
-          done
-          echo "harness bundles: $(jq -r "keys | join(\",\")" "$TENEX_EDGE_HOME/harnesses.json")"
-        else
-          echo "harness bundles: none"
-        fi
-        echo "codex home: $CODEX_HOME"
-        echo "tenex home: $TENEX_EDGE_HOME"
-      '
+      container_run readonly bash /workspace/containers/tenex-edge/doctor \
+        "${PROFILE}" "${HOST_AUTH}"
       ;;
     test-unit)
       container_run readonly bash -c 'cargo build && cargo test --lib'

@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROFILE="${1:?missing profile}"
+HOST_AUTH="${2:?missing host-auth mode}"
+AGENT="${TENEX_EDGE_AGENT:?missing TENEX_EDGE_AGENT}"
+
+echo "profile: ${PROFILE}"
+echo "agent: ${AGENT}"
+echo "rust: $(rustc --version)"
+echo "cargo: $(cargo --version)"
+echo "claude: $(claude --version)"
+echo "codex: $(codex --version)"
+echo "opencode: $(opencode --version)"
+echo "node: $(node --version)"
+echo "claude-acp-adapter: $(command -v claude-agent-acp)"
+codex app-server --help >/dev/null 2>&1
+opencode acp --help >/dev/null 2>&1
+echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp"
+echo "nak: $(nak --version 2>/dev/null | head -1)"
+echo "ollama_host: ${OLLAMA_HOST}"
+echo "host_auth: ${HOST_AUTH}"
+
+test -f /workspace/Cargo.toml
+echo "source: /workspace mounted"
+if touch /workspace/.container-readonly-check 2>/dev/null; then
+  rm -f /workspace/.container-readonly-check
+  echo "source: writable (unexpected)"
+  exit 1
+fi
+touch /state/write-check
+rm /state/write-check
+echo "state: /state writable"
+
+test -f /state/tenex/edge/providers.json
+test -f /state/tenex/edge/llms.json
+
+case "${AGENT}" in
+  claude)
+    test -s "${HOME}/.claude.json"
+    jq -e 'has("oauthAccount")' "${HOME}/.claude.json" >/dev/null
+    test -s "${CLAUDE_CONFIG_DIR}/.claude.json"
+    jq -e 'has("oauthAccount")' "${CLAUDE_CONFIG_DIR}/.claude.json" >/dev/null
+    test -s "${CLAUDE_CONFIG_DIR}/.credentials.json"
+    jq -e '.claudeAiOauth.accessToken and .claudeAiOauth.refreshToken' \
+      "${CLAUDE_CONFIG_DIR}/.credentials.json" >/dev/null
+    HARNESS=claude-code
+    ;;
+  codex)
+    test -f "${CODEX_HOME}/auth.json"
+    HARNESS=codex
+    ;;
+  opencode)
+    test -f "${XDG_DATA_HOME}/opencode/auth.json"
+    HARNESS=opencode
+    ;;
+  *)
+    echo "unsupported doctor agent: ${AGENT}" >&2
+    exit 2
+    ;;
+esac
+
+cargo build >/dev/null
+tenex-edge install --harness "${HARNESS}" >/dev/null
+case "${AGENT}" in
+  claude) test -f "${HOME}/.claude/settings.json" ;;
+  codex) test -f "${CODEX_HOME}/hooks.json" ;;
+  opencode) test -f "${XDG_CONFIG_HOME}/opencode/plugin/tenex-edge.ts" ;;
+esac
+echo "${AGENT} auth/hooks: mounted"
+
+if [[ -f "${TENEX_EDGE_HOME}/harnesses.json" ]]; then
+  jq -e '
+    type == "object" and
+    all(.[]; (.harness | type == "string") and (.transport | type == "string"))
+  ' "${TENEX_EDGE_HOME}/harnesses.json" >/dev/null
+  for agent_file in "${TENEX_EDGE_HOME}"/agents/*.json; do
+    [[ -e "${agent_file}" ]] || continue
+    jq -e '.slug and .secret_key and .public_key and .harness' "${agent_file}" >/dev/null
+  done
+  echo "harness bundles: $(jq -r 'keys | join(",")' "${TENEX_EDGE_HOME}/harnesses.json")"
+else
+  echo "harness bundles: none"
+fi
+
+echo "codex home: ${CODEX_HOME}"
+echo "tenex home: ${TENEX_EDGE_HOME}"

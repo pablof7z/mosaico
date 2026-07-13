@@ -86,7 +86,7 @@ case "${MODE}" in
   launch)
     launch_args=(launch "${AGENT_SLUG}")
     if [[ -n "${TENEX_EDGE_DEV_PROMPT:-}" ]]; then
-      launch_args+=(--prompt "${TENEX_EDGE_DEV_PROMPT}")
+      launch_args+=("${TENEX_EDGE_DEV_PROMPT}")
     fi
     if [[ $# -gt 0 ]]; then
       if [[ "${TRANSPORT}" == "acp" || "${TRANSPORT}" == "app-server" ]]; then

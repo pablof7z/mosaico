@@ -76,7 +76,7 @@ curl -fsS -H 'Accept: application/nostr+json' "${RELAY_HTTP}" | jq .
 Container reachability:
 
 ```bash
-bash containers/tenex-edge/run --profile claude sh -lc "curl -fsS -H 'Accept: application/nostr+json' '${RELAY_HTTP}'"
+bash containers/tenex-edge/run --profile claude shell -c "curl -fsS -H 'Accept: application/nostr+json' '${RELAY_HTTP}'"
 ```
 
 If host works and container fails:

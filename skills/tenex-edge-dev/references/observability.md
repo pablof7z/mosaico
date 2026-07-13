@@ -96,11 +96,9 @@ NIP-11 proves the HTTP side is reachable from the host. It does not prove the
 container can reach the WebSocket URL. For container reachability:
 
 ```bash
-bash containers/tenex-edge/run --profile claude sh -lc 'curl -fsS -H "Accept: application/nostr+json" "$TENEX_EDGE_RELAY_HTTP"'
+bash containers/tenex-edge/run --profile claude shell -c \
+  "curl -fsS -H 'Accept: application/nostr+json' '${RELAY_HTTP}'"
 ```
-
-If that env var is not available in the runner, use the literal relay HTTP URL
-from `lab.env`.
 
 ## Nostr Event Probes
 

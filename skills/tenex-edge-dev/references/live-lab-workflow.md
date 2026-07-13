@@ -39,8 +39,8 @@ bash containers/tenex-edge/run build-image
 bash containers/tenex-edge/run doctor
 ```
 
-`doctor` should verify container commands, provider auth projections, `nak`,
-and hook/plugin setup. If the doctor fails, use
+`doctor` should verify container commands, `nak`, and the selected profile's
+provider auth plus hook/plugin setup. If the doctor fails, use
 `references/troubleshooting.md` before attempting a live run.
 
 ## Start The Relay
@@ -189,6 +189,7 @@ Use launch mode when testing `tenex-edge launch` behavior, launch-time hook
 setup, portable PTY integration, reattach, and context injection:
 
 ```bash
+bash containers/tenex-edge/run --profile claude tenex-edge channel init
 skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude --model haiku
 ```
 

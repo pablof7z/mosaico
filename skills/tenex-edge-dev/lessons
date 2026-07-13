@@ -5,12 +5,12 @@
 `tenex-edge launch <agent> -- <args>` fails fast with:
 
 ```
-tenex-edge: no known project in /workspace; run `tenex-edge channel init` or
-git init first, or pass `--project <slug>`
+tenex-edge: no known workspace in /workspace; run `tenex-edge channel init` or
+git init first, or pass `--workspace <slug>`
 ```
 
 even though `/workspace` (the mounted `REPO_ROOT`) is already a git repo. The
-project registry (`~/.tenex-edge/projects.json`, inside container/profile
+workspace registry (`~/.tenex-edge/workspaces.json`, inside container/profile
 state) is separate from git-repo detection. Run once per profile before the
 first `launch` in a lab:
 
@@ -20,12 +20,9 @@ bash containers/tenex-edge/run --profile claude tenex-edge channel init
 
 This registers the directory's basename (e.g. `workspace` for a worktree
 checked out as `.../tenex-edge-trellis` mounted at `/workspace`) as the
-project slug and creates the `workspace` NIP-29 channel. It only touches
-profile-local/container state, not host `~/.tenex-edge`. Add this step to the
-live-lab-workflow reference right after `write-container-profiles` and before
-the first `launch-agent ... launch ...` call — the workflow doc
-currently jumps straight from profile-writing to launching and does not
-mention `channel init`, so a first-time runner hits this every time.
+workspace slug and creates the `workspace` NIP-29 channel. It only touches
+profile-local/container state, not host `~/.tenex-edge`. The main skill and
+live-lab workflow include this step before both PTY and structured launches.
 
 ## Running a second container against the same profile WHILE a launch-mode agent is alive breaks that agent's daemon connection
 

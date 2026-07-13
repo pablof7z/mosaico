@@ -160,7 +160,7 @@ fn channel_resolve_params(root: &str, name: &str, agent: &str) -> serde_json::Va
 /// Launch a headless ACP/app-server agent through the daemon. The daemon opens
 /// and registers the RPC child (so the doorbell delivery path can reach it),
 /// synthesizes the launch argv from the harness bundle, appends `extra_args`, and
-/// — if a `--prompt` was given — opens the session on it. There is no TTY to
+/// — if an opening prompt was given — opens the session on it. There is no TTY to
 /// attach; the agent thereafter responds to channel mentions.
 async fn launch_acp_headless(
     agent: String,

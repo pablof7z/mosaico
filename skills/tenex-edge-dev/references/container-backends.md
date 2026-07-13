@@ -203,7 +203,7 @@ The doctor should prove:
 
 - required CLIs are installed in the image
 - `nak` is available
-- host auth projections are present for configured providers
+- host auth projections are present for the selected profile's provider
 - Claude hooks can be installed into writable staged settings
 - Codex hooks can be installed into the profile state
 - OpenCode plugin state can be installed or verified

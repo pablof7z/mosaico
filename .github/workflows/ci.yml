@@ -40,6 +40,9 @@ jobs:
       - name: LOC ratchet (just loc-check)
         run: just loc-check
 
+      - name: Development skill scripts (just test-dev-scripts)
+        run: just test-dev-scripts
+
       - name: Clippy (just lint)
         run: just lint
 

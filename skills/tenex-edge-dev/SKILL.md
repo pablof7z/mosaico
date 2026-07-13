@@ -78,9 +78,9 @@ bash containers/tenex-edge/run build-image
 bash containers/tenex-edge/run doctor
 ```
 
-`doctor` must verify the installed backends and support tools, including
-Claude/Codex/OpenCode where configured, `nak`, and hook/plugin installation
-inside container state. If auth checks fail, stop and report the
+`doctor` must verify every installed backend/transport tool, `nak`, and the
+selected profile's provider auth plus hook/plugin installation. If auth checks
+fail, stop and report the
 missing host path; do not silently switch to new credentials.
 
 Start a relay:
@@ -127,6 +127,7 @@ skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" direct claude --model ha
 Run through `tenex-edge launch` in portable PTY mode:
 
 ```bash
+bash containers/tenex-edge/run --profile claude tenex-edge channel init
 skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude --model haiku
 ```
 

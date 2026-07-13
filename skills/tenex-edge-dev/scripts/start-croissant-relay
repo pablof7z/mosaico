@@ -57,6 +57,16 @@ wait_for_relay() {
   done
 }
 
+stop_relay() {
+  local pid
+  [[ -s "${RELAY_PID_FILE:-}" ]] || return 0
+  pid="$(cat "${RELAY_PID_FILE}")"
+  if kill -0 "${pid}" 2>/dev/null; then
+    kill "${pid}" 2>/dev/null || true
+    wait "${pid}" 2>/dev/null || true
+  fi
+}
+
 need curl
 need jq
 need lsof
@@ -116,16 +126,17 @@ fi
 
 (
   cd "${CROISSANT_DIR}"
-  nohup env PORT="${RELAY_PORT}" \
+  exec nohup env PORT="${RELAY_PORT}" \
     HOST="${RELAY_BIND_HOST}" \
     DATAPATH="${RELAY_DATA}" \
     OWNER_PUBLIC_KEY="${OWNER_PK}" \
     DOMAIN= \
-    ./croissant >"${RELAY_LOG}" 2>&1 &
-  echo "$!" >"${RELAY_PID_FILE}"
-)
+    ./croissant
+) >"${RELAY_LOG}" 2>&1 &
+echo "$!" >"${RELAY_PID_FILE}"
 
-if ! wait_for_relay "${RELAY_HTTP}" 20; then
+if ! wait_for_relay "${RELAY_HTTP}" "${TENEX_EDGE_DEV_RELAY_READY_TIMEOUT:-20}"; then
+  stop_relay
   tail -80 "${RELAY_LOG}" >&2 || true
   echo "relay did not become ready: ${RELAY_HTTP}" >&2
   exit 1
