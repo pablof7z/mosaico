@@ -62,6 +62,9 @@ Read these files from this skill directory as needed:
 - Use `tenex-edge launch` when validating reattach, injection, or hosted
   lifecycle behavior. Direct runs are foreground auth/plugin checks;
   `__acp-smoke` proves structured transport handshake, prompt, and resume.
+- Interactive `tenex-edge launch` of an ACP/app-server agent offers attachable
+  PTY bundles plus a final headless choice. Automated structured launches pass
+  `--headless`; PTY launches may pass `--harness <bundle>` explicitly.
 - Harness configuration is two-file state under `TENEX_EDGE_HOME`:
   `harnesses.json` defines bundles and `agents/<slug>.json` selects a bundle via
   `harness`. The filename is plural; there is no `harness.json` surface.
@@ -154,6 +157,9 @@ bash containers/tenex-edge/run --profile claude-acp tenex-edge channel init
 TENEX_EDGE_DEV_PROMPT="Run tenex-edge who and summarize the self header." \
   skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
+
+The helper passes `--headless` for ACP/app-server profiles so an interactive
+terminal does not stop at the launch-mode picker.
 
 Use `codex-app-server` and `opencode-acp` the same way. Configure their model
 through the profile-writer environment described in `container-backends.md`;

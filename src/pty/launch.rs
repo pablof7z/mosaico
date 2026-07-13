@@ -16,13 +16,15 @@ pub struct SpawnSessionArgs {
     pub ephemeral: bool,
     pub durable_reservation: Option<String>,
     pub command: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub env_remove: Vec<String>,
 }
 
 pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     if args.command.is_empty() {
         anyhow::bail!("pty launch command must not be empty");
     }
-    let id = args.id.unwrap_or_else(|| session_id(&args.agent));
+    let id = args.id.unwrap_or_else(|| new_session_id(&args.agent));
     let socket = session_socket(&id);
     let log_path = super::meta::session_dir().join(format!("{id}.supervisor.log"));
     std::fs::create_dir_all(super::meta::session_dir())
@@ -57,6 +59,12 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     if let Some(reservation) = &args.durable_reservation {
         child.env("TENEX_EDGE_DURABLE_RESERVATION", reservation);
     }
+    for (key, value) in &args.env {
+        child.env(key, value);
+    }
+    for key in &args.env_remove {
+        child.env_remove(key);
+    }
     child.arg("--").args(&args.command);
     child
         .stdin(Stdio::null())
@@ -86,7 +94,7 @@ pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
     Ok(meta)
 }
 
-fn session_id(agent: &str) -> String {
+pub(crate) fn new_session_id(agent: &str) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)

@@ -59,7 +59,7 @@ pub(super) enum Cmd {
     },
     /// Publish a long-form proposal (kind:30023) from this agent's session.
     Publish(PublishArgs),
-    /// Launch an agent harness in a reattachable portable-pty session.
+    /// Launch an agent through an attachable PTY or a headless RPC transport.
     Launch(LaunchArgs),
     /// Start an MCP server over stdio or HTTP.
     Mcp(McpArgs),

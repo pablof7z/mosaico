@@ -96,6 +96,7 @@ case "${MODE}" in
       launch_args+=(-- "$@")
     fi
     if [[ "${TRANSPORT}" == "acp" || "${TRANSPORT}" == "app-server" ]]; then
+      launch_args+=(--headless)
       cmd=("${common[@]}" tenex-edge-hosted "${launch_args[@]}")
     else
       cmd=("${common[@]}" tenex-edge "${launch_args[@]}")

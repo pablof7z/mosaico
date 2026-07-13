@@ -237,6 +237,10 @@ the container owns the daemon and JSON-RPC child. Do not run a second container
 against the same profile while it is live. Use host-side relay probes and the
 bind-mounted profile logs, then stop it with `cleanup-lab`.
 
+The helper passes `--headless` for structured profiles. A human running bare
+`tenex-edge launch <agent>` on a TTY instead gets an Inquire picker over PTY
+bundles, with headless launch as the final option.
+
 ## Multi-Agent Runs
 
 For a multi-backend test:
