@@ -75,7 +75,7 @@ pub(in crate::cli) struct AddArgs {
     pub(in crate::cli::admin) message: Option<String>,
 }
 
-/// Subgroup task channels under a root (NIP-29 child groups).
+/// Subgroup task channels under a root (child channels).
 #[derive(Subcommand)]
 pub(in crate::cli) enum ChannelAction {
     /// Add a member to a channel: a human by id or an existing session
@@ -200,7 +200,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Edit metadata on an existing subgroup task channel.
     Edit {
-        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque channel `h` value.
         channel: String,
         /// New durable channel description.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
@@ -232,7 +232,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Join a channel for passive context and direct-mention delivery.
     Join {
-        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque channel `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -241,7 +241,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Stop listening to a passively joined channel.
     Leave {
-        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque channel `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -250,15 +250,15 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Mark a channel archived and remove all non-admin members.
     Archive {
-        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque channel `h` value.
         channel: String,
         /// Explicit session id to use as the channel-relative resolution anchor.
         #[arg(long)]
         session: Option<String>,
     },
-    /// Switch the active channel for the current session to a different NIP-29 subgroup.
+    /// Switch the active channel for the current session to a different subgroup.
     Switch {
-        /// Channel name, channel-relative path, or opaque NIP-29 `h` value.
+        /// Channel name, channel-relative path, or opaque channel `h` value.
         channel: String,
         /// Explicit session id to mutate instead of resolving the caller from
         /// the current PTY/harness process.

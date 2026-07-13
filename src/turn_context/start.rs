@@ -119,8 +119,8 @@ pub(crate) fn assemble_turn_start(
                 format!("channel \"{channel_name}\" (in channel \"{root_name}\")")
             };
             warnings.push(format!(
-                "WARNING: this agent ({slug}) is not a member of the NIP-29 group \
-                 for {where_label}. Messages published by this session may be \
+                "WARNING: this agent ({slug}) is not a member of the channel \
+                 group for {where_label}. Messages published by this session may be \
                  rejected by the relay. Ask an operator with relay admin access \
                  to add this agent to the channel.",
                 slug = self_slug,

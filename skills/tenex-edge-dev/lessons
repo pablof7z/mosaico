@@ -20,7 +20,7 @@ bash containers/tenex-edge/run --profile claude tenex-edge channel init
 
 This registers the directory's basename (e.g. `workspace` for a worktree
 checked out as `.../tenex-edge-trellis` mounted at `/workspace`) as the
-workspace slug and creates the `workspace` NIP-29 channel. It only touches
+workspace slug and creates the `workspace` channel. It only touches
 profile-local/container state, not host `~/.tenex-edge`. The main skill and
 live-lab workflow include this step before both PTY and structured launches.
 
@@ -39,7 +39,7 @@ was still up:
 - started its own daemon in its own container/VM bound to the same
   bind-mounted socket path, logged
   `removing locally managed offline agent from channel ... reason=startup-stale-pid`,
-  and evicted the live agent's pubkey from the NIP-29 channel.
+  and evicted the live agent's pubkey from the channel.
 - The live PTY session's statusline flipped to `[te: down]` and its next
   prompt hung with `UserPromptSubmit hook timed out after 30s` — the session
   was unrecoverable; it had to be killed (`container stop/rm` plus
