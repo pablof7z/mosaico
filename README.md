@@ -189,7 +189,10 @@ so the common commands take no session id:
 | `tenex-edge agents` | List available roles and prior sessions by npub. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
-Human operators start an attached local host with `tenex-edge launch <host> [prompt]`.
+Human operators start a local host with `tenex-edge launch <host> [prompt]`. If
+the host selects an ACP/app-server bundle, an interactive launch offers the
+available PTY bundles to attach to and keeps headless launch as the final choice;
+`--harness <bundle>` and `--headless` bypass that picker explicitly.
 
 The session/turn lifecycle has no hand-run commands — every host drives it through the
 single `tenex-edge harness hook` entry point, which reads the host's hook payload on stdin

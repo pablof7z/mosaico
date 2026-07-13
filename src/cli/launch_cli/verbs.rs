@@ -14,6 +14,8 @@ pub(super) async fn launch(request: LaunchRequest) -> Result<()> {
         channel,
         session_name,
         command_name,
+        harness,
+        headless,
         override_command,
         extra_args,
         prompt,
@@ -23,88 +25,57 @@ pub(super) async fn launch(request: LaunchRequest) -> Result<()> {
         None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
 
-    // An agent whose harness bundle resolves to an RPC transport (ACP/app-server)
-    // is headless: there is no PTY to attach and no interactive command to select
-    // — its launch argv comes from the bundle. Dispatch it through the daemon
-    // (where the ACP child must live for mention delivery) instead of the
-    // client-side PTY supervisor. `-c <override>` forces the PTY path regardless.
-    if override_command.is_empty()
-        && crate::session_host::transport::transport_kind_for_slug(&agent)
-            == crate::session_host::transport::TransportKind::Acp
-    {
+    if headless {
+        super::harness_picker::configured_rpc_bundle(&agent)?.with_context(|| {
+            format!(
+                "--headless requires agent {agent:?} to select an ACP/app-server harness bundle"
+            )
+        })?;
         let channel = resolve_launch_channel(&root, &agent, channel).await?;
         return launch_acp_headless(agent, root, channel, session_name, extra_args, prompt).await;
     }
 
-    let base_command = if override_command.is_empty() {
-        super::launch_command::resolve_launch_command(&agent, command_name.as_deref(), &extra_args)?
+    let pty_source = if let Some(bundle) = harness {
+        super::pty_launch::CommandSource::Bundle(
+            super::harness_picker::validate_explicit_pty_bundle(&bundle)?,
+        )
+    } else if !override_command.is_empty() {
+        super::pty_launch::CommandSource::Command(override_command)
+    } else if command_name.is_some() {
+        super::pty_launch::CommandSource::Command(super::launch_command::resolve_launch_command(
+            &agent,
+            command_name.as_deref(),
+            &extra_args,
+        )?)
+    } else if let Some(bundle) = super::harness_picker::configured_rpc_bundle(&agent)? {
+        match super::harness_picker::choose_rpc_launch(&bundle)? {
+            super::harness_picker::RpcLaunchChoice::PtyBundle(bundle) => {
+                super::pty_launch::CommandSource::Bundle(bundle)
+            }
+            super::harness_picker::RpcLaunchChoice::Headless => {
+                let channel = resolve_launch_channel(&root, &agent, channel).await?;
+                return launch_acp_headless(agent, root, channel, session_name, extra_args, prompt)
+                    .await;
+            }
+        }
     } else {
-        override_command
+        super::pty_launch::CommandSource::Command(super::launch_command::resolve_launch_command(
+            &agent,
+            None,
+            &extra_args,
+        )?)
     };
-    let extra_args =
-        super::launch_command::extra_args_without_duplicate_suffix(&base_command, extra_args);
-    let command = super::launch_command::append_launch_args(base_command.clone(), &extra_args);
     let channel = resolve_launch_channel(&root, &agent, channel).await?;
-    let cwd = std::env::current_dir()
-        .ok()
-        .map(|p| p.to_string_lossy().to_string());
-    let cwd_path = cwd
-        .as_deref()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let preflight = super::super::daemon_call_async(
-        "agent_launch_preflight",
-        serde_json::json!({
-            "agent": agent.clone(),
-            "session_name": session_name,
-        }),
-    )
-    .await
-    .context("launch refused before spawning harness")?;
-    let durable_reservation = preflight["durable_reservation"]
-        .as_str()
-        .map(str::to_string);
-    let spawned = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
-        id: None,
-        agent: agent.clone(),
+    super::pty_launch::launch(super::pty_launch::PtyLaunchRequest {
+        agent,
         root,
-        cwd: cwd_path,
         channel,
         session_name,
-        ephemeral: false,
-        durable_reservation: durable_reservation.clone(),
-        command,
-    });
-    let meta = match spawned {
-        Ok(meta) => meta,
-        Err(error) => {
-            if let Some(reservation) = durable_reservation {
-                let _ = super::super::daemon_call_async(
-                    "agent_launch_release",
-                    serde_json::json!({ "durable_reservation": reservation }),
-                )
-                .await;
-            }
-            return Err(error);
-        }
-    };
-    eprintln!("[tenex-edge pty] session: {}", meta.id);
-    eprintln!("[tenex-edge pty] detach: close this attach terminal");
-    eprintln!(
-        "[tenex-edge pty] reattach: tenex-edge pty attach {}",
-        meta.id
-    );
-    if let Some(prompt) = prompt {
-        crate::session_host::inject_spawn_message(&meta.id, &prompt)
-            .await
-            .with_context(|| format!("injecting initial prompt into pty session {}", meta.id))?;
-    }
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        eprintln!("[tenex-edge pty] attach skipped: not running on a TTY");
-        return Ok(());
-    }
-    crate::pty::attach(&meta.socket)
+        source: pty_source,
+        extra_args,
+        prompt,
+    })
+    .await
 }
 
 /// Resolve the launch channel shared by the PTY and ACP paths. `--channel ""`

@@ -64,6 +64,10 @@ assert_eq $'<launch>\n<claude>\n<prompt with spaces>' "${ACP_TAIL}" \
 if printf '%s\n' "${ACP_OUTPUT}" | grep -Fq -- '--prompt'; then
   fail 'ACP launch still emits removed --prompt flag'
 fi
+if ! printf '%s\n' "${ACP_OUTPUT}" | grep -Fxq -- '<--headless>'; then
+  fail 'ACP launch does not bypass the interactive picker with --headless'
+fi
+echo 'ok: ACP launch bypasses the interactive picker'
 
 PTY_STATE="${TMP}/claude-state"
 PTY_ENV="${TMP}/claude.env"

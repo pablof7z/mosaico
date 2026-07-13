@@ -113,6 +113,8 @@ async fn open_agent_session(
                 ephemeral,
                 durable_reservation,
                 command: command.to_vec(),
+                env: Vec::new(),
+                env_remove: Vec::new(),
             })?;
             Ok(meta)
         }

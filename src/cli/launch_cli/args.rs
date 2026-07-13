@@ -34,8 +34,22 @@ pub(in crate::cli) struct LaunchArgs {
     #[arg(short = 'c', long = "command", value_name = "COMMAND")]
     command_str: Option<String>,
     /// Select a named command from the agent file's `commands` list.
-    #[arg(long = "command-name", value_name = "NAME")]
+    #[arg(long = "command-name", value_name = "NAME", conflicts_with = "harness")]
     command_name: Option<String>,
+    /// Launch through a named PTY bundle from harnesses.json (or a built-in
+    /// PTY harness such as claude/codex/opencode/grok), bypassing the picker.
+    #[arg(
+        long = "harness",
+        value_name = "BUNDLE",
+        conflicts_with = "command_str"
+    )]
+    harness: Option<String>,
+    /// Launch the agent's configured ACP/app-server bundle without attaching.
+    #[arg(
+        long = "headless",
+        conflicts_with_all = ["harness", "command_str", "command_name"]
+    )]
+    headless: bool,
     /// Extra args passed after `--`; appended to the launch command.
     /// Example: `tenex-edge launch codex -- --yolo`
     #[arg(index = 3, last = true, value_name = "ARGS")]
@@ -48,6 +62,8 @@ pub(super) struct LaunchRequest {
     pub(super) channel: Option<String>,
     pub(super) session_name: Option<String>,
     pub(super) command_name: Option<String>,
+    pub(super) harness: Option<String>,
+    pub(super) headless: bool,
     pub(super) override_command: Vec<String>,
     pub(super) extra_args: Vec<String>,
     pub(super) prompt: Option<String>,
@@ -65,6 +81,8 @@ pub(in crate::cli) async fn launch(args: LaunchArgs) -> Result<()> {
         channel: args.channel,
         session_name: args.session_name,
         command_name: args.command_name,
+        harness: args.harness,
+        headless: args.headless,
         override_command,
         extra_args: args.extra_args,
         prompt,
@@ -189,6 +207,72 @@ mod tests {
             }
             _ => panic!("expected launch command"),
         }
+    }
+
+    #[test]
+    fn launch_harness_override_parses() {
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "tenex-edge",
+            "launch",
+            "claude",
+            "--harness",
+            "codex-yolo",
+        ])
+        .expect("launch --harness parses");
+
+        match cli.cmd {
+            crate::cli::args::Cmd::Launch(args) => {
+                assert_eq!(args.harness.as_deref(), Some("codex-yolo"));
+            }
+            _ => panic!("expected launch command"),
+        }
+    }
+
+    #[test]
+    fn launch_harness_conflicts_with_command_overrides() {
+        for args in [
+            vec![
+                "tenex-edge",
+                "launch",
+                "claude",
+                "--harness",
+                "codex",
+                "--command",
+                "claude",
+            ],
+            vec![
+                "tenex-edge",
+                "launch",
+                "claude",
+                "--harness",
+                "codex",
+                "--command-name",
+                "safe",
+            ],
+        ] {
+            assert!(crate::cli::args::Cli::try_parse_from(args).is_err());
+        }
+    }
+
+    #[test]
+    fn launch_headless_bypass_parses_and_conflicts_with_pty_overrides() {
+        let cli =
+            crate::cli::args::Cli::try_parse_from(["tenex-edge", "launch", "claude", "--headless"])
+                .expect("launch --headless parses");
+        match cli.cmd {
+            crate::cli::args::Cmd::Launch(args) => assert!(args.headless),
+            _ => panic!("expected launch command"),
+        }
+
+        assert!(crate::cli::args::Cli::try_parse_from([
+            "tenex-edge",
+            "launch",
+            "claude",
+            "--headless",
+            "--harness",
+            "claude",
+        ])
+        .is_err());
     }
 
     #[test]
