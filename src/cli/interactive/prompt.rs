@@ -1,28 +1,30 @@
-//! Color palette and prompt chrome for `tenex-edge mgmt config`'s interactive
-//! flows: one accent color, heavy dimming for secondary text, no borders —
-//! matching the existing ratatui session picker. These ANSI-256 values are
-//! chosen to hold ≥3:1 contrast on both a near-black and a near-white
-//! background, since we can't detect the user's terminal theme.
-//!
-//! `NO_COLOR` (checked by `owo-colors`/`inquire` themselves) disables color;
-//! `pub(super) const` values below only ever set *foreground*, never a
-//! background fill, so there's nothing left to clash once color is off.
+//! Shared prompt chrome and cancellation semantics for inline `inquire` flows.
 
+use anyhow::Result;
 use inquire::ui::{Color, ErrorMessageRenderConfig, RenderConfig, StyleSheet, Styled};
+use inquire::InquireError;
 
 const ACCENT: Color = Color::AnsiValue(45);
 const SUCCESS: Color = Color::AnsiValue(78);
 const ERROR: Color = Color::AnsiValue(203);
 const MUTED: Color = Color::AnsiValue(245);
 
-/// Install this tool's palette as the global `inquire` render config. Call
-/// once before any prompt is shown.
-pub(super) fn install() {
+pub(in crate::cli) fn install_theme() {
     inquire::set_global_render_config(theme());
 }
 
+/// Convert cancel/interrupt into `None`, so inline prompts exit without an
+/// error after Esc or Ctrl-C.
+pub(in crate::cli) fn prompted<T>(r: std::result::Result<T, InquireError>) -> Result<Option<T>> {
+    match r {
+        Ok(value) => Ok(Some(value)),
+        Err(InquireError::OperationCanceled) | Err(InquireError::OperationInterrupted) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn theme() -> RenderConfig<'static> {
-    let mut cfg = RenderConfig::default_colored()
+    let mut config = RenderConfig::default_colored()
         .with_prompt_prefix(Styled::new("?").with_fg(ACCENT))
         .with_answered_prompt_prefix(Styled::new("✓").with_fg(SUCCESS))
         .with_highlighted_option_prefix(Styled::new("❯").with_fg(ACCENT))
@@ -34,6 +36,6 @@ fn theme() -> RenderConfig<'static> {
             ErrorMessageRenderConfig::default_colored()
                 .with_prefix(Styled::new("✗").with_fg(ERROR)),
         );
-    cfg.placeholder = StyleSheet::new().with_fg(MUTED);
-    cfg
+    config.placeholder = StyleSheet::new().with_fg(MUTED);
+    config
 }

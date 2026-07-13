@@ -2,7 +2,8 @@
 
 use super::catalog;
 use super::store::{LlmsFile, ProvidersFile};
-use super::util::{mask_secret, prompted};
+use super::util::mask_secret;
+use crate::cli::interactive::prompt::prompted;
 use anyhow::Result;
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
 use owo_colors::OwoColorize;

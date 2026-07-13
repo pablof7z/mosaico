@@ -1,4 +1,4 @@
-//! Canonical local-session projection for the operator management UI.
+//! Canonical local-session projection for the operator session picker.
 
 use super::*;
 use std::collections::HashMap;

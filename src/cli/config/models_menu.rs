@@ -5,7 +5,7 @@
 
 use super::catalog::{self, CatalogModel};
 use super::store::{LlmsFile, ProvidersFile};
-use super::util::prompted;
+use crate::cli::interactive::prompt::prompted;
 use anyhow::Result;
 use inquire::{Confirm, Select, Text};
 use owo_colors::OwoColorize;

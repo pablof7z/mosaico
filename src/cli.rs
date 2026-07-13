@@ -27,6 +27,7 @@ mod explain;
 mod harness;
 mod hooks;
 mod install;
+mod interactive;
 mod launch_cli;
 mod mcp;
 mod messaging;
@@ -35,7 +36,6 @@ mod probe;
 mod pty;
 mod session;
 mod statusline;
-mod tui;
 mod turn;
 mod validate;
 mod who;
@@ -123,8 +123,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Mgmt { action } => match action {
             MgmtAction::Agent { action } => admin::agent(action).await,
             MgmtAction::Session {
-                action: MgmtSessionAction::List(args),
-            } => tui::session_list(args).await,
+                action: MgmtSessionAction::List,
+            } => interactive::session_picker::session_list().await,
             MgmtAction::Config(args) => config::config(args).await,
         },
         Cmd::Dispatch(args) => dispatch::dispatch(args).await,
