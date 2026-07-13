@@ -12,6 +12,8 @@ harness provides.
 - A named fabric agent or session means that fabric participant.
 - A fabric agent whose stated use criteria clearly match the work is the first
   choice for that role.
+- Route by relevant function, context, capability, and ownership—not by host,
+  model, or generic agent identity.
 - An unnamed, count-based, or bounded helper request means in-session
   subagents.
 - A particular unavailable collaborator calls for an explicit fallback rather
@@ -50,6 +52,13 @@ Give the recipient enough context to act independently:
 
 The delegating agent remains responsible for integrating the result and
 communicating the consequence to the right audience.
+
+## Escalate Human Decisions
+
+Escalate to the human only for preference, priority, consent, materially risky
+or irreversible action, conflicting goals, or knowledge only the human has.
+Provide a decision packet: the decision required, relevant facts,
+recommendation, consequences, and work that can continue meanwhile.
 
 ## Commands
 
