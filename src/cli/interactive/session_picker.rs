@@ -1,6 +1,8 @@
 mod data;
+mod layout;
 
 use self::data::SessionRow;
+use self::layout::SessionLayout;
 use super::prompt::{install_theme, prompted};
 use anyhow::{bail, Result};
 use inquire::{list_option::ListOption, Confirm, MultiSelect};
@@ -8,6 +10,7 @@ use std::fmt::{self, Display};
 use std::io::IsTerminal;
 
 const HELP: &str = "type filter · ↑↓ move · space toggle · → all · ← none · enter · esc";
+const OPTION_CHROME_WIDTH: usize = 7;
 
 #[derive(Clone, Debug)]
 struct SessionChoice {
@@ -16,8 +19,8 @@ struct SessionChoice {
 }
 
 impl SessionChoice {
-    fn new(row: SessionRow, now: u64, width: usize) -> Self {
-        let label = row.choice_label(now, width);
+    fn new(row: SessionRow, now: u64, layout: &SessionLayout) -> Self {
+        let label = layout.row(&row, now);
         Self { label, row }
     }
 }
@@ -41,16 +44,22 @@ pub(in crate::cli) async fn session_list() -> Result<()> {
     }
 
     let now = crate::util::now_secs();
-    let page_size = rows.len().min(14);
-    let option_width = crossterm::terminal::size()
-        .map(|(columns, _)| usize::from(columns).saturating_sub(7).max(40))
-        .unwrap_or(93);
+    let (columns, terminal_rows) = crossterm::terminal::size().unwrap_or((100, 28));
+    let option_width = usize::from(columns)
+        .saturating_sub(OPTION_CHROME_WIDTH)
+        .max(1);
+    let page_size = layout::picker_page_size(rows.len(), usize::from(terminal_rows));
+    let layout = SessionLayout::new(&rows, option_width);
+    let prompt = format!(
+        "Select sessions to kill\n      {}\n  Filter:",
+        layout.header()
+    );
     let choices = rows
         .into_iter()
-        .map(|row| SessionChoice::new(row, now, option_width))
+        .map(|row| SessionChoice::new(row, now, &layout))
         .collect::<Vec<_>>();
     let Some(selected) = prompted(
-        MultiSelect::new("Select sessions to kill", choices)
+        MultiSelect::new(&prompt, choices)
             .with_page_size(page_size)
             .with_help_message(HELP)
             .with_scorer(&score_choice)
@@ -140,46 +149,37 @@ mod tests {
     use super::*;
 
     fn choice(handle: &str) -> SessionChoice {
-        SessionChoice::new(
-            SessionRow {
-                handle: handle.to_string(),
-                ..SessionRow::default()
-            },
-            100,
-            80,
-        )
+        let row = SessionRow {
+            handle: handle.to_string(),
+            ..SessionRow::default()
+        };
+        let layout = SessionLayout::new(std::slice::from_ref(&row), 80);
+        SessionChoice::new(row, 100, &layout)
     }
 
     #[test]
     fn fuzzy_search_uses_hidden_projection_fields_and_prefers_handles() {
-        let cwd_choice = SessionChoice::new(
-            SessionRow {
-                handle: "opal".into(),
-                workspace: "tenex-edge".into(),
-                cwd: Some("/repo/edge".into()),
-                ..SessionRow::default()
-            },
-            100,
-            80,
-        );
-        let handle_choice = SessionChoice::new(
-            SessionRow {
-                handle: "delta-codex".into(),
-                activity: "ordinary work".into(),
-                ..SessionRow::default()
-            },
-            100,
-            80,
-        );
-        let incidental_choice = SessionChoice::new(
-            SessionRow {
-                handle: "other-codex".into(),
-                activity: "reviewing delta output".into(),
-                ..SessionRow::default()
-            },
-            100,
-            80,
-        );
+        let cwd_row = SessionRow {
+            handle: "opal".into(),
+            workspace: "tenex-edge".into(),
+            cwd: Some("/repo/edge".into()),
+            ..SessionRow::default()
+        };
+        let handle_row = SessionRow {
+            handle: "delta-codex".into(),
+            activity: "ordinary work".into(),
+            ..SessionRow::default()
+        };
+        let incidental_row = SessionRow {
+            handle: "other-codex".into(),
+            activity: "reviewing delta output".into(),
+            ..SessionRow::default()
+        };
+        let rows = [cwd_row.clone(), handle_row.clone(), incidental_row.clone()];
+        let layout = SessionLayout::new(&rows, 80);
+        let cwd_choice = SessionChoice::new(cwd_row, 100, &layout);
+        let handle_choice = SessionChoice::new(handle_row, 100, &layout);
+        let incidental_choice = SessionChoice::new(incidental_row, 100, &layout);
 
         assert!(score_choice("rpedge", &cwd_choice, "", 0).is_some());
         assert!(

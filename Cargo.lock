@@ -3240,6 +3240,7 @@ dependencies = [
  "tracing-subscriber",
  "trellis-core",
  "trellis-testing",
+ "unicode-width",
  "url",
 ]
 

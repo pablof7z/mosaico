@@ -22,51 +22,6 @@ pub(super) struct SessionRow {
 }
 
 impl SessionRow {
-    pub(super) fn display_title(&self) -> &str {
-        let trimmed = self.title.trim();
-        if trimmed.is_empty() {
-            "(untitled)"
-        } else {
-            trimmed
-        }
-    }
-
-    pub(super) fn title_with_activity(&self) -> String {
-        let title = self.display_title();
-        let activity = self.activity.trim();
-        if activity.is_empty() || activity == title || title == "(untitled)" {
-            title.to_string()
-        } else {
-            format!("{title} — {activity}")
-        }
-    }
-
-    pub(super) fn choice_label(&self, now: u64, max_chars: usize) -> String {
-        let state = if self.busy { "working" } else { "idle" };
-        let seen = if self.last_seen == 0 {
-            "unknown".to_string()
-        } else {
-            crate::util::relative_time(self.last_seen, now)
-        };
-        let scope = match (self.workspace.is_empty(), self.channels.as_slice()) {
-            (true, _) => "(no workspace)".to_string(),
-            (false, []) => self.workspace.clone(),
-            (false, [channel]) if channel == &self.workspace => self.workspace.clone(),
-            (false, _) => format!("{}/{}", self.workspace, self.channels.join(",")),
-        };
-        compact(
-            &format!(
-                "@{} · {} · {} · {} · {}",
-                self.handle,
-                state,
-                scope,
-                seen,
-                self.title_with_activity()
-            ),
-            max_chars,
-        )
-    }
-
     pub(super) fn fuzzy_score(&self, input: &str) -> Option<i64> {
         if input.is_empty() {
             return Some(0);
@@ -167,17 +122,6 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
     })
 }
 
-fn compact(value: &str, max_chars: usize) -> String {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut chars = normalized.chars();
-    let prefix = chars.by_ref().take(max_chars).collect::<String>();
-    if chars.next().is_some() {
-        format!("{prefix}…")
-    } else {
-        prefix
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,22 +149,10 @@ mod tests {
         let rows = rows_from_value(&value);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].session_id, "s1");
-        assert!(rows[0]
-            .choice_label(20, 100)
-            .contains("@opal-codex · working"));
-        assert!(rows[0]
-            .choice_label(20, 100)
-            .contains("shipping the picker"));
-        assert!(!rows[0]
-            .choice_label(20, 100)
-            .contains("tenex-edge/tenex-edge"));
+        assert_eq!(rows[0].handle, "opal-codex");
+        assert_eq!(rows[0].title, "shipping the picker");
+        assert!(rows[0].busy);
         assert!(rows[0].fuzzy_score("repo").is_some());
         assert!(rows[0].fuzzy_score("headless").is_some());
-    }
-
-    #[test]
-    fn compact_normalizes_and_truncates_long_activity() {
-        assert_eq!(compact("one\n two", 20), "one two");
-        assert_eq!(compact("abcdefgh", 5), "abcde…");
     }
 }

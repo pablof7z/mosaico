@@ -44,6 +44,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 portable-pty = "0.9"
 toml = "0.9"
+unicode-width = "0.2"
 url = "2"
 trellis-core = { git = "https://github.com/pablof7z/trellis", rev = "60e759de65b929ab6671765e5ccf8d330c2bbed2", package = "trellis-core", features = ["serde"] }
 trellis-testing = { git = "https://github.com/pablof7z/trellis", rev = "60e759de65b929ab6671765e5ccf8d330c2bbed2", package = "trellis-testing", features = ["serde"] }
