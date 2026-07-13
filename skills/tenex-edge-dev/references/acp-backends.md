@@ -102,7 +102,7 @@ prompt through the tenex-edge launch surface:
 
 ```bash
 bash containers/tenex-edge/run --profile claude-acp tenex-edge channel init
-TENEX_EDGE_DEV_PROMPT="Run tenex-edge who." \
+TENEX_EDGE_DEV_PROMPT="Run tenex-edge my session." \
   skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 

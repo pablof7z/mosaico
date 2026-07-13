@@ -75,7 +75,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
 }
 
 #[test]
-fn who_refuses_agent_channel_scan_without_exact_anchor() {
+fn who_is_human_only_and_my_session_accepts_the_exact_anchor() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
@@ -112,13 +112,13 @@ fn who_refuses_agent_channel_scan_without_exact_anchor() {
         let err = c
             .call("who", serde_json::json!({"agent": "coder", "cwd": "/tmp"}))
             .await
-            .expect_err("who must not infer a caller from agent+cwd alone");
+            .expect_err("agent hints must be rejected by who");
         assert!(
-            format!("{err:#}").contains("exact live session anchor"),
+            format!("{err:#}").contains("who is human-only"),
             "unexpected who error: {err:#}"
         );
 
-        let ok = c
+        let err = c
             .call(
                 "who",
                 serde_json::json!({
@@ -128,11 +128,28 @@ fn who_refuses_agent_channel_scan_without_exact_anchor() {
                 }),
             )
             .await
-            .expect("who should accept the exact watched-process anchor");
-        assert_eq!(ok["root"].as_str(), Some(current_channel.as_str()));
+            .expect_err("agent-anchored who must be rejected");
         assert!(
-            ok.get("fabric_human").is_none(),
-            "agent-anchored who should keep the XML fabric path"
+            format!("{err:#}").contains("agents use `tenex-edge my session`"),
+            "unexpected who error: {err:#}"
+        );
+
+        let briefing = c
+            .call(
+                "my_session",
+                serde_json::json!({
+                    "harness": "claude-code",
+                    "watch_pid": watch_pid,
+                    "cwd": "/tmp"
+                }),
+            )
+            .await
+            .expect("my session should accept the exact watched-process anchor");
+        let fabric = briefing["fabric"].as_str().expect("agent briefing");
+        assert!(fabric.contains("<tenex-edge>"), "got: {fabric}");
+        assert!(
+            fabric.contains(&format!("channel=\"{current_channel}\"")),
+            "got: {fabric}"
         );
     });
 

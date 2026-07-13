@@ -5,13 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct AgentWhoInput<'a> {
     pub(crate) roots: &'a [String],
-    pub(crate) current_root: &'a str,
     pub(crate) self_name: &'a str,
     pub(crate) self_pubkey: &'a str,
     pub(crate) local_host: &'a str,
     pub(crate) backend_pubkey: &'a str,
     pub(crate) now: u64,
-    pub(crate) all_workspaces: bool,
+    pub(crate) expanded_workspaces: &'a BTreeSet<String>,
 }
 
 pub(super) fn build_agent_who(store: &Store, input: AgentWhoInput<'_>) -> AgentWhoView {
@@ -84,10 +83,7 @@ fn workspace_view(
 ) -> WorkspaceView {
     let meta = store.get_channel(root).ok().flatten();
     let members = member_views(store, root, input);
-    let expanded = (input.all_workspaces || root == input.current_root)
-        && store
-            .is_channel_member(root, input.self_pubkey)
-            .unwrap_or(false);
+    let expanded = input.expanded_workspaces.contains(root);
     let channels = if expanded {
         let mut seen = BTreeSet::from([root.to_string()]);
         by_parent

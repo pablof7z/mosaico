@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-13
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -19,14 +19,21 @@ sources:
 
 ## Overview
 
-This guide governs the family of `tenex-edge` agent skills written to `./skills/tenex-edge/` with symlinks from `~/.agents/skills/tenex-edge` and `~/.claude/skills/tenex-edge` pointing to the repo-local skill directory. The original skill taught agent operator commands (`who`, `chat`, `tail`, project groups, subgroup rooms, install, and keystore commands), but it has gone stale: self-identity now lives in `who` agent-context output, and targeting uses public session handles like `@codex-quill-peak-369`. The current guide restructures that material into a set of focused skills, each kept short with volatile details in `reference/` files.
+This guide governs the `tenex-edge` agent skill written to
+`./skills/tenex-edge/`, with user-level symlinks pointing to the repo-local
+skill directory. Agent self-identity and full awareness live under `my session`;
+human `who` is an operator-only terminal view. Targeting uses public session
+handles such as `@codex-quill-peak-369`.
 
 <!-- citations: [^019f1-7100b] [^019f1-106a9] -->
 ## Skill Set
 
-The `tenex-edge-operator` skill teaches day-to-day fabric usage: `who`, `chat read/write`, `tail`, `agents`, `invite`, and `channels switch/create/list`. It also carries the rule to verify live help before trusting docs.
+The `tenex-edge` skill teaches day-to-day agent fabric usage: `my session`,
+channel read/send/wait, dispatch, membership, and channel navigation. It also
+carries the rule to verify live help before trusting docs.
 
-The `tenex-edge-host-integration` skill teaches hook wiring and debugging for Codex, Claude Code, and OpenCode: lifecycle mapping, trust gates, adapter logs, `TENEX_EDGE_BIN`, `TENEX_EDGE_HOME`, reinstall/codesign flow, and how to prove registration with `who`.
+The `tenex-edge-dev` skill teaches hook wiring and debugging for Codex, Claude
+Code, and OpenCode, including how to prove agent registration with `my session`.
 
 The `tenex-edge-verification` skill teaches local gates and test tiers: `just fmt-check`, `just loc-check`, `just lint`, `just test-unit`, when to use `cargo test`, when relay/croissant/nak are required, and how to run e2e safely. Because command and docs drift is already visible, this skill includes small scripts/resources such as a command that prints current help, LOC offenders, and known test prerequisites.
 

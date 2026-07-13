@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-10
+updated: 2026-07-13
 verified: 2026-07-09
 compiled-from: conversation
 sources:
@@ -46,7 +46,7 @@ derived from the canonical session id, so a resumed session keeps its handle.
 Trust is NIP-29 channel membership, exclusively. The machine's management key adds
 a session's pubkey as a member of a channel; a session is removed from membership
 on clean end and after 10 minutes with no heartbeat (TTL prune). An expired
-session still appears in `who` history and remains re-derivable and resumable —
+session still appears in `who --expired` and remains re-derivable and resumable —
 membership is presence, not the definition of the session's identity.
 
 ## Roster vs. Members
@@ -60,7 +60,10 @@ new session; that session is what becomes a member.
 
 The raw `session_id` is the internal correlation id, and the derived pubkey is what signs and is routed to. Peers reference a session by its dashed public handle, never by raw pubkey. A mention that cannot be resolved to a current member is silently treated as no-mention rather than erroring, so mention resolution never blocks chat delivery.
 
-`resolve_session_inner` is the central session-resolution function in the daemon where every RPC handler resolves caller identity. It has 11 call sites: `who`, `chat_write`, `chat_read`, `propose`, `channels_create`, `channels_edit`, `channels_join`, `channels_leave`, `channels_switch`, `pty_send`, `pty_attach`, `turn_start`, `turn_check`, `turn_end`, `invite`, and `channel_add_member`. Agent identity auto-provisioning happens at this identity-resolution choke point rather than in `rpc_who` alone, so all RPC handlers obtain just-in-time identity without per-handler duplication.
+`resolve_session_inner` is the central daemon function for resolving an exact
+caller identity. `my session` and its status mutation enter through the strict
+`resolve_caller` wrapper, so a self-scoped command cannot bind an arbitrary
+sibling session. Human `who` does not resolve an agent session.
 
 <!-- citations: [^4d656-e8fdc] -->
 ## Session Resume
@@ -72,8 +75,9 @@ secret beyond the machine's management key.
 
 ## Identity Commands
 
-`tenex-edge who`, run inside an agent session, shows the caller who they are and
-which channel they are on: a self header of the form
-an XML `<self>` row followed by global agent capabilities and workspace/channel
-membership. The same projection drives `who --live`. The caller member match keys on the session's derived
-pubkey.
+`tenex-edge my session` shows the caller who they are and which fabric they
+inhabit: an XML `<self>` row followed by global agent capabilities and
+workspace/channel membership. Every workspace joined by that exact session is
+expanded, while merely known workspaces remain compact. Human `who` is a
+separate terminal-only operator projection. The caller member match keys on the
+session's derived pubkey.

@@ -3,6 +3,8 @@ use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub(super) enum SessionAction {
+    /// Change this session's broadcast status/title.
+    Status(SessionStatusArgs),
     /// End a local session record (metadata only; the hosted process keeps running).
     End(SessionEndArgs),
     /// Kill this session's hosted process and mark it offline.
@@ -18,6 +20,13 @@ pub(super) enum SessionAction {
     /// harness's own persisted session state survives the hop — terminal
     /// scrollback from the killed process is lost.
     PtyWrapMe(SessionPtyWrapMeArgs),
+}
+
+#[derive(Args)]
+pub(super) struct SessionStatusArgs {
+    /// A broad session title of at most 15 words.
+    #[arg(value_name = "TITLE")]
+    pub(super) title: String,
 }
 
 #[derive(Args)]
@@ -49,10 +58,21 @@ pub(super) struct SessionPtyWrapMeArgs {
 
 pub(super) fn session(action: SessionAction) -> Result<()> {
     match action {
+        SessionAction::Status(args) => status(args),
         SessionAction::End(args) => end(args),
         SessionAction::Kill(args) => kill(args),
         SessionAction::PtyWrapMe(args) => pty_wrap_me(args),
     }
+}
+
+fn status(args: SessionStatusArgs) -> Result<()> {
+    let title = crate::work_topic::normalize(&args.title)?;
+    crate::daemon::blocking::call(
+        "my_session_status",
+        crate::cli::rpc_params(serde_json::json!({ "title": title })),
+    )?;
+    println!("Session status set: \"{title}\" (automatic distillation paused for 30 minutes)");
+    Ok(())
 }
 
 fn end(args: SessionEndArgs) -> Result<()> {

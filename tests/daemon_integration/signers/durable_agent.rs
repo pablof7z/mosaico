@@ -243,22 +243,5 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
         "command-triggered chat must use the durable signer"
     );
 
-    db.execute(
-        "DELETE FROM relay_profiles WHERE pubkey=?1",
-        [&durable_pubkey],
-    )
-    .unwrap();
-    let sessions = rt().block_on(async {
-        let mut client = Client::connect_or_spawn().await.unwrap();
-        client
-            .call("agents_list_sessions", serde_json::json!({}))
-            .await
-            .unwrap()
-    });
-    assert!(sessions["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|session| session["pubkey"] != durable_pubkey));
     stop_daemon(&home);
 }

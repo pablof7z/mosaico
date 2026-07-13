@@ -2,7 +2,7 @@
 title: Tenex-Edge My Session Command
 slug: tenex-edge-my-session
 topic: tenex-edge
-summary: "The `my session` command gives an agent a full self/session briefing: who the agent is, the workspace it runs from, the channels it has joined, all workspaces i"
+summary: "The `my session` command gives an agent a full self/session briefing across identity, joined channels, workspaces, members, and capabilities."
 tags:
   - capture
 volatility: warm
@@ -19,7 +19,12 @@ sources:
 
 ## `my session` Overview
 
-The `my session` command gives an agent a full self/session briefing: who the agent is, the workspace it runs from, the channels it has joined, all workspaces it knows, and its agent capabilities. Session listing is folded into this same self/channel briefing because sessions are channel members in tenex-edge. The `agents list-sessions` inventory surface is retired in favor of this unified briefing. `my session` is a pure read that does not advance the hook cursor. <!-- [^019f5-a7eb2] -->
+The `my session` command gives an agent a full self/session briefing: who the
+agent is, the workspace it runs from, the channels it has joined, all
+workspaces it knows, and its agent capabilities. Sessions appear in this same
+self/channel briefing because they are channel members in tenex-edge; there is
+no parallel session inventory. `my session` is a pure read that does not
+advance the hook cursor. <!-- [^019f5-a7eb2] -->
 
 The briefing expands every workspace and channel the session has joined, while keeping merely-known workspaces compact. The existing agent renderer is reused intact for `my session`, projecting `<self>`, global agent capabilities, every workspace, and channel-member sessions with state, status, and seen information. <!-- [^019f5-1cc5f] -->
 
@@ -28,12 +33,9 @@ The briefing expands every workspace and channel the session has joined, while k
 The self-management grammar is consolidated under `tenex-edge my session`:
 
 - `tenex-edge my session` — full self/session briefing.
-- `tenex-edge my session title --topic "..."` — set the session title.
 - `tenex-edge my session status <title>` — set the status of the agent.
-- `tenex-edge my session end` — end the session.
-- `tenex-edge my session kill` — kill the session.
-- `tenex-edge my session pty-wrap-me` — wrap a PTY.
-
-`my session status <TITLE>` replaces `my status --topic` as the status-setting command.
+- `tenex-edge my session end --self` — end the session.
+- `tenex-edge my session kill --self` — kill the session.
+- `tenex-edge my session pty-wrap-me --self` — wrap a PTY.
 
 <!-- citations: [^019f5-ec07f] [^019f5-9e8cc] -->

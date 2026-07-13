@@ -1,8 +1,6 @@
 use super::*;
 use std::collections::BTreeSet;
 
-#[path = "who/agent.rs"]
-mod agent_view;
 #[path = "who/human.rs"]
 mod human_view;
 
@@ -35,14 +33,31 @@ pub(in crate::daemon::server) struct WhoParams {
 /// Cap on the expired-session listing — the resume-candidate window.
 const EXPIRED_SESSION_LIMIT: u32 = 100;
 
-/// `who`: build the snapshot with the SAME function the CLI used. The client
-/// renders it with the existing renderers, so output is byte-identical. The
-/// daemon resolves the current workspace the same way the old CLI did.
+/// Human/operator fabric overview. Exact session anchors and agent environment
+/// hints are rejected; agent self-awareness belongs to `my_session`.
 pub(in crate::daemon::server) fn rpc_who(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
     let p: WhoParams = serde_json::from_value(params.clone()).unwrap_or_default();
+    let has_exact_anchor = p.pty_session.as_deref().filter(|s| !s.is_empty()).is_some()
+        || p.harness_session
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .is_some()
+        || p.watch_pid.is_some();
+    let has_agent_hint = p.agent.as_deref().is_some_and(|value| !value.is_empty())
+        || p.group.as_deref().is_some_and(|value| !value.is_empty());
+    let exact_agent_caller = has_exact_anchor
+        && resolve_session_inner(
+            state,
+            &CallerAnchor::from_params(params),
+            ResolveScope::Strict,
+        )
+        .is_ok();
+    if exact_agent_caller || has_agent_hint {
+        anyhow::bail!("tenex-edge who is human-only; agents use `tenex-edge my session`");
+    }
     if p.expired {
         let host = state.host.clone();
         let rows = state.with_store(|s| {
@@ -50,33 +65,8 @@ pub(in crate::daemon::server) fn rpc_who(
         });
         return Ok(serde_json::json!({ "expired": rows }));
     }
-    let anchor = CallerAnchor::from_params(params);
-    let has_exact_anchor = p.pty_session.as_deref().filter(|s| !s.is_empty()).is_some()
-        || p.harness_session
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .is_some()
-        || p.watch_pid.is_some();
-    let caller_rec = if has_exact_anchor {
-        match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-            Ok(rec) => Some(rec),
-            Err(_) if p.all_workspaces => None,
-            Err(error) => return Err(error),
-        }
-    } else if !p.all_workspaces
-        && (p.agent.as_deref().filter(|s| !s.is_empty()).is_some()
-            || p.group.as_deref().filter(|s| !s.is_empty()).is_some())
-    {
-        anyhow::bail!(
-            "who needs an exact live session anchor; agent/channel env alone is not session context"
-        );
-    } else {
-        None
-    };
     let current_root = if p.all_workspaces {
         None
-    } else if let Some(rec) = caller_rec.as_ref() {
-        Some(rec.channel_h.clone())
     } else {
         Some(p.workspace.clone().unwrap_or_else(|| {
             let cwd = p
@@ -98,137 +88,50 @@ pub(in crate::daemon::server) fn rpc_who(
     })?;
     let mut out = serde_json::to_value(&snapshot)?;
 
-    // Exact agent sessions get the structured agent awareness projection. Bare
-    // operator invocations keep the terminal-oriented fabric renderer.
     if let Some(scope) = current_root.as_deref() {
-        // Reuse the exact caller session, when present, for both the fabric
-        // `(you)` match and the folded-in `<self />` row (issue #99).
-        // Deliberately no root-scan fallback: `who` must not masquerade as a
-        // session just because some live sibling exists in the same repository.
-        let rec = caller_rec.as_ref();
-        // Issue #98: the caller's ONE authoritative agent-instance identity — the
-        // selected pubkey + ordinal label every publisher signs with. Computed
-        // OUTSIDE `with_store` because `session_instance` locks the store itself.
-        let instance = rec.map(|rec| state.session_instance(rec));
-        let (self_slug, self_pubkey) = instance
-            .as_ref()
-            .map(|i| (i.display_slug(), i.pubkey.clone()))
-            .unwrap_or_default();
-        // `who` is an explicit orientation command. Even from inside an agent
-        // session, render the full view rather than that session's delta cursor.
-        let render_cursor = 0;
-        let fabric = if let Some(agent_session) = rec {
-            let roots = state.with_store(root_channels)?;
-            Some(agent_view::render(
-                state,
-                &roots,
-                agent_session,
-                now,
-                &host,
-                &backend_pk,
-                false,
-            ))
-        } else {
-            state.with_store(|s| {
-                crate::fabric_context::render_fabric_context(
-                    s,
-                    crate::fabric_context::FabricContextInput {
-                        session: None,
-                        scope,
-                        cursor: render_cursor,
-                        now,
-                        self_slug: &self_slug,
-                        self_pubkey: &self_pubkey,
-                        backend_pubkey: &backend_pk,
-                        local_host: &host,
-                        forced_messages: &[],
-                        warnings: &[],
-                        force: true,
-                    },
-                )
-            })
-        };
-        if let Some(fabric) = fabric {
-            out["fabric"] = serde_json::Value::String(fabric);
-            if rec.is_none() {
-                let human = state.with_store(|s| {
-                    crate::fabric_context::render_fabric_context_human(
-                        s,
-                        crate::fabric_context::FabricContextInput {
-                            session: rec,
-                            scope,
-                            cursor: 0,
-                            now,
-                            self_slug: &self_slug,
-                            self_pubkey: &self_pubkey,
-                            backend_pubkey: &backend_pk,
-                            local_host: &host,
-                            forced_messages: &[],
-                            warnings: &[],
-                            force: true,
-                        },
-                        p.human_color,
-                    )
-                });
-                if let Some(mut human) = human {
-                    human_view::append_other_roots(
-                        &mut human,
-                        &snapshot.other_roots,
-                        p.human_color,
-                    );
-                    out["fabric_human"] = serde_json::Value::String(human);
-                }
-            }
-            if let Some(rec) = rec {
-                if let Err(e) = cursor::drive_cursor_request(
-                    state,
-                    "who",
-                    cursor::seed_from_session(rec),
-                    cursor::fact_from_session(rec, now, true),
-                ) {
-                    tracing::error!(
-                        session = %rec.session_id,
-                        error = ?e,
-                        "who: advancing session fabric cursor failed"
-                    );
-                }
-            }
+        let human = state.with_store(|s| {
+            crate::fabric_context::render_fabric_context_human(
+                s,
+                crate::fabric_context::FabricContextInput {
+                    session: None,
+                    scope,
+                    cursor: 0,
+                    now,
+                    self_slug: "",
+                    self_pubkey: "",
+                    backend_pubkey: &backend_pk,
+                    local_host: &host,
+                    forced_messages: &[],
+                    warnings: &[],
+                    force: true,
+                },
+                p.human_color,
+            )
+        });
+        if let Some(mut human) = human {
+            human_view::append_other_roots(&mut human, &snapshot.other_roots, p.human_color);
+            out["fabric_human"] = serde_json::Value::String(human);
         }
     } else if p.all_workspaces {
         let roots = state.with_store(root_channels)?;
-        if let Some(rec) = caller_rec.as_ref() {
-            let fabric = agent_view::render(state, &roots, rec, now, &host, &backend_pk, true);
-            out["fabric"] = serde_json::Value::String(fabric);
-        } else {
-            let fabric = state.with_store(|s| {
-                crate::fabric_context::render_fabric_all_workspaces(
-                    s,
-                    &roots,
-                    now,
-                    &host,
-                    &backend_pk,
-                )
-            });
-            out["fabric"] = serde_json::Value::String(fabric);
-            let human = state.with_store(|s| {
-                crate::fabric_context::render_fabric_all_workspaces_human(
-                    s,
-                    &roots,
-                    now,
-                    &host,
-                    &backend_pk,
-                    p.human_color,
-                )
-            });
-            out["fabric_human"] = serde_json::Value::String(human);
-        }
+        let human = state.with_store(|s| {
+            crate::fabric_context::render_fabric_all_workspaces_human(
+                s,
+                &roots,
+                now,
+                &host,
+                &backend_pk,
+                p.human_color,
+            )
+        });
+        out["fabric_human"] = serde_json::Value::String(human);
     }
     Ok(out)
 }
 
 /// Top-level root channels (`parent` empty), non-archived — the set
 /// `--all-workspaces` fans its unified fabric render across.
-fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> {
+pub(super) fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> {
     let mut roots = store
         .reader()
         .list_channels()?

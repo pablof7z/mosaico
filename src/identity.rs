@@ -40,7 +40,8 @@ struct StoredKey {
     /// For Claude: becomes `--agents '{"<slug>": <def>}' --agent <slug>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     agent: Option<serde_json::Value>,
-    /// One-line "when to use this agent" note, surfaced in `who`'s agent table.
+    /// One-line "when to use this agent" note, surfaced in `my session`'s
+    /// capability inventory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     byline: Option<String>,
     /// When false, this persisted key signs every fresh session for the agent.

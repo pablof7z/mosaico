@@ -68,7 +68,7 @@ Read these files from this skill directory as needed:
 - Harness configuration is two-file state under `TENEX_EDGE_HOME`:
   `harnesses.json` defines bundles and `agents/<slug>.json` selects a bundle via
   `harness`. The filename is plural; there is no `harness.json` surface.
-- Use `tenex-edge who` for identity/fabric inspection. Do not rely on obsolete
+- Use `tenex-edge my session` for agent identity/fabric inspection. Do not rely on obsolete
   identity commands.
 
 ## Standard Start
@@ -166,7 +166,7 @@ Structured launch examples:
 
 ```bash
 bash containers/tenex-edge/run --profile claude-acp tenex-edge channel init
-TENEX_EDGE_DEV_PROMPT="Run tenex-edge who and summarize the self header." \
+TENEX_EDGE_DEV_PROMPT="Run tenex-edge my session and summarize the self header." \
   skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 
@@ -190,7 +190,7 @@ Drive a prompt or hook-like injection:
 
 ```bash
 bash containers/tenex-edge/run --profile claude tenex-edge pty inject <pty-id> \
-  "Run tenex-edge who and summarize the self header."
+  "Run tenex-edge my session and summarize the self header."
 ```
 
 Probe everything into files:
@@ -237,7 +237,7 @@ without forcing port 9888. Generate a `claude-acp` container profile with real
 host Claude auth, disposable fabric keys, `harnesses.json`, and a selecting
 agent file. Run profile doctor and the ACP smoke, initialize the workspace
 channel, then launch the headless Claude ACP agent with an initial prompt asking
-it to run `tenex-edge who`. Collect the ACP session id, daemon/delivery and
+it to run `tenex-edge my session`. Collect the ACP session id, daemon/delivery and
 croissant logs, hook evidence, and nak relay probes. Clean up with
 scripts/cleanup-lab. Do not print secret or auth file contents. Report exact
 commands/results; if it fails, write concise lessons to the skill.

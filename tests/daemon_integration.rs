@@ -16,8 +16,8 @@ mod daemon_harness;
 mod freeze;
 #[path = "daemon_integration/messaging.rs"]
 mod messaging;
-#[path = "daemon_integration/my_status.rs"]
-mod my_status;
+#[path = "daemon_integration/my_session.rs"]
+mod my_session;
 #[path = "daemon_integration/process.rs"]
 mod process;
 #[path = "daemon_integration/signers.rs"]

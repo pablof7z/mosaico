@@ -225,19 +225,15 @@ struct MethodPolicy {
 }
 
 fn method_policy(method: &str) -> MethodPolicy {
-    match method {
-        "ping" | "who" | "pty_status" | "pty_resumable" | "channel_members" => MethodPolicy {
-            response_timeout: DEFAULT_RESPONSE_IO_TIMEOUT,
-            retry_after_delivery: true,
+    MethodPolicy {
+        response_timeout: match method {
+            "pty_spawn" => SLOW_RESPONSE_IO_TIMEOUT,
+            _ => DEFAULT_RESPONSE_IO_TIMEOUT,
         },
-        "pty_spawn" => MethodPolicy {
-            response_timeout: SLOW_RESPONSE_IO_TIMEOUT,
-            retry_after_delivery: false,
-        },
-        _ => MethodPolicy {
-            response_timeout: DEFAULT_RESPONSE_IO_TIMEOUT,
-            retry_after_delivery: false,
-        },
+        retry_after_delivery: matches!(
+            method,
+            "ping" | "who" | "my_session" | "pty_status" | "pty_resumable" | "channel_members"
+        ),
     }
 }
 

@@ -11,25 +11,6 @@ fn parse_err(args: &[&str]) -> clap::Error {
 }
 
 #[test]
-fn agents_list_sessions_filter_still_parses() {
-    let cli = crate::cli::args::Cli::try_parse_from([
-        "tenex-edge",
-        "agents",
-        "list-sessions",
-        "--agent",
-        "claude@laptop",
-    ])
-    .expect("agents list-sessions parses");
-
-    match cli.cmd {
-        crate::cli::args::Cmd::Agents {
-            action: Some(AgentsAction::ListSessions { agent, since: None }),
-        } => assert_eq!(agent.as_deref(), Some("claude@laptop")),
-        _ => panic!("expected agents list-sessions command"),
-    }
-}
-
-#[test]
 fn agent_add_workspace_flag_parses() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "tenex-edge",

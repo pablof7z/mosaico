@@ -217,7 +217,7 @@ Inspect or drive it from another terminal with the same profile/home context:
 bash containers/tenex-edge/run --profile claude tenex-edge pty list
 bash containers/tenex-edge/run --profile claude tenex-edge pty attach "${PTY_ID}"
 bash containers/tenex-edge/run --profile claude tenex-edge pty inject "${PTY_ID}" \
-  "Run tenex-edge who and summarize the self header."
+  "Run tenex-edge my session and summarize the self header."
 ```
 
 ## ACP/App-Server Launch Runs
@@ -228,7 +228,7 @@ register the mounted workspace in that isolated profile:
 
 ```bash
 bash containers/tenex-edge/run --profile claude-acp tenex-edge channel init
-TENEX_EDGE_DEV_PROMPT="Run tenex-edge who and summarize the self header." \
+TENEX_EDGE_DEV_PROMPT="Run tenex-edge my session and summarize the self header." \
   skills/tenex-edge-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 

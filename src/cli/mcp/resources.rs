@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
-const WHO_URI: &str = "tenex-edge://who";
+const MY_SESSION_URI: &str = "tenex-edge://my/session";
 const STATUS_PREFIX: &str = "tenex-edge://channels/status/";
 
 #[derive(Clone, Default)]
@@ -15,13 +15,13 @@ pub(super) struct Subscriptions {
 }
 
 enum ResourceUri {
-    Who,
+    MySession,
     ChannelStatus(String),
 }
 
 pub(super) fn subscription_channel(uri: &str) -> Result<Option<String>> {
     Ok(match parse_uri(uri)? {
-        ResourceUri::Who => None,
+        ResourceUri::MySession => None,
         ResourceUri::ChannelStatus(channel) => Some(channel),
     })
 }
@@ -35,9 +35,9 @@ pub(super) fn event_updates_status_resource(item: &Value) -> bool {
 
 pub(super) fn list() -> Value {
     let mut resources = vec![resource(
-        WHO_URI,
-        "who",
-        "Current tenex-edge awareness snapshot",
+        MY_SESSION_URI,
+        "my-session",
+        "Current agent session and full tenex-edge awareness",
     )];
     if let Some(channel) = super::super::channel_env() {
         resources.push(resource(
@@ -65,7 +65,9 @@ pub(super) async fn read(params: &Value) -> Result<Value> {
     let uri = required_string(params, "uri")?;
     let parsed = parse_uri(&uri)?;
     let value = match parsed {
-        ResourceUri::Who => daemon_call("who", crate::cli::rpc_params(json!({}))).await?,
+        ResourceUri::MySession => {
+            daemon_call("my_session", crate::cli::rpc_params(json!({}))).await?
+        }
         ResourceUri::ChannelStatus(channel) => {
             daemon_call("who", operator_params(json!({ "channel": channel }))).await?
         }
@@ -84,7 +86,7 @@ impl Subscriptions {
     pub(super) async fn add(&self, params: &Value, writer: SharedWriter) -> Result<()> {
         let uri = required_string(params, "uri")?;
         let channel = match parse_uri(&uri)? {
-            ResourceUri::Who => None,
+            ResourceUri::MySession => None,
             ResourceUri::ChannelStatus(channel) => Some(channel),
         };
         let mut tasks = self.tasks.lock().await;
@@ -150,8 +152,8 @@ async fn run_subscription(uri: String, channel: Option<String>, writer: SharedWr
 }
 
 fn parse_uri(uri: &str) -> Result<ResourceUri> {
-    if uri == WHO_URI {
-        return Ok(ResourceUri::Who);
+    if uri == MY_SESSION_URI {
+        return Ok(ResourceUri::MySession);
     }
     if let Some(channel) = uri.strip_prefix(STATUS_PREFIX) {
         let channel = channel.trim();
@@ -203,7 +205,10 @@ mod tests {
 
     #[test]
     fn parses_supported_resource_uris() {
-        assert!(matches!(parse_uri(WHO_URI).unwrap(), ResourceUri::Who));
+        assert!(matches!(
+            parse_uri(MY_SESSION_URI).unwrap(),
+            ResourceUri::MySession
+        ));
         assert!(matches!(
             parse_uri("tenex-edge://channels/status/root/task").unwrap(),
             ResourceUri::ChannelStatus(channel) if channel == "root/task"

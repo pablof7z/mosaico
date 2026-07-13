@@ -17,9 +17,9 @@ harness provides.
 - A particular unavailable collaborator calls for an explicit fallback rather
   than an invisible substitution.
 
-Use the current injected delta for ordinary routing. Run `tenex-edge who` when
-the choice depends on the complete current roster, session state, workspaces,
-or channels.
+Use the current injected delta for ordinary routing. Run
+`tenex-edge my session` when the choice depends on the complete current roster,
+session state, workspaces, or channels.
 
 Continue an existing fabric session when its context, ownership, or continuity
 matters. Dispatch an available fabric agent when the work benefits from a new

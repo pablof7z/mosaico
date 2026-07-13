@@ -7,7 +7,7 @@ Use this when the live lab does not start cleanly or evidence is missing.
 Use:
 
 ```bash
-tenex-edge who
+tenex-edge my session
 ```
 
 Do not use obsolete identity subcommands. If old command names appear in active
@@ -149,7 +149,7 @@ Symptom: Claude launches and is authenticated, but the statusline says:
 This means the launch session did not get a successful SessionStart hook before the
 statusline rendered. A brief startup frame can show this before SessionStart
 settles; it is a failure when the warning persists after the prompt is accepted
-or after the agent runs `tenex-edge who`. Check that auth staging did not
+or after the agent runs `tenex-edge my session`. Check that auth staging did not
 overwrite installed hooks without reinstalling them:
 
 ```bash

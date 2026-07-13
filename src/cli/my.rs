@@ -1,39 +1,32 @@
-use anyhow::Result;
-use clap::{Args, Subcommand};
+use anyhow::{Context, Result};
+use clap::Subcommand;
 
 use super::session::SessionAction;
 
 #[derive(Subcommand)]
 pub(super) enum MyAction {
-    /// Declare your current broad session title.
-    Status(MyStatusArgs),
-    /// Manage the current local session.
+    /// Inspect or manage the current local session.
     Session {
         #[command(subcommand)]
-        action: SessionAction,
+        action: Option<SessionAction>,
     },
-}
-
-#[derive(Args)]
-pub(super) struct MyStatusArgs {
-    /// A rare, broad session title of at most 15 words.
-    #[arg(long, value_name = "TOPIC")]
-    topic: String,
 }
 
 pub(super) fn my(action: MyAction) -> Result<()> {
     match action {
-        MyAction::Status(args) => status(args),
-        MyAction::Session { action } => super::session::session(action),
+        MyAction::Session {
+            action: Some(action),
+        } => super::session::session(action),
+        MyAction::Session { action: None } => briefing(),
     }
 }
 
-fn status(args: MyStatusArgs) -> Result<()> {
-    let topic = crate::work_topic::normalize(&args.topic)?;
-    crate::daemon::blocking::call(
-        "my_status",
-        crate::cli::rpc_params(serde_json::json!({ "topic": topic })),
-    )?;
-    println!("Session title set: \"{topic}\" (automatic distillation paused for 30 minutes)");
+fn briefing() -> Result<()> {
+    let value =
+        crate::daemon::blocking::call("my_session", crate::cli::rpc_params(serde_json::json!({})))?;
+    let fabric = value["fabric"]
+        .as_str()
+        .context("my session response missing fabric briefing")?;
+    println!("{fabric}");
     Ok(())
 }

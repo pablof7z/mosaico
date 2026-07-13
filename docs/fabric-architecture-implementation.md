@@ -367,7 +367,7 @@ Run this after each phase, broadening only when the phase touches more surface:
    only when seeding a reader app with a complete validation session.
 8. Manual smoke:
    - start two sessions in the same project;
-   - `tenex-edge who`;
+   - human `tenex-edge who` and agent `tenex-edge my session`;
    - send a chat mention with `tenex-edge channel send --message "@<agent> ..."`;
    - verify the target receives the mention through its host hook or pty
      delivery path;

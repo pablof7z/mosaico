@@ -85,7 +85,11 @@ Echo suppression uses explicit inbox ledger states. When pty pastes delivered me
 
 ## Session Identity and Display
 
-The `who` command, when run inside an exact agent session, emits XML with a `<self>` row, global available-agent capabilities, and workspace/channel membership. Concurrent sessions render directly by distinct dashed handles. Session-start and hook echo responses carry only the canonical `session_id` when they need an internal correlation handle. <!-- [^bd868-e816c] -->
+The `my session` command, run inside an exact agent session, emits XML with a
+`<self>` row, global available-agent capabilities, and workspace/channel
+membership. Concurrent sessions render directly by distinct dashed handles.
+Session-start and hook echo responses carry only the canonical `session_id`
+when they need an internal correlation handle. <!-- [^bd868-e816c] -->
 
 ## Backend Management Traffic
 

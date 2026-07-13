@@ -34,7 +34,7 @@ To send a small prompt or hook-like injection from another terminal:
 
 ```bash
 bash containers/tenex-edge/run --profile claude tenex-edge pty inject "${PTY_ID}" \
-  "Run tenex-edge who and summarize the self header."
+  "Run tenex-edge my session and summarize the self header."
 ```
 
 Keep prompts short and verifiable. Ask the agent to run one command or describe

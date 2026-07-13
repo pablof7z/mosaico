@@ -275,7 +275,7 @@ pub(super) fn format_envelope(e: &EnvelopeView) -> String {
         s,
         "\nDate: {} ({})",
         format_local_datetime(e.sent_at),
-        relative_time(e.sent_at, e.now)
+        crate::util::relative_time(e.sent_at, e.now)
     );
     if !e.subject.is_empty() {
         let _ = write!(s, "\nSubject: {}", e.subject);

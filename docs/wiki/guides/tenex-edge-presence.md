@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-03
+updated: 2026-07-13
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -25,16 +25,18 @@ Agent online presence in a channel is the NIP-29 membership roster. A local
 daemon removes its locally managed session pubkeys from membership when sessions
 end cleanly or become stale (10 minutes with no heartbeat), so roster membership
 is the gate for whether a session can be addressed in that channel. An expired
-session still appears in `who` history and remains re-derivable and resumable.
+session still appears in `who --expired` and remains re-derivable and resumable.
 
 Kind:30315 is per-session activity and history: it is replaceable by
 `(author pubkey, d=session-id)` and carries one `h` tag for each joined channel.
-Its `title` and `session_id` are the source for `agents list-sessions`, not the
-definition of whether the agent is online. <!-- [^3c769-8e749] -->
+Its `title` and `session_id` supply live status for the session rows nested
+under channel members in `my session`; they do not define whether the agent is
+online. <!-- [^3c769-8e749] -->
 
-## Agent-Context Fabric Output
+## Agent Session Briefing
 
-The agent-context fabric output includes a self-header line showing the caller's agent label, project/channel, host, pubkey, status, member, and pending counts. <!-- [^bd868-f4d1e] -->
+`my session` renders a self row, global agent capabilities, known workspaces,
+joined channels, and typed member sessions with live status and recency. <!-- [^bd868-f4d1e] -->
 
 ## Chat Mention Confirmation
 
@@ -42,4 +44,6 @@ CLI confirmation for chat mentions prints the resolved session handle (e.g. ment
 
 ## Who Command
 
-The `who` command renders a unified live view of every other agent's identity, presence, and distilled activity on the project's fabric, with `--live` providing the continuous live view. <!-- [^75f62-04dee] -->
+The human-only `who` command renders the operator's live fabric view, with
+`--live` providing the continuous terminal view. Agents use `my session` for
+their XML briefing. <!-- [^75f62-04dee] -->

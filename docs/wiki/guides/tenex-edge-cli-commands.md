@@ -38,7 +38,3 @@ Agent launch configuration uses a `commands` array in `~/.tenex-edge/agents/<slu
 ## Command Tree
 
 The public command tree follows a three-surface model: `tenex-edge who` for human read-only fabric overview, `tenex-edge my session` for agent full self/session briefing, and `tenex-edge mgmt session list` for human interactive local session control. <!-- [^019f5-1fa80] -->
-
-## Agents Command
-
-The `tenex-edge agents` command is targeted for deletion as mostly useless. <!-- [^019f5-872d1] -->

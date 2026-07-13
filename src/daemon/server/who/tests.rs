@@ -1,68 +1,67 @@
 use super::*;
 use crate::state::RegisterSession;
-use serde_json::json;
-
-const SELF_PK: &str = "self-pubkey";
-const PEER_PK: &str = "peer-pubkey";
 
 #[tokio::test]
-async fn agent_who_renders_full_snapshot_after_cursor_advanced() {
+async fn rejects_agent_hints_and_live_exact_session_anchors() {
     let state = DaemonState::new_for_test().await;
-    let session_id = state.with_store(|s| {
-        s.upsert_channel("root", "main", "Root room", "", 1)
-            .unwrap();
-        s.upsert_channel("task", "task", "Task room", "root", 2)
-            .unwrap();
-        s.replace_channel_members("root", &[SELF_PK.into(), PEER_PK.into()], 1)
-            .unwrap();
-        s.upsert_profile(SELF_PK, "coder", "coder", "test-host", false, 1)
-            .unwrap();
-        s.upsert_profile(PEER_PK, "reviewer", "reviewer", "test-host", false, 1)
-            .unwrap();
-        let session_id = s
-            .register_session(&RegisterSession {
-                harness: "codex".into(),
-                external_id_kind: "pty_session".into(),
-                external_id: "pty-1".into(),
-                agent_pubkey: SELF_PK.into(),
-                agent_slug: "coder".into(),
-                channel_h: "root".into(),
-                child_pid: Some(42),
-                transcript_path: None,
-                resume_id: String::new(),
-                now: 10,
-            })
-            .unwrap();
-        s.apply_cursor_projection(&session_id, 200).unwrap();
-        session_id
+    state.with_store(|s| {
+        s.register_session(&RegisterSession {
+            harness: "codex".into(),
+            external_id_kind: "pty_session".into(),
+            external_id: "pty-1".into(),
+            agent_pubkey: "pk".into(),
+            agent_slug: "codex".into(),
+            channel_h: "root".into(),
+            child_pid: Some(42),
+            transcript_path: None,
+            resume_id: String::new(),
+            now: 1,
+        })
+        .unwrap();
     });
+    for params in [
+        serde_json::json!({ "agent": "codex" }),
+        serde_json::json!({ "group": "root" }),
+        serde_json::json!({ "pty_session": "pty-1" }),
+    ] {
+        let err = rpc_who(&state, &params).expect_err("agent who must be rejected");
+        assert!(
+            err.to_string()
+                .contains("agents use `tenex-edge my session`"),
+            "{err:#}"
+        );
+    }
+}
 
-    let out = rpc_who(&state, &json!({ "pty_session": "pty-1" })).unwrap();
-    let fabric = out
-        .get("fabric")
-        .and_then(|v| v.as_str())
-        .expect("who should include fabric context");
+#[tokio::test]
+async fn stale_unresolved_process_anchor_does_not_turn_an_operator_into_an_agent() {
+    let state = DaemonState::new_for_test().await;
+    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
 
-    assert!(fabric.contains("<members>"), "got:\n{fabric}");
-    assert!(fabric.contains("id=\"root.task\""), "got:\n{fabric}");
-    let handle = "coder";
-    assert!(
-        fabric.contains(&format!("<agent name=\"@{handle}\"")),
-        "caller must stay typed as an agent on a cold status cache:\n{fabric}"
-    );
-    assert!(
-        !fabric.contains("<no-new-activity"),
-        "explicit who must not render as a quiet delta:\n{fabric}"
-    );
+    let out = rpc_who(
+        &state,
+        &serde_json::json!({
+            "workspace": "root",
+            "watch_pid": 999_999,
+            "human_color": false
+        }),
+    )
+    .unwrap();
 
-    let seen_cursor = state.with_store(|s| {
-        s.get_session(&session_id)
-            .unwrap()
-            .expect("session should still exist")
-            .seen_cursor
-    });
-    assert!(
-        seen_cursor >= 200,
-        "who should not regress the stored cursor: {seen_cursor}"
-    );
+    assert!(out.get("fabric_human").is_some());
+}
+
+#[tokio::test]
+async fn human_who_never_returns_agent_fabric() {
+    let state = DaemonState::new_for_test().await;
+    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
+
+    let out = rpc_who(
+        &state,
+        &serde_json::json!({ "workspace": "root", "human_color": false }),
+    )
+    .unwrap();
+
+    assert!(out.get("fabric_human").is_some());
+    assert!(out.get("fabric").is_none());
 }

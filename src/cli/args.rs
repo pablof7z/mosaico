@@ -1,6 +1,6 @@
 use clap::{Args, Command, CommandFactory, Parser, Subcommand};
 
-use super::admin::{AgentAction, AgentsAction, ChannelAction};
+use super::admin::{AgentAction, ChannelAction};
 use super::config::ConfigArgs;
 use super::debug::DebugAction;
 use super::dispatch::DispatchArgs;
@@ -53,7 +53,7 @@ pub(super) enum Cmd {
     // corresponding private fn (session_start_inner / turn_start / turn_check /
     // turn_end). Session end has a small public surface for agents to end
     // themselves explicitly.
-    /// List agents currently visible in the workspace/channel.
+    /// Show the human/operator fabric view.
     Who(WhoArgs),
     /// Read/send chat and manage NIP-29 channels (read, send, create, edit, list, init, join, leave, archive, switch).
     Channel {
@@ -62,11 +62,6 @@ pub(super) enum Cmd {
     },
     /// Block until matching chat arrives or the timeout passes.
     Wait(WaitArgs),
-    /// List invitable agents and prior sessions by npub.
-    Agents {
-        #[command(subcommand)]
-        action: Option<AgentsAction>,
-    },
     /// Manage local setup and operator-owned configuration.
     Mgmt {
         #[command(subcommand)]
@@ -86,7 +81,7 @@ pub(super) enum Cmd {
     Launch(LaunchArgs),
     /// Start an MCP server over stdio or HTTP.
     Mcp(McpArgs),
-    /// Manage your own session title.
+    /// Inspect and manage your own session.
     My {
         #[command(subcommand)]
         action: MyAction,

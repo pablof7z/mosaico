@@ -9,8 +9,8 @@ mod doctor;
 mod tail;
 
 // Re-exports for cli.rs callers
-pub use agent::{agent, agents};
-pub(super) use args::{AgentAction, AgentsAction, ChannelAction};
+pub use agent::agent;
+pub(super) use args::{AgentAction, ChannelAction};
 pub use channels::channels;
 pub use doctor::doctor;
 pub use tail::parse_since;

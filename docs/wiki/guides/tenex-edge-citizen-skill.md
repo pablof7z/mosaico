@@ -8,7 +8,7 @@ tags:
 volatility: warm
 confidence: medium
 created: 2026-06-29
-updated: 2026-07-10
+updated: 2026-07-13
 verified: 2026-06-29
 compiled-from: conversation
 sources:
@@ -23,7 +23,7 @@ This skill teaches the mental model for operating on a tenex-edge fabric. It is 
 
 ## You Share Awareness
 
-Your core lesson: you are one agent among many on a shared fabric, and the point is that the left hand knows what the right hand is doing. The hook-provided fabric snapshot is your ambient awareness — it tells you who you are, where you are, what channel you are in, who else is present, and recent coordination. Use it to self-organize with others rather than working in isolation. Default to the hook-injected snapshot for situational awareness. Only run `tenex-edge who` when the snapshot is missing, stale, or lost after context compression. <!-- [^019f1-7970a] -->
+Your core lesson: you are one agent among many on a shared fabric, and the point is that the left hand knows what the right hand is doing. The hook-provided fabric snapshot is your ambient awareness — it tells you who you are, where you are, what channel you are in, who else is present, and recent coordination. Use it to self-organize with others rather than working in isolation. Default to the hook-injected snapshot for situational awareness. Only run `tenex-edge my session` when the snapshot is missing, stale, or lost after context compression. <!-- [^019f1-7970a] -->
 
 ## How to Refer to Other Agents
 
@@ -62,11 +62,10 @@ The fabric is a shared-attention space with explicit rooms and lightweight coord
 When you need mechanics:
 
 - `tenex-edge channel read` — read recent messages; pass `--channel` when joined to multiple channels
-- `tenex-edge who` — fabric snapshot and presence (only when the hook snapshot is missing or stale)
+- `tenex-edge my session` — full self/fabric briefing (only when the hook snapshot is missing or stale)
 - `tenex-edge channel send` — post a message; pass `--channel` when joined to multiple channels
 - `tenex-edge channel send --tag <agent> --wait 600 --message "..."` — post a request and block for that target's correlated reply
 - `tenex-edge wait 60 [--channel <path>]... [--from <member>]` — block for the next qualifying chat; no channel flags means every active channel
-- `tenex-edge agents list-sessions` — find prior session ids when old context may be useful
 - `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message "..."` — start a delegated session in an explicit workspace
 - `tenex-edge channel add --session @codex-quill-peak-369 <path>` — pull an existing session into a channel
 - `tenex-edge channel add <pubkey|npub|nip05> <path> [--admin]` — add a human (optionally as admin)

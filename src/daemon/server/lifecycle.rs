@@ -145,7 +145,7 @@ pub async fn run() -> Result<()> {
         // Publish the backend's own kind:0 so it is identifiable on the relay by
         // Nostr clients. Best-effort: failure deferred to next restart.
         // Intentionally NOT stored in the hosted set — the echo must NOT appear in
-        // `who` or be injected into agent turn-context.
+        // `my session` or be injected into agent turn-context.
         if let Some(backend_keys) = relay_state.provider.management_keys() {
             let profile = crate::domain::Profile::backend_named(
                 backend_keys.public_key().to_hex(),
@@ -158,7 +158,7 @@ pub async fn run() -> Result<()> {
         }
 
         // Proactively warm the profiles we already know we care about — the human
-        // operator(s) and every durable agent identity — so the very first `who`
+        // operator(s) and every durable agent identity — so the first awareness
         // renders them by name instead of raw hex. Members we learn about later are
         // warmed as their 3900x events arrive (see `warm_profiles` in the demux).
         {

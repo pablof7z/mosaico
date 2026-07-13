@@ -24,7 +24,9 @@ The `who` command is human-only: it always renders human-formatted terminal text
 
 Every known workspace appears in the human view. The workspace is its root channel, so the workspace row carries root membership directly and only real descendants render as channel rows. By default only the caller's workspace is expanded; `--all-workspaces` expands every workspace the caller has joined. Channel contents recurse only while the caller is a member of each parent channel. Member counts exclude backend keys.
 
-`who` stays a pure human fabric view; session recovery belongs in the management TUI. The merged management TUI lists alive local sessions, while `who --expired` is retained to own resumable dead/old sessions. (Previously: `who --expired` was removed; `who` served both agents and operators, with agents receiving XML containing `<self>`, a global `<agents>` capability inventory, and `<workspaces>`, while operators received terminal-oriented text.)
+`who` stays a pure human fabric view. Local live-session control belongs in the
+inline `mgmt session list` picker, while `who --expired` owns resumable dead or
+old sessions. Agent awareness belongs exclusively to `my session`.
 
 <!-- citations: [^7d6bf-cad7a] [^7d6bf-5aab0] [^019f5-43e23] [^019f5-996eb] -->
 ## Retired: Capability Availability

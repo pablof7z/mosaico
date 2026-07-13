@@ -354,70 +354,24 @@ for liveness). So a lone `tail` keeps the daemon up; when it disconnects and no
 sessions remain, the grace timer starts. This avoids live readers being silently
 killed by an idle-exit mid-stream.
 
-## 8e. Working directory in presence/status + the `who` format  (IMPLEMENTED)
+## 8e. Working directory in presence and awareness (implemented)
 
-> **Implemented.** The user explicitly authorized this change (overriding the
-> earlier byte-identical-`who` guardrail). The wire field, the `sessions` /
-> `relay_status` `rel_cwd` columns, the daemon-side `remote` computation, and the
-> new two-line `who` renderer are all in the codebase and live.
->
-> **`who` stdout contract changed.** `who` now prints TWO lines per agent
-> (`agent@project [session <id>] [<rel_cwd>]` then an indented status line) plus
-> a ` (remote)` tag for genuinely-remote peers. Anything that parses `who` stdout
-> (e.g. the parallel channel adapter / anything in `integrations/`, which is out
-> of scope and untouched here) may need updating to the new format.
->
-> **Wire field name:** `["rel-cwd", <rel>]` (omitted when empty/root). Decode
-> tolerates its absence (old peers → `""`), so it is backward compatible.
->
-> **Worktree caveat:** `rel_cwd` is computed relative to `project::project_root`
-> (the git repo root via `git rev-parse --git-common-dir`, else the nearest
-> ancestor registered in `~/.tenex-edge/workspaces.json`). For real `git worktree
-> add` dirs, `--git-common-dir` returns the SHARED main repo path, so two
-> worktrees both resolve to `.` and render bracket-less. To make
-> `worktree1`/`worktree2` render distinctly, register their common parent in
-> `workspaces.json` (via `tenex-edge channel init`) so `project_root` resolves
-> there.
+Agents may run in different working directories or git worktrees on the same
+backend. Presence/status therefore carries `rel_cwd`, computed relative to the
+workspace root, so peers can distinguish `worktree1` from `worktree2` without
+publishing an absolute home-directory path. The materialized status row retains
+that value for the human `who` view and the agent `my session` briefing.
 
-Agents may run in different working dirs / git worktrees on the same backend
-(`$PROJECT/worktree1` vs `worktree2`). Peers must see *where* a peer is working
-so they don't fear colliding. This is additive: one field on the status event,
-the materialized status row, and the `who` renderer.
+- The wire tag is `["rel-cwd", <rel>]` and is omitted for an empty value.
+- Workspace-root cwd is represented as `.`.
+- If no workspace base resolves, publishing falls back to the cwd basename.
+- `host` is the configured backend label, not a DNS hostname.
+- `remote` is derived by comparing exact backend labels.
 
-**Wire field — `rel_cwd` (relative cwd), not absolute.** Presence/status are
-**public** kinds on `relay.tenex.chat` (world-readable). Broadcasting an
-absolute `$HOME/...` path leaks the filesystem layout. So the engine computes
-the cwd **relative to the project root** and publishes only that:
-
-- `rel_cwd = cwd.strip_prefix(project_root)`, e.g. `worktree1`, `sub/dir`.
-- cwd == project root → `"."` (rendered as omitted/`.`).
-- can't resolve a project base → fall back to the cwd **basename** (still not
-  the absolute path); absolute only as a last resort if even basename is empty.
-
-`project_root` is the dir `project::resolve` walked up from (the nearest
-ancestor holding the project marker), available at `session-start`. `Status`
-carries `rel_cwd: String`, and relay materialization stores it with the status
-row so mid-turn `who` reflects it.
-
-**New `who` line format:**
-
-```
-agent@project [session <id>] [<rel_cwd>]
-    <current status / doing>
-```
-
-- `rel_cwd` shown in brackets only when non-empty and not `.`.
-- **Host annotation:** `host` means the exact config.json `backendName` label,
-  not a DNS/OS hostname. Local agents can render bare; remote peers keep their
-  backend label and may be annotated `(remote)`.
-- This replaces the current `slug@host — status  project  session <id>
-  (this machine)/(Ns ago)` line in both `render_who_once` and `render_who_plain`,
-  and the `--live` table gains a `WHERE`/`DIR` column. Freshness dot (●/○),
-  staleness, own-fleet, and owner-scoping behavior are unchanged.
-
-The `who` snapshot rows (§6) carry `rel_cwd: String` and `remote: bool`
-(computed daemon-side by comparing exact backend labels), so all rendering stays
-client-side.
+Human `who` renders terminal-oriented fabric text and supports `--live`.
+Agent `my session` renders XML with self identity, capabilities, workspaces,
+channels, and member sessions. There is no agent renderer or XML branch under
+`who`.
 
 ## 9. Landmines preserved (must not regress)
 

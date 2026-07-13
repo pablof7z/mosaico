@@ -28,16 +28,9 @@ pub(super) fn requires_write(name: &str) -> bool {
 
 const SPECS: &[ToolSpec] = &[
     ToolSpec {
-        name: "tenex_edge.who",
-        description: "Read current tenex-edge awareness.",
-        props: &[
-            Prop::new("channel", "string", "Channel or channel id to inspect."),
-            Prop::new(
-                "all_workspaces",
-                "boolean",
-                "Return awareness across every workspace.",
-            ),
-        ],
+        name: "tenex_edge.my_session",
+        description: "Read the current agent session and full tenex-edge awareness.",
+        props: &[],
         required: &[],
         read_only: true,
         destructive: false,
@@ -224,6 +217,8 @@ mod tests {
 
         assert!(names.contains(&"tenex_edge.channel_join".to_string()));
         assert!(names.contains(&"tenex_edge.channel_send".to_string()));
+        assert!(names.contains(&"tenex_edge.my_session".to_string()));
+        assert!(!names.contains(&"tenex_edge.who".to_string()));
         assert!(!names.contains(&"tenex_edge.channels_join".to_string()));
         assert!(!names.contains(&"tenex_edge.chat_write".to_string()));
     }

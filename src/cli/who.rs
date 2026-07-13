@@ -5,9 +5,6 @@ mod render;
 
 pub(super) use args::{who, WhoArgs};
 
-// Public re-exports for the crate and cli module
-use crate::who_snapshot::WhoSnapshot;
-
 // ── who ──────────────────────────────────────────────────────────────────────
 
 /// `who` params for the daemon RPC. The daemon resolves the current workspace the
@@ -46,19 +43,10 @@ fn who_expired() -> Result<()> {
 
 fn who_once(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
     let v = who_value_via_daemon(&workspace, all_workspaces)?;
-    if let Some(human) = v.get("fabric_human").and_then(|x| x.as_str()) {
-        print!("{human}");
-        return Ok(());
-    }
-    // Prefer the unified fabric view (same format as the hook injection and as
-    // single-root `who`). The daemon sets this for both a resolved current
-    // channel and `--all-workspaces` (one workspace block per root channel).
-    if let Some(fabric) = v.get("fabric").and_then(|x| x.as_str()) {
-        println!("{fabric}");
-        return Ok(());
-    }
-    let snapshot: WhoSnapshot = serde_json::from_value(v)?;
-    print!("{}", render::render_who_for_stdout(&snapshot));
+    let human = v["fabric_human"]
+        .as_str()
+        .context("who response missing human fabric view")?;
+    print!("{human}");
     Ok(())
 }
 
@@ -71,14 +59,10 @@ fn who_live(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
         let now = Instant::now();
         if now >= next_draw {
             let v = who_value_via_daemon(&workspace, all_workspaces)?;
-            if let Some(human) = v.get("fabric_human").and_then(|x| x.as_str()) {
-                render::draw_fabric_live(human, refresh)?;
-            } else if let Some(fabric) = v.get("fabric").and_then(|x| x.as_str()) {
-                render::draw_fabric_live(fabric, refresh)?;
-            } else {
-                let snapshot: WhoSnapshot = serde_json::from_value(v)?;
-                render::draw_who_live(&snapshot, refresh)?;
-            }
+            let human = v["fabric_human"]
+                .as_str()
+                .context("who response missing human fabric view")?;
+            render::draw_fabric_live(human, refresh)?;
             next_draw = Instant::now() + refresh;
         }
 

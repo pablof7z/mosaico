@@ -24,7 +24,7 @@ Injected deltas may already contain the relevant workspace, channels, agents,
 and recent activity. Expand only when the decision needs broader current state:
 
 ```bash
-tenex-edge who
+tenex-edge my session
 tenex-edge channel list --all-workspaces
 tenex-edge channel list --workspace <workspace>
 ```

@@ -19,13 +19,22 @@ sources:
 
 ## Overview
 
-`tenex-edge mgmt session list` is an interactive, inline Inquire picker for local session control. It stays in the normal terminal flow as a filterable checklist rather than a full alternate-screen TUI application: the user filters sessions, toggles selection, and kills the selection, then the picker exits cleanly. Its responsive table separates session, state, workspace/channel, recency, and current work on wide terminals, then collapses lower-priority columns on narrow terminals without wrapping rows. The visible option page scales to roughly half the terminal height instead of using a fixed row cap.
+`tenex-edge mgmt session list` is an interactive, inline Inquire-style picker
+for local session control. It stays in the normal terminal flow as a filterable
+checklist: the user filters sessions, toggles selection, kills the selection,
+and the picker exits cleanly. Its responsive table separates session, state,
+workspace/channel, recency, and current work on wide terminals, then collapses
+lower-priority columns on narrow terminals without wrapping rows. The visible
+option page scales to roughly half the terminal height instead of using a fixed
+row cap.
 
-It replaces the old top-level `tui` command, which has been completely removed with no aliases. The alternate-screen/pane session-TUI layer (~1,500 lines) has been deleted and replaced with this compact inline picker. Top-level `tenex-edge agents` is also deleted completely with no aliases.
+It is backed by the daemon-owned `operator_sessions` projection, which joins
+session records, memberships, lifecycle, filesystem bindings, and local control
+endpoints into one canonical view.
 
-It is backed by a canonical daemon query joining session records, memberships, lifecycle, and endpoints, replacing the unreliable client-side `agents_list_sessions` + `pty_status` merge. The `operator_sessions` projection is the daemon-owned view that provides this canonical view of all local sessions.
-
-It shows all locally owned and manageable sessions; remote sessions remain visible through `tenex-edge human who`, and the local management UI does not imply it can kill them. Non-PTY sessions are included without attach errors.
+It shows all locally owned and manageable sessions; remote sessions remain
+visible through `tenex-edge who`, and the local management picker does not imply
+it can kill them. Non-PTY sessions are included without attach errors.
 
 <!-- citations: [^019f5-de9f4] [^019f5-9fc39] [^019f5-3e7fa] [^019f5-2f8f0] [^019f5-f32f3] -->
 ## Fuzzy Search

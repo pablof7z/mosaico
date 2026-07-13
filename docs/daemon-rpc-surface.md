@@ -87,22 +87,33 @@ exits non-zero unless the refusal is `already_wrapped`.
 ### `who`
 ```jsonc
 params: {"workspace": "…"|null, "all_workspaces": bool, "cwd": "/path"}
-result: {"now": u64, "fabric": "<tenex-edge>…</tenex-edge>"|null,
-         "fabric_human": "…"|null,
+result: {"now": u64, "fabric_human": "…"|null,
          "rows": [ {source, fresh, slug, channel, status, host,
                     session_id, age_secs}, … ]}
 ```
-An exact live agent caller receives XML with one global `<agents>` capability
-inventory and a `<workspaces>` inventory. Every known workspace is listed;
-normally only the caller's workspace is expanded, while `all_workspaces` expands
-all joined workspace blocks. The workspace is its root channel, represented as
-`<workspace channel="workspace" ... members="N">`; only real descendants use
-`<channel>` rows. Channel contents recurse only through channels containing the
-caller. Members are typed as `<agent>` or `<human>` and backend management keys
-are excluded. Capability rows carry `workspace-availability` from
-materialized kind:30555 advertisements. A bare operator caller receives
-terminal-oriented `fabric_human` text. Agent-scoped `who` advances that
-session's fabric cursor after rendering.
+Human/operator-only live fabric projection. It returns terminal-oriented
+`fabric_human` text and never returns agent XML. Exact session anchors and loose
+agent/group hints are rejected with guidance to use `my_session`.
+
+### `my_session`
+```jsonc
+params: {"pty_session": "…"|null, "harness_session": "…"|null,
+         "watch_pid": N|null, ...}
+result: {"fabric": "<tenex-edge>…</tenex-edge>"}
+```
+Strict self-scoped agent briefing. It resolves the exact live caller and emits
+`<self>`, global `<agents>` capabilities, all known workspaces, nested channels,
+and typed member sessions. Every workspace joined by this exact session is
+expanded; merely known workspaces stay compact. This is a pure read and does
+not advance the hook-awareness cursor.
+
+### `my_session_status`
+```jsonc
+params: {"title": "…", exact caller anchor fields...}
+result: {"session_id": "te-…", "title": "…", "distill_paused_until": u64}
+```
+Sets and immediately publishes the exact caller session's broadcast
+status/title. CLI: `tenex-edge my session status <TITLE>`.
 
 ### `turn_start`
 ```jsonc
@@ -110,8 +121,8 @@ params: {"session": "te-…", "transcript": "/path"|null, "json": bool, "cwd": "
 result: {"context": "…"|null}    // the assembled injection text, or null
 ```
 Daemon marks the turn, records the transcript path, claims pending directed
-mentions from the inbox ledger, and returns the same unified fabric context that
-`who` uses. A first turn (`seen_cursor=0`) renders the relevant channel snapshot;
+mentions from the inbox ledger, and returns the hook fabric context. A first
+turn (`seen_cursor=0`) renders the relevant channel snapshot;
 later turns render only rows changed since the session cursor. The cursor
 advances after rendering. Empty session id ⇒ no-op (`context: null`).
 
@@ -227,11 +238,6 @@ result: {"working": bool, "status": "…", "session_count": N, "member_count": N
          "is_member": bool, "pending": N, "pending_chat": N}
 ```
 Pure-read snapshot for the host statusline integration — no drain, no writes.
-
-### `who` (self-identity)
-When an exact live session anchor resolves, `who` emits the agent XML projection
-with a structured `<self>` row. Loose `agent`/`group` hints are insufficient and
-never bind an arbitrary sibling session.
 
 ### `ping`
 ```jsonc

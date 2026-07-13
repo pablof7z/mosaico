@@ -54,12 +54,7 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
         assert!(human.contains("1 agent"), "got: {human}");
         assert!(human.contains("Other work"), "got: {human}");
         assert!(!human.contains("<tenex-edge>"), "got: {human}");
-        assert!(
-            v["fabric"]
-                .as_str()
-                .is_some_and(|text| text.contains("<tenex-edge>")),
-            "daemon should still expose the XML fabric view"
-        );
+        assert!(v.get("fabric").is_none(), "who must not expose agent XML");
     });
 
     stop_daemon(&home);

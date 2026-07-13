@@ -92,7 +92,7 @@ fn session_end_self_parses() {
         Cmd::My {
             action:
                 MyAction::Session {
-                    action: SessionAction::End(args),
+                    action: Some(SessionAction::End(args)),
                 },
         } => {
             assert!(args.self_session);
@@ -109,7 +109,7 @@ fn session_kill_self_parses() {
         Cmd::My {
             action:
                 MyAction::Session {
-                    action: SessionAction::Kill(args),
+                    action: Some(SessionAction::Kill(args)),
                 },
         } => {
             assert!(args.self_session);
@@ -150,7 +150,7 @@ fn session_pty_wrap_me_self_parses() {
         Cmd::My {
             action:
                 MyAction::Session {
-                    action: SessionAction::PtyWrapMe(args),
+                    action: Some(SessionAction::PtyWrapMe(args)),
                 },
         } => {
             assert!(args.self_session);
@@ -197,16 +197,58 @@ fn mgmt_config_parses() {
 }
 
 #[test]
-fn my_status_parses_with_topic() {
+fn my_session_status_parses_positional_title() {
     let cli = Cli::try_parse_from([
+        "tenex-edge",
+        "my",
+        "session",
+        "status",
+        "Researching MCP improvements around resource allocation",
+    ])
+    .unwrap();
+    match cli.cmd {
+        Cmd::My {
+            action:
+                MyAction::Session {
+                    action: Some(SessionAction::Status(args)),
+                },
+        } => assert_eq!(
+            args.title,
+            "Researching MCP improvements around resource allocation"
+        ),
+        _ => panic!("expected my session status action"),
+    }
+}
+
+#[test]
+fn my_session_without_action_parses_as_briefing() {
+    let cli = Cli::try_parse_from(["tenex-edge", "my", "session"]).unwrap();
+    assert!(matches!(
+        cli.cmd,
+        Cmd::My {
+            action: MyAction::Session { action: None }
+        }
+    ));
+}
+
+#[test]
+fn removed_my_status_stays_unavailable() {
+    let err = parse_err(&[
         "tenex-edge",
         "my",
         "status",
         "--topic",
-        "Researching MCP improvements around resource allocation",
-    ])
-    .unwrap();
-    assert!(matches!(cli.cmd, Cmd::My { .. }));
+        "Researching MCP improvements",
+    ]);
+
+    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn removed_agents_command_stays_unavailable() {
+    let err = parse_err(&["tenex-edge", "agents", "list-sessions"]);
+
+    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
 }
 
 #[test]

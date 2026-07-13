@@ -3,7 +3,7 @@
 use crate::idref::event_short_id;
 #[cfg(test)]
 use crate::state::Store;
-use crate::util::{format_local_datetime, now_secs, pubkey_short, relative_time};
+use crate::util::{format_local_datetime, now_secs, pubkey_short};
 use anyhow::{bail, Context, Result};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -119,7 +119,6 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Who(args) => who::who(args),
         Cmd::Channel { action } => admin::channels(action).await,
         Cmd::Wait(args) => messaging::wait(args).await,
-        Cmd::Agents { action } => admin::agents(action).await,
         Cmd::Mgmt { action } => match action {
             MgmtAction::Agent { action } => admin::agent(action).await,
             MgmtAction::Session {

@@ -29,11 +29,6 @@ fn who_snapshot_renders_active_claim_as_dormant_presence() {
     assert!(row.dormant);
     assert_eq!(row.slug, "willow-summit-042-codex");
     assert_eq!(row.age_secs, Some(100));
-
-    let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("willow-summit-042-codex (laptop) - last active 1m ago"));
-    let plain = render_who_plain(&snapshot);
-    assert!(plain.contains("| willow-summit-042-codex | laptop | — | last active 1m ago |"));
 }
 
 #[test]
@@ -48,7 +43,4 @@ fn who_snapshot_marks_remote_owned_claims_remote() {
     assert!(row.dormant);
     assert!(row.remote);
     assert_eq!(row.host, "tower");
-
-    let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.contains("willow-summit-042-codex (tower, remote) - last active 1m ago"));
 }

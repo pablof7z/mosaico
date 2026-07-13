@@ -23,7 +23,7 @@ pub(crate) use model::FabricView;
 
 use build::build_view;
 use human_render::{render_human_view, render_human_views};
-use render::{render_view, render_views};
+use render::render_view;
 
 /// Stringify an already-derived [`FabricView`] into the exact `<tenex-edge>`
 /// snapshot agents see. The Trellis reconciler derives the view from declared
@@ -70,6 +70,7 @@ pub(crate) struct FabricMessageSeed {
     pub(crate) mention: bool,
 }
 
+#[cfg(test)]
 pub(crate) fn render_fabric_context(
     store: &Store,
     input: FabricContextInput<'_>,
@@ -99,6 +100,7 @@ pub(crate) fn render_fabric_context_human(
 /// workspace block per root channel in `roots`. No single caller session
 /// exists across workspaces, so each block is built session-less (no self row, no
 /// chatter — `build_view` only pulls messages when a session is present).
+#[cfg(test)]
 pub(crate) fn render_fabric_all_workspaces(
     store: &Store,
     roots: &[String],
@@ -110,7 +112,7 @@ pub(crate) fn render_fabric_all_workspaces(
         .iter()
         .map(|root| build_view(store, root_input(root, now, local_host, backend_pubkey)))
         .collect::<Vec<_>>();
-    render_views(&views)
+    render::all_workspaces::render_views(&views)
 }
 
 /// Human-rendered counterpart of [`render_fabric_all_workspaces`].

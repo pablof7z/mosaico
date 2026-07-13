@@ -1,10 +1,8 @@
 use crate::fabric_context::model::*;
 use std::fmt::Write as _;
 
-mod all_workspaces;
+pub(in crate::fabric_context) mod all_workspaces;
 mod workspace;
-
-pub(in crate::fabric_context) use all_workspaces::render_views;
 use workspace::render_workspace_block;
 
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {

@@ -49,7 +49,9 @@ pub(in crate::daemon::server) fn resolve_recipient(
     match parse_ref(target) {
         Ref::Agent { slug, host } => {
             let pk = store.resolve_agent_pubkey(&slug, &host)?.with_context(|| {
-                format!("can't resolve {slug}@{host} (no profile seen yet — try `tenex-edge who`)")
+                format!(
+                    "can't resolve {slug}@{host} (no profile seen yet — try `tenex-edge my session`)"
+                )
             })?;
             Ok(ResolvedRecipient {
                 pubkey: pk,
@@ -93,7 +95,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                     channel: my_channel.to_string(),
                 });
             }
-            anyhow::bail!("can't resolve recipient {target:?} (try `tenex-edge who`)")
+            anyhow::bail!("can't resolve recipient {target:?} (try `tenex-edge my session`)")
         }
     }
 }

@@ -48,22 +48,6 @@ pub(in crate::cli) enum AgentAction {
     },
 }
 
-#[derive(Subcommand)]
-pub(in crate::cli) enum AgentsAction {
-    /// List the agents this backend can spawn locally.
-    List,
-    /// List prior sessions by permanent npub, grouped by channel.
-    ListSessions {
-        /// Filter to an agent label or pubkey. `agent@backend-label` preserves the
-        /// backend label exactly.
-        #[arg(long)]
-        agent: Option<String>,
-        /// Only show sessions updated after this time (unix timestamp or duration like "2d").
-        #[arg(long)]
-        since: Option<String>,
-    },
-}
-
 /// `channel add` targets. Exactly one of two shapes: a human member by id
 /// (two positionals `<id> <channel>`) or an existing session pulled in
 /// (`--session <npub|hex|current-handle> <channel>`). Session mode takes ONE positional

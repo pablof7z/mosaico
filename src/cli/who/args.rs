@@ -6,7 +6,7 @@ pub(in crate::cli) struct WhoArgs {
     /// Workspace slug; defaults to the workspace resolved from current directory.
     #[arg(long = "workspace", value_name = "WORKSPACE")]
     workspace: Option<String>,
-    /// Show agents across all workspaces (overrides --workspace / cwd resolution).
+    /// Show the human fabric view across all workspaces.
     #[arg(long = "all-workspaces")]
     all_workspaces: bool,
     /// Keep a full-screen live view open, refreshing automatically.

@@ -57,7 +57,7 @@ concurrently with a live agent.
 
 `src/distill.rs` documents this precisely: "The engine decides *when* to
 distill (30s into a turn, then periodically)." Turns driven by trivial
-prompts (e.g. "run tenex-edge who") finish in 5-10 seconds — well under the
+prompts (e.g. "run tenex-edge my session") finish in 5-10 seconds — well under the
 threshold — so the published kind:30315 always has `title=""` and empty
 `content` even though `status` correctly flips `idle`→`busy`→`idle`. To
 observe a real distill attempt you must keep the turn's wall-clock duration

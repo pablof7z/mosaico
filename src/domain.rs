@@ -182,7 +182,7 @@ pub struct Status {
     pub busy: bool,
     /// Channel-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
     /// Public status value: never the absolute `$HOME/...` path (privacy). Lets
-    /// a `who` reflect where the agent is working.
+    /// awareness projections reflect where the agent is working.
     pub rel_cwd: String,
     /// Expiration timestamp (unix secs). `Some(now + STATUS_TTL_SECS)` on every
     /// heartbeat re-arm; `None` publishes without an expiry. Liveness IS the

@@ -32,7 +32,7 @@ mod demux;
 mod invite_rpc;
 mod management_command;
 mod membership_cleanup;
-mod my_status;
+mod my_session;
 mod operator_sessions;
 mod orchestration_handler;
 mod pty_rpc;
@@ -235,7 +235,7 @@ use diagnostics::{
 use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
-use my_status::rpc_my_status;
+use my_session::{rpc_my_session, rpc_my_session_status};
 use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, resolve_pubkey_hex};
 use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
@@ -260,7 +260,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
             Ok(serde_json::json!({"stopped": true}))
         }
         "who" => rpc_who(state, &req.params),
-        "my_status" => rpc_my_status(state, &req.params).await,
+        "my_session" => rpc_my_session(state, &req.params),
+        "my_session_status" => rpc_my_session_status(state, &req.params).await,
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params).await,
         "session_kill" => rpc_session_kill(state, &req.params).await,
@@ -281,9 +282,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_members" => rpc::rpc_channel_members(state, &req.params).await,
         "channel_add_member" => rpc::rpc_channel_add_member(state, &req.params).await,
         "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,
-        "agents_list_sessions" => rpc::rpc_agents_list_sessions(state, &req.params),
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
-        "agents_roster" => rpc::rpc_agents_roster(state, &req.params),
         "agent_launch_preflight" => rpc::rpc_agent_launch_preflight(state, &req.params),
         "agent_launch_release" => rpc::rpc_agent_launch_release(state, &req.params),
         "agent_roster_publish" => rpc_agent_roster_publish(state, &req.params).await,

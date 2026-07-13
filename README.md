@@ -173,21 +173,22 @@ Point `tenex-edge` at a relay and whitelist your human key in
 `~/.tenex-edge/config.json` (`relays`, `whitelistedPubkeys`). Override the whole home with
 `$TENEX_EDGE_HOME`. Then run your agents; run `tenex-edge debug doctor` if anything looks off.
 
-### The agent-facing surface
+### Agent and operator surfaces
 
 Agents resolve their own session (from the PTY session, harness pid, or working directory),
 so the common commands take no session id:
 
 | Command | What it does |
 |---|---|
-| `tenex-edge who [--live] [--all-workspaces]` | Show agents, members, and workspaces. Agents receive XML; operators receive terminal text. Other workspaces stay compact unless `--all-workspaces` is set. |
+| `tenex-edge my session` | Give the current agent a full XML briefing: self identity, available capabilities, every workspace, joined channels, and member sessions. Exact-session joined workspaces expand; merely known workspaces stay compact. |
+| `tenex-edge my session status <TITLE>` | Change the current agent session's broadcast title/status. |
+| `tenex-edge who [--live] [--all-workspaces]` | Show the human/operator fabric view as terminal text. Agent invocations are rejected. |
 | `tenex-edge channel send --tag quill-codex --message "…" [--wait 600]` | Message a session and optionally block for a correlated reply. |
 | `tenex-edge wait 60 [--channel <channel>]… [--from <member>]` | Block for the next visible chat. With no channel flags, watches every channel the session is active on. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |
 | `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. The workspace is its root channel; descendants use dotted paths such as `nmp.reviews`. |
 | `tenex-edge channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
-| `tenex-edge agents` | List available roles and prior sessions by npub. |
 | `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
 Human operators start a local host with `tenex-edge launch <host> [prompt]`. If

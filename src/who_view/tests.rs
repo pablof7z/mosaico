@@ -1,5 +1,6 @@
 use super::{render_agent_who, AgentWhoInput};
 use crate::state::{AgentRoster, Status, Store};
+use std::collections::BTreeSet;
 
 fn seed() -> Store {
     let store = Store::open_memory().unwrap();
@@ -39,6 +40,9 @@ fn seed() -> Store {
             .unwrap();
     }
     store
+        .upsert_channel_member("beta", "self-pk", "member", 1)
+        .unwrap();
+    store
         .upsert_channel_member("alpha", "human-pk", "admin", 1)
         .unwrap();
     store
@@ -77,20 +81,23 @@ fn seed() -> Store {
     store
 }
 
-fn render(all_workspaces: bool) -> String {
+fn render(expand_beta: bool) -> String {
     let store = seed();
     let roots = vec!["alpha".to_string(), "beta".to_string()];
+    let mut expanded_workspaces = BTreeSet::from(["alpha".to_string()]);
+    if expand_beta {
+        expanded_workspaces.insert("beta".to_string());
+    }
     render_agent_who(
         &store,
         AgentWhoInput {
             roots: &roots,
-            current_root: "alpha",
             self_name: "quill-peak-369-codex",
             self_pubkey: "self-pk",
             local_host: "laptop",
             backend_pubkey: "backend-pk",
             now: 100,
-            all_workspaces,
+            expanded_workspaces: &expanded_workspaces,
         },
     )
 }
@@ -111,7 +118,7 @@ fn lists_global_agents_and_compacts_other_workspaces() {
         "{xml}"
     );
     assert!(xml.contains(
-        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"0\" />"
+        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"1\" />"
     ));
 }
 
@@ -137,9 +144,10 @@ fn workspace_carries_root_members_and_membership_gated_children() {
 }
 
 #[test]
-fn all_workspaces_expands_workspace_but_not_unjoined_root_membership() {
+fn exact_session_joined_workspace_set_controls_expansion() {
     let xml = render(true);
     assert!(xml.contains(
-        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"0\" />"
+        "<workspace name=\"beta\" channel=\"beta\" about=\"Beta workspace\" members=\"1\">"
     ));
+    assert!(xml.contains("<agent name=\"@quill-peak-369-codex\" state=\"offline\""));
 }

@@ -18,7 +18,7 @@ dependencies, and route relevant context.
 - Update it when the owned outcome materially changes.
 
 ```bash
-tenex-edge my status --topic "Publish and merge rewritten Tenex Edge skill"
+tenex-edge my session status "Publish and merge rewritten Tenex Edge skill"
 ```
 
 Tenex Edge owns the live activity beneath that title and may occasionally ask
@@ -38,12 +38,11 @@ Use the surfaced state to choose between an immediate request, a durable
 handoff, or another available participant. When you address a suspended
 session, Tenex Edge surfaces the delivery consequence at send time.
 
-For a focused session listing:
+When the decision calls for complete current fabric state rather than the
+latest injected delta, inspect your session briefing:
 
 ```bash
-tenex-edge agents list-sessions
-tenex-edge agents list-sessions --agent <agent-ref>
+tenex-edge my session
 ```
 
-Run `tenex-edge who` when the decision calls for the complete current fabric
-state rather than the latest injected delta.
+Sessions appear as the typed member rows inside the channels they have joined.

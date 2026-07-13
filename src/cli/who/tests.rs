@@ -1,27 +1,6 @@
-use super::render::{render_who_once, render_who_plain};
 use super::*;
 use crate::state::{Identity, RegisterSession, Status};
-use crate::who_snapshot::{
-    load_who_snapshot, OtherRootSummary, SpawnableRow, WhoRow, WhoSnapshot, WhoSource,
-};
-
-fn strip_ansi(input: &str) -> String {
-    let mut out = String::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for c in chars.by_ref() {
-                if c.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
+use crate::who_snapshot::{load_who_snapshot, WhoSource};
 
 /// Register a local session (daemon mints the canonical id).
 fn register_local(store: &Store, slug: &str, pubkey: &str, ext_id: &str, ts: u64) -> String {
@@ -150,12 +129,6 @@ fn who_snapshot_merges_local_and_peer_sessions() {
 
     assert!(!coder.remote, "local session must never be remote");
     assert!(reviewer.remote, "tower peer must be remote vs laptop");
-
-    let once = strip_ansi(&render_who_once(&snapshot));
-    assert!(once.starts_with("proj\n\n"));
-    assert!(once.contains(&format!("{coder_handle} (laptop) - idle")));
-    assert!(!once.contains("[session"));
-    assert!(once.contains("reviewer (tower, remote) - reviewing the patch"));
 }
 
 #[test]
@@ -226,7 +199,7 @@ fn who_snapshot_hides_archived_channel_presence() {
 }
 
 mod dormant;
-mod rendering;
+mod projection;
 
 #[test]
 fn same_host_peer_is_not_remote() {
@@ -241,15 +214,7 @@ fn same_host_peer_is_not_remote() {
         .find(|r| r.slug == "codex")
         .expect("sibling row");
     assert!(!sib.remote, "same-host peer must not be remote");
-    let once = strip_ansi(&render_who_once(&snap));
-    assert!(
-        once.contains("codex (laptop)"),
-        "same-host peer shows its host"
-    );
-    assert!(
-        !once.contains("remote"),
-        "same-host peer must not be remote"
-    );
+    assert_eq!(sib.host, "laptop");
 }
 
 #[test]
@@ -257,9 +222,7 @@ fn remote_peer_shows_host_and_flag() {
     let store = Store::open_memory().unwrap();
     record_peer(&store, "pk-a", "a", "tower", "", false, 1_000);
     let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
-    let once = strip_ansi(&render_who_once(&snap));
-    assert!(
-        once.contains("a (tower, remote)"),
-        "remote peer shows host plus a remote flag"
-    );
+    let peer = snap.rows.first().expect("remote peer row");
+    assert!(peer.remote);
+    assert_eq!(peer.host, "tower");
 }

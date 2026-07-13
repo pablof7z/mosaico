@@ -13,7 +13,7 @@ pub(super) async fn call(params: &Value) -> Result<Value> {
         .cloned()
         .unwrap_or_else(|| json!({}));
     let result = match name.as_str() {
-        "tenex_edge.who" => who(&args).await,
+        "tenex_edge.my_session" => my_session().await,
         "tenex_edge.channel_list" => channel_list(&args).await,
         "tenex_edge.channel_read" => channel_read(&args).await,
         "tenex_edge.channel_send" => channel_send(&args).await,
@@ -30,22 +30,8 @@ pub(super) async fn call(params: &Value) -> Result<Value> {
     })
 }
 
-async fn who(args: &Value) -> Result<Value> {
-    let channel = opt_string(args, "channel");
-    let all_workspaces = args
-        .get("all_workspaces")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let extra = json!({
-        "channel": channel,
-        "all_workspaces": all_workspaces,
-    });
-    let params = if channel.is_some() || all_workspaces {
-        operator_params(extra)
-    } else {
-        crate::cli::rpc_params(extra)
-    };
-    daemon_raw("who", params).await
+async fn my_session() -> Result<Value> {
+    daemon_identity("my_session", json!({})).await
 }
 
 async fn channel_list(args: &Value) -> Result<Value> {
@@ -202,22 +188,6 @@ fn since_arg(args: &Value) -> Option<u64> {
             .as_u64()
             .or_else(|| value.as_str().map(super::super::admin::parse_since))
     })
-}
-
-fn operator_params(extra: Value) -> Value {
-    let cwd = std::env::current_dir()
-        .ok()
-        .map(|p| p.to_string_lossy().to_string());
-    merge(json!({ "cwd": cwd }), extra)
-}
-
-fn merge(mut base: Value, extra: Value) -> Value {
-    if let (Some(base), Some(extra)) = (base.as_object_mut(), extra.as_object()) {
-        for (key, value) in extra {
-            base.insert(key.clone(), value.clone());
-        }
-    }
-    base
 }
 
 async fn daemon_identity(method: &str, extra: Value) -> Result<Value> {
