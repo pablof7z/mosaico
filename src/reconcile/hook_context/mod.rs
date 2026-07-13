@@ -5,6 +5,7 @@
 //! explicit store inputs plus cursor/now, so the injected bytes and receipt share
 //! the same dependency trace.
 
+mod presentation;
 mod preview;
 mod probe;
 mod receipt;
@@ -54,9 +55,7 @@ struct Nodes {
 pub struct HookContextReconciler {
     graph: Graph<()>,
     nodes: Option<Nodes>,
-    /// Last derived view, so an unchanged commit (no frame) still yields bytes.
-    last_view: Option<FabricView>,
-    last_text: Option<String>,
+    cache: presentation::RenderCache,
     render_count: u64,
     labels: NodeLabels,
 }
@@ -73,8 +72,7 @@ impl HookContextReconciler {
         Self {
             graph: Graph::<()>::new(),
             nodes: None,
-            last_view: None,
-            last_text: None,
+            cache: presentation::RenderCache::default(),
             render_count: 0,
             labels: NodeLabels::new(),
         }
@@ -126,15 +124,16 @@ impl HookContextReconciler {
             .iter()
             .find(|f| f.output_key == output_key);
         if let Some(view) = frame.and_then(|f| f.kind.payload::<FabricView>()) {
-            self.last_view = Some(view.clone());
+            self.cache.last_view = Some(view.clone());
         }
         let view = self
+            .cache
             .last_view
             .clone()
             .expect("a view was materialized at least once");
 
-        let text = (force || !view.is_empty()).then(|| render_view_text(&view));
-        self.last_text = text.clone();
+        let text = presentation::render_text(force, frame.is_some(), &view);
+        self.cache.last_text = text.clone();
         self.render_count += 1;
         // Attribute from THIS transaction's frame only: `why_output_frame` retains
         // the previous explanation across an unchanged commit, so gate on whether a

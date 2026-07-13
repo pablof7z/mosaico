@@ -5,6 +5,7 @@
 
 mod check;
 mod distill_notice;
+mod headless;
 mod reads;
 mod start;
 

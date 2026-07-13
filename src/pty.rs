@@ -3,6 +3,7 @@
 mod client;
 mod launch;
 mod meta;
+mod output_mode;
 mod supervisor;
 
 pub use client::{attach, attach_stream, inject, is_live, kill, list, resize, AttachStream};
@@ -11,4 +12,5 @@ pub use launch::{spawn_session, SpawnSessionArgs};
 pub use meta::{
     endpoint_socket, read_all_metadata, session_dir, session_socket, write_metadata, LaunchMetadata,
 };
+pub(crate) use output_mode::output_is_visible;
 pub use supervisor::{run_supervisor, SupervisorArgs};

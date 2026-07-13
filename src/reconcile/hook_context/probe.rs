@@ -24,7 +24,7 @@ impl HookContextReconciler {
 
     /// The exact text emitted by the most recent render, if it was not suppressed.
     pub fn current_text(&self) -> Option<String> {
-        self.last_text.clone()
+        self.cache.last_text.clone()
     }
 
     /// Stable labels for the six canonical input nodes, in dependency order.
@@ -65,6 +65,6 @@ impl HookContextReconciler {
 
     #[cfg(test)]
     pub fn set_current_text_for_test(&mut self, text: impl Into<String>) {
-        self.last_text = Some(text.into());
+        self.cache.last_text = Some(text.into());
     }
 }

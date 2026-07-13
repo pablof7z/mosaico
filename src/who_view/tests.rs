@@ -97,6 +97,7 @@ fn render(expand_beta: bool) -> String {
             local_host: "laptop",
             backend_pubkey: "backend-pk",
             now: 100,
+            headless: false,
             expanded_workspaces: &expanded_workspaces,
         },
     )
@@ -105,6 +106,10 @@ fn render(expand_beta: bool) -> String {
 #[test]
 fn lists_global_agents_and_compacts_other_workspaces() {
     let xml = render(false);
+    assert!(
+        xml.contains("<self name=\"@quill-peak-369-codex\" host=\"laptop\" headless=\"off\" />"),
+        "{xml}"
+    );
     assert!(
         xml.contains("<agent name=\"claude@remoteBackend1\""),
         "{xml}"

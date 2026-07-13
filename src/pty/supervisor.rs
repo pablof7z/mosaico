@@ -10,6 +10,10 @@ use std::time::Duration;
 
 #[path = "supervisor/session_exit.rs"]
 mod session_exit;
+#[path = "supervisor/clients.rs"]
+mod clients;
+
+use clients::{attach_client, fanout, output_mode, Clients};
 
 const BACKLOG_LIMIT: usize = 256 * 1024;
 
@@ -139,9 +143,6 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     Ok(())
 }
 
-type Client = Arc<Mutex<UnixStream>>;
-type Clients = Arc<Mutex<Vec<Client>>>;
-
 fn handle_client(
     stream: UnixStream,
     master: &(dyn portable_pty::MasterPty + Send),
@@ -192,47 +193,14 @@ fn handle_client(
             Ok(())
         }
         ["PING"] => Ok(()),
+        ["OUTPUT_MODE"] => {
+            let mode = output_mode(clients);
+            writeln!(reader.get_mut(), "{mode}")?;
+            reader.get_mut().flush()?;
+            Ok(())
+        }
         _ => bail!("unknown pty supervisor command: {}", line.trim()),
     }
-}
-
-fn attach_client(
-    mut reader: BufReader<UnixStream>,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    clients: &Clients,
-    backlog: &Arc<Mutex<VecDeque<u8>>>,
-) -> Result<()> {
-    let mut output = reader.get_ref().try_clone()?;
-    let remembered = backlog.lock().unwrap().iter().copied().collect::<Vec<_>>();
-    if !remembered.is_empty() {
-        let _ = output.write_all(&remembered);
-    }
-    clients.lock().unwrap().push(Arc::new(Mutex::new(output)));
-    std::thread::spawn(move || {
-        let mut buf = [0_u8; 4096];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => {
-                    trace("supervisor attach eof");
-                    break;
-                }
-                Ok(n) => {
-                    trace_bytes("supervisor attach", &buf[..n]);
-                    let mut writer = writer.lock().unwrap();
-                    let result = writer.write_all(&buf[..n]).and_then(|_| writer.flush());
-                    if result.is_err() {
-                        trace("supervisor attach write error");
-                        break;
-                    }
-                }
-                Err(_) => {
-                    trace("supervisor attach read error");
-                    break;
-                }
-            }
-        }
-    });
-    Ok(())
 }
 
 fn remember(backlog: &Arc<Mutex<VecDeque<u8>>>, bytes: &[u8]) {
@@ -243,17 +211,7 @@ fn remember(backlog: &Arc<Mutex<VecDeque<u8>>>, bytes: &[u8]) {
     }
 }
 
-fn fanout(clients: &Clients, bytes: &[u8]) {
-    let mut clients = clients.lock().unwrap();
-    clients.retain(|client| {
-        let Ok(mut stream) = client.lock() else {
-            return false;
-        };
-        stream.write_all(bytes).and_then(|_| stream.flush()).is_ok()
-    });
-}
-
-fn trace(message: &str) {
+pub(super) fn trace(message: &str) {
     let Ok(path) = std::env::var("TENEX_EDGE_PTY_TRACE") else {
         return;
     };
@@ -266,7 +224,7 @@ fn trace(message: &str) {
     }
 }
 
-fn trace_bytes(label: &str, bytes: &[u8]) {
+pub(super) fn trace_bytes(label: &str, bytes: &[u8]) {
     let Ok(path) = std::env::var("TENEX_EDGE_PTY_TRACE") else {
         return;
     };

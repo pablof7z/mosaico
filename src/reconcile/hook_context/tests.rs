@@ -2,6 +2,9 @@ use super::*;
 use crate::fabric_context::{capture_inputs, render_fabric_context, FabricContextInput};
 use crate::state::{RegisterSession, RelayEvent, Session, Status, Store};
 
+#[path = "tests/presentation.rs"]
+mod presentation;
+
 const SELF_PK: &str = "self-pubkey";
 const OTHER_PK: &str = "other-pubkey";
 
@@ -260,10 +263,10 @@ fn equivalence_with_legacy_build_view() {
     }
 }
 
-/// An unchanged re-commit emits no frame, yet the cached view still yields the
-/// exact same bytes and a receipt marked `Unchanged`.
+/// An unchanged re-commit emits no frame and no text: old context must not be
+/// injected again merely because another hook fired.
 #[test]
-fn unchanged_recommit_reuses_cached_view() {
+fn unchanged_recommit_is_silent() {
     let store = seed_store();
     let rec = session(&store);
     chat(&store, "m1", "root", 900, "hello", "[]");
@@ -291,9 +294,7 @@ fn unchanged_recommit_reuses_cached_view() {
         .unwrap();
     r.assert_oracle().unwrap();
 
-    assert_eq!(
-        first.text, second.text,
-        "cached view replays identical bytes"
-    );
+    assert!(first.text.is_some(), "baseline must render");
+    assert!(second.text.is_none(), "unchanged context must stay silent");
     assert_eq!(second.receipt.frame, FrameKind::Unchanged);
 }

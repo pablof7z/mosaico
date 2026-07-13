@@ -5,10 +5,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+#[path = "delivery/output_mode.rs"]
+mod output_mode;
 mod prompt;
 use crate::session_host::transport::{
     transport_kind_for_slug, AcpTransport, EndpointRef, SessionTransport, TransportKind,
 };
+#[cfg(test)]
+pub(crate) use output_mode::headless_for_endpoint;
+pub(crate) use output_mode::session_is_headless;
 use prompt::{inject_planned_messages_acp, inject_planned_messages_pty};
 
 #[cfg(test)]
@@ -28,17 +33,8 @@ fn endpoint_is_live(kind: TransportKind, endpoint_id: &str) -> bool {
     }
 }
 
-/// Whether `session` has a live `pty_session` alias — i.e. is hosted behind a
-/// daemon-owned endpoint the delivery reconciler can inject into. Sessions
-/// without one (a bare `claude`/`codex` process started outside the daemon,
-/// or an endpoint that died) get `DeferNoEndpoint` from the delivery
-/// reconciler: idle mentions are queued in the inbox but never pushed
-/// (`src/reconcile/delivery/mod.rs`). Used to decide whether to warn the
-/// agent about that gap in its turn context.
-///
-/// An alias-lookup failure is treated as "not wrapped" (fail loud toward
-/// warning, not toward silently suppressing it) and logged.
-pub(crate) fn session_has_live_pty_endpoint(
+/// Whether `session` has a live daemon-owned delivery endpoint.
+pub(crate) fn session_has_live_delivery_endpoint(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
@@ -48,7 +44,7 @@ pub(crate) fn session_has_live_pty_endpoint(
             tracing::error!(
                 session = %session.session_id,
                 error = %e,
-                "pty-wrap check: aliases lookup failed; assuming not PTY-wrapped"
+                "delivery endpoint check: aliases lookup failed; assuming unavailable"
             );
             return false;
         }

@@ -3,6 +3,9 @@ use crate::state::{Identity, RegisterSession, Session, Status, Store};
 use crate::turn_context::{assemble_turn_check_context, assemble_turn_start_context};
 use std::sync::Mutex;
 
+#[path = "turn_context/headless.rs"]
+mod headless;
+
 const BACKEND: &str = "pk-backend";
 
 /// Publish a relay_status (kind:30315) row — the single source awareness reads
@@ -71,24 +74,6 @@ fn test_session(id: &str) -> Session {
         distill_notice_at: 0,
         explicit_chat_published_at: 0,
     }
-}
-
-/// turn_start returns None on a non-first turn with no inbox, chat, or peers.
-#[test]
-fn turn_start_context_returns_none_when_empty_non_first_turn() {
-    let store = Store::open_memory().unwrap();
-    seed_channel(&store);
-    let mut rec = test_session("sess-freeze-2");
-    rec.seen_cursor = crate::util::now_secs();
-    let m = Mutex::new(store);
-
-    let ctx = assemble_turn_start_context(
-        &m, &rec, BACKEND, "laptop", /* prev_turn_started_at */ 42,
-    );
-    assert!(
-        ctx.is_none(),
-        "turn_start with no inbox, non-first turn, no peers must return None; got: {ctx:?}"
-    );
 }
 
 #[test]
@@ -212,68 +197,6 @@ fn ended_turn_with_cursor_uses_delta_not_snapshot() {
     assert!(
         !text.contains("since you joined"),
         "post-first-turn chat must not be labelled as join-time context; got: {text:?}"
-    );
-}
-
-/// A first turn with no `pty_session` alias for the session (the daemon has no
-/// live PTY endpoint to inject into) carries the not-PTY-wrapped warning, so
-/// the agent learns idle mentions won't reach it until its next turn
-/// (`src/reconcile/delivery/mod.rs` returns `DeferNoEndpoint` and drops them).
-#[test]
-fn first_turn_warns_when_session_has_no_live_pty_endpoint() {
-    let store = Store::open_memory().unwrap();
-    seed_channel(&store);
-    let rec = test_session("sess-no-pty");
-    let m = Mutex::new(store);
-
-    let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
-        .expect("first-turn intro expected");
-    assert!(
-        text.contains("This session is not hosted in a daemon PTY."),
-        "expected the not-PTY-wrapped warning; got: {text:?}"
-    );
-}
-
-/// The same first turn with a live `pty_session` alias omits the warning: the
-/// daemon has a real endpoint it can inject idle mentions into.
-#[test]
-fn first_turn_omits_pty_warning_when_session_has_a_live_endpoint() {
-    let store = Store::open_memory().unwrap();
-    seed_channel(&store);
-    let rec = test_session("sess-with-pty");
-
-    let dir = tempfile::tempdir().unwrap();
-    let socket_path = dir.path().join("live.sock");
-    let _listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
-    store
-        .put_alias(
-            "claude-code",
-            "pty_session",
-            socket_path.to_str().unwrap(),
-            &rec.session_id,
-            1,
-        )
-        .unwrap();
-    let m = Mutex::new(store);
-
-    let text = assemble_turn_start_context(&m, &rec, BACKEND, "laptop", 0)
-        .expect("first-turn intro expected");
-    assert!(
-        !text.contains("This session is not hosted in a daemon PTY."),
-        "a live pty_session alias must suppress the not-PTY-wrapped warning; got: {text:?}"
-    );
-}
-
-/// turn_check returns None when there is no inbox and delta_since=None.
-#[test]
-fn turn_check_context_returns_none_when_nothing_due() {
-    let store = Store::open_memory().unwrap();
-    seed_channel(&store);
-    let m = Mutex::new(store);
-    let ctx = assemble_turn_check_context(&m, &test_session("sess-no-rows"), "laptop", None, 200);
-    assert!(
-        ctx.is_none(),
-        "turn_check with no inbox, no delta → None; got: {ctx:?}"
     );
 }
 

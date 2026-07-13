@@ -2,6 +2,7 @@
 pub(super) struct AgentWhoView {
     pub(super) self_name: String,
     pub(super) self_host: String,
+    pub(super) headless: bool,
     pub(super) agents: Vec<AvailableAgent>,
     pub(super) workspaces: Vec<WorkspaceView>,
 }
