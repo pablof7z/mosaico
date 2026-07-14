@@ -23,6 +23,7 @@ const SAMPLE_TABLES: &[&str] = &[
     "relay_status",
     "session_aliases",
     "session_channels",
+    "session_signers",
     "sessions",
     "trellis_commits",
     "trellis_replay_capsules",
@@ -85,6 +86,7 @@ fn columns_for_table(table: &str) -> &'static [&'static str] {
         "relay_status" => &["session_id", "pubkey", "channel_h"],
         "session_aliases" => &["harness", "external_id_kind", "external_id"],
         "session_channels" => &["session_id", "channel_h"],
+        "session_signers" => &["pubkey"],
         "sessions" => &["session_id", "agent_slug", "channel_h"],
         "trellis_commits" => &["id", "surface", "transaction_id"],
         "trellis_replay_capsules" => &["id", "surface"],
@@ -121,6 +123,7 @@ fn sample_target(table: &str, row: &Value) -> Option<Value> {
                 text(row, "channel_h")?
             )
         }
+        "session_signers" => format!("identity:{}", text(row, "pubkey")?),
         "sessions" => format!("session:{}", text(row, "session_id")?),
         "trellis_commits" => format!("commit:{}", int(row, "id")?),
         "trellis_replay_capsules" => format!("capsule:{}", int(row, "id")?),

@@ -95,9 +95,6 @@ pub(in crate::daemon::server) fn cleanup_dead_local_sessions(state: &Arc<DaemonS
             {
                 tracing::error!(session = %session_id, error = %e, "stale cleanup: failed to forget status graph row");
             }
-            state.release_session_signer(&session_id);
-        } else if process_dead {
-            state.release_session_signer(&session_id);
         }
 
         if alive && (stale || process_dead) {

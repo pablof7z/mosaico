@@ -24,7 +24,6 @@ pub(in crate::daemon::server) async fn rpc_session_end(
 
         // Release the ordinal reservation + any derived signing key before marking
         // the session dead.
-        let _session_key = state.release_session_signer(&rec.session_id);
         record_ephemeral_claim(state, rec);
         // Mark the bound identity dead but KEEP the row for route lookup; the
         // explicit claim above controls whether a later mention may resume it.

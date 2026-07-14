@@ -27,9 +27,8 @@ async fn dropping_guard_after_claim_rolls_back_every_provisional_binding() {
             .unwrap();
     });
 
-    drop(DurableStartGuard::new(&state, "orphan", true));
+    drop(SessionStartGuard::new(&state, &minted));
 
-    assert!(!state.session_keys.lock().unwrap().contains_key("orphan"));
     state.with_store(|s| {
         assert!(s
             .live_durable_session_for_pubkey(&pubkey)

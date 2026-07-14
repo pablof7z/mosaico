@@ -130,7 +130,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 
     // Sign + label from the session's own minted identity.
     let instance = state.session_instance(&rec);
-    let chat_signing_keys = state.session_signing_keys(&rec.session_id)?;
+    let chat_signing_keys = state.session_signing_keys(&rec.agent_pubkey)?;
     let from_pubkey = instance.pubkey.clone();
 
     let chat = ChatMessage {

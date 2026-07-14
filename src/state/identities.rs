@@ -1,4 +1,4 @@
-//! `identities` — per-session minted keys the daemon publishes as.
+//! `identities` — public identity bindings for local session lifecycle.
 //!
 //! Each row maps a session's own pubkey to its owning session, legacy alias, and
 //! resume binding. Bounds the `#p` subscription (the set of pubkeys the daemon
@@ -7,8 +7,8 @@
 
 use super::*;
 
-const COLS: &str = "pubkey, agent_slug, codename, session_id, channel_h, native_id, \
-     alive, created_at";
+const COLS: &str =
+    "pubkey, agent_slug, codename, session_id, channel_h, native_id, alive, created_at";
 
 fn row_to_identity(row: &rusqlite::Row) -> rusqlite::Result<Identity> {
     Ok(Identity {
@@ -150,9 +150,9 @@ impl Store {
     /// first). Used by `who`/signing/reconcile to report a session's selected
     /// ordinal identity. Newest binding wins.
     pub fn identity_for_session(&self, session_id: &str) -> Result<Option<Identity>> {
-        let Some(canonical) = self.resolve_canonical_id(session_id)? else {
-            return Ok(None);
-        };
+        let canonical = self
+            .resolve_canonical_id(session_id)?
+            .unwrap_or_else(|| session_id.to_string());
         Ok(self
             .conn
             .query_row(

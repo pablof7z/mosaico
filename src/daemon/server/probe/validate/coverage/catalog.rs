@@ -140,6 +140,12 @@ pub(super) const DURABLE_TABLES: &[TableCoverage] = &[
         "ephemeral route claims and dormant presence",
     ),
     row(
+        "session_signers",
+        "direct",
+        "identity:<pubkey>",
+        "pubkey-owned signer reconstruction material",
+    ),
+    row(
         "session_channels",
         "direct",
         "joined:<session>[:channel]",

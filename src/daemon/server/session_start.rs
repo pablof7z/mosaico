@@ -12,7 +12,7 @@ mod params;
 mod reservation;
 mod stale;
 
-use abort::{abort_session_start, DurableStartGuard};
+use abort::{abort_session_start, SessionStartGuard};
 use alias_resolution::{record_secondary_aliases, resolve_session_id};
 use lookup::{session_endpoint, work_root_for_scope};
 use params::SessionStartParams;
@@ -224,8 +224,7 @@ pub(super) async fn rpc_session_start_inner(
         SessionIdentityInput::new(&native_id, p.session_name.as_deref()),
         p.durable_reservation.as_deref(),
     )?;
-    let mut durable_guard =
-        DurableStartGuard::new(state, &session_id, minted.durable_claim_acquired);
+    let mut start_guard = SessionStartGuard::new(state, &minted);
     retire_reclaimed_profile(state, minted.reclaimed_pubkey.as_deref()).await?;
     // If the engine is already running (re-assert from a duplicate spawn such as
     // the offline-agent-mention handler), preserve the live session's active
@@ -309,7 +308,7 @@ pub(super) async fn rpc_session_start_inner(
             plan.row.child_pid,
             now_secs(),
         );
-        durable_guard.disarm();
+        start_guard.disarm();
         return Ok(serde_json::json!({
             "session_id": session_id,
         }));
@@ -391,7 +390,7 @@ pub(super) async fn rpc_session_start_inner(
         plan.row.child_pid,
         now_secs(),
     );
-    durable_guard.disarm();
+    start_guard.disarm();
 
     Ok(serde_json::json!({
         "session_id": session_id,

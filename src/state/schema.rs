@@ -35,6 +35,14 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     ensure_absent_table(conn, "project_roots", path)?;
     ensure_table(conn, "trellis_replay_capsules", path)?;
     ensure_table(conn, "durable_agent_sessions", path)?;
+    ensure_table(conn, "session_signers", path)?;
+    ensure_columns(
+        conn,
+        "session_signers",
+        &["pubkey", "signer_salt"],
+        &[],
+        path,
+    )?;
     ensure_columns(
         conn,
         "durable_agent_sessions",

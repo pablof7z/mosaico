@@ -1,4 +1,4 @@
-//! Deterministic per-session key derivation and the read-side session identity.
+//! Persisted-salt session key derivation and the read-side session identity.
 
 use hmac::{Hmac, Mac};
 use nostr_sdk::prelude::*;
@@ -19,23 +19,33 @@ fn hkdf_sha256_32(ikm: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
-/// Deterministically derive a session's OWN keypair from the per-machine
-/// management secret and the canonical session id. Every normal session mints
-/// its own keypair; the management key (`tenexPrivateKey`) is its stored root.
-///
-/// Determinism: a resumed session (same `session_id`) re-derives the identical
-/// pubkey, so a p-tagged mention can route back to it. Cross-machine divergence:
-/// the management secret is per-machine, so the same `session_id` on two machines
-/// yields two different keypairs — a session identity is `(session, machine)`.
-pub fn derive_session_keys_v2(mgmt_secret: &SecretKey, session_id: &str) -> Keys {
-    const SALT: &[u8] = b"tenex-edge/session-pubkey/v2";
+/// Generate the random, non-secret salt persisted with a session pubkey. The
+/// management key remains the only secret at rest; this salt only makes each
+/// derived signer independently reconstructable without another session id.
+pub fn new_session_signer_salt() -> String {
+    Keys::generate().public_key().to_hex()
+}
+
+/// Reconstruct a session's signer from the per-machine management secret and
+/// its persisted random salt. The resulting pubkey is the session identity;
+/// neither a daemon row id nor a harness-native locator participates.
+pub fn derive_session_keys(mgmt_secret: &SecretKey, signer_salt: &str) -> anyhow::Result<Keys> {
+    const SALT: &[u8] = b"tenex-edge/session-pubkey/v3";
+    let signer_salt = PublicKey::from_hex(signer_salt)
+        .map_err(|error| anyhow::anyhow!("invalid session signer salt: {error}"))?;
+    let signer_salt = signer_salt.as_bytes();
     let ikm = mgmt_secret.as_secret_bytes();
-    let mut info = Vec::with_capacity(session_id.len() + 2);
-    info.extend_from_slice(session_id.as_bytes());
+    let mut info = Vec::with_capacity(signer_salt.len() + 2);
+    info.extend_from_slice(signer_salt);
     info.push(0x00);
     info.push(0x00);
 
-    derive_keys_with_counter(ikm, SALT, info, "derive_session_keys_v2")
+    Ok(derive_keys_with_counter(
+        ikm,
+        SALT,
+        info,
+        "derive_session_keys",
+    ))
 }
 
 fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &str) -> Keys {

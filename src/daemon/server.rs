@@ -95,9 +95,6 @@ pub struct DaemonState {
     last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
     /// Wakes the status-outbox drainer the instant a transition enqueues a publish.
     outbox_notify: Notify,
-    /// Per-session minted keypairs for live signers, keyed by canonical session
-    /// id. Populated at mint time; bounds `live_session_pubkeys`.
-    session_keys: Mutex<HashMap<String, Keys>>,
 }
 
 impl DaemonState {
@@ -168,22 +165,6 @@ impl DaemonState {
                 rec.agent_pubkey.clone(),
             )
         })
-    }
-
-    /// Return live per-session derived pubkeys. Callers in `resubscribe` and
-    /// `handle_incoming` extend their sets with this so transient duplicates are
-    /// subscribed and recognized as local authors/recipients.
-    fn live_session_pubkeys(&self) -> Vec<String> {
-        self.session_keys
-            .lock()
-            .unwrap()
-            .values()
-            .map(|k| k.public_key().to_hex())
-            .collect()
-    }
-    /// Drop a session's minted engine keys (session end / failure / GC).
-    fn release_session_signer(&self, session_id: &str) -> Option<Keys> {
-        self.session_keys.lock().unwrap().remove(session_id)
     }
 }
 
