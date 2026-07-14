@@ -20,6 +20,12 @@ pub(super) fn encode(pf: &Profile) -> Result<EventBuilder> {
     }
     if pf.is_backend {
         tags.push(tag(&["backend"])?);
+        // Advertise the managed-agent roster so clients (e.g. 29er iOS) can offer
+        // an add-agent picker: on tap they send `add <slug>`, so slug stays
+        // command-compatible. `desc` mirrors the kind:30555 use-criteria.
+        for (slug, desc) in &pf.agents {
+            tags.push(tag(&["agent", slug, desc])?);
+        }
     }
     Ok(EventBuilder::new(kind(KIND_PROFILE), content)
         .tags(tags)
@@ -42,7 +48,31 @@ pub(super) fn decode(event: &Event, pubkey: String) -> Option<DomainEvent> {
         host,
         owners: all_tag_values(event, "p"),
         is_backend,
+        agents: if is_backend {
+            managed_agents(event)
+        } else {
+            Vec::new()
+        },
     }))
+}
+
+/// Parse the backend's advertised `["agent", slug, desc]` tags into
+/// `(slug, description)`. A missing description defaults to empty (the roster
+/// omits the third element when the agent has no use-criteria byline).
+fn managed_agents(event: &Event) -> Vec<(String, String)> {
+    event
+        .tags
+        .iter()
+        .filter_map(|t| {
+            let s = t.as_slice();
+            if s.first().map(String::as_str) != Some("agent") {
+                return None;
+            }
+            let slug = s.get(1)?.clone();
+            let desc = s.get(2).cloned().unwrap_or_default();
+            Some((slug, desc))
+        })
+        .collect()
 }
 
 fn agent_slug(event: &Event) -> String {

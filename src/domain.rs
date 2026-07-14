@@ -86,6 +86,12 @@ pub struct Profile {
     /// agent). Used to suppress backend identities from agent-facing context
     /// injections.
     pub is_backend: bool,
+    /// `(slug, description)` for each agent this backend manages. Only populated
+    /// on the backend profile (empty for agent sessions); serialized as
+    /// `["agent", slug, description]` tags so clients can offer an add-agent
+    /// picker. `slug` is command-compatible with `add <slug>`; `description` is
+    /// the agent's `effective_byline`, matching the kind:30555 roster.
+    pub agents: Vec<(String, String)>,
 }
 
 impl Profile {
@@ -101,6 +107,7 @@ impl Profile {
             host: host.into(),
             owners,
             is_backend: false,
+            agents: Vec::new(),
         }
     }
 
@@ -111,6 +118,7 @@ impl Profile {
             host: host.into(),
             owners,
             is_backend: true,
+            agents: Vec::new(),
         }
     }
 
@@ -121,6 +129,14 @@ impl Profile {
         owners: Vec<String>,
     ) -> Self {
         Self::backend(AgentRef::new(pubkey, name), host, owners)
+    }
+
+    /// Attach the managed-agent roster `(slug, description)` advertised on the
+    /// backend kind:0. No-op semantics for agent sessions — callers only set
+    /// this on backend profiles.
+    pub fn with_agents(mut self, agents: Vec<(String, String)>) -> Self {
+        self.agents = agents;
+        self
     }
 }
 

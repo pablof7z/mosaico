@@ -160,6 +160,7 @@ async fn seed_session_with_thread_root_link() {
             host: "seed-host".into(),
             owners: vec![user_pk.clone()],
             is_backend: false,
+            agents: Vec::new(),
         }),
         base,
     )

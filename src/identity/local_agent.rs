@@ -138,6 +138,17 @@ pub fn list_invitable_agents(edge_home: &Path) -> Vec<(String, Option<String>, u
     out
 }
 
+/// `(slug, effective_byline_or_empty)` for every local agent, sorted by slug —
+/// the exact set advertised to clients. Both the backend kind:0 `agent` tags and
+/// the kind:30555 roster are built from this, so an add-agent picker's slug
+/// round-trips through the `add <slug>` management command.
+pub fn list_advertised_agents(edge_home: &Path) -> Vec<(String, String)> {
+    list_local_agents(edge_home)
+        .into_iter()
+        .map(|(slug, _commands, _agent_def, byline)| (slug, byline.unwrap_or_default()))
+        .collect()
+}
+
 /// Every agent in the local keystore, with slug + pubkey + commands, sorted by slug.
 pub fn list_local_agent_details(edge_home: &Path) -> Vec<LocalAgent> {
     let dir = agents_dir(edge_home);
