@@ -17,9 +17,11 @@ impl HookContextReconciler {
     /// Record the output-presentation state and report whether this hook context
     /// needs to tell the agent about it. Keeping it outside the fabric snapshot
     /// prevents unrelated chat or presence deltas from repeating the notice.
-    pub(crate) fn record_headless_mode(&mut self, headless: bool) -> bool {
-        let changed = self.cache.last_headless_mode != Some(headless);
-        self.cache.last_headless_mode = Some(headless);
-        changed
+    pub(crate) fn record_headless_mode(&mut self, headless: bool, announce_initial: bool) -> bool {
+        let prior = self.cache.last_headless_mode.replace(headless);
+        match prior {
+            Some(last) => last != headless,
+            None => announce_initial,
+        }
     }
 }

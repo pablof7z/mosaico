@@ -28,7 +28,7 @@ pub(crate) fn assemble_turn_check(
     hook_contexts: &super::HookContextGraphs,
 ) -> TurnContext {
     let mut warnings: Vec<String> = Vec::new();
-    super::headless::push_mode_notice(hook_contexts, store, rec, &mut warnings);
+    super::headless::push_mode_notice(hook_contexts, store, rec, false, &mut warnings);
     let scope = rec.channel_h.clone();
     let self_instance = context_instance(store, rec);
     let self_slug = self_instance.display_slug();

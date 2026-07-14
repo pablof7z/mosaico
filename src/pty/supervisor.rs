@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-#[path = "supervisor/session_exit.rs"]
-mod session_exit;
 #[path = "supervisor/clients.rs"]
 mod clients;
+#[path = "supervisor/session_exit.rs"]
+mod session_exit;
 
 use clients::{attach_client, fanout, output_mode, Clients};
 

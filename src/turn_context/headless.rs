@@ -9,6 +9,7 @@ pub(super) fn push_mode_notice(
     graphs: &HookContextGraphs,
     store: &Mutex<Store>,
     rec: &Session,
+    announce_initial: bool,
     warnings: &mut Vec<String>,
 ) {
     let headless = {
@@ -20,7 +21,7 @@ pub(super) fn push_mode_notice(
         .expect("hook-context mutex poisoned")
         .entry(rec.session_id.clone())
         .or_default()
-        .record_headless_mode(headless);
+        .record_headless_mode(headless, announce_initial);
     if changed {
         warnings.push(mode_notice(headless).to_string());
     }
