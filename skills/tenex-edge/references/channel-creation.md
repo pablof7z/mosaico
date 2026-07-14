@@ -73,11 +73,35 @@ tenex-edge channel join <channel>
 tenex-edge channel switch <channel>
 ```
 
+Add a human or bring an existing session into a channel when its participation
+is needed. Do not use `channel add` to start a new agent; use `dispatch` for
+that.
+
+```bash
+tenex-edge channel add <pubkey-or-npub-or-nip05> <channel>
+tenex-edge channel add --session <session-handle> <channel>
+```
+
 Create and focus a child beneath the current channel:
 
 ```bash
 tenex-edge channel create <relative-path> --about "short stable description"
 ```
+
+Maintain a channel's durable metadata only when you own that decision:
+
+```bash
+tenex-edge channel edit <channel> --about "revised stable description"
+tenex-edge channel leave <channel>
+```
+
+`channel archive <channel>` marks the channel archived and removes every
+non-admin member. Treat it as destructive: require explicit authority and post
+or preserve any necessary handoff before using it.
+
+`channel init` registers the current non-git directory as a workspace. Use it
+only when the directory genuinely needs a durable workspace binding; do not use
+it to create an ad hoc coordination room.
 
 Send an update to a specific joined channel:
 

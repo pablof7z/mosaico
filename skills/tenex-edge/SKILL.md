@@ -73,6 +73,28 @@ coordination overhead.
   local work from authoritative sources. Do not poll, repeatedly retry, or make
   fabric availability a dependency for work that can otherwise proceed.
 
+## Use The Command Surface Deliberately
+
+The agent-facing CLI is `my session`, `channel`, `wait`, and `dispatch`.
+
+- Use `tenex-edge my session` for a full briefing; use `my session status` and
+  the self-lifecycle commands only as described in [Public Work
+  Status](references/public-work-status.md).
+- Use `channel read`, `send`, `reply`, `react`, and `wait` for conversation and
+  attention; read [Coordination Guide](references/coordination-guide.md) before
+  directing another participant or attaching a file.
+- Use `channel list`, `join`, `switch`, `create`, `add`, `edit`, `leave`,
+  `archive`, and `init` only as described in [Channel
+  Creation](references/channel-creation.md).
+- Use `dispatch` to start a new fabric session. Read [Coordination
+  Guide](references/coordination-guide.md) first; it is not a substitute for an
+  existing session that already owns the work.
+
+Do not use `who`, `sessions`, `mgmt`, `launch`, `mcp`, `daemon`, `harness`,
+`debug`, `probe`, `install`, `__pty-supervisor`, or `__acp-smoke` as ordinary
+agent coordination. They are human/operator, host-integration, or diagnostic
+surfaces; use one only when the user explicitly asks for that operation.
+
 ## Work In Headless Mode
 
 - When headless mode is on, channels are your delivery surface. Publish anything
