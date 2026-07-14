@@ -7,7 +7,6 @@
         {
           "StatusDrive": {
             "SessionStarted": {
-              "session_id": "s1",
               "host": "laptop",
               "slug": "coder",
               "pubkey": "pk1",
@@ -28,7 +27,7 @@
         {
           "StatusDrive": {
             "Tick": {
-              "session_id": "s1",
+              "pubkey": "pk1",
               "at": 110
             }
           }

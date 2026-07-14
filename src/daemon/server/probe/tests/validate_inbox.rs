@@ -4,7 +4,7 @@ use crate::state::RegisterSession;
 #[tokio::test]
 async fn rpc_probe_validate_inbox_reports_delivered_inbound_row() {
     let state = DaemonState::new_for_test().await;
-    seed_session(&state, "s1");
+    seed_session(&state, "pk-agent");
     state
         .with_store(|s| {
             s.enqueue_inbox("evt-in", "pk-agent", "pk-from", "room", "hello inbox", 100)?;
