@@ -191,21 +191,18 @@ mod tests {
             .unwrap()
     }
 
-    fn register(store: &Store, pubkey: &str, channel_h: &str, external_id: &str) -> String {
+    fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
         store
-            .register_session(&RegisterSession {
+            .reserve_session(&RegisterSession {
+                pubkey: pubkey.into(),
                 harness: "claude-code".into(),
-                external_id_kind: "harness_session".into(),
-                external_id: external_id.into(),
-                agent_pubkey: pubkey.into(),
-                agent_slug: "agent".into(),
+                agent_slug: agent_slug.into(),
                 channel_h: channel_h.into(),
                 child_pid: None,
                 transcript_path: None,
-                resume_id: String::new(),
                 now: 1,
             })
-            .unwrap()
+            .unwrap();
     }
 
     #[test]

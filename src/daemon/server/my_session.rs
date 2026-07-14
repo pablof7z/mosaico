@@ -91,26 +91,26 @@ mod tests {
     #[tokio::test]
     async fn briefing_is_read_only_and_expands_only_the_exact_sessions_workspaces() {
         let state = DaemonState::new_for_test().await;
-        let session_id = state.with_store(|s| {
+        let pubkey = state.with_store(|s| {
             s.upsert_channel("alpha", "alpha", "Alpha", "", 1).unwrap();
             s.upsert_channel("beta", "beta", "Beta", "", 1).unwrap();
             s.upsert_profile("pk", "codex", "codex", "test-host", false, 1)
                 .unwrap();
             s.upsert_channel_member("alpha", "pk", "member", 1).unwrap();
             s.upsert_channel_member("beta", "pk", "member", 1).unwrap();
-            s.register_session(&RegisterSession {
+            s.reserve_session(&RegisterSession {
+                pubkey: "pk".into(),
                 harness: "codex".into(),
-                external_id_kind: "pty_session".into(),
-                external_id: "pty-briefing".into(),
-                agent_pubkey: "pk".into(),
                 agent_slug: "codex".into(),
                 channel_h: "alpha".into(),
                 child_pid: Some(42),
                 transcript_path: None,
-                resume_id: String::new(),
                 now: 10,
             })
-            .unwrap()
+            .unwrap();
+            s.put_session_locator("codex", crate::state::LOCATOR_PTY, "pty-briefing", "pk", 10)
+                .unwrap();
+            "pk".to_string()
         });
 
         let first = rpc_my_session(
@@ -130,7 +130,7 @@ mod tests {
         assert!(first
             .contains("<workspace name=\"beta\" channel=\"beta\" about=\"Beta\" members=\"1\" />"));
 
-        state.with_store(|s| s.join_session_channel(&session_id, "beta", 20).unwrap());
+        state.with_store(|s| s.join_session_channel(&pubkey, "beta", 20).unwrap());
         let second = rpc_my_session(
             &state,
             &serde_json::json!({
@@ -143,7 +143,7 @@ mod tests {
             .contains("<workspace name=\"beta\" channel=\"beta\" about=\"Beta\" members=\"1\">"));
 
         let seen_cursor = state.with_store(|s| {
-            s.get_session(&session_id)
+            s.get_session(&pubkey)
                 .unwrap()
                 .expect("session row")
                 .seen_cursor
@@ -161,29 +161,27 @@ mod tests {
         )
         .unwrap();
         let pubkey = keys.public_key().to_hex();
-        let session_id = state.with_store(|s| {
-            s.register_session(&RegisterSession {
+        state.with_store(|s| {
+            s.reserve_session(&RegisterSession {
+                pubkey: pubkey.clone(),
                 harness: "codex".into(),
-                external_id_kind: "pty_session".into(),
-                external_id: "pty-1".into(),
-                agent_pubkey: pubkey.clone(),
                 agent_slug: "codex".into(),
                 channel_h: "root".into(),
                 child_pid: None,
                 transcript_path: None,
-                resume_id: String::new(),
                 now: 1,
             })
-            .unwrap()
+            .unwrap();
+            s.put_session_locator("codex", crate::state::LOCATOR_PTY, "pty-1", &pubkey, 1)
+                .unwrap();
         });
         {
             let mut status = state.status.lock().unwrap();
             let out = status
                 .on_session_started(
-                    &session_id,
+                    &pubkey,
                     "test-host",
                     "codex",
-                    &pubkey,
                     ".",
                     BTreeSet::from(["root".to_string()]),
                     true,
@@ -211,7 +209,7 @@ mod tests {
             response["title"],
             "Researching MCP improvements around resource allocation"
         );
-        let rec = state.with_store(|s| s.get_session(&session_id).unwrap().unwrap());
+        let rec = state.with_store(|s| s.get_session(&pubkey).unwrap().unwrap());
         assert_eq!(
             rec.work_topic,
             "Researching MCP improvements around resource allocation"

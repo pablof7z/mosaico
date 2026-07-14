@@ -227,10 +227,9 @@ mod tests {
     use super::*;
     use nostr_sdk::prelude::Keys;
 
-    fn status(pubkey: &str, session: &str, channel: &str, seen: u64) -> Status {
+    fn status(pubkey: &str, channel: &str, seen: u64) -> Status {
         Status {
             pubkey: pubkey.to_string(),
-            session_id: session.to_string(),
             channel_h: channel.to_string(),
             slug: "coder".to_string(),
             title: "fixing parser".to_string(),
@@ -258,15 +257,11 @@ mod tests {
         store
             .upsert_profile(&pk1, "coder@laptop", "coder", "laptop", false, 1)
             .unwrap();
+        store.upsert_status(&status(&pk1, "root", 100)).unwrap();
         store
-            .upsert_status(&status(&pk1, "private-run-a", "root", 100))
+            .upsert_status(&status(&pk1, "grandchild", 101))
             .unwrap();
-        store
-            .upsert_status(&status(&pk1, "private-run-b", "grandchild", 101))
-            .unwrap();
-        store
-            .upsert_status(&status(&pk2, "other-run", "other", 102))
-            .unwrap();
+        store.upsert_status(&status(&pk2, "other", 102)).unwrap();
 
         let rows = session_summaries_from_store(&store, Some("root"), 110).unwrap();
         assert_eq!(rows.len(), 1);

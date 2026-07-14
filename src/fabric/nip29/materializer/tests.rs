@@ -25,21 +25,18 @@ fn build_at(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>, created_at:
         .unwrap()
 }
 
-fn register(store: &Store, pubkey: &str, channel_h: &str, external_id: &str) -> String {
+fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
     store
-        .register_session(&RegisterSession {
+        .reserve_session(&RegisterSession {
+            pubkey: pubkey.into(),
             harness: "claude-code".into(),
-            external_id_kind: "harness_session".into(),
-            external_id: external_id.into(),
-            agent_pubkey: pubkey.into(),
-            agent_slug: "agent".into(),
+            agent_slug: agent_slug.into(),
             channel_h: channel_h.into(),
             child_pid: None,
             transcript_path: None,
-            resume_id: String::new(),
             now: 100,
         })
-        .unwrap()
+        .unwrap();
 }
 
 #[test]
@@ -177,7 +174,7 @@ fn status_materializes_and_reads_live() {
     if let Some(crate::domain::DomainEvent::Status(st)) = de {
         Nip29Materializer::materialize_status(&store, &st, event.created_at.as_secs());
     }
-    let raw = store.get_status(&pk, "", "proj").unwrap().unwrap();
+    let raw = store.get_status(&pk, "proj").unwrap().unwrap();
     assert_eq!(raw.title, "build");
     assert!(raw.busy);
     assert_eq!(

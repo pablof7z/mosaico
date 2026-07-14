@@ -56,7 +56,10 @@ async fn custom_handle_conflict_rolls_back_prepared_signer() {
     let agent = ordinary_agent();
     let first = prepare_session_identity(&state, &agent, Some("research")).unwrap();
 
-    let error = prepare_session_identity(&state, &agent, Some("research")).unwrap_err();
+    let error = match prepare_session_identity(&state, &agent, Some("research")) {
+        Ok(_) => panic!("duplicate custom handle should be rejected"),
+        Err(error) => error,
+    };
 
     assert!(error.to_string().contains("already in use"));
     assert_eq!(first.identity.handle, "research-codex");

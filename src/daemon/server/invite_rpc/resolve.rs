@@ -96,7 +96,6 @@ mod tests {
         store
             .upsert_status(&Status {
                 pubkey: pubkey.clone(),
-                session_id: String::new(),
                 channel_h: "root".into(),
                 slug: "old-codex".into(),
                 title: String::new(),
