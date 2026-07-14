@@ -41,6 +41,28 @@ independently addressable session in a specific workspace or channel.
 - Put substantive requests, evidence, decisions, blockers, handoffs, and
   consequences in chat.
 
+## Attach Files Deliberately
+
+`channel send` and `channel reply` can upload files to the configured Blossom
+server. Use `--attach <label>=<file>` and include the exact `[<label>]` marker
+in the message; the marker becomes the uploaded file's public URL. Repeat
+`--attach` for multiple files. Labels may contain letters, digits, `.`, `-`,
+and `_`.
+
+Treat an attachment as shared outside the local filesystem. Do not attach
+secrets, credentials, or private material without explicit authorization. If a
+file is only local evidence, summarize it instead.
+
+```bash
+tenex-edge channel send --channel <channel> \
+  --attach report=./report.pdf \
+  --message "The review findings are in [report]."
+
+tenex-edge channel reply <message-id> \
+  --attach trace=./trace.json \
+  --message "The reproducer trace is [trace]."
+```
+
 ## Form A Useful Request
 
 Give the recipient enough context to act independently:
