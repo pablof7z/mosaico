@@ -171,10 +171,9 @@ pub async fn run() -> Result<()> {
         membership_cleanup::cleanup_dead_local_sessions(&relay_state);
         roster_bootstrap::seed_spawn_on_mention_coverage(&relay_state);
 
-        // Seed the three stable aggregate REQs (#h / #p / group-state) once. This
-        // replaces both the per-member-group subscription loop and the standalone
-        // backend orchestration REQ (the backend pubkey is now in the #p aggregate).
-        // No kind:0 is subscribed — profiles resolve on demand via Transport::fetch.
+        // Seed the daemon-lifetime kind:9000 discovery REQ plus the refcounted
+        // per-entity #h / #p / group-state REQs. No kind:0 is subscribed — a
+        // put-user p-tag triggers an on-demand profile fetch in the demux.
         if let Err(e) = resubscribe(&relay_state).await {
             tracing::warn!(error = %e, "initial resubscribe failed");
         }

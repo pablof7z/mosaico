@@ -15,9 +15,9 @@ async fn rpc_probe_stats_quantifies_shared_subscription_beachhead() {
     )
     .unwrap();
     let first_row = &after_first_owner["surfaces"][0];
-    assert_eq!(first_row["open_count"], 2);
+    assert_eq!(first_row["open_count"], 3);
     assert_eq!(first_row["close_count"], 0);
-    assert_eq!(first_row["latest_graph_resources"], 2);
+    assert_eq!(first_row["latest_graph_resources"], 3);
     assert_eq!(first_row["resource_drift"], false);
 
     drive_subscription_sync_for_stats(&state, subscription_snapshot(&[]), 3_000);
@@ -28,10 +28,10 @@ async fn rpc_probe_stats_quantifies_shared_subscription_beachhead() {
     )
     .unwrap();
     let row = &final_stats["surfaces"][0];
-    assert_eq!(row["open_count"], 2);
+    assert_eq!(row["open_count"], 3);
     assert_eq!(row["close_count"], 2);
-    assert_eq!(row["live_resource_balance"], 0);
-    assert_eq!(row["latest_graph_resources"], 0);
+    assert_eq!(row["live_resource_balance"], 1);
+    assert_eq!(row["latest_graph_resources"], 1);
     assert_eq!(row["resource_drift"], false);
 }
 

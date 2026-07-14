@@ -15,6 +15,7 @@ pub struct SubscriptionPreview {
 
 #[derive(Clone, Copy)]
 struct Handles {
+    global_kinds: trellis_core::InputNode<BTreeSet<u16>>,
     daemon_channels: trellis_core::InputNode<BTreeSet<String>>,
     addressed_pubkeys: trellis_core::InputNode<BTreeSet<String>>,
     archived_channels: trellis_core::InputNode<BTreeSet<String>>,
@@ -33,6 +34,7 @@ impl SubscriptionReconciler {
         snapshot: &CoverageSnapshot,
     ) -> GraphResult<SubscriptionPreview> {
         let handles = Handles {
+            global_kinds: self.global_kinds,
             daemon_channels: self.daemon_channels,
             addressed_pubkeys: self.addressed_pubkeys,
             archived_channels: self.archived_channels,
@@ -53,6 +55,7 @@ fn stage_sync(
     sessions: &mut BTreeMap<String, SessionNodes>,
     snapshot: &CoverageSnapshot,
 ) -> GraphResult<()> {
+    tx.set_input(handles.global_kinds, super::required_global_kinds())?;
     tx.set_input(handles.daemon_channels, snapshot.daemon_channels.clone())?;
     tx.set_input(
         handles.addressed_pubkeys,
@@ -143,7 +146,7 @@ mod tests {
             .labels_for(&preview.result.changed_inputs)
             .iter()
             .any(|label| label == "subscriptions/session/s1/channels"));
-        assert_eq!(preview.result.resource_plan.commands().len(), 2);
+        assert_eq!(preview.result.resource_plan.commands().len(), 3);
     }
 
     #[test]

@@ -47,12 +47,13 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
     ledger.apply_result(&result);
     r.assert_oracle().unwrap();
 
-    // Exactly one `#h` + one `#d` per channel and one `#p` per pubkey — never an
-    // aggregate, never kind:0.
+    // Exactly one daemon-global kind:9000 discovery REQ, one `#h` + one `#d`
+    // per channel, and one `#p` per pubkey — never a kind:0 firehose.
     let opened: BTreeSet<String> = open_ids(&effects).into_iter().collect();
     assert_eq!(
         opened,
         set([
+            "te-v2-global-kind-9000",
             "te-v2-h-room-a",
             "te-v2-h-room-b",
             "te-v2-gstate-room-a",

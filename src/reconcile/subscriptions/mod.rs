@@ -7,6 +7,7 @@
 //! the relay never replays a shrunk aggregate. That kills the unbounded-leak bug
 //! AND makes teardown correct.
 
+mod effects;
 mod keys;
 mod preview;
 pub(crate) mod probe;
@@ -19,14 +20,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use nostr_sdk::prelude::{Filter, SubscriptionId};
 use serde::{Deserialize, Serialize};
 use trellis_core::{
-    AuditExplanationLevel, DependencyList, Graph, GraphResult, InputNode, ResourceCommand,
+    AuditExplanationLevel, DependencyList, Graph, GraphResult, InputNode,
     ResourceCommandExplanation, ResourceCommandKind, ResourceKey, ScopeId, TransactionOptions,
     TransactionResult,
 };
 
 use crate::reconcile::labels::NodeLabels;
+use effects::to_effects;
 pub(crate) use keys::SubCommand;
-use keys::{id_from_key, plan_subs, sub_key, Space, SubKey};
+use keys::{plan_subs, sub_key, Space, SubKey};
 
 /// Host effect the daemon applies via the transport.
 #[derive(Clone, Debug, PartialEq)]
@@ -64,6 +66,7 @@ struct SessionNodes {
 pub struct SubscriptionReconciler {
     graph: Graph<SubCommand>,
     daemon_scope: ScopeId,
+    global_kinds: InputNode<BTreeSet<u16>>,
     daemon_channels: InputNode<BTreeSet<String>>,
     addressed_pubkeys: InputNode<BTreeSet<String>>,
     archived_channels: InputNode<BTreeSet<String>>,
@@ -82,6 +85,9 @@ impl SubscriptionReconciler {
 
         let daemon_scope = tx.create_scope("daemon-subs")?;
 
+        let global_kinds = tx.input::<BTreeSet<u16>>("global-kinds")?;
+        labels.record(global_kinds.id(), "subscriptions/daemon/global_kinds");
+        tx.set_input(global_kinds, BTreeSet::new())?;
         let daemon_channels = tx.input::<BTreeSet<String>>("daemon-channels")?;
         labels.record(daemon_channels.id(), "subscriptions/daemon/channels");
         tx.set_input(daemon_channels, BTreeSet::new())?;
@@ -112,13 +118,20 @@ impl SubscriptionReconciler {
             },
         )?;
 
-        // Collection: one entity per (space, id) — `#h` + `#d` per channel and
-        // `#p` per addressed pubkey.
+        // Collection: one entity per (space, id) — global discovery kinds,
+        // `#h` + `#d` per channel, and `#p` per addressed pubkey.
         let daemon_subs = tx.set_collection::<SubKey>(
             "daemon-subs",
-            DependencyList::new([live_channels.id(), addressed_pubkeys.id()])?,
+            DependencyList::new([
+                global_kinds.id(),
+                live_channels.id(),
+                addressed_pubkeys.id(),
+            ])?,
             move |ctx| {
                 let mut out = BTreeSet::new();
+                for kind in ctx.input(global_kinds)? {
+                    out.insert((Space::GlobalKind, kind.to_string()));
+                }
                 for ch in ctx.derived(live_channels)? {
                     out.insert((Space::ChannelH, ch.clone()));
                     out.insert((Space::GroupStateD, ch.clone()));
@@ -139,6 +152,7 @@ impl SubscriptionReconciler {
         Ok(Self {
             graph,
             daemon_scope,
+            global_kinds,
             daemon_channels,
             addressed_pubkeys,
             archived_channels,
@@ -165,6 +179,7 @@ impl SubscriptionReconciler {
         snapshot: &CoverageSnapshot,
     ) -> GraphResult<(Vec<SubEffect>, TransactionResult<SubCommand>)> {
         let mut tx = self.graph.begin_transaction_with_options(opts())?;
+        tx.set_input(self.global_kinds, required_global_kinds())?;
         tx.set_input(self.daemon_channels, snapshot.daemon_channels.clone())?;
         tx.set_input(self.addressed_pubkeys, snapshot.addressed_pubkeys.clone())?;
         tx.set_input(self.archived_channels, snapshot.archived_channels.clone())?;
@@ -268,30 +283,10 @@ impl SubscriptionReconciler {
     }
 }
 
-fn opts() -> TransactionOptions {
-    TransactionOptions::default().with_audit_explanations(AuditExplanationLevel::DependencyPaths)
+fn required_global_kinds() -> BTreeSet<u16> {
+    BTreeSet::from([crate::fabric::nip29::wire::KIND_GROUP_PUT_USER])
 }
 
-/// Translate the graph's resource plan into host effects the daemon applies.
-fn to_effects(result: &TransactionResult<SubCommand>) -> Vec<SubEffect> {
-    result
-        .resource_plan
-        .commands()
-        .iter()
-        .filter_map(|c| match c {
-            ResourceCommand::Open { command, .. } => Some(SubEffect::Open {
-                id: command.id.clone(),
-                filter: command.filter.clone(),
-            }),
-            ResourceCommand::Replace { command, .. } | ResourceCommand::Refresh { command, .. } => {
-                Some(SubEffect::Replace {
-                    id: command.id.clone(),
-                    filter: command.filter.clone(),
-                })
-            }
-            ResourceCommand::Close { key, .. } => {
-                id_from_key(key).map(|id| SubEffect::Close { id })
-            }
-        })
-        .collect()
+fn opts() -> TransactionOptions {
+    TransactionOptions::default().with_audit_explanations(AuditExplanationLevel::DependencyPaths)
 }

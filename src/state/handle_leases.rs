@@ -2,6 +2,8 @@ use super::*;
 use rusqlite::{Transaction, TransactionBehavior};
 use std::hash::{Hash, Hasher};
 
+mod remote_profiles;
+
 pub(crate) const HANDLE_LEASE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +52,9 @@ impl Store {
 
         for codename in candidates(pubkey) {
             let handle = crate::idref::session_handle(agent_slug, &codename);
+            if remote_profiles::reserves_handle(&tx, &handle, Some(pubkey))? {
+                continue;
+            }
             let occupied = tx
                 .query_row(
                     "SELECT pubkey, live, last_active_at FROM handle_leases WHERE handle=?1",
@@ -103,7 +108,9 @@ impl Store {
         name: &str,
     ) -> Result<()> {
         let (handle, _) = custom_handle(agent_slug, name)?;
-        if self.pubkey_for_handle(&handle)?.is_some() {
+        if self.pubkey_for_handle(&handle)?.is_some()
+            || remote_profiles::reserves_handle(&self.conn, &handle, None)?
+        {
             anyhow::bail!("session name {name:?} is already in use as {handle:?}");
         }
         Ok(())
@@ -134,6 +141,9 @@ impl Store {
                 codename,
                 reclaimed_pubkey: None,
             });
+        }
+        if remote_profiles::reserves_handle(&tx, &handle, Some(pubkey))? {
+            anyhow::bail!("session name {name:?} is already in use as {handle:?}");
         }
         if tx
             .query_row(

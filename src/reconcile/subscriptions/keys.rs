@@ -5,14 +5,16 @@ use nostr_sdk::prelude::{Filter, SubscriptionId};
 use trellis_core::{PlanContext, PlanError, ResourceKey, ResourcePlan, SetDiff};
 
 use crate::fabric::subscriptions::{
-    id_gstate_narrow, id_h_narrow, id_p_narrow, narrow_gstate_filter, narrow_h_filter,
-    narrow_p_filter,
+    global_kind_filter, id_global_kind, id_gstate_narrow, id_h_narrow, id_p_narrow,
+    narrow_gstate_filter, narrow_h_filter, narrow_p_filter,
 };
 
 /// The tag-space a covered entity belongs to. Each maps to one narrow filter
 /// shape and one id-namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Space {
+    /// Daemon-lifetime discovery stream with no tag scope.
+    GlobalKind,
     /// Channel chat/status/long-form scoped by `#h`.
     ChannelH,
     /// Relay-authored group state (39000/39001/39002) scoped by `#d`.
@@ -24,6 +26,7 @@ pub enum Space {
 impl Space {
     fn as_seg(self) -> &'static str {
         match self {
+            Space::GlobalKind => "k",
             Space::ChannelH => "h",
             Space::GroupStateD => "d",
             Space::PubkeyP => "p",
@@ -31,6 +34,7 @@ impl Space {
     }
     fn from_seg(seg: &str) -> Option<Self> {
         match seg {
+            "k" => Some(Space::GlobalKind),
             "h" => Some(Space::ChannelH),
             "d" => Some(Space::GroupStateD),
             "p" => Some(Space::PubkeyP),
@@ -60,6 +64,7 @@ pub fn sub_key(space: Space, entity: &str) -> ResourceKey {
 /// Semantic subscription id for one covered entity.
 fn sub_id(space: Space, entity: &str) -> SubscriptionId {
     match space {
+        Space::GlobalKind => id_global_kind(entity.parse().expect("global kind is numeric")),
         Space::ChannelH => id_h_narrow(entity),
         Space::GroupStateD => id_gstate_narrow(entity),
         Space::PubkeyP => id_p_narrow(entity),
@@ -69,6 +74,7 @@ fn sub_id(space: Space, entity: &str) -> SubscriptionId {
 /// The narrow relay filter for one covered entity.
 fn sub_filter(space: Space, entity: &str) -> Filter {
     match space {
+        Space::GlobalKind => global_kind_filter(entity.parse().expect("global kind is numeric")),
         Space::ChannelH => narrow_h_filter(entity),
         Space::GroupStateD => narrow_gstate_filter(entity),
         Space::PubkeyP => narrow_p_filter(entity),

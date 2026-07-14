@@ -21,6 +21,63 @@ fn first_allocation_uses_one_word_tier_and_resume_keeps_it() {
 }
 
 #[test]
+fn hydrated_remote_session_handle_blocks_local_allocation() {
+    let store = Store::open_memory().unwrap();
+    let wanted_codename = candidates("local-new").next().unwrap();
+    let wanted_handle = crate::idref::session_handle("codex", &wanted_codename);
+    store
+        .upsert_profile_with_agent_slug(
+            "remote-pubkey",
+            &wanted_handle,
+            &wanted_handle,
+            "codex",
+            "remote-backend",
+            false,
+            10,
+        )
+        .unwrap();
+
+    let allocated = allocate(&store, "local-new", 20);
+    assert_ne!(allocated.handle, wanted_handle);
+}
+
+#[test]
+fn hydrated_remote_session_handle_blocks_custom_name_until_retired() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_profile_with_agent_slug(
+            "remote-pubkey",
+            "quill-codex",
+            "quill-codex",
+            "codex",
+            "remote-backend",
+            false,
+            10,
+        )
+        .unwrap();
+
+    let error = store
+        .ensure_custom_handle_available("codex", "quill")
+        .expect_err("hydrated remote handle must reserve the custom name");
+    assert!(error.to_string().contains("already in use"));
+
+    store
+        .upsert_profile_with_agent_slug(
+            "remote-pubkey",
+            "npub1retired",
+            "npub1retired",
+            "codex",
+            "remote-backend",
+            false,
+            20,
+        )
+        .unwrap();
+    store
+        .ensure_custom_handle_available("codex", "quill")
+        .expect("retired profile releases its old handle");
+}
+
+#[test]
 fn exhausts_every_one_word_candidate_before_tier_two() {
     let store = Store::open_memory().unwrap();
     for i in 0..64 {

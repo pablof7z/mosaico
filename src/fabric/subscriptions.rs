@@ -39,6 +39,10 @@ pub(crate) fn id_p_narrow(pk: &str) -> SubscriptionId {
 pub(crate) fn id_gstate_narrow(h: &str) -> SubscriptionId {
     SubscriptionId::new(format!("te-v2-gstate-{h}"))
 }
+/// Semantic id for one daemon-lifetime, unscoped kind subscription.
+pub(crate) fn id_global_kind(kind: u16) -> SubscriptionId {
+    SubscriptionId::new(format!("te-v2-global-kind-{kind}"))
+}
 
 // ── Pure filter builders ────────────────────────────────────────────────────────
 
@@ -80,6 +84,12 @@ pub(crate) fn narrow_gstate_filter(h: &str) -> Filter {
             kind(KIND_GROUP_MEMBERS),
         ])
         .identifier(h)
+}
+
+/// Unscoped discovery filter. Kind:9000 exposes every pubkey entering any
+/// channel; the demux then warms that pubkey's kind:0 on demand.
+pub(crate) fn global_kind_filter(kind_number: u16) -> Filter {
+    Filter::new().kind(kind(kind_number))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -148,5 +158,17 @@ mod tests {
                 "no live subscription may carry kind:0 — {json}"
             );
         }
+    }
+
+    #[test]
+    fn global_kind_filter_is_unscoped_put_user_only() {
+        let put_user = crate::fabric::nip29::wire::KIND_GROUP_PUT_USER;
+        let filter = global_kind_filter(put_user);
+        let json = serde_json::to_string(&filter).unwrap();
+        assert_eq!(json, r#"{"kinds":[9000]}"#);
+        assert_eq!(
+            id_global_kind(put_user).to_string(),
+            "te-v2-global-kind-9000"
+        );
     }
 }
