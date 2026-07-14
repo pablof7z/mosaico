@@ -32,15 +32,15 @@ fn operator_kind9_injects_into_working_launch_session() {
     });
 
     let rec = wait_for_alive_session(&home, agent, &channel);
-    wait_for_group_member(&home, &channel, &rec.agent_pubkey);
+    wait_for_group_member(&home, &channel, &rec.pubkey);
     Store::open(&home.store_path())
         .unwrap()
-        .set_working(&rec.session_id, true, tenex_edge::util::now_secs())
+        .set_working(&rec.pubkey, true, tenex_edge::util::now_secs())
         .expect("mark launch session working");
 
     let body = format!("operator relay injection {}", unique_session("body"));
     rt().block_on(async {
-        publish_user_kind9(&channel, &body, &rec.agent_pubkey).await;
+        publish_user_kind9(&channel, &body, &rec.pubkey).await;
     });
     wait_for_injected_log(&log, &body);
 

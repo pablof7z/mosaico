@@ -13,15 +13,15 @@ fn orchestration_session_uses_existing_group_without_minting() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-orch-1", "cwd": "/tmp", "channel": "issue-42"}),
+            serde_json::json!({"agent": "coder", "harness_session": "sess-orch-1", "cwd": "/tmp", "channel": "issue-42"}),
         )
         .await
         .expect("session_start");
     });
 
-    let rec = Store::open(&home.store_path())
-        .unwrap()
-        .get_session("sess-orch-1")
+    let store = Store::open(&home.store_path()).unwrap();
+    let rec = store
+        .get_session(&pubkey_for_harness_session(&store, "claude-code", "sess-orch-1").unwrap())
         .unwrap()
         .expect("session row");
     let mut channel = None;

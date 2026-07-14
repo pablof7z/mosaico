@@ -2,7 +2,9 @@ use super::{
     materialize_member_snapshot, refresh_channel_members, rewrite_config_with_user_nsec,
     unique_session, write_config,
 };
-use crate::daemon_harness::{rt, stop_daemon, wait_until, Home, ENV_LOCK};
+use crate::daemon_harness::{
+    pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
+};
 use nostr_sdk::prelude::Keys;
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
@@ -65,16 +67,17 @@ fn first_turn_injects_channel_context_block() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-ctx-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "harness_session": "sess-ctx-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
         let store = Store::open(&home.store_path()).unwrap();
+        let pubkey = pubkey_for_harness_session(&store, "claude-code", "sess-ctx-1").unwrap();
         let rec = store
-            .get_session("sess-ctx-1")
+            .get_session(&pubkey)
             .unwrap()
             .expect("session row");
-        (rec.channel_h, rec.agent_pubkey)
+        (rec.channel_h, rec.pubkey)
     });
     wait_for_channel_parent(&home, &channel, "tmp");
     wait_for_channel_member(&home, &channel, &agent_pubkey);
@@ -82,7 +85,10 @@ fn first_turn_injects_channel_context_block() {
     let ctx = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let v = c
-            .call("turn_start", serde_json::json!({"session": "sess-ctx-1"}))
+            .call(
+                "turn_start",
+                serde_json::json!({"harness_session": &agent_pubkey}),
+            )
             .await
             .expect("turn_start");
         v.get("context")
@@ -123,12 +129,13 @@ fn first_turn_resolves_member_profiles_from_kind0() {
     let ctx = rt().block_on(async {
         profile::publish_profile(&remote, remote_name, remote_agent_slug).await;
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
+        let started = c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp", "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
+        let pubkey = started["pubkey"].as_str().unwrap().to_string();
         wait_for_channel_metadata(&home, "tmp");
         c.call(
             "channel_add_member",
@@ -150,7 +157,10 @@ fn first_turn_resolves_member_profiles_from_kind0() {
             "channel_members should resolve kind:0 slugs: {members}"
         );
         let v = c
-            .call("turn_start", serde_json::json!({"session": sid}))
+            .call(
+                "turn_start",
+                serde_json::json!({"harness_session": pubkey}),
+            )
             .await
             .expect("turn_start");
         v.get("context")
@@ -179,7 +189,7 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-grp-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "harness_session": "sess-grp-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
@@ -187,7 +197,7 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
 
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store
-        .get_session("sess-grp-1")
+        .get_session(&pubkey_for_harness_session(&store, "claude-code", "sess-grp-1").unwrap())
         .unwrap()
         .expect("session row");
     assert!(rec.alive);
@@ -212,14 +222,15 @@ fn human_initiated_session_mints_per_session_room() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp"}),
         )
         .await
         .expect("session_start");
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&sid).unwrap().expect("session row");
+    let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_ne!(
         rec.channel_h, "tmp",
         "human-initiated session should mint a per-session room, not use the bare channel"
@@ -232,14 +243,14 @@ fn human_initiated_session_mints_per_session_room() {
     // removed: `channel_breadcrumb` no longer exists — channel hierarchy labels
     // are derived from `relay_channels` (name/parent), not a breadcrumb reader.
 
-    materialize_member_snapshot(&home, &rec.channel_h, &rec.agent_pubkey);
+    materialize_member_snapshot(&home, &rec.channel_h, &rec.pubkey);
     assert!(
         wait_until(std::time::Duration::from_secs(20), || Store::open(
             &home.store_path()
         )
         .map(|s| {
             refresh_channel_members(&rec.channel_h);
-            s.is_channel_member(&rec.channel_h, &rec.agent_pubkey)
+            s.is_channel_member(&rec.channel_h, &rec.pubkey)
                 .unwrap_or(false)
         })
         .unwrap_or(false)),

@@ -26,12 +26,12 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                 "session_start",
                 serde_json::json!({
                     "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "session_id": "durable-native-a",
+                    "harness": "codex", "harness_session": "durable-native-a",
                 }),
             )
             .await
             .expect("durable launch registers session");
-        let first = started["session_id"].as_str().unwrap().to_string();
+        let first = started["pubkey"].as_str().unwrap().to_string();
 
         let refused = run_cli(
             &home,
@@ -59,7 +59,7 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                 "session_start",
                 serde_json::json!({
                     "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "session_id": "fresh-after-mode-flip",
+                    "harness": "codex", "harness_session": "fresh-after-mode-flip",
                 }),
             )
             .await
@@ -85,7 +85,7 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                 "session_start",
                 serde_json::json!({
                     "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "session_id": "durable-native-a",
+                    "harness": "codex", "harness_session": "durable-native-a",
                 }),
             )
             .await
@@ -105,7 +105,7 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                 "session_start",
                 serde_json::json!({
                     "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "session_id": "durable-native-a",
+                    "harness": "codex", "harness_session": "durable-native-a",
                 }),
             )
             .await
@@ -133,7 +133,7 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                 "session_start",
                 serde_json::json!({
                     "agent": normal_slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "session_id": "normal-native",
+                    "harness": "codex", "harness_session": "normal-native",
                 }),
             )
             .await
@@ -152,7 +152,7 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
                     "cwd": "/tmp",
                     "channel": channel,
                     "harness": "codex",
-                    "session_id": "durable-native-b",
+                    "harness_session": "durable-native-b",
                 }),
             )
             .await
@@ -184,19 +184,15 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
         (first, third, normal, chat_event_id)
     });
 
-    assert_ne!(
+    assert_eq!(
         first_id, third_id,
-        "sequential durable-agent runs always start fresh"
+        "sequential durable-agent runs reuse their durable pubkey"
     );
     let store = Store::open(&home.store_path()).unwrap();
-    for session_id in [&first_id, &third_id] {
-        let session = store.get_session(session_id).unwrap().unwrap();
-        assert_eq!(session.agent_pubkey, durable_pubkey);
-        assert!(session.resume_id.is_empty());
-        let identity = store
-            .session_identity_for_session(session_id)
-            .unwrap()
-            .unwrap();
+    for pubkey in [&first_id, &third_id] {
+        let session = store.get_session(pubkey).unwrap().unwrap();
+        assert_eq!(session.pubkey, durable_pubkey);
+        let identity = store.session_identity(pubkey).unwrap().unwrap();
         assert_eq!(identity.display_slug(), slug);
         assert!(identity.durable_agent);
     }
@@ -204,13 +200,13 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
         .list_resumable_sessions(100)
         .unwrap()
         .iter()
-        .all(|session| session.agent_pubkey != durable_pubkey));
+        .all(|session| session.pubkey != durable_pubkey));
     let normal_session = store.get_session(&normal_id).unwrap().unwrap();
-    assert_ne!(normal_session.agent_pubkey, durable_pubkey);
+    assert_ne!(normal_session.pubkey, durable_pubkey);
     let db = Connection::open(home.store_path()).unwrap();
     let leases = lease_count(&db, &durable_pubkey);
     assert_eq!(leases, 0, "durable agents never enter handle leasing");
-    let normal_leases = lease_count(&db, &normal_session.agent_pubkey);
+    let normal_leases = lease_count(&db, &normal_session.pubkey);
     assert_eq!(
         normal_leases, 1,
         "rejected mode flip keeps the normal handle"

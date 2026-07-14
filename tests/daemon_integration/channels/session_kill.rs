@@ -69,7 +69,7 @@ fn session_kill_stops_pty_session_and_marks_offline() {
         v["pty_id"].as_str().unwrap().to_string()
     });
     let rec = wait_for_alive(&home, agent, &channel);
-    let selector = tenex_edge::idref::npub(&rec.agent_pubkey).expect("session npub");
+    let selector = tenex_edge::idref::npub(&rec.pubkey).expect("session npub");
 
     let killed = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -93,11 +93,11 @@ fn session_kill_stops_pty_session_and_marks_offline() {
         wait_until(Duration::from_secs(5), || {
             let store = Store::open(&home.store_path()).unwrap();
             let offline = store
-                .get_session(&rec.session_id)
+                .get_session(&rec.pubkey)
                 .unwrap()
                 .map(|row| !row.alive)
                 .unwrap_or(false);
-            offline && pty_session_for_session(&store, &rec.session_id).is_none()
+            offline && pty_session_for_session(&store, &rec.pubkey).is_none()
         }),
         "session should be offline and detached from pty alias"
     );

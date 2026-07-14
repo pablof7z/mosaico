@@ -15,7 +15,7 @@ fn channel_edit_updates_about_from_relay_truth() {
             "session_start",
             serde_json::json!({
                 "agent": "coder",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "harness": "claude-code",
                 "cwd": "/tmp",
                 "channel": &parent,
@@ -86,7 +86,7 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
             "session_start",
             serde_json::json!({
                 "agent": "coder",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "harness": "claude-code",
                 "cwd": "/tmp",
                 "channel": &root,
@@ -97,12 +97,8 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         .expect("session_start");
     });
 
-    let active_channel = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sid)
-        .unwrap()
-        .expect("session row")
-        .channel_h;
+    let store = Store::open(&home.store_path()).unwrap();
+    let active_channel = session_for_harness_session(&store, "claude-code", &sid).channel_h;
     let actual_root = Store::open(&home.store_path())
         .unwrap()
         .root_channel_of(&active_channel)

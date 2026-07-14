@@ -41,12 +41,12 @@ fn launch_command_bootstraps_session_without_child_session_start_hook() {
     let rec = wait_for_alive(&home, agent, &channel);
     let pty_id = Store::open(&home.store_path())
         .unwrap()
-        .aliases_for_session(&rec.session_id)
+        .locators_for_pubkey(&rec.pubkey)
         .unwrap()
         .into_iter()
-        .find(|alias| alias.external_id_kind == "pty_session")
-        .map(|alias| alias.external_id)
-        .expect("launch must register its PTY alias before returning");
+        .find(|locator| locator.locator_kind == "pty")
+        .map(|locator| locator.locator_value)
+        .expect("launch must register its PTY locator before returning");
 
     let _ = tenex_edge::pty::kill(&pty_id);
     stop_daemon(&home);
@@ -66,13 +66,13 @@ fn supervisor_exit_retires_the_bootstrapped_session() {
     assert!(
         wait_until(Duration::from_secs(10), || {
             Store::open(&home.store_path())
-                .and_then(|store| store.get_session(&rec.session_id))
+                .and_then(|store| store.get_session(&rec.pubkey))
                 .ok()
                 .flatten()
                 .is_some_and(|session| !session.alive)
         }),
         "supervisor exit did not retire session {}",
-        rec.session_id
+        rec.pubkey
     );
     stop_daemon(&home);
 }

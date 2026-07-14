@@ -15,29 +15,35 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
     // Start one session, then 16 concurrent clients hammer write-RPCs
     // (turn_start/turn_end flip turn state; this is the corruption repro path,
     // now serialized through the ONE daemon writer).
-    rt().block_on(async {
+    let pubkey = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "s-load", "cwd": "/tmp"}),
-        )
-        .await
-        .unwrap();
+        let started = c
+            .call(
+                "session_start",
+                serde_json::json!({"agent": "coder", "harness_session": "s-load", "cwd": "/tmp"}),
+            )
+            .await
+            .unwrap();
+        started["pubkey"].as_str().unwrap().to_string()
     });
 
     let n = 16;
     let iters = 25;
     let handles: Vec<_> = (0..n)
         .map(|_| {
+            let pubkey = pubkey.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
                     let mut c = Client::connect_or_spawn().await.expect("connect");
                     for _ in 0..iters {
-                        c.call("turn_start", serde_json::json!({"session": "s-load"}))
-                            .await
-                            .expect("turn_start");
-                        c.call("turn_end", serde_json::json!({"session": "s-load"}))
+                        c.call(
+                            "turn_start",
+                            serde_json::json!({"harness_session": &pubkey}),
+                        )
+                        .await
+                        .expect("turn_start");
+                        c.call("turn_end", serde_json::json!({"harness_session": &pubkey}))
                             .await
                             .expect("turn_end");
                         c.call("who", serde_json::json!({"all": true}))
@@ -266,8 +272,12 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
     );
 
     let store = Store::open(&home.store_path()).unwrap();
+    let pubkey = store
+        .resolve_pubkey_by_locator("claude-code", "native_resume", "revive-claude")
+        .unwrap()
+        .expect("revived session locator");
     let rec = store
-        .get_session("revive-claude")
+        .get_session(&pubkey)
         .unwrap()
         .expect("revived session row");
     assert!(rec.alive);
@@ -370,86 +380,67 @@ fn version_skew_client_detects_and_respawns() {
     stop_daemon(&home);
 }
 
-/// Regression for the identity-normalization bug: hooks send the HARNESS id, but
-/// the daemon mints a CANONICAL id and stores the harness id as an alias. The turn
-/// transitions must resolve harness→canonical or they silently update zero rows
-/// (the canonical aggregate would stay idle/untitled forever for claude/codex).
-/// Drive the real RPC path with the harness id and assert the CANONICAL row moved.
+/// Harness-owned ids remain typed locators; lifecycle RPCs operate on the
+/// resolved public session identity.
 #[test]
-fn turn_lifecycle_by_harness_alias_drives_canonical_row() {
+fn turn_lifecycle_drives_pubkey_row_resolved_from_harness_locator() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
 
-    let canonical = rt().block_on(async {
+    let pubkey = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         // claude-style: harness supplies its own session id.
         let resp = c
             .call(
                 "session_start",
-                serde_json::json!({"agent":"coder","session_id":"harness-xyz","cwd":"/tmp"}),
+                serde_json::json!({"agent":"coder","harness_session":"harness-xyz","cwd":"/tmp"}),
             )
             .await
             .unwrap();
-        let canonical = resp["session_id"].as_str().unwrap().to_string();
+        let pubkey = resp["pubkey"].as_str().unwrap().to_string();
 
-        // The hook drives turns by the HARNESS id, never the canonical id.
-        c.call("turn_start", serde_json::json!({"session":"harness-xyz"}))
-            .await
-            .expect("turn_start");
-        canonical
+        c.call(
+            "turn_start",
+            serde_json::json!({"harness_session": &pubkey}),
+        )
+        .await
+        .expect("turn_start");
+        pubkey
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-
-    // The daemon must mint a canonical id distinct from the harness id...
-    assert_ne!(
-        canonical, "harness-xyz",
-        "daemon must MINT a canonical id; the harness id is only an alias"
-    );
-    // ...and the harness id must be an ALIAS that resolves to the canonical row,
-    // not a second canonical session. (`get_session` is alias-resolving, so the
-    // raw harness id returns the SAME canonical row — proving it's an alias.
-    // `local_session_snapshot` → `get_session`.)
     assert_eq!(
         store
-            .get_session("harness-xyz")
+            .resolve_pubkey_by_locator("claude-code", "native_resume", "harness-xyz")
             .unwrap()
-            .expect("harness id resolves to a session")
-            .session_id,
-        canonical,
-        "harness id must be an alias onto the canonical row, not a second row"
+            .as_deref(),
+        Some(pubkey.as_str())
     );
 
-    // turn_start via the harness alias must have moved the CANONICAL row: working,
-    // with a turn start timestamp. (The pre-fix bug left it idle. The new schema
-    // tracks `working`/`turn_started_at`; there is no turn_id counter.)
-    let started = store
-        .get_session(&canonical)
-        .unwrap()
-        .expect("canonical session row");
+    let started = store.get_session(&pubkey).unwrap().expect("session row");
     assert!(
         started.working,
-        "turn_start via harness alias must set the CANONICAL row working"
+        "turn_start must set the pubkey row working"
     );
     assert!(
         started.turn_started_at > 0,
-        "turn_start via harness alias must stamp the CANONICAL turn start time"
+        "turn_start must stamp the pubkey row turn start time"
     );
 
     // turn_end via the harness alias must close the CANONICAL turn.
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call("turn_end", serde_json::json!({"session":"harness-xyz"}))
+        c.call("turn_end", serde_json::json!({"harness_session": &pubkey}))
             .await
             .expect("turn_end");
     });
     let ended = store
-        .get_session(&canonical)
+        .get_session(&pubkey)
         .unwrap()
         .expect("canonical session row");
     assert!(
         !ended.working,
-        "turn_end via harness alias must clear working on the CANONICAL row"
+        "turn_end must clear working on the pubkey row"
     );
 
     stop_daemon(&home);

@@ -32,14 +32,11 @@ fn pty_spawn_uses_requested_public_name_and_rejects_conflict() {
     let session = wait_for_alive(&home, "codex", &channel);
     let store = Store::open(&home.store_path()).unwrap();
     let identity = store
-        .identity_for_session(&session.session_id)
+        .session_identity(&session.pubkey)
         .unwrap()
         .expect("named session identity");
-    assert_eq!(identity.codename, session_name);
-    assert_eq!(
-        tenex_edge::idref::session_handle(&identity.agent_slug, &identity.codename),
-        "forensic-researcher-codex"
-    );
+    assert_eq!(identity.slug, session_name);
+    assert_eq!(identity.handle, "forensic-researcher-codex");
 
     let error = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");

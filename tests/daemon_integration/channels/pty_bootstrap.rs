@@ -85,19 +85,13 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
 
     let rec = wait_for_alive(&home, agent, &channel);
     let store = Store::open(&home.store_path()).unwrap();
-    let aliases = store.aliases_for_session(&rec.session_id).unwrap();
+    let locators = store.locators_for_pubkey(&rec.pubkey).unwrap();
     assert_eq!(
-        aliases
+        locators
             .iter()
-            .find(|a| a.external_id_kind == "pty_session")
-            .map(|a| a.external_id.clone()),
+            .find(|locator| locator.locator_kind == "pty")
+            .map(|locator| locator.locator_value.clone()),
         Some(pty_id.clone())
-    );
-    assert!(
-        aliases
-            .iter()
-            .all(|alias| alias.external_id_kind != "pty_socket"),
-        "endpoint metadata, not aliases, owns the PTY socket"
     );
     // Membership is relay-materialized (the daemon publishes the 39002 snapshot
     // and materializes it back from the relay), so poll for it rather than
@@ -106,14 +100,11 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
         wait_until(Duration::from_secs(25), || {
             refresh_channel_members(&channel);
             Store::open(&home.store_path())
-                .map(|s| {
-                    s.is_channel_member(&channel, &rec.agent_pubkey)
-                        .unwrap_or(false)
-                })
+                .map(|s| s.is_channel_member(&channel, &rec.pubkey).unwrap_or(false))
                 .unwrap_or(false)
         }),
         "agent {} did not materialize as a member of {channel}; daemon_log={}",
-        rec.agent_pubkey,
+        rec.pubkey,
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<unreadable: {e}>"))
     );
@@ -161,7 +152,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
             serde_json::json!({
                 "agent": agent,
                 "harness": "codex",
-                "session_id": &native_session,
+                "harness_session": &native_session,
                 "cwd": &work_dir,
                 "channel": &channel,
                 "watch_pid": i32::try_from(meta.supervisor_pid).ok(),
@@ -172,10 +163,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
         .expect("session_start")
     });
 
-    assert_eq!(
-        reasserted["session_id"].as_str(),
-        Some(first.session_id.as_str())
-    );
+    assert_eq!(reasserted["pubkey"].as_str(), Some(first.pubkey.as_str()));
     let store = Store::open(&home.store_path()).unwrap();
     let alive = store
         .list_alive_sessions()
@@ -190,10 +178,10 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
     );
     assert_eq!(
         store
-            .resolve_session_by_alias("codex", "harness_session", &native_session)
+            .resolve_pubkey_by_locator("codex", "native_resume", &native_session,)
             .unwrap()
             .as_deref(),
-        Some(first.session_id.as_str())
+        Some(first.pubkey.as_str())
     );
 
     let _ = tenex_edge::pty::kill(&pty_id);
@@ -252,10 +240,10 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
     let store = Store::open(&home.store_path()).unwrap();
     assert_eq!(
         store
-            .resolve_session_by_alias("codex", "pty_session", &pty_id)
+            .resolve_pubkey_by_locator("codex", "pty", &pty_id)
             .unwrap()
             .as_deref(),
-        Some(first.session_id.as_str())
+        Some(first.pubkey.as_str())
     );
     let alive = store
         .list_alive_sessions()

@@ -7,7 +7,7 @@ use tenex_edge::daemon::client::Client as DaemonClient;
 use tenex_edge::domain::{AgentRef, ChatMessage, DomainEvent};
 use tenex_edge::fabric::nip29::wire::Nip29WireCodec;
 use tenex_edge::identity;
-use tenex_edge::state::{Identity, Session, Store};
+use tenex_edge::state::{Session, Store};
 
 fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::create_dir_all(path).unwrap();
@@ -97,7 +97,7 @@ fn wait_for_alive_session(home: &Home, slug: &str, scope: &str) -> Session {
                 .and_then(|s| s.list_alive_sessions())
                 .unwrap_or_default()
                 .into_iter()
-                .map(|rec| format!("{}:{}:{}", rec.agent_slug, rec.channel_h, rec.session_id))
+                .map(|rec| format!("{}:{}:{}", rec.agent_slug, rec.channel_h, rec.pubkey))
                 .collect();
             found.is_some()
         }),
@@ -200,23 +200,14 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
         1,
     )
     .expect("add local agent");
-    // Seed an offline identity so the mention resolves the p-tagged pubkey to this
+    // Seed an offline profile so the mention resolves the p-tagged pubkey to this
     // agent. With no native id to resume, the handler falls through to a fresh
     // spawn (a new session that mints its own pubkey).
     let agent_pubkey = agent_id.pubkey_hex();
     Store::open(&home.store_path())
         .unwrap()
-        .upsert_identity(&Identity {
-            pubkey: agent_pubkey.clone(),
-            agent_slug: agent.to_string(),
-            codename: String::new(),
-            session_id: String::new(),
-            channel_h: channel.clone(),
-            native_id: String::new(),
-            alive: false,
-            created_at: 1,
-        })
-        .expect("seed offline identity");
+        .upsert_profile_with_agent_slug(&agent_pubkey, agent, agent, agent, "test-host", false, 1)
+        .expect("seed offline profile");
 
     rt().block_on(async {
         let mut c = DaemonClient::connect_or_spawn().await.expect("connect");
@@ -224,7 +215,7 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
             "session_start",
             serde_json::json!({
                 "agent": "keeper",
-                "session_id": unique_session("keeper"),
+                "harness_session": unique_session("keeper"),
                 "cwd": work_dir,
                 "watch_pid": std::process::id(),
             }),
@@ -233,7 +224,7 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
         .expect("keeper session_start");
     });
     let keeper = wait_for_alive_session(&home, "keeper", &channel);
-    wait_for_group_member(&home, &channel, &keeper.agent_pubkey);
+    wait_for_group_member(&home, &channel, &keeper.pubkey);
 
     rt().block_on(async {
         let mut c = DaemonClient::connect_or_spawn().await.expect("connect");
@@ -256,13 +247,13 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
     let rec = wait_for_alive_session(&home, agent, &channel);
     let store = Store::open(&home.store_path()).unwrap();
     let instance = store
-        .session_identity_for_session(&rec.session_id)
+        .session_identity(&rec.pubkey)
         .unwrap()
         .expect("spawned session identity");
-    assert_eq!(instance.pubkey, rec.agent_pubkey);
+    assert_eq!(instance.pubkey, rec.pubkey);
     wait_for_injected_log(&log, &body);
 
-    let pty_id = pty_session_for_session(&store, &rec.session_id).expect("spawned pty endpoint");
+    let pty_id = pty_session_for_session(&store, &rec.pubkey).expect("spawned pty endpoint");
     kill_pty(&pty_id);
     stop_daemon(&home);
 }

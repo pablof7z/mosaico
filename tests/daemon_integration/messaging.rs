@@ -17,33 +17,36 @@ fn session_start_runs_engine_and_records_alive_session() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
 
-    let session_id = rt().block_on(async {
+    let pubkey = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let v = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "coder", "session_id": "sess-int-1", "cwd": "/tmp"}),
+                serde_json::json!({"agent": "coder", "harness_session": "sess-int-1", "cwd": "/tmp"}),
             )
             .await
             .expect("session_start");
-        v["session_id"].as_str().unwrap().to_string()
+        v["pubkey"].as_str().unwrap().to_string()
     });
-    // The daemon MINTS a canonical id; the harness id "sess-int-1" becomes an
-    // alias, never the identity.
-    assert_ne!(session_id, "sess-int-1", "daemon must mint a canonical id");
-
-    // The daemon (single writer) wrote an alive session row, resolvable BOTH by
-    // the canonical id and (via session_aliases) by the harness id.
+    // The daemon writes the session under its sole public identity and keeps the
+    // harness-owned id only as a typed runtime locator.
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store
-        .get_session("sess-int-1")
+        .get_session(&pubkey)
         .unwrap()
-        .expect("session row resolvable by harness alias");
-    assert_eq!(rec.session_id, session_id, "alias resolves to canonical");
+        .expect("session row by pubkey");
+    assert_eq!(rec.pubkey, pubkey);
+    assert_eq!(
+        store
+            .resolve_pubkey_by_locator("claude-code", "native_resume", "sess-int-1",)
+            .unwrap()
+            .as_deref(),
+        Some(pubkey.as_str())
+    );
     assert!(rec.alive);
     assert_eq!(rec.agent_slug, "coder");
 
-    // `who` should surface it as a local row keyed by the canonical id.
+    // `who` surfaces the same public identity.
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
@@ -56,7 +59,7 @@ fn session_start_runs_engine_and_records_alive_session() {
         let rows = v["rows"].as_array().unwrap();
         assert!(
             rows.iter()
-                .any(|r| r["session_id"] == session_id.as_str() && r["source"] == "Local"),
+                .any(|r| r["pubkey"] == pubkey.as_str() && r["source"] == "Local"),
             "who rows: {rows:?}"
         );
     });
@@ -70,14 +73,14 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
     let home = Home::new().with_backend_key();
     let pid = std::process::id() as i32;
 
-    let (old_canon, new_canon) = rt().block_on(async {
+    let (old_pubkey, new_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let v1 = c
             .call(
                 "session_start",
                 serde_json::json!({
                     "agent": "claude",
-                    "session_id": "old-session",
+                    "harness_session": "old-session",
                     "cwd": "/tmp",
                     "watch_pid": pid
                 }),
@@ -89,7 +92,7 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
                 "session_start",
                 serde_json::json!({
                     "agent": "claude",
-                    "session_id": "new-session",
+                    "harness_session": "new-session",
                     "cwd": "/tmp",
                     "watch_pid": pid
                 }),
@@ -97,18 +100,18 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .await
             .expect("second session_start");
         (
-            v1["session_id"].as_str().unwrap().to_string(),
-            v2["session_id"].as_str().unwrap().to_string(),
+            v1["pubkey"].as_str().unwrap().to_string(),
+            v2["pubkey"].as_str().unwrap().to_string(),
         )
     });
 
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
-        !store.get_session("old-session").unwrap().unwrap().alive,
+        !store.get_session(&old_pubkey).unwrap().unwrap().alive,
         "old session should be marked dead"
     );
     assert!(
-        store.get_session("new-session").unwrap().unwrap().alive,
+        store.get_session(&new_pubkey).unwrap().unwrap().alive,
         "new session should remain alive"
     );
 
@@ -123,11 +126,11 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .unwrap();
         let rows = v["rows"].as_array().unwrap();
         assert!(
-            !rows.iter().any(|r| r["session_id"] == old_canon.as_str()),
+            !rows.iter().any(|r| r["pubkey"] == old_pubkey.as_str()),
             "old session leaked into who rows: {rows:?}"
         );
         assert!(
-            rows.iter().any(|r| r["session_id"] == new_canon.as_str()),
+            rows.iter().any(|r| r["pubkey"] == new_pubkey.as_str()),
             "new session missing from who rows: {rows:?}"
         );
     });
@@ -140,35 +143,35 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
 
-    let (sender_canon, receiver_canon) = rt().block_on(async {
+    let (sender_pubkey, receiver_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let s = c.call(
             "session_start",
-            serde_json::json!({"agent": "chat-sender", "session_id": "chat-sender-session", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "chat-sender", "harness_session": "chat-sender-session", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
         let r = c.call(
             "session_start",
-            serde_json::json!({"agent": "chat-receiver", "session_id": "chat-receiver-session", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "chat-receiver", "harness_session": "chat-receiver-session", "cwd": "/tmp"}),
         )
         .await
         .unwrap();
         (
-            s["session_id"].as_str().unwrap().to_string(),
-            r["session_id"].as_str().unwrap().to_string(),
+            s["pubkey"].as_str().unwrap().to_string(),
+            r["pubkey"].as_str().unwrap().to_string(),
         )
     });
     let receiver_row = Store::open(&home.store_path())
         .unwrap()
-        .get_session(&receiver_canon)
+        .get_session(&receiver_pubkey)
         .unwrap()
         .expect("receiver session row");
     let receiver_scope = receiver_row.channel_h.clone();
-    let receiver_pubkey = receiver_row.agent_pubkey.clone();
+    let receiver_pubkey = receiver_row.pubkey.clone();
     let receiver_handle = Store::open(&home.store_path())
         .unwrap()
-        .session_identity_for_session(&receiver_canon)
+        .session_identity(&receiver_pubkey)
         .unwrap()
         .expect("receiver identity")
         .display_slug();
@@ -179,7 +182,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
     Store::open(&home.store_path())
         .unwrap()
         .upsert_profile(
-            &receiver_row.agent_pubkey,
+            &receiver_row.pubkey,
             &receiver_handle,
             &receiver_handle,
             "test-host",
@@ -190,7 +193,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
     let body = "hello from redirected stdin";
     let read_body = target_wire::redirected_stdin_rendered_body(&receiver_handle);
     let wire_body =
-        target_wire::redirected_stdin_body_for_session(&home, &receiver_canon, &receiver_row);
+        target_wire::redirected_stdin_body_for_session(&home, &receiver_pubkey, &receiver_row);
     let out = run_cli_stdin_with_env_in_dir(
         &home,
         &["channel", "send", "--tag", &receiver_handle],
@@ -235,10 +238,10 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
     // The inbox records the sender's per-session pubkey as `from_pubkey`.
     let sender_pubkey = Store::open(&home.store_path())
         .unwrap()
-        .get_session(&sender_canon)
+        .get_session(&sender_pubkey)
         .unwrap()
         .expect("sender session row")
-        .agent_pubkey;
+        .pubkey;
     assert!(
         wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
             .map(|store| receiver_inbox_rows(&store, &receiver_pubkey)
@@ -263,7 +266,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         let statusline = c
             .call(
                 "statusline",
-                serde_json::json!({"session": &receiver_canon}),
+                serde_json::json!({"harness_session": &receiver_pubkey}),
             )
             .await
             .expect("statusline");
@@ -278,14 +281,14 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
 
         c.call(
             "turn_start",
-            serde_json::json!({"session": &receiver_canon}),
+            serde_json::json!({"harness_session": &receiver_pubkey}),
         )
         .await
         .expect("turn_start");
         let statusline = c
             .call(
                 "statusline",
-                serde_json::json!({"session": &receiver_canon}),
+                serde_json::json!({"harness_session": &receiver_pubkey}),
             )
             .await
             .expect("statusline after drain");

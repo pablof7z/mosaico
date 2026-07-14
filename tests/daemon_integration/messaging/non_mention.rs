@@ -12,14 +12,14 @@ fn non_mention_chat_does_not_route_to_inbox() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
 
-    let (sender_canon, receiver_canon) = rt().block_on(async {
+    let (sender_pubkey, receiver_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let s = c
             .call(
                 "session_start",
                 serde_json::json!({
                     "agent": "ambient-sender",
-                    "session_id": "ambient-sender-sess",
+                    "harness_session": "ambient-sender-sess",
                     "cwd": "/tmp"
                 }),
             )
@@ -30,15 +30,15 @@ fn non_mention_chat_does_not_route_to_inbox() {
                 "session_start",
                 serde_json::json!({
                     "agent": "ambient-receiver",
-                    "session_id": "ambient-receiver-sess",
+                    "harness_session": "ambient-receiver-sess",
                     "cwd": "/tmp"
                 }),
             )
             .await
             .unwrap();
         (
-            s["session_id"].as_str().unwrap().to_string(),
-            r["session_id"].as_str().unwrap().to_string(),
+            s["pubkey"].as_str().unwrap().to_string(),
+            r["pubkey"].as_str().unwrap().to_string(),
         )
     });
 
@@ -46,7 +46,7 @@ fn non_mention_chat_does_not_route_to_inbox() {
     // doesn't race relay provisioning (cold-relay readiness stall → ~90s fail).
     let sch = Store::open(&home.store_path())
         .unwrap()
-        .get_session(&sender_canon)
+        .get_session(&sender_pubkey)
         .unwrap()
         .expect("sender session row")
         .channel_h;
@@ -84,16 +84,8 @@ fn non_mention_chat_does_not_route_to_inbox() {
     );
 
     let store = Store::open(&home.store_path()).unwrap();
-    let receiver_pubkey = store
-        .get_session(&receiver_canon)
-        .unwrap()
-        .unwrap()
-        .agent_pubkey;
-    let sender_pubkey = store
-        .get_session(&sender_canon)
-        .unwrap()
-        .unwrap()
-        .agent_pubkey;
+    let receiver_pubkey = store.get_session(&receiver_pubkey).unwrap().unwrap().pubkey;
+    let sender_pubkey = store.get_session(&sender_pubkey).unwrap().unwrap().pubkey;
 
     // Inbox for the receiver must be empty — no doorbell should ring.
     assert!(

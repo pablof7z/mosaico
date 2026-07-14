@@ -241,26 +241,44 @@ pub(crate) fn chat_in_channel(
 /// session identity row has been materialized yet.
 pub(crate) fn session_identity_pubkey(
     store: &tenex_edge::state::Store,
-    session_id: &str,
+    pubkey: &str,
+) -> Option<String> {
+    store.session_identity(pubkey).unwrap().map(|i| i.pubkey)
+}
+
+/// Resolve a harness-owned native session id through its typed locator.
+pub(crate) fn pubkey_for_harness_session(
+    store: &tenex_edge::state::Store,
+    harness: &str,
+    harness_session: &str,
 ) -> Option<String> {
     store
-        .identity_for_session(session_id)
+        .resolve_pubkey_by_locator(harness, "native_resume", harness_session)
         .unwrap()
-        .map(|i| i.pubkey)
+}
+
+pub(crate) fn session_for_harness_session(
+    store: &tenex_edge::state::Store,
+    harness: &str,
+    harness_session: &str,
+) -> tenex_edge::state::Session {
+    let pubkey = pubkey_for_harness_session(store, harness, harness_session)
+        .expect("harness session locator");
+    store.get_session(&pubkey).unwrap().expect("session row")
 }
 
 /// The PTY supervisor id bound to a session via its `pty_session` alias, if any.
 /// Replaces the removed `get_session_endpoint(session, "pty")`.
 pub(crate) fn pty_session_for_session(
     store: &tenex_edge::state::Store,
-    session_id: &str,
+    pubkey: &str,
 ) -> Option<String> {
     store
-        .aliases_for_session(session_id)
+        .locators_for_pubkey(pubkey)
         .unwrap()
         .into_iter()
-        .find(|a| a.external_id_kind == "pty_session")
-        .map(|a| a.external_id)
+        .find(|locator| locator.locator_kind == "pty")
+        .map(|locator| locator.locator_value)
 }
 
 /// Stop the daemon by sending the version-skew please_exit and waiting for the

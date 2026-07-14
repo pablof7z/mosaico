@@ -15,7 +15,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
             "session_start",
             serde_json::json!({
                 "agent": "coder",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "harness": "claude-code",
                 "cwd": "/tmp",
                 "channel": &parent,
@@ -26,12 +26,8 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         .expect("session_start");
     });
 
-    let current_channel = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sid)
-        .unwrap()
-        .expect("session row")
-        .channel_h;
+    let store = Store::open(&home.store_path()).unwrap();
+    let current_channel = session_for_harness_session(&store, "claude-code", &sid).channel_h;
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -57,7 +53,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&sid).unwrap().expect("session row");
+    let rec = session_for_harness_session(&store, "claude-code", &sid);
     assert_ne!(
         rec.channel_h, current_channel,
         "session should have moved to the child"
@@ -89,7 +85,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
             "session_start",
             serde_json::json!({
                 "agent": "coder",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "harness": "claude-code",
                 "cwd": "/tmp",
                 "channel": &parent,
@@ -100,12 +96,8 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
         .expect("session_start");
     });
 
-    let current_channel = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sid)
-        .unwrap()
-        .expect("session row")
-        .channel_h;
+    let store = Store::open(&home.store_path()).unwrap();
+    let current_channel = session_for_harness_session(&store, "claude-code", &sid).channel_h;
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -171,7 +163,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             "session_start",
             serde_json::json!({
                 "agent": "coder",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "harness": "claude-code",
                 "cwd": "/tmp",
                 "channel": &parent,
@@ -182,12 +174,9 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         .expect("session_start");
     });
 
-    let parent_h = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sid)
-        .unwrap()
-        .expect("session row")
-        .channel_h;
+    let store = Store::open(&home.store_path()).unwrap();
+    let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
+    let parent_h = store.get_session(&pubkey).unwrap().unwrap().channel_h;
 
     let child_h = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -261,11 +250,11 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&sid).unwrap().expect("session row");
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_eq!(rec.channel_h, parent_h);
     assert!(
         !store
-            .is_session_joined_channel(&sid, &child_h)
+            .is_session_joined_channel(&pubkey, &child_h)
             .expect("joined-channel check"),
         "leave should remove the passive child-channel join"
     );

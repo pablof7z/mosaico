@@ -2,7 +2,7 @@ use crate::daemon_harness::*;
 use tenex_edge::daemon::client::Client;
 
 #[test]
-fn resolves_to_specific_session_when_session_id_is_supplied() {
+fn resolves_to_specific_session_when_pubkey_is_supplied() {
     // Regression: two sessions of the same agent in the same channel must NOT
     // collapse to a single statusline. When the statusline RPC receives an
     // explicit `session` (the canonical id, stamped as `@te_session` on the
@@ -20,58 +20,66 @@ fn resolves_to_specific_session_when_session_id_is_supplied() {
         let a = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "claude", "session_id": "sess-a", "cwd": "/tmp"}),
+                serde_json::json!({"agent": "claude", "harness_session": "sess-a", "cwd": "/tmp"}),
             )
             .await
             .expect("session_start a");
         let b = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "claude", "session_id": "sess-b", "cwd": "/tmp"}),
+                serde_json::json!({"agent": "claude", "harness_session": "sess-b", "cwd": "/tmp"}),
             )
             .await
             .expect("session_start b");
-        let canon_a = a["session_id"].as_str().unwrap().to_string();
-        let canon_b = b["session_id"].as_str().unwrap().to_string();
-        assert_ne!(canon_a, canon_b, "two sessions must mint distinct ids");
+        let pubkey_a = a["pubkey"].as_str().unwrap().to_string();
+        let pubkey_b = b["pubkey"].as_str().unwrap().to_string();
+        assert_ne!(pubkey_a, pubkey_b, "two sessions must mint distinct keys");
+        let store = tenex_edge::state::Store::open(&home.store_path()).unwrap();
+        let handle_a = store
+            .session_identity(&pubkey_a)
+            .unwrap()
+            .unwrap()
+            .display_slug();
+        let handle_b = store
+            .session_identity(&pubkey_b)
+            .unwrap()
+            .unwrap()
+            .display_slug();
 
         // Statusline with session A's canonical id must show session A.
         let v = c
             .call(
                 "statusline",
-                serde_json::json!({"session": &canon_a, "agent": "claude", "cwd": "/tmp"}),
+                serde_json::json!({"harness_session": &pubkey_a}),
             )
             .await
             .expect("statusline A");
         assert_eq!(
-            v["session_id"].as_str().unwrap(),
-            canon_a,
+            v["agent"].as_str().unwrap(),
+            handle_a,
             "statusline --session A must resolve to session A, not the latest"
         );
         // Statusline with session B's canonical id must show session B.
         let v = c
             .call(
                 "statusline",
-                serde_json::json!({"session": &canon_b, "agent": "claude", "cwd": "/tmp"}),
+                serde_json::json!({"harness_session": &pubkey_b}),
             )
             .await
             .expect("statusline B");
         assert_eq!(
-            v["session_id"].as_str().unwrap(),
-            canon_b,
+            v["agent"].as_str().unwrap(),
+            handle_b,
             "statusline --session B must resolve to session B, not the latest"
         );
         // Statusline with NO session (empty) fails open; harness statusline calls
         // are expected to provide the explicit session id.
         let v = c
-            .call(
-                "statusline",
-                serde_json::json!({"session": "", "agent": "claude", "cwd": "/tmp"}),
-            )
+            .call("statusline", serde_json::json!({"harness_session": ""}))
             .await
             .expect("statusline fallback");
         assert!(
-            v["session_id"].as_str().is_none(),
+            v.as_object().is_some_and(serde_json::Map::is_empty),
             "empty --session should not guess between sessions: got {v}"
         );
     });

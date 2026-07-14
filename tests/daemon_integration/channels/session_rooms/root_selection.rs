@@ -1,7 +1,9 @@
 //! Per-session-room vs work-root channel selection at session start. Split out of
 //! `session_rooms.rs` to keep that file under its LOC baseline.
 use super::super::{rewrite_config_with_user_nsec, unique_session, write_config};
-use crate::daemon_harness::{rt, stop_daemon, wait_until, Home, ENV_LOCK};
+use crate::daemon_harness::{
+    pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
+};
 use tenex_edge::daemon::client::Client;
 use tenex_edge::state::Store;
 
@@ -18,14 +20,15 @@ fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp"}),
         )
         .await
         .expect("session_start");
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&sid).unwrap().expect("session row");
+    let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_eq!(
         rec.channel_h, "tmp",
         "with per-session rooms disabled, the session should use the root channel"

@@ -12,7 +12,7 @@ fn session_start_without_tenex_private_key_generates_key_and_provisions_channel(
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": &sid, "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": "/tmp"}),
         )
         .await
         .expect("session_start should generate a management key and provision");
@@ -60,9 +60,10 @@ fn session_start_without_tenex_private_key_generates_key_and_provisions_channel(
     // (TOCTOU) even after the wait just observed the grant.
 
     let store = Store::open(&home.store_path()).unwrap();
+    let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
     assert!(
         store
-            .get_session(&sid)
+            .get_session(&pubkey)
             .unwrap()
             .map(|rec| rec.alive)
             .unwrap_or(false),
@@ -97,7 +98,7 @@ fn generated_management_key_self_grants_on_existing_user_owned_channel() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": &sid, "cwd": &cwd}),
+            serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": &cwd}),
         )
         .await
         .expect("session_start should self-grant generated management key");
@@ -154,7 +155,7 @@ fn session_start_schedules_unverified_channel_work_without_blocking() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "sess-nogrp", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": "sess-nogrp", "cwd": "/tmp"}),
         )
         .await
         .expect("session_start should register locally without waiting on relay readiness");
@@ -163,9 +164,10 @@ fn session_start_schedules_unverified_channel_work_without_blocking() {
     // Relay readiness is daemon-side work now; session_start itself is the local
     // registration edge and must not block the harness on relay proof.
     let store = Store::open(&home.store_path()).unwrap();
+    let pubkey = pubkey_for_harness_session(&store, "claude-code", "sess-nogrp").unwrap();
     assert!(
         store
-            .get_session("sess-nogrp")
+            .get_session(&pubkey)
             .unwrap()
             .map(|rec| rec.alive)
             .unwrap_or(false),
@@ -197,7 +199,7 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
             "session_start",
             serde_json::json!({
                 "agent": "codex",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "cwd": "/tmp",
                 "channel": real_channel,
                 "watch_pid": std::process::id()
@@ -209,9 +211,10 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
 
     // The daemon resolves the channel name to an opaque channel_h id; read it
     // back from the store so subsequent assertions compare against the real id.
-    let stored_real_channel = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sid)
+    let lookup_store = Store::open(&home.store_path()).unwrap();
+    let pubkey = pubkey_for_harness_session(&lookup_store, "claude-code", &sid).unwrap();
+    let stored_real_channel = lookup_store
+        .get_session(&pubkey)
         .unwrap()
         .expect("session row after first start")
         .channel_h;
@@ -229,7 +232,7 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
             "session_start",
             serde_json::json!({
                 "agent": "codex",
-                "session_id": &sid,
+                "harness_session": &sid,
                 "cwd": "/tmp",
                 "channel": stale_channel,
                 "watch_pid": std::process::id()
@@ -241,7 +244,7 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
 
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store
-        .get_session(&sid)
+        .get_session(&pubkey)
         .unwrap()
         .expect("session row after re-assert");
     assert_eq!(
@@ -252,7 +255,7 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
     // A spurious re-assert with a different channel used to add a second passive
     // join for the stale channel, leaving two rows in session_channels.
     let joined = store
-        .list_session_joined_channels(&sid)
+        .list_session_joined_channels(&pubkey)
         .expect("list_session_joined_channels");
     assert_eq!(
         joined.len(),

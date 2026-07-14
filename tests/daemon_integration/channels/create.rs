@@ -129,16 +129,17 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": sid, "cwd": "/tmp", "channel": parent, "watch_pid": std::process::id()}),
+            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "channel": parent, "watch_pid": std::process::id()}),
         )
         .await
         .expect("session_start");
     });
-    let current_channel = Store::open(&home.store_path())
+    let lookup_store = Store::open(&home.store_path()).unwrap();
+    let pubkey = pubkey_for_harness_session(&lookup_store, "claude-code", &sid).unwrap();
+    let current_channel = lookup_store
+        .get_session(&pubkey)
         .unwrap()
-        .get_session(&sid)
         .unwrap()
-        .expect("session row")
         .channel_h;
 
     // Create a child channel as that agent with NO agents and no explicit parent.
@@ -177,7 +178,7 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
         "new channel should nest under the creator's current channel"
     );
     // The creating session is re-homed onto the new channel.
-    let rec = store.get_session(&sid).unwrap().expect("session row");
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_eq!(
         rec.channel_h, child_h,
         "session route scope should follow the auto-switch onto the new channel"

@@ -96,7 +96,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
             "invite",
             serde_json::json!({
                 "channel": &side,
-                "session": &rec.session_id,
+                "session": &rec.pubkey,
                 "cwd": &work_dir,
             }),
         )
@@ -113,7 +113,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
             "invite",
             serde_json::json!({
                 "channel": &side,
-                "session": &rec.agent_pubkey,
+                "session": &rec.pubkey,
                 "cwd": &work_dir,
             }),
         )
@@ -128,10 +128,9 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
             refresh_channel_members(&side);
             Store::open(&home.store_path())
                 .map(|s| {
-                    s.is_session_joined_channel(&rec.session_id, &side)
+                    s.is_session_joined_channel(&rec.pubkey, &side)
                         .unwrap_or(false)
-                        && s.is_channel_member(&side, &rec.agent_pubkey)
-                            .unwrap_or(false)
+                        && s.is_channel_member(&side, &rec.pubkey).unwrap_or(false)
                 })
                 .unwrap_or(false)
         }),
@@ -142,7 +141,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
 
     let active = Store::open(&home.store_path())
         .unwrap()
-        .get_session(&rec.session_id)
+        .get_session(&rec.pubkey)
         .unwrap()
         .expect("session row after invite")
         .channel_h;

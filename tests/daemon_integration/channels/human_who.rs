@@ -18,7 +18,6 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
     store
         .upsert_status(&tenex_edge::state::Status {
             pubkey: "pk-reviewer".to_string(),
-            session_id: "other-session".to_string(),
             channel_h: other_root.clone(),
             slug: "reviewer".to_string(),
             title: "Reviewing".to_string(),

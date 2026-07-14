@@ -65,17 +65,21 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
         // initial 39000/39002 subscription.
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "freeze-grp-idem-1", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": "freeze-grp-idem-1", "cwd": "/tmp"}),
         )
         .await
         .expect("first session_start");
     });
 
+    let lookup_store = Store::open(&home.store_path()).unwrap();
+    let pubkey =
+        pubkey_for_harness_session(&lookup_store, "claude-code", "freeze-grp-idem-1").unwrap();
+
     assert!(
         wait_until(Duration::from_secs(20), || Store::open(&home.store_path())
             .map(|store| {
                 store
-                    .get_session("freeze-grp-idem-1")
+                    .get_session(&pubkey)
                     .ok()
                     .flatten()
                     .and_then(|rec| store.channel_parent(&rec.channel_h).ok().flatten())
@@ -88,10 +92,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // Record baseline membership state.
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store
-        .get_session("freeze-grp-idem-1")
-        .unwrap()
-        .expect("session row");
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     let channel = rec.channel_h.clone();
 
     // FREEZE: the minted room's parent root channel is present after first
@@ -114,7 +115,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     // by a per-role high-water mark, and a real relay event's timestamp (~1.7e9)
     // beats this low seed ts — so the live snapshot, not this seed, would win.
     let mem_h = "freeze-39002-members";
-    let members_snapshot = vec![rec.agent_pubkey.clone()];
+    let members_snapshot = vec![rec.pubkey.clone()];
     let ts = 9_000_000u64;
     store
         .replace_channel_members(mem_h, &members_snapshot, ts)
@@ -125,7 +126,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // FREEZE: membership is stable — no duplication, same set.
     assert!(
-        store.is_channel_member(mem_h, &rec.agent_pubkey).unwrap(),
+        store.is_channel_member(mem_h, &rec.pubkey).unwrap(),
         "member still present after double-apply of 39002 snapshot"
     );
     // Count members via list — expect exactly 1 (no duplication).
@@ -174,19 +175,20 @@ fn freeze_status_outbox_is_debuggable_and_presence_is_unified() {
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
 
-    rt().block_on(async {
+    let pubkey = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
+        let started = c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "session_id": "freeze-outbox-1", "cwd": "/tmp"}),
+            serde_json::json!({"agent": "coder", "harness_session": "freeze-outbox-1", "cwd": "/tmp"}),
         )
         .await
         .expect("session_start");
+        let pubkey = started["pubkey"].as_str().unwrap().to_string();
 
         c.call(
             "turn_start",
             serde_json::json!({
-                "session": "freeze-outbox-1",
+                "harness_session": &pubkey,
                 "cwd": "/tmp",
                 "prompt": "investigate unified presence state",
                 "json": false
@@ -207,22 +209,20 @@ fn freeze_status_outbox_is_debuggable_and_presence_is_unified() {
             debug["rows"].as_array().is_some(),
             "debug_outbox must remain debuggable (rows array): {debug}"
         );
+        pubkey
     });
 
     // Presence is unified: the published kind:30315 is reflected into the
     // `relay_status` cache under the session's DURABLE agent pubkey (the same
     // identity that signs chat) — not a separate presence table.
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store
-        .get_session("freeze-outbox-1")
-        .unwrap()
-        .expect("session row");
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert!(
         wait_until(Duration::from_secs(20), || {
             Store::open(&home.store_path())
                 .map(|s| {
                     s.live_status_for_channel(&rec.channel_h, 0)
-                        .map(|rows| rows.iter().any(|r| r.pubkey == rec.agent_pubkey))
+                        .map(|rows| rows.iter().any(|r| r.pubkey == rec.pubkey))
                         .unwrap_or(false)
                 })
                 .unwrap_or(false)
@@ -243,7 +243,6 @@ fn freeze_peer_status_materializes_to_unified_presence_state() {
     store
         .upsert_status(&Status {
             pubkey: "peer-pubkey".into(),
-            session_id: "peer-session".into(),
             channel_h: "proj".into(),
             slug: "peer".into(),
             title: "reviewing relay state".into(),

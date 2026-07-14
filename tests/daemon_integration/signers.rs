@@ -59,7 +59,7 @@ async fn start_session(
         "harness": "codex",
     });
     if let Some(id) = harness_id {
-        params["session_id"] = serde_json::json!(id);
+        params["harness_session"] = serde_json::json!(id);
     }
     if let Some(id) = resume_id {
         params["resume_id"] = serde_json::json!(id);
@@ -68,7 +68,7 @@ async fn start_session(
         .call("session_start", params)
         .await
         .expect("session_start");
-    v["session_id"].as_str().unwrap().to_string()
+    v["pubkey"].as_str().unwrap().to_string()
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
         .get_session(&first_id)
         .unwrap()
         .expect("first session")
-        .agent_pubkey;
+        .pubkey;
     let second_pubkey = session_identity_pubkey(&store, &second_id)
         .expect("second concurrent session should get a distinct ordinal pubkey");
     assert_ne!(
@@ -150,11 +150,11 @@ fn concurrent_same_agent_sessions_publish_consistent_identities() {
     // Each session reports its OWN (pubkey, codename-agent) pair through the
     // identity that backs `who`.
     let first_instance = store
-        .session_identity_for_session(&first_id)
+        .session_identity(&first_id)
         .unwrap()
         .expect("first session identity");
     let second_instance = store
-        .session_identity_for_session(&second_id)
+        .session_identity(&second_id)
         .unwrap()
         .expect("second session identity");
     let first_handle = first_instance.display_slug();
@@ -203,7 +203,7 @@ fn duplicate_resume_reassert_preserves_selected_pubkey() {
         .expect("duplicate session should have selected pubkey");
     let instance = Store::open(&home.store_path())
         .unwrap()
-        .session_identity_for_session(&duplicate_id)
+        .session_identity(&duplicate_id)
         .unwrap()
         .expect("duplicate session identity");
     assert_eq!(
@@ -228,7 +228,7 @@ fn duplicate_resume_reassert_preserves_selected_pubkey() {
         .expect("reasserted duplicate should keep selected pubkey");
     assert_eq!(
         duplicate_id, duplicate_id_after,
-        "resume_id should resolve to the same canonical session"
+        "resume_id should resolve to the same session pubkey"
     );
     assert_eq!(before, after, "resume must preserve selected pubkey");
 

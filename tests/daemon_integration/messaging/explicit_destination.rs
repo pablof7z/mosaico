@@ -16,7 +16,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "session_start",
                 serde_json::json!({
                     "agent": "sender",
-                    "session_id": "explicit-destination-sender",
+                    "harness_session": "explicit-destination-sender",
                     "cwd": "/tmp"
                 }),
             )
@@ -27,7 +27,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "session_start",
                 serde_json::json!({
                     "agent": "receiver",
-                    "session_id": "explicit-destination-receiver",
+                    "harness_session": "explicit-destination-receiver",
                     "cwd": "/tmp"
                 }),
             )
@@ -38,16 +38,16 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "session_start",
                 serde_json::json!({
                     "agent": "second-receiver",
-                    "session_id": "explicit-destination-second-receiver",
+                    "harness_session": "explicit-destination-second-receiver",
                     "cwd": "/tmp"
                 }),
             )
             .await
             .expect("start second receiver");
         (
-            sender["session_id"].as_str().unwrap().to_string(),
-            receiver["session_id"].as_str().unwrap().to_string(),
-            second_receiver["session_id"].as_str().unwrap().to_string(),
+            sender["pubkey"].as_str().unwrap().to_string(),
+            receiver["pubkey"].as_str().unwrap().to_string(),
+            second_receiver["pubkey"].as_str().unwrap().to_string(),
         )
     });
 
@@ -85,15 +85,15 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         2
     );
     let sender_identity = store
-        .session_identity_for_session(&sender)
+        .session_identity(&sender)
         .unwrap()
         .expect("sender identity");
     let receiver_identity = store
-        .session_identity_for_session(&receiver)
+        .session_identity(&receiver)
         .unwrap()
         .expect("receiver identity");
     let second_receiver_identity = store
-        .session_identity_for_session(&second_receiver)
+        .session_identity(&second_receiver)
         .unwrap()
         .expect("second receiver identity");
     let receiver_handle = receiver_identity.display_slug();
@@ -229,25 +229,23 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     let home = Home::new().with_backend_key();
 
     let store = Store::open(&home.store_path()).unwrap();
-    let canonical = store
-        .register_session(&tenex_edge::state::RegisterSession {
+    let pubkey = "pk-multi-chat".to_string();
+    store
+        .reserve_session(&tenex_edge::state::RegisterSession {
+            pubkey: pubkey.clone(),
             harness: "codex".to_string(),
-            external_id_kind: "harness_session".to_string(),
-            external_id: "multi-chat-session".to_string(),
-            agent_pubkey: "pk-multi-chat".to_string(),
             agent_slug: "multi-chat".to_string(),
             channel_h: "root-chat-channel".to_string(),
             child_pid: None,
             transcript_path: None,
-            resume_id: String::new(),
             now: 1,
         })
         .unwrap();
     store
-        .join_session_channel(&canonical, "root-chat-channel", 1)
+        .join_session_channel(&pubkey, "root-chat-channel", 1)
         .unwrap();
     store
-        .join_session_channel(&canonical, "other-chat-channel", 2)
+        .join_session_channel(&pubkey, "other-chat-channel", 2)
         .unwrap();
 
     let write_err = rt().block_on(async {
@@ -257,7 +255,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
                 "channel_send",
                 serde_json::json!({
                     "message": "ambiguous write",
-                    "session": &canonical
+                    "session": &pubkey
                 }),
             )
             .await
@@ -276,7 +274,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
             .stream(
                 "channel_read",
                 serde_json::json!({
-                    "session": &canonical,
+                    "session": &pubkey,
                     "tail": true
                 }),
                 |_| {},
