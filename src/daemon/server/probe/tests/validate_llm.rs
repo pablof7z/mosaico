@@ -66,7 +66,7 @@ async fn rpc_probe_validate_llm_target_fails_missing_call() {
 
 fn seed_llm_call(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     with_receipt: bool,
 ) -> (i64, String) {
     let wh = window_hash("transcript slice");
@@ -74,7 +74,7 @@ fn seed_llm_call(
     let id = state
         .with_store(|s| {
             let id = s.record_llm_call(&NewLlmCall {
-                session_id: session_id.into(),
+                pubkey: pubkey.into(),
                 window_hash: wh.clone(),
                 provider: "ollama".into(),
                 model: "glm".into(),
@@ -90,14 +90,8 @@ fn seed_llm_call(
                     surface: "status".into(),
                     transaction_id: 7,
                     revision: 3,
-                    changed_summary: changed_summary_json(
-                        &[],
-                        &[],
-                        &[],
-                        Some(session_id),
-                        Some(&wh),
-                    ),
-                    commands: format!(r#"[{{"kind":"replace","key":"status/{session_id}"}}]"#),
+                    changed_summary: changed_summary_json(&[], &[], &[], Some(pubkey), Some(&wh)),
+                    commands: format!(r#"[{{"kind":"replace","key":"status/{pubkey}"}}]"#),
                     artifact_ref: Some(event_id.clone()),
                     created_at: 101,
                 })?;
@@ -108,39 +102,32 @@ fn seed_llm_call(
     (id, event_id)
 }
 
-fn seed_alive_session(state: &std::sync::Arc<DaemonState>, session_id: &str) {
+fn seed_alive_session(state: &std::sync::Arc<DaemonState>, pubkey: &str) {
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: format!("native-{session_id}"),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: "room".into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: pubkey.into(),
+                agent_slug: "coder".into(),
+                channel_h: "room".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
 }
 
-fn seed_status_graph(state: &std::sync::Arc<DaemonState>, session_id: &str) {
+fn seed_status_graph(state: &std::sync::Arc<DaemonState>, pubkey: &str) {
     state
         .status
         .lock()
         .unwrap()
         .on_session_started(
-            session_id,
+            pubkey,
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             false,

@@ -51,7 +51,6 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -109,7 +108,7 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     replay_script
         .step("tick")
         .operation(InputFact::StatusDrive(StatusDrive::Tick {
-            session_id: "missing".into(),
+            pubkey: "missing".into(),
             at: 1_700_000_010,
         }))
         .commit();
@@ -204,7 +203,7 @@ async fn rpc_probe_reflects_driven_state_for_every_verb() {
     assert_eq!(sim["revision_before"], sim["revision_after"]);
 
     let fact = InputFact::StatusDrive(StatusDrive::DistillCompleted {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         title: "T".into(),
         activity: "compiling".into(),
         window_hash: Some("sha256:w2".into()),

@@ -50,7 +50,7 @@ async fn rpc_probe_validate_event_prefix_explains_trellis_artifact() {
     state
         .with_store(|s| {
             s.record_llm_call(&NewLlmCall {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 window_hash: wh.clone(),
                 provider: "ollama".into(),
                 model: "glm".into(),

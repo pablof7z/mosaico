@@ -62,7 +62,7 @@ async fn rpc_probe_validate_hook_target_fails_historical_receipt_without_live_gr
 
 fn seed_session_row(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     channel_h: &str,
     confirmed_channel: bool,
 ) {
@@ -73,21 +73,15 @@ fn seed_session_row(
                 s.replace_channel_admins(channel_h, &["pk-admin".to_string()], 100)?;
                 s.replace_channel_members(channel_h, &["pk1".to_string(), "pk2".to_string()], 100)?;
             }
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: format!("native-{session_id}"),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: channel_h.into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: pubkey.into(),
+                agent_slug: "coder".into(),
+                channel_h: channel_h.into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -95,27 +89,21 @@ fn seed_session_row(
 
 fn seed_session_channel_without_roster(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     channel_h: &str,
 ) {
     state
         .with_store(|s| {
             s.upsert_channel(channel_h, channel_h, "", "", 100)?;
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: format!("native-{session_id}"),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: channel_h.into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: pubkey.into(),
+                agent_slug: "coder".into(),
+                channel_h: channel_h.into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -123,7 +111,7 @@ fn seed_session_channel_without_roster(
 
 fn seed_hook_graph_and_receipt(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     override_revision: Option<i64>,
 ) {
     let inputs: ViewInputs = serde_json::from_value(json!({
@@ -143,12 +131,12 @@ fn seed_hook_graph_and_receipt(
         "messages": { "channels": {} }
     }))
     .unwrap();
-    seed_hook_graph_and_receipt_with_inputs(state, session_id, inputs, override_revision);
+    seed_hook_graph_and_receipt_with_inputs(state, pubkey, inputs, override_revision);
 }
 
 fn seed_hook_graph_and_receipt_with_inputs(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     inputs: ViewInputs,
     override_revision: Option<i64>,
 ) {
@@ -156,14 +144,14 @@ fn seed_hook_graph_and_receipt_with_inputs(
         .hook_contexts
         .lock()
         .unwrap()
-        .entry(session_id.into())
+        .entry(pubkey.into())
         .or_default()
-        .render_context(session_id, "turn_start", 0, 100, inputs)
+        .render_context(pubkey, "turn_start", 0, 100, inputs)
         .unwrap();
     let revision = override_revision.unwrap_or(outcome.revision);
     record_hook_receipt(
         state,
-        session_id,
+        pubkey,
         revision,
         &outcome.receipt.to_json().to_string(),
     );
@@ -201,7 +189,7 @@ fn local_agents_and_members_inputs() -> ViewInputs {
             "self_row": {
                 "agent": "coder",
                 "backend": "laptop",
-                "session_id": "s1"
+                "pubkey": "s1"
             },
             "workspace": { "name": "room", "channel": "room", "about": "" },
             "agents": [{
@@ -235,7 +223,7 @@ fn local_agents_and_members_inputs() -> ViewInputs {
 
 fn record_hook_receipt(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     revision: i64,
     changed_summary: &str,
 ) {
@@ -247,7 +235,7 @@ fn record_hook_receipt(
                 revision,
                 changed_summary: changed_summary.into(),
                 commands: "[]".into(),
-                artifact_ref: Some(format!("{session_id}:turn_start:100")),
+                artifact_ref: Some(format!("{pubkey}:turn_start:100")),
                 created_at: 100,
             })?;
             Ok::<(), anyhow::Error>(())

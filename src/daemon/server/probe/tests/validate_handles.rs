@@ -56,7 +56,7 @@ async fn rpc_probe_validate_slash_status_handle_keeps_acid_evidence() {
             "fact": {
                 "StatusDrive": {
                     "DistillCompleted": {
-                        "session_id": "s1",
+                        "pubkey": "s1",
                         "title": "T",
                         "activity": "compiling",
                         "window_hash": "sha256:w2",
@@ -118,7 +118,6 @@ fn seed_visible_path_state(state: &std::sync::Arc<DaemonState>) {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -149,7 +148,7 @@ fn seed_visible_path_state(state: &std::sync::Arc<DaemonState>) {
         .expect("turn lifecycle mutex")
         .on_turn_started(
             TurnProjectionSeed {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 working: false,
                 turn_started_at: 0,
                 transcript_ref: None,
@@ -165,11 +164,11 @@ fn seed_visible_path_state(state: &std::sync::Arc<DaemonState>) {
         .expect("cursor mutex")
         .request(
             CursorSeed {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 seen_cursor: 10,
             },
             InputFact::TurnCheckRequested {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 observed_cursor: 10,
                 working: true,
                 at: 120,
@@ -203,9 +202,8 @@ fn seed_visible_path_state(state: &std::sync::Arc<DaemonState>) {
         .lock()
         .expect("session watch mutex")
         .apply(&InputFact::SessionStarted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk1".into()),
             pid: Some(42),
             at: 100,
         })
@@ -214,11 +212,9 @@ fn seed_visible_path_state(state: &std::sync::Arc<DaemonState>) {
 
 fn session_start_request() -> SessionStartRequestFact {
     SessionStartRequestFact {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         agent: "coder".into(),
         harness: "codex".into(),
-        external_id_kind: "harness_session".into(),
-        external_id: "native-1".into(),
         native_id: "native-1".into(),
         work_root: "/repo".into(),
         channel_h: "room".into(),
@@ -229,7 +225,6 @@ fn session_start_request() -> SessionStartRequestFact {
         watch_pid: Some(42),
         pty_session: Some("%1".into()),
         ring_doorbell: true,
-        signer_pubkey: "base".into(),
         signer_label: "coder".into(),
         already_running: false,
         channel_already_subscribed: false,

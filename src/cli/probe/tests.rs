@@ -81,21 +81,21 @@ fn simulate_action_parses_fact_json() {
 fn diff_action_projects_rpc_params() {
     let action = ProbeAction::Diff {
         surface: "status".into(),
-        fact: r#"{"StatusDrive":{"Tick":{"session_id":"s1","at":1}}}"#.into(),
+        fact: r#"{"StatusDrive":{"Tick":{"pubkey":"s1","at":1}}}"#.into(),
         capsule: Some("7".into()),
         mutate_fact: None,
     };
     let (verb, params) = action.to_rpc().unwrap();
     assert_eq!(verb, "diff");
     assert_eq!(params["capsule"], "7");
-    assert_eq!(params["fact"]["StatusDrive"]["Tick"]["session_id"], "s1");
+    assert_eq!(params["fact"]["StatusDrive"]["Tick"]["pubkey"], "s1");
 }
 
 #[test]
 fn acid_action_projects_rpc_params() {
     let action = ProbeAction::Acid {
         handle: "status:s1".into(),
-        fact: r#"{"StatusDrive":{"Tick":{"session_id":"s1","at":1}}}"#.into(),
+        fact: r#"{"StatusDrive":{"Tick":{"pubkey":"s1","at":1}}}"#.into(),
         cause: Some("status/s1/activity".into()),
     };
     let (verb, params) = action.to_rpc().unwrap();

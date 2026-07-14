@@ -12,7 +12,6 @@ fn status_handle_explains_last_command() {
         "s1",
         "laptop",
         "coder",
-        "pk1",
         ".",
         BTreeSet::from(["room".to_string()]),
         true,
@@ -54,7 +53,7 @@ fn turn_handle_explains_projection_cause() {
     let mut r = TurnLifecycleReconciler::new();
     r.on_turn_started(
         TurnProjectionSeed {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             working: false,
             turn_started_at: 0,
             transcript_ref: None,
@@ -78,11 +77,11 @@ fn cursor_handle_explains_projection_cause() {
     let mut r = crate::reconcile::CursorReconciler::new();
     r.request(
         crate::reconcile::CursorSeed {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             seen_cursor: 10,
         },
         crate::reconcile::InputFact::TurnCheckRequested {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             observed_cursor: 10,
             working: true,
             at: 20,
@@ -120,9 +119,8 @@ fn outbox_handle_explains_projection_cause() {
 fn session_watch_handle_explains_liveness_cause() {
     let mut r = crate::reconcile::Reconciler::new().unwrap();
     r.apply(&crate::reconcile::InputFact::SessionStarted {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         channel_h: Some("room".into()),
-        agent_pubkey: Some("pk".into()),
         pid: Some(42),
         at: 100,
     })

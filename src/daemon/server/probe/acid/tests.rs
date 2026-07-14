@@ -11,7 +11,6 @@ async fn status_acid_verifies_activity_cause_and_unrelated_hash() {
             "s1",
             "host",
             "agent",
-            "pk",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -23,7 +22,7 @@ async fn status_acid_verifies_activity_cause_and_unrelated_hash() {
         r.on_distill("s1", "T", "reviewing", 130).unwrap();
     }
     let fact = InputFact::StatusDrive(StatusDrive::DistillCompleted {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         title: "T".into(),
         activity: "writing".into(),
         window_hash: Some("sha256:w2".into()),
@@ -84,7 +83,7 @@ async fn turn_acid_verifies_turn_started_cause() {
         let mut r = state.turn_lifecycle.lock().unwrap();
         r.on_turn_started(
             crate::reconcile::TurnProjectionSeed {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 working: false,
                 turn_started_at: 0,
                 transcript_ref: None,
@@ -95,7 +94,7 @@ async fn turn_acid_verifies_turn_started_cause() {
         .unwrap();
         r.on_turn_started(
             crate::reconcile::TurnProjectionSeed {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 working: true,
                 turn_started_at: 100,
                 transcript_ref: None,
@@ -106,7 +105,7 @@ async fn turn_acid_verifies_turn_started_cause() {
         .unwrap();
     }
     let fact = InputFact::TurnStarted {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         at: 160,
     };
     let v = acid_value(
@@ -126,11 +125,11 @@ async fn cursor_acid_verifies_observed_cursor_cause() {
         let mut r = state.cursor.lock().unwrap();
         r.request(
             crate::reconcile::CursorSeed {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 seen_cursor: 10,
             },
             InputFact::TurnCheckRequested {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 observed_cursor: 10,
                 working: true,
                 at: 20,
@@ -139,7 +138,7 @@ async fn cursor_acid_verifies_observed_cursor_cause() {
         .unwrap();
     }
     let fact = InputFact::TurnCheckRequested {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         observed_cursor: 20,
         working: true,
         at: 30,

@@ -15,7 +15,7 @@ fn seed_status_publish(store: &Store, session: &str, event_id: &str, created_at:
     let wh = window_hash(SLICE_MARKER);
     store
         .record_llm_call(&NewLlmCall {
-            session_id: session.into(),
+            pubkey: session.into(),
             window_hash: wh.clone(),
             provider: "claude-cli".into(),
             model: "claude-haiku".into(),
@@ -97,7 +97,7 @@ fn explain_session_at_ts_picks_nearest_llm_call() {
     for (wh_seed, ts) in [("a", 1_000_i64), ("b", 5_000), ("c", 9_000)] {
         store
             .record_llm_call(&NewLlmCall {
-                session_id: "sid-1".into(),
+                pubkey: "sid-1".into(),
                 window_hash: window_hash(wh_seed),
                 provider: "p".into(),
                 model: "m".into(),

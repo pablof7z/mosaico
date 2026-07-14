@@ -143,8 +143,8 @@ fn session_identity_agent_ref_names_pubkey_by_codename() {
     let inst = SessionIdentity::new(
         "deadbeef".into(),
         "claude".into(),
-        "sess-123".into(),
-        "willow-echo-042".into(),
+        "willow-echo-042-claude".into(),
+        false,
     );
     assert_eq!(inst.display_slug(), "willow-echo-042-claude");
     let aref = inst.agent_ref();
@@ -153,25 +153,10 @@ fn session_identity_agent_ref_names_pubkey_by_codename() {
 }
 
 #[test]
-fn session_identity_fallback_does_not_invent_a_handle() {
-    let keys = nostr_sdk::prelude::Keys::generate();
-    let pubkey = keys.public_key().to_hex();
-    let inst = SessionIdentity::fallback("sess-xyz", "claude".into(), pubkey.clone());
-    assert_eq!(inst.pubkey, pubkey);
-    assert_eq!(inst.slug, "claude");
-    assert_eq!(inst.session_id, "sess-xyz");
-    assert!(inst.codename.is_empty());
-    assert_eq!(inst.display_slug(), crate::idref::npub(&pubkey).unwrap());
-}
-
-#[test]
 fn durable_agent_identity_uses_bare_agent_slug() {
     let keys = Keys::generate();
-    let identity = SessionIdentity::durable_agent(
-        keys.public_key().to_hex(),
-        "chief-of-staff".into(),
-        "session".into(),
-    );
+    let identity =
+        SessionIdentity::durable_agent(keys.public_key().to_hex(), "chief-of-staff".into());
     assert_eq!(identity.display_slug(), "chief-of-staff");
     assert!(identity.durable_agent);
 }

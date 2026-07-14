@@ -249,7 +249,6 @@ mod tests {
                 "s1",
                 "laptop",
                 "coder",
-                "pk1",
                 ".",
                 BTreeSet::from(["room".to_string()]),
                 true,

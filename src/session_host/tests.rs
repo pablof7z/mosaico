@@ -221,8 +221,8 @@ fn opencode_headless_resume_uses_session_flag() {
 
 fn sample_session() -> crate::state::Session {
     crate::state::Session {
-        session_id: "sess-target".into(),
-        agent_pubkey: "pk-target".into(),
+        pubkey: "pk-target".into(),
+        runtime_generation: 1,
         agent_slug: "claude".into(),
         channel_h: "proj".into(),
         harness: "claude".into(),
@@ -239,7 +239,6 @@ fn sample_session() -> crate::state::Session {
         seen_cursor: 0,
         title: String::new(),
         activity: String::new(),
-        resume_id: String::new(),
         distill_fail_streak: 0,
         distill_notice_at: 0,
         explicit_chat_published_at: 0,
@@ -252,7 +251,7 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     // Renderer shows the short sender pubkey.
     let row = crate::state::InboxRow {
         event_id: "abcdef123456".into(),
-        target_pubkey: rec.agent_pubkey.clone(),
+        target_pubkey: rec.pubkey.clone(),
         state: "pending".into(),
         from_pubkey: "pk-sender".into(),
         channel_h: "proj".into(),
@@ -284,7 +283,7 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
     let rec = sample_session();
     let row = crate::state::InboxRow {
         event_id: "ev-human".into(),
-        target_pubkey: rec.agent_pubkey.clone(),
+        target_pubkey: rec.pubkey.clone(),
         state: "pending".into(),
         from_pubkey: "human-pk".into(),
         channel_h: "channel-writer-test".into(),

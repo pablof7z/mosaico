@@ -18,7 +18,6 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -32,21 +31,15 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
     }
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                "s1",
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: "native-1".into(),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: "room".into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 1_700_000_010,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: "s1".into(),
+                agent_slug: "coder".into(),
+                channel_h: "room".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1_700_000_010,
+            })?;
             s.set_working("s1", true, 1_700_000_010)?;
             s.set_session_distill("s1", "T", "reviewing the PR", 1_700_000_010)?;
             Ok::<(), anyhow::Error>(())
@@ -72,9 +65,8 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk1".into()),
             pid: None,
             at: 1_700_000_010,
         })
@@ -89,7 +81,7 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
             "fact": {
                 "StatusDrive": {
                     "DistillCompleted": {
-                        "session_id": "s1",
+                        "pubkey": "s1",
                         "title": "T",
                         "activity": "compiling",
                         "window_hash": "sha256:w2",
@@ -119,7 +111,7 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
             "fact": {
                 "StatusDrive": {
                     "Tick": {
-                        "session_id": "s1",
+                        "pubkey": "s1",
                         "at": 1_700_000_030
                     }
                 }
@@ -158,7 +150,7 @@ async fn rpc_probe_validate_explains_published_artifact_handles() {
     state
         .with_store(|s| {
             s.record_llm_call(&NewLlmCall {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 window_hash: wh.clone(),
                 provider: "ollama".into(),
                 model: "glm".into(),
@@ -231,7 +223,7 @@ fn seed_replay_capsule(state: &std::sync::Arc<DaemonState>) {
     script
         .step("tick")
         .operation(InputFact::StatusDrive(StatusDrive::Tick {
-            session_id: "missing".into(),
+            pubkey: "missing".into(),
             at: 1_700_000_010,
         }))
         .commit();

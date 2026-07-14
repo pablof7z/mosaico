@@ -10,16 +10,13 @@ async fn rpc_probe_validate_awareness_reports_confirmed_channel_roster() {
             s.upsert_channel("room", "Room", "work room", "", now)?;
             s.replace_channel_admins("room", &["pk-admin".to_string()], now)?;
             s.replace_channel_members("room", &["pk-agent".to_string()], now)?;
-            s.register_session(&RegisterSession {
+            s.reserve_session(&RegisterSession {
                 harness: "codex".into(),
-                external_id_kind: "harness_session".into(),
-                external_id: "ext-1".into(),
-                agent_pubkey: "pk-agent".into(),
+                pubkey: "pk-agent".into(),
                 agent_slug: "coder".into(),
                 channel_h: "room".into(),
                 child_pid: Some(42),
                 transcript_path: None,
-                resume_id: String::new(),
                 now,
             })?;
             Ok::<(), anyhow::Error>(())

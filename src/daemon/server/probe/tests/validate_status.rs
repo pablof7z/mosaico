@@ -31,21 +31,15 @@ async fn rpc_probe_validate_status_fails_dead_local_session_contradiction() {
     seed_status_graph(&state, "s1");
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                "s1",
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: "native-1".into(),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: "room".into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: "s1".into(),
+                agent_slug: "coder".into(),
+                channel_h: "room".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             s.mark_dead("s1")?;
             Ok::<(), anyhow::Error>(())
         })
@@ -114,16 +108,15 @@ async fn rpc_probe_validate_status_reports_expired_relay_status_as_not_proven() 
         .any(|l| l.as_str().unwrap().contains("all are expired")));
 }
 
-fn seed_status_graph(state: &std::sync::Arc<DaemonState>, session_id: &str) {
+fn seed_status_graph(state: &std::sync::Arc<DaemonState>, pubkey: &str) {
     state
         .status
         .lock()
         .unwrap()
         .on_session_started(
-            session_id,
+            pubkey,
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -134,12 +127,11 @@ fn seed_status_graph(state: &std::sync::Arc<DaemonState>, session_id: &str) {
         .unwrap();
 }
 
-fn seed_relay_status(state: &std::sync::Arc<DaemonState>, session_id: &str, expiration: u64) {
+fn seed_relay_status(state: &std::sync::Arc<DaemonState>, pubkey: &str, expiration: u64) {
     state
         .with_store(|s| {
             s.upsert_status(&Status {
-                pubkey: "pk-peer".into(),
-                session_id: session_id.into(),
+                pubkey: pubkey.into(),
                 channel_h: "room".into(),
                 slug: "peer".into(),
                 title: "Peer task".into(),

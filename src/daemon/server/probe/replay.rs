@@ -66,7 +66,7 @@ mod tests {
         script
             .step("tick")
             .operation(InputFact::StatusDrive(StatusDrive::Tick {
-                session_id: "missing".into(),
+                pubkey: "missing".into(),
                 at: 100,
             }))
             .commit();

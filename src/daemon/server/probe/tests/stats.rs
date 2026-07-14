@@ -56,8 +56,8 @@ fn drive_subscription_sync_for_stats(
     });
 }
 
-fn subscription_snapshot(session_ids: &[&str]) -> CoverageSnapshot {
-    let sessions = session_ids
+fn subscription_snapshot(pubkeys: &[&str]) -> CoverageSnapshot {
+    let sessions = pubkeys
         .iter()
         .map(|id| ((*id).to_string(), BTreeSet::from(["room".to_string()])))
         .collect();

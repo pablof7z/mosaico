@@ -9,7 +9,6 @@ async fn rpc_probe_validate_uses_arm_cause_for_status_refresh() {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             false,
@@ -29,7 +28,7 @@ async fn rpc_probe_validate_uses_arm_cause_for_status_refresh() {
             "fact": {
                 "StatusDrive": {
                     "DistillCompleted": {
-                        "session_id": "s1",
+                        "pubkey": "s1",
                         "title": "T",
                         "activity": "hidden while idle",
                         "window_hash": "sha256:w",
@@ -55,7 +54,6 @@ async fn rpc_probe_validate_reports_acid_errors_inside_envelope() {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             false,
@@ -75,7 +73,7 @@ async fn rpc_probe_validate_reports_acid_errors_inside_envelope() {
             "fact": {
                 "StatusDrive": {
                     "Tick": {
-                        "session_id": "s1",
+                        "pubkey": "s1",
                         "at": 160
                     }
                 }

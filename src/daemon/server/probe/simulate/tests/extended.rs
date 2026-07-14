@@ -23,7 +23,7 @@ async fn simulate_hook_context_accepts_input_fact_json_without_mutating() {
     let state = DaemonState::new_for_test().await;
     seed_hook_context_graph(&state);
     let fact = InputFact::HookContextRender(HookContextRenderFact {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         hook_kind: "turn_start".into(),
         cursor: 0,
         now: 100,
@@ -84,16 +84,15 @@ async fn simulate_process_exit_closes_session_watch_without_mutating() {
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk".into()),
             pid: Some(42),
             at: 100,
         })
         .unwrap();
     let before_rev = state.session_watch.lock().unwrap().revision();
     let fact = InputFact::ProcessExited {
-        session_id: Some("s1".into()),
+        pubkey: Some("s1".into()),
         pid: 42,
         at: 101,
     };

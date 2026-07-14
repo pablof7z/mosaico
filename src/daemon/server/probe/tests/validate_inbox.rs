@@ -56,24 +56,18 @@ async fn rpc_probe_validate_inbox_target_reports_pending_as_not_proven() {
     assert_eq!(v["inbox_evidence"]["pending_count"], 1);
 }
 
-fn seed_session(state: &std::sync::Arc<DaemonState>, session_id: &str) {
+fn seed_session(state: &std::sync::Arc<DaemonState>, pubkey: &str) {
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "native".into(),
-                    external_id: session_id.into(),
-                    agent_slug: "agent".into(),
-                    agent_pubkey: "pk-agent".into(),
-                    channel_h: "room".into(),
-                    transcript_path: None,
-                    child_pid: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                agent_slug: "agent".into(),
+                pubkey: pubkey.into(),
+                channel_h: "room".into(),
+                transcript_path: None,
+                child_pid: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();

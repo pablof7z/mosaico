@@ -14,7 +14,6 @@ async fn simulate_status_accepts_input_fact_json_without_mutating() {
             "s1",
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,
@@ -25,7 +24,7 @@ async fn simulate_status_accepts_input_fact_json_without_mutating() {
         .unwrap();
     }
     let fact = InputFact::StatusDrive(StatusDrive::DistillCompleted {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         title: "T".into(),
         activity: "compiling".into(),
         window_hash: None,
@@ -73,7 +72,7 @@ async fn simulate_subscriptions_accepts_input_fact_json_without_mutating() {
 async fn simulate_cursor_accepts_input_fact_json_without_mutating() {
     let state = DaemonState::new_for_test().await;
     let fact = InputFact::TurnCheckRequested {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         observed_cursor: 10,
         working: true,
         at: 20,
@@ -121,10 +120,9 @@ async fn simulate_outbox_accepts_input_fact_json_without_mutating() {
 async fn simulate_new_status_session_labels_preview_only_nodes() {
     let state = DaemonState::new_for_test().await;
     let fact = InputFact::StatusDrive(StatusDrive::SessionStarted(StatusSessionStartedArgs {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         host: "h".into(),
         slug: "a".into(),
-        pubkey: "pk".into(),
         rel_cwd: ".".into(),
         channels: BTreeSet::from(["room".to_string()]),
         working: true,
@@ -178,11 +176,9 @@ fn hook_inputs_json(warnings: &[&str]) -> serde_json::Value {
 
 fn session_start_request() -> SessionStartRequestFact {
     SessionStartRequestFact {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         agent: "coder".into(),
         harness: "codex".into(),
-        external_id_kind: "harness_session".into(),
-        external_id: "native-1".into(),
         native_id: "native-1".into(),
         work_root: "/repo".into(),
         channel_h: "room".into(),
@@ -193,7 +189,6 @@ fn session_start_request() -> SessionStartRequestFact {
         watch_pid: Some(42),
         pty_session: Some("%1".into()),
         ring_doorbell: true,
-        signer_pubkey: "base".into(),
         signer_label: "coder".into(),
         already_running: false,
         channel_already_subscribed: false,

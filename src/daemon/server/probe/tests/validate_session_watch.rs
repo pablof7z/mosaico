@@ -6,29 +6,26 @@ async fn rpc_probe_validate_session_watch_checks_graph_store_and_pid() {
     let state = DaemonState::new_for_test().await;
     let now = crate::util::now_secs();
     let pid = std::process::id() as i32;
-    let session_id = state.with_store(|s| {
-        s.register_session(&RegisterSession {
+    state.with_store(|s| {
+        s.reserve_session(&RegisterSession {
             harness: "codex".into(),
-            external_id_kind: "harness_session".into(),
-            external_id: "native-1".into(),
-            agent_pubkey: "pk-agent".into(),
+            pubkey: "pk-agent".into(),
             agent_slug: "coder".into(),
             channel_h: "room".into(),
             child_pid: Some(pid),
             transcript_path: None,
-            resume_id: String::new(),
             now,
         })
-        .unwrap()
+        .unwrap();
     });
+    let pubkey = "pk-agent".to_string();
     state
         .session_watch
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: session_id.clone(),
+            pubkey: pubkey.clone(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk-agent".into()),
             pid: Some(pid),
             at: now,
         })
@@ -36,7 +33,7 @@ async fn rpc_probe_validate_session_watch_checks_graph_store_and_pid() {
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": format!("watch:{session_id}") }),
+        &json!({ "verb": "validate", "target": format!("watch:{pubkey}") }),
     )
     .unwrap();
 
@@ -56,9 +53,8 @@ async fn rpc_probe_validate_session_watch_reports_graph_store_mismatch() {
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk-agent".into()),
             pid: Some(123),
             at: 100,
         })

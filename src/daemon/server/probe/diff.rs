@@ -81,7 +81,7 @@ mod tests {
         seed_status(&state);
         let before = state.status.lock().unwrap().revision();
         let fact = InputFact::StatusDrive(StatusDrive::DistillCompleted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             title: "T".into(),
             activity: "reviewing".into(),
             window_hash: Some("sha256:w".into()),
@@ -132,10 +132,9 @@ mod tests {
             .step("start")
             .operation(InputFact::StatusDrive(StatusDrive::SessionStarted(
                 crate::reconcile::StatusSessionStartedArgs {
-                    session_id: "s1".into(),
+                    pubkey: "s1".into(),
                     host: "host".into(),
                     slug: "agent".into(),
-                    pubkey: "pk".into(),
                     rel_cwd: ".".into(),
                     channels: BTreeSet::from(["room".to_string()]),
                     working: true,
@@ -149,7 +148,7 @@ mod tests {
         script
             .step("distill")
             .operation(InputFact::StatusDrive(StatusDrive::DistillCompleted {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 title: "T".into(),
                 activity: "reviewing".into(),
                 window_hash: Some("sha256:a".into()),
@@ -169,7 +168,7 @@ mod tests {
             })
             .unwrap();
         let mutation = InputFact::StatusDrive(StatusDrive::Tick {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             at: 100,
         });
 
@@ -188,7 +187,6 @@ mod tests {
             "s1",
             "host",
             "agent",
-            "pk",
             ".",
             BTreeSet::from(["room".to_string()]),
             true,

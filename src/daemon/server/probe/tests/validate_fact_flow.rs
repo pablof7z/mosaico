@@ -61,7 +61,7 @@ async fn rpc_probe_validate_reports_session_start_failure_stage() {
             .unwrap();
         r.drive(InputFact::SessionStartFailed(
             crate::reconcile::SessionStartFailedFact {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 stage: "channel_ready".into(),
                 error: "relay rejected event: timeout".into(),
                 at: 101,
@@ -122,21 +122,15 @@ async fn rpc_probe_validate_process_exit_through_session_watch() {
     let pid = std::process::id() as i32;
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                "s1",
-                &crate::state::RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: "native-1".into(),
-                    agent_pubkey: "pk".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: "room".into(),
-                    child_pid: Some(pid),
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )
+            s.reserve_session(&crate::state::RegisterSession {
+                harness: "codex".into(),
+                pubkey: "s1".into(),
+                agent_slug: "coder".into(),
+                channel_h: "room".into(),
+                child_pid: Some(pid),
+                transcript_path: None,
+                now: 100,
+            })
         })
         .unwrap();
     state
@@ -144,9 +138,8 @@ async fn rpc_probe_validate_process_exit_through_session_watch() {
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: "s1".into(),
+            pubkey: "s1".into(),
             channel_h: Some("room".into()),
-            agent_pubkey: Some("pk".into()),
             pid: Some(pid),
             at: 100,
         })
@@ -159,7 +152,7 @@ async fn rpc_probe_validate_process_exit_through_session_watch() {
             "target": "watch:s1",
             "fact": {
                 "ProcessExited": {
-                    "session_id": "s1",
+                    "pubkey": "s1",
                     "pid": pid,
                     "at": 101
                 }
@@ -181,11 +174,9 @@ async fn rpc_probe_validate_process_exit_through_session_watch() {
 
 fn session_start_request() -> crate::reconcile::SessionStartRequestFact {
     crate::reconcile::SessionStartRequestFact {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         agent: "coder".into(),
         harness: "codex".into(),
-        external_id_kind: "harness_session".into(),
-        external_id: "native-1".into(),
         native_id: "native-1".into(),
         work_root: "/repo".into(),
         channel_h: "room".into(),
@@ -196,7 +187,6 @@ fn session_start_request() -> crate::reconcile::SessionStartRequestFact {
         watch_pid: Some(42),
         pty_session: Some("%1".into()),
         ring_doorbell: true,
-        signer_pubkey: "base".into(),
         signer_label: "coder".into(),
         already_running: false,
         channel_already_subscribed: false,
@@ -206,7 +196,7 @@ fn session_start_request() -> crate::reconcile::SessionStartRequestFact {
 
 fn hook_context_fact() -> InputFact {
     InputFact::HookContextRender(crate::reconcile::HookContextRenderFact {
-        session_id: "s1".into(),
+        pubkey: "s1".into(),
         hook_kind: "turn_start".into(),
         cursor: 0,
         now: 100,

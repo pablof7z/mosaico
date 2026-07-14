@@ -74,24 +74,18 @@ async fn rpc_probe_validate_cursor_target_fails_projection_mismatch() {
     assert_eq!(v["cursor_evidence"]["cursor_matches_session"], false);
 }
 
-fn seed_alive_session(state: &std::sync::Arc<DaemonState>, session_id: &str) {
+fn seed_alive_session(state: &std::sync::Arc<DaemonState>, pubkey: &str) {
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: format!("native-{session_id}"),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: "room".into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: pubkey.into(),
+                agent_slug: "coder".into(),
+                channel_h: "room".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -99,7 +93,7 @@ fn seed_alive_session(state: &std::sync::Arc<DaemonState>, session_id: &str) {
 
 fn seed_turn_graph(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     working: bool,
     turn_started_at: u64,
     transcript_ref: Option<&str>,
@@ -110,7 +104,7 @@ fn seed_turn_graph(
         .unwrap()
         .on_turn_started(
             TurnProjectionSeed {
-                session_id: session_id.into(),
+                pubkey: pubkey.into(),
                 working: false,
                 turn_started_at: 0,
                 transcript_ref: None,
@@ -126,7 +120,7 @@ fn seed_turn_graph(
             .unwrap()
             .on_turn_ended(
                 TurnProjectionSeed {
-                    session_id: session_id.into(),
+                    pubkey: pubkey.into(),
                     working: true,
                     turn_started_at,
                     transcript_ref: transcript_ref.map(str::to_string),
@@ -139,7 +133,7 @@ fn seed_turn_graph(
 
 fn seed_cursor_graph(
     state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     seen_cursor: u64,
     next_cursor: u64,
 ) {
@@ -149,11 +143,11 @@ fn seed_cursor_graph(
         .unwrap()
         .request(
             CursorSeed {
-                session_id: session_id.into(),
+                pubkey: pubkey.into(),
                 seen_cursor,
             },
             InputFact::TurnCheckRequested {
-                session_id: session_id.into(),
+                pubkey: pubkey.into(),
                 observed_cursor: seen_cursor,
                 working: true,
                 at: next_cursor,

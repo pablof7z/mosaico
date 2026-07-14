@@ -149,7 +149,7 @@ async fn rpc_probe_validate_readiness_reports_session_start_channel_ready_failur
         .unwrap();
         r.drive(InputFact::SessionStartFailed(
             crate::reconcile::SessionStartFailedFact {
-                session_id: "s1".into(),
+                pubkey: "s1".into(),
                 stage: "channel_ready".into(),
                 error: "relay rejected event: timeout".into(),
                 at: 101,
@@ -219,16 +219,14 @@ async fn rpc_probe_validate_readiness_reports_provider_degraded_attempt() {
 }
 
 fn session_start_request(
-    session_id: &str,
+    pubkey: &str,
     channel_h: &str,
 ) -> crate::reconcile::SessionStartRequestFact {
     crate::reconcile::SessionStartRequestFact {
-        session_id: session_id.to_string(),
+        pubkey: pubkey.to_string(),
         agent: "coder".into(),
         harness: "codex".into(),
-        external_id_kind: "harness_session".into(),
-        external_id: format!("native-{session_id}"),
-        native_id: format!("native-{session_id}"),
+        native_id: format!("native-{pubkey}"),
         work_root: "/tmp/work".into(),
         channel_h: channel_h.to_string(),
         channel_for_upsert: channel_h.to_string(),
@@ -238,7 +236,6 @@ fn session_start_request(
         watch_pid: Some(42),
         pty_session: None,
         ring_doorbell: false,
-        signer_pubkey: "pk-signer".into(),
         signer_label: "coder".into(),
         already_running: false,
         channel_already_subscribed: false,

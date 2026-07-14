@@ -24,18 +24,6 @@ async fn rpc_probe_validate_coverage_maps_live_durable_tables() {
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_coverage_supports_alias_target() {
-    let state = DaemonState::new_for_test().await;
-
-    for target in ["validation_coverage", "inventory"] {
-        let v = rpc_probe(&state, &json!({ "verb": "validate", "target": target })).unwrap();
-
-        assert_check_status(&v, "validation_coverage", "passed");
-        assert_eq!(v["coverage_evidence"]["target"], target);
-    }
-}
-
-#[tokio::test]
 async fn rpc_probe_validate_table_reports_profile_and_target_family() {
     let state = DaemonState::new_for_test().await;
     state

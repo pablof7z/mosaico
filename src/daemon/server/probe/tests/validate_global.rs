@@ -133,39 +133,32 @@ fn assert_no_check(v: &serde_json::Value, name: &str) {
         .all(|c| c["name"] != name));
 }
 
-fn seed_alive_session(state: &std::sync::Arc<DaemonState>, session_id: &str, channel_h: &str) {
+fn seed_alive_session(state: &std::sync::Arc<DaemonState>, pubkey: &str, channel_h: &str) {
     state
         .with_store(|s| {
-            s.upsert_session_row(
-                session_id,
-                &RegisterSession {
-                    harness: "codex".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: format!("native-{session_id}"),
-                    agent_pubkey: "pk1".into(),
-                    agent_slug: "coder".into(),
-                    channel_h: channel_h.into(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 100,
-                },
-            )?;
+            s.reserve_session(&RegisterSession {
+                harness: "codex".into(),
+                pubkey: pubkey.into(),
+                agent_slug: "coder".into(),
+                channel_h: channel_h.into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 100,
+            })?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
 }
 
-fn seed_status_graph(state: &std::sync::Arc<DaemonState>, session_id: &str, channel_h: &str) {
+fn seed_status_graph(state: &std::sync::Arc<DaemonState>, pubkey: &str, channel_h: &str) {
     state
         .status
         .lock()
         .unwrap()
         .on_session_started(
-            session_id,
+            pubkey,
             "laptop",
             "coder",
-            "pk1",
             ".",
             BTreeSet::from([channel_h.to_string()]),
             false,
@@ -176,12 +169,9 @@ fn seed_status_graph(state: &std::sync::Arc<DaemonState>, session_id: &str, chan
         .unwrap();
 }
 
-fn seed_subscription_graph(state: &std::sync::Arc<DaemonState>, session_id: &str, channel_h: &str) {
+fn seed_subscription_graph(state: &std::sync::Arc<DaemonState>, pubkey: &str, channel_h: &str) {
     let mut sessions = BTreeMap::new();
-    sessions.insert(
-        session_id.to_string(),
-        BTreeSet::from([channel_h.to_string()]),
-    );
+    sessions.insert(pubkey.to_string(), BTreeSet::from([channel_h.to_string()]));
     state
         .subs
         .lock()
@@ -195,19 +185,14 @@ fn seed_subscription_graph(state: &std::sync::Arc<DaemonState>, session_id: &str
         .unwrap();
 }
 
-fn seed_session_watch_graph(
-    state: &std::sync::Arc<DaemonState>,
-    session_id: &str,
-    channel_h: &str,
-) {
+fn seed_session_watch_graph(state: &std::sync::Arc<DaemonState>, pubkey: &str, channel_h: &str) {
     state
         .session_watch
         .lock()
         .unwrap()
         .apply(&InputFact::SessionStarted {
-            session_id: session_id.into(),
+            pubkey: pubkey.into(),
             channel_h: Some(channel_h.into()),
-            agent_pubkey: Some("pk1".into()),
             pid: None,
             at: 100,
         })
