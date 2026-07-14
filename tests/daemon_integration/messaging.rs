@@ -196,10 +196,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         &home,
         &["channel", "send", "--tag", &receiver_handle],
         &format!("{body}\n"),
-        &[
-            ("TENEX_EDGE_AGENT", "chat-sender"),
-            ("TENEX_EDGE_PUBKEY", &sender_pubkey),
-        ],
+        &[("TENEX_EDGE_PUBKEY", &sender_pubkey)],
         std::path::Path::new("/tmp"),
     );
     assert!(
@@ -223,10 +220,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
                     "--limit",
                     "1",
                 ],
-                &[
-                    ("TENEX_EDGE_AGENT", "chat-sender"),
-                    ("TENEX_EDGE_PUBKEY", &sender_pubkey),
-                ],
+                &[("TENEX_EDGE_PUBKEY", &sender_pubkey)],
                 std::path::Path::new("/tmp"),
             );
             if !out.status.success() {

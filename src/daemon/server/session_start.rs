@@ -6,7 +6,9 @@ mod channel_ready;
 mod effects;
 mod joined_channels;
 mod params;
+mod replacement;
 mod reservation;
+mod runtime;
 
 use params::SessionStartParams;
 
@@ -40,6 +42,7 @@ pub(super) async fn rpc_session_start_inner(
         .unwrap_or(std::env::current_dir()?);
     let work_root = crate::workspace::resolve(&cwd).unwrap_or_default();
     let rel_cwd = crate::workspace::rel_cwd(&cwd);
+    runtime::bind_workspace(state, &cwd, &work_root)?;
     let harness = resolve_harness(&p);
     let harness_name = harness.as_str();
     let native_resume = p
@@ -52,7 +55,7 @@ pub(super) async fn rpc_session_start_inner(
                 .filter(|value| !value.is_empty())
         });
 
-    let located_pubkey = resolve_existing_pubkey(state, &p, harness_name)?;
+    let located_pubkey = runtime::resolve_existing_pubkey(state, &p, harness_name)?;
     let prepared = match located_pubkey.as_deref() {
         Some(pubkey) => load_session_identity(state, pubkey, &agent)?,
         None => prepare_session_identity(state, &agent, p.session_name.as_deref())?,
@@ -75,37 +78,32 @@ pub(super) async fn rpc_session_start_inner(
         None
     };
 
+    replacement::retire_conflicting_pid_runtime(
+        state,
+        &pubkey,
+        &p.agent,
+        harness_name,
+        p.watch_pid,
+        &work_root,
+    )?;
     let existing = state.with_store(|store| store.get_session(&pubkey))?;
-    let already_running = state.sessions.lock().unwrap().contains_key(&pubkey);
+    let already_running = existing.as_ref().is_some_and(|session| session.alive)
+        && state.sessions.lock().unwrap().contains_key(&pubkey);
     if already_running {
         if let Some(existing) = &existing {
             channel = existing.channel_h.clone();
         }
     }
     let now = now_secs();
-    let runtime_generation = match existing {
-        Some(existing) => {
-            if existing.agent_slug != p.agent {
-                anyhow::bail!(
-                    "pubkey {pubkey} belongs to agent {:?}, not {:?}",
-                    existing.agent_slug,
-                    p.agent
-                );
-            }
-            existing.runtime_generation
-        }
-        None => state.with_store(|store| {
-            store.reserve_session(&crate::state::RegisterSession {
-                pubkey: pubkey.clone(),
-                harness: harness_name.to_string(),
-                agent_slug: p.agent.clone(),
-                channel_h: channel.clone(),
-                child_pid: p.watch_pid,
-                transcript_path: None,
-                now,
-            })
-        })?,
-    };
+    let runtime_generation = runtime::reserve_generation(
+        state,
+        &p,
+        harness_name,
+        &pubkey,
+        &channel,
+        now,
+        existing.as_ref(),
+    )?;
     let mut reservation = (!already_running)
         .then(|| RuntimeReservation::new(state.clone(), pubkey.clone(), runtime_generation));
 
@@ -215,61 +213,6 @@ fn resolve_harness(p: &SessionStartParams) -> Harness {
                 Harness::Unknown
             }
         })
-}
-
-fn resolve_existing_pubkey(
-    state: &Arc<DaemonState>,
-    p: &SessionStartParams,
-    harness: &str,
-) -> Result<Option<String>> {
-    if let Some(pubkey) = p.pubkey.as_deref().filter(|value| !value.is_empty()) {
-        return crate::idref::normalize_pubkey(pubkey)
-            .map(Some)
-            .context("session_start pubkey must be hex or npub");
-    }
-    let endpoint_kind = if p.endpoint_kind.as_deref() == Some("acp") {
-        crate::state::LOCATOR_ACP
-    } else {
-        crate::state::LOCATOR_PTY
-    };
-    let endpoint_pubkey = match p.pty_session.as_deref().filter(|value| !value.is_empty()) {
-        Some(endpoint) => state.with_store(|store| {
-            store
-                .alive_session_for_locator(None, endpoint_kind, endpoint)
-                .map(|session| session.map(|session| session.pubkey))
-        })?,
-        None => None,
-    };
-    let lookup = |kind: &str, value: Option<&String>| -> Result<Option<String>> {
-        let Some(value) = value.filter(|value| !value.is_empty()) else {
-            return Ok(None);
-        };
-        state.with_store(|store| store.resolve_pubkey_by_locator(harness, kind, value))
-    };
-    let resolved = endpoint_pubkey
-        .or(lookup(
-            crate::state::LOCATOR_NATIVE_RESUME,
-            p.resume_id.as_ref(),
-        )?)
-        .or(lookup(
-            crate::state::LOCATOR_NATIVE_RESUME,
-            p.harness_session.as_ref(),
-        )?)
-        .or_else(|| {
-            p.watch_pid.and_then(|pid| {
-                state
-                    .with_store(|store| {
-                        store.resolve_pubkey_by_locator(
-                            harness,
-                            crate::state::LOCATOR_PID,
-                            &pid.to_string(),
-                        )
-                    })
-                    .ok()
-                    .flatten()
-            })
-        });
-    Ok(resolved)
 }
 
 fn resolve_start_channel(

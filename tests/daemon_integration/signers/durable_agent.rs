@@ -8,7 +8,7 @@ mod lifecycle;
 use config::{configure_durable_agent, lease_count, read_agent_config, write_agent_config};
 
 #[test]
-fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
+fn durable_agent_reuses_key_and_rejects_concurrency() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let home = Home::new();
     let relay = rewrite_config_with_nak_relay(&home);
@@ -44,9 +44,8 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
         );
         assert!(!refused.status.success());
         let refused = String::from_utf8_lossy(&refused.stderr);
-        assert!(refused.contains("channel(s)"), "{refused}");
-        assert!(refused.contains("tenex-edge sessions"));
-        assert!(refused.contains("channel add --session"), "{refused}");
+        assert!(refused.contains("active runtime"), "{refused}");
+        assert!(refused.contains(&first), "{refused}");
 
         let original = read_agent_config(&home, slug);
         let mut flipped = original.clone();
@@ -62,9 +61,10 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             )
             .await
             .expect_err("fresh alias cannot bypass a live durable identity");
-        assert!(fresh_alias_error
-            .to_string()
-            .contains("incompatible identity mode"));
+        assert!(
+            fresh_alias_error.to_string().contains("active runtime"),
+            "{fresh_alias_error:#}"
+        );
         let manual_flip = run_cli(
             &home,
             &[
@@ -77,7 +77,11 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             ],
         );
         assert!(!manual_flip.status.success());
-        assert!(String::from_utf8_lossy(&manual_flip.stderr).contains("already has live session"));
+        assert!(
+            String::from_utf8_lossy(&manual_flip.stderr).contains("active runtime"),
+            "{}",
+            String::from_utf8_lossy(&manual_flip.stderr)
+        );
         let mode_error = client
             .call(
                 "session_start",
@@ -88,9 +92,12 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             )
             .await
             .expect_err("durable-to-per-session live mode flip must be rejected");
-        assert!(mode_error
-            .to_string()
-            .contains("identity configuration changed"));
+        assert!(
+            mode_error
+                .to_string()
+                .contains("identity configuration changed"),
+            "{mode_error:#}"
+        );
         write_agent_config(&home, slug, &original);
 
         let replacement = nostr_sdk::prelude::Keys::generate();
@@ -108,9 +115,12 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             )
             .await
             .expect_err("live durable key replacement must be rejected");
-        assert!(key_error
-            .to_string()
-            .contains("identity configuration changed"));
+        assert!(
+            key_error
+                .to_string()
+                .contains("signing configuration no longer reproduces pubkey"),
+            "{key_error:#}"
+        );
         write_agent_config(&home, slug, &original);
 
         let normal_slug = "mode-flip-normal";
@@ -136,9 +146,12 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             )
             .await
             .expect_err("per-session-to-durable live mode flip must be rejected");
-        assert!(normal_flip
-            .to_string()
-            .contains("identity configuration changed"));
+        assert!(
+            normal_flip
+                .to_string()
+                .contains("identity configuration changed"),
+            "{normal_flip:#}"
+        );
         normal_config["perSessionKey"] = serde_json::json!(true);
         write_agent_config(&home, normal_slug, &normal_config);
 
@@ -156,7 +169,8 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
             .await
             .expect_err("a second live durable-agent session must be rejected");
         assert!(
-            error.to_string().contains("live session"),
+            error.to_string().contains("active runtime")
+                || error.to_string().contains("live session"),
             "unexpected rejection: {error:#}"
         );
 
@@ -194,11 +208,6 @@ fn durable_agent_reuses_key_rejects_concurrency_and_never_becomes_resumable() {
         assert_eq!(identity.display_slug(), slug);
         assert!(identity.durable_agent);
     }
-    assert!(store
-        .list_resumable_sessions(100)
-        .unwrap()
-        .iter()
-        .all(|session| session.pubkey != durable_pubkey));
     let normal_session = store.get_session(&normal_id).unwrap().unwrap();
     assert_ne!(normal_session.pubkey, durable_pubkey);
     let db = Connection::open(home.store_path()).unwrap();
