@@ -9,27 +9,29 @@ pub(crate) fn session_is_headless(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let aliases = match store.aliases_for_session(&session.session_id) {
-        Ok(aliases) => aliases,
+    let kind = transport_kind_for_slug(&session.agent_slug);
+    let locator_kind = match kind {
+        TransportKind::Pty => crate::state::LOCATOR_PTY,
+        TransportKind::Acp => crate::state::LOCATOR_ACP,
+    };
+    let locators = match store.locators_for_pubkey(&session.pubkey) {
+        Ok(locators) => locators,
         Err(e) => {
             tracing::error!(
-                session = %session.session_id,
+                pubkey = %session.pubkey,
                 error = %e,
-                "output-mode check: aliases lookup failed; assuming headed"
+                "output-mode check: locator lookup failed; assuming headed"
             );
             return false;
         }
     };
-    let endpoint = aliases
+    let endpoint = locators
         .iter()
-        .find(|a| a.external_id_kind == "pty_session")
-        .map(|a| a.external_id.as_str());
-    let pty_output_visible = endpoint.is_some_and(crate::pty::output_is_visible);
-    mode_is_headless(
-        transport_kind_for_slug(&session.agent_slug),
-        endpoint.is_some(),
-        pty_output_visible,
-    )
+        .find(|locator| locator.locator_kind == locator_kind)
+        .map(|locator| locator.locator_value.as_str());
+    let pty_output_visible =
+        matches!(kind, TransportKind::Pty) && endpoint.is_some_and(crate::pty::output_is_visible);
+    mode_is_headless(kind, endpoint.is_some(), pty_output_visible)
 }
 
 #[cfg(test)]

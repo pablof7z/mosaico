@@ -29,15 +29,15 @@ pub(crate) type HookContextGraphs = Mutex<HashMap<String, HookContextReconciler>
 
 pub(crate) fn render_hook_context(
     graphs: &HookContextGraphs,
-    session_id: &str,
+    pubkey: &str,
     kind: &str,
     cursor: i64,
     now: i64,
     inputs: ViewInputs,
 ) -> trellis_core::GraphResult<HookContextOutcome> {
     let mut guard = graphs.lock().expect("hook-context mutex poisoned");
-    let graph = guard.entry(session_id.to_string()).or_default();
-    graph.render_context(session_id, kind, cursor, now, inputs)
+    let graph = guard.entry(pubkey.to_string()).or_default();
+    graph.render_context(pubkey, kind, cursor, now, inputs)
 }
 
 /// One turn's assembled fabric snapshot plus its graph-sourced receipt. The text
@@ -54,7 +54,7 @@ pub(crate) struct TurnContext {
 }
 
 pub(crate) fn hook_replay_fact(
-    session_id: &str,
+    pubkey: &str,
     hook_kind: &str,
     cursor: i64,
     now: i64,
@@ -65,12 +65,12 @@ pub(crate) fn hook_replay_fact(
     let inputs_json = match serde_json::to_value(inputs) {
         Ok(value) => value,
         Err(e) => {
-            tracing::warn!(session = %session_id, error = %e, "hook replay capsule serialization failed");
+            tracing::warn!(pubkey, error = %e, "hook replay capsule serialization failed");
             return None;
         }
     };
     Some(InputFact::HookContextRender(HookContextRenderFact {
-        session_id: session_id.to_string(),
+        pubkey: pubkey.to_string(),
         hook_kind: hook_kind.to_string(),
         cursor,
         now,

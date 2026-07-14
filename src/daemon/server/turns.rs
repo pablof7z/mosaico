@@ -121,7 +121,7 @@ fn record_hook_receipt(state: &Arc<DaemonState>, turn: &crate::turn_context::Tur
         revision: turn.revision,
         changed_summary: r.to_json().to_string(),
         commands: "[]".into(),
-        artifact_ref: Some(format!("{}:{}:{}", r.session_id, r.kind, r.now)),
+        artifact_ref: Some(format!("{}:{}:{}", r.pubkey, r.kind, r.now)),
         created_at,
     };
     state.with_store(|s| {
@@ -131,7 +131,7 @@ fn record_hook_receipt(state: &Arc<DaemonState>, turn: &crate::turn_context::Tur
                 s,
                 "hook_context",
                 &r.kind,
-                Some(&r.session_id),
+                Some(&r.pubkey),
                 fact,
                 created_at,
             );

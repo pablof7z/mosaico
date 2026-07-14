@@ -54,7 +54,7 @@ fn roots_needing_workspace_name(store: &crate::state::Store, backend_pubkey: &st
 
 pub(super) fn seed_spawn_on_mention_coverage(state: &Arc<DaemonState>) {
     let member_groups: Vec<String> = state.with_store(|s| {
-        let mut pubkeys = s.list_identity_pubkeys().unwrap_or_default();
+        let mut pubkeys = s.list_local_session_pubkeys().unwrap_or_default();
         if let Some(pk) = state.backend_pubkey() {
             pubkeys.push(pk);
         }
@@ -80,8 +80,8 @@ pub(super) fn seed_spawn_on_mention_coverage(state: &Arc<DaemonState>) {
         }
     }
     tracing::info!(
-        subscribed_identity_pubkeys =
-            state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default().len()),
+        subscribed_session_pubkeys =
+            state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default().len()),
         member_groups = member_groups.len(),
         "spawn-on-mention coverage seeded"
     );

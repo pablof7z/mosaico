@@ -19,7 +19,7 @@ pub(super) fn push_mode_notice(
     let changed = graphs
         .lock()
         .expect("hook-context mutex poisoned")
-        .entry(rec.session_id.clone())
+        .entry(rec.pubkey.clone())
         .or_default()
         .record_headless_mode(headless, announce_initial);
     if changed {

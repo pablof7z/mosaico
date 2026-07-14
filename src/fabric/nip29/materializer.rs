@@ -119,7 +119,7 @@ impl Nip29Materializer {
     // ── relay_status (kind:30315) ────────────────────────────────────────────
 
     /// Materialise a decoded kind:30315 status into `relay_status`, one row per
-    /// `(pubkey, session_id, channel_h)`. A single status event may carry several
+    /// `(pubkey, channel_h)`. A single status event may carry several
     /// `h` tags; each becomes a channel row with the same session title/activity.
     /// Liveness is computed on READ from the NIP-40 `expiration`; the row is stored
     /// regardless of freshness (older `updated_at` writes are dropped by the store).
@@ -136,7 +136,6 @@ impl Nip29Materializer {
         for channel in &st.channels {
             if let Err(e) = store.upsert_status(&crate::state::Status {
                 pubkey: st.agent.pubkey.clone(),
-                session_id: st.session_id.as_str().to_string(),
                 channel_h: channel.clone(),
                 slug: slug.clone(),
                 title: st.title.clone(),
@@ -148,7 +147,6 @@ impl Nip29Materializer {
             }) {
                 tracing::error!(
                     pubkey = %st.agent.pubkey,
-                    session = %st.session_id,
                     channel,
                     error = %e,
                     "materialize_status: relay_status upsert failed — relay truth diverged from cache"
@@ -201,21 +199,21 @@ impl Nip29Materializer {
         };
         let mut woke = false;
         for sess in sessions {
-            if sess.agent_pubkey == from_pubkey {
+            if sess.pubkey == from_pubkey {
                 continue;
             }
             let joined = store
-                .is_session_joined_channel(&sess.session_id, channel_h)
+                .is_session_joined_channel(&sess.pubkey, channel_h)
                 .unwrap_or(sess.channel_h == channel_h);
             if !joined {
                 continue;
             }
-            if !p_pubkeys.contains(&sess.agent_pubkey) {
+            if !p_pubkeys.contains(&sess.pubkey) {
                 continue;
             }
             match store.enqueue_inbox(
                 &event_id,
-                &sess.agent_pubkey,
+                &sess.pubkey,
                 &from_pubkey,
                 channel_h,
                 &chat.body,
@@ -227,16 +225,16 @@ impl Nip29Materializer {
                 // the agent will never see it. Surface loudly rather than folding
                 // the failure into woke=false.
                 Err(e) => tracing::error!(
-                    session = %sess.session_id,
+                    pubkey = %sess.pubkey,
                     channel = channel_h,
                     event_id = %event_id,
                     error = %e,
                     "route_chat: enqueue_inbox failed for matched session — mention not delivered (agent not woken)"
                 ),
             }
-            if let Err(e) = store.add_message_recipient(&event_id, &sess.agent_pubkey, None) {
+            if let Err(e) = store.add_message_recipient(&event_id, &sess.pubkey, None) {
                 tracing::error!(
-                    session = %sess.session_id,
+                    pubkey = %sess.pubkey,
                     channel = channel_h,
                     event_id = %event_id,
                     error = %e,
