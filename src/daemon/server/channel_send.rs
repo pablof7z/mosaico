@@ -60,8 +60,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let mut anchor = CallerAnchor::from_params(params);
     anchor.group = None;
     let rec = resolve_session(state, &anchor)?;
-    let id = identity::load_or_create(&config::edge_home(), &rec.agent_slug, now_secs())?;
-    let durable_pubkey = id.pubkey_hex();
     let target =
         resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel send").await?;
     // `--channel` is destination selection only. When present it pins the event
@@ -95,7 +93,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         tagged.push(TaggedRecipient {
             label: label.to_string(),
             pubkey: target.pubkey,
-            run_id: target.target_run_id,
             channel: target.channel,
         });
     }
@@ -126,7 +123,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 
     // Sign + label from the session's own minted identity.
     let instance = state.session_instance(&rec);
-    let chat_signing_keys = state.session_signing_keys(&rec.agent_pubkey)?;
+    let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
     let from_pubkey = instance.pubkey.clone();
 
     let chat = ChatMessage {
@@ -154,7 +151,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .await?;
     let event_id = published.event_id;
     let created_at = published.created_at;
-    note_explicit_chat_published(state, &rec.session_id, created_at);
+    note_explicit_chat_published(state, &rec.pubkey, created_at);
 
     // Local live delivery: relays often don't echo an event back to the same
     // connection that published it. Seed the verbatim log and park inbox rows for
@@ -177,11 +174,11 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             }
         };
         for target in targets {
-            let is_direct_target = tagged.iter().any(|recipient| {
-                recipient.run_id.as_deref() == Some(target.session_id.as_str())
-            });
+            let is_direct_target = tagged
+                .iter()
+                .any(|recipient| recipient.pubkey == target.pubkey);
             let joined_target = s
-                .is_session_joined_channel(&target.session_id, &deliver_scope)
+                .is_session_joined_channel(&target.pubkey, &deliver_scope)
                 .unwrap_or(target.channel_h == deliver_scope);
             if !is_direct_target && !joined_target {
                 continue;
@@ -189,8 +186,8 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             if target.created_at > created_at {
                 continue;
             }
-            // Skip sender's own sessions by pubkey.
-            if target.agent_pubkey == durable_pubkey || target.agent_pubkey == from_pubkey {
+            // Skip the sender's own session by its sole identity.
+            if target.pubkey == from_pubkey {
                 continue;
             }
             // Only ring the doorbell for explicitly mentioned sessions/pubkeys;
@@ -198,13 +195,13 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             let is_mentioned = is_direct_target
                 || mentioned_pubkeys
                     .iter()
-                    .any(|pubkey| pubkey == &target.agent_pubkey);
+                    .any(|pubkey| pubkey == &target.pubkey);
             if !is_mentioned {
                 continue;
             }
             let enqueued = match s.enqueue_inbox(
                 &event_id,
-                &target.agent_pubkey,
+                &target.pubkey,
                 &from_pubkey,
                 &deliver_scope,
                 &body_to_send,
@@ -214,7 +211,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 Err(e) => {
                     tracing::error!(
                         event_id = %event_id,
-                        session = %target.session_id,
+                        pubkey = %target.pubkey,
                         channel = %deliver_scope,
                         error = %e,
                         "channel_send: enqueue_inbox failed — this direct mention may never reach the target's inbox/doorbell"
@@ -225,12 +222,10 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             if enqueued {
                 routed = true;
             }
-            if let Err(e) =
-                s.add_message_recipient(&event_id, &target.agent_pubkey, None)
-            {
+            if let Err(e) = s.add_message_recipient(&event_id, &target.pubkey, None) {
                 tracing::error!(
                     event_id = %event_id,
-                    session = %target.session_id,
+                    pubkey = %target.pubkey,
                     channel = %deliver_scope,
                     error = %e,
                     "channel_send: recipient pubkey edge upsert failed"
@@ -268,20 +263,19 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     }))
 }
 
-pub(super) fn note_explicit_chat_published(state: &Arc<DaemonState>, session_id: &str, at: u64) {
-    if let Err(e) = state.with_store(|s| s.mark_session_explicit_chat_published(session_id, at)) {
+pub(super) fn note_explicit_chat_published(state: &Arc<DaemonState>, pubkey: &str, at: u64) {
+    if let Err(e) = state.with_store(|s| s.mark_session_explicit_chat_published(pubkey, at)) {
         tracing::warn!(
-            session_id,
+            pubkey,
             error = %e,
             "channel_send: failed to persist explicit-publish marker; using in-memory auto-reply guard"
         );
     }
-    auto_reply::note_explicit_publish(session_id);
+    auto_reply::note_explicit_publish(pubkey);
 }
 
 pub(super) struct TaggedRecipient {
     label: String,
     pubkey: String,
-    run_id: Option<String>,
     channel: String,
 }

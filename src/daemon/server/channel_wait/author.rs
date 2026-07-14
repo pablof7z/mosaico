@@ -39,7 +39,7 @@ impl AuthorFilter {
                 for scope in scopes {
                     for member in store.list_channel_members(scope).unwrap_or_default() {
                         let profile = store.get_profile(&member.pubkey).ok().flatten();
-                        let session = store.session_for_pubkey(&member.pubkey).ok().flatten();
+                        let session = store.get_session(&member.pubkey).ok().flatten();
                         if identity_matches(
                             &raw,
                             profile.as_ref(),
@@ -71,10 +71,7 @@ impl AuthorFilter {
         }
         let (profile, session) = state.with_store(|store| {
             let profile = store.get_profile(&message.author_pubkey).ok().flatten();
-            let session = store
-                .session_for_pubkey(&message.author_pubkey)
-                .ok()
-                .flatten();
+            let session = store.get_session(&message.author_pubkey).ok().flatten();
             (profile, session)
         });
         self.labels.iter().any(|label| {

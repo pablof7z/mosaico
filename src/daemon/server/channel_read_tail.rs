@@ -237,7 +237,7 @@ fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String) {
     let local_host = state.host.clone();
     state.with_store(|s| {
         let profile = s.get_profile(&row.author_pubkey).ok().flatten();
-        let session = s.session_for_pubkey(&row.author_pubkey).ok().flatten();
+        let session = s.get_session(&row.author_pubkey).ok().flatten();
         let from_slug = profile
             .as_ref()
             .map(|p| p.slug.as_str())

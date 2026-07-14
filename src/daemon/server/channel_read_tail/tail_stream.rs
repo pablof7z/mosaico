@@ -183,7 +183,7 @@ pub(in crate::daemon::server) fn build_backfill(
             ts: rec.created_at,
             channel: rec.channel_h.clone(),
             agent: rec.agent_slug.clone(),
-            session: rec.session_id.clone(),
+            session: rec.pubkey.clone(),
             state: "start".into(),
             rel_cwd: String::new(),
         });
@@ -192,7 +192,7 @@ pub(in crate::daemon::server) fn build_backfill(
                 ts: rec.turn_started_at,
                 channel: rec.channel_h.clone(),
                 agent: rec.agent_slug.clone(),
-                session: rec.session_id.clone(),
+                session: rec.pubkey.clone(),
                 state: "working".into(),
                 elapsed_s: None,
             });

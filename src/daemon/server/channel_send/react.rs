@@ -37,7 +37,7 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .unwrap_or_else(|| original.message_id.clone());
 
     let instance = state.session_instance(&rec);
-    let keys = state.session_signing_keys(&rec.agent_pubkey)?;
+    let keys = state.session_signing_keys(&rec.pubkey)?;
     let reaction = Reaction {
         reactor: instance.agent_ref(),
         channel: original.channel_h.clone(),

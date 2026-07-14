@@ -93,7 +93,7 @@ pub(in crate::daemon::server) async fn rpc_propose(
     // Sign with the session's own minted key when a live session is present; else
     // the durable local agent key (a bare `publish` from the repo root).
     let proposal_signing_keys = match session_rec.as_ref() {
-        Some(r) => state.session_signing_keys(&r.agent_pubkey)?,
+        Some(r) => state.session_signing_keys(&r.pubkey)?,
         None => id.keys.clone(),
     };
     let event_id = state

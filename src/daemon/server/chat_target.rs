@@ -20,7 +20,7 @@ pub(in crate::daemon::server) fn resolve_chat_target(
         });
     }
 
-    let joined = state.with_store(|s| s.list_session_joined_channels(&rec.session_id))?;
+    let joined = state.with_store(|s| s.list_session_joined_channels(&rec.pubkey))?;
     match joined.as_slice() {
         [] => Ok(ChatTarget {
             channel_h: rec.channel_h.clone(),
@@ -118,8 +118,8 @@ mod tests {
 
     fn session(channel_h: &str) -> Session {
         Session {
-            session_id: "sess".to_string(),
-            agent_pubkey: "pk".to_string(),
+            pubkey: "pk".to_string(),
+            runtime_generation: 1,
             agent_slug: "codex".to_string(),
             channel_h: channel_h.to_string(),
             harness: "codex".to_string(),
@@ -136,7 +136,6 @@ mod tests {
             seen_cursor: 0,
             title: String::new(),
             activity: String::new(),
-            resume_id: String::new(),
             distill_fail_streak: 0,
             distill_notice_at: 0,
             explicit_chat_published_at: 0,
@@ -181,26 +180,20 @@ mod tests {
         let store = Store::open_memory().unwrap();
         let rec = session("root");
         store
-            .upsert_session_row(
-                "sess",
-                &crate::state::RegisterSession {
-                    harness: "codex".to_string(),
-                    external_id_kind: "harness_session".to_string(),
-                    external_id: "sess".to_string(),
-                    agent_pubkey: "pk".to_string(),
-                    agent_slug: "codex".to_string(),
-                    channel_h: "root".to_string(),
-                    child_pid: None,
-                    transcript_path: None,
-                    resume_id: String::new(),
-                    now: 1,
-                },
-            )
+            .reserve_session(&crate::state::RegisterSession {
+                pubkey: "pk".to_string(),
+                harness: "codex".to_string(),
+                agent_slug: "codex".to_string(),
+                channel_h: "root".to_string(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1,
+            })
             .unwrap();
-        store.join_session_channel("sess", "root", 1).unwrap();
-        store.join_session_channel("sess", "other", 2).unwrap();
+        store.join_session_channel("pk", "root", 1).unwrap();
+        store.join_session_channel("pk", "other", 2).unwrap();
 
-        let joined = store.list_session_joined_channels("sess").unwrap();
+        let joined = store.list_session_joined_channels("pk").unwrap();
         assert_eq!(joined.len(), 2);
         let refs = joined
             .iter()

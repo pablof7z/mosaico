@@ -44,7 +44,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let body = reply_body(&original.author_pubkey, &p.message)?;
 
     let instance = state.session_instance(&rec);
-    let keys = state.session_signing_keys(&rec.agent_pubkey)?;
+    let keys = state.session_signing_keys(&rec.pubkey)?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: original.channel_h.clone(),
@@ -66,7 +66,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             },
         )
         .await?;
-    note_explicit_chat_published(state, &rec.session_id, published.created_at);
+    note_explicit_chat_published(state, &rec.pubkey, published.created_at);
     enqueue_local_reply(
         state,
         &rec,
@@ -111,23 +111,23 @@ fn enqueue_local_reply(
     let mut routed = false;
     state.with_store(|s| {
         for target in targets {
-            if target.session_id == rec.session_id {
+            if target.pubkey == rec.pubkey {
                 continue;
             }
-            let is_author_pubkey = target.agent_pubkey == original.author_pubkey;
+            let is_author_pubkey = target.pubkey == original.author_pubkey;
             if !is_author_pubkey {
                 continue;
             }
             let joined = s
-                .is_session_joined_channel(&target.session_id, &original.channel_h)
+                .is_session_joined_channel(&target.pubkey, &original.channel_h)
                 .unwrap_or(target.channel_h == original.channel_h);
             if !joined {
                 continue;
             }
             if s.enqueue_inbox(
                 event_id,
-                &target.agent_pubkey,
-                &rec.agent_pubkey,
+                &target.pubkey,
+                &rec.pubkey,
                 &original.channel_h,
                 body,
                 created_at,

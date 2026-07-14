@@ -212,7 +212,7 @@ pub(in crate::daemon::server) async fn rpc_channel_switch(
     ensure_joinable(state, &rec, &new_channel).await?;
     ensure_subscription(state, &new_channel).await?;
     let prev_channel = rec.channel_h.clone();
-    set_active_session_channel(state, &rec.pubkey, &rec.pubkey, &new_channel, true)?;
+    set_active_session_channel(state, &rec.pubkey, &new_channel, true)?;
     if prev_channel != new_channel {
         let removed = state
             .provider

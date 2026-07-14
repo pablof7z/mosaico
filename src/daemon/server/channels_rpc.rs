@@ -10,7 +10,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     room_h: &str,
     name: &str,
     parent: &str,
-    agent_pubkey: &str,
+    member_pubkey: &str,
 ) -> bool {
     // Provision the room through the SAME shared primitive every channel uses
     // (per-session rooms, orchestration task rooms, operator-created channels):
@@ -22,7 +22,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
         .provider
         .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
             channel: room_h,
-            expect_member: agent_pubkey,
+            expect_member: member_pubkey,
             parent_hint: Some(parent),
             // The intended room name rides on the create publish; the relay's
             // kind:39000 echo is what lands it in the cache.
@@ -178,7 +178,7 @@ Switch into it instead: tenex-edge channel switch {}",
     // primitive to add it as a member of the room it just made. A bare operator
     // invocation has none, in which case the management key (already the group
     // admin) is passed purely to provision the group.
-    let creator: Option<String> = creator_rec.as_ref().map(|rec| rec.agent_pubkey.clone());
+    let creator: Option<String> = creator_rec.as_ref().map(|rec| rec.pubkey.clone());
 
     // ONE shared primitive provisions EVERY channel — per-session rooms,
     // orchestration task rooms, and operator-created channels are the same thing.
@@ -277,7 +277,7 @@ Switch into it instead: tenex-edge channel switch {}",
     // Unlike `channel switch`, this preserves the parent as a passive joined
     // channel so the creator can still see and receive mentions from it.
     let switched = if let Some(rec) = &creator_rec {
-        set_active_session_channel(state, &rec.session_id, &rec.agent_pubkey, &child_h, false)?;
+        set_active_session_channel(state, &rec.pubkey, &child_h, false)?;
         true
     } else {
         false

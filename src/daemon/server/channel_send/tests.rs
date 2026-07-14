@@ -1,23 +1,17 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
 
-fn register_session(store: &Store, session_id: &str, agent_slug: &str, channel_h: &str) {
+fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &str) {
     store
-        .upsert_session_row(
-            session_id,
-            &RegisterSession {
-                harness: "codex".to_string(),
-                external_id_kind: "harness_session".to_string(),
-                external_id: session_id.to_string(),
-                agent_pubkey: format!("{agent_slug}-pubkey"),
-                agent_slug: agent_slug.to_string(),
-                channel_h: channel_h.to_string(),
-                child_pid: None,
-                transcript_path: None,
-                resume_id: String::new(),
-                now: 1,
-            },
-        )
+        .reserve_session(&RegisterSession {
+            pubkey: pubkey.to_string(),
+            harness: "codex".to_string(),
+            agent_slug: agent_slug.to_string(),
+            channel_h: channel_h.to_string(),
+            child_pid: None,
+            transcript_path: None,
+            now: 1,
+        })
         .unwrap();
 }
 
@@ -37,24 +31,12 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
     store
         .upsert_channel("leaf-b", "Leaf B", "", "task-b", 5)
         .unwrap();
-    register_session(&store, "helper-session", "helper", "leaf-b");
+    register_session(&store, "helper-pubkey", "helper", "leaf-b");
     let allocation = store.allocate_handle("helper-pubkey", "helper", 1).unwrap();
-    store
-        .upsert_identity(&crate::state::Identity {
-            pubkey: "helper-pubkey".into(),
-            agent_slug: "helper".into(),
-            codename: allocation.codename,
-            session_id: "helper-session".into(),
-            channel_h: "leaf-b".into(),
-            native_id: "helper-session".into(),
-            alive: true,
-            created_at: 1,
-        })
-        .unwrap();
 
     let resolved = resolve_recipient(&store, "leaf-a", "local", &allocation.handle).unwrap();
 
-    assert_eq!(resolved.target_run_id.as_deref(), Some("helper-session"));
+    assert_eq!(resolved.pubkey, "helper-pubkey");
     assert_eq!(resolved.channel, "leaf-b");
 }
 
@@ -81,7 +63,6 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
     .unwrap();
 
     assert_eq!(resolved.pubkey, "remote-pk");
-    assert_eq!(resolved.target_run_id, None);
     assert_eq!(resolved.channel, "channel");
 }
 
@@ -113,29 +94,16 @@ fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
 #[test]
 fn dashed_session_handle_resolves_live_session_and_validates_agent() {
     let store = Store::open_memory().unwrap();
-    register_session(&store, "echo123", "codex", "channel");
+    register_session(&store, "codex-pubkey", "codex", "channel");
     let allocation = store.allocate_handle("codex-pubkey", "codex", 1).unwrap();
-    store
-        .upsert_identity(&crate::state::Identity {
-            pubkey: "codex-pubkey".into(),
-            agent_slug: "codex".into(),
-            codename: allocation.codename.clone(),
-            session_id: "echo123".into(),
-            channel_h: "channel".into(),
-            native_id: "echo123".into(),
-            alive: true,
-            created_at: 1,
-        })
-        .unwrap();
     let handle = allocation.handle;
 
     let resolved = resolve_recipient(&store, "channel", "localBackend", &handle).unwrap();
 
     assert_eq!(resolved.pubkey, "codex-pubkey");
-    assert_eq!(resolved.target_run_id.as_deref(), Some("echo123"));
     assert_eq!(resolved.channel, "channel");
 
-    let wrong = format!("{}-haiku", allocation.codename);
+    let wrong = format!("{handle}-haiku");
     let err = match resolve_recipient(&store, "channel", "localBackend", &wrong) {
         Ok(_) => panic!("mismatched agent-session handle should not resolve"),
         Err(e) => e,
@@ -160,7 +128,6 @@ fn dashed_session_handle_resolves_profile_cache() {
     store
         .upsert_status(&crate::state::Status {
             pubkey: "remote-pk".into(),
-            session_id: "remote-session".into(),
             channel_h: "channel".into(),
             slug: "willow-echo-042-codex".into(),
             title: String::new(),
@@ -176,7 +143,6 @@ fn dashed_session_handle_resolves_profile_cache() {
         resolve_recipient(&store, "channel", "localBackend", "willow-echo-042-codex").unwrap();
 
     assert_eq!(resolved.pubkey, "remote-pk");
-    assert_eq!(resolved.target_run_id, None);
     assert_eq!(resolved.channel, "channel");
 }
 
@@ -220,7 +186,6 @@ fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
     store
         .upsert_status(&crate::state::Status {
             pubkey: "old-pk".into(),
-            session_id: String::new(),
             channel_h: "channel".into(),
             slug: "shared-codex".into(),
             title: String::new(),
@@ -259,7 +224,6 @@ fn untyped_profile_with_status_is_not_a_session_handle() {
     store
         .upsert_status(&crate::state::Status {
             pubkey: "human-pk".into(),
-            session_id: String::new(),
             channel_h: "channel".into(),
             slug: "shared-name".into(),
             title: String::new(),

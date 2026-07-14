@@ -54,7 +54,7 @@ pub(super) async fn rpc_channel_wait(
             .collect::<Vec<_>>()
     });
     let author_filter = AuthorFilter::from_params(state, &scopes, &p)?;
-    let own_pubkeys = own_pubkeys(state, &rec);
+    let own_pubkeys = own_pubkeys(&rec);
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
 
     // The rowid cursor is captured before subscribing. A message inserted in
@@ -125,7 +125,7 @@ fn wait_scope_and_cursor(
         let original = state
             .with_store(|store| store.get_message(reply_to))?
             .with_context(|| format!("message not found for reply wait: {reply_to}"))?;
-        let own = own_pubkeys(state, rec);
+        let own = own_pubkeys(rec);
         if !own.contains(&original.author_pubkey) {
             anyhow::bail!("can only wait for replies to a message authored by this session");
         }
@@ -149,7 +149,7 @@ fn resolve_active_scopes(
     rec: &Session,
     requested: &[String],
 ) -> Result<Vec<String>> {
-    let active = state.with_store(|store| store.list_session_joined_channels(&rec.session_id))?;
+    let active = state.with_store(|store| store.list_session_joined_channels(&rec.pubkey))?;
     let active = active
         .into_iter()
         .map(|(channel, _)| channel)
@@ -213,8 +213,8 @@ fn resolve_active_reference(
     }
 }
 
-fn own_pubkeys(state: &Arc<DaemonState>, rec: &Session) -> HashSet<String> {
-    HashSet::from([rec.agent_pubkey.clone(), state.session_instance(rec).pubkey])
+fn own_pubkeys(rec: &Session) -> HashSet<String> {
+    HashSet::from([rec.pubkey.clone()])
 }
 
 fn drain_matching(
