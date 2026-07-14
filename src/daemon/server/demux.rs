@@ -121,14 +121,13 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         "incoming event"
     );
     let env = crate::fabric::RawEnvelope::Nostr(event.clone());
-    // Expand the hosted set to include live transient session pubkeys.
+    // Expand the hosted set to include every known local session pubkey.
     // This makes `is_self` (Profile/Status self-skip), the routing gate
     // (`hosted.contains(&m.to_pubkey)`), and the sender admission check
     // (`hosted.contains(&sender_pk)`) all recognize session-signed events.
     let hosted: Vec<String> = {
         let mut h = state.hosted_pubkeys();
-        h.extend(state.live_session_pubkeys());
-        // Durable ordinal pubkeys (issue #47) are local identities too: a mention
+        // Session pubkeys are local identities too: a mention
         // p-tagged to e.g. `smith1` must be recognized as self so the routing gate
         // and self-skip treat it like a hosted agent, not a foreign peer.
         h.extend(state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default()));

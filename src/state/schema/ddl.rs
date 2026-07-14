@@ -1,7 +1,6 @@
 //! The raw schema DDL, split out of `schema.rs` to keep that file small.
 pub(super) const SCHEMA: &str = r#"
 -- ── relay_* materialized caches (drop & rebuild from relay anytime) ───────────
-
 CREATE TABLE IF NOT EXISTS relay_channels (
     channel_h   TEXT PRIMARY KEY,
     name        TEXT NOT NULL DEFAULT '',
@@ -210,6 +209,7 @@ CREATE TABLE IF NOT EXISTS identities (
 CREATE INDEX IF NOT EXISTS idx_identities_channel ON identities(channel_h);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session ON identities(session_id) WHERE session_id <> '';
 
+CREATE TABLE IF NOT EXISTS session_signers (pubkey TEXT PRIMARY KEY, signer_salt TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS durable_agent_sessions (pubkey TEXT PRIMARY KEY, agent_slug TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE, live INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS handle_leases (

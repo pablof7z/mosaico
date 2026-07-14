@@ -44,7 +44,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let body = reply_body(&original.author_pubkey, &p.message)?;
 
     let instance = state.session_instance(&rec);
-    let keys = state.session_signing_keys(&rec.session_id)?;
+    let keys = state.session_signing_keys(&rec.agent_pubkey)?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: original.channel_h.clone(),

@@ -5,7 +5,7 @@
 //!      relay and is identical for local and remote agents.
 //!   2. local plumbing the relay can't carry — OS process handles (`sessions`),
 //!      joined-channel state (`session_channels`), external-id aliases
-//!      (`session_aliases`), derived signing keys (`identities`), the inbound
+//!      (`session_aliases`), signer material, session identities, the inbound
 //!      routing ledger (`inbox`), the outbound publish queue (`outbox`), pending
 //!      channel-name reservations, and on-disk workspace paths (`workspace_roots`).
 //!
@@ -188,8 +188,8 @@ pub struct SessionAlias {
     pub created_at: u64,
 }
 
-/// A per-session minted signing key the daemon publishes as. Binds the session's
-/// own pubkey to its session, legacy alias, and harness-native resume id.
+/// A session's public identity projection. Binds its authoritative pubkey to
+/// local lifecycle and harness-native resume locators.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub pubkey: String,
@@ -260,6 +260,7 @@ mod identities;
 mod inbox;
 pub mod llm_calls;
 mod members;
+mod session_signers;
 pub use members::ChannelMemberSet;
 mod messages;
 mod outbox;

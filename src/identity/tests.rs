@@ -88,14 +88,15 @@ fn mgmt_secret() -> SecretKey {
 }
 
 #[test]
-fn session_key_v2_determinism() {
+fn signer_salt_reconstructs_the_same_session_key() {
     let sk = mgmt_secret();
-    let a = derive_session_keys_v2(&sk, "sess-abc");
-    let b = derive_session_keys_v2(&sk, "sess-abc");
+    let salt = new_session_signer_salt();
+    let a = derive_session_keys(&sk, &salt).unwrap();
+    let b = derive_session_keys(&sk, &salt).unwrap();
     assert_eq!(
         a.public_key().to_hex(),
         b.public_key().to_hex(),
-        "derive_session_keys_v2 must be deterministic"
+        "the persisted signer salt must reconstruct the signer"
     );
     assert_eq!(
         a.secret_key().to_secret_hex(),
@@ -104,25 +105,24 @@ fn session_key_v2_determinism() {
 }
 
 #[test]
-fn session_key_v2_different_sessions_differ() {
+fn distinct_signer_salts_produce_distinct_session_keys() {
     let sk = mgmt_secret();
-    let a = derive_session_keys_v2(&sk, "session-1");
-    let b = derive_session_keys_v2(&sk, "session-2");
+    let a = derive_session_keys(&sk, &new_session_signer_salt()).unwrap();
+    let b = derive_session_keys(&sk, &new_session_signer_salt()).unwrap();
     assert_ne!(
         a.public_key().to_hex(),
         b.public_key().to_hex(),
-        "different session ids must yield different session pubkeys"
+        "fresh salts must yield distinct session pubkeys"
     );
 }
 
 #[test]
-fn session_key_v2_cross_machine_divergence() {
-    // The management secret is per-machine: the same session id on two machines
-    // (two management keys) must yield two different keypairs.
+fn signer_salt_cross_machine_divergence() {
     let machine_a = mgmt_secret();
     let machine_b = SecretKey::from_slice(&[0x02u8; 32]).unwrap();
-    let a = derive_session_keys_v2(&machine_a, "same-session-id");
-    let b = derive_session_keys_v2(&machine_b, "same-session-id");
+    let salt = new_session_signer_salt();
+    let a = derive_session_keys(&machine_a, &salt).unwrap();
+    let b = derive_session_keys(&machine_b, &salt).unwrap();
     assert_ne!(
         a.public_key().to_hex(),
         b.public_key().to_hex(),
@@ -131,23 +131,9 @@ fn session_key_v2_cross_machine_divergence() {
 }
 
 #[test]
-fn ac1_resumed_session_derives_same_pubkey() {
+fn malformed_signer_salt_is_rejected() {
     let sk = mgmt_secret();
-    let session_id = "claude-native-xKz8-resume-test";
-
-    let original = derive_session_keys_v2(&sk, session_id);
-    let resumed = derive_session_keys_v2(&sk, session_id);
-
-    assert_eq!(
-        original.public_key().to_hex(),
-        resumed.public_key().to_hex(),
-        "AC1: a resumed session must reproduce the exact same session pubkey"
-    );
-    assert_eq!(
-        original.secret_key().to_secret_hex(),
-        resumed.secret_key().to_secret_hex(),
-        "AC1: and the exact same secret key"
-    );
+    assert!(derive_session_keys(&sk, "not-a-signer-salt").is_err());
 }
 
 // ── SessionIdentity ───────────────────────────────────────────────────────────

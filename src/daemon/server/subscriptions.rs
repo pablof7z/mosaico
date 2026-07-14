@@ -220,8 +220,8 @@ fn preview_matches(
 /// - `sessions`: each alive session mapped to the channels it has joined. Each
 ///   session is its own scope, so a shared channel stays open until the LAST
 ///   owning session leaves.
-/// - `addressed_pubkeys`: selected ordinal pubkeys, live session keys, and the
-///   backend identity. Owned by the daemon scope.
+/// - `addressed_pubkeys`: selected session pubkeys and the backend identity.
+///   Owned by the daemon scope.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
         .subscribed_root_channels
@@ -271,12 +271,6 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
             .filter(|channel| s.is_archived_channel(channel).unwrap_or(false))
             .collect::<BTreeSet<String>>()
     });
-
-    // Live transient session keys + backend identity round out the addressed set.
-    pubkeys.extend(state.live_session_pubkeys());
-    if let Some(bp) = backend_pubkey {
-        pubkeys.insert(bp);
-    }
 
     CoverageSnapshot {
         daemon_channels,

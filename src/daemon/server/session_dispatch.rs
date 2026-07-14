@@ -64,7 +64,7 @@ pub(super) async fn rpc_dispatch(
         &dispatch_target,
         &prose,
     )?;
-    let keys = state.session_signing_keys(&caller.session_id)?;
+    let keys = state.session_signing_keys(&caller.agent_pubkey)?;
     let signed = state.transport.sign(builder, &keys).await?;
     let dispatch_event_id = signed.id.to_hex();
     state.transport.publish_event_checked(&signed).await?;
@@ -234,7 +234,7 @@ async fn send_dispatch_message(
     ack: &DispatchAck,
 ) -> Result<String> {
     let instance = state.session_instance(caller);
-    let keys = state.session_signing_keys(&caller.session_id)?;
+    let keys = state.session_signing_keys(&caller.agent_pubkey)?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: channel.to_string(),

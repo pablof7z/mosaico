@@ -155,7 +155,7 @@ async fn do_publish(
     body: &str,
 ) -> Result<()> {
     let instance = state.session_instance(rec);
-    let keys = state.session_signing_keys(&rec.session_id)?;
+    let keys = state.session_signing_keys(&rec.agent_pubkey)?;
     let recipients = if pending.requester_pubkey.trim().is_empty() {
         Vec::new()
     } else {

@@ -69,7 +69,6 @@ pub(in crate::daemon::server) async fn spawn_session(
         if let Err(e) = res {
             tracing::warn!(session = %sid, error = %e, "session task exited with error");
         }
-        st.release_session_signer(&sid);
         session_watch::exited(&st, &sid, watch_pid, "engine-exit");
         // Mark the bound identity dead but keep the row for resume (issue #47).
         st.with_store(|s| {

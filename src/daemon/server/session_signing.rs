@@ -1,37 +1,6 @@
 use super::*;
 
-impl DaemonState {
-    /// Resolve the signer selected at session start. Durable agents use their
-    /// persisted config key; normal sessions derive from the management root.
-    pub(in crate::daemon) fn session_signing_keys(&self, session_id: &str) -> Result<Keys> {
-        if let Some(keys) = self.session_keys.lock().unwrap().get(session_id).cloned() {
-            return Ok(keys);
-        }
-        let durable = self.with_store(|s| s.is_durable_agent_session(session_id))?;
-        if durable {
-            let session = self
-                .with_store(|s| s.get_session(session_id))?
-                .with_context(|| format!("durable session {session_id:?} is not registered"))?;
-            let identity = crate::identity::load_or_create(
-                &crate::config::edge_home(),
-                &session.agent_slug,
-                crate::util::now_secs(),
-            )?;
-            if identity.per_session_key || identity.pubkey_hex() != session.agent_pubkey {
-                anyhow::bail!(
-                    "durable signer configuration changed for agent {:?}",
-                    session.agent_slug
-                );
-            }
-            return Ok(identity.keys);
-        }
-        let mgmt = self.management_keys()?;
-        Ok(crate::identity::derive_session_keys_v2(
-            mgmt.secret_key(),
-            session_id,
-        ))
-    }
-}
+mod keys;
 
 /// A freshly minted per-session identity: the session's own signing keys plus
 /// its read-side projection (pubkey, agent slug, session id).
@@ -48,16 +17,27 @@ pub(in crate::daemon::server) fn validate_live_session_identity(
     agent: &crate::identity::AgentIdentity,
 ) -> Result<()> {
     let durable = !agent.per_session_key;
+    let stored_durable = state.with_store(|s| s.is_durable_agent_session(&session.session_id))?;
+    if stored_durable != durable {
+        anyhow::bail!(
+            "agent {:?} identity configuration changed while session {} is live; \
+             end the live session before changing perSessionKey or its persisted key",
+            session.agent_slug,
+            session.session_id
+        );
+    }
     let expected = if durable {
         agent.pubkey_hex()
     } else {
+        let signer_salt = state
+            .with_store(|s| s.session_signer_salt(&session.agent_pubkey))?
+            .with_context(|| format!("pubkey {:?} has no signer material", session.agent_pubkey))?;
         let mgmt = state.management_keys()?;
-        crate::identity::derive_session_keys_v2(mgmt.secret_key(), &session.session_id)
+        crate::identity::derive_session_keys(mgmt.secret_key(), &signer_salt)?
             .public_key()
             .to_hex()
     };
-    let stored_durable = state.with_store(|s| s.is_durable_agent_session(&session.session_id))?;
-    if stored_durable != durable || session.agent_pubkey != expected {
+    if session.agent_pubkey != expected {
         anyhow::bail!(
             "agent {:?} identity configuration changed while session {} is live; \
              end the live session before changing perSessionKey or its persisted key",
@@ -147,21 +127,17 @@ pub(in crate::daemon::server) fn mint_session_identity(
 ) -> Result<MintedSession> {
     let agent_slug = agent.slug.as_str();
     let durable_agent = !agent.per_session_key;
-    let keys = if durable_agent {
-        agent.keys.clone()
-    } else {
-        let mgmt = state.management_keys()?;
-        crate::identity::derive_session_keys_v2(mgmt.secret_key(), session_id)
-    };
-    let pubkey = keys.public_key().to_hex();
-    let (codename, reclaimed_pubkey, durable_claim_acquired) = if durable_agent {
+    let now = now_secs();
+    let (keys, pubkey, codename, reclaimed_pubkey, durable_claim_acquired) = if durable_agent {
+        let keys = agent.keys.clone();
+        let pubkey = keys.public_key().to_hex();
         let claim = state.with_store(|s| {
             s.claim_durable_agent_session_with_reservation(
                 &pubkey,
                 agent_slug,
                 session_id,
                 durable_reservation,
-                now_secs(),
+                now,
             )
         });
         let acquired = match claim {
@@ -175,43 +151,71 @@ pub(in crate::daemon::server) fn mint_session_identity(
                 return Err(error);
             }
         };
-        (String::new(), None, acquired)
-    } else {
-        let allocation = state.with_store(|s| match input.session_name {
-            Some(name) => s.allocate_custom_handle(&pubkey, agent_slug, name, now_secs()),
-            None => s.allocate_handle(&pubkey, agent_slug, now_secs()),
-        })?;
-        (allocation.codename, allocation.reclaimed_pubkey, false)
-    };
-    state
-        .session_keys
-        .lock()
-        .unwrap()
-        .insert(session_id.to_string(), keys.clone());
-
-    let identity = crate::state::Identity {
-        pubkey: pubkey.clone(),
-        agent_slug: agent_slug.to_string(),
-        codename: codename.clone(),
-        session_id: session_id.to_string(),
-        channel_h: h.to_string(),
-        native_id: if durable_agent {
-            String::new()
-        } else {
-            input.native_id.to_string()
-        },
-        alive: true,
-        created_at: now_secs(),
-    };
-    if let Err(e) = state.with_store(|s| s.upsert_identity(&identity)) {
-        state.release_session_signer(session_id);
-        if durable_agent {
-            state
-                .with_store(|s| s.release_durable_agent_session(session_id))
-                .ok();
+        let record = crate::state::Identity {
+            pubkey: pubkey.clone(),
+            agent_slug: agent_slug.to_string(),
+            codename: String::new(),
+            session_id: session_id.to_string(),
+            channel_h: h.to_string(),
+            native_id: String::new(),
+            alive: true,
+            created_at: now,
+        };
+        if let Err(error) = state.with_store(|s| s.upsert_identity(&record)) {
+            if acquired {
+                state
+                    .with_store(|s| s.release_durable_agent_session(session_id))
+                    .ok();
+            }
+            return Err(error);
         }
-        return Err(e);
-    }
+        (keys, pubkey, String::new(), None, acquired)
+    } else {
+        let mgmt = state.management_keys()?;
+        state.with_store(|store| {
+            let prior = store.identity_for_session(session_id)?;
+            let signer_salt = if let Some(identity) = prior.as_ref() {
+                store
+                    .session_signer_salt(&identity.pubkey)?
+                    .with_context(|| {
+                        format!("pubkey {:?} has no signer material", identity.pubkey)
+                    })?
+            } else {
+                crate::identity::new_session_signer_salt()
+            };
+            let keys = crate::identity::derive_session_keys(mgmt.secret_key(), &signer_salt)?;
+            let pubkey = keys.public_key().to_hex();
+            if prior
+                .as_ref()
+                .is_some_and(|identity| identity.pubkey != pubkey)
+            {
+                anyhow::bail!("stored signer material does not reproduce session pubkey");
+            }
+            store.bind_session_signer(&pubkey, &signer_salt)?;
+            let allocation = match input.session_name {
+                Some(name) => store.allocate_custom_handle(&pubkey, agent_slug, name, now)?,
+                None => store.allocate_handle(&pubkey, agent_slug, now)?,
+            };
+            let record = crate::state::Identity {
+                pubkey: pubkey.clone(),
+                agent_slug: agent_slug.to_string(),
+                codename: allocation.codename.clone(),
+                session_id: session_id.to_string(),
+                channel_h: h.to_string(),
+                native_id: input.native_id.to_string(),
+                alive: true,
+                created_at: now,
+            };
+            store.upsert_identity(&record)?;
+            Ok::<_, anyhow::Error>((
+                keys,
+                pubkey,
+                allocation.codename,
+                allocation.reclaimed_pubkey,
+                false,
+            ))
+        })?
+    };
     let identity = if durable_agent {
         crate::identity::SessionIdentity::durable_agent(
             pubkey,
@@ -248,7 +252,7 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
         );
         return Ok(());
     };
-    let keys = state.session_signing_keys(&identity.session_id)?;
+    let keys = state.session_signing_keys(pubkey)?;
     let npub = crate::idref::npub(pubkey).unwrap_or_else(|| pubkey.to_string());
     let agent_slug = identity.agent_slug;
     let profile = crate::domain::Profile::agent(
@@ -279,3 +283,7 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "session_signing/tests.rs"]
+mod tests;

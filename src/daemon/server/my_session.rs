@@ -58,7 +58,7 @@ pub(in crate::daemon::server) async fn rpc_my_session_status(
     let rec = resolve_caller(state, params, "my session status")?;
     let set_at = now_secs();
     state.with_store(|s| s.set_session_work_topic(&rec.session_id, &title, set_at))?;
-    let keys = state.session_signing_keys(&rec.session_id)?;
+    let keys = state.session_signing_keys(&rec.agent_pubkey)?;
     crate::status_seam::drive(
         &state.status,
         state.fabric_provider(),
@@ -152,12 +152,19 @@ mod tests {
     #[tokio::test]
     async fn stores_and_publishes_title_for_the_exact_caller_session() {
         let state = DaemonState::new_for_test().await;
+        let signer_salt = crate::identity::new_session_signer_salt();
+        let keys = crate::identity::derive_session_keys(
+            state.management_keys().unwrap().secret_key(),
+            &signer_salt,
+        )
+        .unwrap();
+        let pubkey = keys.public_key().to_hex();
         let session_id = state.with_store(|s| {
             s.register_session(&RegisterSession {
                 harness: "codex".into(),
                 external_id_kind: "pty_session".into(),
                 external_id: "pty-1".into(),
-                agent_pubkey: "pk".into(),
+                agent_pubkey: pubkey.clone(),
                 agent_slug: "codex".into(),
                 channel_h: "root".into(),
                 child_pid: None,
@@ -174,7 +181,7 @@ mod tests {
                     &session_id,
                     "test-host",
                     "codex",
-                    "pk",
+                    &pubkey,
                     ".",
                     BTreeSet::from(["root".to_string()]),
                     true,
@@ -185,6 +192,7 @@ mod tests {
                 .unwrap();
             assert_eq!(out.effects.len(), 1);
         }
+        state.with_store(|s| s.bind_session_signer(&pubkey, &signer_salt).unwrap());
 
         let response = rpc_my_session_status(
             &state,
