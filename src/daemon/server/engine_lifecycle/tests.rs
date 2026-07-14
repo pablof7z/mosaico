@@ -75,7 +75,7 @@ async fn config_change_retirement_kills_supervisor_and_marks_dead() {
                 resume_id: String::new(),
                 now: 1000,
             })?;
-            s.put_alias("claude-code", "pty_socket", &sock_str, &sid, 1000)?;
+            s.put_alias("claude-code", "pty_session", &sock_str, &sid, 1000)?;
             Ok::<_, anyhow::Error>(sid)
         })
         .unwrap();

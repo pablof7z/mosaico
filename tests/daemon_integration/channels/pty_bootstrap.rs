@@ -85,14 +85,19 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
 
     let rec = wait_for_alive(&home, agent, &channel);
     let store = Store::open(&home.store_path()).unwrap();
+    let aliases = store.aliases_for_session(&rec.session_id).unwrap();
     assert_eq!(
-        store
-            .aliases_for_session(&rec.session_id)
-            .unwrap()
-            .into_iter()
+        aliases
+            .iter()
             .find(|a| a.external_id_kind == "pty_session")
-            .map(|a| a.external_id),
+            .map(|a| a.external_id.clone()),
         Some(pty_id.clone())
+    );
+    assert!(
+        aliases
+            .iter()
+            .all(|alias| alias.external_id_kind != "pty_socket"),
+        "endpoint metadata, not aliases, owns the PTY socket"
     );
     // Membership is relay-materialized (the daemon publishes the 39002 snapshot
     // and materializes it back from the relay), so poll for it rather than
@@ -161,7 +166,6 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
                 "channel": &channel,
                 "watch_pid": i32::try_from(meta.supervisor_pid).ok(),
                 "pty_session": &pty_id,
-                "pty_socket": &meta.socket,
             }),
         )
         .await

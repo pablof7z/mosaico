@@ -89,6 +89,25 @@ pub fn read_all_metadata() -> Vec<LaunchMetadata> {
     out
 }
 
+/// Resolve a PTY endpoint id to its supervisor socket without inventing a
+/// socket for non-PTY endpoints. Absolute paths are accepted for direct callers.
+pub fn endpoint_socket(endpoint_id: &str) -> Option<String> {
+    endpoint_socket_in(endpoint_id, read_all_metadata())
+}
+
+fn endpoint_socket_in(
+    endpoint_id: &str,
+    metadata: impl IntoIterator<Item = LaunchMetadata>,
+) -> Option<String> {
+    if std::path::Path::new(endpoint_id).is_absolute() {
+        return Some(endpoint_id.to_string());
+    }
+    metadata
+        .into_iter()
+        .find(|meta| meta.id == endpoint_id)
+        .map(|meta| meta.socket)
+}
+
 pub fn resolve_socket(id_or_path: &str) -> PathBuf {
     let path = PathBuf::from(id_or_path);
     if path.components().count() > 1 || id_or_path.ends_with(".sock") {
@@ -105,6 +124,26 @@ pub fn resolve_socket(id_or_path: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn endpoint_socket_comes_from_launch_metadata() {
+        let meta = super::LaunchMetadata {
+            id: "pty-1".into(),
+            socket: "/tmp/pty-1.sock".into(),
+            supervisor_pid: 42,
+            agent: "agent".into(),
+            root: "/tmp".into(),
+            cwd: "/tmp".into(),
+            ephemeral: false,
+            command: vec!["codex".into()],
+        };
+
+        assert_eq!(
+            super::endpoint_socket_in("pty-1", [meta]),
+            Some("/tmp/pty-1.sock".into())
+        );
+        assert_eq!(super::endpoint_socket_in("acp-1", std::iter::empty()), None);
+    }
+
     #[cfg(unix)]
     #[test]
     fn socket_path_stays_short_for_long_edge_home() {

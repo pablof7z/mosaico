@@ -26,7 +26,6 @@ pub(crate) async fn bootstrap_pty_session_start(
             "channels": request.channels,
             "watch_pid": watch_pid,
             "pty_session": &meta.id,
-            "pty_socket": &meta.socket,
             "resume_id": request.resume_id,
             "dispatch_event": request.dispatch_event,
             "session_name": request.session_name,

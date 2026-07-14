@@ -158,7 +158,6 @@ fn live_pty_for_session(state: &Arc<DaemonState>, rec: &crate::state::Session) -
     }
     state.with_store(|s| {
         let _ = s.clear_alias_kind(&rec.session_id, "pty_session");
-        let _ = s.clear_alias_kind(&rec.session_id, "pty_socket");
     });
     None
 }

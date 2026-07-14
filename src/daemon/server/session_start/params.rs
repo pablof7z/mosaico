@@ -17,9 +17,6 @@ pub(super) struct SessionStartParams {
     /// Portable-pty supervisor session id from TENEX_EDGE_PTY_SESSION.
     #[serde(default)]
     pub(super) pty_session: Option<String>,
-    /// Portable-pty supervisor socket path from TENEX_EDGE_PTY_SOCKET.
-    #[serde(default)]
-    pub(super) pty_socket: Option<String>,
     /// Daemon-owned reservation acquired before a manual PTY launch.
     #[serde(default)]
     pub(super) durable_reservation: Option<String>,

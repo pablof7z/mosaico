@@ -287,8 +287,8 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
 /// still running. The session is genuinely LIVE (it just passed
 /// [`session_still_live`]), so we MUST kill its PTY supervisor **before** marking
 /// the row dead — otherwise we leak exactly the orphaned supervisor #382 exists
-/// to reap (defect #4). Exec/native sessions with no `pty_socket` alias have no
-/// supervisor to kill; the row is retired directly.
+/// to reap (defect #4). Exec/native sessions with no PTY endpoint metadata have
+/// no supervisor to kill; the row is retired directly.
 fn retire_live_session_for_config_change(
     state: &Arc<DaemonState>,
     session_id: &str,
@@ -381,15 +381,9 @@ fn revive_decision(pid_ok: bool, pty_live: Option<bool>) -> bool {
 }
 
 /// The PTY supervisor socket path bound to a session, if it launched under a PTY.
-/// Read from the durable `pty_socket` alias (an absolute path), so
-/// [`crate::pty::is_live`] connects to it directly.
+/// The session keeps only the endpoint id alias; PTY launch metadata owns the
+/// socket path. An absolute endpoint is accepted for tests and direct callers.
 fn pty_socket_for(state: &Arc<DaemonState>, session_id: &str) -> Option<String> {
-    state.with_store(|s| {
-        s.aliases_for_session(session_id).ok().and_then(|aliases| {
-            aliases
-                .into_iter()
-                .find(|a| a.external_id_kind == "pty_socket")
-                .map(|a| a.external_id)
-        })
-    })
+    let endpoint_id = endpoint_id_for(state, session_id)?;
+    crate::pty::endpoint_socket(&endpoint_id)
 }

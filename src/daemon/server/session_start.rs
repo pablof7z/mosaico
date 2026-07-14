@@ -105,7 +105,6 @@ pub(super) async fn rpc_session_start_inner(
     let harness_str = harness.as_str();
     tracing::debug!(agent = %p.agent, harness = %harness_str, channel = %channel, "session_start hook received");
     let pty_session = p.pty_session.clone().filter(|s| !s.is_empty());
-    let pty_socket = p.pty_socket.clone().filter(|s| !s.is_empty());
     // The harness-native id to bind for resume: opencode `ses_*`, else claude/codex
     // native id.
     let native_id = resume_id
@@ -179,7 +178,6 @@ pub(super) async fn rpc_session_start_inner(
         harness_str,
         &session_id,
         pty_session.as_deref(),
-        pty_socket.as_deref(),
         harness_session_id.as_deref(),
         resume_id.as_deref(),
         p.watch_pid,

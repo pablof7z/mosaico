@@ -173,13 +173,12 @@ impl Store {
     }
 
     /// Retire a session whose PTY/ACP endpoint probed dead: drop its endpoint
-    /// socket aliases (`pty_session`, `pty_socket`) AND mark the row and its
-    /// bound identity dead. Clearing the alias WITHOUT marking dead would leave
+    /// alias (`pty_session`) AND mark the row and its bound identity dead.
+    /// Clearing the alias WITHOUT marking dead would leave
     /// an ALIVE row guarded only by `child_pid`, reopening the recycled-PID
     /// false-revive the socket-liveness guard exists to prevent (defect #6).
     pub fn retire_dead_endpoint(&self, session_id: &str) -> Result<()> {
         self.clear_alias_kind(session_id, "pty_session")?;
-        self.clear_alias_kind(session_id, "pty_socket")?;
         self.mark_dead(session_id)?;
         self.mark_identity_dead_for_session(session_id)?;
         Ok(())

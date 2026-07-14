@@ -55,7 +55,6 @@ pub(super) fn record_secondary_aliases(
     harness: &str,
     session_id: &str,
     pty_session: Option<&str>,
-    pty_socket: Option<&str>,
     harness_session_id: Option<&str>,
     resume_id: Option<&str>,
     watch_pid: Option<i32>,
@@ -67,7 +66,6 @@ pub(super) fn record_secondary_aliases(
     state.with_store(|s| {
         for (kind, value) in [
             ("pty_session", pty_session),
-            ("pty_socket", pty_socket),
             ("harness_session", harness_session_id),
             ("resume", resume_id),
         ] {

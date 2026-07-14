@@ -18,9 +18,9 @@ use std::path::Path;
 /// present locator becomes a session alias the registry uses to reattach future
 /// starts to the same canonical id.
 ///
-/// `pty_session` / `pty_socket` are read from the hook's environment so the
-/// daemon can register a local attach/injection endpoint and reattach a resumed
-/// session.
+/// `pty_session` is read from the hook's environment so the daemon can register
+/// a local attach/injection endpoint and reattach a resumed session. Its PTY
+/// metadata owns the socket path.
 pub(super) async fn report_observation(
     host: &HostDef,
     agent_slug: &str,
@@ -31,9 +31,6 @@ pub(super) async fn report_observation(
     provision_command: Option<Vec<String>>,
 ) -> Result<String> {
     let pty_session = std::env::var("TENEX_EDGE_PTY_SESSION")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let pty_socket = std::env::var("TENEX_EDGE_PTY_SOCKET")
         .ok()
         .filter(|s| !s.is_empty());
     let durable_reservation = std::env::var("TENEX_EDGE_DURABLE_RESERVATION")
@@ -50,7 +47,6 @@ pub(super) async fn report_observation(
         "cwd": cwd.to_string_lossy(),
         "watch_pid": watch_pid,
         "pty_session": pty_session,
-        "pty_socket": pty_socket,
         "durable_reservation": durable_reservation,
         "session_name": session_name,
         // Real argv of a direct `claude --agent <slug>` invocation, detected
