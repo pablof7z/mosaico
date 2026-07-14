@@ -53,17 +53,15 @@ fn claim_pending_event_ids_claims_only_the_planned_rows() {
 #[test]
 fn pending_event_survives_runtime_replacement() {
     let s = Store::open_memory().unwrap();
-    upsert_runtime(&s, "run-old", "pk-agent", 10);
+    upsert_runtime(&s, "pk-agent", 10);
     s.enqueue_inbox("evt", "pk-agent", "sender", "room", "hello", 11)
         .unwrap();
-    s.mark_dead("run-old").unwrap();
-    upsert_runtime(&s, "run-new", "pk-agent", 12);
+    s.mark_dead("pk-agent").unwrap();
+    upsert_runtime(&s, "pk-agent", 12);
 
-    let replacement = s.get_session("run-new").unwrap().unwrap();
-    assert_eq!(replacement.session_id, "run-new");
-    let claimed = s
-        .claim_pending_for_pubkey(&replacement.agent_pubkey, 13)
-        .unwrap();
+    let replacement = s.get_session("pk-agent").unwrap().unwrap();
+    assert_eq!(replacement.pubkey, "pk-agent");
+    let claimed = s.claim_pending_for_pubkey(&replacement.pubkey, 13).unwrap();
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].event_id, "evt");
 }
@@ -82,32 +80,16 @@ fn same_event_is_independent_per_pubkey() {
         .unwrap());
 }
 
-#[test]
-fn runtime_id_cannot_be_used_as_inbox_identity() {
-    let s = Store::open_memory().unwrap();
-    upsert_runtime(&s, "run-one", "pk-agent", 10);
-    let error = s
-        .enqueue_inbox("evt", "run-one", "sender", "room", "hello", 11)
-        .unwrap_err();
-    assert!(error.to_string().contains("not runtime session id"));
-}
-
-fn upsert_runtime(store: &Store, session_id: &str, pubkey: &str, now: u64) {
+fn upsert_runtime(store: &Store, pubkey: &str, now: u64) {
     store
-        .upsert_session_row(
-            session_id,
-            &crate::state::RegisterSession {
-                harness: "codex".into(),
-                external_id_kind: "harness_session".into(),
-                external_id: session_id.into(),
-                agent_pubkey: pubkey.into(),
-                agent_slug: "codex".into(),
-                channel_h: "room".into(),
-                child_pid: None,
-                transcript_path: None,
-                resume_id: String::new(),
-                now,
-            },
-        )
+        .reserve_session(&crate::state::RegisterSession {
+            pubkey: pubkey.into(),
+            harness: "codex".into(),
+            agent_slug: "codex".into(),
+            channel_h: "room".into(),
+            child_pid: None,
+            transcript_path: None,
+            now,
+        })
         .unwrap();
 }

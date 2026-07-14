@@ -8,21 +8,18 @@ use super::*;
 
 fn reg(harness: &str, ext: &str, channel: &str) -> RegisterSession {
     RegisterSession {
+        pubkey: ext.into(),
         harness: harness.into(),
-        external_id_kind: "harness_session".into(),
-        external_id: ext.into(),
-        agent_pubkey: "pk-agent".into(),
         agent_slug: "agent".into(),
         channel_h: channel.into(),
         child_pid: Some(42),
         transcript_path: Some("/t/x.jsonl".into()),
-        resume_id: String::new(),
         now: 1000,
     }
 }
 
 mod channels_tree;
-mod identities_and_roots;
+mod identity_projection_and_roots;
 mod inbox_outbox;
 mod nip01_events;
 mod retention;

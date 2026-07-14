@@ -133,13 +133,13 @@ impl Store {
         Ok(rows)
     }
 
-    /// Most recent hook-context receipts for one session, newest first.
-    pub fn latest_hook_receipts_for_session(
+    /// Most recent hook-context receipts for one pubkey, newest first.
+    pub fn latest_hook_receipts_for_pubkey(
         &self,
-        session_id: &str,
+        pubkey: &str,
         limit: u32,
     ) -> Result<Vec<ReceiptRow>> {
-        let pattern = format!("{}:%", escape_like(session_id));
+        let pattern = format!("{}:%", escape_like(pubkey));
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM receipts
              WHERE surface='hook_context' AND artifact_ref LIKE ?1 ESCAPE '\\'
@@ -149,13 +149,13 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Hook-context receipt for one session nearest to `at_millis`.
-    pub fn find_hook_receipt_for_session_near(
+    /// Hook-context receipt for one pubkey nearest to `at_millis`.
+    pub fn find_hook_receipt_for_pubkey_near(
         &self,
-        session_id: &str,
+        pubkey: &str,
         at_millis: i64,
     ) -> Result<Option<ReceiptRow>> {
-        let pattern = format!("{}:%", escape_like(session_id));
+        let pattern = format!("{}:%", escape_like(pubkey));
         Ok(self
             .conn
             .query_row(

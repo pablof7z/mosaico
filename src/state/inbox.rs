@@ -39,11 +39,6 @@ impl Store {
         body: &str,
         created_at: u64,
     ) -> Result<bool> {
-        if self.get_session(target_pubkey)?.is_some() {
-            anyhow::bail!(
-                "inbox target must be an agent pubkey, not runtime session id `{target_pubkey}`"
-            );
-        }
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO inbox
                  (event_id, target_pubkey, state, from_pubkey, channel_h, body, created_at)

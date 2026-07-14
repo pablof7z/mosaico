@@ -4,29 +4,26 @@
 //!      status, and a verbatim event log. Every one is rebuildable from the
 //!      relay and is identical for local and remote agents.
 //!   2. local plumbing the relay can't carry — OS process handles (`sessions`),
-//!      joined-channel state (`session_channels`), external-id aliases
-//!      (`session_aliases`), signer material, session identities, the inbound
+//!      joined-channel state (`session_channels`), typed runtime locators
+//!      (`session_locators`), signer material, public handle leases, the inbound
 //!      delivery ledger (`inbox`), backend replay guards (`event_claims`), the
 //!      outbound publish queue (`outbox`), pending channel-name reservations,
 //!      and on-disk workspace paths (`workspace_roots`).
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
-//! Daemon-minted session ids and harness-native ids locate runtime incarnations;
-//! they never own durable delivery state. A runtime has one active publishing
+//! The pubkey is the sole session identity. Harness-native ids and PTY endpoints
+//! are typed locators that point to it. A runtime has one active publishing
 //! channel (`sessions.channel_h`) and may listen in additional joined channels
 //! (`session_channels`).
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::cell::RefCell;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 mod profile;
 pub use profile::Profile;
 
 pub struct Store {
     conn: Connection,
-    alias_writes: RefCell<aliases::provisional::AliasWriteState>,
 }
 
 /// kind:39000 group metadata. A channel is the one abstraction; `parent` is the
@@ -78,7 +75,6 @@ pub struct ChannelMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub pubkey: String,
-    pub session_id: String,
     pub channel_h: String,
     pub slug: String,
     pub title: String,
@@ -159,45 +155,26 @@ pub struct ReactionRow {
     pub target_body: String,
 }
 
-/// Fields for registering / reasserting a local session. The daemon resolves the
-/// `(harness, external_id_kind, external_id)` alias to a canonical session;
-/// missing aliases mint a fresh canonical id.
+/// Fields reserved before starting one local runtime. A second active runtime
+/// for the same pubkey is rejected by the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterSession {
+    pub pubkey: String,
     pub harness: String,
-    pub external_id_kind: String,
-    pub external_id: String,
-    pub agent_pubkey: String,
     pub agent_slug: String,
     pub channel_h: String,
     pub child_pid: Option<i32>,
     pub transcript_path: Option<String>,
-    pub resume_id: String,
     pub now: u64,
 }
 
-/// An external id -> canonical session mapping (N:1, repointable).
+/// A typed host-local locator pointing to the sole session identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionAlias {
+pub struct SessionLocator {
     pub harness: String,
-    pub external_id_kind: String,
-    pub external_id: String,
-    pub session_id: String,
-    pub created_at: u64,
-}
-
-/// A session's public identity projection. Binds its authoritative pubkey to
-/// local lifecycle and harness-native resume locators.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Identity {
+    pub locator_kind: String,
+    pub locator_value: String,
     pub pubkey: String,
-    pub agent_slug: String,
-    /// Friendly code used as the leading component of the public handle.
-    pub codename: String,
-    pub session_id: String,
-    pub channel_h: String,
-    pub native_id: String,
-    pub alive: bool,
     pub created_at: u64,
 }
 
@@ -228,34 +205,19 @@ pub struct OutboxRow {
     pub next_attempt_at: u64, // earliest wall-clock second this row may be (re)attempted; 0 = due now
 }
 
-// Canonical ids use wall-clock nanos plus a monotonic counter: `te-<nanos_hex>-<counter_hex>`.
-static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Mint a fresh canonical session id (daemon-owned, opaque, stable across harness
-/// id rotation).
-pub(crate) fn mint_session_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let seq = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("te-{nanos:x}-{seq:x}")
-}
-
 mod agent_roster;
 pub use agent_roster::{AgentAvailability, AgentRoster};
-mod aliases;
+mod locators;
+pub(crate) use locators::{LOCATOR_ACP, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY};
 mod channel_readiness_attempts;
 pub use channel_readiness_attempts::{ChannelReadinessAttempt, NewChannelReadinessAttempt};
 mod channels;
 mod schema;
 pub use channels::{archived_channel_about, is_archived_channel_about, CHANNEL_ABOUT_MAX_CHARS};
 mod core;
-mod durable_agent_sessions;
 mod event_claims;
 mod events;
 mod handle_leases;
-mod identities;
 mod inbox;
 pub mod llm_calls;
 mod members;

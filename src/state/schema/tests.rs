@@ -28,9 +28,16 @@ fn fresh_file_db_uses_only_canonical_schema() {
     drop(store);
 
     let conn = Connection::open(&path).unwrap();
+    let version: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 5);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "trellis_replay_capsules"));
-    assert!(table_exists(&conn, "durable_agent_sessions"));
+    assert!(table_exists(&conn, "session_locators"));
+    assert!(!table_exists(&conn, "session_aliases"));
+    assert!(!table_exists(&conn, "identities"));
+    assert!(!table_exists(&conn, "durable_agent_sessions"));
     assert!(table_exists(&conn, "relay_reactions"));
     assert!(!table_exists(&conn, "project_roots"));
 
@@ -46,17 +53,25 @@ fn fresh_file_db_uses_only_canonical_schema() {
         assert!(reactions.iter().any(|c| c == col), "relay_reactions.{col}");
     }
 
-    let identities = columns(&conn, "identities");
-    assert!(!identities.iter().any(|c| c == "signer_salt"));
-    assert!(identities.iter().any(|c| c == "codename"));
-    assert!(!identities.iter().any(|c| c == "base_pubkey"));
-    assert!(!identities.iter().any(|c| c == "ordinal"));
+    assert_eq!(
+        columns(&conn, "session_locators"),
+        [
+            "harness",
+            "locator_kind",
+            "locator_value",
+            "pubkey",
+            "created_at"
+        ]
+    );
 
     assert_eq!(columns(&conn, "session_signers"), ["pubkey", "signer_salt"]);
 
     let claims = columns(&conn, "session_claims");
     assert!(claims.iter().any(|c| c == "owner_backend_pubkey"));
     assert!(claims.iter().any(|c| c == "owner_host"));
+    assert!(!claims.iter().any(|c| c == "session_id"));
+    assert!(!claims.iter().any(|c| c == "codename"));
+    assert!(!claims.iter().any(|c| c == "native_id"));
     assert!(!claims.iter().any(|c| c == "base_pubkey"));
     assert!(!claims.iter().any(|c| c == "ordinal"));
 
@@ -73,6 +88,11 @@ fn fresh_file_db_uses_only_canonical_schema() {
         .iter()
         .any(|c| c == "next_attempt_at"));
     let sess_cols = columns(&conn, "sessions");
+    assert!(sess_cols.iter().any(|c| c == "pubkey"));
+    assert!(sess_cols.iter().any(|c| c == "runtime_generation"));
+    assert!(!sess_cols.iter().any(|c| c == "session_id"));
+    assert!(!sess_cols.iter().any(|c| c == "agent_pubkey"));
+    assert!(!sess_cols.iter().any(|c| c == "resume_id"));
     assert!(
         sess_cols.iter().any(|c| c == "distill_notice_at"),
         "sessions.distill_notice_at"
@@ -104,8 +124,7 @@ fn schema_v1_is_rejected_instead_of_upgraded_in_place() {
         drop(store);
         let conn = Connection::open(&path).unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
-        conn.execute("DROP TABLE durable_agent_sessions", [])
-            .unwrap();
+        conn.execute("DROP TABLE session_locators", []).unwrap();
     }
 
     let error = match Store::open(&path) {
@@ -116,7 +135,7 @@ fn schema_v1_is_rejected_instead_of_upgraded_in_place() {
         .to_string()
         .contains("schema version 1 is incompatible"));
     let conn = Connection::open(&path).unwrap();
-    assert!(!table_exists(&conn, "durable_agent_sessions"));
+    assert!(!table_exists(&conn, "session_locators"));
 }
 
 #[test]
@@ -216,6 +235,26 @@ fn stamped_non_canonical_file_db_is_rejected() {
     };
     let text = format!("{err:#}");
     assert!(text.contains("not the current canonical schema"), "{text}");
+}
+
+#[test]
+fn schema_v4_is_rejected_instead_of_dual_reading_canonical_session_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        drop(store);
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+    }
+
+    let error = match Store::open(&path) {
+        Ok(_) => panic!("schema v4 must be rejected"),
+        Err(error) => error,
+    };
+    assert!(error
+        .to_string()
+        .contains("schema version 4 is incompatible"));
 }
 
 #[test]

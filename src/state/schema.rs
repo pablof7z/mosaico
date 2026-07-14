@@ -1,7 +1,7 @@
 //! The stamped persistence schema.
 //! Six `relay_*` tables are materialized caches and may be dropped/rebuilt from
 //! relay state. The remaining local tables are non-rebuildable daemon state:
-//! runtime bindings and aliases, identities, inbox/outbox, event claims, channel
+//! runtime bindings and locators, inbox/outbox, event claims, channel
 //! reservations, and workspace roots.
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -34,8 +34,11 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     ensure_table(conn, "workspace_roots", path)?;
     ensure_absent_table(conn, "project_roots", path)?;
     ensure_table(conn, "trellis_replay_capsules", path)?;
-    ensure_table(conn, "durable_agent_sessions", path)?;
     ensure_table(conn, "session_signers", path)?;
+    ensure_table(conn, "session_locators", path)?;
+    ensure_absent_table(conn, "session_aliases", path)?;
+    ensure_absent_table(conn, "identities", path)?;
+    ensure_absent_table(conn, "durable_agent_sessions", path)?;
     ensure_columns(
         conn,
         "session_signers",
@@ -45,24 +48,28 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     )?;
     ensure_columns(
         conn,
-        "durable_agent_sessions",
-        &["pubkey", "agent_slug", "session_id", "live", "updated_at"],
-        &[],
-        path,
-    )?;
-
-    ensure_columns(
-        conn,
-        "identities",
-        &["codename", "session_id", "channel_h"],
-        &["base_pubkey", "ordinal"],
+        "session_locators",
+        &[
+            "harness",
+            "locator_kind",
+            "locator_value",
+            "pubkey",
+            "created_at",
+        ],
+        &["external_id_kind", "external_id", "session_id"],
         path,
     )?;
     ensure_columns(
         conn,
         "session_claims",
-        &["codename", "owner_backend_pubkey", "owner_host"],
-        &["base_pubkey", "ordinal"],
+        &["pubkey", "channel_h", "owner_backend_pubkey", "owner_host"],
+        &[
+            "codename",
+            "session_id",
+            "native_id",
+            "base_pubkey",
+            "ordinal",
+        ],
         path,
     )?;
     ensure_columns(conn, "relay_profiles", &["agent_slug"], &[], path)?;
@@ -75,6 +82,21 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         &[],
         path,
     )?;
+    ensure_columns(
+        conn,
+        "relay_status",
+        &["pubkey", "channel_h"],
+        &["session_id"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "session_channels",
+        &["pubkey", "channel_h"],
+        &["session_id"],
+        path,
+    )?;
+    ensure_columns(conn, "llm_calls", &["pubkey"], &["session_id"], path)?;
     ensure_columns(
         conn,
         "inbox",
@@ -100,13 +122,29 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         conn,
         "sessions",
         &[
+            "pubkey",
+            "runtime_generation",
             "distill_fail_streak",
             "distill_notice_at",
             "explicit_chat_published_at",
             "work_topic",
             "work_topic_set_at",
         ],
-        &[],
+        &["session_id", "agent_pubkey", "resume_id"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "messages",
+        &["author_pubkey"],
+        &["author_session"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "message_recipients",
+        &["recipient_pubkey"],
+        &["target_session"],
         path,
     )?;
     Ok(())

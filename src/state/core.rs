@@ -41,11 +41,7 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .context("setting busy_timeout")?;
         schema::initialize_file(&conn, path)?;
-        let store = Self {
-            conn,
-            alias_writes: RefCell::new(Default::default()),
-        };
-        store.backfill_handle_leases()?;
+        let store = Self { conn };
         store.backfill_messages_from_relay_events()?;
         Ok(store)
     }
@@ -53,11 +49,7 @@ impl Store {
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::initialize_memory(&conn)?;
-        let store = Self {
-            conn,
-            alias_writes: RefCell::new(Default::default()),
-        };
-        store.backfill_handle_leases()?;
+        let store = Self { conn };
         store.backfill_messages_from_relay_events()?;
         Ok(store)
     }
@@ -240,16 +232,16 @@ fn sample_order_sql(table: &str, table_columns: &[String]) -> Option<&'static st
         "relay_status" if has_columns(table_columns, &["expiration", "updated_at"]) => {
             Some("expiration DESC, updated_at DESC")
         }
-        "session_aliases" if has_columns(table_columns, &["session_id", "created_at"]) => Some(
+        "session_locators" if has_columns(table_columns, &["pubkey", "created_at"]) => Some(
             "CASE WHEN EXISTS (\
                  SELECT 1 FROM sessions s \
-                 WHERE s.session_id = session_aliases.session_id AND s.alive = 1\
+                 WHERE s.pubkey = session_locators.pubkey AND s.alive = 1\
              ) THEN 0 ELSE 1 END, created_at DESC",
         ),
-        "session_channels" if has_columns(table_columns, &["session_id", "joined_at"]) => Some(
+        "session_channels" if has_columns(table_columns, &["pubkey", "joined_at"]) => Some(
             "CASE WHEN EXISTS (\
                  SELECT 1 FROM sessions s \
-                 WHERE s.session_id = session_channels.session_id AND s.alive = 1\
+                 WHERE s.pubkey = session_channels.pubkey AND s.alive = 1\
              ) THEN 0 ELSE 1 END, joined_at DESC",
         ),
         "sessions" if has_columns(table_columns, &["alive", "last_seen", "created_at"]) => {

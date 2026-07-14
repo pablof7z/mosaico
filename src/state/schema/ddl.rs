@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS relay_profiles (
 
 CREATE TABLE IF NOT EXISTS relay_status (
     pubkey       TEXT NOT NULL,
-    session_id   TEXT NOT NULL DEFAULT '',
     channel_h    TEXT NOT NULL,
     slug         TEXT NOT NULL DEFAULT '',
     title        TEXT NOT NULL DEFAULT '',
@@ -48,12 +47,10 @@ CREATE TABLE IF NOT EXISTS relay_status (
     last_seen    INTEGER NOT NULL DEFAULT 0,
     updated_at   INTEGER NOT NULL DEFAULT 0,
     expiration   INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (pubkey, session_id, channel_h)
+    PRIMARY KEY (pubkey, channel_h)
 );
 CREATE INDEX IF NOT EXISTS idx_relay_status_channel
     ON relay_status(channel_h, expiration);
-CREATE INDEX IF NOT EXISTS idx_relay_status_session
-    ON relay_status(pubkey, session_id);
 
 CREATE TABLE IF NOT EXISTS relay_agent_roster (
     backend_pubkey TEXT NOT NULL,
@@ -145,8 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_message_recipients_pubkey
 -- ── local state (facts the relay can't carry) ────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS sessions (
-    session_id        TEXT PRIMARY KEY,
-    agent_pubkey      TEXT NOT NULL,
+    pubkey             TEXT PRIMARY KEY,
+    runtime_generation INTEGER NOT NULL,
     agent_slug        TEXT NOT NULL DEFAULT '',
     channel_h         TEXT NOT NULL DEFAULT '',
     harness           TEXT NOT NULL DEFAULT '',
@@ -163,7 +160,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     seen_cursor       INTEGER NOT NULL DEFAULT 0,
     title             TEXT NOT NULL DEFAULT '',
     activity          TEXT NOT NULL DEFAULT '',
-    resume_id         TEXT NOT NULL DEFAULT '',
     distill_fail_streak INTEGER NOT NULL DEFAULT 0,
     distill_notice_at   INTEGER NOT NULL DEFAULT 0,
     explicit_chat_published_at INTEGER NOT NULL DEFAULT 0
@@ -172,43 +168,30 @@ CREATE INDEX IF NOT EXISTS idx_sessions_alive
     ON sessions(alive, channel_h);
 
 CREATE TABLE IF NOT EXISTS session_channels (
-    session_id   TEXT NOT NULL,
+    pubkey        TEXT NOT NULL,
     channel_h    TEXT NOT NULL,
     joined_at    INTEGER NOT NULL,
-    PRIMARY KEY (session_id, channel_h)
+    PRIMARY KEY (pubkey, channel_h)
 );
 CREATE INDEX IF NOT EXISTS idx_session_channels_channel
-    ON session_channels(channel_h, session_id);
+    ON session_channels(channel_h, pubkey);
 
-CREATE TABLE IF NOT EXISTS session_aliases (
-    harness           TEXT NOT NULL,
-    external_id_kind  TEXT NOT NULL,
-    external_id       TEXT NOT NULL,
-    session_id        TEXT NOT NULL,
-    created_at        INTEGER NOT NULL,
-    PRIMARY KEY (harness, external_id_kind, external_id)
+CREATE TABLE IF NOT EXISTS session_locators (
+    harness        TEXT NOT NULL,
+    locator_kind   TEXT NOT NULL CHECK (locator_kind IN ('native_resume', 'pty', 'acp', 'pid')),
+    locator_value  TEXT NOT NULL,
+    pubkey         TEXT NOT NULL,
+    created_at     INTEGER NOT NULL,
+    PRIMARY KEY (harness, locator_kind, locator_value)
 );
-CREATE INDEX IF NOT EXISTS idx_session_aliases_session
-    ON session_aliases(session_id);
-CREATE INDEX IF NOT EXISTS idx_session_aliases_external
-    ON session_aliases(external_id);
-
-CREATE TABLE IF NOT EXISTS identities (
-    pubkey       TEXT NOT NULL,
-    agent_slug   TEXT NOT NULL DEFAULT '',
-    codename     TEXT NOT NULL DEFAULT '',
-    session_id   TEXT NOT NULL DEFAULT '',
-    channel_h    TEXT NOT NULL DEFAULT '',
-    native_id    TEXT NOT NULL DEFAULT '',
-    alive        INTEGER NOT NULL DEFAULT 0,
-    created_at   INTEGER NOT NULL,
-    PRIMARY KEY (pubkey, session_id)
-);
-CREATE INDEX IF NOT EXISTS idx_identities_channel ON identities(channel_h);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_session ON identities(session_id) WHERE session_id <> '';
+CREATE INDEX IF NOT EXISTS idx_session_locators_pubkey
+    ON session_locators(pubkey);
+CREATE INDEX IF NOT EXISTS idx_session_locators_value
+    ON session_locators(locator_value);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_locators_native_resume
+    ON session_locators(pubkey) WHERE locator_kind='native_resume';
 
 CREATE TABLE IF NOT EXISTS session_signers (pubkey TEXT PRIMARY KEY, signer_salt TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS durable_agent_sessions (pubkey TEXT PRIMARY KEY, agent_slug TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE, live INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS handle_leases (
     handle          TEXT PRIMARY KEY,
@@ -221,9 +204,8 @@ CREATE TABLE IF NOT EXISTS handle_leases (
 CREATE INDEX IF NOT EXISTS idx_handle_leases_reclaim
     ON handle_leases(agent_slug, live, last_active_at);
 
-CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', codename TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', native_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
+CREATE TABLE IF NOT EXISTS session_claims (pubkey TEXT NOT NULL, agent_slug TEXT NOT NULL DEFAULT '', channel_h TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, owner_backend_pubkey TEXT NOT NULL DEFAULT '', owner_host TEXT NOT NULL DEFAULT '', PRIMARY KEY (pubkey, channel_h));
 CREATE INDEX IF NOT EXISTS idx_session_claims_expires ON session_claims(expires_at);
-CREATE INDEX IF NOT EXISTS idx_session_claims_session ON session_claims(session_id);
 
 CREATE TABLE IF NOT EXISTS inbox (
     event_id        TEXT NOT NULL,
@@ -286,7 +268,7 @@ CREATE TABLE IF NOT EXISTS channel_readiness_attempts (id INTEGER PRIMARY KEY AU
 CREATE INDEX IF NOT EXISTS idx_channel_readiness_attempts_channel ON channel_readiness_attempts(channel_h, created_at);
 CREATE TABLE IF NOT EXISTS llm_calls (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id       TEXT NOT NULL,
+    pubkey           TEXT NOT NULL,
     window_hash      TEXT NOT NULL,
     provider         TEXT NOT NULL,
     model            TEXT NOT NULL,
@@ -296,7 +278,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     parsed_title     TEXT, parsed_activity TEXT,
     created_at       INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_pubkey ON llm_calls(pubkey, created_at);
 CREATE INDEX IF NOT EXISTS idx_llm_calls_window_hash ON llm_calls(window_hash);
 CREATE TABLE IF NOT EXISTS receipts (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,

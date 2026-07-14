@@ -62,7 +62,7 @@ fn retention_prune_preserves_pending_outbox() {
 #[test]
 fn retention_prune_preserves_pending_inbox() {
     let s = Store::open_memory().unwrap();
-    s.register_session(&reg("claude-code", "x", "h1")).unwrap();
+    s.reserve_session(&reg("claude-code", "x", "h1")).unwrap();
     s.enqueue_inbox("pending", "pk-agent", "from", "h1", "pending", 1)
         .unwrap();
     s.enqueue_inbox("old-done", "pk-agent", "from", "h1", "old", 1)
@@ -100,10 +100,10 @@ fn retention_prune_only_safe_rows() {
     };
     assert!(s.insert_event(&mk("old", 1)).unwrap());
     assert!(s.insert_event(&mk("new", 10)).unwrap());
-    let alive = s.register_session(&reg("codex", "alive", "h1")).unwrap();
-    let dead = s.register_session(&reg("codex", "dead", "h1")).unwrap();
-    s.mark_dead(&dead).unwrap();
-    s.put_alias("codex", "resume", "resume-dead", &dead, 2)
+    s.reserve_session(&reg("codex", "alive", "h1")).unwrap();
+    s.reserve_session(&reg("codex", "dead", "h1")).unwrap();
+    s.mark_dead("dead").unwrap();
+    s.put_session_locator("codex", LOCATOR_NATIVE_RESUME, "resume-dead", "dead", 2)
         .unwrap();
 
     let report = s.prune_retained_state_before(5, 5).unwrap();
@@ -111,7 +111,7 @@ fn retention_prune_only_safe_rows() {
     assert_eq!(report.relay_events, 1);
     assert!(s.get_event("old").unwrap().is_none());
     assert!(s.get_event("new").unwrap().is_some());
-    assert!(s.get_session(&alive).unwrap().is_some());
-    assert!(s.get_session(&dead).unwrap().is_some());
-    assert_eq!(count_rows(&s, "session_aliases"), 3);
+    assert!(s.get_session("alive").unwrap().is_some());
+    assert!(s.get_session("dead").unwrap().is_some());
+    assert_eq!(count_rows(&s, "session_locators"), 1);
 }

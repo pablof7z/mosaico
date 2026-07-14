@@ -28,6 +28,21 @@ impl Store {
             )
             .optional()?)
     }
+
+    pub(crate) fn is_derived_session_pubkey(&self, pubkey: &str) -> Result<bool> {
+        Ok(self.session_signer_salt(pubkey)?.is_some())
+    }
+
+    pub(crate) fn list_local_session_pubkeys(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pubkey FROM session_signers
+             UNION SELECT pubkey FROM sessions
+             UNION SELECT pubkey FROM session_claims
+             ORDER BY pubkey",
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
 }
 
 #[cfg(test)]

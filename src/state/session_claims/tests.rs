@@ -5,10 +5,7 @@ fn claim(pubkey: &str, expires_at: u64) -> SessionClaim {
     SessionClaim {
         pubkey: pubkey.to_string(),
         agent_slug: "codex".to_string(),
-        codename: "willow-echo-042".to_string(),
-        session_id: "sid".to_string(),
         channel_h: "chan".to_string(),
-        native_id: "native".to_string(),
         harness: "codex".to_string(),
         last_active_at: 10,
         expires_at,
@@ -48,32 +45,27 @@ fn claim_ownership_treats_legacy_empty_owner_as_local() {
 fn session_reassert_clears_its_claim() {
     let store = Store::open_memory().unwrap();
     store
-        .register_session(&RegisterSession {
+        .reserve_session(&RegisterSession {
+            pubkey: "pk".to_string(),
             harness: "codex".to_string(),
-            external_id_kind: "harness_session".to_string(),
-            external_id: "native".to_string(),
-            agent_pubkey: "pk".to_string(),
             agent_slug: "codex".to_string(),
             channel_h: "chan".to_string(),
             child_pid: Some(1),
             transcript_path: None,
-            resume_id: String::new(),
             now: 10,
         })
         .unwrap();
     store.upsert_session_claim(&claim("pk", 30)).unwrap();
+    store.mark_dead("pk").unwrap();
 
     store
-        .register_session(&RegisterSession {
+        .reserve_session(&RegisterSession {
+            pubkey: "pk".to_string(),
             harness: "codex".to_string(),
-            external_id_kind: "harness_session".to_string(),
-            external_id: "native".to_string(),
-            agent_pubkey: "pk".to_string(),
             agent_slug: "codex".to_string(),
             channel_h: "chan".to_string(),
             child_pid: Some(2),
             transcript_path: None,
-            resume_id: String::new(),
             now: 20,
         })
         .unwrap();

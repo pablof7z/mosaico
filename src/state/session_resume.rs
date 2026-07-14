@@ -1,32 +1,31 @@
-//! Session selection for explicit resume surfaces.
+//! Session selection for explicit native resume surfaces.
 
 use super::sessions::{row_to_session, COLS};
 use super::*;
 
 impl Store {
-    pub(crate) fn session_row(&self, session_id: &str) -> Result<Option<Session>> {
+    pub(crate) fn session_row(&self, pubkey: &str) -> Result<Option<Session>> {
         Ok(self
             .conn
             .query_row(
-                &format!("SELECT {COLS} FROM sessions WHERE session_id=?1"),
-                [session_id],
+                &format!("SELECT {COLS} FROM sessions WHERE pubkey=?1"),
+                [pubkey],
                 row_to_session,
             )
             .optional()?)
     }
 
-    /// Recent resumable per-session identities, newest first. Durable agents
-    /// always start fresh and therefore never appear in this candidate set.
+    /// Recent sessions that have exactly one native resume locator.
     pub fn list_resumable_sessions(&self, limit: u32) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM sessions
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM durable_agent_sessions d
-                 WHERE d.pubkey=sessions.agent_pubkey
+            "SELECT {COLS} FROM sessions s
+             WHERE EXISTS (
+                 SELECT 1 FROM session_locators l
+                 WHERE l.pubkey=s.pubkey AND l.locator_kind=?1
              )
-             ORDER BY created_at DESC LIMIT ?1"
+             ORDER BY s.created_at DESC LIMIT ?2"
         ))?;
-        let rows = stmt.query_map(params![limit], row_to_session)?;
+        let rows = stmt.query_map(params![LOCATOR_NATIVE_RESUME, limit], row_to_session)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 }

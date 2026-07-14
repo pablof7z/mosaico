@@ -66,60 +66,39 @@ fn derive_keys_with_counter(ikm: &[u8], salt: &[u8], mut info: Vec<u8>, label: &
     }
 }
 
-/// The read-side identity of one running session: its selected pubkey, agent
-/// slug, canonical session id, optional leased code, and identity mode.
+/// The read-side identity of one running session. The pubkey is the identity;
+/// the full handle is its one outward alias.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionIdentity {
     pub pubkey: String,
     pub slug: String,
-    pub session_id: String,
-    pub codename: String,
+    pub handle: String,
     pub durable_agent: bool,
 }
 
 impl SessionIdentity {
-    pub fn new(pubkey: String, slug: String, session_id: String, codename: String) -> Self {
+    pub fn new(pubkey: String, slug: String, handle: String, durable_agent: bool) -> Self {
         Self {
             pubkey,
             slug,
-            session_id,
-            codename,
-            durable_agent: false,
+            handle,
+            durable_agent,
         }
     }
 
-    pub fn durable_agent(pubkey: String, slug: String, session_id: String) -> Self {
+    pub fn durable_agent(pubkey: String, slug: String) -> Self {
+        let handle = slug.clone();
         Self {
             pubkey,
             slug,
-            session_id,
-            codename: String::new(),
+            handle,
             durable_agent: true,
         }
     }
 
-    /// Projection when no bound identity exists yet. There is intentionally no
-    /// session-id-derived alias: only the lease store may mint public handles.
-    pub fn fallback(session_id: &str, slug: String, pubkey: String) -> Self {
-        Self {
-            pubkey,
-            slug,
-            session_id: session_id.to_string(),
-            codename: String::new(),
-            durable_agent: false,
-        }
-    }
-
-    /// The per-session display name: `codename-agentSlug` (e.g. `willow-echo-042-codex`),
-    /// never the raw internal `session_id`.
+    /// Public display uses the exact leased handle, never a runtime locator.
     pub fn display_slug(&self) -> String {
-        if self.durable_agent {
-            self.slug.clone()
-        } else if self.codename.is_empty() {
-            crate::idref::npub(&self.pubkey).unwrap_or_else(|| self.slug.clone())
-        } else {
-            crate::idref::session_handle(&self.slug, &self.codename)
-        }
+        self.handle.clone()
     }
 
     /// The wire reference: the session's own pubkey named by its public handle.

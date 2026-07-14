@@ -10,14 +10,14 @@
 
 use super::*;
 
-const COLS: &str = "id, session_id, window_hash, provider, model, system_prompt, \
+const COLS: &str = "id, pubkey, window_hash, provider, model, system_prompt, \
      transcript_slice, raw_response, parsed_title, parsed_activity, created_at";
 
 /// One persisted distill LLM round-trip.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmCallRow {
     pub id: i64,
-    pub session_id: String,
+    pub pubkey: String,
     pub window_hash: String,
     pub provider: String,
     pub model: String,
@@ -32,7 +32,7 @@ pub struct LlmCallRow {
 /// Input shape for recording a new round-trip. `id` is assigned by the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewLlmCall {
-    pub session_id: String,
+    pub pubkey: String,
     pub window_hash: String,
     pub provider: String,
     pub model: String,
@@ -47,7 +47,7 @@ pub struct NewLlmCall {
 fn row_to_llm_call(row: &rusqlite::Row) -> rusqlite::Result<LlmCallRow> {
     Ok(LlmCallRow {
         id: row.get(0)?,
-        session_id: row.get(1)?,
+        pubkey: row.get(1)?,
         window_hash: row.get(2)?,
         provider: row.get(3)?,
         model: row.get(4)?,
@@ -65,11 +65,11 @@ impl Store {
     pub fn record_llm_call(&self, row: &NewLlmCall) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO llm_calls
-                 (session_id, window_hash, provider, model, system_prompt,
+                 (pubkey, window_hash, provider, model, system_prompt,
                   transcript_slice, raw_response, parsed_title, parsed_activity, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                row.session_id,
+                row.pubkey,
                 row.window_hash,
                 row.provider,
                 row.model,
@@ -97,17 +97,13 @@ impl Store {
     }
 
     /// Most recent round-trips for a session, newest first, capped at `limit`.
-    pub fn latest_llm_calls_for_session(
-        &self,
-        session_id: &str,
-        limit: u32,
-    ) -> Result<Vec<LlmCallRow>> {
+    pub fn latest_llm_calls_for_pubkey(&self, pubkey: &str, limit: u32) -> Result<Vec<LlmCallRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM llm_calls
-             WHERE session_id=?1
+             WHERE pubkey=?1
              ORDER BY created_at DESC, id DESC LIMIT ?2"
         ))?;
-        let rows = stmt.query_map(params![session_id, limit], row_to_llm_call)?;
+        let rows = stmt.query_map(params![pubkey, limit], row_to_llm_call)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -122,22 +118,18 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// The round-trip for `session_id` whose `created_at` is closest to
+    /// The round-trip for `pubkey` whose `created_at` is closest to
     /// `at_millis` — answers "what exact input drove the status at time T".
-    pub fn find_llm_call_near(
-        &self,
-        session_id: &str,
-        at_millis: i64,
-    ) -> Result<Option<LlmCallRow>> {
+    pub fn find_llm_call_near(&self, pubkey: &str, at_millis: i64) -> Result<Option<LlmCallRow>> {
         Ok(self
             .conn
             .query_row(
                 &format!(
                     "SELECT {COLS} FROM llm_calls
-                     WHERE session_id=?1
+                     WHERE pubkey=?1
                      ORDER BY ABS(created_at - ?2) ASC, created_at ASC LIMIT 1"
                 ),
-                params![session_id, at_millis],
+                params![pubkey, at_millis],
                 row_to_llm_call,
             )
             .optional()?)
@@ -148,9 +140,9 @@ impl Store {
 mod tests {
     use crate::state::{llm_calls::NewLlmCall, Store};
 
-    fn call(session_id: &str, window_hash: &str, created_at: i64) -> NewLlmCall {
+    fn call(pubkey: &str, window_hash: &str, created_at: i64) -> NewLlmCall {
         NewLlmCall {
-            session_id: session_id.into(),
+            pubkey: pubkey.into(),
             window_hash: window_hash.into(),
             provider: "claude-cli".into(),
             model: "claude-haiku".into(),
@@ -170,7 +162,7 @@ mod tests {
 
         let row = s.get_llm_call(id).unwrap().unwrap();
         assert_eq!(row.id, id);
-        assert_eq!(row.session_id, "sid-1");
+        assert_eq!(row.pubkey, "sid-1");
         assert_eq!(row.window_hash, "hash-a");
         assert_eq!(row.provider, "claude-cli");
         assert_eq!(row.parsed_title.as_deref(), Some("Fix bug"));
@@ -193,7 +185,7 @@ mod tests {
         // Different session must not leak in.
         s.record_llm_call(&call("sid-2", "hash-d", 4_000)).unwrap();
 
-        let rows = s.latest_llm_calls_for_session("sid-1", 2).unwrap();
+        let rows = s.latest_llm_calls_for_pubkey("sid-1", 2).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].created_at, 3_000);
         assert_eq!(rows[1].created_at, 2_000);

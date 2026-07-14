@@ -9,33 +9,16 @@ pub(crate) const HANDLE_LEASE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HandleAllocation {
     pub(crate) handle: String,
-    pub(crate) codename: String,
     pub(crate) reclaimed_pubkey: Option<String>,
 }
 
 impl Store {
-    pub(super) fn backfill_handle_leases(&self) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO handle_leases
-                (handle, pubkey, agent_slug, leased_at, last_active_at, live)
-             SELECT codename || '-' || agent_slug, pubkey, agent_slug, created_at,
-                    COALESCE((SELECT MAX(last_seen, created_at) FROM sessions
-                              WHERE sessions.session_id=identities.session_id), created_at),
-                    COALESCE((SELECT alive FROM sessions
-                              WHERE sessions.session_id=identities.session_id), alive)
-             FROM identities
-             WHERE codename<>'' AND agent_slug<>''",
-            [],
-        )?;
-        Ok(())
-    }
-
     pub(crate) fn ensure_custom_handle_available(
         &self,
         agent_slug: &str,
         name: &str,
     ) -> Result<()> {
-        let (handle, _) = custom_handle(agent_slug, name)?;
+        let handle = custom_handle(agent_slug, name)?;
         if self.pubkey_for_handle(&handle)?.is_some()
             || remote_profiles::reserves_handle(&self.conn, &handle, None)?
         {
@@ -66,33 +49,54 @@ impl Store {
             .optional()?)
     }
 
-    pub(crate) fn touch_handle_for_session(&self, session_id: &str, at: u64) -> Result<()> {
+    pub(crate) fn touch_handle_for_pubkey(&self, pubkey: &str, at: u64) -> Result<()> {
         self.conn.execute(
             "UPDATE handle_leases SET last_active_at=?2
-             WHERE live=1 AND pubkey=(SELECT pubkey FROM identities WHERE session_id=?1 LIMIT 1)",
-            params![session_id, at],
+             WHERE live=1 AND pubkey=?1",
+            params![pubkey, at],
         )?;
         Ok(())
     }
 
-    pub(crate) fn mark_handle_offline_for_session(&self, session_id: &str) -> Result<()> {
+    pub(crate) fn mark_handle_offline_for_pubkey(&self, pubkey: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE handle_leases SET live=0,
                  last_active_at=MAX(last_active_at,
-                     COALESCE((SELECT last_seen FROM sessions WHERE session_id=?1), 0))
-             WHERE pubkey=(SELECT pubkey FROM identities WHERE session_id=?1 LIMIT 1)",
-            [session_id],
+                     COALESCE((SELECT last_seen FROM sessions WHERE pubkey=?1), 0))
+             WHERE pubkey=?1",
+            [pubkey],
         )?;
         Ok(())
     }
+
+    pub fn session_identity(
+        &self,
+        pubkey: &str,
+    ) -> Result<Option<crate::identity::SessionIdentity>> {
+        let Some(session) = self.get_session(pubkey)? else {
+            return Ok(None);
+        };
+        let durable = !self.is_derived_session_pubkey(pubkey)?;
+        let handle = match (durable, self.handle_for_pubkey(pubkey)?) {
+            (true, _) => session.agent_slug.clone(),
+            (false, Some(handle)) => handle,
+            (false, None) => anyhow::bail!("derived session {pubkey} has no handle lease"),
+        };
+        Ok(Some(crate::identity::SessionIdentity::new(
+            pubkey.to_string(),
+            session.agent_slug,
+            handle,
+            durable,
+        )))
+    }
 }
 
-pub(super) fn custom_handle(agent_slug: &str, name: &str) -> Result<(String, String)> {
-    let codename = name.trim();
-    if codename.is_empty() {
+pub(super) fn custom_handle(agent_slug: &str, name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
         anyhow::bail!("session name must not be empty");
     }
-    if !codename
+    if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
     {
@@ -100,10 +104,7 @@ pub(super) fn custom_handle(agent_slug: &str, name: &str) -> Result<(String, Str
             "session name {name:?} must use only ASCII letters, digits, hyphens, or underscores"
         );
     }
-    Ok((
-        crate::idref::session_handle(agent_slug, codename),
-        codename.to_string(),
-    ))
+    Ok(crate::idref::session_handle(agent_slug, name))
 }
 
 pub(super) fn candidates(seed: &str) -> impl Iterator<Item = String> {

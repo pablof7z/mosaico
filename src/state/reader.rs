@@ -44,8 +44,8 @@ impl StoreReader<'_> {
         self.store.resolve_slug_for_pubkey(pubkey)
     }
 
-    pub(crate) fn list_identity_pubkeys(self) -> Result<Vec<String>> {
-        self.store.list_identity_pubkeys()
+    pub(crate) fn list_local_session_pubkeys(self) -> Result<Vec<String>> {
+        self.store.list_local_session_pubkeys()
     }
 
     pub(crate) fn list_agent_roster_for_channel(
@@ -59,32 +59,27 @@ impl StoreReader<'_> {
         self.store.list_agent_roster()
     }
 
-    pub(crate) fn session_identity_for_session(
+    pub(crate) fn session_identity(
         self,
-        session_id: &str,
+        pubkey: &str,
     ) -> Result<Option<crate::identity::SessionIdentity>> {
-        self.store.session_identity_for_session(session_id)
+        self.store.session_identity(pubkey)
     }
 
     pub(crate) fn list_alive_sessions(self) -> Result<Vec<Session>> {
         self.store.list_alive_sessions()
     }
 
-    pub(crate) fn get_session(self, session_id: &str) -> Result<Option<Session>> {
-        self.store.get_session(session_id)
+    pub(crate) fn get_session(self, pubkey: &str) -> Result<Option<Session>> {
+        self.store.get_session(pubkey)
     }
 
     pub(crate) fn list_active_session_claims(self, now: u64) -> Result<Vec<SessionClaim>> {
         self.store.list_active_session_claims(now)
     }
 
-    pub(crate) fn get_status(
-        self,
-        pubkey: &str,
-        session_id: &str,
-        channel_h: &str,
-    ) -> Result<Option<Status>> {
-        self.store.get_status(pubkey, session_id, channel_h)
+    pub(crate) fn get_status(self, pubkey: &str, channel_h: &str) -> Result<Option<Status>> {
+        self.store.get_status(pubkey, channel_h)
     }
 
     pub(crate) fn live_status_for_channel(self, channel_h: &str, now: u64) -> Result<Vec<Status>> {

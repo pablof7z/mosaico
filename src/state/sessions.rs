@@ -1,21 +1,18 @@
-//! `sessions` — the local agent processes THIS daemon hosts.
-//!
-//! Canonical session identity is daemon-minted and stable. Harness-native ids are
-//! aliases (see `aliases.rs`) that repoint to the newest live owner. EVERY
-//! turn/session mutation resolves a raw external id to the canonical id BEFORE
-//! writing — a known prior bug mutated by raw id and silently no-op'd.
+//! Pubkey-keyed local runtime persistence.
 
 use super::*;
+use rusqlite::{Transaction, TransactionBehavior};
+
 pub(super) const COLS: &str =
-    "session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid, \
+    "pubkey, runtime_generation, agent_slug, channel_h, harness, child_pid, \
      transcript_path, alive, created_at, last_seen, working, turn_started_at, last_distill_at, \
-     work_topic, work_topic_set_at, seen_cursor, title, activity, resume_id, distill_fail_streak, \
+     work_topic, work_topic_set_at, seen_cursor, title, activity, distill_fail_streak, \
      distill_notice_at, explicit_chat_published_at";
 
 pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
-        session_id: row.get(0)?,
-        agent_pubkey: row.get(1)?,
+        pubkey: row.get(0)?,
+        runtime_generation: row.get(1)?,
         agent_slug: row.get(2)?,
         channel_h: row.get(3)?,
         harness: row.get(4)?,
@@ -32,156 +29,94 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         seen_cursor: row.get(15)?,
         title: row.get(16)?,
         activity: row.get(17)?,
-        resume_id: row.get(18)?,
-        distill_fail_streak: row.get(19)?,
-        distill_notice_at: row.get(20)?,
-        explicit_chat_published_at: row.get(21)?,
+        distill_fail_streak: row.get(18)?,
+        distill_notice_at: row.get(19)?,
+        explicit_chat_published_at: row.get(20)?,
     })
 }
 
 impl Store {
-    /// Resolve any id (canonical session_id OR a harness-native external id) to
-    /// the canonical session_id. Checks `sessions` first, then the newest alias
-    /// pointing at it. The single chokepoint every session mutation funnels
-    /// through so writes never miss a rotated id.
-    pub(super) fn resolve_canonical_id(&self, id: &str) -> Result<Option<String>> {
-        let direct: Option<String> = self
-            .conn
+    /// Atomically reserve the one active runtime for `r.pubkey`. A dead runtime
+    /// may be replaced; its monotonically increasing generation fences late
+    /// completion from the previous incarnation.
+    pub fn reserve_session(&self, r: &RegisterSession) -> Result<u64> {
+        if r.pubkey.trim().is_empty() {
+            anyhow::bail!("session pubkey must not be empty");
+        }
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let previous = tx
             .query_row(
-                "SELECT session_id FROM sessions WHERE session_id=?1",
-                params![id],
-                |r| r.get(0),
+                "SELECT runtime_generation, alive FROM sessions WHERE pubkey=?1",
+                [&r.pubkey],
+                |row| Ok((row.get::<_, u64>(0)?, row.get::<_, bool>(1)?)),
             )
             .optional()?;
-        if direct.is_some() {
-            return Ok(direct);
+        if previous.is_some_and(|(_, alive)| alive) {
+            anyhow::bail!("pubkey {} already has an active runtime", r.pubkey);
         }
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT session_id FROM session_aliases WHERE external_id=?1
-                 ORDER BY created_at DESC LIMIT 1",
-                params![id],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?)
-    }
-
-    /// Resolve the canonical session id for an alias WITHOUT writing the session
-    /// row — minting (and pointing the alias at) a fresh id when the alias is
-    /// absent or its row was pruned. Splitting this out of [`Self::upsert_session_row`]
-    /// lets `rpc_session_start` learn the id, select the ordinal signer (whose
-    /// reservation is keyed by session id), and THEN write the row already
-    /// carrying the correct ordinal pubkey rather than patching it afterward.
-    pub fn resolve_or_mint_session_id(
-        &self,
-        harness: &str,
-        external_id_kind: &str,
-        external_id: &str,
-        now: u64,
-    ) -> Result<String> {
-        let id = match self.resolve_session_by_alias(harness, external_id_kind, external_id)? {
-            Some(id) if self.session_exists(&id)? => id,
-            _ => mint_session_id(),
+        let generation = match previous {
+            Some((generation, _)) => generation
+                .checked_add(1)
+                .context("runtime generation exhausted")?,
+            None => 1,
         };
-        // (Re)point the external id at the resolved canonical session.
-        self.put_alias(harness, external_id_kind, external_id, &id, now)?;
-        Ok(id)
-    }
-
-    /// Insert or reassert the session row under an ALREADY-resolved canonical id
-    /// (see [`Self::resolve_or_mint_session_id`]). `r.agent_pubkey` is written
-    /// verbatim — the caller passes this session's selected ordinal pubkey, so a
-    /// re-assert refreshes the row WITHOUT collapsing the ordinal back to the base
-    /// (which would route a p-tagged mention to every ordinal of the agent).
-    pub fn upsert_session_row(&self, session_id: &str, r: &RegisterSession) -> Result<()> {
-        if self.session_exists(session_id)? {
-            self.conn.execute(
-                "UPDATE sessions SET agent_pubkey=?2, agent_slug=?3, channel_h=?4, harness=?5,
-                     child_pid=?6, transcript_path=?7, resume_id=?8, alive=1, last_seen=?9
-                 WHERE session_id=?1",
-                params![
-                    session_id,
-                    r.agent_pubkey,
-                    r.agent_slug,
-                    r.channel_h,
-                    r.harness,
-                    r.child_pid,
-                    r.transcript_path,
-                    r.resume_id,
-                    r.now
-                ],
-            )?;
-        } else {
-            self.conn.execute(
-                "INSERT INTO sessions
-                     (session_id, agent_pubkey, agent_slug, channel_h, harness, child_pid,
-                      transcript_path, alive, created_at, last_seen, resume_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8, ?9)",
-                params![
-                    session_id,
-                    r.agent_pubkey,
-                    r.agent_slug,
-                    r.channel_h,
-                    r.harness,
-                    r.child_pid,
-                    r.transcript_path,
-                    r.now,
-                    r.resume_id
-                ],
-            )?;
-        }
-        if !r.channel_h.is_empty() {
-            self.join_session_channel_canonical(session_id, &r.channel_h, r.now)?;
-        }
-        self.clear_session_claims_for_reassert(session_id, &r.agent_pubkey, &r.channel_h)?;
-        Ok(())
-    }
-
-    /// Register or reassert a local session in one step: resolve/mint the id, then
-    /// upsert the row with `r.agent_pubkey`. `rpc_session_start` uses the two-step
-    /// form directly (it must select the signer between the two); other callers
-    /// (tests, simple registrations) use this convenience wrapper.
-    pub fn register_session(&self, r: &RegisterSession) -> Result<String> {
-        let id = self.resolve_or_mint_session_id(
-            &r.harness,
-            &r.external_id_kind,
-            &r.external_id,
-            r.now,
+        tx.execute(
+            "INSERT INTO sessions
+                 (pubkey, runtime_generation, agent_slug, channel_h, harness, child_pid,
+                  transcript_path, alive, created_at, last_seen)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)
+             ON CONFLICT(pubkey) DO UPDATE SET
+                 runtime_generation=excluded.runtime_generation,
+                 agent_slug=excluded.agent_slug, channel_h=excluded.channel_h,
+                 harness=excluded.harness, child_pid=excluded.child_pid,
+                 transcript_path=excluded.transcript_path, alive=1,
+                 created_at=excluded.created_at, last_seen=excluded.last_seen,
+                 working=0, turn_started_at=0",
+            params![
+                r.pubkey,
+                generation,
+                r.agent_slug,
+                r.channel_h,
+                r.harness,
+                r.child_pid,
+                r.transcript_path,
+                r.now,
+            ],
         )?;
-        self.upsert_session_row(&id, r)?;
-        Ok(id)
+        if !r.channel_h.trim().is_empty() {
+            tx.execute(
+                "INSERT OR IGNORE INTO session_channels (pubkey, channel_h, joined_at)
+                 VALUES (?1, ?2, ?3)",
+                params![r.pubkey, r.channel_h, r.now],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM session_claims WHERE pubkey=?1 AND channel_h=?2",
+            params![r.pubkey, r.channel_h],
+        )?;
+        tx.execute(
+            "UPDATE handle_leases SET live=1, last_active_at=?2 WHERE pubkey=?1",
+            params![r.pubkey, r.now],
+        )?;
+        tx.commit()?;
+        Ok(generation)
     }
 
-    fn session_exists(&self, session_id: &str) -> Result<bool> {
+    pub fn get_session(&self, pubkey: &str) -> Result<Option<Session>> {
         Ok(self
             .conn
             .query_row(
-                "SELECT 1 FROM sessions WHERE session_id=?1",
-                params![session_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
-    }
-
-    /// Fetch a session by any id (canonical or alias). Resolves the external id to
-    /// the canonical session first.
-    pub fn get_session(&self, id: &str) -> Result<Option<Session>> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(None);
-        };
-        Ok(self
-            .conn
-            .query_row(
-                &format!("SELECT {COLS} FROM sessions WHERE session_id=?1"),
-                params![canonical],
+                &format!("SELECT {COLS} FROM sessions WHERE pubkey=?1"),
+                [pubkey],
                 row_to_session,
             )
             .optional()?)
     }
 
-    /// All alive sessions on this machine, newest first.
+    pub(crate) fn session_exists(&self, pubkey: &str) -> Result<bool> {
+        Ok(self.get_session(pubkey)?.is_some())
+    }
+
     pub fn list_alive_sessions(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM sessions WHERE alive=1 ORDER BY created_at DESC"
@@ -190,79 +125,44 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Set the working/turn flag for a session (resolves id first). When entering
-    /// a turn, pass the start timestamp; when leaving, pass `working=false`.
-    pub fn set_working(&self, id: &str, working: bool, turn_started_at: u64) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
+    pub fn set_working(&self, pubkey: &str, working: bool, turn_started_at: u64) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET working=?2, turn_started_at=?3 WHERE session_id=?1",
-            params![canonical, working as i64, turn_started_at],
+            "UPDATE sessions SET working=?2, turn_started_at=?3 WHERE pubkey=?1",
+            params![pubkey, working as i64, turn_started_at],
         )?;
         Ok(())
     }
 
-    /// Bump a session's last_seen heartbeat (resolves first).
-    pub fn touch_session(&self, id: &str, last_seen: u64) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
+    pub fn touch_session(&self, pubkey: &str, last_seen: u64) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET last_seen=?2 WHERE session_id=?1",
-            params![canonical, last_seen],
+            "UPDATE sessions SET last_seen=?2 WHERE pubkey=?1",
+            params![pubkey, last_seen],
         )?;
-        self.touch_handle_for_session(&canonical, last_seen)?;
-        Ok(())
+        self.touch_handle_for_pubkey(pubkey, last_seen)
     }
 
-    /// Update a session's transcript path (resolves first). Set on turn start when
-    /// the harness reports where its transcript lives.
-    pub fn set_session_transcript(&self, id: &str, transcript_path: &str) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
+    pub fn set_session_transcript(&self, pubkey: &str, transcript_path: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET transcript_path=?2 WHERE session_id=?1",
-            params![canonical, transcript_path],
+            "UPDATE sessions SET transcript_path=?2 WHERE pubkey=?1",
+            params![pubkey, transcript_path],
         )?;
         Ok(())
     }
 
-    /// Realign a session row's wire identity to a re-selected ordinal pubkey.
-    /// The normal start path is "born right" (the row is written with the ordinal
-    /// pubkey via [`Self::upsert_session_row`]), so this is only for the reconcile
-    /// path, which re-derives the signer for an already-registered session on
-    /// daemon restart and keeps the row consistent with it. Resolves the id first.
-    pub fn set_session_agent_pubkey(&self, id: &str, agent_pubkey: &str) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
+    pub fn set_session_channel(&self, pubkey: &str, channel_h: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET agent_pubkey=?2 WHERE session_id=?1",
-            params![canonical, agent_pubkey],
+            "UPDATE sessions SET channel_h=?2 WHERE pubkey=?1",
+            params![pubkey, channel_h],
         )?;
-        Ok(())
-    }
-
-    /// Move a session to a different channel/route scope (resolves first).
-    pub fn set_session_channel(&self, id: &str, channel_h: &str) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
-        self.conn.execute(
-            "UPDATE sessions SET channel_h=?2 WHERE session_id=?1",
-            params![canonical, channel_h],
-        )?;
-        if !channel_h.is_empty() {
-            self.join_session_channel_canonical(&canonical, channel_h, crate::util::now_secs())?;
+        if !channel_h.trim().is_empty() {
+            self.join_session_channel(pubkey, channel_h, crate::util::now_secs())?;
         }
         Ok(())
     }
 
-    fn join_session_channel_canonical(
+    pub fn join_session_channel(
         &self,
-        session_id: &str,
+        pubkey: &str,
         channel_h: &str,
         joined_at: u64,
     ) -> Result<()> {
@@ -270,96 +170,78 @@ impl Store {
             return Ok(());
         }
         self.conn.execute(
-            "INSERT OR IGNORE INTO session_channels (session_id, channel_h, joined_at)
+            "INSERT OR IGNORE INTO session_channels (pubkey, channel_h, joined_at)
              VALUES (?1, ?2, ?3)",
-            params![session_id, channel_h, joined_at],
+            params![pubkey, channel_h, joined_at],
         )?;
         Ok(())
     }
 
-    /// Join a channel for passive context and direct-mention delivery. The active
-    /// publishing channel remains `sessions.channel_h`.
-    pub fn join_session_channel(&self, id: &str, channel_h: &str, joined_at: u64) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
-        self.join_session_channel_canonical(&canonical, channel_h, joined_at)
+    pub fn leave_session_channel(&self, pubkey: &str, channel_h: &str) -> Result<bool> {
+        Ok(self.conn.execute(
+            "DELETE FROM session_channels WHERE pubkey=?1 AND channel_h=?2",
+            params![pubkey, channel_h],
+        )? > 0)
     }
 
-    /// Leave a passively joined channel. Callers must not use this to orphan the
-    /// active publishing channel; `channel switch` handles active-channel moves.
-    pub fn leave_session_channel(&self, id: &str, channel_h: &str) -> Result<bool> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(false);
-        };
-        let n = self.conn.execute(
-            "DELETE FROM session_channels WHERE session_id=?1 AND channel_h=?2",
-            params![canonical, channel_h],
-        )?;
-        Ok(n > 0)
-    }
-
-    /// True when the session listens to `channel_h`. The active route scope is
-    /// always considered joined, even if the join row predates this schema.
-    pub fn is_session_joined_channel(&self, id: &str, channel_h: &str) -> Result<bool> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(false);
-        };
-        if let Some(sess) = self.get_session(&canonical)? {
-            if sess.channel_h == channel_h {
-                return Ok(true);
-            }
+    pub fn is_session_joined_channel(&self, pubkey: &str, channel_h: &str) -> Result<bool> {
+        if self
+            .get_session(pubkey)?
+            .is_some_and(|session| session.channel_h == channel_h)
+        {
+            return Ok(true);
         }
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT 1 FROM session_channels WHERE session_id=?1 AND channel_h=?2",
-                params![canonical, channel_h],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_channels WHERE pubkey=?1 AND channel_h=?2)",
+            params![pubkey, channel_h],
+            |row| row.get(0),
+        )?)
     }
 
-    /// Joined channels for context/subscription coverage as `(channel_h,
-    /// joined_at)`. The active channel is included as a compatibility fallback.
-    pub fn list_session_joined_channels(&self, id: &str) -> Result<Vec<(String, u64)>> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(Vec::new());
-        };
+    pub fn list_session_joined_channels(&self, pubkey: &str) -> Result<Vec<(String, u64)>> {
         let mut stmt = self.conn.prepare(
             "SELECT channel_h, joined_at FROM session_channels
-             WHERE session_id=?1 ORDER BY joined_at ASC, channel_h ASC",
+             WHERE pubkey=?1 ORDER BY joined_at ASC, channel_h ASC",
         )?;
-        let rows = stmt.query_map(params![canonical.clone()], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
-        })?;
+        let rows = stmt.query_map([pubkey], |row| Ok((row.get(0)?, row.get(1)?)))?;
         let mut joined = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        if let Some(sess) = self.get_session(&canonical)? {
-            if !sess.channel_h.is_empty() && !joined.iter().any(|(h, _)| h == &sess.channel_h) {
-                joined.push((sess.channel_h, sess.created_at));
+        if let Some(session) = self.get_session(pubkey)? {
+            if !session.channel_h.is_empty() && !joined.iter().any(|(h, _)| h == &session.channel_h)
+            {
+                joined.push((session.channel_h, session.created_at));
             }
         }
         joined.sort_by(|(a_h, a_t), (b_h, b_t)| a_t.cmp(b_t).then(a_h.cmp(b_h)));
         Ok(joined)
     }
 
-    /// Mark a session dead (process exited). Resolves the id first; clears the
-    /// working flag.
-    pub fn mark_dead(&self, id: &str) -> Result<()> {
-        let Some(canonical) = self.resolve_canonical_id(id)? else {
-            return Ok(());
-        };
-        self.conn.execute(
-            "UPDATE sessions SET alive=0, working=0 WHERE session_id=?1",
-            params![canonical],
+    /// End only the incarnation the caller started. Returns false when a newer
+    /// generation is already active.
+    pub fn mark_dead_if_generation(&self, pubkey: &str, generation: u64) -> Result<bool> {
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "UPDATE sessions SET alive=0, working=0
+             WHERE pubkey=?1 AND runtime_generation=?2 AND alive=1",
+            params![pubkey, generation],
         )?;
+        if changed > 0 {
+            tx.execute(
+                "UPDATE handle_leases SET live=0,
+                     last_active_at=MAX(last_active_at,
+                         COALESCE((SELECT last_seen FROM sessions WHERE pubkey=?1), 0))
+                 WHERE pubkey=?1",
+                [pubkey],
+            )?;
+        }
+        tx.commit()?;
+        Ok(changed > 0)
+    }
+
+    pub fn mark_dead(&self, pubkey: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE identities SET alive=0 WHERE session_id=?1",
-            [&canonical],
+            "UPDATE sessions SET alive=0, working=0 WHERE pubkey=?1",
+            [pubkey],
         )?;
-        self.mark_handle_offline_for_session(&canonical)?;
-        self.release_durable_agent_session(&canonical)?;
-        Ok(())
+        self.mark_handle_offline_for_pubkey(pubkey)
     }
 }

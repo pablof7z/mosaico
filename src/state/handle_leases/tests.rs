@@ -93,18 +93,6 @@ fn seven_day_boundary_is_lazy_and_atomic() {
     let store = Store::open_memory().unwrap();
     let old = allocate(&store, "old", 100);
     store
-        .upsert_identity(&Identity {
-            pubkey: "old".into(),
-            agent_slug: "codex".into(),
-            codename: old.codename.clone(),
-            session_id: "old-session".into(),
-            channel_h: "root".into(),
-            native_id: "native-old".into(),
-            alive: false,
-            created_at: 100,
-        })
-        .unwrap();
-    store
         .conn
         .execute("UPDATE handle_leases SET live=0 WHERE pubkey='old'", [])
         .unwrap();
@@ -124,7 +112,6 @@ fn seven_day_boundary_is_lazy_and_atomic() {
         Some("boundary")
     );
     assert!(store.handle_for_pubkey("old").unwrap().is_none());
-    assert_eq!(store.get_identity("old").unwrap().unwrap().codename, "");
 
     let resumed_old = allocate(&store, "old", 100 + HANDLE_LEASE_GRACE_SECS + 1);
     assert_ne!(resumed_old.handle, old.handle);
@@ -134,28 +121,6 @@ fn seven_day_boundary_is_lazy_and_atomic() {
             .unwrap()
             .as_deref(),
         Some("old")
-    );
-}
-
-#[test]
-fn existing_long_identity_is_backfilled_as_a_tier_three_lease() {
-    let store = Store::open_memory().unwrap();
-    store
-        .upsert_identity(&Identity {
-            pubkey: "legacy-pubkey".into(),
-            agent_slug: "codex".into(),
-            codename: "amber-arrow-007".into(),
-            session_id: "legacy-session".into(),
-            channel_h: "root".into(),
-            native_id: "native-legacy".into(),
-            alive: false,
-            created_at: 10,
-        })
-        .unwrap();
-    store.backfill_handle_leases().unwrap();
-    assert_eq!(
-        store.handle_for_pubkey("legacy-pubkey").unwrap().as_deref(),
-        Some("amber-arrow-007-codex")
     );
 }
 
@@ -204,7 +169,6 @@ fn custom_name_becomes_the_public_handle_prefix() {
         .allocate_custom_handle("pk", "codex", "forensic-researcher", 10)
         .unwrap();
 
-    assert_eq!(allocation.codename, "forensic-researcher");
     assert_eq!(allocation.handle, "forensic-researcher-codex");
 }
 
