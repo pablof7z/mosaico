@@ -1,35 +1,16 @@
 use super::*;
-use crate::state::RegisterSession;
-
 #[tokio::test]
-async fn rejects_agent_hints_and_live_exact_session_anchors() {
+async fn agent_context_does_not_block_explicit_who() {
     let state = DaemonState::new_for_test().await;
-    state.with_store(|s| {
-        s.register_session(&RegisterSession {
-            harness: "codex".into(),
-            external_id_kind: "pty_session".into(),
-            external_id: "pty-1".into(),
-            agent_pubkey: "pk".into(),
-            agent_slug: "codex".into(),
-            channel_h: "root".into(),
-            child_pid: Some(42),
-            transcript_path: None,
-            resume_id: String::new(),
-            now: 1,
-        })
-        .unwrap();
-    });
+    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
+
     for params in [
-        serde_json::json!({ "agent": "codex" }),
-        serde_json::json!({ "group": "root" }),
-        serde_json::json!({ "pty_session": "pty-1" }),
+        serde_json::json!({ "workspace": "root", "agent": "codex" }),
+        serde_json::json!({ "workspace": "root", "group": "root" }),
+        serde_json::json!({ "workspace": "root", "pty_session": "pty-1" }),
     ] {
-        let err = rpc_who(&state, &params).expect_err("agent who must be rejected");
-        assert!(
-            err.to_string()
-                .contains("agents use `tenex-edge my session`"),
-            "{err:#}"
-        );
+        let out = rpc_who(&state, &params).expect("explicit who should remain available");
+        assert!(out.get("fabric_human").is_some());
     }
 }
 

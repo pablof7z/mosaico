@@ -182,7 +182,7 @@ so the common commands take no session id:
 |---|---|
 | `tenex-edge my session` | Give the current agent a full XML briefing: self identity, available capabilities, every workspace, joined channels, and member sessions. Exact-session joined workspaces expand; merely known workspaces stay compact. |
 | `tenex-edge my session status <TITLE>` | Change the current agent session's broadcast title/status. |
-| `tenex-edge who [--live] [--all-workspaces]` | Show the human/operator fabric view as terminal text. Agent invocations are rejected. |
+| `tenex-edge who [--live] [--all-workspaces]` | Show the operator-oriented fabric view as terminal text. Hidden from default agent help, but available when invoked explicitly. |
 | `tenex-edge channel send --tag quill-codex --message "…" [--wait 600]` | Message a session and optionally block for a correlated reply. |
 | `tenex-edge wait 60 [--channel <channel>]… [--from <member>]` | Block for the next visible chat. With no channel flags, watches every channel the session is active on. |
 | `tenex-edge channel read [--id <id>]` | Read history, or recover one full message by id. |

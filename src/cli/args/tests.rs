@@ -297,3 +297,21 @@ fn removed_top_level_tui_stays_unavailable() {
 
     assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
 }
+
+#[test]
+fn contextual_help_hides_who_from_agents() {
+    let help = super::command_for_context(true)
+        .render_long_help()
+        .to_string();
+
+    assert!(!help.contains("  who"), "agent help exposed who:\n{help}");
+}
+
+#[test]
+fn contextual_help_shows_who_to_humans() {
+    let help = super::command_for_context(false)
+        .render_long_help()
+        .to_string();
+
+    assert!(help.contains("  who"), "human help omitted who:\n{help}");
+}

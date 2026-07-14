@@ -75,7 +75,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
 }
 
 #[test]
-fn who_is_human_only_and_my_session_accepts_the_exact_anchor() {
+fn explicit_who_and_my_session_accept_the_exact_anchor() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
@@ -109,16 +109,16 @@ fn who_is_human_only_and_my_session_accepts_the_exact_anchor() {
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let err = c
+        let who = c
             .call("who", serde_json::json!({"agent": "coder", "cwd": "/tmp"}))
             .await
-            .expect_err("agent hints must be rejected by who");
+            .expect("explicit agent who should remain available");
         assert!(
-            format!("{err:#}").contains("who is human-only"),
-            "unexpected who error: {err:#}"
+            who["fabric_human"].as_str().is_some(),
+            "who should return the read-only fabric view: {who:#}"
         );
 
-        let err = c
+        let who = c
             .call(
                 "who",
                 serde_json::json!({
@@ -128,10 +128,10 @@ fn who_is_human_only_and_my_session_accepts_the_exact_anchor() {
                 }),
             )
             .await
-            .expect_err("agent-anchored who must be rejected");
+            .expect("agent-anchored who should remain available");
         assert!(
-            format!("{err:#}").contains("agents use `tenex-edge my session`"),
-            "unexpected who error: {err:#}"
+            who["fabric_human"].as_str().is_some(),
+            "who should return the read-only fabric view: {who:#}"
         );
 
         let briefing = c

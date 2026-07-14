@@ -13,16 +13,6 @@ pub(in crate::daemon::server) struct WhoParams {
     #[serde(default)]
     cwd: Option<String>,
     #[serde(default)]
-    harness_session: Option<String>,
-    #[serde(default)]
-    pty_session: Option<String>,
-    #[serde(default)]
-    watch_pid: Option<i32>,
-    #[serde(default)]
-    agent: Option<String>,
-    #[serde(default)]
-    group: Option<String>,
-    #[serde(default)]
     human_color: bool,
     /// `who --expired`: list this machine's dead/old sessions by public handle so a
     /// user can pick one to resume, instead of the live fabric snapshot.
@@ -33,31 +23,13 @@ pub(in crate::daemon::server) struct WhoParams {
 /// Cap on the expired-session listing — the resume-candidate window.
 const EXPIRED_SESSION_LIMIT: u32 = 100;
 
-/// Human/operator fabric overview. Exact session anchors and agent environment
-/// hints are rejected; agent self-awareness belongs to `my_session`.
+/// Operator-oriented fabric overview. The command stays hidden from default
+/// agent help, but an explicit invocation returns the same read-only view.
 pub(in crate::daemon::server) fn rpc_who(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
     let p: WhoParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let has_exact_anchor = p.pty_session.as_deref().filter(|s| !s.is_empty()).is_some()
-        || p.harness_session
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .is_some()
-        || p.watch_pid.is_some();
-    let has_agent_hint = p.agent.as_deref().is_some_and(|value| !value.is_empty())
-        || p.group.as_deref().is_some_and(|value| !value.is_empty());
-    let exact_agent_caller = has_exact_anchor
-        && resolve_session_inner(
-            state,
-            &CallerAnchor::from_params(params),
-            ResolveScope::Strict,
-        )
-        .is_ok();
-    if exact_agent_caller || has_agent_hint {
-        anyhow::bail!("tenex-edge who is human-only; agents use `tenex-edge my session`");
-    }
     if p.expired {
         let host = state.host.clone();
         let rows = state.with_store(|s| {

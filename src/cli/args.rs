@@ -38,6 +38,11 @@ fn unhide_subcommands(cmd: &mut Command) {
 /// hidden in both contexts; use `--help --all` to see everything.
 pub fn print_help_contextual() {
     let in_agent = super::agent_env_slug().is_some();
+    let mut cmd = command_for_context(in_agent);
+    let _ = cmd.print_help();
+}
+
+fn command_for_context(in_agent: bool) -> Command {
     let mut cmd = Cli::command();
     if !in_agent {
         for sub in cmd.get_subcommands_mut() {
@@ -47,7 +52,7 @@ pub fn print_help_contextual() {
             }
         }
     }
-    let _ = cmd.print_help();
+    cmd
 }
 
 #[derive(Parser)]
