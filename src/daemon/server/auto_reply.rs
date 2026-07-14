@@ -159,10 +159,7 @@ async fn do_publish(
     let recipients = if pending.requester_pubkey.trim().is_empty() {
         Vec::new()
     } else {
-        vec![OutboundChatRecipient::new(
-            pending.requester_pubkey.clone(),
-            None,
-        )]
+        vec![OutboundChatRecipient::new(pending.requester_pubkey.clone())]
     };
     let chat = ChatMessage {
         from: instance.agent_ref(),
@@ -177,7 +174,6 @@ async fn do_publish(
             &pending.trigger_event_id,
             &keys,
             &OutboundChatRecord {
-                from_session: Some(rec.session_id.clone()),
                 channel_h: pending.channel_h.clone(),
                 body: body.to_string(),
                 recipients,
@@ -190,9 +186,7 @@ async fn do_publish(
         ts: published.created_at,
         channel: pending.channel_h.clone(),
         from: instance.display_slug(),
-        from_session: Some(rec.session_id.clone()),
         to: "channel-chat".to_string(),
-        to_session: None,
         body: body.chars().take(200).collect(),
     });
     Ok(())

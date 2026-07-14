@@ -58,13 +58,9 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             &reply_to,
             &keys,
             &OutboundChatRecord {
-                from_session: Some(rec.session_id.clone()),
                 channel_h: original.channel_h.clone(),
                 body: body.clone(),
-                recipients: vec![OutboundChatRecipient::new(
-                    original.author_pubkey.clone(),
-                    original.author_session.clone(),
-                )],
+                recipients: vec![OutboundChatRecipient::new(original.author_pubkey.clone())],
                 created_at: Some(now_secs()),
                 direction: "outbound",
             },
@@ -83,9 +79,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         ts: published.created_at,
         channel: original.channel_h.clone(),
         from: instance.display_slug(),
-        from_session: Some(rec.session_id),
         to: pubkey_short(&original.author_pubkey),
-        to_session: original.author_session.clone(),
         body: body.chars().take(200).collect(),
     });
 
@@ -94,7 +88,6 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         "reply_to": reply_to,
         "channel": original.channel_h,
         "mentioned_pubkey": original.author_pubkey,
-        "mentioned_session": original.author_session,
     }))
 }
 
@@ -121,10 +114,8 @@ fn enqueue_local_reply(
             if target.session_id == rec.session_id {
                 continue;
             }
-            let is_author_session =
-                original.author_session.as_deref() == Some(target.session_id.as_str());
             let is_author_pubkey = target.agent_pubkey == original.author_pubkey;
-            if !is_author_session && !is_author_pubkey {
+            if !is_author_pubkey {
                 continue;
             }
             let joined = s

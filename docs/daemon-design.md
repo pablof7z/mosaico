@@ -282,10 +282,10 @@ defense-in-depth + a small perf win).
 ## 8a. Multi-agent on ONE connection (verified empirically)
 
 The daemon hosts several agent identities at once (`claude@`, `codex@`,
-`opencode@`, plus same-agent siblings — identity is `(agent, machine)`, so each
-is a distinct pubkey). The whole premise of the migration is **one relay
-connection** for all of them. Two facts had to hold for that to be correct;
-both were probed against the live `relay.tenex.chat` (see
+`opencode@`, and sequential runtime incarnations of durable agents). Each
+identity is one pubkey, with at most one active runtime. The whole premise of
+the migration is **one relay connection** for all of them. Two facts had to hold
+for that to be correct; both were probed against the live `relay.tenex.chat` (see
 `tests/relay_probe.rs`; run explicitly with `TE_RELAY=<relay>` and `--ignored`):
 
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
@@ -320,15 +320,15 @@ daemon, "me" becomes the **set** of hosted local agent pubkeys:
 
 - `is_self` = `local_pubkeys.contains(event.pubkey)` — skip our own
   profile/presence/activity/status for **any** hosted key.
-- A `Mention` routes by `m.to_pubkey`: find the hosted agent whose pubkey equals
-  `to_pubkey`, then `compute_targets` over **that agent's** alive sessions only
-  (never another agent's). Sibling fan-out (untargeted mention → all of that
-  agent's sessions) is preserved.
+- A `Mention` routes by `m.to_pubkey`: find the hosted identity whose pubkey
+  equals `to_pubkey`, then deliver to that pubkey's active runtime if present
+  (never another agent's runtime). Pending delivery remains owned by the pubkey
+  across runtime replacement.
 - Profile/presence/status from peers (non-local pubkeys) update the directory as
   today.
 
-Test (added): a chat mention to A must land only in A's chat queue, never B's; untargeted
-chat to A fans out to all of A's sessions.
+Test (added): a chat mention to A must land only in A's inbox, never B's; if A's
+runtime is replaced before delivery, the replacement claims the same pending row.
 
 ## 8c. Session reconciliation on daemon (re)start (correctness)
 

@@ -219,8 +219,6 @@ fn strip_single_trailing_newline(mut s: String) -> String {
 #[cfg(test)]
 pub(super) struct EnvelopeView<'a> {
     pub from_slug: &'a str,
-    /// Sender's raw session id, used only as a fallback correlation handle.
-    pub from_session: &'a str,
     /// Sender's host label. Empty, or equal to `self_host`, → no remote annotation.
     pub host: &'a str,
     /// The viewer's own host, to decide whether the sender is `[remote: …]`.
@@ -256,18 +254,8 @@ pub(super) fn format_envelope(e: &EnvelopeView) -> String {
     use crate::util::dirty_label;
     use std::fmt::Write as _;
 
-    // Canonical sender identity: the agent-instance label with host. The session
-    // id is only a fallback correlation handle when the sender slug is missing.
-    let host = if e.host.is_empty() {
-        e.self_host
-    } else {
-        e.host
-    };
-    let from = if e.from_session.is_empty() {
-        crate::idref::agent_label(e.from_slug, host)
-    } else {
-        crate::idref::session_label(e.from_session, e.from_slug, host)
-    };
+    // Canonical sender identity is the public agent label with host.
+    let from = crate::idref::agent_ref_from(e.from_slug, e.host, e.self_host);
 
     let mut s = String::new();
     let _ = write!(s, "From: {from}");

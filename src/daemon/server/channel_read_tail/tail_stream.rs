@@ -125,7 +125,7 @@ pub(in crate::daemon::server) fn build_backfill(
         None => s.recent_chat_messages(since, cap).unwrap_or_default(),
     });
     for row in chat_rows {
-        let (from_slug, _, to_session) = chat_row_refs(state, &row);
+        let (from_slug, _) = chat_row_refs(state, &row);
         let to = state.with_store(|s| {
             s.message_recipients(&row.message_id)
                 .unwrap_or_default()
@@ -138,9 +138,7 @@ pub(in crate::daemon::server) fn build_backfill(
             ts: row.created_at,
             channel: row.channel_h.clone(),
             from: from_slug,
-            from_session: row.author_session.clone(),
             to,
-            to_session,
             body: row.body.chars().take(200).collect(),
         });
     }

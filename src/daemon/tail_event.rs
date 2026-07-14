@@ -17,9 +17,7 @@ pub enum TailEvent {
         ts: u64,
         channel: String,
         from: String,
-        from_session: Option<String>,
         to: String,
-        to_session: Option<String>,
         body: String,
     },
     /// Outbound delivery state transition.
@@ -177,9 +175,7 @@ mod tests {
             ts: 0,
             channel: "proj".into(),
             from: "a".into(),
-            from_session: None,
             to: "b".into(),
-            to_session: None,
             body: "hi".into(),
         };
         let status = TailEvent::Status {

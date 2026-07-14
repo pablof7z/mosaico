@@ -1,7 +1,6 @@
 pub(super) struct RecipientSummary<'a> {
     pub(super) message_id: &'a str,
     pub(super) pubkey: &'a str,
-    pub(super) target_session: Option<&'a str>,
     pub(super) found: bool,
     pub(super) delivered: bool,
     pub(super) pending: bool,
@@ -10,10 +9,6 @@ pub(super) struct RecipientSummary<'a> {
 }
 
 pub(super) fn summary(input: &RecipientSummary<'_>) -> String {
-    let suffix = input
-        .target_session
-        .map(|session| format!(" session `{session}`"))
-        .unwrap_or_default();
     if input.failed_sync {
         return format!(
             "message `{}` failed before recipient `{}` could be proven",
@@ -22,25 +17,25 @@ pub(super) fn summary(input: &RecipientSummary<'_>) -> String {
     }
     if input.delivered {
         return format!(
-            "message `{}` was delivered to recipient `{}`{suffix}",
+            "message `{}` was delivered to recipient `{}`",
             input.message_id, input.pubkey
         );
     }
     if input.pending {
         return format!(
-            "message `{}` addresses recipient `{}`{suffix}, delivery pending",
+            "message `{}` addresses recipient `{}`, delivery pending",
             input.message_id, input.pubkey
         );
     }
     if input.found {
         return format!(
-            "message `{}` has recipient `{}`{suffix}",
+            "message `{}` has recipient `{}`",
             input.message_id, input.pubkey
         );
     }
     if input.recipient_count > 0 {
         format!(
-            "message `{}` does not address recipient `{}`{suffix}",
+            "message `{}` does not address recipient `{}`",
             input.message_id, input.pubkey
         )
     } else {
@@ -57,8 +52,6 @@ pub(super) fn reason(
     pending: bool,
     failed_sync: bool,
     recipient_count: usize,
-    pubkey_row_count: usize,
-    target_session_requested: bool,
 ) -> &'static str {
     if failed_sync {
         return "message row records a failed/rejected sync state";
@@ -71,9 +64,6 @@ pub(super) fn reason(
     }
     if found {
         return "message_recipients contains the recipient edge";
-    }
-    if target_session_requested && pubkey_row_count > 0 {
-        return "recipient pubkey is present, but not for the requested target session";
     }
     if recipient_count > 0 {
         return "message has hydrated recipient edges and this pubkey is absent";

@@ -170,21 +170,18 @@ column a reader sees; a hidden `origin`/`wire_id` column may exist for the
 | agents + identity | `relay_profiles`, `identities`, `durable_agent_sessions` | identity card plus per-session or configured durable binding | — |
 | membership | `relay_channel_members`, `relay_channel_member_sets` | which pubkeys belong to a channel | a project/channel |
 | status | `relay_status`, `sessions` | who's online, plus per-session activity, title, and history | a project/channel |
-| messages + recipients | `messages`, `message_recipients` | chat body, author return envelope, sync state, recipient edges | a project/channel |
+| messages + recipients | `messages`, `message_recipients` | chat body, author pubkey, sync state, recipient pubkeys | a project/channel |
 
 The current schema stores provider-shaped projections here; future read-model
 work should wrap them rather than reintroduce parallel membership tables.
 
-**The message row must carry its own return envelope.** A reader that surfaces an
-inbound message has to know *who to reply to*. Each session has its own permanent
-pubkey; `messages.author_session` additionally preserves the local return
-envelope needed by terminal delivery. So
-`messages.author_session` is a canonical column derived from kind:30315 status
-or local runtime state, never from a session-specific chat wire tag. The
-`inbox` table remains delivery state, not the message read model. A public handle
-comes only from the authoritative handle-lease projection; it is never rebuilt
-from a session id or inferred by parsing kind:0. When no current lease is known,
-the permanent pubkey/npub is the honest identity.
+**The message row carries the author's pubkey as its return address.** Replies,
+wait filters, and recipient edges use pubkeys; a selected local runtime is only
+an ephemeral delivery locator and never part of message history. The `inbox`
+table remains delivery state, not the message read model. A public handle comes
+only from the authoritative handle-lease projection; it is never rebuilt from a
+runtime id or inferred by parsing kind:0. When no current lease is known, the
+pubkey/npub is the honest identity.
 
 **Three consequences that make "how we hydrate is irrelevant" true:**
 

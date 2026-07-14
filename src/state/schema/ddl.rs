@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS messages (
     thread_id       TEXT NOT NULL DEFAULT '',
     channel_h       TEXT NOT NULL,
     author_pubkey   TEXT NOT NULL,
-    author_session  TEXT,
     body            TEXT NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL,
     direction       TEXT NOT NULL DEFAULT 'inbound',
@@ -131,18 +130,17 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel
     ON messages(channel_h, created_at, message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_native
     ON messages(native_event_id);
-CREATE INDEX IF NOT EXISTS idx_messages_author_session
-    ON messages(author_session, direction, sync_state, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_author_pubkey
+    ON messages(author_pubkey, direction, sync_state, created_at);
 
 CREATE TABLE IF NOT EXISTS message_recipients (
     message_id       TEXT NOT NULL,
     recipient_pubkey TEXT NOT NULL,
-    target_session   TEXT NOT NULL DEFAULT '',
     delivered_at     INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (message_id, recipient_pubkey, target_session)
+    PRIMARY KEY (message_id, recipient_pubkey)
 );
-CREATE INDEX IF NOT EXISTS idx_message_recipients_target
-    ON message_recipients(target_session, delivered_at);
+CREATE INDEX IF NOT EXISTS idx_message_recipients_pubkey
+    ON message_recipients(recipient_pubkey, delivered_at);
 
 -- ── local state (facts the relay can't carry) ────────────────────────────────
 

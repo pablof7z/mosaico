@@ -37,7 +37,7 @@ pub(super) fn session_published_reply_since(
     rec: &crate::state::Session,
     started_at: u64,
 ) -> bool {
-    match state.with_store(|s| s.session_has_outbound_message_since(&rec.session_id, started_at)) {
+    match state.with_store(|s| s.pubkey_has_outbound_message_since(&rec.agent_pubkey, started_at)) {
         Ok(has_reply) => has_reply,
         Err(e) => {
             tracing::warn!(
@@ -91,12 +91,11 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
             .collect(),
     };
     let record = OutboundChatRecord {
-        from_session: None,
         channel_h: notice.channel.to_string(),
         body: body.clone(),
         recipients: notice
             .requester_pubkey
-            .map(|pubkey| OutboundChatRecipient::new(pubkey, None))
+            .map(OutboundChatRecipient::new)
             .into_iter()
             .collect(),
         created_at: Some(now),
@@ -124,12 +123,10 @@ pub(super) async fn publish_no_reply_notice(state: &Arc<DaemonState>, notice: No
         ts: published.created_at,
         channel: notice.channel.to_string(),
         from,
-        from_session: None,
         to: notice
             .requester_pubkey
             .map(crate::util::pubkey_short)
             .unwrap_or_else(|| notice.agent_slug.to_string()),
-        to_session: notice.session_id.map(str::to_string),
         body: body.chars().take(200).collect(),
     });
 }

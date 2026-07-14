@@ -1,22 +1,15 @@
 use super::*;
 
-fn record(id: &str, author_session: Option<&str>, direction: &str) -> RecordMessage {
-    record_at(id, author_session, direction, "accepted", 10)
+fn record(id: &str, direction: &str) -> RecordMessage {
+    record_at(id, direction, "accepted", 10)
 }
 
-fn record_at(
-    id: &str,
-    author_session: Option<&str>,
-    direction: &str,
-    sync_state: &str,
-    created_at: u64,
-) -> RecordMessage {
+fn record_at(id: &str, direction: &str, sync_state: &str, created_at: u64) -> RecordMessage {
     RecordMessage {
         message_id: id.to_string(),
         thread_id: "chan".to_string(),
         channel_h: "chan".to_string(),
         author_pubkey: "author-pk".to_string(),
-        author_session: author_session.map(str::to_string),
         body: "hello".to_string(),
         created_at,
         direction: direction.to_string(),
@@ -26,58 +19,22 @@ fn record_at(
     }
 }
 
-fn register_sender_session(store: &Store) {
-    store
-        .upsert_session_row(
-            "sender-session",
-            &RegisterSession {
-                harness: "codex".to_string(),
-                external_id_kind: "pid".to_string(),
-                external_id: "123".to_string(),
-                agent_pubkey: "author-pk".to_string(),
-                agent_slug: "codex".to_string(),
-                channel_h: "chan".to_string(),
-                child_pid: Some(123),
-                transcript_path: None,
-                resume_id: "native-session".to_string(),
-                now: 1,
-            },
-        )
-        .unwrap();
-}
-
 #[test]
-fn replay_without_session_does_not_erase_return_envelope() {
+fn relay_replay_preserves_local_outbound_direction() {
     let store = Store::open_memory().unwrap();
     store
-        .record_message(&record("event-1", Some("sender-session"), "outbound"))
+        .record_message(&record("event-1", "outbound"))
         .unwrap();
-    store
-        .record_message(&record("event-1", None, "inbound"))
-        .unwrap();
+    store.record_message(&record("event-1", "inbound")).unwrap();
 
     let msg = store.get_message("event-1").unwrap().unwrap();
-    assert_eq!(msg.author_session.as_deref(), Some("sender-session"));
+    assert_eq!(msg.author_pubkey, "author-pk");
     assert_eq!(msg.direction, "outbound");
 }
 
 #[test]
-fn relay_event_backfill_derives_author_session_from_status() {
+fn relay_event_backfill_uses_event_author_pubkey() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_status(&Status {
-            pubkey: "author-pk".to_string(),
-            session_id: "sender-session".to_string(),
-            channel_h: "chan".to_string(),
-            slug: "writer".to_string(),
-            title: String::new(),
-            activity: String::new(),
-            busy: false,
-            last_seen: 9,
-            updated_at: 9,
-            expiration: 99,
-        })
-        .unwrap();
     store
         .insert_event(&RelayEvent {
             id: "event-2".to_string(),
@@ -94,60 +51,57 @@ fn relay_event_backfill_derives_author_session_from_status() {
     store.backfill_messages_from_relay_events().unwrap();
 
     let msg = store.get_message("event-2").unwrap().unwrap();
-    assert_eq!(msg.author_session.as_deref(), Some("sender-session"));
+    assert_eq!(msg.author_pubkey, "author-pk");
     assert_eq!(msg.body, "from relay");
 }
 
 #[test]
-fn outbound_reply_check_only_counts_visible_session_chat_since_cutoff() {
+fn outbound_reply_check_follows_pubkey_across_runtime_replacement() {
     let store = Store::open_memory().unwrap();
-    register_sender_session(&store);
     store
-        .record_message(&record_at(
-            "old-outbound",
-            Some("sender-session"),
-            "outbound",
-            "accepted",
-            99,
-        ))
+        .record_message(&record_at("old-outbound", "outbound", "accepted", 99))
         .unwrap();
     store
-        .record_message(&record_at(
-            "inbound",
-            Some("sender-session"),
-            "inbound",
-            "accepted",
-            101,
-        ))
+        .record_message(&record_at("inbound", "inbound", "accepted", 101))
         .unwrap();
     store
-        .record_message(&record_at(
-            "failed-outbound",
-            Some("sender-session"),
-            "outbound",
-            "failed",
-            102,
-        ))
+        .record_message(&record_at("failed-outbound", "outbound", "failed", 102))
         .unwrap();
 
     assert!(!store
-        .session_has_outbound_message_since("sender-session", 100)
+        .pubkey_has_outbound_message_since("author-pk", 100)
         .unwrap());
 
     store
-        .record_message(&record_at(
-            "accepted-outbound",
-            Some("sender-session"),
-            "outbound",
-            "accepted",
-            100,
-        ))
+        .record_message(&record_at("accepted-outbound", "outbound", "accepted", 100))
         .unwrap();
 
     assert!(store
-        .session_has_outbound_message_since("sender-session", 100)
+        .pubkey_has_outbound_message_since("author-pk", 100)
         .unwrap());
     assert!(!store
-        .session_has_outbound_message_since("other-session", 100)
+        .pubkey_has_outbound_message_since("other-pk", 100)
         .unwrap());
+}
+
+#[test]
+fn recipient_edge_is_unique_per_pubkey_and_keeps_latest_delivery() {
+    let store = Store::open_memory().unwrap();
+    store
+        .record_message(&record("event-3", "outbound"))
+        .unwrap();
+    store
+        .add_message_recipient("event-3", "recipient-pk", None)
+        .unwrap();
+    store
+        .add_message_recipient("event-3", "recipient-pk", Some(42))
+        .unwrap();
+    store
+        .add_message_recipient("event-3", "recipient-pk", Some(30))
+        .unwrap();
+
+    let rows = store.message_recipients("event-3").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].recipient_pubkey, "recipient-pk");
+    assert_eq!(rows[0].delivered_at, Some(42));
 }

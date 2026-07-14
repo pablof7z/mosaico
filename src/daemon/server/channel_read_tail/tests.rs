@@ -8,7 +8,6 @@ fn row(body: String) -> Message {
         thread_id: "channel-1".into(),
         channel_h: "channel-1".into(),
         author_pubkey: "pubkey-1".into(),
-        author_session: Some("sender-session".into()),
         body,
         created_at: 123,
         direction: "inbound".into(),
@@ -31,21 +30,20 @@ fn chat_log_json_truncates_regular_reads() {
         &row(message(CHAT_RENDER_WORD_LIMIT + 1)),
         "writer",
         "laptop",
-        Some("target-session"),
         true,
     );
     assert_eq!(json["event_id"], "event-1");
     assert_eq!(json["full_event_id"], "event-1");
     assert_eq!(json["truncated"], true);
     assert!(json["body"].as_str().unwrap().ends_with("..."));
-    assert_eq!(json["from_session"], "sender-session");
-    assert_eq!(json["mentioned_session"], "target-session");
+    assert!(json.get("from_session").is_none());
+    assert!(json.get("mentioned_session").is_none());
 }
 
 #[test]
 fn chat_log_json_keeps_exact_id_reads_full() {
     let body = message(CHAT_RENDER_WORD_LIMIT + 1);
-    let json = chat_log_row_to_json(&row(body.clone()), "writer", "laptop", None, false);
+    let json = chat_log_row_to_json(&row(body.clone()), "writer", "laptop", false);
     assert_eq!(json["truncated"], false);
     assert_eq!(json["body"], body);
 }
@@ -141,7 +139,7 @@ fn is_backend_row_true_when_recipient_is_flagged_backend() {
         .unwrap();
     let msg = row("list agents".to_string());
     store
-        .add_message_recipient(&msg.message_id, BACKEND_PK, None, None)
+        .add_message_recipient(&msg.message_id, BACKEND_PK, None)
         .unwrap();
 
     assert!(is_backend_row(&store, "", &msg));
@@ -160,9 +158,8 @@ async fn chat_row_refs_renders_whitelisted_human_without_host() {
     let state = DaemonState::new_for_test_with_whitelisted(vec![HUMAN_PK.to_string()]).await;
     let mut msg = row("hi".to_string());
     msg.author_pubkey = HUMAN_PK.to_string();
-    msg.author_session = None;
 
-    let (_, host, _) = chat_row_refs(&state, &msg);
+    let (_, host) = chat_row_refs(&state, &msg);
     assert_eq!(
         host, "",
         "whitelisted human must render with no host, not `?`"

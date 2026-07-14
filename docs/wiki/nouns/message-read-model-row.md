@@ -9,4 +9,4 @@ source_refs:
 
 # Message (read-model row)
 
-Canonical chat/message read-model row; author_session is the return envelope so replies can target the exact session that authored the row instead of degrading to pubkey/agent-level addressing.
+Canonical chat/message read-model row whose author pubkey is the durable return address across runtime replacement.

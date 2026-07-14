@@ -171,9 +171,9 @@ pub(super) fn render_message(out: &mut String, evidence: &Value) {
         );
         let _ = writeln!(
             out,
-            "  - direction={} author_session={:?} native_event_id={:?}",
+            "  - direction={} author_pubkey={:?} native_event_id={:?}",
             str_at(evidence, "direction"),
-            str_at(evidence, "author_session"),
+            str_at(evidence, "author_pubkey"),
             str_at(evidence, "native_event_id")
         );
         let _ = writeln!(

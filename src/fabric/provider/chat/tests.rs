@@ -110,7 +110,6 @@ async fn local_relay_event_preserves_signed_reply_tags() {
     let relay = chat_relay_event(
         &signed,
         &OutboundChatRecord {
-            from_session: Some("s1".into()),
             channel_h: "chan".into(),
             body: "root cause was a retry storm".into(),
             recipients: Vec::new(),

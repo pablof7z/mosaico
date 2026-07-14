@@ -14,7 +14,6 @@ fn record_self_message(store: &Store, id: &str, channel: &str, at: u64, body: &s
             thread_id: channel.into(),
             channel_h: channel.into(),
             author_pubkey: SELF_PK.into(),
-            author_session: None,
             body: body.into(),
             created_at: at,
             direction: "outbound".into(),

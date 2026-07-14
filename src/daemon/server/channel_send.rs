@@ -95,17 +95,13 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         tagged.push(TaggedRecipient {
             label: label.to_string(),
             pubkey: target.pubkey,
-            session: target.target_session,
+            run_id: target.target_run_id,
             channel: target.channel,
         });
     }
     let mentioned_pubkeys = tagged
         .iter()
         .map(|target| target.pubkey.clone())
-        .collect::<Vec<_>>();
-    let mentioned_sessions = tagged
-        .iter()
-        .filter_map(|target| target.session.clone())
         .collect::<Vec<_>>();
     let mentioned_labels = tagged
         .iter()
@@ -145,14 +141,11 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             &chat,
             &chat_signing_keys,
             &OutboundChatRecord {
-                from_session: Some(rec.session_id.clone()),
                 channel_h: deliver_scope.clone(),
                 body: body_to_send.clone(),
                 recipients: tagged
                     .iter()
-                    .map(|target| {
-                        OutboundChatRecipient::new(target.pubkey.clone(), target.session.clone())
-                    })
+                    .map(|target| OutboundChatRecipient::new(target.pubkey.clone()))
                     .collect(),
                 created_at: Some(now_secs()),
                 direction: "outbound",
@@ -185,7 +178,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         };
         for target in targets {
             let is_direct_target = tagged.iter().any(|recipient| {
-                recipient.session.as_deref() == Some(target.session_id.as_str())
+                recipient.run_id.as_deref() == Some(target.session_id.as_str())
             });
             let joined_target = s
                 .is_session_joined_channel(&target.session_id, &deliver_scope)
@@ -232,18 +225,15 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             if enqueued {
                 routed = true;
             }
-            if let Err(e) = s.add_message_recipient(
-                &event_id,
-                &target.agent_pubkey,
-                Some(&target.session_id),
-                None,
-            ) {
+            if let Err(e) =
+                s.add_message_recipient(&event_id, &target.agent_pubkey, None)
+            {
                 tracing::error!(
                     event_id = %event_id,
                     session = %target.session_id,
                     channel = %deliver_scope,
                     error = %e,
-                    "channel_send: recipient session edge upsert failed"
+                    "channel_send: recipient pubkey edge upsert failed"
                 );
             }
         }
@@ -258,7 +248,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         ts: created_at,
         channel: deliver_scope.clone(),
         from: from_label,
-        from_session: Some(rec.session_id),
         to: if mentioned_pubkeys.is_empty() {
             "channel-chat".to_string()
         } else {
@@ -268,7 +257,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 .collect::<Vec<_>>()
                 .join(",")
         },
-        to_session: (mentioned_sessions.len() == 1).then(|| mentioned_sessions[0].clone()),
         body: body_to_send.chars().take(200).collect(),
     });
 
@@ -276,7 +264,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         "event_id": event_id,
         "channel": publish_scope,
         "mentioned_pubkeys": mentioned_pubkeys,
-        "mentioned_sessions": mentioned_sessions,
         "mentioned_labels": mentioned_labels,
     }))
 }
@@ -295,6 +282,6 @@ pub(super) fn note_explicit_chat_published(state: &Arc<DaemonState>, session_id:
 pub(super) struct TaggedRecipient {
     label: String,
     pubkey: String,
-    session: Option<String>,
+    run_id: Option<String>,
     channel: String,
 }

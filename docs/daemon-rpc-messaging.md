@@ -22,7 +22,7 @@ inference.
 ```jsonc
 params: {"message": "…", "channel": "…"|null, "long_message": bool, ...}
 result: {"event_id": "hex", "channel": "channel-h", "mentioned_pubkeys": ["hex", ...],
-         "mentioned_sessions": ["te-…", ...], "mentioned_labels": ["agent", ...]}
+         "mentioned_labels": ["agent", ...]}
 ```
 
 Publishes a NIP-29 kind:9 chat message signed by the caller's own per-session key
@@ -57,7 +57,7 @@ envelope and exposes no JSON/human mode.
 ```jsonc
 params: {"id": "event-id-or-prefix", "message": "…", "long_message": bool, ...}
 result: {"event_id": "hex", "reply_to": "hex", "channel": "channel-h",
-         "mentioned_pubkey": "hex", "mentioned_session": "te-…"|null}
+         "mentioned_pubkey": "hex"}
 ```
 
 Publishes a threaded NIP-10 reply to an existing channel message. The daemon

@@ -334,7 +334,6 @@ fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value>
             serde_json::json!({
                 "from_slug": from_slug,
                 "channel": r.channel_h,
-                "from_session": "",
                 "host": "",
                 "subject": "",
                 "created_at": r.created_at,

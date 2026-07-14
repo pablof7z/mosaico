@@ -200,26 +200,19 @@ pub(in crate::daemon::server) fn chat_row_to_json(
     row: &Message,
     truncate: bool,
 ) -> serde_json::Value {
-    let (from_slug, host, mentioned_session) = chat_row_refs(state, row);
+    let (from_slug, host) = chat_row_refs(state, row);
     let resolved_body = state.with_store(|s| crate::profile::rewrite_body_mentions(s, &row.body));
     let resolved_row = Message {
         body: resolved_body,
         ..row.clone()
     };
-    chat_log_row_to_json(
-        &resolved_row,
-        &from_slug,
-        &host,
-        mentioned_session.as_deref(),
-        truncate,
-    )
+    chat_log_row_to_json(&resolved_row, &from_slug, &host, truncate)
 }
 
 pub(in crate::daemon::server) fn chat_log_row_to_json(
     row: &Message,
     from_slug: &str,
     host: &str,
-    mentioned_session: Option<&str>,
     truncate: bool,
 ) -> serde_json::Value {
     let (body, truncated) = if truncate {
@@ -237,19 +230,14 @@ pub(in crate::daemon::server) fn chat_log_row_to_json(
         "body": body,
         "truncated": truncated,
         "created_at": row.created_at,
-        "from_session": row.author_session.as_deref().unwrap_or(""),
-        "mentioned_session": mentioned_session.unwrap_or(""),
     })
 }
 
-fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String, Option<String>) {
+fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String) {
     let local_host = state.host.clone();
     state.with_store(|s| {
         let profile = s.get_profile(&row.author_pubkey).ok().flatten();
-        let session = row
-            .author_session
-            .as_deref()
-            .and_then(|sid| s.get_session(sid).ok().flatten());
+        let session = s.session_for_pubkey(&row.author_pubkey).ok().flatten();
         let from_slug = profile
             .as_ref()
             .map(|p| p.slug.as_str())
@@ -276,12 +264,7 @@ fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String, Op
                 .or_else(|| session.as_ref().map(|_| local_host))
                 .unwrap_or_default()
         };
-        let mentioned_session = s
-            .message_recipients(&row.message_id)
-            .unwrap_or_default()
-            .into_iter()
-            .find_map(|r| r.target_session);
-        (from_slug, host, mentioned_session)
+        (from_slug, host)
     })
 }
 

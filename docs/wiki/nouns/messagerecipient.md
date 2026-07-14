@@ -9,4 +9,4 @@ source_refs:
 
 # MessageRecipient
 
-One recipient edge for a canonical message; target_session is optional because fabric-level messages may only know the recipient pubkey.
+One recipient-pubkey edge for a canonical message. A runtime selected for immediate local delivery is an ephemeral locator, not part of this durable row.

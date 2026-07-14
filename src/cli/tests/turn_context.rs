@@ -429,7 +429,6 @@ fn turn_check_direct_mentions_surface_from_inbox() {
 fn view<'a>() -> EnvelopeView<'a> {
     EnvelopeView {
         from_slug: "amber-codex",
-        from_session: "sender-session-id",
         host: "",
         self_host: "my-box",
         subject: "NIP-29 group creation failing",

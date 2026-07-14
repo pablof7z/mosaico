@@ -46,7 +46,6 @@ pub(super) async fn wait_for_reply(
         "timeout_secs": timeout_secs,
         "reply_to": event_id,
         "from_pubkeys": send_result["mentioned_pubkeys"],
-        "from_sessions": send_result["mentioned_sessions"],
         "from_labels": send_result["mentioned_labels"],
         "session": session,
     }));

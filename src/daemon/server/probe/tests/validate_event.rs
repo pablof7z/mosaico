@@ -14,7 +14,6 @@ async fn rpc_probe_validate_event_accepts_chat_event_without_trellis_receipt() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: Some("author-session".into()),
                 body: "chat evidence".into(),
                 created_at: 110,
                 direction: "outbound".into(),

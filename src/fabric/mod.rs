@@ -318,7 +318,6 @@ mod tests {
                 thread_id: "c".into(),
                 channel_h: "c".into(),
                 author_pubkey: author_pk.clone(),
-                author_session: None,
                 body: "pushed the fix".into(),
                 created_at: 100,
                 direction: "outbound".into(),

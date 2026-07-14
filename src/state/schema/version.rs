@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-pub(super) const SCHEMA_VERSION: u32 = 4;
+pub(super) const SCHEMA_VERSION: u32 = 5;
 
 pub(super) fn stamp(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)

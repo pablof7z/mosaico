@@ -234,18 +234,13 @@ impl Nip29Materializer {
                     "route_chat: enqueue_inbox failed for matched session — mention not delivered (agent not woken)"
                 ),
             }
-            if let Err(e) = store.add_message_recipient(
-                &event_id,
-                &sess.agent_pubkey,
-                Some(&sess.session_id),
-                None,
-            ) {
+            if let Err(e) = store.add_message_recipient(&event_id, &sess.agent_pubkey, None) {
                 tracing::error!(
                     session = %sess.session_id,
                     channel = channel_h,
                     event_id = %event_id,
                     error = %e,
-                    "route_chat: recipient session edge upsert failed"
+                    "route_chat: recipient pubkey edge upsert failed"
                 );
             }
         }

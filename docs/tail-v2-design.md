@@ -89,7 +89,7 @@ formatting/filtering:
 #[derive(Serialize)]
 #[serde(tag = "category", rename_all = "snake_case")]
 enum TailEvent {
-    Msg{ts,project,from,from_session,to,to_session,thread,body},
+    Msg{ts,project,from,to,thread,body},
     Sync{ts,project,from,to,thread,state,detail},
     Turn{ts,project,agent,session,state,elapsed_s},
     Status{ts,project,agent,text},

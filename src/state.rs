@@ -103,16 +103,14 @@ pub struct RelayEvent {
     pub tags_json: String,
 }
 
-/// Canonical chat/message read-model row. `author_session` is the return
-/// envelope: when present, replies can target the exact session that authored the
-/// row instead of degrading to pubkey/agent-level addressing.
+/// Canonical chat/message read-model row. The author's pubkey is the sole
+/// durable sender identity; runtime incarnations never own message history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub message_id: String,
     pub thread_id: String,
     pub channel_h: String,
     pub author_pubkey: String,
-    pub author_session: Option<String>,
     pub body: String,
     pub created_at: u64,
     pub direction: String,
@@ -128,7 +126,6 @@ pub struct RecordMessage {
     pub thread_id: String,
     pub channel_h: String,
     pub author_pubkey: String,
-    pub author_session: Option<String>,
     pub body: String,
     pub created_at: u64,
     pub direction: String,
@@ -137,13 +134,12 @@ pub struct RecordMessage {
     pub error: Option<String>,
 }
 
-/// One recipient edge for a canonical message. `target_session` is optional
-/// because fabric-level messages may only know the recipient pubkey.
+/// One recipient edge for a canonical message. The pubkey owns the durable
+/// address; any runtime selected for immediate local delivery is ephemeral.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRecipient {
     pub message_id: String,
     pub recipient_pubkey: String,
-    pub target_session: Option<String>,
     pub delivered_at: Option<u64>,
 }
 

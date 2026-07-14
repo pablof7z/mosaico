@@ -1,7 +1,6 @@
 pub(in crate::daemon::server::probe::validate) struct RecipientTarget {
     pub(super) message_prefix: String,
     pub(super) recipient_pubkey: String,
-    pub(super) target_session: Option<String>,
 }
 
 pub(in crate::daemon::server::probe::validate) fn recipient_target(
@@ -14,35 +13,36 @@ pub(in crate::daemon::server::probe::validate) fn recipient_target(
 }
 
 fn colon_target(target: &str, prefix: &str) -> Option<RecipientTarget> {
-    let rest = target.strip_prefix(prefix)?;
-    let mut parts = rest.splitn(3, ':');
-    let message_prefix = parts.next()?;
-    let recipient_pubkey = parts.next()?;
-    let target_session = parts.next();
-    build_target(message_prefix, recipient_pubkey, target_session)
+    exact_target(target.strip_prefix(prefix)?, ':')
 }
 
 fn path_target(target: &str, prefix: &str) -> Option<RecipientTarget> {
-    let rest = target.strip_prefix(prefix)?;
-    let mut parts = rest.splitn(3, '/');
-    let message_prefix = parts.next()?;
-    let recipient_pubkey = parts.next()?;
-    let target_session = parts.next();
-    build_target(message_prefix, recipient_pubkey, target_session)
+    exact_target(target.strip_prefix(prefix)?, '/')
 }
 
-fn build_target(
-    message_prefix: &str,
-    recipient_pubkey: &str,
-    target_session: Option<&str>,
-) -> Option<RecipientTarget> {
-    (!message_prefix.trim().is_empty() && !recipient_pubkey.trim().is_empty()).then(|| {
-        RecipientTarget {
-            message_prefix: message_prefix.to_string(),
-            recipient_pubkey: recipient_pubkey.to_string(),
-            target_session: target_session
-                .filter(|session| !session.trim().is_empty())
-                .map(str::to_string),
-        }
+fn exact_target(rest: &str, separator: char) -> Option<RecipientTarget> {
+    let mut parts = rest.split(separator);
+    let message_prefix = parts.next()?;
+    let recipient_pubkey = parts.next()?;
+    if parts.next().is_some()
+        || message_prefix.trim().is_empty()
+        || recipient_pubkey.trim().is_empty()
+    {
+        return None;
+    }
+    Some(RecipientTarget {
+        message_prefix: message_prefix.to_string(),
+        recipient_pubkey: recipient_pubkey.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recipient_target_rejects_removed_runtime_suffix() {
+        assert!(recipient_target("recipient:event:pubkey:runtime").is_none());
+        assert!(recipient_target("recipient/event/pubkey/runtime").is_none());
+    }
 }

@@ -84,6 +84,20 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     )?;
     ensure_columns(
         conn,
+        "messages",
+        &["message_id", "author_pubkey"],
+        &["author_session"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "message_recipients",
+        &["message_id", "recipient_pubkey"],
+        &["target_session"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
         "sessions",
         &[
             "distill_fail_streak",

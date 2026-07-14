@@ -5,7 +5,6 @@ use std::collections::HashSet;
 
 pub(super) struct AuthorFilter {
     pubkeys: HashSet<String>,
-    sessions: HashSet<String>,
     labels: Vec<String>,
 }
 
@@ -17,7 +16,6 @@ impl AuthorFilter {
     ) -> Result<Self> {
         let mut filter = Self {
             pubkeys: params.from_pubkeys.iter().cloned().collect(),
-            sessions: params.from_sessions.iter().cloned().collect(),
             labels: params
                 .from_labels
                 .iter()
@@ -36,9 +34,6 @@ impl AuthorFilter {
             }) {
                 resolved_any = true;
                 filter.pubkeys.insert(resolved.pubkey);
-                if let Some(session) = resolved.target_session {
-                    filter.sessions.insert(session);
-                }
             }
             state.with_store(|store| {
                 for scope in scopes {
@@ -53,9 +48,6 @@ impl AuthorFilter {
                         ) {
                             resolved_any = true;
                             filter.pubkeys.insert(member.pubkey);
-                            if let Some(session) = session {
-                                filter.sessions.insert(session.session_id);
-                            }
                         }
                     }
                 }
@@ -74,20 +66,15 @@ impl AuthorFilter {
         if self.is_unrestricted() {
             return true;
         }
-        if self.pubkeys.contains(&message.author_pubkey)
-            || message
-                .author_session
-                .as_ref()
-                .is_some_and(|session| self.sessions.contains(session))
-        {
+        if self.pubkeys.contains(&message.author_pubkey) {
             return true;
         }
         let (profile, session) = state.with_store(|store| {
             let profile = store.get_profile(&message.author_pubkey).ok().flatten();
-            let session = message
-                .author_session
-                .as_deref()
-                .and_then(|id| store.get_session(id).ok().flatten());
+            let session = store
+                .session_for_pubkey(&message.author_pubkey)
+                .ok()
+                .flatten();
             (profile, session)
         });
         self.labels.iter().any(|label| {
@@ -101,7 +88,7 @@ impl AuthorFilter {
     }
 
     fn is_unrestricted(&self) -> bool {
-        self.pubkeys.is_empty() && self.sessions.is_empty() && self.labels.is_empty()
+        self.pubkeys.is_empty() && self.labels.is_empty()
     }
 }
 

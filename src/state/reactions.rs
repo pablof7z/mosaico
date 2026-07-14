@@ -82,7 +82,6 @@ mod tests {
                 thread_id: "chan".into(),
                 channel_h: "chan".into(),
                 author_pubkey: author.into(),
-                author_session: None,
                 body: body.into(),
                 created_at,
                 direction: "outbound".into(),

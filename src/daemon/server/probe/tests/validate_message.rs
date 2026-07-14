@@ -8,12 +8,7 @@ async fn rpc_probe_validate_message_reports_read_model_and_delivery_edges() {
         .with_store(|s| {
             s.upsert_channel("room", "Room", "work room", "", 100)?;
             s.record_message(&record("event-123", "accepted", None))?;
-            s.add_message_recipient(
-                "event-123",
-                "pk-recipient",
-                Some("target-session"),
-                Some(120),
-            )?;
+            s.add_message_recipient("event-123", "pk-recipient", Some(120))?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -82,7 +77,6 @@ fn record(id: &str, sync_state: &str, error: Option<&str>) -> RecordMessage {
         thread_id: "room".to_string(),
         channel_h: "room".to_string(),
         author_pubkey: "pk-author".to_string(),
-        author_session: Some("author-session".to_string()),
         body: "hello from the fabric".to_string(),
         created_at: 110,
         direction: "outbound".to_string(),

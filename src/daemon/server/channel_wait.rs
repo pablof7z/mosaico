@@ -23,8 +23,6 @@ pub(super) struct WaitParams {
     #[serde(default)]
     from_pubkeys: Vec<String>,
     #[serde(default)]
-    from_sessions: Vec<String>,
-    #[serde(default)]
     from_labels: Vec<String>,
 }
 
@@ -39,9 +37,7 @@ pub(super) async fn rpc_channel_wait(
         anyhow::bail!("wait duration must be at least 1 second");
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(p.timeout_secs);
-    if p.from.is_some()
-        && (!p.from_pubkeys.is_empty() || !p.from_sessions.is_empty() || !p.from_labels.is_empty())
-    {
+    if p.from.is_some() && (!p.from_pubkeys.is_empty() || !p.from_labels.is_empty()) {
         anyhow::bail!("channel_wait author filters are mutually exclusive");
     }
 
@@ -130,9 +126,7 @@ fn wait_scope_and_cursor(
             .with_store(|store| store.get_message(reply_to))?
             .with_context(|| format!("message not found for reply wait: {reply_to}"))?;
         let own = own_pubkeys(state, rec);
-        if original.author_session.as_deref() != Some(rec.session_id.as_str())
-            && !own.contains(&original.author_pubkey)
-        {
+        if !own.contains(&original.author_pubkey) {
             anyhow::bail!("can only wait for replies to a message authored by this session");
         }
         let cursor = state

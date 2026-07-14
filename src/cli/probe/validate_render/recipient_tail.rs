@@ -29,19 +29,15 @@ pub(super) fn render(out: &mut String, evidence: &Value) {
         );
         let _ = writeln!(
             out,
-            "  - rows={} pubkey_rows={} total_recipients={} target_session={:?}",
+            "  - rows={} total_recipients={}",
             int_at(evidence, "matching_row_count"),
-            int_at(evidence, "pubkey_row_count"),
-            int_at(evidence, "recipient_count"),
-            str_at(evidence, "target_session_resolved")
+            int_at(evidence, "recipient_count")
         );
         let _ = writeln!(
             out,
-            "  - profile={} slug={:?} identity={} session_alive={}",
+            "  - profile={} slug={:?}",
             bool_at(evidence, "profile_found"),
-            str_at(evidence, "profile_slug"),
-            bool_at(evidence, "identity_found"),
-            bool_at(evidence, "bound_session_alive")
+            str_at(evidence, "profile_slug")
         );
     }
     if !str_at(evidence, "reason").is_empty() {

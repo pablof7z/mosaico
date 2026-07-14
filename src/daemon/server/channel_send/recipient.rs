@@ -3,7 +3,7 @@ use crate::state::Store;
 
 pub(in crate::daemon::server) struct ResolvedRecipient {
     pub(in crate::daemon::server) pubkey: String,
-    pub(in crate::daemon::server) target_session: Option<String>,
+    pub(in crate::daemon::server) target_run_id: Option<String>,
     pub(in crate::daemon::server) channel: String,
 }
 
@@ -41,7 +41,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                 .unwrap_or(fallback_pk);
             ResolvedRecipient {
                 pubkey,
-                target_session: Some(session_id),
+                target_run_id: Some(session_id),
                 channel,
             }
         };
@@ -55,7 +55,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             })?;
             Ok(ResolvedRecipient {
                 pubkey: pk,
-                target_session: None,
+                target_run_id: None,
                 channel: my_channel.to_string(),
             })
         }
@@ -65,7 +65,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
                 .unwrap_or(raw);
             Ok(ResolvedRecipient {
                 pubkey,
-                target_session: None,
+                target_run_id: None,
                 channel: my_channel.to_string(),
             })
         }
@@ -83,7 +83,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             if let Some(pubkey) = store.resolve_profile_handle_pubkey(&tok)? {
                 return Ok(ResolvedRecipient {
                     pubkey,
-                    target_session: None,
+                    target_run_id: None,
                     channel: my_channel.to_string(),
                 });
             }
@@ -91,7 +91,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             if let Some(pk) = store.resolve_agent_pubkey(&tok, local_host.trim())? {
                 return Ok(ResolvedRecipient {
                     pubkey: pk,
-                    target_session: None,
+                    target_run_id: None,
                     channel: my_channel.to_string(),
                 });
             }

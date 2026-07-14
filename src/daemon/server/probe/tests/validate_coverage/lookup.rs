@@ -12,7 +12,6 @@ async fn rpc_probe_validate_lookup_finds_durable_handles() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: None,
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),
@@ -20,7 +19,7 @@ async fn rpc_probe_validate_lookup_finds_durable_handles() {
                 native_event_id: Some("event-lookup".into()),
                 error: None,
             })?;
-            s.add_message_recipient("event-lookup", "pk-recipient", None, None)?;
+            s.add_message_recipient("event-lookup", "pk-recipient", None)?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -49,7 +48,6 @@ async fn rpc_probe_validate_bare_identifier_uses_lookup() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: None,
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),
@@ -86,7 +84,6 @@ async fn rpc_probe_validate_npub_lookup_normalizes_to_hex_pubkey() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: pubkey.into(),
-                author_session: None,
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),
@@ -130,7 +127,6 @@ async fn rpc_probe_validate_note_lookup_normalizes_to_hex_event_id() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: None,
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),

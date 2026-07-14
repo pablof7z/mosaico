@@ -18,9 +18,7 @@ fn render_msg_no_color_no_emoji() {
         ts: TS,
         channel: "proj".into(),
         from: "claude".into(),
-        from_session: Some("te-abc-111".into()),
         to: "codex".into(),
-        to_session: None,
         body: "can you review the codec?".into(),
     };
     let line = render_tail_event(&ev, false, false, false, false);
@@ -38,9 +36,7 @@ fn render_msg_with_emoji() {
         ts: TS,
         channel: "proj".into(),
         from: "claude".into(),
-        from_session: None,
         to: "codex".into(),
-        to_session: None,
         body: "hello".into(),
     };
     let line = render_tail_event(&ev, false, true, false, false);

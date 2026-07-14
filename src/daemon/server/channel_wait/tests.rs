@@ -37,7 +37,6 @@ fn insert_chat(
     id: &str,
     channel: &str,
     author: &str,
-    author_session: Option<&str>,
     body: &str,
     reply_to: Option<&str>,
 ) {
@@ -61,7 +60,6 @@ fn insert_chat(
                 thread_id: channel.into(),
                 channel_h: channel.into(),
                 author_pubkey: author.into(),
-                author_session: author_session.map(str::to_string),
                 body: body.into(),
                 created_at: 10,
                 direction: "inbound".into(),
@@ -118,29 +116,13 @@ async fn explicit_channel_filters_resolve_across_every_active_workspace() {
 async fn correlated_wait_skips_unrelated_chat_and_returns_exact_reply() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
-    insert_chat(
-        &state,
-        "original",
-        "x",
-        "self-pubkey",
-        Some("self-session"),
-        "please reply",
-        None,
-    );
+    insert_chat(&state, "original", "x", "self-pubkey", "please reply", None);
     let mut cursor = state
         .with_store(|store| store.message_rowid("original"))
         .unwrap()
         .unwrap();
-    insert_chat(&state, "noise", "x", "noise-pk", None, "noise", None);
-    insert_chat(
-        &state,
-        "reply",
-        "x",
-        "peer-pk",
-        None,
-        "done",
-        Some("original"),
-    );
+    insert_chat(&state, "noise", "x", "noise-pk", "noise", None);
+    insert_chat(&state, "reply", "x", "peer-pk", "done", Some("original"));
     let filter = AuthorFilter::from_params(&state, &["x".into()], &WaitParams::default()).unwrap();
 
     let found = drain_matching(
@@ -164,25 +146,16 @@ async fn ambient_wait_excludes_management_and_callers_own_chat() {
     let mut cursor = state
         .with_store(|store| store.latest_message_rowid())
         .unwrap();
-    insert_chat(
-        &state,
-        "self-chat",
-        "x",
-        "self-pubkey",
-        Some("self-session"),
-        "mine",
-        None,
-    );
+    insert_chat(&state, "self-chat", "x", "self-pubkey", "mine", None);
     insert_chat(
         &state,
         "management-chat",
         "x",
         &state.backend_pubkey().unwrap(),
-        None,
         "mgmt ok",
         None,
     );
-    insert_chat(&state, "human-chat", "x", "human-pk", None, "hello", None);
+    insert_chat(&state, "human-chat", "x", "human-pk", "hello", None);
     let filter = AuthorFilter::from_params(&state, &["x".into()], &WaitParams::default()).unwrap();
 
     let found = drain_matching(
@@ -220,7 +193,6 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
         thread_id: "y".into(),
         channel_h: "y".into(),
         author_pubkey: "human-pk".into(),
-        author_session: None,
         body: "hello".into(),
         created_at: 1,
         direction: "inbound".into(),
@@ -250,14 +222,12 @@ async fn ambient_rpc_returns_first_new_chat_from_any_active_channel() {
         })
     };
     tokio::time::sleep(Duration::from_millis(30)).await;
-    insert_chat(&state, "new-chat", "y", "peer-pk", None, "hello", None);
+    insert_chat(&state, "new-chat", "y", "peer-pk", "hello", None);
     state.emit_tail(TailEvent::Msg {
         ts: 10,
         channel: "y".into(),
         from: "peer".into(),
-        from_session: None,
         to: "channel-chat".into(),
-        to_session: None,
         body: "hello".into(),
     });
 

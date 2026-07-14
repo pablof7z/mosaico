@@ -54,7 +54,7 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
 
     let resolved = resolve_recipient(&store, "leaf-a", "local", &allocation.handle).unwrap();
 
-    assert_eq!(resolved.target_session.as_deref(), Some("helper-session"));
+    assert_eq!(resolved.target_run_id.as_deref(), Some("helper-session"));
     assert_eq!(resolved.channel, "leaf-b");
 }
 
@@ -81,7 +81,7 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
     .unwrap();
 
     assert_eq!(resolved.pubkey, "remote-pk");
-    assert_eq!(resolved.target_session, None);
+    assert_eq!(resolved.target_run_id, None);
     assert_eq!(resolved.channel, "channel");
 }
 
@@ -132,7 +132,7 @@ fn dashed_session_handle_resolves_live_session_and_validates_agent() {
     let resolved = resolve_recipient(&store, "channel", "localBackend", &handle).unwrap();
 
     assert_eq!(resolved.pubkey, "codex-pubkey");
-    assert_eq!(resolved.target_session.as_deref(), Some("echo123"));
+    assert_eq!(resolved.target_run_id.as_deref(), Some("echo123"));
     assert_eq!(resolved.channel, "channel");
 
     let wrong = format!("{}-haiku", allocation.codename);
@@ -176,7 +176,7 @@ fn dashed_session_handle_resolves_profile_cache() {
         resolve_recipient(&store, "channel", "localBackend", "willow-echo-042-codex").unwrap();
 
     assert_eq!(resolved.pubkey, "remote-pk");
-    assert_eq!(resolved.target_session, None);
+    assert_eq!(resolved.target_run_id, None);
     assert_eq!(resolved.channel, "channel");
 }
 

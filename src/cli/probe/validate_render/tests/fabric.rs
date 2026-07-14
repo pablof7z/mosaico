@@ -91,7 +91,7 @@ fn validate_render_lists_message_evidence() {
             "channel_confirmed": true,
             "direction": "outbound",
             "sync_state": "accepted",
-            "author_session": "sender-session",
+            "author_pubkey": "sender-pubkey",
             "native_event_id": "event-123",
             "recipient_count": 2,
             "delivered_recipient_count": 1,
@@ -106,7 +106,7 @@ fn validate_render_lists_message_evidence() {
 
     assert!(text.contains("message evidence"));
     assert!(text.contains("event-123: accepted channel=room (confirmed)"));
-    assert!(text.contains("direction=outbound author_session=\"sender-session\""));
+    assert!(text.contains("direction=outbound author_pubkey=\"sender-pubkey\""));
     assert!(text.contains("recipients=2 delivered=1 pending=1"));
     assert!(text.contains("preview=\"hello from the fabric\""));
 }

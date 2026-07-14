@@ -46,7 +46,7 @@ mod tests {
         TaggedRecipient {
             label: label.to_string(),
             pubkey: pubkey.to_string(),
-            session: None,
+            run_id: None,
             channel: "root".to_string(),
         }
     }

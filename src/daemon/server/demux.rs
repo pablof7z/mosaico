@@ -323,9 +323,7 @@ fn derive_and_emit_tail_events(
                 ts: now,
                 channel: chat.channel.clone(),
                 from: from_slug,
-                from_session: None,
                 to,
-                to_session: None,
                 body: chat.body.chars().take(200).collect(),
             });
         }

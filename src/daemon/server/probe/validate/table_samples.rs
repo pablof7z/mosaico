@@ -70,7 +70,7 @@ fn columns_for_table(table: &str) -> &'static [&'static str] {
         "event_claims" => &["event_id", "claim_key", "state"],
         "inbox" => &["event_id", "target_pubkey", "state"],
         "llm_calls" => &["id", "session_id", "provider", "model"],
-        "message_recipients" => &["message_id", "recipient_pubkey", "target_session"],
+        "message_recipients" => &["message_id", "recipient_pubkey"],
         "messages" => &[
             "message_id",
             "channel_h",
@@ -142,15 +142,11 @@ fn sample_target(table: &str, row: &Value) -> Option<Value> {
 }
 
 fn recipient_target(row: &Value) -> Option<String> {
-    let base = format!(
+    Some(format!(
         "recipient:{}:{}",
         text(row, "message_id")?,
         text(row, "recipient_pubkey")?
-    );
-    Some(match text(row, "target_session") {
-        Some(session) => format!("{base}:{session}"),
-        None => base,
-    })
+    ))
 }
 
 fn membership_target(row: &Value) -> Option<String> {

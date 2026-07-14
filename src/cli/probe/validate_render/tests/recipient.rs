@@ -15,7 +15,6 @@ fn validate_render_lists_recipient_evidence() {
             "message_prefix": "event-123",
             "message_id": "event-123",
             "recipient_pubkey": "pk-recipient",
-            "target_session_resolved": "target-session",
             "message_found": true,
             "found": true,
             "delivered": true,
@@ -24,12 +23,9 @@ fn validate_render_lists_recipient_evidence() {
             "message_sync_state": "accepted",
             "message_native_event_id": "event-123",
             "matching_row_count": 1,
-            "pubkey_row_count": 1,
             "recipient_count": 1,
             "profile_found": true,
             "profile_slug": "agent",
-            "identity_found": false,
-            "bound_session_alive": false,
             "reason": "message_recipients contains a delivered edge for this recipient"
         }
     });
@@ -38,6 +34,6 @@ fn validate_render_lists_recipient_evidence() {
 
     assert!(text.contains("recipient evidence"));
     assert!(text.contains("message=event-123 recipient=pk-recipient"));
-    assert!(text.contains("rows=1 pubkey_rows=1 total_recipients=1"));
+    assert!(text.contains("rows=1 total_recipients=1"));
     assert!(text.contains("message_recipients contains a delivered edge"));
 }

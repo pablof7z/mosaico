@@ -45,7 +45,6 @@ async fn rpc_probe_validate_table_reports_profile_and_target_family() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: Some("author-session".into()),
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),
@@ -123,7 +122,6 @@ async fn rpc_probe_validate_table_samples_delivery_and_publish_alternates() {
                 thread_id: "room".into(),
                 channel_h: "room".into(),
                 author_pubkey: "pk-author".into(),
-                author_session: None,
                 body: "hello".into(),
                 created_at: 100,
                 direction: "inbound".into(),
@@ -131,7 +129,7 @@ async fn rpc_probe_validate_table_samples_delivery_and_publish_alternates() {
                 native_event_id: Some("event-recipient".into()),
                 error: None,
             })?;
-            s.add_message_recipient("event-recipient", "pk-recipient", Some("s1"), None)?;
+            s.add_message_recipient("event-recipient", "pk-recipient", None)?;
             let outbox_id = s.enqueue_outbox(r#"{"id":"event-outbox","kind":9}"#, 101)?;
             s.apply_outbox_projection(outbox_id, "published", None, false)?;
             let failed_outbox_id =
@@ -153,7 +151,7 @@ async fn rpc_probe_validate_table_samples_delivery_and_publish_alternates() {
     .unwrap();
     assert_eq!(
         recipients["coverage_evidence"]["sample_targets"][0]["target"],
-        "recipient:event-recipient:pk-recipient:s1"
+        "recipient:event-recipient:pk-recipient"
     );
     assert_eq!(
         recipients["coverage_evidence"]["sample_targets"][0]["also"],

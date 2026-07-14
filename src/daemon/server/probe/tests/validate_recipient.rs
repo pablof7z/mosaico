@@ -6,19 +6,12 @@ async fn rpc_probe_validate_recipient_reports_delivered_edge() {
     let state = DaemonState::new_for_test().await;
     seed_message(&state, "event-123", "accepted", None);
     state
-        .with_store(|s| {
-            s.add_message_recipient(
-                "event-123",
-                "pk-recipient",
-                Some("target-session"),
-                Some(120),
-            )
-        })
+        .with_store(|s| s.add_message_recipient("event-123", "pk-recipient", Some(120)))
         .unwrap();
 
     let v = rpc_probe(
         &state,
-        &json!({ "verb": "validate", "target": "recipient:event-123:pk-recipient:target-session" }),
+        &json!({ "verb": "validate", "target": "recipient:event-123:pk-recipient" }),
     )
     .unwrap();
 
@@ -36,7 +29,7 @@ async fn rpc_probe_validate_recipient_reports_pending_edge_as_not_proven() {
     let state = DaemonState::new_for_test().await;
     seed_message(&state, "event-pending", "accepted", None);
     state
-        .with_store(|s| s.add_message_recipient("event-pending", "pk-recipient", None, None))
+        .with_store(|s| s.add_message_recipient("event-pending", "pk-recipient", None))
         .unwrap();
 
     let v = rpc_probe(
@@ -53,31 +46,11 @@ async fn rpc_probe_validate_recipient_reports_pending_edge_as_not_proven() {
 }
 
 #[tokio::test]
-async fn rpc_probe_validate_recipient_session_mismatch_is_not_proven() {
-    let state = DaemonState::new_for_test().await;
-    seed_message(&state, "event-pubkey", "accepted", None);
-    state
-        .with_store(|s| s.add_message_recipient("event-pubkey", "pk-recipient", None, Some(130)))
-        .unwrap();
-
-    let v = rpc_probe(
-        &state,
-        &json!({ "verb": "validate", "target": "recipient:event-pubkey:pk-recipient:specific-session" }),
-    )
-    .unwrap();
-
-    assert_eq!(v["ok"], true);
-    assert_check_status(&v, "recipient", "not_proven");
-    assert_eq!(v["recipient_evidence"]["found"], false);
-    assert_eq!(v["recipient_evidence"]["pubkey_row_count"], 1);
-}
-
-#[tokio::test]
 async fn rpc_probe_validate_recipient_fails_when_hydrated_set_excludes_pubkey() {
     let state = DaemonState::new_for_test().await;
     seed_message(&state, "event-other", "accepted", None);
     state
-        .with_store(|s| s.add_message_recipient("event-other", "pk-other", None, Some(130)))
+        .with_store(|s| s.add_message_recipient("event-other", "pk-other", Some(130)))
         .unwrap();
 
     let v = rpc_probe(
@@ -120,7 +93,6 @@ fn seed_message(state: &DaemonState, id: &str, sync_state: &str, error: Option<&
                 thread_id: "room".to_string(),
                 channel_h: "room".to_string(),
                 author_pubkey: "pk-author".to_string(),
-                author_session: Some("author-session".to_string()),
                 body: "hello from the fabric".to_string(),
                 created_at: 110,
                 direction: "outbound".to_string(),

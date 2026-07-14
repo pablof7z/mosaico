@@ -68,12 +68,11 @@ always lives on our side, over store rows — never delegated to the wire.
 
 ## The reply address
 
-A surfaced message has to say *who to reply to*. That's not the sender's identity
-alone — sibling sessions of one agent share an identity — but the sender's exact
-*session*. So a message carries its own **return envelope** (the sender session),
-and the reply target is derived from it: the precise session when we know it, the
-agent otherwise. Same pattern as everything else — the store holds enough for the
-reader to act, and degrades honestly when a fabric can't supply it.
+A surfaced message has to say *who to reply to*. The event author's pubkey is
+that durable return address, and a current public handle is only its read-side
+alias. Runtime incarnations may change between the original message and the
+reply, so they are selected only at delivery time and never stored on the
+message.
 
 ## What stays open
 

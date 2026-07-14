@@ -12,21 +12,18 @@ mod tests;
 #[derive(Clone)]
 pub(crate) struct OutboundChatRecipient {
     pub pubkey: String,
-    pub session: Option<String>,
 }
 
 impl OutboundChatRecipient {
-    pub(crate) fn new(pubkey: impl Into<String>, session: Option<String>) -> Self {
+    pub(crate) fn new(pubkey: impl Into<String>) -> Self {
         Self {
             pubkey: pubkey.into(),
-            session,
         }
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct OutboundChatRecord {
-    pub from_session: Option<String>,
     pub channel_h: String,
     pub body: String,
     pub recipients: Vec<OutboundChatRecipient>,
@@ -175,7 +172,6 @@ fn seed_chat_read_models(
         thread_id: record.channel_h.clone(),
         channel_h: record.channel_h.clone(),
         author_pubkey: signed.pubkey.to_hex(),
-        author_session: record.from_session.clone(),
         body: record.body.clone(),
         created_at,
         direction: record.direction.to_string(),
@@ -191,12 +187,7 @@ fn seed_chat_read_models(
         );
     }
     for recipient in &record.recipients {
-        if let Err(e) = store.add_message_recipient(
-            event_id,
-            &recipient.pubkey,
-            recipient.session.as_deref(),
-            None,
-        ) {
+        if let Err(e) = store.add_message_recipient(event_id, &recipient.pubkey, None) {
             tracing::error!(
                 event_id,
                 recipient = %recipient.pubkey,

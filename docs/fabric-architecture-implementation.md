@@ -69,19 +69,15 @@ Add durable ids and origins:
 Add canonical communication rows:
 
 - `messages(message_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL,
-  channel_h TEXT NOT NULL, author_pubkey TEXT NOT NULL, author_session TEXT,
+  channel_h TEXT NOT NULL, author_pubkey TEXT NOT NULL,
   body TEXT NOT NULL, created_at INTEGER NOT NULL, direction TEXT NOT NULL,
   sync_state TEXT NOT NULL, native_event_id TEXT, error TEXT)`
-  - `author_session` is the **return envelope**: the sender's session id, so a
-    reply can target the exact sibling session that wrote the message (sessions of
-    one agent share `author_pubkey`, so the pubkey alone can't address a reply).
-    Stored on `messages.author_session`; derived from kind:30315 status or local
-    runtime state, `NULL` when a fabric can't supply it (reply then degrades to
-    agent-level). The reply *handle* stays a read-side derivation, not a stored
-    column. `inbox` is delivery state only.
+  - `author_pubkey` is the return address. Runtime incarnations are process
+    locators, so relay replay and process replacement cannot change who owns a
+    message. The reply handle stays a read-side derivation. `inbox` is delivery
+    state only.
 - `message_recipients(message_id TEXT NOT NULL, recipient_pubkey TEXT NOT NULL,
-  target_session TEXT, delivered_at INTEGER, PRIMARY KEY(message_id,
-  recipient_pubkey, target_session))`
+  delivered_at INTEGER, PRIMARY KEY(message_id, recipient_pubkey))`
 - `inbound_quarantine(native_event_id TEXT PRIMARY KEY, project_id TEXT, reason
   TEXT NOT NULL, raw_envelope TEXT NOT NULL, created_at INTEGER NOT NULL)`
 
@@ -97,7 +93,7 @@ Accessors to add first:
 - `project_id_for_origin(fabric, provider_instance, native_project_key) -> Option<String>`
 - `record_message(...) -> message_id`
 - `mark_message_sync_state(message_id, sync_state, error)`
-- `add_message_recipient(message_id, recipient_pubkey, target_session)`
+- `add_message_recipient(message_id, recipient_pubkey, delivered_at)`
 - `admit_member(project_id, pubkey, role, source, ts)`
 - `revoke_member(project_id, pubkey, ts)`
 - `is_member_at(project_id, pubkey, ts) -> MembershipDecision`
@@ -113,9 +109,7 @@ Backfill rules:
 - Mirror `relay_channel_members` into `membership` with source by role.
 - Historical kind:9 `relay_events` are idempotently backfilled into `messages`
   when the store opens. New inbound/outbound chat dual-writes immediately. When
-  dual-writing, preserve any known local/status-derived sender session in
-  `messages.author_session` so the return envelope is never dropped in the
-  cutover.
+  dual-writing, preserve the event author's pubkey as the durable return address.
 
 Done when: the new tables can be created on an existing `state.db`, backfilled
 idempotently, and queried without changing CLI output.
@@ -310,10 +304,9 @@ Refactor `rpc_send_message` around an explicit send intent.
 
 Steps:
 
-1. Resolve sender session and recipient using read-model accessors.
-2. Build `SendIntent { from_agent, from_session, to_pubkey, project_id, body,
-   target_session }` — `from_session` becomes the stored message's
-   `author_session` (the return envelope), so inbound replies can address it.
+1. Resolve the sender pubkey and recipient pubkeys using read-model accessors.
+2. Build `SendIntent { from_pubkey, to_pubkeys, project_id, body }`; runtime
+   locators may be selected for immediate local delivery but are not persisted.
 3. Provider signs first, returning the native event id for the exact event that
    will be published or retried.
 4. Store inserts/updates:

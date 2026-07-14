@@ -63,6 +63,12 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(columns(&conn, "relay_profiles")
         .iter()
         .any(|c| c == "agent_slug"));
+    let messages = columns(&conn, "messages");
+    assert!(messages.iter().any(|c| c == "author_pubkey"));
+    assert!(!messages.iter().any(|c| c == "author_session"));
+    let recipients = columns(&conn, "message_recipients");
+    assert!(recipients.iter().any(|c| c == "recipient_pubkey"));
+    assert!(!recipients.iter().any(|c| c == "target_session"));
     assert!(columns(&conn, "outbox")
         .iter()
         .any(|c| c == "next_attempt_at"));
@@ -160,6 +166,26 @@ fn schema_v3_is_rejected_instead_of_preserving_session_keyed_inbox() {
 }
 
 #[test]
+fn schema_v4_is_rejected_instead_of_preserving_session_keyed_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        drop(store);
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+    }
+
+    let error = match Store::open(&path) {
+        Ok(_) => panic!("schema v4 must be rejected"),
+        Err(error) => error,
+    };
+    assert!(error
+        .to_string()
+        .contains("schema version 4 is incompatible"));
+}
+
+#[test]
 fn stamped_non_canonical_file_db_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("state.db");
@@ -181,7 +207,7 @@ fn stamped_non_canonical_file_db_is_rejected() {
         "#,
     )
     .unwrap();
-    conn.pragma_update(None, "user_version", 4u32).unwrap();
+    conn.pragma_update(None, "user_version", 5u32).unwrap();
     drop(conn);
 
     let err = match Store::open(&path) {

@@ -68,30 +68,19 @@ pub fn render_tail_event(
         };
     }
 
-    // Short raw-session-id correlation handle. Operator-facing handle to correlate
-    // lines for the same session; identity is the agent label.
+    // Other lifecycle variants still carry a private runtime correlation key.
     let sess_code = |sid: &str| sid.chars().take(8).collect::<String>();
 
     match ev {
         TailEvent::Msg {
             channel,
             from,
-            from_session,
             to,
-            to_session,
             body,
             ..
         } => {
             let cat = col!("msg  ", yellow);
             let arrow = if use_emoji { "→" } else { "->" };
-            let sess = from_session
-                .as_deref()
-                .map(|s| format!("[{}]", sess_code(s)))
-                .unwrap_or_default();
-            let to_sess = to_session
-                .as_deref()
-                .map(|s| format!("[{}]", sess_code(s)))
-                .unwrap_or_default();
             let snippet = if compact {
                 String::new()
             } else {
@@ -101,7 +90,7 @@ pub fn render_tail_event(
                 format!(" \"{}{}\"", body_clean, ellipsis)
             };
             format!(
-                "{ts_str}  {cat}  {}@{channel}{sess}  {arrow} {}{to_sess}{snippet}",
+                "{ts_str}  {cat}  {}@{channel}  {arrow} {}{snippet}",
                 col!(from, cyan),
                 col!(to, cyan),
             )

@@ -6,7 +6,6 @@ fn record(id: &str) -> RecordMessage {
         thread_id: "channel".into(),
         channel_h: "channel".into(),
         author_pubkey: "author".into(),
-        author_session: None,
         body: id.into(),
         created_at: 1,
         direction: "inbound".into(),

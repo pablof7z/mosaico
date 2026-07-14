@@ -38,15 +38,6 @@ pub(super) fn message_evidence(
         let channel = store.get_channel(&row.channel_h)?;
         let recipients = store.message_recipients(&row.message_id)?;
         let delivered_count = recipients.iter().filter(|r| r.delivered_at.is_some()).count();
-        let author_session_found = row
-            .author_session
-            .as_deref()
-            .map(|session_id| store.get_session(session_id).map(|s| s.is_some()))
-            .transpose()?;
-        let recipient_sessions = recipients
-            .iter()
-            .filter_map(|r| r.target_session.clone())
-            .collect::<Vec<_>>();
 
         Ok::<Value, anyhow::Error>(json!({
             "target": target,
@@ -60,8 +51,6 @@ pub(super) fn message_evidence(
             "channel_confirmed": channel.is_some(),
             "thread_id": row.thread_id,
             "author_pubkey": row.author_pubkey,
-            "author_session": row.author_session,
-            "author_session_found": author_session_found,
             "direction": row.direction,
             "sync_state": row.sync_state,
             "error": row.error,
@@ -71,7 +60,6 @@ pub(super) fn message_evidence(
             "recipient_count": recipients.len(),
             "delivered_recipient_count": delivered_count,
             "pending_recipient_count": recipients.len().saturating_sub(delivered_count),
-            "recipient_sessions": recipient_sessions,
             "summary": summary(&row),
             "reason": reason(&row, channel.is_some()),
         }))

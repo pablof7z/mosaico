@@ -208,10 +208,9 @@ async fn publish_reply(
         mentioned_pubkeys: vec![requester.to_string()],
     };
     let record = OutboundChatRecord {
-        from_session: None,
         channel_h: channel_h.to_string(),
         body: body.to_string(),
-        recipients: vec![OutboundChatRecipient::new(requester, None)],
+        recipients: vec![OutboundChatRecipient::new(requester)],
         created_at: None,
         direction: "outbound",
     };

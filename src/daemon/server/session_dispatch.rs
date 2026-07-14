@@ -83,7 +83,6 @@ pub(super) async fn rpc_dispatch(
         "workspace": p.workspace,
         "route_channel": route_channel,
         "ack_pubkey": ack.pubkey,
-        "ack_session": ack.session_id,
     }))
 }
 
@@ -180,7 +179,6 @@ fn dispatch_message_body(message: &str, target_pubkey: &str) -> Result<String> {
 
 struct DispatchAck {
     pubkey: String,
-    session_id: String,
 }
 
 async fn wait_dispatch_ack(
@@ -213,15 +211,8 @@ async fn wait_dispatch_ack(
         {
             continue;
         }
-        let session_id = crate::fabric::nip29::nostr_tag(&event, "d")
-            .unwrap_or_default()
-            .to_string();
-        if session_id.is_empty() {
-            continue;
-        }
         return Ok(DispatchAck {
             pubkey: event.pubkey.to_hex(),
-            session_id,
         });
     }
 }
@@ -247,13 +238,9 @@ async fn send_dispatch_message(
             &chat,
             &keys,
             &crate::fabric::provider::chat::OutboundChatRecord {
-                from_session: Some(caller.session_id.clone()),
                 channel_h: channel.to_string(),
                 body: message.to_string(),
-                recipients: vec![OutboundChatRecipient::new(
-                    ack.pubkey.clone(),
-                    Some(ack.session_id.clone()),
-                )],
+                recipients: vec![OutboundChatRecipient::new(ack.pubkey.clone())],
                 created_at: Some(now_secs()),
                 direction: "outbound",
             },
