@@ -191,7 +191,6 @@ so the common commands take no session id:
 | `tenex-edge channel list \| switch \| create` | List, switch, or create NIP-29 channels. The workspace is its root channel; descendants use dotted paths such as `nmp.reviews`. |
 | `tenex-edge channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `tenex-edge dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
-| `tenex-edge publish …` | Publish a long-form proposal (kind:30023). |
 
 Human operators start a local host with `tenex-edge launch <host> [prompt]`. If
 the host selects an ACP/app-server bundle, an interactive launch offers the

@@ -15,11 +15,11 @@ use crate::fabric::subscriptions::{
 pub enum Space {
     /// Daemon-lifetime discovery stream with no tag scope.
     GlobalKind,
-    /// Channel chat/status/long-form scoped by `#h`.
+    /// Channel chat/status scoped by `#h`.
     ChannelH,
     /// Relay-authored group state (39000/39001/39002) scoped by `#d`.
     GroupStateD,
-    /// Chat/long-form addressed by `#p`.
+    /// Chat addressed by `#p`.
     PubkeyP,
 }
 

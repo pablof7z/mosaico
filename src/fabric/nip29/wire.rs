@@ -28,7 +28,7 @@
 //! authority and are never written; only the **backend** management-key-signed kind:0 advertises
 //! `["agent", slug, desc]` tags (the managed-agent roster for client add-agent pickers).
 
-use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Proposal, Reaction, Status};
+use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
 use nostr_sdk::prelude::*;
@@ -50,9 +50,6 @@ pub const KIND_GROUP_EDIT_METADATA: u16 = 9002;
 pub const KIND_GROUP_METADATA: u16 = 39000;
 pub const KIND_GROUP_ADMINS: u16 = 39001;
 pub const KIND_GROUP_MEMBERS: u16 = 39002;
-
-// NIP-23 long-form article — used for agent-authored proposals.
-pub const KIND_LONGFORM: u16 = 30023;
 
 mod profile;
 
@@ -184,26 +181,6 @@ impl Nip29WireCodec {
                     .tags(tags)
                     .allow_self_tagging()
             }
-            DomainEvent::Proposal(Proposal {
-                agent: _,
-                channel,
-                title,
-                body,
-                d,
-                audience,
-            }) => {
-                let mut tags = vec![
-                    tag(&["d", d])?,
-                    tag(&["title", title])?,
-                    h_tag(channel)?,
-                    // No agent tag: author identity is the event signer; slug is in kind:0.
-                ];
-                // p-tag each owner so the proposal surfaces to the human.
-                for owner in audience {
-                    tags.push(tag(&["p", owner])?);
-                }
-                EventBuilder::new(kind(KIND_LONGFORM), body.clone()).tags(tags)
-            }
             DomainEvent::Reaction(Reaction {
                 reactor: _reactor,
                 channel,
@@ -293,15 +270,6 @@ impl Nip29WireCodec {
                     emoji: event.content.clone(),
                 }))
             }
-            KIND_LONGFORM => Some(DomainEvent::Proposal(Proposal {
-                // Slug is NOT on the wire; resolved downstream from kind:0 profile.
-                agent: AgentRef::new(pubkey, String::new()),
-                channel: channel_from_tags(event)?,
-                title: first_tag(event, "title").unwrap_or_default().to_string(),
-                body: event.content.clone(),
-                d: first_tag(event, "d").unwrap_or_default().to_string(),
-                audience: all_tag_values(event, "p"),
-            })),
             _ => None,
         }
     }

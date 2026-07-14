@@ -164,14 +164,6 @@ The client just prints each `item.line`.
 The streaming read, send, reply, and blocking wait contracts live in
 [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 
-### `propose`
-```jsonc
-params: {"title": "…", "body": "…", "session": "npub1…"|"hex"|"handle"|null, "cwd": "/path", ...}
-result: {"event_id": "hex"}
-```
-Publishes a NIP-29 proposal (structured suggestion) to the caller's current
-channel.
-
 ### `root_channels`
 ```jsonc
 params: {}

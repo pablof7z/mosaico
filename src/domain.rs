@@ -157,20 +157,6 @@ pub struct Activity {
     pub text: String,
 }
 
-/// A long-form proposal authored by an agent. Addressable: republishing with
-/// the same stable identifier supersedes the prior revision from that author.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proposal {
-    pub agent: AgentRef,
-    pub channel: String,
-    pub title: String,
-    pub body: String,
-    /// Stable addressable identifier; reuse to publish a superseding revision.
-    pub d: String,
-    /// Owner pubkeys the proposal is surfaced to.
-    pub audience: Vec<String>,
-}
-
 /// The agent's complete live state. From this one value a reader knows
 /// everything: who/where (agent, channels, host, rel_cwd),
 /// what the session is about (the persistent `title`), what it is doing *right
@@ -278,7 +264,6 @@ pub enum DomainEvent {
     Activity(Activity),
     Status(Status),
     ChatMessage(ChatMessage),
-    Proposal(Proposal),
     Reaction(Reaction),
 }
 
@@ -291,7 +276,6 @@ impl DomainEvent {
             DomainEvent::Activity(a) => Some(&a.channel),
             DomainEvent::Status(s) => s.primary_channel(),
             DomainEvent::ChatMessage(m) => Some(&m.channel),
-            DomainEvent::Proposal(p) => Some(&p.channel),
             DomainEvent::Reaction(r) => Some(&r.channel),
         }
     }

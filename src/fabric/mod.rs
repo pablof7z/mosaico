@@ -162,9 +162,9 @@ pub fn materialize(
             outcome.tail = None;
         }
 
-        // Activity (kind:1) and Proposal (kind:30023) carry no inbox routing; they
-        // are cached verbatim in relay_events alongside every other kind.
-        DomainEvent::Activity(_) | DomainEvent::Proposal(_) => {
+        // Activity (kind:1) carries no inbox routing; it is cached verbatim in
+        // relay_events alongside every other unprojected kind.
+        DomainEvent::Activity(_) => {
             Nip29Materializer::materialize_event(store, event);
         }
     }

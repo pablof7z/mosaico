@@ -163,7 +163,7 @@ impl Nip29Materializer {
 
     /// Cache one relay event verbatim in `relay_events` (NIP-01 replacement is
     /// applied inside the store). Used for every kind that has no dedicated cache:
-    /// chat (9), notes/activity (1), proposals (30023), orchestration, etc.
+    /// chat (9), notes/activity (1), orchestration, and other unprojected kinds.
     pub fn materialize_event(store: &Store, event: &Event) -> bool {
         store.insert_event(&to_relay_event(event)).unwrap_or(false)
     }

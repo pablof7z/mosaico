@@ -219,11 +219,6 @@ fn derive_and_emit_tail_events(
     now: u64,
 ) {
     match de {
-        DomainEvent::Proposal(_) => {
-            // Proposals are surfaced through the threads read model (the rpc
-            // records them as canonical messages); no tail line is derived from
-            // the raw inbound event.
-        }
         DomainEvent::Status(s) => {
             // Skip own status — local turn/status is tracked by Turn RPC events.
             if hosted.contains(&s.agent.pubkey) {

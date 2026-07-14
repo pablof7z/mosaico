@@ -175,7 +175,6 @@ mod engine_lifecycle;
 mod lifecycle;
 mod probe;
 mod profile_rpc;
-mod proposal;
 mod resolution;
 mod session_end;
 mod session_pty_wrap;
@@ -210,7 +209,6 @@ pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
 use my_session::{rpc_my_session, rpc_my_session_status};
 use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, resolve_pubkey_hex};
-use proposal::rpc_propose;
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
 use session_pty_wrap::rpc_session_pty_wrap;
@@ -243,7 +241,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_wait" => channel_wait::rpc_channel_wait(state, &req.params).await,
         "channel_reply" => channel_send::rpc_channel_reply(state, &req.params).await,
         "channel_react" => channel_send::rpc_channel_react(state, &req.params).await,
-        "publish" => rpc_propose(state, &req.params).await,
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params).await,
         "turn_end" => rpc_turn_end(state, &req.params).await,

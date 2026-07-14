@@ -21,12 +21,12 @@ fn main() {
         std::process::exit(0);
     }
 
-    // A bare top-level `--help` / `-h` (without `--all`) prints context-sensitive
-    // help: operator commands (`who`, `mgmt`, `launch`) are shown only outside an
-    // agent context. Internal/debug commands stay hidden; use `--all` for those.
-    // Only intercept when `--help`/`-h` is the first argument so subcommand help
-    // (`tenex-edge who --help`, etc.) still goes through clap's normal path.
-    if argv.len() > 1 && matches!(argv[1].as_str(), "--help" | "-h") {
+    // Bare invocation and top-level `--help` / `-h` (without `--all`) print the
+    // same context-sensitive help: operator commands (`who`, `mgmt`, `launch`)
+    // are shown only outside an agent context. Internal/debug commands stay
+    // hidden; use `--all` for those. Only intercept top-level help so subcommand
+    // help (`tenex-edge who --help`, etc.) still goes through clap normally.
+    if argv.len() == 1 || matches!(argv.get(1).map(String::as_str), Some("--help" | "-h")) {
         cli::print_help_contextual();
         std::process::exit(0);
     }

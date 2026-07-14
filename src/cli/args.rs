@@ -8,7 +8,7 @@ use super::harness::HarnessAction;
 use super::install::InstallArgs;
 use super::launch_cli::LaunchArgs;
 use super::mcp::McpArgs;
-use super::messaging::{PublishArgs, WaitArgs};
+use super::messaging::WaitArgs;
 use super::my::MyAction;
 use super::probe::ProbeArgs;
 use super::pty::PtySupervisorArgs;
@@ -104,8 +104,6 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: HarnessAction,
     },
-    /// Publish a long-form proposal (kind:30023) from this agent's session.
-    Publish(PublishArgs),
     /// Launch an agent through an attachable PTY or a headless RPC transport.
     #[command(hide = true)]
     Launch(LaunchArgs),

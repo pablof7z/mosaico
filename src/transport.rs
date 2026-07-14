@@ -213,8 +213,8 @@ impl Transport {
     /// returns the published [`EventId`] on success. `send_event` resolves `Ok`
     /// even when every relay rejected (e.g. NIP-29 `blocked` / `rate-limited`),
     /// reporting per-relay outcomes in `failed`. Callers that gate persistent
-    /// state on a publish actually landing (NIP-29 group create/membership,
-    /// long-form proposals) need that distinction, so this surfaces the relay's
+    /// state on a publish actually landing (NIP-29 group create/membership) need
+    /// that distinction, so this surfaces the relay's
     /// rejection reason as an error instead of swallowing it.
     ///
     /// No hidden retry is queued here. A checked publish is a verdict; the caller

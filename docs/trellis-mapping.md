@@ -130,8 +130,8 @@ Current shape:
 - `SubscriptionRegistry` is already a pure planner. It holds aggregate and
   narrow coverage and returns `PlannedReq { id, filter }`; network I/O happens
   only when the daemon applies the plan.
-- There are three aggregate REQ roles: all `#h` chat/status/long-form, all `#p`
-  chat/long-form, and all group-state `#d` metadata/admin/member subscriptions.
+- There are three aggregate REQ roles: all `#h` chat/status, all `#p` chat, and
+  all group-state `#d` metadata/admin/member subscriptions.
 - `rpc_channels_join` opens coverage before inserting `session_channels`.
   `rpc_channels_leave` and `rpc_channels_switch` mutate membership/session
   state but do not close relay subscriptions.

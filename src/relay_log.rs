@@ -113,10 +113,6 @@ pub(crate) fn log_outgoing_event(event: &Event) {
                 format!("[→relay] kind:{k:<5}  id={id}  create-group  h={h}")
             }
         }
-        30023 => format!(
-            "[→relay] kind:{k:<5}  id={id}  proposal  h={h}  title={:?}",
-            tv("title")
-        ),
         30315 => format!(
             "[→relay] kind:{k:<5}  id={id}  status  h={h}  {}  title={:?}",
             tv("status"),

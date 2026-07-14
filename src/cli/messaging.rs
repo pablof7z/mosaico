@@ -1,6 +1,4 @@
 use super::*;
-mod args;
-pub(super) use args::{publish, PublishArgs};
 mod notices;
 mod reply;
 mod send;
@@ -122,41 +120,6 @@ fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
         4 => text.blue().to_string(),
         _ => text.red().to_string(),
     }
-}
-
-// ── publish ───────────────────────────────────────────────────────────────────
-
-pub(super) async fn publish_proposal(
-    title: String,
-    body: String,
-    d: Option<String>,
-    session: Option<String>,
-) -> Result<()> {
-    let params = crate::cli::rpc_params(serde_json::json!({
-        "title": title,
-        "body": body,
-        "session": session,
-        "d": d,
-    }));
-    let v = daemon_call_async("publish", params).await?;
-    let title_echo = v["title"].as_str().unwrap_or(&title);
-    let d_tag = v["d_tag"].as_str().unwrap_or("?");
-    println!("published proposal {} ({})", title_echo, d_tag);
-    // The relay accepted the write (or rpc_propose would have errored), but
-    // confirm it's actually retrievable. A false here means the relay ACKed then
-    // dropped the event — warn loudly so a green publish isn't mistaken for one
-    // that landed.
-    if v.get("retrievable").is_some() && !v["retrievable"].as_bool().unwrap_or(true) {
-        let eid = v["event_id"].as_str().unwrap_or("?");
-        eprintln!(
-            "{} proposal {} accepted by the relay but NOT retrievable on read-back \
-             (event {}). It may not be stored — verify with `tenex-edge debug doctor`.",
-            "warning:".yellow(),
-            d_tag,
-            &eid[..eid.len().min(8)],
-        );
-    }
-    Ok(())
 }
 
 pub(super) fn resolve_send_message_body(raw: Option<String>) -> Result<String> {

@@ -18,7 +18,7 @@
 
 use crate::fabric::nip29::wire::{
     kind, KIND_AGENT_ROSTER, KIND_CHAT, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
-    KIND_LONGFORM, KIND_STATUS,
+    KIND_STATUS,
 };
 use nostr_sdk::prelude::{Alphabet, Filter, SingleLetterTag, SubscriptionId};
 
@@ -53,24 +53,19 @@ fn p_single() -> SingleLetterTag {
     SingleLetterTag::lowercase(Alphabet::P)
 }
 
-/// Narrow `#h` filter for a single channel: chat + status + long-form + backend
-/// capability roster scoped to exactly one NIP-29 group id.
+/// Narrow `#h` filter for a single channel: chat, status, and backend capability
+/// roster scoped to exactly one NIP-29 group id.
 pub(crate) fn narrow_h_filter(h: &str) -> Filter {
     Filter::new()
-        .kinds([
-            kind(KIND_CHAT),
-            kind(KIND_STATUS),
-            kind(KIND_AGENT_ROSTER),
-            kind(KIND_LONGFORM),
-        ])
+        .kinds([kind(KIND_CHAT), kind(KIND_STATUS), kind(KIND_AGENT_ROSTER)])
         .custom_tag(h_single(), h)
 }
 
-/// Narrow `#p` filter for a single pubkey: chat + long-form addressed to one
-/// pubkey. NOT status (30315) — presence is channel-scoped, never p-addressed.
+/// Narrow `#p` filter for a single pubkey: chat addressed to one pubkey. NOT
+/// status (30315) — presence is channel-scoped, never p-addressed.
 pub(crate) fn narrow_p_filter(pk: &str) -> Filter {
     Filter::new()
-        .kinds([kind(KIND_CHAT), kind(KIND_LONGFORM)])
+        .kind(kind(KIND_CHAT))
         .custom_tag(p_single(), pk)
 }
 
@@ -99,7 +94,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn narrow_h_filter_has_h_tag_and_chat_status_longform_kinds_not_profile() {
+    fn narrow_h_filter_has_h_tag_and_chat_status_kinds_not_profile() {
         let f = narrow_h_filter("room1");
         let json = serde_json::to_string(&f).unwrap();
         assert!(json.contains("\"#h\""), "must scope by #h: {json}");
@@ -110,12 +105,12 @@ mod tests {
         assert!(json.contains('9'), "kind 9 present");
         assert!(json.contains("30315"), "kind 30315 present");
         assert!(json.contains("30555"), "kind 30555 present");
-        assert!(json.contains("30023"), "kind 30023 present");
+        assert!(!json.contains("30023"), "long-form kind removed: {json}");
         assert!(!json.contains("\"kinds\":[0"), "no profile kind 0: {json}");
     }
 
     #[test]
-    fn narrow_p_filter_has_p_tag_chat_and_longform_but_not_status() {
+    fn narrow_p_filter_has_p_tag_chat_but_not_status_or_longform() {
         let f = narrow_p_filter("pk-a");
         let json = serde_json::to_string(&f).unwrap();
         assert!(json.contains("\"#p\""), "must scope by #p: {json}");
@@ -124,7 +119,7 @@ mod tests {
             "must scope to the one pubkey: {json}"
         );
         assert!(json.contains('9'), "kind 9 present");
-        assert!(json.contains("30023"), "kind 30023 present");
+        assert!(!json.contains("30023"), "long-form kind removed: {json}");
         assert!(
             !json.contains("30315"),
             "status is channel-scoped, never p-addressed: {json}"

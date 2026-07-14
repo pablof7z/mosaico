@@ -108,7 +108,6 @@ pub async fn run(cli: Cli) -> Result<()> {
         eprintln!("[tenex-edge] stop inhibit cleared");
     }
     match cli.cmd {
-        Cmd::Publish(args) => messaging::publish(args).await,
         Cmd::Who(args) => who::who(args),
         Cmd::Sessions => interactive::session_picker::sessions().await,
         Cmd::Channel { action } => admin::channels(action).await,
