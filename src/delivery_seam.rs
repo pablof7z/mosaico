@@ -23,7 +23,7 @@ pub(crate) fn drive(
     fact: DeliveryScanFact,
 ) -> Result<Vec<DeliveryEffect>> {
     let start = std::time::Instant::now();
-    let trigger_ref = fact.session_id.clone();
+    let trigger_ref = fact.pubkey.clone();
     let (preview, outcome, commit) = {
         let mut r = delivery.lock().expect("delivery mutex poisoned");
         let preview = r
@@ -114,7 +114,7 @@ fn changed_summary(
         inputs: Vec<u64>,
         derived: Vec<u64>,
         collections: Vec<u64>,
-        session_id: &'a str,
+        pubkey: &'a str,
         event_ids: &'a [String],
         action: &'a str,
         retry_after_secs: Option<u64>,
@@ -124,7 +124,7 @@ fn changed_summary(
         inputs: ids(&result.changed_inputs),
         derived: ids(&result.changed_derived_nodes),
         collections: ids(&result.changed_collection_nodes),
-        session_id: &command.session_id,
+        pubkey: &command.pubkey,
         event_ids: &command.event_ids,
         action: command.action.as_str(),
         retry_after_secs: command.retry_after_secs,

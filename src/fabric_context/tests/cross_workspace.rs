@@ -13,7 +13,6 @@ fn add_workspace(store: &Store) {
 fn put_status(
     store: &Store,
     pubkey: &str,
-    session_id: &str,
     channel: &str,
     activity: &str,
     updated_at: u64,
@@ -22,7 +21,6 @@ fn put_status(
     store
         .upsert_status(&Status {
             pubkey: pubkey.into(),
-            session_id: session_id.into(),
             channel_h: channel.into(),
             slug: "reviewer".into(),
             title: "Reviewing".into(),
@@ -40,24 +38,8 @@ fn delta_includes_other_workspace_root_and_descendant_presence_only() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    put_status(
-        &store,
-        OTHER_PK,
-        "remote-root-session",
-        "remote",
-        "coordinating release",
-        250,
-        500,
-    );
-    put_status(
-        &store,
-        OTHER_PK,
-        "remote-review-session",
-        "review",
-        "reviewing patch",
-        260,
-        500,
-    );
+    put_status(&store, OTHER_PK, "remote", "coordinating release", 250, 500);
+    put_status(&store, OTHER_PK, "review", "reviewing patch", 260, 500);
     chat(
         &store,
         "remote-chat",
@@ -108,42 +90,10 @@ fn other_workspace_delta_rejects_stale_expired_and_self_statuses() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    put_status(
-        &store,
-        OTHER_PK,
-        "unchanged-session",
-        "remote",
-        "old work",
-        150,
-        500,
-    );
-    put_status(
-        &store,
-        OTHER_PK,
-        "expired-session",
-        "remote",
-        "expired work",
-        250,
-        299,
-    );
-    put_status(
-        &store,
-        SELF_PK,
-        "self-session",
-        "remote",
-        "self work",
-        250,
-        500,
-    );
-    put_status(
-        &store,
-        OTHER_PK,
-        "current-session",
-        "root",
-        "current workspace work",
-        250,
-        500,
-    );
+    put_status(&store, OTHER_PK, "remote", "old work", 150, 500);
+    put_status(&store, OTHER_PK, "remote", "expired work", 250, 299);
+    put_status(&store, SELF_PK, "remote", "self work", 250, 500);
+    put_status(&store, OTHER_PK, "root", "current workspace work", 250, 500);
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("current workspace activity should render");

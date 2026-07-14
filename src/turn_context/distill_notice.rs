@@ -37,9 +37,9 @@ pub(super) fn push_heads_up(
             .to_string(),
     );
     let s = store.lock().expect("store mutex poisoned");
-    if let Err(e) = s.mark_distill_notice(&rec.session_id, now) {
+    if let Err(e) = s.mark_distill_notice(&rec.pubkey, now) {
         tracing::error!(
-            session = %rec.session_id,
+            pubkey = %rec.pubkey,
             error = ?e,
             "turn_start: mark_distill_notice failed; heads-up may repeat next turn"
         );

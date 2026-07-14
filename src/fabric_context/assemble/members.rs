@@ -60,17 +60,11 @@ fn member_reference(
     pk: &str,
     status: Option<&&StatusCap>,
 ) -> String {
-    if let Some(s) = status.filter(|s| !s.session_id.is_empty()) {
-        let profile_agent_slug = members
-            .agent_slugs
-            .get(pk)
-            .map(String::as_str)
-            .unwrap_or("");
-        return crate::fabric_context::refs::session_ref(
-            &s.session_id,
-            &s.slug,
-            profile_agent_slug,
-        );
+    if let Some(slug) = status
+        .map(|s| s.slug.trim())
+        .filter(|slug| !slug.is_empty())
+    {
+        return slug.to_string();
     }
     members.refs.get(pk).cloned().unwrap_or_default()
 }

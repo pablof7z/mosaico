@@ -41,11 +41,11 @@ pub(crate) fn assemble_turn_check(
     let mut read_failed = joined_read_failed;
     let direct_mentions = {
         let s = store.lock().expect("store mutex poisoned");
-        match take_inbox(&s, &rec.agent_pubkey, now) {
+        match take_inbox(&s, &rec.pubkey, now) {
             Ok(rows) => rows,
             Err(e) => {
                 tracing::error!(
-                    session = %rec.session_id,
+                    pubkey = %rec.pubkey,
                     error = ?e,
                     "turn_check: inbox claim failed; direct mentions may be dropped"
                 );
@@ -100,7 +100,7 @@ pub(crate) fn assemble_turn_check(
     let replay_inputs = inputs.clone();
     let outcome = super::render_hook_context(
         hook_contexts,
-        &rec.session_id,
+        &rec.pubkey,
         "turn_check",
         cursor as i64,
         now as i64,
@@ -114,14 +114,14 @@ pub(crate) fn assemble_turn_check(
             &s,
             "hook_context",
             "turn_check",
-            Some(&rec.session_id),
+            Some(&rec.pubkey),
             &outcome.commit,
             render_start.elapsed().as_micros() as i64,
             crate::instrument::now_millis(),
         );
     }
     let replay_fact = super::hook_replay_fact(
-        &rec.session_id,
+        &rec.pubkey,
         "turn_check",
         cursor as i64,
         now as i64,

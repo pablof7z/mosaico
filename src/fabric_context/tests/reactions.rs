@@ -59,7 +59,7 @@ fn reaction_on_own_message_renders_once_then_is_silent() {
 
     // No inbox row was ever created for the reactor session — nothing to inject.
     assert!(store
-        .peek_pending_for_pubkey(&rec.agent_pubkey)
+        .peek_pending_for_pubkey(&rec.pubkey)
         .unwrap()
         .is_empty());
 }

@@ -190,18 +190,8 @@ fn presence_rows(inputs: &ViewInputs, channel: &str, cursor: u64, now: u64) -> V
 }
 
 fn presence_reference(inputs: &ViewInputs, status: &StatusCap) -> String {
-    if !status.session_id.is_empty() {
-        let profile_agent_slug = inputs
-            .members
-            .agent_slugs
-            .get(&status.pubkey)
-            .map(String::as_str)
-            .unwrap_or("");
-        return crate::fabric_context::refs::session_ref(
-            &status.session_id,
-            &status.slug,
-            profile_agent_slug,
-        );
+    if !status.slug.trim().is_empty() {
+        return status.slug.clone();
     }
     inputs
         .members

@@ -46,7 +46,6 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
     store
         .upsert_status(&Status {
             pubkey: OTHER_PK.into(),
-            session_id: "other-session".into(),
             channel_h: "root".into(),
             slug: "amber-reviewer".into(),
             title: "Reviewing".into(),

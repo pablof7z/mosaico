@@ -9,17 +9,6 @@ pub(super) fn display_name(store: &Store, channel: &str) -> String {
         .unwrap_or_else(|| channel.to_string())
 }
 
-/// The session-bearing member reference: `codename-agent` (never the raw
-/// internal `session_id`). Shared by the legacy (`people`) and pure
-/// (`assemble`) member-row paths so they can never drift.
-pub(super) fn session_ref(
-    _session_id: &str,
-    status_slug: &str,
-    _profile_agent_slug: &str,
-) -> String {
-    status_slug.to_string()
-}
-
 /// The raw profile host for a pubkey (empty when unknown). Kept separate from
 /// [`pubkey_ref`] so fallback member rendering can stay identical in both the
 /// legacy and pure derivations.

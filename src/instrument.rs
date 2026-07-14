@@ -60,7 +60,7 @@ pub struct DistillCapture {
 /// propagated, so distillation is never blocked by instrumentation.
 pub fn record_llm_call(
     store: &Store,
-    session_id: &str,
+    pubkey: &str,
     window_hash: &str,
     cap: &DistillCapture,
     parsed_title: Option<&str>,
@@ -68,7 +68,7 @@ pub fn record_llm_call(
     created_at: i64,
 ) {
     let row = NewLlmCall {
-        session_id: session_id.to_string(),
+        pubkey: pubkey.to_string(),
         window_hash: window_hash.to_string(),
         provider: cap.provider.clone(),
         model: cap.model.clone(),
@@ -80,7 +80,7 @@ pub fn record_llm_call(
         created_at,
     };
     if let Err(e) = store.record_llm_call(&row) {
-        tracing::warn!(session = %session_id, error = %e, "record_llm_call failed — distill round-trip not instrumented");
+        tracing::warn!(pubkey, error = %e, "record_llm_call failed — distill round-trip not instrumented");
     }
 }
 
@@ -149,12 +149,12 @@ fn json_labels(labels: &[String]) -> String {
 
 /// A changed node summary plus optional join context, as a compact JSON string.
 /// Node identities are the graph-local numeric ids (Trellis-free strings); the
-/// optional `session_id`/`window_hash` are the status-surface join keys.
+/// optional `pubkey`/`window_hash` are the status-surface join keys.
 pub fn changed_summary_json(
     inputs: &[NodeId],
     derived: &[NodeId],
     collections: &[NodeId],
-    session_id: Option<&str>,
+    pubkey: Option<&str>,
     window_hash: Option<&str>,
 ) -> String {
     #[derive(Serialize)]
@@ -163,7 +163,7 @@ pub fn changed_summary_json(
         derived: Vec<u64>,
         collections: Vec<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<&'a str>,
+        pubkey: Option<&'a str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         window_hash: Option<&'a str>,
     }
@@ -172,7 +172,7 @@ pub fn changed_summary_json(
         inputs: ids(inputs),
         derived: ids(derived),
         collections: ids(collections),
-        session_id,
+        pubkey,
         window_hash,
     })
     .unwrap_or_else(|_| "{}".into())
@@ -222,9 +222,9 @@ mod tests {
 
     #[test]
     fn changed_summary_carries_join_keys() {
-        let s = changed_summary_json(&[], &[], &[], Some("sid-1"), Some("sha256:ab"));
+        let s = changed_summary_json(&[], &[], &[], Some("pubkey-1"), Some("sha256:ab"));
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(v["session_id"], "sid-1");
+        assert_eq!(v["pubkey"], "pubkey-1");
         assert_eq!(v["window_hash"], "sha256:ab");
     }
 
@@ -232,7 +232,7 @@ mod tests {
     fn changed_summary_omits_absent_join_keys() {
         let s = changed_summary_json(&[], &[], &[], None, None);
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert!(v.get("session_id").is_none());
+        assert!(v.get("pubkey").is_none());
         assert!(v.get("window_hash").is_none());
     }
 }

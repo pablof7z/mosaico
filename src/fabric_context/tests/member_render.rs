@@ -8,8 +8,8 @@ use crate::state::{Status, Store};
 
 use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
 
-/// A member whose session is known (a live status carries its session id) renders
-/// as `@codename-agent`; the pure and legacy paths agree.
+/// A member with a live status renders under that status's public handle; the
+/// pure and legacy paths agree.
 #[test]
 fn member_row_shows_session_handle_without_role_for_peer_session() {
     let store = seed_store();
@@ -28,7 +28,6 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
     store
         .upsert_status(&Status {
             pubkey: OTHER_PK.into(),
-            session_id: "peer-sess".into(),
             channel_h: "root".into(),
             slug: "amber-reviewer".into(),
             title: "Reviewing".into(),
@@ -129,28 +128,20 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
         .unwrap();
     let rec = session_record(&store, "cross-workspace", "test1-xxx");
     store
-        .join_session_channel(&rec.session_id, "test2-xxx", 20)
+        .join_session_channel(&rec.pubkey, "test2-xxx", 20)
         .unwrap();
-    for (pk, session_id, channel, slug, activity) in [
+    for (pk, channel, slug, activity) in [
         (
             "peer-test1",
-            "peer-test1-session",
             "test1-xxx",
             "amber-reviewer",
             "checking test1",
         ),
-        (
-            "peer-test2",
-            "peer-test2-session",
-            "test2-xxx",
-            "atlas-tester",
-            "checking test2",
-        ),
+        ("peer-test2", "test2-xxx", "atlas-tester", "checking test2"),
     ] {
         store
             .upsert_status(&Status {
                 pubkey: pk.into(),
-                session_id: session_id.into(),
                 channel_h: channel.into(),
                 slug: slug.into(),
                 title: String::new(),

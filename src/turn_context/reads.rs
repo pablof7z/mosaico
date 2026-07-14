@@ -7,19 +7,11 @@ pub(super) fn context_instance(
     store: &std::sync::Mutex<Store>,
     rec: &Session,
 ) -> crate::identity::SessionIdentity {
-    store
-        .lock()
-        .expect("store mutex poisoned")
-        .session_identity_for_session(&rec.session_id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| {
-            crate::identity::SessionIdentity::fallback(
-                &rec.session_id,
-                rec.agent_slug.clone(),
-                rec.agent_pubkey.clone(),
-            )
-        })
+    let guard = store.lock().expect("store mutex poisoned");
+    guard
+        .session_identity(&rec.pubkey)
+        .expect("session identity lookup")
+        .expect("registered session identity")
 }
 
 pub(super) fn root_channel_h(s: &Store, channel: &str) -> String {
@@ -38,11 +30,11 @@ pub(super) fn take_inbox(s: &Store, target_pubkey: &str, now: u64) -> Result<Vec
 }
 
 pub(super) fn joined_channels(s: &Store, rec: &Session) -> (Vec<(String, u64)>, bool) {
-    let (mut channels, read_failed) = match s.list_session_joined_channels(&rec.session_id) {
+    let (mut channels, read_failed) = match s.list_session_joined_channels(&rec.pubkey) {
         Ok(c) => (c, false),
         Err(e) => {
             tracing::error!(
-                session = %rec.session_id,
+                pubkey = %rec.pubkey,
                 error = ?e,
                 "turn: joined-channel read failed; passive channels may be dropped from this turn"
             );

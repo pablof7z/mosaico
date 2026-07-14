@@ -1,5 +1,5 @@
 use super::model::{MemberRow, PresenceRow};
-use super::refs::{pubkey_ref, session_ref};
+use super::refs::pubkey_ref;
 use super::FabricContextInput;
 use crate::state::{Status, Store};
 use crate::util::relative_time;
@@ -47,18 +47,15 @@ pub(super) fn member_rows(
         .collect()
 }
 
-/// A non-self member's reference: `@sessionCode-agent` when its owning session is
-/// known (a live status carrying a session id), else the slug/npub fallback.
+/// A non-self member's reference: the live status slug when known, else the
+/// profile/npub fallback.
 /// Mirrors `assemble::member_reference` exactly so both paths agree.
 fn member_reference(store: &Store, pk: &str, status: Option<&Status>, local_host: &str) -> String {
-    if let Some(s) = status.filter(|s| !s.session_id.is_empty()) {
-        let profile_agent_slug = store
-            .get_profile(pk)
-            .ok()
-            .flatten()
-            .map(|p| p.agent_slug)
-            .unwrap_or_default();
-        return session_ref(&s.session_id, &s.slug, &profile_agent_slug);
+    if let Some(slug) = status
+        .map(|s| s.slug.trim())
+        .filter(|slug| !slug.is_empty())
+    {
+        return slug.to_string();
     }
     pubkey_ref(store, pk, local_host)
 }
@@ -86,14 +83,8 @@ pub(super) fn presence_rows(
 }
 
 fn presence_reference(store: &Store, status: &Status, local_host: &str) -> String {
-    if !status.session_id.is_empty() {
-        let profile_agent_slug = store
-            .get_profile(&status.pubkey)
-            .ok()
-            .flatten()
-            .map(|p| p.agent_slug)
-            .unwrap_or_default();
-        return session_ref(&status.session_id, &status.slug, &profile_agent_slug);
+    if !status.slug.trim().is_empty() {
+        return status.slug.clone();
     }
     pubkey_ref(store, &status.pubkey, local_host)
 }

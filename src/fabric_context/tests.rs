@@ -34,28 +34,23 @@ fn seed_store() -> Store {
 
 fn session(store: &Store) -> Session {
     let rec = session_record(store, "sess", "root");
-    store
-        .join_session_channel(&rec.session_id, "task", 20)
-        .unwrap();
+    store.join_session_channel(&rec.pubkey, "task", 20).unwrap();
     rec
 }
 
-fn session_record(store: &Store, external_id: &str, channel_h: &str) -> Session {
-    let id = store
-        .register_session(&RegisterSession {
+fn session_record(store: &Store, _label: &str, channel_h: &str) -> Session {
+    store
+        .reserve_session(&RegisterSession {
+            pubkey: SELF_PK.into(),
             harness: "test".into(),
-            external_id_kind: "test".into(),
-            external_id: external_id.into(),
-            agent_pubkey: SELF_PK.into(),
             agent_slug: "coder".into(),
             channel_h: channel_h.into(),
             child_pid: None,
             transcript_path: None,
-            resume_id: String::new(),
             now: 10,
         })
         .unwrap();
-    store.get_session(&id).unwrap().unwrap()
+    store.get_session(SELF_PK).unwrap().unwrap()
 }
 
 fn chat(store: &Store, id: &str, channel: &str, at: u64, body: &str, tags_json: &str) {
@@ -135,7 +130,7 @@ fn archived_joined_channels_are_hidden_from_fabric_context() {
         .upsert_channel("archived", "archived", "[ARCHIVED] done", "root", 30)
         .unwrap();
     store
-        .join_session_channel(&rec.session_id, "archived", 30)
+        .join_session_channel(&rec.pubkey, "archived", 30)
         .unwrap();
     chat(
         &store,
@@ -194,18 +189,16 @@ fn injected_mention_row_is_hidden_from_chatter() {
     store
         .enqueue_inbox(
             "mention-inj",
-            &rec.agent_pubkey,
+            &rec.pubkey,
             OTHER_PK,
             "root",
             "please pick this up",
             210,
         )
         .unwrap();
+    store.claim_pending_for_pubkey(&rec.pubkey, 210).unwrap();
     store
-        .claim_pending_for_pubkey(&rec.agent_pubkey, 210)
-        .unwrap();
-    store
-        .mark_injected_for_echo(&["mention-inj".to_string()], &rec.agent_pubkey)
+        .mark_injected_for_echo(&["mention-inj".to_string()], &rec.pubkey)
         .unwrap();
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))

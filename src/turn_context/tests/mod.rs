@@ -10,19 +10,17 @@ const OTHER_PK: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
     store
-        .register_session(&RegisterSession {
+        .reserve_session(&RegisterSession {
+            pubkey: pk.to_string(),
             harness: "test".into(),
-            external_id_kind: "test".into(),
-            external_id: format!("{pk}-{now}"),
-            agent_pubkey: pk.to_string(),
             agent_slug: "test-agent".into(),
             channel_h: channel.to_string(),
             child_pid: None,
             transcript_path: None,
-            resume_id: String::new(),
             now,
         })
-        .unwrap()
+        .unwrap();
+    pk.to_string()
 }
 
 fn materialize_channel(store: &Store, channel: &str) {

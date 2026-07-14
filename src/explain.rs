@@ -111,10 +111,7 @@ pub fn explain(store: &Store, handle: &Handle) -> Result<Value> {
         Handle::Session { id, at } => {
             let call = match at {
                 Some(ts) => store.find_llm_call_near(id, *ts)?,
-                None => store
-                    .latest_llm_calls_for_session(id, 1)?
-                    .into_iter()
-                    .next(),
+                None => store.latest_llm_calls_for_pubkey(id, 1)?.into_iter().next(),
             };
             let receipts = match &call {
                 Some(c) => receipts_for_window(store, &c.window_hash)?,
@@ -125,10 +122,10 @@ pub fn explain(store: &Store, handle: &Handle) -> Result<Value> {
         Handle::Hook { id, at } => {
             let rows = match at {
                 Some(ts) => store
-                    .find_hook_receipt_for_session_near(id, *ts)?
+                    .find_hook_receipt_for_pubkey_near(id, *ts)?
                     .into_iter()
                     .collect(),
-                None => store.latest_hook_receipts_for_session(id, 1)?,
+                None => store.latest_hook_receipts_for_pubkey(id, 1)?,
             };
             Ok(record("hook", rows, None))
         }
@@ -215,7 +212,7 @@ pub fn receipt_json(r: &ReceiptRow) -> Value {
 pub fn llm_json(c: &LlmCallRow) -> Value {
     json!({
         "id": c.id,
-        "session_id": c.session_id,
+        "pubkey": c.pubkey,
         "window_hash": c.window_hash,
         "provider": c.provider,
         "model": c.model,

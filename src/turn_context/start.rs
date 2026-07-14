@@ -166,11 +166,11 @@ pub(crate) fn assemble_turn_start(
         let s = store.lock().expect("store mutex poisoned");
         // A failed inbox claim must NOT render as an empty inbox: log loudly and
         // flag the turn so a visible marker is injected below.
-        let mentions = match take_inbox(&s, &rec.agent_pubkey, now) {
+        let mentions = match take_inbox(&s, &rec.pubkey, now) {
             Ok(rows) => rows,
             Err(e) => {
                 tracing::error!(
-                    session = %rec.session_id,
+                    pubkey = %rec.pubkey,
                     error = ?e,
                     "turn_start: inbox claim failed; direct mentions may be dropped"
                 );
@@ -250,7 +250,7 @@ pub(crate) fn assemble_turn_start(
     let replay_inputs = inputs.clone();
     let outcome = super::render_hook_context(
         hook_contexts,
-        &rec.session_id,
+        &rec.pubkey,
         "turn_start",
         rec.seen_cursor as i64,
         now as i64,
@@ -265,7 +265,7 @@ pub(crate) fn assemble_turn_start(
             &s,
             "hook_context",
             "turn_start",
-            Some(&rec.session_id),
+            Some(&rec.pubkey),
             &outcome.commit,
             render_start.elapsed().as_micros() as i64,
             crate::instrument::now_millis(),
@@ -273,7 +273,7 @@ pub(crate) fn assemble_turn_start(
     }
 
     let replay_fact = super::hook_replay_fact(
-        &rec.session_id,
+        &rec.pubkey,
         "turn_start",
         rec.seen_cursor as i64,
         now as i64,

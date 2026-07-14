@@ -15,8 +15,6 @@ pub(in crate::fabric_context) struct WorkspaceCap {
 pub(in crate::fabric_context) struct StatusCap {
     pub(in crate::fabric_context) pubkey: String,
     #[serde(default)]
-    pub(in crate::fabric_context) session_id: String,
-    #[serde(default)]
     pub(in crate::fabric_context) host: String,
     #[serde(default)]
     pub(in crate::fabric_context) slug: String,
@@ -102,7 +100,6 @@ pub(super) fn status_caps(
             StatusCap {
                 host: read::profile_host(store, &status.pubkey),
                 slug: status.slug,
-                session_id: status.session_id,
                 pubkey: status.pubkey,
                 busy: status.busy,
                 activity: status.activity,
