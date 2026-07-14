@@ -62,6 +62,7 @@ pub(crate) fn assemble_turn_start(
     let now = now_secs();
     let mut warnings: Vec<String> = Vec::new();
     super::distill_notice::push_heads_up(store, rec, now, &mut warnings);
+    super::headless::push_mode_notice(hook_contexts, store, rec, true, &mut warnings);
 
     let (joined, joined_read_failed) = {
         let s = store.lock().expect("store mutex poisoned");
@@ -127,24 +128,19 @@ pub(crate) fn assemble_turn_start(
             ));
         }
 
-        // A session with no live `pty_session` alias has no daemon PTY endpoint
-        // the delivery reconciler can inject into: idle mentions get
-        // `DeferNoEndpoint` and are dropped rather than pushed
-        // (`src/reconcile/delivery/mod.rs`). This warning rides the same
-        // turn-context path as the membership warning above, so it only
-        // reaches the agent when it takes a turn — it informs, it does not
-        // itself fix the idle black-hole.
-        let pty_wrapped = {
+        // A session without a live daemon delivery endpoint cannot be steered
+        // while idle: mentions remain in its inbox until the next turn. Output
+        // presentation is a separate headless-mode fact above.
+        let delivery_available = {
             let s = store.lock().expect("store mutex poisoned");
-            crate::session_host::session_has_live_pty_endpoint(&s, rec)
+            crate::session_host::session_has_live_delivery_endpoint(&s, rec)
         };
-        if !pty_wrapped {
+        if !delivery_available {
             warnings.push(
-                "This session is not hosted in a daemon PTY. Messages sent to \
-                 you while you are idle are NOT pushed to you — they wait in \
-                 your inbox until your next turn. Run `tenex-edge my session \
-                 pty-wrap-me --self` to re-home into a daemon PTY, or keep \
-                 taking turns."
+                "This session cannot receive automatic steering while idle. \
+                 Messages sent to you wait in your inbox until your next turn. \
+                 Run `tenex-edge my session pty-wrap-me --self` to make it \
+                 steerable, or keep taking turns."
                     .to_string(),
             );
         }

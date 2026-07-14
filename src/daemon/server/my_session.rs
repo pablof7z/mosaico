@@ -15,6 +15,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
     let rec = resolve_caller(state, params, "my session")?;
     let roots = state.with_store(super::who::root_channels)?;
     let instance = state.session_instance(&rec);
+    let headless = state.with_store(|store| crate::session_host::session_is_headless(store, &rec));
     let expanded_workspaces = state.with_store(|store| {
         store
             .list_session_joined_channels(&rec.session_id)
@@ -41,6 +42,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
                 local_host: &host,
                 backend_pubkey: &backend_pubkey,
                 now: now_secs(),
+                headless,
                 expanded_workspaces: &expanded_workspaces,
             },
         )
@@ -121,6 +123,7 @@ mod tests {
         .unwrap();
         let first = first["fabric"].as_str().expect("agent briefing");
         assert!(first.contains("<self name=\"@codex\""), "{first}");
+        assert!(first.contains("headless=\"on\""), "{first}");
         assert!(first.contains("<agents>"), "{first}");
         assert!(first.contains(
             "<workspace name=\"alpha\" channel=\"alpha\" about=\"Alpha\" members=\"1\">"

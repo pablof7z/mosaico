@@ -43,12 +43,12 @@ fn acp_endpoint_id_would_read_dead_under_the_old_pty_probe() {
     assert!(!endpoint_is_live(TransportKind::Acp, acp_id));
 }
 
-/// `session_has_live_pty_endpoint` gates the turn-context "not PTY-wrapped"
-/// warning (`turn_context::start`): no alias, or an alias whose endpoint is
-/// dead, both read as not-wrapped; only a `pty_session` alias resolving to a
-/// live listener reads as wrapped.
+/// `session_has_live_delivery_endpoint` gates the turn-context reachability
+/// warning: no alias, or an alias whose endpoint is dead, both read as
+/// unavailable; only a `pty_session` alias resolving to a live listener reads
+/// as available.
 #[test]
-fn session_has_live_pty_endpoint_true_only_for_a_live_alias() {
+fn session_has_live_delivery_endpoint_true_only_for_a_live_alias() {
     let store = crate::state::Store::open_memory().unwrap();
     let rec = crate::state::Session {
         session_id: "sess-pty-probe".into(),
@@ -76,8 +76,8 @@ fn session_has_live_pty_endpoint_true_only_for_a_live_alias() {
     };
 
     assert!(
-        !session_has_live_pty_endpoint(&store, &rec),
-        "no alias at all must read as not-wrapped"
+        !session_has_live_delivery_endpoint(&store, &rec),
+        "no alias at all must read as unavailable"
     );
 
     let dir = tempfile::tempdir().unwrap();
@@ -92,8 +92,8 @@ fn session_has_live_pty_endpoint_true_only_for_a_live_alias() {
         )
         .unwrap();
     assert!(
-        !session_has_live_pty_endpoint(&store, &rec),
-        "an alias to a socket nobody is listening on must read as not-wrapped"
+        !session_has_live_delivery_endpoint(&store, &rec),
+        "an alias to a socket nobody is listening on must read as unavailable"
     );
 
     let live_path = dir.path().join("live.sock");
@@ -108,9 +108,18 @@ fn session_has_live_pty_endpoint_true_only_for_a_live_alias() {
         )
         .unwrap();
     assert!(
-        session_has_live_pty_endpoint(&store, &rec),
-        "a pty_session alias resolving to a live listener must read as wrapped"
+        session_has_live_delivery_endpoint(&store, &rec),
+        "a pty_session alias resolving to a live listener must read as available"
     );
+}
+
+#[test]
+fn headless_mode_separates_output_visibility_from_reachability() {
+    assert!(!headless_for_endpoint(TransportKind::Pty, false, false));
+    assert!(headless_for_endpoint(TransportKind::Pty, true, false));
+    assert!(!headless_for_endpoint(TransportKind::Pty, true, true));
+    assert!(headless_for_endpoint(TransportKind::Acp, false, false));
+    assert!(headless_for_endpoint(TransportKind::Acp, true, false));
 }
 
 /// The reconciler is transport-neutral: it plans an `Inject` carrying the

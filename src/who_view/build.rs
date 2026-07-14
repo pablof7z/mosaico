@@ -10,6 +10,7 @@ pub(crate) struct AgentWhoInput<'a> {
     pub(crate) local_host: &'a str,
     pub(crate) backend_pubkey: &'a str,
     pub(crate) now: u64,
+    pub(crate) headless: bool,
     pub(crate) expanded_workspaces: &'a BTreeSet<String>,
 }
 
@@ -24,6 +25,7 @@ pub(super) fn build_agent_who(store: &Store, input: AgentWhoInput<'_>) -> AgentW
     AgentWhoView {
         self_name: input.self_name.to_string(),
         self_host: input.local_host.to_string(),
+        headless: input.headless,
         agents: available_agents(store, input.local_host),
         workspaces,
     }

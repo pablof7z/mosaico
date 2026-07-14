@@ -5,9 +5,10 @@ pub(super) fn render_agent_who(view: &AgentWhoView) -> String {
     let mut out = String::from("<tenex-edge>");
     let _ = write!(
         out,
-        "\n  <self name=\"@{}\" host=\"{}\" />",
+        "\n  <self name=\"@{}\" host=\"{}\" headless=\"{}\" />",
         attr(&view.self_name),
-        attr(&view.self_host)
+        attr(&view.self_host),
+        if view.headless { "on" } else { "off" },
     );
     render_agents(&mut out, &view.agents);
     out.push_str("\n  <workspaces>");
