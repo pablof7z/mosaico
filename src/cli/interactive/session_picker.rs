@@ -46,6 +46,7 @@ async fn kill(choice: SessionChoice) -> Result<()> {
         "session_kill",
         serde_json::json!({
             "session": choice.row.npub,
+            "pty_id": choice.row.pty_id,
             "revoke_memberships": true,
         }),
     )

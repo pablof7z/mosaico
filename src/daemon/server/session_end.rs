@@ -54,7 +54,10 @@ pub(in crate::daemon::server) async fn rpc_session_end(
 
 #[derive(serde::Deserialize)]
 struct SessionKillParams {
-    session: String,
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    pty_id: Option<String>,
     #[serde(default)]
     revoke_memberships: bool,
 }
@@ -68,15 +71,15 @@ pub(in crate::daemon::server) async fn rpc_session_kill(
     // Operator callers select by public identity. Self/lifecycle callers own a
     // typed runtime locator, which remains a private fallback until the run
     // spine is separated from session identity.
-    let public = state.with_store(|s| super::resolution::resolve_public_session(s, &p.session))?;
-    let Some(rec) =
-        public.or_else(|| state.with_store(|s| s.get_session(&p.session).ok().flatten()))
-    else {
-        return Ok(serde_json::json!({
-            "killed": false,
-            "ended": false,
-            "reason": "no local session matched"
-        }));
+    let selector = p.session.as_deref().filter(|session| !session.is_empty());
+    let public = selector
+        .map(|session| state.with_store(|s| super::resolution::resolve_public_session(s, session)))
+        .transpose()?
+        .flatten();
+    let Some(rec) = public.or_else(|| {
+        selector.and_then(|session| state.with_store(|s| s.get_session(session).ok().flatten()))
+    }) else {
+        return kill_unbound_endpoint(p.pty_id.as_deref(), p.revoke_memberships);
     };
 
     let stop = stop_local_process(state, &rec);
@@ -111,6 +114,46 @@ pub(in crate::daemon::server) async fn rpc_session_kill(
             "reason": format!("{e:#}"),
         })),
     }
+}
+
+fn kill_unbound_endpoint(
+    pty_id: Option<&str>,
+    revoke_memberships: bool,
+) -> Result<serde_json::Value> {
+    let Some(pty_id) = pty_id else {
+        return Ok(serde_json::json!({
+            "killed": false,
+            "ended": false,
+            "reason": "no local session matched"
+        }));
+    };
+    let Some(endpoint) = crate::pty::read_all_metadata()
+        .into_iter()
+        .find(|metadata| metadata.id == pty_id && crate::pty::is_live(&metadata.id))
+    else {
+        return Ok(serde_json::json!({
+            "killed": false,
+            "ended": false,
+            "reason": "no live local endpoint matched"
+        }));
+    };
+    crate::pty::kill(&endpoint.id)
+        .with_context(|| format!("killing unbound PTY endpoint {}", endpoint.id))?;
+    let cleanup_failures = if revoke_memberships {
+        vec![
+            "endpoint had no current session identity; fabric cleanup could not be confirmed"
+                .to_string(),
+        ]
+    } else {
+        Vec::new()
+    };
+    Ok(serde_json::json!({
+        "killed": true,
+        "ended": false,
+        "note": format!("pty={}", endpoint.id),
+        "cleanup_confirmed": cleanup_failures.is_empty(),
+        "cleanup_failures": cleanup_failures,
+    }))
 }
 
 async fn revoke_operator_session(

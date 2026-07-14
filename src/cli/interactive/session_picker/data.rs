@@ -205,4 +205,35 @@ mod tests {
         assert_eq!(rows[0].pty_id.as_deref(), Some("pty-1"));
         assert!(rows[0].pty_live);
     }
+
+    #[test]
+    fn parses_live_unbound_endpoint_for_attach() {
+        let value = serde_json::json!({
+            "sessions": [{
+                "pubkey": "",
+                "npub": "",
+                "handle": "codex",
+                "agent": "codex",
+                "workspaces": [{
+                    "id": "root", "name": "tenex-edge", "path": "/repo",
+                    "channels": [{"id": "root", "name": "tenex-edge"}]
+                }],
+                "title": "codex --yolo",
+                "activity": "/repo",
+                "busy": false,
+                "last_seen": 0,
+                "host": "laptop",
+                "harness": "codex",
+                "bound": false,
+                "endpoint": {"pty_id": "pty-orphan", "live": true, "cwd": "/repo"}
+            }]
+        });
+
+        let rows = rows_from_value(&value);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].handle, "codex");
+        assert_eq!(rows[0].pty_id.as_deref(), Some("pty-orphan"));
+        assert!(rows[0].pty_live);
+    }
 }

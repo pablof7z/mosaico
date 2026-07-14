@@ -1,21 +1,30 @@
 //! Canonical local-session projection for the operator session picker.
 
 use super::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+#[derive(Clone)]
+struct OperatorEndpoint {
+    metadata: crate::pty::LaunchMetadata,
+    live: bool,
+}
 
 pub(super) fn rpc_operator_sessions(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
-    let metadata = crate::pty::read_all_metadata()
+    let endpoints = crate::pty::read_all_metadata()
         .into_iter()
-        .map(|meta| (meta.id.clone(), meta))
+        .map(|metadata| {
+            let live = crate::pty::is_live(&metadata.id);
+            (metadata.id.clone(), OperatorEndpoint { metadata, live })
+        })
         .collect::<HashMap<_, _>>();
-    let sessions = state.with_store(|store| project_sessions(store, &state.host, &metadata))?;
+    let sessions = state.with_store(|store| project_sessions(store, &state.host, &endpoints))?;
     Ok(serde_json::json!({ "sessions": sessions }))
 }
 
 fn project_sessions(
     store: &Store,
     host: &str,
-    metadata: &HashMap<String, crate::pty::LaunchMetadata>,
+    endpoints: &HashMap<String, OperatorEndpoint>,
 ) -> Result<Vec<serde_json::Value>> {
     let channels = store
         .list_channels()?
@@ -23,6 +32,7 @@ fn project_sessions(
         .map(|channel| (channel.channel_h.clone(), channel))
         .collect::<HashMap<_, _>>();
     let mut rows = Vec::new();
+    let mut projected_endpoints = HashSet::new();
     for rec in store.list_alive_sessions()? {
         let identity = store
             .session_identity_for_session(&rec.session_id)?
@@ -48,11 +58,13 @@ fn project_sessions(
             .aliases_for_session(&rec.session_id)?
             .into_iter()
             .find(|alias| alias.external_id_kind == "pty_session")
-            .and_then(|alias| metadata.get(&alias.external_id))
-            .map(|meta| {
+            .and_then(|alias| endpoints.get(&alias.external_id))
+            .map(|endpoint| {
+                let meta = &endpoint.metadata;
+                projected_endpoints.insert(meta.id.clone());
                 serde_json::json!({
                     "pty_id": meta.id,
-                    "live": crate::pty::is_live(&meta.id),
+                    "live": endpoint.live,
                     "cwd": meta.cwd,
                     "command": meta.command,
                 })
@@ -83,7 +95,59 @@ fn project_sessions(
             "endpoint": endpoint,
         }));
     }
+    let mut unbound = endpoints
+        .values()
+        .filter(|endpoint| endpoint.live && !projected_endpoints.contains(&endpoint.metadata.id))
+        .collect::<Vec<_>>();
+    unbound.sort_by(|left, right| left.metadata.id.cmp(&right.metadata.id));
+    for endpoint in unbound {
+        rows.push(unbound_endpoint_value(store, host, endpoint)?);
+    }
     Ok(rows)
+}
+
+fn unbound_endpoint_value(
+    store: &Store,
+    host: &str,
+    endpoint: &OperatorEndpoint,
+) -> Result<serde_json::Value> {
+    let meta = &endpoint.metadata;
+    let workspace_name = store
+        .get_channel(&meta.root)?
+        .as_ref()
+        .and_then(crate::state::Channel::human_name)
+        .unwrap_or(&meta.root)
+        .to_string();
+    let workspace_path = store
+        .workspace_path(&meta.root)?
+        .or_else(|| Some(meta.cwd.clone()));
+    Ok(serde_json::json!({
+        "pubkey": "",
+        "npub": "",
+        "handle": meta.agent,
+        "agent": meta.agent,
+        "workspaces": [{
+            "id": meta.root,
+            "name": workspace_name,
+            "path": workspace_path,
+            "channels": [{"id": meta.root, "name": workspace_name}],
+        }],
+        "title": meta.command.join(" "),
+        "activity": meta.cwd,
+        "busy": false,
+        "last_seen": 0,
+        "host": host,
+        "harness": meta.agent,
+        "transport": "pty",
+        "child_pid": meta.supervisor_pid,
+        "bound": false,
+        "endpoint": {
+            "pty_id": meta.id,
+            "live": endpoint.live,
+            "cwd": meta.cwd,
+            "command": meta.command,
+        },
+    }))
 }
 
 fn workspace_value(
@@ -179,5 +243,40 @@ mod tests {
         assert!(project_sessions(&store, "laptop", &HashMap::new())
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn projection_includes_live_unbound_supervisor() {
+        let store = Store::open_memory().unwrap();
+        store
+            .upsert_channel("workspace", "tenex-edge", "", "", 1)
+            .unwrap();
+        store.upsert_workspace("workspace", "/repo", 1).unwrap();
+        let metadata = crate::pty::LaunchMetadata {
+            id: "pty-1".into(),
+            socket: "/tmp/pty-1.sock".into(),
+            supervisor_pid: 42,
+            agent: "codex".into(),
+            root: "workspace".into(),
+            cwd: "/repo/subdir".into(),
+            ephemeral: false,
+            command: vec!["codex".into(), "--yolo".into()],
+        };
+        let endpoints = HashMap::from([(
+            metadata.id.clone(),
+            OperatorEndpoint {
+                metadata,
+                live: true,
+            },
+        )]);
+
+        let rows = project_sessions(&store, "laptop", &endpoints).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["bound"], false);
+        assert_eq!(rows[0]["handle"], "codex");
+        assert_eq!(rows[0]["endpoint"]["pty_id"], "pty-1");
+        assert_eq!(rows[0]["workspaces"][0]["name"], "tenex-edge");
+        assert_eq!(rows[0]["title"], "codex --yolo");
     }
 }
