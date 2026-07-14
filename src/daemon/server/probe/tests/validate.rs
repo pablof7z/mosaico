@@ -113,6 +113,7 @@ async fn rpc_probe_validate_checks_status_fact_and_capsule() {
                 "StatusDrive": {
                     "Tick": {
                         "pubkey": "s1",
+                        "automatic_delivery": true,
                         "at": 1_700_000_030
                     }
                 }

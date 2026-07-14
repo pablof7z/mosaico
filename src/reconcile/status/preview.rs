@@ -199,7 +199,9 @@ mod tests {
         assert_eq!(
             preview.labels.labels_for(&preview.result.changed_inputs),
             vec![
+                "status/pk/live",
                 "status/pk/working",
+                "status/pk/automatic-delivery",
                 "status/pk/title",
                 "status/pk/activity",
                 "status/pk/channels",

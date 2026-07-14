@@ -1,6 +1,6 @@
+use crate::session_state::SessionState;
 use anyhow::Result;
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use crate::session_state::SessionState;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct WorkspaceGroup {

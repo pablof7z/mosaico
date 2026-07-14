@@ -1,10 +1,8 @@
 use crate::fabric_context::model::*;
 use std::fmt::Write as _;
-
 pub(in crate::fabric_context) mod all_workspaces;
 mod workspace;
 use workspace::render_workspace_block;
-
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<tenex-edge>");
     render_self(&mut out, view.self_row.as_ref());
@@ -135,8 +133,9 @@ fn render_members(out: &mut String, members: &[MemberRow], indent: usize) {
     for member in members {
         let _ = write!(
             out,
-            "\n{child_pad}<member ref=\"@{}\" status=\"{}\" seen=\"{}\" />",
+            "\n{child_pad}<member ref=\"@{}\" state=\"{}\" status=\"{}\" seen=\"{}\" />",
             esc_attr(&member.reference),
+            member.state.as_str(),
             esc_attr(&member.status),
             esc_attr(&member.seen)
         );
@@ -154,8 +153,9 @@ fn render_presence(out: &mut String, presence: &[PresenceRow], indent: usize) {
     for status in presence {
         let _ = write!(
             out,
-            "\n{child_pad}<status ref=\"@{}\" text=\"{}\" seen=\"{}\" />",
+            "\n{child_pad}<status ref=\"@{}\" state=\"{}\" text=\"{}\" seen=\"{}\" />",
             esc_attr(&status.reference),
+            status.state.as_str(),
             esc_attr(&status.status),
             esc_attr(&status.seen)
         );

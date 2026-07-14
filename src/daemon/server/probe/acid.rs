@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+mod status;
+
 pub(super) fn acid_value(state: &Arc<DaemonState>, params: &Value) -> Result<Value> {
     let handle = required_str(params, "handle")?;
     let fact = artifact::fact_param(params, "fact")?.context("probe acid: requires `fact`")?;
@@ -139,17 +141,7 @@ fn remove_cause(state: &Arc<DaemonState>, fact: InputFact, cause: &str) -> Resul
             pubkey,
             automatic_delivery,
             ..
-        }) => {
-            if !cause.ends_with("/arm") {
-                anyhow::bail!("probe acid: unsupported status cause `{cause}`");
-            }
-            let at = current_status_arm_at(state, &pubkey)?;
-            Ok(InputFact::StatusDrive(StatusDrive::Tick {
-                pubkey,
-                automatic_delivery,
-                at,
-            }))
-        }
+        }) => status::remove_tick_arm(state, pubkey, automatic_delivery, cause),
         InputFact::SubscriptionSync { mut snapshot, at } => {
             if let Some(session) = subscription_session_cause(cause) {
                 snapshot.sessions.remove(&session);

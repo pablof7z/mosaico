@@ -22,10 +22,7 @@ pub(super) fn lines(row: &SessionRow, now: u64, width: usize, focused: bool) -> 
     let padding = width.saturating_sub(fixed_width + scope_width).max(1);
 
     let mut first = vec![
-        Span::styled(
-            "● ",
-            Style::default().fg(state_color(row.state)),
-        ),
+        Span::styled("● ", Style::default().fg(state_color(row.state))),
         Span::styled(
             handle,
             if focused {

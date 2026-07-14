@@ -76,6 +76,7 @@ async fn rpc_probe_validate_reports_acid_errors_inside_envelope() {
                 "StatusDrive": {
                     "Tick": {
                         "pubkey": "s1",
+                        "automatic_delivery": true,
                         "at": 160
                     }
                 }

@@ -30,8 +30,7 @@ fn has_tag_name(event: &Event, name: &str) -> bool {
 
 fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
     DomainEvent::Status(Status {
-        // Empty slug keeps the default status roundtrip focused on required
-        // fields; non-empty slug emission is covered separately.
+        // Non-empty slug emission is covered separately.
         agent: AgentRef::new(keys.public_key().to_hex(), String::new()),
         channels: vec!["tenex-edge".into()],
         host: "laptop".into(),
@@ -63,16 +62,13 @@ fn status_roundtrip() {
 fn status_rel_cwd_roundtrips_and_emits_tag() {
     let keys = Keys::generate();
     let ev = status(&keys, true, "worktree1");
-    // The relative dir survives encode→decode …
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
-    // … and lands as a `rel-cwd` tag on the wire.
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
         .sign_with_keys(&keys)
         .unwrap();
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
-    // … and the wire event has NO agent tag.
     assert!(!has_tag_name(&signed, "agent"));
 }
 
@@ -108,7 +104,7 @@ fn status_is_per_group_self_contained_signal() {
     // No private runtime id appears as an address or side tag.
     assert!(!has_tag_name(&signed, "session-id"));
     assert!(has_tag(&signed, "title", "fixing the auth bug"));
-    assert!(has_tag(&signed, "status", "busy"));
+    assert!(has_tag(&signed, "state", "working"));
     assert!(has_tag(&signed, "host", "laptop"));
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
     // A None `expires_at` publishes no NIP-40 expiration tag.
@@ -154,7 +150,7 @@ fn idle_status_marks_idle_and_keeps_title() {
         .unwrap()
         .sign_with_keys(&keys)
         .unwrap();
-    assert!(has_tag(&signed, "status", "idle"));
+    assert!(has_tag(&signed, "state", "idle"));
     // Title persists across idle; content (live activity) is empty.
     assert!(has_tag(&signed, "title", "fixing the auth bug"));
     assert_eq!(signed.content, "");

@@ -85,44 +85,28 @@ fn working_and_offline_local_recipients_do_not_get_reminders() {
     let store = Store::open_memory().unwrap();
     local_session(&store);
     store.set_working("local-pk", true, 11).unwrap();
-    assert!(
-        suspension_reminder(&store, "local-pk", "room", None, 11)
-            .unwrap()
-            .is_none()
-    );
+    assert!(suspension_reminder(&store, "local-pk", "room", None, 11)
+        .unwrap()
+        .is_none());
 
     store.mark_dead("local-pk").unwrap();
-    assert!(
-        suspension_reminder(&store, "local-pk", "room", None, 12)
-            .unwrap()
-            .is_none()
-    );
+    assert!(suspension_reminder(&store, "local-pk", "room", None, 12)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
 fn fresh_peer_state_controls_the_reminder() {
     let store = Store::open_memory().unwrap();
     remote_status(&store, SessionState::Suspended, 20);
-    assert!(suspension_reminder(
-        &store,
-        "remote-pk",
-        "room",
-        None,
-        10,
-    )
-    .unwrap()
-    .is_some());
+    assert!(suspension_reminder(&store, "remote-pk", "room", None, 10,)
+        .unwrap()
+        .is_some());
 
     remote_status(&store, SessionState::Idle, 30);
-    assert!(suspension_reminder(
-        &store,
-        "remote-pk",
-        "room",
-        None,
-        10,
-    )
-    .unwrap()
-    .is_none());
+    assert!(suspension_reminder(&store, "remote-pk", "room", None, 10,)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -130,13 +114,7 @@ fn expired_peer_suspension_is_observed_as_offline() {
     let store = Store::open_memory().unwrap();
     remote_status(&store, SessionState::Suspended, 9);
 
-    assert!(suspension_reminder(
-        &store,
-        "remote-pk",
-        "room",
-        None,
-        10,
-    )
-    .unwrap()
-    .is_none());
+    assert!(suspension_reminder(&store, "remote-pk", "room", None, 10,)
+        .unwrap()
+        .is_none());
 }

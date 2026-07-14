@@ -31,7 +31,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "trellis_replay_capsules"));
     assert!(table_exists(&conn, "session_locators"));
@@ -226,7 +226,7 @@ fn stamped_non_canonical_file_db_is_rejected() {
         "#,
     )
     .unwrap();
-    conn.pragma_update(None, "user_version", 5u32).unwrap();
+    conn.pragma_update(None, "user_version", 6u32).unwrap();
     drop(conn);
 
     let err = match Store::open(&path) {

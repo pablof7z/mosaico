@@ -1,10 +1,6 @@
-//! The per-session engine (M1 §5, §7): a daemon-hosted task, a thin driver over
-//! the local `sessions` row (the canonical local process record). It publishes
-//! the agent's `kind:0` profile once, feeds every kind:30315 trigger into the
-//! ONE status reconciler ([`crate::reconcile::status`]) whose signed effects
-//! park on the `outbox` (the single executor), schedules background distillation
-//! (`set_session_distill`; the title feeds kind:30315 only), and watches the
-//! host PID, marking the session dead on pid death or `cancel`.
+//! Daemon-hosted per-session engine: publishes identity/status, schedules
+//! background distillation, and watches host liveness. Status effects flow
+//! exclusively through [`crate::reconcile::status`] and the outbox.
 
 use crate::distill;
 use crate::domain::{DomainEvent, Profile};
@@ -20,9 +16,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod session_status;
-
-/// Per-session debug log keyed by the raw canonical session id (an internal
-/// correlation handle; canonical ids are filename-safe).
+/// Per-session debug log keyed by the canonical pubkey.
 fn slog(pubkey: &str, msg: &str) {
     crate::applog::append(&format!("{pubkey}.log"), "", msg);
 }

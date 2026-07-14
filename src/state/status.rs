@@ -9,8 +9,9 @@ fn row_to_status(row: &rusqlite::Row) -> rusqlite::Result<Status> {
         slug: row.get(2)?,
         title: row.get(3)?,
         activity: row.get(4)?,
-        state: crate::session_state::SessionState::parse(&row.get::<_, String>(5)?)
-            .ok_or_else(|| rusqlite::Error::InvalidColumnType(5, "state".into(), rusqlite::types::Type::Text))?,
+        state: crate::session_state::SessionState::parse(&row.get::<_, String>(5)?).ok_or_else(
+            || rusqlite::Error::InvalidColumnType(5, "state".into(), rusqlite::types::Type::Text),
+        )?,
         last_seen: row.get(6)?,
         updated_at: row.get(7)?,
         expiration: row.get(8)?,
@@ -107,7 +108,11 @@ impl Store {
 mod tests {
     use crate::state::{Status, Store};
 
-    fn status(activity: &str, state: crate::session_state::SessionState, updated_at: u64) -> Status {
+    fn status(
+        activity: &str,
+        state: crate::session_state::SessionState,
+        updated_at: u64,
+    ) -> Status {
         Status {
             pubkey: "pk".into(),
             channel_h: "h1".into(),
@@ -124,8 +129,20 @@ mod tests {
     #[test]
     fn heartbeat_refreshes_liveness_without_advancing_delta_clock() {
         let store = Store::open_memory().unwrap();
-        store.upsert_status(&status("reading", crate::session_state::SessionState::Working, 100)).unwrap();
-        store.upsert_status(&status("reading", crate::session_state::SessionState::Working, 150)).unwrap();
+        store
+            .upsert_status(&status(
+                "reading",
+                crate::session_state::SessionState::Working,
+                100,
+            ))
+            .unwrap();
+        store
+            .upsert_status(&status(
+                "reading",
+                crate::session_state::SessionState::Working,
+                150,
+            ))
+            .unwrap();
         let row = store.get_status("pk", "h1").unwrap().unwrap();
         assert_eq!(
             (row.last_seen, row.expiration, row.updated_at),
@@ -136,8 +153,20 @@ mod tests {
     #[test]
     fn semantic_status_change_advances_delta_clock() {
         let store = Store::open_memory().unwrap();
-        store.upsert_status(&status("reading", crate::session_state::SessionState::Working, 100)).unwrap();
-        store.upsert_status(&status("writing", crate::session_state::SessionState::Working, 150)).unwrap();
+        store
+            .upsert_status(&status(
+                "reading",
+                crate::session_state::SessionState::Working,
+                100,
+            ))
+            .unwrap();
+        store
+            .upsert_status(&status(
+                "writing",
+                crate::session_state::SessionState::Working,
+                150,
+            ))
+            .unwrap();
         let row = store.get_status("pk", "h1").unwrap().unwrap();
         assert_eq!((row.activity.as_str(), row.updated_at), ("writing", 150));
     }

@@ -13,6 +13,7 @@
               "rel_cwd": ".",
               "channels": ["room"],
               "working": true,
+              "automatic_delivery": true,
               "title": "T",
               "activity": "reading",
               "at": 100
@@ -28,6 +29,7 @@
           "StatusDrive": {
             "Tick": {
               "pubkey": "pk1",
+              "automatic_delivery": true,
               "at": 110
             }
           }
