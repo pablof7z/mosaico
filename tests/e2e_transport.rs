@@ -56,6 +56,7 @@ async fn publishes_and_decodes_all_event_types() {
             agent: aref.clone(),
             agent_slug: "coder".into(),
             host: "test-host".into(),
+            workspace: channel.clone(),
             owners: vec![reader_pk.clone()],
             is_backend: false,
             agents: Vec::new(),

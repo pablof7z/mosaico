@@ -7,6 +7,7 @@ fn profile_roundtrip() {
         agent: agent(&keys, "willow-echo-042-developer"),
         agent_slug: "developer".into(),
         host: "pablos' laptop".into(),
+        workspace: "29er-next".into(),
         owners: vec!["09d4".repeat(16)],
         is_backend: false,
         agents: Vec::new(),
@@ -20,6 +21,7 @@ fn profile_roundtrip() {
         .unwrap();
     assert_eq!(signed.content, r#"{"name":"willow-echo-042-developer"}"#);
     assert!(has_tag(&signed, "agent-slug", "developer"));
+    assert!(has_tag(&signed, "workspace", "29er-next"));
 }
 
 #[test]
@@ -98,6 +100,7 @@ fn retired_profile_roundtrip_keeps_npub_as_the_name() {
         agent: crate::domain::AgentRef::new(keys.public_key().to_hex(), npub.clone()),
         agent_slug: "developer".into(),
         host: "remoteBackend".into(),
+        workspace: String::new(),
         owners: Vec::new(),
         is_backend: false,
         agents: Vec::new(),
@@ -130,6 +133,7 @@ fn profile_decode_builds_handle_from_session_code_and_canonical_tag() {
             assert_eq!(p.agent.slug, "willow-echo-042-developer");
             assert_eq!(p.agent_slug, "developer");
             assert_eq!(p.host, "remoteBackend");
+            assert_eq!(p.workspace, "");
         }
         other => panic!("expected profile, got {other:?}"),
     }

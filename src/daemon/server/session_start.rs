@@ -345,6 +345,7 @@ pub(super) async fn rpc_session_start_inner(
         minted.keys.clone(),
         &spawn.session_id,
         &spawn.channel_h,
+        &work_root,
         &spawn.rel_cwd,
         p.dispatch_event.clone().filter(|s| !s.is_empty()),
         spawn.watch_pid,

@@ -15,6 +15,9 @@ pub(super) fn encode(pf: &Profile) -> Result<EventBuilder> {
     if !pf.agent_slug.is_empty() {
         tags.push(tag(&["agent-slug", &pf.agent_slug])?);
     }
+    if !pf.workspace.is_empty() {
+        tags.push(tag(&["workspace", &pf.workspace])?);
+    }
     for owner in &pf.owners {
         tags.push(tag(&["p", owner])?);
     }
@@ -46,6 +49,9 @@ pub(super) fn decode(event: &Event, pubkey: String) -> Option<DomainEvent> {
         agent: AgentRef::new(pubkey, slug),
         agent_slug,
         host,
+        workspace: first_tag(event, "workspace")
+            .unwrap_or_default()
+            .to_string(),
         owners: all_tag_values(event, "p"),
         is_backend,
         agents: if is_backend {

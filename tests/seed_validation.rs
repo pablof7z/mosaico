@@ -158,6 +158,7 @@ async fn seed_session_with_thread_root_link() {
             agent: agent_ref.clone(),
             agent_slug: "validator".into(),
             host: "seed-host".into(),
+            workspace: channel.clone(),
             owners: vec![user_pk.clone()],
             is_backend: false,
             agents: Vec::new(),

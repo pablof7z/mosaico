@@ -257,12 +257,14 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         if let Err(e) = ensure_subscription(state, &snap.channel_h).await {
             tracing::warn!(channel = %snap.channel_h, error = %e, "ensure_subscription failed during reconcile");
         }
+        let workspace = state.with_store(|s| resolution::work_root_for(s, &snap.channel_h));
         let ep = engine_params_for(
             &state.cfg,
             minted.identity.clone(),
             minted.keys.clone(),
             &session_id,
             &snap.channel_h,
+            &workspace,
             "",
             None,
             snap.child_pid,

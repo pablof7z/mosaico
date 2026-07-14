@@ -40,6 +40,8 @@ pub struct EngineParams {
     /// The keypair selected for this session: derived or durable-agent config.
     pub keys: Keys,
     pub channel: String,
+    /// Top-level workspace channel containing `channel`.
+    pub workspace: String,
     pub session_id: String,
     pub host: String,
     /// Channel-relative working directory (§8e), advertised on presence/status.
@@ -163,7 +165,8 @@ pub async fn run_session_in_daemon(
         p.identity.slug.clone(),
         p.host.clone(),
         owners.clone(),
-    );
+    )
+    .with_workspace(p.workspace.clone());
     publish_de(DomainEvent::Profile(profile)).await;
 
     let turn_first = p.turn_first.as_secs();

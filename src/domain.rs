@@ -80,6 +80,9 @@ pub struct Profile {
     /// `agent.slug` is the published display handle, usually `sessionCode-agent`.
     pub agent_slug: String,
     pub host: String,
+    /// Top-level workspace channel this live agent session is working from.
+    /// Empty for backend and retired profiles.
+    pub workspace: String,
     /// Owner pubkeys this agent claims (the human's whitelisted pubkeys).
     pub owners: Vec<String>,
     /// True when published by the tenex-edge backend process itself (not an AI
@@ -105,6 +108,7 @@ impl Profile {
             agent,
             agent_slug: agent_slug.into(),
             host: host.into(),
+            workspace: String::new(),
             owners,
             is_backend: false,
             agents: Vec::new(),
@@ -116,6 +120,7 @@ impl Profile {
             agent,
             agent_slug: String::new(),
             host: host.into(),
+            workspace: String::new(),
             owners,
             is_backend: true,
             agents: Vec::new(),
@@ -136,6 +141,11 @@ impl Profile {
     /// this on backend profiles.
     pub fn with_agents(mut self, agents: Vec<(String, String)>) -> Self {
         self.agents = agents;
+        self
+    }
+
+    pub fn with_workspace(mut self, workspace: impl Into<String>) -> Self {
+        self.workspace = workspace.into();
         self
     }
 }
