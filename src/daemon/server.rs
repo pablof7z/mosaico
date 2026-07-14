@@ -147,24 +147,14 @@ impl DaemonState {
             .get(pubkey)
             .map(|h| h.keys.clone())
     }
-    /// The read-side session identity for a hosted session (pubkey, agent slug,
-    /// session id, legacy alias). Prefers the bound `identities`-row projection.
+    /// The pubkey-owned read-side identity for a hosted session.
     pub(in crate::daemon) fn session_instance(
         &self,
         rec: &crate::state::Session,
     ) -> crate::identity::SessionIdentity {
-        self.with_store(|s| {
-            s.session_identity_for_session(&rec.session_id)
-                .ok()
-                .flatten()
-        })
-        .unwrap_or_else(|| {
-            crate::identity::SessionIdentity::fallback(
-                &rec.session_id,
-                rec.agent_slug.clone(),
-                rec.agent_pubkey.clone(),
-            )
-        })
+        self.with_store(|store| store.session_identity(&rec.pubkey))
+            .expect("session identity lookup failed")
+            .expect("live session is missing its identity projection")
     }
 }
 

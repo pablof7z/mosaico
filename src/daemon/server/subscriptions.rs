@@ -215,7 +215,7 @@ fn preview_matches(
 /// split by owner so channels can refcount per session:
 ///
 /// - `daemon_channels` / archived: explicitly tracked channels, groups any
-///   ordinal pubkey is a member of (spawn-on-mention), and groups this
+///   local session pubkey is a member of (spawn-on-mention), and groups this
 ///   daemon manages (admin). Owned by the daemon scope.
 /// - `sessions`: each alive session mapped to the channels it has joined. Each
 ///   session is its own scope, so a shared channel stays open until the LAST
@@ -235,14 +235,14 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let backend_pubkey = state.backend_pubkey();
 
     let archived = state.with_store(|s| {
-        let ordinals = s.list_identity_pubkeys().unwrap_or_default();
-        pubkeys.extend(ordinals.iter().cloned());
+        let local_pubkeys = s.list_local_session_pubkeys().unwrap_or_default();
+        pubkeys.extend(local_pubkeys.iter().cloned());
         if let Some(pk) = backend_pubkey.as_ref() {
             pubkeys.insert(pk.clone());
         }
         // Channels any ordinal pubkey is a member of (spawn-on-mention path),
         // plus channels this backend manages as admin.
-        for pk in ordinals.iter().chain(backend_pubkey.iter()) {
+        for pk in local_pubkeys.iter().chain(backend_pubkey.iter()) {
             if let Ok(gs) = s.list_channels_where_member(pk) {
                 daemon_channels.extend(gs);
             }
@@ -253,10 +253,10 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         // Channels each live session listens to (active + passively joined).
         for sess in s.list_alive_sessions().unwrap_or_default() {
             let joined = s
-                .list_session_joined_channels(&sess.session_id)
+                .list_session_joined_channels(&sess.pubkey)
                 .unwrap_or_else(|_| vec![(sess.channel_h.clone(), sess.created_at)]);
             sessions.insert(
-                sess.session_id.clone(),
+                sess.pubkey.clone(),
                 joined.into_iter().map(|(channel, _)| channel).collect(),
             );
         }

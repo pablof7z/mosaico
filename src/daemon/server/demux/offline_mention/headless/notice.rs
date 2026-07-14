@@ -37,11 +37,11 @@ pub(super) fn session_published_reply_since(
     rec: &crate::state::Session,
     started_at: u64,
 ) -> bool {
-    match state.with_store(|s| s.pubkey_has_outbound_message_since(&rec.agent_pubkey, started_at)) {
+    match state.with_store(|s| s.pubkey_has_outbound_message_since(&rec.pubkey, started_at)) {
         Ok(has_reply) => has_reply,
         Err(e) => {
             tracing::warn!(
-                session = %rec.session_id,
+                pubkey = %rec.pubkey,
                 agent = %rec.agent_slug,
                 channel = %rec.channel_h,
                 error = %e,
@@ -55,7 +55,7 @@ pub(super) fn session_published_reply_since(
 pub(super) struct NoReplyNotice<'a> {
     pub(super) agent_slug: &'a str,
     pub(super) channel: &'a str,
-    pub(super) session_id: Option<&'a str>,
+    pub(super) session_pubkey: Option<&'a str>,
     pub(super) requester_pubkey: Option<&'a str>,
     pub(super) target_label: Option<&'a str>,
     pub(super) exec_id: &'a str,
@@ -135,7 +135,7 @@ fn emit_local_notice_failure(state: &Arc<DaemonState>, notice: &NoReplyNotice<'_
     state.emit_delivery_failure(
         notice.channel,
         notice.agent_slug,
-        notice.session_id.unwrap_or(notice.exec_id),
+        notice.session_pubkey.unwrap_or(notice.exec_id),
         body,
     );
 }
@@ -171,7 +171,7 @@ mod tests {
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "codex",
             channel: "chan",
-            session_id: Some("te-session"),
+            session_pubkey: Some("session-pubkey"),
             requester_pubkey: Some("pk-requester"),
             target_label: Some("flint-range-108@laptop"),
             exec_id: "exec-codex-1",
@@ -194,7 +194,7 @@ mod tests {
         let body = no_reply_notice_body(&NoReplyNotice {
             agent_slug: "claude",
             channel: "chan",
-            session_id: None,
+            session_pubkey: None,
             requester_pubkey: None,
             target_label: None,
             exec_id: "exec-claude-1",

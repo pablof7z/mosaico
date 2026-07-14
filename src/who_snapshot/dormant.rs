@@ -10,21 +10,22 @@ pub(super) fn push_claim_rows(
     rows: &mut Vec<WhoRow>,
     other_agents: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> Result<()> {
-    let live_sessions: HashSet<String> = rows.iter().map(|r| r.session_id.clone()).collect();
     let live_pubkeys: HashSet<String> = rows.iter().map(|r| r.pubkey.clone()).collect();
     for claim in store.list_active_session_claims(now)? {
-        if live_sessions.contains(&claim.session_id) || live_pubkeys.contains(&claim.pubkey) {
+        if live_pubkeys.contains(&claim.pubkey) {
             continue;
         }
         let scope = claim.channel_h.clone();
         if scope::is_archived_channel(store, &scope) {
             continue;
         }
-        let slug = if !claim.agent_slug.is_empty() && !claim.codename.is_empty() {
-            crate::idref::session_handle(&claim.agent_slug, &claim.codename)
-        } else {
-            claim.codename.clone()
-        };
+        let slug = store
+            .session_identity(&claim.pubkey)
+            .ok()
+            .flatten()
+            .map(|identity| identity.display_slug())
+            .or_else(|| store.resolve_slug_for_pubkey(&claim.pubkey).ok().flatten())
+            .unwrap_or_else(|| claim.agent_slug.clone());
         if current_root
             .map(|p| scope::scope_contains_channel(store, p, &scope))
             .unwrap_or(true)
@@ -52,7 +53,7 @@ fn dormant_row(
     };
     let remote = !owner_host.is_empty() && owner_host != local_host;
     let title = store
-        .get_session(&claim.session_id)
+        .get_session(&claim.pubkey)
         .ok()
         .flatten()
         .map(|s| s.title)
@@ -69,7 +70,6 @@ fn dormant_row(
         active: false,
         dormant: true,
         host,
-        session_id: claim.session_id,
         age_secs: Some(now.saturating_sub(claim.last_active_at)),
         rel_cwd: String::new(),
         remote,

@@ -84,10 +84,6 @@ pub(crate) struct WhoRow {
     #[serde(default)]
     pub(crate) dormant: bool,
     pub(crate) host: String,
-    /// Private runtime correlation key. Used inside the daemon only and omitted
-    /// from the operator RPC projection.
-    #[serde(skip)]
-    pub(crate) session_id: String,
     pub(crate) age_secs: Option<u64>,
     /// Channel-relative working dir (§8e). Empty or "." → rendered without a
     /// `[dir]` bracket; otherwise shown so worktrees render distinctly.
@@ -133,8 +129,8 @@ pub(crate) fn load_who_snapshot(
     // peer set. A read failure here would render our OWN sessions as remote peers,
     // so fail loud rather than mislabel.
     let my_pubkeys: HashSet<String> = store
-        .list_identity_pubkeys()
-        .context("who snapshot: failed to load this daemon's identity pubkeys (self set)")?
+        .list_local_session_pubkeys()
+        .context("who snapshot: failed to load this daemon's local session pubkeys")?
         .into_iter()
         .collect();
 

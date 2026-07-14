@@ -72,12 +72,10 @@ pub(in crate::daemon::server) fn rpc_statusline(
             .ok()
             .flatten()
             .unwrap_or_else(|| scope.clone());
-        let pending_chat = s
-            .peek_pending_for_pubkey(&rec.agent_pubkey)
-            .unwrap_or_default();
+        let pending_chat = s.peek_pending_for_pubkey(&rec.pubkey).unwrap_or_default();
         let recent_since = now.saturating_sub(STATUSLINE_RECENT_SECS);
         let recent_chat = s
-            .recently_delivered_for_pubkey(&rec.agent_pubkey, recent_since)
+            .recently_delivered_for_pubkey(&rec.pubkey, recent_since)
             .unwrap_or_default();
         let mut pending_json = chat_rows_to_json(s, &pending_chat);
         sort_message_json(&mut pending_json);

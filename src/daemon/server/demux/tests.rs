@@ -1,52 +1,35 @@
 use super::*;
 use crate::state::session_claims::SessionClaim;
-use crate::state::{Identity, RegisterSession, Store};
+use crate::state::{RegisterSession, Store};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, external_id: &str) -> String {
+fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &str) -> String {
     store
-        .register_session(&RegisterSession {
+        .reserve_session(&RegisterSession {
+            pubkey: pubkey.into(),
             harness: "claude-code".into(),
-            external_id_kind: "harness_session".into(),
-            external_id: external_id.into(),
-            agent_pubkey: pubkey.into(),
             agent_slug: slug.into(),
             channel_h: channel.into(),
             child_pid: Some(42),
             transcript_path: None,
-            resume_id: String::new(),
             now: 1000,
         })
-        .unwrap()
+        .unwrap();
+    store.bind_session_signer(pubkey, "test-salt").unwrap();
+    pubkey.to_string()
 }
 
 fn claim(pubkey: &str, channel: &str, owner_backend: &str, expires_at: u64) -> SessionClaim {
     SessionClaim {
         pubkey: pubkey.to_string(),
         agent_slug: "codex".to_string(),
-        codename: "willow-echo-042".to_string(),
-        session_id: "sid".to_string(),
         channel_h: channel.to_string(),
-        native_id: "native-1".to_string(),
         harness: "codex".to_string(),
         last_active_at: 10,
         expires_at,
         owner_backend_pubkey: owner_backend.to_string(),
         owner_host: "laptop".to_string(),
-    }
-}
-
-fn identity(pubkey: &str, codename: &str, slug: &str, channel: &str) -> Identity {
-    Identity {
-        pubkey: pubkey.to_string(),
-        agent_slug: slug.to_string(),
-        codename: codename.to_string(),
-        session_id: format!("sid-{channel}"),
-        channel_h: channel.to_string(),
-        native_id: "native".to_string(),
-        alive: false,
-        created_at: 1,
     }
 }
 
@@ -56,7 +39,7 @@ fn identity(pubkey: &str, codename: &str, slug: &str, channel: &str) -> Identity
 fn has_alive_gate_skips_when_agent_has_live_session_in_channel() {
     let store = Store::open_memory().unwrap();
     let sid = register(&store, "pk-ord-1", "codex", "proj", "ext-1");
-    // register_session with child_pid=Some sets alive=1.
+    // reserve_session with child_pid=Some sets alive=1.
     assert!(!sid.is_empty());
 
     assert!(offline_mention::liveness::has_alive_session_for(
@@ -184,7 +167,7 @@ fn remote_claim_gate_does_not_skip_when_claim_expired() {
 }
 
 #[test]
-fn remote_claim_gate_treats_legacy_empty_owner_as_local() {
+fn remote_claim_gate_treats_unowned_claim_as_local() {
     let store = Store::open_memory().unwrap();
     let mut c = claim("pk", "proj", "", 100);
     c.owner_backend_pubkey.clear();
@@ -217,70 +200,6 @@ fn remote_claim_gate_skips_when_we_have_no_backend_pubkey_and_claim_has_owner() 
     ));
 }
 
-// ── identity resolution ───────────────────────────────────────────────────────
-
-/// Replicates the identity resolution path in `handle`: try channel-specific
-/// first, then global. Returns (slug, native_id) or None. A per-session pubkey is
-/// unique, so this resolves to exactly one session whose native id can be resumed.
-fn resolve_identity(store: &Store, mentioned_pk: &str, channel: &str) -> Option<(String, String)> {
-    store
-        .get_identity_for_channel(mentioned_pk, channel)
-        .ok()
-        .flatten()
-        .or_else(|| store.get_identity(mentioned_pk).ok().flatten())
-        .map(|idn| (idn.agent_slug, idn.native_id))
-}
-
-#[test]
-fn identity_resolution_prefers_channel_specific_identity() {
-    let store = Store::open_memory().unwrap();
-    store
-        .upsert_identity(&identity("pk", "willow-echo-042", "codex", "proj"))
-        .unwrap();
-    store
-        .upsert_identity(&identity("pk2", "cedar-orbit-113", "claude", "other"))
-        .unwrap();
-
-    let (slug, native_id) = resolve_identity(&store, "pk", "proj").unwrap();
-    assert_eq!(slug, "codex");
-    assert_eq!(native_id, "native");
-}
-
-#[test]
-fn identity_resolution_falls_back_to_global_when_no_channel_match() {
-    let store = Store::open_memory().unwrap();
-    store
-        .upsert_identity(&identity("pk", "cedar-orbit-113", "claude", "other"))
-        .unwrap();
-
-    let (slug, _) = resolve_identity(&store, "pk", "proj").unwrap();
-    assert_eq!(slug, "claude");
-}
-
-#[test]
-fn identity_resolution_returns_none_for_unknown_pubkey() {
-    let store = Store::open_memory().unwrap();
-    assert!(resolve_identity(&store, "unknown-pk", "proj").is_none());
-}
-
-// ── resume decision ───────────────────────────────────────────────────────────
-
-/// Replicates the resume decision in `handle`: resume the exact session (which
-/// reproduces the p-tagged pubkey) when we know its native id, else fresh spawn.
-fn should_resume(native_id: &str) -> bool {
-    !native_id.is_empty()
-}
-
-#[test]
-fn resumes_when_native_id_known() {
-    assert!(should_resume("native-claude-1"));
-}
-
-#[test]
-fn fresh_spawn_when_native_id_unknown() {
-    assert!(!should_resume(""));
-}
-
 // ── eye-reaction routing gate ─────────────────────────────────────────────────
 
 /// Replicates the `hosted.contains(mentioned_pk)` gate in handle_incoming that
@@ -297,8 +216,7 @@ fn eye_reaction_fires_for_hosted_agent_pubkey() {
 
 #[test]
 fn eye_reaction_fires_for_identity_derived_pubkey() {
-    // The hosted set in handle_incoming extends with list_identity_pubkeys(),
-    // so derived ordinal pubkeys are recognized as local.
+    // The hosted set includes persisted local session pubkeys.
     let hosted = vec!["base-pk".to_string(), "pk-ord-1".to_string()];
     assert!(should_publish_eye_reaction(&hosted, "pk-ord-1"));
 }

@@ -35,16 +35,10 @@ fn project_sessions(
     let mut projected_endpoints = HashSet::new();
     for rec in store.list_alive_sessions()? {
         let identity = store
-            .session_identity_for_session(&rec.session_id)?
-            .unwrap_or_else(|| {
-                crate::identity::SessionIdentity::fallback(
-                    &rec.session_id,
-                    rec.agent_slug.clone(),
-                    rec.agent_pubkey.clone(),
-                )
-            });
+            .session_identity(&rec.pubkey)?
+            .with_context(|| format!("live session {} has no identity projection", rec.pubkey))?;
         let mut grouped = BTreeMap::<String, Vec<String>>::new();
-        for (channel_id, _) in store.list_session_joined_channels(&rec.session_id)? {
+        for (channel_id, _) in store.list_session_joined_channels(&rec.pubkey)? {
             let root_id = store
                 .root_channel_of(&channel_id)?
                 .unwrap_or_else(|| channel_id.clone());
@@ -55,10 +49,10 @@ fn project_sessions(
             .map(|(root_id, channel_ids)| workspace_value(store, &root_id, &channel_ids, &channels))
             .collect::<Result<Vec<_>>>()?;
         let endpoint = store
-            .aliases_for_session(&rec.session_id)?
+            .locators_for_pubkey(&rec.pubkey)?
             .into_iter()
-            .find(|alias| alias.external_id_kind == "pty_session")
-            .and_then(|alias| endpoints.get(&alias.external_id))
+            .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
+            .and_then(|locator| endpoints.get(&locator.locator_value))
             .map(|endpoint| {
                 let meta = &endpoint.metadata;
                 projected_endpoints.insert(meta.id.clone());
@@ -76,10 +70,10 @@ fn project_sessions(
         } else {
             "harness"
         };
-        let npub = crate::idref::npub(&rec.agent_pubkey)
-            .with_context(|| format!("invalid session pubkey {}", rec.agent_pubkey))?;
+        let npub = crate::idref::npub(&rec.pubkey)
+            .with_context(|| format!("invalid session pubkey {}", rec.pubkey))?;
         rows.push(serde_json::json!({
-            "pubkey": rec.agent_pubkey.clone(),
+            "pubkey": rec.pubkey.clone(),
             "npub": npub,
             "handle": identity.display_slug(),
             "agent": rec.agent_slug,
@@ -205,21 +199,20 @@ mod tests {
             .unwrap();
         store.upsert_workspace("skills-root", "/skills", 4).unwrap();
         let pubkey = Keys::generate().public_key().to_hex();
-        let id = store
-            .register_session(&crate::state::RegisterSession {
+        store
+            .reserve_session(&crate::state::RegisterSession {
+                pubkey: pubkey.clone(),
                 harness: "codex".into(),
-                external_id_kind: "harness_session".into(),
-                external_id: "native-1".into(),
-                agent_pubkey: pubkey.clone(),
                 agent_slug: "codex".into(),
                 channel_h: "room".into(),
                 child_pid: Some(42),
                 transcript_path: None,
-                resume_id: String::new(),
                 now: 10,
             })
             .unwrap();
-        store.join_session_channel(&id, "skill-dev", 11).unwrap();
+        store
+            .join_session_channel(&pubkey, "skill-dev", 11)
+            .unwrap();
 
         let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
         assert_eq!(rows.len(), 1);
@@ -239,7 +232,7 @@ mod tests {
         assert_eq!(rows[0]["transport"], "process");
         assert!(rows[0]["endpoint"].is_null());
 
-        store.mark_dead(&id).unwrap();
+        store.mark_dead(&pubkey).unwrap();
         assert!(project_sessions(&store, "laptop", &HashMap::new())
             .unwrap()
             .is_empty());

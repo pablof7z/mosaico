@@ -130,7 +130,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         // Session pubkeys are local identities too: a mention
         // p-tagged to e.g. `smith1` must be recognized as self so the routing gate
         // and self-skip treat it like a hosted agent, not a foreign peer.
-        h.extend(state.with_store(|s| s.list_identity_pubkeys().unwrap_or_default()));
+        h.extend(state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()));
         h.sort_unstable();
         h.dedup();
         h

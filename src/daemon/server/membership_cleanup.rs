@@ -10,16 +10,13 @@ pub(in crate::daemon::server) use revoke::revoke_session_memberships;
 /// window, channel memberships are torn down.
 pub(in crate::daemon::server) const STALE_MEMBERSHIP_SECS: u64 = 600;
 
-fn joined_channels_for_session(
-    state: &Arc<DaemonState>,
-    session_id: &str,
-) -> Vec<(String, String)> {
+fn joined_channels_for_session(state: &Arc<DaemonState>, pubkey: &str) -> Vec<(String, String)> {
     state.with_store(|s| {
-        let Some(rec) = s.get_session(session_id).ok().flatten() else {
+        let Some(rec) = s.get_session(pubkey).ok().flatten() else {
             return Vec::new();
         };
         let mut channels: BTreeSet<String> = s
-            .list_session_joined_channels(&rec.session_id)
+            .list_session_joined_channels(&rec.pubkey)
             .unwrap_or_default()
             .into_iter()
             .map(|(channel, _)| channel)
@@ -29,21 +26,18 @@ fn joined_channels_for_session(
         }
         channels
             .into_iter()
-            .filter(|channel| {
-                s.is_channel_member(channel, &rec.agent_pubkey)
-                    .unwrap_or(false)
-            })
-            .map(|channel| (channel, rec.agent_pubkey.clone()))
+            .filter(|channel| s.is_channel_member(channel, &rec.pubkey).unwrap_or(false))
+            .map(|channel| (channel, rec.pubkey.clone()))
             .collect()
     })
 }
 
 pub(in crate::daemon::server) fn remove_session_memberships(
     state: &Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
     reason: &'static str,
 ) {
-    let removals = joined_channels_for_session(state, session_id);
+    let removals = joined_channels_for_session(state, pubkey);
     if removals.is_empty() {
         return;
     }
@@ -76,37 +70,40 @@ pub(in crate::daemon::server) fn remove_session_memberships(
 pub(in crate::daemon::server) fn cleanup_dead_local_sessions(state: &Arc<DaemonState>) {
     let now = now_secs();
     let stale_before = now.saturating_sub(STALE_MEMBERSHIP_SECS);
-    let candidates: Vec<(String, bool, bool, bool)> = state.with_store(|s| {
+    let candidates: Vec<(String, u64, bool, bool, bool)> = state.with_store(|s| {
         s.list_membership_cleanup_candidates(stale_before)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|rec| {
                 let stale = rec.last_seen > 0 && rec.last_seen < stale_before;
                 let process_dead = rec.alive && rec.child_pid.is_some_and(|pid| !pid_alive(pid));
-                (stale || process_dead).then_some((rec.session_id, rec.alive, stale, process_dead))
+                (stale || process_dead).then_some((
+                    rec.pubkey,
+                    rec.runtime_generation,
+                    rec.alive,
+                    stale,
+                    process_dead,
+                ))
             })
             .collect()
     });
-    for (session_id, alive, stale, process_dead) in candidates {
+    for (pubkey, runtime_generation, alive, stale, process_dead) in candidates {
         if stale {
-            remove_session_memberships(state, &session_id, "stale-membership");
+            remove_session_memberships(state, &pubkey, "stale-membership");
             if let Err(e) = state
                 .status
                 .lock()
                 .expect("status mutex poisoned")
-                .forget_session(&session_id)
+                .forget_session(&pubkey)
             {
-                tracing::error!(session = %session_id, error = %e, "stale cleanup: failed to forget status graph row");
+                tracing::error!(pubkey, error = %e, "stale cleanup: failed to forget status graph row");
             }
         }
 
         if alive && (stale || process_dead) {
             state.with_store(|s| {
-                if let Err(e) = s.mark_dead(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "stale cleanup: failed to mark session dead");
-                }
-                if let Err(e) = s.mark_identity_dead_for_session(&session_id) {
-                    tracing::error!(session = %session_id, error = %e, "stale cleanup: failed to mark identity dead");
+                if let Err(e) = s.mark_dead_if_generation(&pubkey, runtime_generation) {
+                    tracing::error!(pubkey, runtime_generation, error = %e, "stale cleanup: conditional teardown failed");
                 }
             });
         }
@@ -118,21 +115,19 @@ mod tests {
     use super::*;
     use crate::state::RegisterSession;
 
-    fn register(state: &Arc<DaemonState>, external_id: &str, slug: &str, now: u64) -> String {
+    fn register(state: &Arc<DaemonState>, pubkey: &str, slug: &str, now: u64) -> String {
         state.with_store(|s| {
-            s.register_session(&RegisterSession {
+            s.reserve_session(&RegisterSession {
+                pubkey: pubkey.into(),
                 harness: "claude".into(),
-                external_id_kind: "harness_session".into(),
-                external_id: external_id.into(),
-                agent_pubkey: format!("pk-{external_id}"),
                 agent_slug: slug.into(),
                 channel_h: String::new(),
                 child_pid: None,
                 transcript_path: None,
-                resume_id: String::new(),
                 now,
             })
-            .expect("register test session")
+            .expect("register test session");
+            pubkey.to_string()
         })
     }
 
@@ -140,7 +135,7 @@ mod tests {
         state
             .with_store(|s| s.list_alive_sessions().unwrap_or_default())
             .into_iter()
-            .map(|r| r.session_id)
+            .map(|r| r.pubkey)
             .collect()
     }
 
@@ -152,12 +147,12 @@ mod tests {
         let state = DaemonState::new_for_test().await;
         let now = now_secs();
 
-        let stale = register(&state, "stale", "reviewer", now);
+        let stale = register(&state, "pk-stale", "reviewer", now);
         state.with_store(|s| {
             s.touch_session(&stale, now - (STALE_MEMBERSHIP_SECS + 60))
                 .unwrap()
         });
-        let fresh = register(&state, "fresh", "planner", now);
+        let fresh = register(&state, "pk-fresh", "planner", now);
 
         cleanup_dead_local_sessions(&state);
 
@@ -179,7 +174,7 @@ mod tests {
         let state = DaemonState::new_for_test().await;
         let now = now_secs();
 
-        let recent = register(&state, "recent", "reviewer", now);
+        let recent = register(&state, "pk-recent", "reviewer", now);
         state.with_store(|s| {
             s.touch_session(&recent, now - (STALE_MEMBERSHIP_SECS - 60))
                 .unwrap()
@@ -196,7 +191,7 @@ mod tests {
     async fn dead_session_within_ttl_keeps_membership() {
         let state = DaemonState::new_for_test().await;
         let now = now_secs();
-        let recent = register(&state, "recent-dead", "reviewer", now);
+        let recent = register(&state, "pk-recent-dead", "reviewer", now);
 
         state
             .with_store(|s| {

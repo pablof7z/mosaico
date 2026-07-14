@@ -5,7 +5,7 @@ use crate::state::{Session, Status, StoreReader};
 pub(super) fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, now: u64) -> WhoRow {
     let instance = local_instance(store, s);
     let live = store
-        .get_status(&instance.pubkey, &s.session_id, &s.channel_h)
+        .get_status(&instance.pubkey, &s.channel_h)
         .ok()
         .flatten()
         .filter(|st| st.expiration == 0 || st.expiration >= now);
@@ -28,7 +28,6 @@ pub(super) fn local_row(store: StoreReader<'_>, s: &Session, local_host: &str, n
         active: busy,
         dormant: false,
         host: local_host.to_string(),
-        session_id: s.session_id.clone(),
         age_secs: Some(now.saturating_sub(s.last_seen)),
         rel_cwd: String::new(),
         remote: false,
@@ -44,16 +43,9 @@ pub(super) fn local_instance(
     s: &Session,
 ) -> crate::identity::SessionIdentity {
     store
-        .session_identity_for_session(&s.session_id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| {
-            crate::identity::SessionIdentity::fallback(
-                &s.session_id,
-                s.agent_slug.clone(),
-                s.agent_pubkey.clone(),
-            )
-        })
+        .session_identity(&s.pubkey)
+        .expect("session identity lookup failed")
+        .expect("live session is missing its identity projection")
 }
 
 /// Build a peer row from relay-confirmed status; unknown host is treated local.
@@ -77,7 +69,6 @@ pub(super) fn peer_row(store: StoreReader<'_>, st: &Status, local_host: &str, no
         dormant: false,
         remote: host.trim() != local_host,
         host,
-        session_id: st.session_id.clone(),
         age_secs: Some(now.saturating_sub(st.last_seen)),
         rel_cwd: String::new(),
         attachable: false,

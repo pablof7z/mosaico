@@ -57,61 +57,19 @@ pub(super) async fn handle(
         );
         return;
     }
-    let active_claim = active_claim
-        .filter(|c| c.is_owned_by_backend(backend_pubkey.as_deref()))
-        .filter(|c| !c.native_id.is_empty());
-
-    if let Some(route) = active_claim.as_ref() {
-        tracing::info!(
-            agent = %route.agent_slug,
-            channel,
-            native_id = %route.native_id,
-            "resuming active ephemeral session claim"
-        );
-        let resume_work_root = state.with_store(|s| work_root_for(s, channel));
-        match spawn_headless_mention(
-            state,
-            &route.agent_slug,
-            &resume_work_root,
-            channel,
-            body,
-            Some(&route.native_id),
-            notice_context(state, mentioned_pk, &route.agent_slug, requester_pubkey),
-        )
-        .await
-        {
-            Ok(true) => return,
-            Ok(false) => {}
-            Err(e) => {
-                tracing::warn!(agent = %route.agent_slug, channel, error = %e, "headless resume failed - falling back to PTY resume");
-            }
-        }
-        if let Err(e) =
-            crate::session_host::resume_agent(state, &route.agent_slug, channel, &route.native_id)
-                .await
-        {
-            tracing::warn!(agent = %route.agent_slug, channel, error = %e, "session resume failed - falling through to fresh spawn");
-        } else {
-            return;
-        }
-    }
-
-    // No live session and no active claim to resume. Look up the identity bound
-    // to the p-tagged pubkey. Per-session identities retain a native resume id;
-    // durable-agent identities leave it empty and therefore start fresh below.
-    let identity = state.with_store(|s| {
-        s.get_identity_for_channel(mentioned_pk, channel)
+    let active_claim = active_claim.filter(|c| c.is_owned_by_backend(backend_pubkey.as_deref()));
+    let profile_slug = state.with_store(|s| {
+        s.get_profile(mentioned_pk)
             .ok()
             .flatten()
-            .or_else(|| s.get_identity(mentioned_pk).ok().flatten())
+            .and_then(|profile| (!profile.agent_slug.is_empty()).then_some(profile.agent_slug))
     });
-    let Some((agent_slug, native_id)) = identity
-        .map(|idn| (idn.agent_slug, idn.native_id))
-        .or_else(|| {
-            claim
-                .as_ref()
-                .map(|c| (c.agent_slug.clone(), c.native_id.clone()))
-        })
+    let Some(agent_slug) = active_claim
+        .as_ref()
+        .or(claim.as_ref())
+        .map(|route| route.agent_slug.clone())
+        .filter(|slug| !slug.is_empty())
+        .or(profile_slug)
     else {
         return;
     };
@@ -123,58 +81,8 @@ pub(super) async fn handle(
         return;
     }
 
-    // If we know the native session id, resume THAT session so the resumed process
-    // re-derives the p-tagged pubkey. Grant that pubkey channel membership up front
-    // (via mgmt key) so its replayed events are accepted.
-    if !native_id.is_empty() {
-        let is_member =
-            state.with_store(|s| s.is_channel_member(channel, mentioned_pk).unwrap_or(false));
-        if !is_member {
-            let (_, _, members) = state.provider.fetch_group_state(channel).await;
-            if !members.contains(mentioned_pk) {
-                tracing::info!(agent = %agent_slug, channel, "provisioning session pubkey into channel via mgmt key");
-                if !state
-                    .provider
-                    .grant_member_confirmed(channel, mentioned_pk)
-                    .await
-                    .is_confirmed()
-                {
-                    tracing::warn!(agent = %agent_slug, channel, "mgmt-key add_member was not confirmed - skipping resume");
-                    return;
-                }
-            }
-        }
-        tracing::info!(agent = %agent_slug, channel, native_id = %native_id, "resuming session on mention");
-        match spawn_headless_mention(
-            state,
-            &agent_slug,
-            &work_root,
-            channel,
-            body,
-            Some(&native_id),
-            notice_context(state, mentioned_pk, &agent_slug, requester_pubkey),
-        )
-        .await
-        {
-            Ok(true) => return,
-            Ok(false) => {}
-            Err(e) => {
-                tracing::warn!(agent = %agent_slug, channel, error = %e, "headless resume failed - falling back to PTY resume");
-            }
-        }
-        match crate::session_host::resume_agent(state, &agent_slug, channel, &native_id).await {
-            Ok(pty_id) => {
-                tracing::info!(agent = %agent_slug, pty_id = %pty_id, channel, "session resumed on mention");
-                return;
-            }
-            Err(e) => {
-                tracing::warn!(agent = %agent_slug, channel, error = %e, "PTY resume failed - falling back to fresh spawn");
-            }
-        }
-    }
-
-    // Fresh spawn: a brand-new session (a new pubkey) that starts the agent and
-    // gets the mention injected so it can respond.
+    // A dormant claim is a route hint, not a resumable identity. Fresh launch
+    // allocates the next session pubkey before the child starts.
     tracing::info!(agent = %agent_slug, channel, work_root = %work_root, "spawning agent on mention");
     match spawn_headless_mention(
         state,
@@ -182,7 +90,6 @@ pub(super) async fn handle(
         &work_root,
         channel,
         body,
-        None,
         notice_context(state, mentioned_pk, &agent_slug, requester_pubkey),
     )
     .await
@@ -229,12 +136,6 @@ fn target_label(state: &Arc<DaemonState>, pubkey: &str, fallback: &str) -> Strin
                 .ok()
                 .flatten()
                 .and_then(|p| (!p.name.is_empty()).then_some(p.name))
-                .or_else(|| {
-                    s.get_identity(pubkey)
-                        .ok()
-                        .flatten()
-                        .and_then(|i| (!i.codename.is_empty()).then_some(i.codename))
-                })
         })
         .unwrap_or_else(|| fallback.to_string())
 }
@@ -255,7 +156,8 @@ fn inject_spawn_prompt(agent: String, pty_id: String, body: &str) {
     let prompt = mention_prompt(body);
     // Transport-aware: an ACP spawn's child lives in the daemon registry and is
     // driven over JSON-RPC; a PTY spawn is bracketed-paste injected. The endpoint
-    // id (`pty_id`) is the same alias value for both. `deliver_spawn_prompt` logs
+    // id (`pty_id`) is resolved through the transport's typed locator.
+    // `deliver_spawn_prompt` logs
     // its own failures, so the fresh-spawn mention is never silently PTY-only.
     tokio::spawn(async move {
         crate::session_host::deliver_spawn_prompt(&agent, &pty_id, &prompt).await;

@@ -1,12 +1,12 @@
 use super::*;
 
-fn recorded_channels(state: &Arc<DaemonState>, session_id: &str) -> Vec<(String, String)> {
+fn recorded_channels(state: &Arc<DaemonState>, pubkey: &str) -> Vec<(String, String)> {
     state.with_store(|store| {
-        let Some(session) = store.get_session(session_id).ok().flatten() else {
+        let Some(session) = store.get_session(pubkey).ok().flatten() else {
             return Vec::new();
         };
         let mut channels = store
-            .list_session_joined_channels(&session.session_id)
+            .list_session_joined_channels(&session.pubkey)
             .unwrap_or_default()
             .into_iter()
             .map(|(channel, _)| channel)
@@ -16,7 +16,7 @@ fn recorded_channels(state: &Arc<DaemonState>, session_id: &str) -> Vec<(String,
         }
         channels
             .into_iter()
-            .map(|channel| (channel, session.agent_pubkey.clone()))
+            .map(|channel| (channel, session.pubkey.clone()))
             .collect()
     })
 }
@@ -25,9 +25,9 @@ fn recorded_channels(state: &Arc<DaemonState>, session_id: &str) -> Vec<(String,
 /// channel even when the local membership mirror is stale, and await read-back.
 pub(in crate::daemon::server) async fn revoke_session_memberships(
     state: &Arc<DaemonState>,
-    session_id: &str,
+    pubkey: &str,
 ) -> Vec<String> {
-    let removals = recorded_channels(state, session_id);
+    let removals = recorded_channels(state, pubkey);
     let channels = removals
         .iter()
         .map(|(channel, _)| channel.clone())
@@ -54,9 +54,9 @@ pub(in crate::daemon::server) async fn revoke_session_memberships(
     }
     if failures.is_empty() {
         if let Err(error) = state.with_store(|store| -> Result<()> {
-            store.set_session_channel(session_id, "")?;
+            store.set_session_channel(pubkey, "")?;
             for channel in channels {
-                store.leave_session_channel(session_id, &channel)?;
+                store.leave_session_channel(pubkey, &channel)?;
             }
             Ok(())
         }) {
@@ -74,31 +74,29 @@ mod tests {
     #[tokio::test]
     async fn targets_recorded_channels_when_membership_cache_is_empty() {
         let state = DaemonState::new_for_test().await;
-        let session = state.with_store(|store| {
+        let session = "pk-operator-kill";
+        state.with_store(|store| {
             store
-                .register_session(&RegisterSession {
+                .reserve_session(&RegisterSession {
+                    pubkey: session.into(),
                     harness: "claude".into(),
-                    external_id_kind: "harness_session".into(),
-                    external_id: "operator-kill".into(),
-                    agent_pubkey: "pk-operator-kill".into(),
                     agent_slug: "reviewer".into(),
                     channel_h: "active".into(),
                     child_pid: None,
                     transcript_path: None,
-                    resume_id: String::new(),
                     now: now_secs(),
                 })
                 .unwrap()
         });
         state
-            .with_store(|store| store.join_session_channel(&session, "joined", now_secs()))
+            .with_store(|store| store.join_session_channel(session, "joined", now_secs()))
             .unwrap();
 
         assert!(!state
             .with_store(|store| store.is_channel_member("active", "pk-operator-kill"))
             .unwrap());
         assert_eq!(
-            recorded_channels(&state, &session),
+            recorded_channels(&state, session),
             vec![
                 ("active".into(), "pk-operator-kill".into()),
                 ("joined".into(), "pk-operator-kill".into()),
