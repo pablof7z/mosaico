@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${E2E_CLAUDE_ARGV_LOG:?E2E_CLAUDE_ARGV_LOG must be set}"
+printf '%s\n' "$@" >"${E2E_CLAUDE_ARGV_LOG}"
+
+# Remain a live interactive child until the PTY supervisor closes stdin.
+while IFS= read -r _line; do :; done

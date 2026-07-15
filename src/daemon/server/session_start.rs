@@ -29,11 +29,13 @@ pub(super) async fn rpc_session_start_inner(
 
     let mosaico_home = config::mosaico_home();
     config::ensure_dir(&mosaico_home)?;
-    let agent = identity::load_or_create_with_command(
+    let harness = params::resolve_harness(&p);
+    let agent = identity::load_or_create(
         &mosaico_home,
         &p.agent,
+        harness.as_str(),
+        p.profile.as_deref(),
         now_secs(),
-        p.provision_command.clone(),
     )?;
     let cwd = p
         .cwd
@@ -43,7 +45,6 @@ pub(super) async fn rpc_session_start_inner(
     let work_root = crate::workspace::resolve(&cwd).unwrap_or_default();
     let rel_cwd = crate::workspace::rel_cwd(&cwd);
     runtime::bind_workspace(state, &cwd, &work_root)?;
-    let harness = resolve_harness(&p);
     let harness_name = harness.as_str();
     let native_resume = p
         .resume_id
@@ -197,22 +198,6 @@ pub(super) async fn rpc_session_start_inner(
         guard.disarm();
     }
     Ok(serde_json::json!({ "pubkey": pubkey }))
-}
-
-fn resolve_harness(p: &SessionStartParams) -> Harness {
-    p.harness
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .map(Harness::from_str)
-        .unwrap_or_else(|| {
-            if p.resume_id.is_some() {
-                Harness::Opencode
-            } else if p.harness_session.is_some() {
-                Harness::ClaudeCode
-            } else {
-                Harness::Unknown
-            }
-        })
 }
 
 fn resolve_start_channel(

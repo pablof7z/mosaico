@@ -1,13 +1,12 @@
 use super::*;
 
 mod byline;
-mod commands;
 
 #[test]
 fn generates_then_reloads_same_key() {
     let dir = tempfile::tempdir().unwrap();
-    let a = load_or_create(dir.path(), "coder", 100).unwrap();
-    let b = load_or_create(dir.path(), "coder", 200).unwrap();
+    let a = load_or_create(dir.path(), "coder", "yolo-claude", Some("reviewer"), 100).unwrap();
+    let b = load_or_create(dir.path(), "coder", "ignored", None, 200).unwrap();
     assert_eq!(a.pubkey_hex(), b.pubkey_hex());
     assert_eq!(
         a.keys.secret_key().to_secret_hex(),
@@ -18,29 +17,29 @@ fn generates_then_reloads_same_key() {
 #[test]
 fn distinct_slugs_get_distinct_keys() {
     let dir = tempfile::tempdir().unwrap();
-    let a = load_or_create(dir.path(), "coder", 1).unwrap();
-    let b = load_or_create(dir.path(), "reviewer", 1).unwrap();
+    let a = load_or_create(dir.path(), "coder", "codex", None, 1).unwrap();
+    let b = load_or_create(dir.path(), "reviewer", "claude", None, 1).unwrap();
     assert_ne!(a.pubkey_hex(), b.pubkey_hex());
 }
 
 #[test]
 fn rejects_bad_slug() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(load_or_create(dir.path(), "bad slug/with-stuff", 1).is_err());
-    assert!(load_or_create(dir.path(), "", 1).is_err());
+    assert!(load_or_create(dir.path(), "bad slug/with-stuff", "codex", None, 1).is_err());
+    assert!(load_or_create(dir.path(), "", "codex", None, 1).is_err());
 }
 
 #[test]
 fn persists_to_expected_path() {
     let dir = tempfile::tempdir().unwrap();
-    load_or_create(dir.path(), "coder", 1).unwrap();
+    load_or_create(dir.path(), "coder", "codex", None, 1).unwrap();
     assert!(dir.path().join("agents").join("coder.json").exists());
 }
 
 #[test]
 fn per_session_key_defaults_true_and_can_select_durable_mode() {
     let dir = tempfile::tempdir().unwrap();
-    let default = load_or_create(dir.path(), "coder", 1).unwrap();
+    let default = load_or_create(dir.path(), "coder", "codex", None, 1).unwrap();
     assert!(default.per_session_key);
 
     let path = dir.path().join("agents").join("coder.json");
@@ -49,7 +48,7 @@ fn per_session_key_defaults_true_and_can_select_durable_mode() {
     config["perSessionKey"] = serde_json::json!(false);
     std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
 
-    let durable = load_or_create(dir.path(), "coder", 2).unwrap();
+    let durable = load_or_create(dir.path(), "coder", "ignored", None, 2).unwrap();
     assert!(!durable.per_session_key);
     assert_eq!(default.pubkey_hex(), durable.pubkey_hex());
 }
@@ -57,19 +56,21 @@ fn per_session_key_defaults_true_and_can_select_durable_mode() {
 #[test]
 fn add_local_agent_creates_then_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
-    let (a, created) = add_local_agent(dir.path(), "coder", None, 1).unwrap();
+    let (a, created) = add_local_agent(dir.path(), "coder", "codex", Some("reviewer"), 1).unwrap();
     assert!(created, "first add mints a fresh key");
     assert!(dir.path().join("agents").join("coder.json").exists());
 
-    let (b, created2) = add_local_agent(dir.path(), "coder", None, 2).unwrap();
+    let (b, created2) = add_local_agent(dir.path(), "coder", "yolo-claude", None, 2).unwrap();
     assert!(!created2, "re-adding an existing slug does not recreate");
     assert_eq!(a.pubkey_hex(), b.pubkey_hex());
+    assert_eq!(b.harness, "yolo-claude");
+    assert_eq!(b.profile, None);
 }
 
 #[test]
 fn remove_local_agent_parks_then_reports_missing() {
     let dir = tempfile::tempdir().unwrap();
-    load_or_create(dir.path(), "coder", 1).unwrap();
+    load_or_create(dir.path(), "coder", "codex", None, 1).unwrap();
     let live = dir.path().join("agents").join("coder.json");
     assert!(live.exists());
 

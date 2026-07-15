@@ -20,7 +20,7 @@ rules.
 Spawns an in-daemon `SessionTask` (publishes profile, presence, subscribes,
 distills, routes mentions — today's `runtime::run_session`).
 ```jsonc
-params: {"agent": "coder", "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
+params: {"agent": "coder", "harness": "claude-code", "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
 result: {"pubkey": "hex"}
 ```
 `harness_session` is a typed harness locator and never identity. A session is
@@ -256,7 +256,9 @@ machine.
 Sends keystrokes or text to a portable PTY session.
 
 ### `pty_spawn`
-Spawns a new portable PTY session for an agent, optionally pre-loading a message.
+Spawns an agent through the required bundle and optional profile in its agent
+file, optionally pre-loading a message. The RPC accepts no argv, command, or
+bundle override.
 
 ### `pty_attach`
 Accepts an npub, hex pubkey, or handle and returns the PTY target plus public identity.

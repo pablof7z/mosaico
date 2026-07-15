@@ -45,11 +45,6 @@ fn is_plain_session_selector(request: &super::args::LaunchRequest) -> bool {
     request.root.is_none()
         && request.channel.is_none()
         && request.session_name.is_none()
-        && request.command_name.is_none()
-        && request.harness.is_none()
-        && !request.headless
-        && request.override_command.is_empty()
-        && request.extra_args.is_empty()
         && request.prompt.is_none()
 }
 
@@ -64,11 +59,6 @@ mod tests {
             root: None,
             channel: None,
             session_name: None,
-            command_name: None,
-            harness: None,
-            headless: false,
-            override_command: Vec::new(),
-            extra_args: Vec::new(),
             prompt: None,
         }
     }

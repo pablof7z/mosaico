@@ -1,18 +1,8 @@
 //! Code-owned `(harness, transport)` capability table.
 //!
-//! This static table is the source of truth for the **RPC transports it actually
-//! drives** — `Acp` / `AppServer` — supplying their `base_argv`, `base_env`,
-//! `resume`, `steer`, `turn`, and `profile` when `harness::resolve` plans an
-//! ACP/app-server launch. It is NOT (yet) the source of truth for driving PTY or
-//! headless sessions: PTY resume and headless exec are still shaped by the argv[0]
-//! sniffers in `session_host::registry::{resume_shape_for_bin,
-//! headless_shape_for_bin}`, which remain authoritative for those paths. The
-//! `Pty` / `HeadlessExec` rows here are therefore consulted only by
-//! `harness::resolve`'s built-in-PTY fallback (and capability enumeration); their
-//! `resume`/`steer`/`turn` fields do NOT drive a real session and duplicate the
-//! sniffers' knowledge — do not treat them as the drive path. Migrating PTY/
-//! headless onto this table (retiring the sniffers) is deliberately left as future
-//! work.
+//! This static table is the source of truth for every supported transport. It
+//! supplies the executable, required environment, resume behavior, turn model,
+//! and profile application for PTY, ACP, app-server, and headless execution.
 //!
 //! Invalid cells (e.g. Codex x Acp — Codex has no native ACP) simply have no
 //! entry; `lookup` returns `None` and the caller fails loud.
@@ -87,15 +77,15 @@ pub enum TurnModel {
     OneShot,
 }
 
-/// How a bundle's `profile` object is applied.
+/// How an agent's optional harness-specific profile name is applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileMechanism {
-    /// codex: each top-level profile entry -> `<flag> key=value` launch args.
-    CliConfigFlags { flag: &'static str },
-    /// claude/opencode: materialize the profile object into a per-session
-    /// scratch settings file and point the child at it (never mutate the repo).
-    CwdSettingsFile { relpath: &'static str },
-    /// No profile support; a non-empty `profile` is a hard config error.
+    /// Append the harness-native named-profile selector.
+    CliFlag { flag: &'static str },
+    /// Codex app-server rejects `--profile`; compose the named config into an
+    /// isolated CODEX_HOME instead.
+    CodexAppServer,
+    /// This transport cannot apply a named profile. `profile: null` remains valid.
     Unsupported,
 }
 
@@ -109,9 +99,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppendFlag("--resume"),
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: ".claude/settings.json",
-        },
+        profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
     HarnessDriver {
         harness: Harness::ClaudeCode,
@@ -123,9 +111,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AcpSessionLoad,
         steer: SteerPrimitive::Hooks,
         turn: TurnModel::RpcTurn,
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: ".claude/settings.json",
-        },
+        profile: ProfileMechanism::Unsupported,
     },
     HarnessDriver {
         harness: Harness::ClaudeCode,
@@ -135,9 +121,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppendFlag("--resume"),
         steer: SteerPrimitive::None,
         turn: TurnModel::OneShot,
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: ".claude/settings.json",
-        },
+        profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
     // ── Codex ─────────────────────────────────────────────────────
     HarnessDriver {
@@ -148,7 +132,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppServerThreadResume,
         steer: SteerPrimitive::AppServerSteer,
         turn: TurnModel::RpcTurn,
-        profile: ProfileMechanism::CliConfigFlags { flag: "-c" },
+        profile: ProfileMechanism::CodexAppServer,
     },
     HarnessDriver {
         harness: Harness::Codex,
@@ -158,7 +142,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::Subcommand("resume"),
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
-        profile: ProfileMechanism::CliConfigFlags { flag: "-c" },
+        profile: ProfileMechanism::CliFlag { flag: "--profile" },
     },
     HarnessDriver {
         harness: Harness::Codex,
@@ -168,7 +152,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::ExecReplay,
         steer: SteerPrimitive::None,
         turn: TurnModel::OneShot,
-        profile: ProfileMechanism::CliConfigFlags { flag: "-c" },
+        profile: ProfileMechanism::CliFlag { flag: "--profile" },
     },
     // ── OpenCode ──────────────────────────────────────────────────
     HarnessDriver {
@@ -179,10 +163,8 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AcpSessionLoad,
         steer: SteerPrimitive::None,
         turn: TurnModel::RpcTurn,
-        // session/new model/agent params are IGNORED -> must go through a file.
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: "opencode.json",
-        },
+        // session/new agent params are ignored by current OpenCode ACP.
+        profile: ProfileMechanism::Unsupported,
     },
     HarnessDriver {
         harness: Harness::Opencode,
@@ -192,9 +174,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppendFlag("--session"),
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: "opencode.json",
-        },
+        profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
     HarnessDriver {
         harness: Harness::Opencode,
@@ -204,9 +184,7 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppendFlag("--session"),
         steer: SteerPrimitive::None,
         turn: TurnModel::OneShot,
-        profile: ProfileMechanism::CwdSettingsFile {
-            relpath: "opencode.json",
-        },
+        profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
     // ── Grok (PTY only, profile unknown) ──────────────────────────
     HarnessDriver {

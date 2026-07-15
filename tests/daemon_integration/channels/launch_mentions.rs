@@ -27,7 +27,7 @@ fn sh_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
 
-fn harness_command(native_session: &str, cwd: &Path, injected_log: &Path) -> Vec<String> {
+fn harness_script(native_session: &str, cwd: &Path, injected_log: &Path) -> String {
     let cwd_json = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
     let hook_log = injected_log.with_extension("hook.log");
     let script = format!(
@@ -39,7 +39,41 @@ fn harness_command(native_session: &str, cwd: &Path, injected_log: &Path) -> Vec
         sh_quote(&hook_log),
         sh_quote(injected_log)
     );
-    vec!["sh".to_string(), "-lc".to_string(), script]
+    format!("#!/bin/sh\n{script}\n")
+}
+
+struct PathGuard(Option<std::ffi::OsString>);
+
+impl Drop for PathGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            unsafe { std::env::set_var("PATH", path) };
+        }
+    }
+}
+
+fn install_opencode_shim(
+    home: &Home,
+    native_session: &str,
+    cwd: &Path,
+    injected_log: &Path,
+) -> PathGuard {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = home.dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let shim = bin.join("opencode");
+    std::fs::write(&shim, harness_script(native_session, cwd, injected_log)).unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        home.dir.path().join("harnesses.json"),
+        r#"{"offline-test":{"harness":"opencode","transport":"pty"}}"#,
+    )
+    .unwrap();
+    let old = std::env::var_os("PATH");
+    let mut paths = vec![bin];
+    paths.extend(std::env::split_paths(old.as_deref().unwrap_or_default()));
+    unsafe { std::env::set_var("PATH", std::env::join_paths(paths).unwrap()) };
+    PathGuard(old)
 }
 
 fn kill_pty(pty_id: &str) {
@@ -193,13 +227,9 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
     let agent = "offline-kind9";
     let log = home.dir.path().join("offline-injected.log");
     let native_session = unique_session("offline-native");
-    let (agent_id, _) = identity::add_local_agent(
-        home.dir.path(),
-        agent,
-        Some(harness_command(&native_session, &work_dir, &log)),
-        1,
-    )
-    .expect("add local agent");
+    let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
+    let (agent_id, _) = identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+        .expect("add local agent");
     // Seed an offline profile so the mention resolves the p-tagged pubkey to this
     // agent. With no native id to resume, the handler falls through to a fresh
     // spawn (a new session that mints its own pubkey).

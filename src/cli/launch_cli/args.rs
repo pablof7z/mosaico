@@ -4,7 +4,7 @@ use std::io::{self, Read as _};
 
 #[derive(Args)]
 pub(in crate::cli) struct LaunchArgs {
-    /// Agent slug: "claude", "codex", "opencode", or a local custom agent.
+    /// Configured local agent slug.
     #[arg(index = 1)]
     slug: String,
     /// Opening user prompt to inject into the fresh session. Use "-" to read
@@ -29,31 +29,6 @@ pub(in crate::cli) struct LaunchArgs {
     /// creates `forensic-researcher-codex`; existing names are rejected.
     #[arg(long = "name", value_name = "NAME")]
     session_name: Option<String>,
-    /// Override the entire launch command for this launch (shell-word split).
-    /// Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
-    #[arg(short = 'c', long = "command", value_name = "COMMAND")]
-    command_str: Option<String>,
-    /// Select a named command from the agent file's `commands` list.
-    #[arg(long = "command-name", value_name = "NAME", conflicts_with = "harness")]
-    command_name: Option<String>,
-    /// Launch through a named PTY bundle from harnesses.json (or a built-in
-    /// PTY harness such as claude/codex/opencode/grok), bypassing the picker.
-    #[arg(
-        long = "harness",
-        value_name = "BUNDLE",
-        conflicts_with = "command_str"
-    )]
-    harness: Option<String>,
-    /// Launch the agent's configured ACP/app-server bundle without attaching.
-    #[arg(
-        long = "headless",
-        conflicts_with_all = ["harness", "command_str", "command_name"]
-    )]
-    headless: bool,
-    /// Extra args passed after `--`; appended to the launch command.
-    /// Example: `mosaico launch codex -- --yolo`
-    #[arg(index = 3, last = true, value_name = "ARGS")]
-    extra_args: Vec<String>,
 }
 
 pub(super) struct LaunchRequest {
@@ -61,30 +36,16 @@ pub(super) struct LaunchRequest {
     pub(super) root: Option<String>,
     pub(super) channel: Option<String>,
     pub(super) session_name: Option<String>,
-    pub(super) command_name: Option<String>,
-    pub(super) harness: Option<String>,
-    pub(super) headless: bool,
-    pub(super) override_command: Vec<String>,
-    pub(super) extra_args: Vec<String>,
     pub(super) prompt: Option<String>,
 }
 
 pub(in crate::cli) async fn launch(args: LaunchArgs) -> Result<()> {
     let prompt = resolve_initial_prompt(args.prompt)?;
-    let override_command = args
-        .command_str
-        .map(|s| shlex::split(&s).unwrap_or_else(|| vec![s]))
-        .unwrap_or_default();
     super::verbs::launch(LaunchRequest {
         agent: args.slug,
         root: args.workspace,
         channel: args.channel,
         session_name: args.session_name,
-        command_name: args.command_name,
-        harness: args.harness,
-        headless: args.headless,
-        override_command,
-        extra_args: args.extra_args,
         prompt,
     })
     .await
@@ -152,26 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn launch_command_name_parses_independently_from_override() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "launch",
-            "codex",
-            "--command-name",
-            "safe",
-        ])
-        .expect("launch with command name parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Launch(args) => {
-                assert_eq!(args.command_name.as_deref(), Some("safe"));
-                assert!(args.command_str.is_none());
-            }
-            _ => panic!("expected launch command"),
-        }
-    }
-
-    #[test]
     fn launch_name_parses_as_a_public_session_name() {
         let cli = crate::cli::args::Cli::try_parse_from([
             "mosaico",
@@ -210,104 +151,12 @@ mod tests {
     }
 
     #[test]
-    fn launch_harness_override_parses() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "launch",
-            "claude",
-            "--harness",
-            "codex-yolo",
-        ])
-        .expect("launch --harness parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Launch(args) => {
-                assert_eq!(args.harness.as_deref(), Some("codex-yolo"));
-            }
-            _ => panic!("expected launch command"),
-        }
-    }
-
-    #[test]
-    fn launch_harness_conflicts_with_command_overrides() {
-        for args in [
-            vec![
-                "mosaico",
-                "launch",
-                "claude",
-                "--harness",
-                "codex",
-                "--command",
-                "claude",
-            ],
-            vec![
-                "mosaico",
-                "launch",
-                "claude",
-                "--harness",
-                "codex",
-                "--command-name",
-                "safe",
-            ],
-        ] {
-            assert!(crate::cli::args::Cli::try_parse_from(args).is_err());
-        }
-    }
-
-    #[test]
-    fn launch_headless_bypass_parses_and_conflicts_with_pty_overrides() {
-        let cli =
-            crate::cli::args::Cli::try_parse_from(["mosaico", "launch", "claude", "--headless"])
-                .expect("launch --headless parses");
-        match cli.cmd {
-            crate::cli::args::Cmd::Launch(args) => assert!(args.headless),
-            _ => panic!("expected launch command"),
-        }
-
-        assert!(crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "launch",
-            "claude",
-            "--headless",
-            "--harness",
-            "claude",
-        ])
-        .is_err());
-    }
-
-    #[test]
-    fn launch_prompt_parses_before_forwarded_args() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "launch",
-            "codex",
-            "check on the deploy",
-            "--",
-            "--yolo",
-        ])
-        .expect("launch with prompt and forwarded args parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Launch(args) => {
-                assert_eq!(args.prompt.as_deref(), Some("check on the deploy"));
-                assert_eq!(args.extra_args, vec!["--yolo"]);
-            }
-            _ => panic!("expected launch command"),
-        }
-    }
-
-    #[test]
-    fn launch_forwarded_args_do_not_become_prompt() {
-        let cli =
-            crate::cli::args::Cli::try_parse_from(["mosaico", "launch", "codex", "--", "--yolo"])
-                .expect("launch with only forwarded args parses");
-
-        match cli.cmd {
-            crate::cli::args::Cmd::Launch(args) => {
-                assert_eq!(args.prompt.as_deref(), None);
-                assert_eq!(args.extra_args, vec!["--yolo"]);
-            }
-            _ => panic!("expected launch command"),
+    fn removed_launch_override_flags_are_rejected() {
+        for flag in ["--harness", "--command", "--command-name", "--headless"] {
+            assert!(crate::cli::args::Cli::try_parse_from([
+                "mosaico", "launch", "claude", flag, "value"
+            ])
+            .is_err());
         }
     }
 }

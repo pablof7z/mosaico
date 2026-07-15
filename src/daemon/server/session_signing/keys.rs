@@ -18,11 +18,7 @@ impl DaemonState {
         let session = self
             .with_store(|store| store.get_session(pubkey))?
             .with_context(|| format!("pubkey {pubkey:?} has no local runtime projection"))?;
-        let agent = crate::identity::load_or_create(
-            &crate::config::mosaico_home(),
-            &session.agent_slug,
-            crate::util::now_secs(),
-        )?;
+        let agent = crate::identity::load(&crate::config::mosaico_home(), &session.agent_slug)?;
         if agent.per_session_key || agent.pubkey_hex() != pubkey {
             anyhow::bail!(
                 "durable signer configuration changed for agent {:?}",

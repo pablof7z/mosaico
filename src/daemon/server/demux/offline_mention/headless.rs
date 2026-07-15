@@ -26,7 +26,6 @@ pub(super) async fn spawn_headless_mention(
         work_root,
         &prompt,
         None,
-        None,
         Some(channel_h),
         None,
     )

@@ -156,8 +156,6 @@ pub(super) async fn invite_agent(
         &target.slug,
         work_root,
         crate::session_host::SpawnRequest {
-            source: crate::session_host::SpawnSource::Configured,
-            launch_args: Vec::new(),
             group: Some(channel_h),
             client_cwd: cwd.map(std::path::Path::new),
             session_name: None,

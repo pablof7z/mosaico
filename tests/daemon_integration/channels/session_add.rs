@@ -16,14 +16,6 @@ fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
 }
 
-fn no_hook_command() -> Vec<String> {
-    vec![
-        "sh".to_string(),
-        "-lc".to_string(),
-        "while true; do sleep 1; done".to_string(),
-    ]
-}
-
 fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Session {
     let mut found = None;
     assert!(
@@ -52,6 +44,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
     let work_dir = home.dir.path().join(&root);
     add_workspace_mapping(&home, &root, &work_dir);
     let agent = "pulled-live-agent";
+    configure_pty_agent(&home, agent, "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -63,7 +56,6 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
                     "root": &root,
                     "channel": &root,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await
@@ -144,6 +136,7 @@ fn launch_existing_reattaches_a_live_handle() {
     let work_dir = home.dir.path().join(&root);
     add_workspace_mapping(&home, &root, &work_dir);
     let agent = "launch-existing-agent";
+    configure_pty_agent(&home, agent, "forever");
     let (pty_id, handle) = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         let spawned = client
@@ -154,7 +147,6 @@ fn launch_existing_reattaches_a_live_handle() {
                     "root": &root,
                     "channel": &root,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await

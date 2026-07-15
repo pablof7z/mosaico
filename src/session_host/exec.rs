@@ -1,9 +1,7 @@
 use crate::daemon::server::DaemonState;
 use crate::session::Harness;
 use crate::session_host::launch::workspace_abs_path;
-use crate::session_host::registry::{
-    apply_agent_def_args, build_headless_command, headless_shape_for_bin, resolve_spawn_entry,
-};
+use crate::session_host::registry::{build_headless_command, headless_shape_for_harness};
 use anyhow::{Context, Result};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -35,13 +33,15 @@ impl ExecLaunch {
 }
 
 pub(crate) fn agent_supports_headless_exec(slug: &str) -> bool {
-    resolve_spawn_entry(slug)
-        .ok()
-        .and_then(|(base, _)| {
-            base.first()
-                .and_then(|bin| headless_shape_for_bin(bin.as_str()))
-        })
-        .is_some()
+    let Ok(agent) = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)
+    else {
+        return false;
+    };
+    let Ok(cfg) = crate::harness::HarnessesConfig::load() else {
+        return false;
+    };
+    crate::harness::bundle_transport_with(&cfg, &agent.harness)
+        .is_ok_and(|transport| transport == crate::harness::Transport::HeadlessExec)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -51,26 +51,32 @@ pub(crate) async fn spawn_agent_exec(
     root: &str,
     prompt: &str,
     resume_id: Option<&str>,
-    base_override: Option<Vec<String>>,
     group: Option<&str>,
     client_cwd: Option<&Path>,
 ) -> Result<ExecLaunch> {
-    let (base_command, agent_def) = match base_override {
-        Some(cmd) => (cmd, None),
-        None => resolve_spawn_entry(slug)?,
-    };
-    let base_command = if resume_id.is_some() {
-        base_command
-    } else {
-        apply_agent_def_args(base_command, slug, agent_def)
-    };
-    let bin = base_command.first().map(String::as_str).unwrap_or("");
-    let shape = headless_shape_for_bin(bin)
-        .with_context(|| format!("agent {slug:?} does not support headless exec via {bin:?}"))?;
+    let agent = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
+    let scratch = crate::config::mosaico_home()
+        .join("harness-profiles")
+        .join(slug);
+    let resolved = crate::harness::resolve(&agent.harness, agent.profile.as_deref(), &scratch)?;
+    if resolved.transport != crate::harness::Transport::HeadlessExec {
+        anyhow::bail!(
+            "agent {slug:?} uses bundle {:?} with transport {}, not headless-exec",
+            agent.harness,
+            resolved.transport.as_str()
+        );
+    }
+    resolved.profile.materialize()?;
+    let shape = headless_shape_for_harness(resolved.harness).with_context(|| {
+        format!(
+            "harness {} does not support headless exec",
+            resolved.harness.as_str()
+        )
+    })?;
     let fresh_session_id = fresh_native_session_id(shape, resume_id)?;
     let native_id = resume_id.or(fresh_session_id.as_deref());
     let command = build_headless_command(
-        &base_command,
+        &resolved.base_argv,
         shape,
         resume_id,
         fresh_session_id.as_deref(),
@@ -105,6 +111,7 @@ pub(crate) async fn spawn_agent_exec(
         harness,
         &reservation.pubkey,
         reservation.runtime_generation,
+        &resolved.profile.extra_env,
     ) {
         Ok(launch) => launch,
         Err(error) => {
@@ -141,6 +148,7 @@ fn spawn_process(
     harness: Harness,
     pubkey: &str,
     runtime_generation: u64,
+    extra_env: &[(String, String)],
 ) -> Result<ExecLaunch> {
     if command.is_empty() {
         anyhow::bail!("headless exec command must not be empty");
@@ -175,6 +183,7 @@ fn spawn_process(
     if let Some(channel) = group.filter(|g| !g.is_empty()) {
         child_cmd.env("MOSAICO_CHANNEL", channel);
     }
+    child_cmd.envs(extra_env.iter().cloned());
     unsafe {
         child_cmd.pre_exec(|| {
             if libc::setsid() == -1 {

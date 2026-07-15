@@ -21,14 +21,6 @@ fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
 }
 
-fn no_hook_command() -> Vec<String> {
-    vec![
-        "sh".to_string(),
-        "-lc".to_string(),
-        "while true; do sleep 1; done".to_string(),
-    ]
-}
-
 fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Session {
     let mut found = None;
     assert!(
@@ -64,6 +56,7 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "no-hook-agent";
+    configure_pty_agent(&home, agent, "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -75,7 +68,6 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
                     "root": &channel,
                     "channel": &channel,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await
@@ -123,6 +115,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "late-hook-agent";
+    configure_pty_agent(&home, agent, "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -134,7 +127,6 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
                     "root": &channel,
                     "channel": &channel,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await
@@ -198,6 +190,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "codex";
+    configure_pty_agent(&home, agent, "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -209,7 +202,6 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
                     "root": &channel,
                     "channel": &channel,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await

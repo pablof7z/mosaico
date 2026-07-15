@@ -27,6 +27,12 @@ log "step 0: tearing down any previous run"
 E2E_KEEP_DATA=0 "${E2E_DIR}/teardown.sh" >/dev/null 2>&1 || true
 mkdir -p "${E2E_WORK}" "${KEYS_DIR}"
 
+# The harness launch scenario uses a deterministic Claude shim. Export its PATH
+# and log before either isolated daemon starts so the detached supervisor inherits
+# the same executable resolution environment.
+export E2E_CLAUDE_ARGV_LOG="${E2E_WORK}/claude-argv.log"
+export PATH="${E2E_DIR}/fixtures:${PATH}"
+
 # ── 1. relay ─────────────────────────────────────────────────────────────────
 log "step 1: NIP-29 relay"
 if [[ ! -x "${NIP29_RELAY_BIN}" ]]; then
@@ -110,6 +116,20 @@ write_backend mosaico-a "${A_SK}"
 write_backend mosaico-b "${B_SK}"
 ok "configs written (both whitelist both pubkeys; relays=[${RELAY_WS}])"
 
+# Agent files select a bundle and optional named profile. The bundle owns the
+# underlying harness, transport, and operational args.
+cat >"$(backend_mosaico_home mosaico-a)/harnesses.json" <<'JSON'
+{
+  "yolo-claude": {
+    "harness": "claude",
+    "transport": "pty",
+    "args": ["--dangerously-skip-permissions"]
+  }
+}
+JSON
+mosaico mosaico-a mgmt agent add reviewer --harness yolo-claude --profile reviewer >/dev/null
+ok "backend-a agent reviewer selects yolo-claude with profile reviewer"
+
 # ── 4. smoke test ────────────────────────────────────────────────────────────
 log "step 4: smoke test — two backends through one relay"
 
@@ -170,6 +190,22 @@ if [[ "${B_OK}" == "1" ]]; then
 else
   die "backend-b never saw the group — backends are NOT communicating via the relay (logs: $(backend_mosaico_home mosaico-b)/daemon.log)"
 fi
+
+# 4c. Launch the configured role through the real daemon and PTY supervisor.
+# The shim records exactly what the supervisor execs, proving the profile flag is
+# supplied by code from (claude, pty), while permission args come from the bundle.
+log "4c: harness-owned PTY launch applies the agent profile"
+rm -f "${E2E_CLAUDE_ARGV_LOG}"
+(
+  cd "${A_WORKSPACE_DIR}"
+  mosaico mosaico-a launch reviewer --workspace "${E2E_WORKSPACE}" >/dev/null
+) || die "configured reviewer launch failed"
+wait_for "Claude shim argv to be recorded" 10 "test -s '${E2E_CLAUDE_ARGV_LOG}'"
+CLAUDE_ARGV="$(paste -sd ' ' "${E2E_CLAUDE_ARGV_LOG}")"
+EXPECTED_CLAUDE_ARGV="--dangerously-skip-permissions --agent reviewer"
+[[ "${CLAUDE_ARGV}" == "${EXPECTED_CLAUDE_ARGV}" ]] \
+  || die "Claude argv mismatch: expected '${EXPECTED_CLAUDE_ARGV}', got '${CLAUDE_ARGV}'"
+ok "PTY exec argv is claude ${CLAUDE_ARGV}"
 
 cat <<SUMMARY
 

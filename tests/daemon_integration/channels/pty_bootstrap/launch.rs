@@ -1,18 +1,12 @@
 use super::*;
 
-fn launch_no_hook(home: &Home, agent: &str, channel: &str, command: &str) {
+fn launch_no_hook(home: &Home, agent: &str, channel: &str, mode: &str) {
     let work_dir = home.dir.path().join(channel);
     add_workspace_mapping(home, channel, &work_dir);
+    configure_pty_agent(home, agent, mode);
     let out = run_cli_with_env_in_dir(
         home,
-        &[
-            "launch",
-            agent,
-            "--workspace",
-            channel,
-            "--command",
-            command,
-        ],
+        &["launch", agent, "--workspace", channel],
         &[],
         &work_dir,
     );
@@ -31,12 +25,7 @@ fn launch_command_bootstraps_session_without_child_session_start_hook() {
 
     let channel = unique_session("launch-bootstrap");
     let agent = "launch-no-hook-agent";
-    launch_no_hook(
-        &home,
-        agent,
-        &channel,
-        "sh -lc 'while true; do sleep 1; done'",
-    );
+    launch_no_hook(&home, agent, &channel, "forever");
 
     let rec = wait_for_alive(&home, agent, &channel);
     let pty_id = Store::open(&home.store_path())
@@ -60,7 +49,7 @@ fn supervisor_exit_retires_the_bootstrapped_session() {
 
     let channel = unique_session("launch-exit");
     let agent = "launch-exit-agent";
-    launch_no_hook(&home, agent, &channel, "sh -lc 'sleep 1'");
+    launch_no_hook(&home, agent, &channel, "sleep-2");
     let rec = wait_for_alive(&home, agent, &channel);
 
     assert!(

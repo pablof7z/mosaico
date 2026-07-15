@@ -3,27 +3,27 @@ use crate::identity::{
 };
 
 #[test]
-fn byline_reads_canonical_field_and_falls_back_to_agent_description() {
+fn byline_reads_only_the_canonical_field() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("agents")).unwrap();
     std::fs::write(
         dir.path().join("agents/a.json"),
-        r#"{"slug":"a","secret_key":"0000000000000000000000000000000000000000000000000000000000000001","public_key":"","created_at":1,"byline":"front-line triage"}"#,
+        r#"{"slug":"a","secret_key":"0000000000000000000000000000000000000000000000000000000000000001","public_key":"","created_at":1,"harness":"claude","byline":"front-line triage"}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/b.json"),
-        r#"{"slug":"b","secret_key":"0000000000000000000000000000000000000000000000000000000000000002","public_key":"","created_at":1,"useCriteria":"use for deep research"}"#,
+        r#"{"slug":"b","secret_key":"0000000000000000000000000000000000000000000000000000000000000002","public_key":"","created_at":1,"harness":"claude","useCriteria":"use for deep research"}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/c.json"),
-        r#"{"slug":"c","secret_key":"0000000000000000000000000000000000000000000000000000000000000003","public_key":"","created_at":1,"agent":{"description":"writes social posts"}}"#,
+        r#"{"slug":"c","secret_key":"0000000000000000000000000000000000000000000000000000000000000003","public_key":"","created_at":1,"harness":"claude","agent":{"description":"writes social posts"}}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/d.json"),
-        r#"{"slug":"d","secret_key":"0000000000000000000000000000000000000000000000000000000000000004","public_key":"","created_at":1}"#,
+        r#"{"slug":"d","secret_key":"0000000000000000000000000000000000000000000000000000000000000004","public_key":"","created_at":1,"harness":"claude"}"#,
     )
     .unwrap();
 
@@ -36,14 +36,14 @@ fn byline_reads_canonical_field_and_falls_back_to_agent_description() {
     };
     assert_eq!(byline("a").as_deref(), Some("front-line triage"));
     assert_eq!(byline("b"), None);
-    assert_eq!(byline("c").as_deref(), Some("writes social posts"));
+    assert_eq!(byline("c"), None);
     assert_eq!(byline("d"), None);
 }
 
 #[test]
 fn set_local_agent_byline_updates_invitable_roster() {
     let dir = tempfile::tempdir().unwrap();
-    add_local_agent(dir.path(), "reviewer", None, 1).unwrap();
+    add_local_agent(dir.path(), "reviewer", "claude", None, 1).unwrap();
 
     set_local_agent_byline(
         dir.path(),

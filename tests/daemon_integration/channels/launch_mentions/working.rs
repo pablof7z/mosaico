@@ -12,6 +12,9 @@ fn operator_kind9_injects_into_working_launch_session() {
     let log = home.dir.path().join("launch-injected.log");
     let native_session = unique_session("launch-native");
     let agent = "launch-kind9";
+    let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
+    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+        .expect("add launch agent");
 
     let pty_id = rt().block_on(async {
         let mut c = DaemonClient::connect_or_spawn().await.expect("connect");
@@ -23,7 +26,6 @@ fn operator_kind9_injects_into_working_launch_session() {
                     "root": channel,
                     "channel": channel,
                     "cwd": work_dir,
-                    "launch": {"kind": "pty-command", "argv": harness_command(&native_session, &work_dir, &log)},
                 }),
             )
             .await

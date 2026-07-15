@@ -2,9 +2,9 @@
 //!
 //! The file is a map of **bundle name -> bundle spec**. A bundle is the
 //! user-facing name you spawn (`codex-acp`, `planner`, …); it binds a `harness`
-//! (which CLI) to a `transport` (how mosaico drives it) plus an opaque,
-//! harness-specific `profile` object. Missing file => empty map (built-in
-//! bundles from the driver table still resolve); malformed JSON => hard error.
+//! (which CLI) to a `transport` (how mosaico drives it) plus operational args.
+//! Missing file => empty map; malformed JSON => hard error. There are no
+//! built-in bundle fallbacks.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,6 +20,7 @@ pub struct HarnessesConfig {
 
 /// One bundle: which CLI, how we drive it, and opaque tuning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HarnessBundle {
     /// Which underlying CLI. Parsed via `Harness::from_str` so `"claude"` and
     /// `"claude-code"` both resolve; `Harness::Unknown` is rejected.
@@ -27,14 +28,10 @@ pub struct HarnessBundle {
     pub harness: Harness,
     /// How mosaico drives that CLI.
     pub transport: Transport,
-    /// Opaque, harness-specific tuning applied per the driver's
-    /// `ProfileMechanism`. `None`/`{}` => no profile.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<serde_json::Value>,
-    /// Named Codex config layer (`$CODEX_HOME/<name>.config.toml`) to compose
-    /// into an isolated app-server home. Valid only for Codex app-server.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub codex_config_profile: Option<String>,
+    /// Bundle-owned operational flags appended to the code-owned driver argv.
+    /// The executable itself is never configurable JSON.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
 }
 
 /// How mosaico drives a CLI.
@@ -63,8 +60,8 @@ impl Transport {
 }
 
 impl HarnessesConfig {
-    /// Load `<mosaico_home>/harnesses.json`. Absent file => empty map (fail-open on
-    /// the file). Malformed JSON => error (fail-loud on corruption).
+    /// Load `<mosaico_home>/harnesses.json`. Absent file => empty map; a launch
+    /// still fails unless its agent-selected bundle is explicitly configured.
     pub fn load() -> anyhow::Result<Self> {
         let path = crate::config::mosaico_home().join("harnesses.json");
         Self::load_from(&path)

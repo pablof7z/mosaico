@@ -17,11 +17,7 @@ pub(super) fn reserve_fresh(
     group: Option<&str>,
     session_name: Option<&str>,
 ) -> Result<Reservation> {
-    let agent = crate::identity::load_or_create(
-        &crate::config::mosaico_home(),
-        slug,
-        crate::util::now_secs(),
-    )?;
+    let agent = crate::identity::load(&crate::config::mosaico_home(), slug)?;
     let prepared = crate::daemon::server::prepare_session_identity(state, &agent, session_name)?;
     reserve_prepared(
         state,
@@ -53,11 +49,7 @@ pub(super) fn reserve_resume(
         .with_context(|| {
             format!("no local pubkey owns {harness} resume locator {native_resume:?}")
         })?;
-    let agent = crate::identity::load_or_create(
-        &crate::config::mosaico_home(),
-        slug,
-        crate::util::now_secs(),
-    )?;
+    let agent = crate::identity::load(&crate::config::mosaico_home(), slug)?;
     let session = state
         .with_store(|store| store.get_session(&pubkey))?
         .with_context(|| format!("resume pubkey {pubkey} has no local runtime projection"))?;

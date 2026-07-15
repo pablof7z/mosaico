@@ -180,14 +180,13 @@ async fn hook_dispatch(
     // A slug from MOSAICO_AGENT (set by `mosaico launch`) is always
     // authoritative. Otherwise, look for a live ancestor directly running
     // `claude --agent <name>` (bypassing `mosaico launch`) and treat it the
-    // same as if it had been launched under that identity — including, for a
-    // brand-new slug, provisioning it with the real invocation as its spawn
-    // command (see `report_observation`'s `provision_command`).
+    // same as if it had been launched under that identity. The profile name is
+    // retained, but argv remains owned by harnesses.json.
     let env_slug = agent_env_slug();
-    let (agent_slug, provision_command): (String, Option<Vec<String>>) = match &env_slug {
+    let (agent_slug, profile): (String, Option<String>) = match &env_slug {
         Some(s) => (s.clone(), None),
         None if host.name == "claude-code" => find_direct_agent_invocation()
-            .map(|(slug, argv)| (slug, Some(argv)))
+            .map(|slug| (slug.clone(), Some(slug)))
             .unwrap_or_else(|| (host.agent_slug.to_string(), None)),
         None => (host.agent_slug.to_string(), None),
     };
@@ -318,7 +317,7 @@ async fn hook_dispatch(
                 harness_session_id,
                 resume_id,
                 watch_pid,
-                provision_command,
+                profile.clone(),
             )
             .await
             {
@@ -352,7 +351,7 @@ async fn hook_dispatch(
                     Some(sid.clone()),
                     resume_id.clone(),
                     watch_pid,
-                    provision_command,
+                    profile,
                 )
                 .await
                 {

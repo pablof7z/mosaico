@@ -10,6 +10,7 @@ fn pty_spawn_uses_requested_public_name_and_rejects_conflict() {
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
     let session_name = "forensic-researcher";
+    configure_pty_agent(&home, "codex", "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -22,7 +23,6 @@ fn pty_spawn_uses_requested_public_name_and_rejects_conflict() {
                     "channel": &channel,
                     "cwd": &work_dir,
                     "session_name": session_name,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await
@@ -48,7 +48,6 @@ fn pty_spawn_uses_requested_public_name_and_rejects_conflict() {
                 "channel": &channel,
                 "cwd": &work_dir,
                 "session_name": session_name,
-                "launch": {"kind": "pty-command", "argv": no_hook_command()},
             }),
         )
         .await

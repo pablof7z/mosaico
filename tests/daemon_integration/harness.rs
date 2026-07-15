@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 #[path = "harness/daemon.rs"]
 mod daemon;
 pub(crate) use daemon::stop_daemon;
+#[path = "harness/launch.rs"]
+mod launch;
+pub(crate) use launch::{configure_pty_agent, install_test_harness_shim};
 
 pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -48,6 +51,7 @@ impl Drop for Home {
 impl Home {
     pub(crate) fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
+        install_test_harness_shim(dir.path());
         std::env::set_var("MOSAICO_HOME", dir.path());
         let cfg = dir.path().join("config.json");
         let body = serde_json::json!({

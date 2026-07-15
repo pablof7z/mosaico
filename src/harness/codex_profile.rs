@@ -17,7 +17,7 @@ pub(super) fn source_home() -> Result<PathBuf> {
     }
     let home = std::env::var_os("HOME")
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("codex_config_profile requires CODEX_HOME or HOME"))?;
+        .ok_or_else(|| anyhow::anyhow!("Codex app-server profile requires CODEX_HOME or HOME"))?;
     Ok(PathBuf::from(home).join(".codex"))
 }
 
@@ -88,9 +88,7 @@ fn validate_name(name: &str) -> Result<()> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
-        anyhow::bail!(
-            "invalid codex_config_profile {name:?}; use only letters, numbers, '-' and '_'"
-        );
+        anyhow::bail!("invalid Codex profile {name:?}; use only letters, numbers, '-' and '_'");
     }
     Ok(())
 }

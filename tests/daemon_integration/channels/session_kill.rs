@@ -16,14 +16,6 @@ fn add_workspace_mapping(home: &Home, channel: &str, path: &Path) {
     std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
 }
 
-fn no_hook_command() -> Vec<String> {
-    vec![
-        "sh".to_string(),
-        "-lc".to_string(),
-        "while true; do sleep 1; done".to_string(),
-    ]
-}
-
 fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Session {
     let mut found = None;
     assert!(
@@ -50,6 +42,7 @@ fn session_kill_stops_pty_session_and_marks_offline() {
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "kill-agent";
+    configure_pty_agent(&home, agent, "forever");
 
     let pty_id = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -61,7 +54,6 @@ fn session_kill_stops_pty_session_and_marks_offline() {
                     "root": &channel,
                     "channel": &channel,
                     "cwd": &work_dir,
-                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
                 }),
             )
             .await

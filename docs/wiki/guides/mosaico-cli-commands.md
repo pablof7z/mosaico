@@ -31,9 +31,9 @@ The live view command is `mosaico who --live`. <!-- [^75f62-92209] -->
 
 The `mosaico launch` CLI command reattaches a live public session handle, resumes an exited handle when its harness supports it, or spawns a new agent harness (e.g. claude, codex) inside a detached pty session. <!-- [^abce9-05e58] -->
 
-Agent launch configuration uses a `commands` array in `~/.mosaico/agents/<slug>.json`, with entries shaped as `{"name":"safe","argv":["claude"]}`.
+Each `~/.mosaico/agents/<slug>.json` selects one required `harness` bundle and an optional harness-specific `profile`. The bundle is defined in `~/.mosaico/harnesses.json` and owns the underlying harness, transport, and operational args. Profile application is code-owned per harness and transport: Claude PTY/headless uses `--agent <profile>`; Codex PTY/headless uses `--profile <profile>`; Codex app-server stages the selected `$CODEX_HOME/<profile>.config.toml` over the base config in an isolated `CODEX_HOME`, because app-server does not accept `--profile`. Codex custom-agent TOML is a separate concept and is not selected by this Codex config-profile mechanism. Unsupported harness/transport/profile combinations fail loudly; an absent profile uses the harness-native default.
 
-`mosaico launch <agent> --command-name <name>` selects one configured command non-interactively. `-c/--command <command>` overrides the whole launch argv for that invocation. When multiple commands exist and no name is passed, launch opens an interactive picker. When no commands exist, interactive launch offers suggestions from other agents' `commands` entries, then built-in harness defaults, and saves the selected command back as `commands`.
+`mosaico launch <agent>` uses that configuration directly. Launch-time command, bundle, and named-command overrides do not exist, and missing bundles fail instead of selecting a built-in fallback.
 
 ## Command Tree
 

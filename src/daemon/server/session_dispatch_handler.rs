@@ -84,7 +84,7 @@ async fn spawn_dispatched(
 ) -> bool {
     let slug = &op.target.slug;
     let mosaico_home = config::mosaico_home();
-    if let Err(e) = crate::identity::load_or_create(&mosaico_home, slug, now_secs()) {
+    if let Err(e) = crate::identity::load(&mosaico_home, slug) {
         tracing::error!(slug = %slug, error = %e, "session dispatch: failed to mint agent identity");
         return false;
     }

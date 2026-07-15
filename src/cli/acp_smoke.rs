@@ -17,8 +17,7 @@ use crate::rpc_harness::{
 
 #[derive(Args)]
 pub struct AcpSmokeArgs {
-    /// Harness bundle to drive (e.g. `opencode`, `claude-acp`, `codex`). Falls
-    /// back to a built-in bundle when absent from harnesses.json.
+    /// Explicit RPC harness bundle from harnesses.json.
     pub harness: String,
     /// Working directory for the session (defaults to a temp dir).
     #[arg(long)]
@@ -28,37 +27,21 @@ pub struct AcpSmokeArgs {
     pub prompt: String,
 }
 
-/// Resolve `name` to an RPC-transport bundle. A config bundle with an RPC
-/// transport is honored as-is; otherwise the bare harness slug is mapped to its
-/// natural RPC transport (opencode/claude -> ACP, codex -> app-server) so the
-/// smoke drives the JSON-RPC path rather than the PTY fallback.
+/// Resolve `name` to an explicitly configured RPC-transport bundle.
 fn resolve_rpc(name: &str, scratch: &std::path::Path) -> Result<crate::harness::ResolvedHarness> {
-    use crate::harness::{config::HarnessesConfig, driver, Transport};
-    use crate::session::Harness;
+    use crate::harness::{config::HarnessesConfig, Transport};
 
     let cfg = HarnessesConfig::load()?;
-    if let Some(bundle) = cfg.get(name) {
-        if matches!(bundle.transport, Transport::Acp | Transport::AppServer) {
-            return crate::harness::resolve_with(&cfg, name, scratch);
-        }
+    let bundle = cfg
+        .get(name)
+        .with_context(|| format!("no harness bundle {name:?} in harnesses.json"))?;
+    if !matches!(bundle.transport, Transport::Acp | Transport::AppServer) {
+        anyhow::bail!(
+            "harness bundle {name:?} uses {}, not an RPC transport",
+            bundle.transport.as_str()
+        );
     }
-    // Built-in RPC mapping for a bare slug.
-    let harness = Harness::from_str(name);
-    let transport = match harness {
-        Harness::Opencode | Harness::ClaudeCode => Transport::Acp,
-        Harness::Codex => Transport::AppServer,
-        _ => anyhow::bail!("harness {name:?} has no RPC transport for the smoke"),
-    };
-    let d = driver::lookup(harness, transport)
-        .with_context(|| format!("no driver for {}/{}", harness.as_str(), transport.as_str()))?;
-    Ok(crate::harness::ResolvedHarness {
-        bundle: name.to_string(),
-        harness,
-        transport,
-        driver: d,
-        base_argv: d.base_argv.iter().map(|s| s.to_string()).collect(),
-        profile: crate::harness::ProfilePlan::default(),
-    })
+    crate::harness::resolve_with(&cfg, name, None, scratch)
 }
 
 pub async fn acp_smoke(args: AcpSmokeArgs) -> Result<()> {

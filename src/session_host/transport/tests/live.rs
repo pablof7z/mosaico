@@ -23,7 +23,8 @@ fn live_spec(home: &std::path::Path, pubkey: String) -> LaunchSpec {
     std::fs::create_dir_all(&cwd).unwrap();
     LaunchSpec {
         slug: "opencode-acp".into(),
-        bundle: Some("opencode-acp".into()),
+        bundle: "opencode-acp".into(),
+        profile: None,
         root: "live".into(),
         abs_path: cwd.to_string_lossy().into_owned(),
         group: None,
@@ -39,7 +40,7 @@ async fn live_launch_dispatch_spawns_opencode_acp() {
     let Some(home) = live_home("launch") else {
         return;
     };
-    let transport = select_transport(Some("opencode-acp")).unwrap();
+    let transport = select_transport("opencode-acp").unwrap();
     assert_eq!(transport.kind(), TransportKind::Acp);
     let TransportImpl::Acp(acp) = transport else {
         panic!("expected ACP transport for an acp bundle");
@@ -65,7 +66,7 @@ async fn live_acp_agent_receives_delivered_prompt() {
     let Some(home) = live_home("deliver") else {
         return;
     };
-    let TransportImpl::Acp(acp) = select_transport(Some("opencode-acp")).unwrap() else {
+    let TransportImpl::Acp(acp) = select_transport("opencode-acp").unwrap() else {
         panic!("expected ACP transport for an acp bundle");
     };
     let endpoint = acp

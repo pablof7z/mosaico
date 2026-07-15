@@ -41,12 +41,13 @@ impl TransportKind {
 #[derive(Debug, Clone)]
 pub struct LaunchSpec {
     pub slug: String,
-    /// The agent's configured harness *bundle* name (a `harnesses.json` key or a
-    /// built-in harness slug), if any. Distinct from [`Self::slug`]: an agent
+    /// The agent's configured harness bundle name (a `harnesses.json` key).
+    /// Distinct from [`Self::slug`]: an agent
     /// `reviewer` may run bundle `codex-acp`. The ACP transport MUST resolve its
     /// harness/driver from this bundle, never from the agent slug (defect #1).
-    /// `None` for agents with no configured bundle (PTY agents).
-    pub bundle: Option<String>,
+    pub bundle: String,
+    /// Optional harness-native named profile from the agent definition.
+    pub profile: Option<String>,
     pub root: String,
     pub abs_path: String,
     pub group: Option<String>,
@@ -133,54 +134,17 @@ impl TransportImpl {
     }
 }
 
-/// Pick the transport for an agent from its configured harness bundle.
-///
-/// `bundle` is the agent's `harness` field (a `harnesses.json` bundle name), or
-/// `None` when the agent has no bundle configured — in which case the transport
-/// is always the PTY, preserving current behavior byte-for-byte. A bundle whose
-/// transport is `Acp`/`AppServer` selects [`AcpTransport`]; `Pty` selects
-/// [`PtyTransport`].
-///
-/// Defect #5: a `HeadlessExec` bundle is a **hard error** here, NOT collapsed onto
-/// the PTY. Headless bundles run a one-shot argv (`claude -p` / `codex exec` /
-/// `opencode run`) and must reach the real exec path (`session_host::exec`); an
-/// interactive PTY supervisor would run that argv as a long-lived TTY and never
-/// complete a turn. Until headless hosting is wired through this seam, refusing
-/// loudly beats a silently-wrong transport. This bail is deliberately NOT swallowed
-/// by the fail-open path below — a cleanly-resolved-but-unsupported transport is a
-/// real error, unlike a missing/malformed config.
-///
-/// Defect #3 contract: this launch-time entry point otherwise **fails open to the
-/// PTY** (with a loud `WARN`) when `harnesses.json` is missing or malformed, rather
-/// than aborting a launch that previously worked. A configured-but-unresolvable
-/// bundle is almost always a corrupt/edited config, and a bundle-carrying agent
-/// that used to launch on the PTY (its bundle resolving to `Pty`) must not be
-/// bricked by an unrelated config error. This mirrors the `agent_harness_bundle`
-/// "absent config => `None` => PTY" fail-open. The pure core
-/// [`select_transport_with`] / [`transport_kind_for`] stay fail-loud so the strict
-/// resolution contract remains unit-testable; only this IO wrapper softens it. The
-/// cost — a genuinely-ACP agent silently launching on the PTY under a corrupt
-/// config — surfaces loudly downstream (an ACP-only agent has no PTY `commands`
-/// entry, so the PTY launch then fails at command resolution).
-pub fn select_transport(bundle: Option<&str>) -> Result<TransportImpl> {
-    transport_impl_for(resolve_transport_fail_open(bundle))
+/// Pick the exact transport for a required configured bundle.
+pub fn select_transport(bundle: &str) -> Result<TransportImpl> {
+    let cfg = HarnessesConfig::load()?;
+    select_transport_with(&cfg, bundle)
 }
 
-/// Resolve the transport kind for an agent `slug` from its configured harness
-/// bundle, failing open to [`TransportKind::Pty`] on any resolution error
-/// (mirrors [`select_transport`]). Used by the transport-aware delivery path,
-/// which must classify a live session's endpoint as PTY vs. ACP.
-///
-/// A `HeadlessExec` bundle classifies as `Pty` here (rather than erroring):
-/// `select_transport` refuses to *launch* one, so no headless endpoint is ever
-/// live, and this classification branch is only a safe default for the
-/// already-live delivery/liveness path.
-pub fn transport_kind_for_slug(slug: &str) -> TransportKind {
-    let bundle = crate::identity::agent_harness_bundle(&crate::config::mosaico_home(), slug);
-    match resolve_transport_fail_open(bundle.as_deref()) {
-        Transport::Acp | Transport::AppServer => TransportKind::Acp,
-        Transport::Pty | Transport::HeadlessExec => TransportKind::Pty,
-    }
+/// Resolve an agent's configured hosted-session transport without fallback.
+pub fn transport_kind_for_slug(slug: &str) -> Result<TransportKind> {
+    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
+    let cfg = HarnessesConfig::load()?;
+    transport_kind_for(&cfg, &launch.harness)
 }
 
 /// Map a fully-resolved raw [`Transport`] to its hosting [`TransportImpl`], with
@@ -197,64 +161,12 @@ fn transport_impl_for(transport: Transport) -> Result<TransportImpl> {
     })
 }
 
-/// Shared fail-open resolution of a bundle to its raw [`Transport`]: `None`/empty
-/// bundle => `Pty` (no config touched); otherwise load `harnesses.json` and
-/// resolve, falling back to `Pty` with a `WARN` if the config is missing/malformed
-/// or the bundle is unresolvable. NOTE: this does NOT special-case `HeadlessExec` —
-/// callers decide (launch hard-bails via [`transport_impl_for`], delivery
-/// classification downgrades to PTY).
-fn resolve_transport_fail_open(bundle: Option<&str>) -> Transport {
-    // Short-circuit the no-bundle case WITHOUT touching harnesses.json: an agent
-    // with no configured bundle always launches on the PTY, and must not be made
-    // to depend on (or fail because of) a malformed harnesses.json it never uses.
-    let Some(bundle) = bundle.filter(|b| !b.is_empty()) else {
-        return Transport::Pty;
-    };
-    resolve_transport_fail_open_with(bundle, HarnessesConfig::load())
+pub fn select_transport_with(cfg: &HarnessesConfig, bundle: &str) -> Result<TransportImpl> {
+    transport_impl_for(harness::bundle_transport_with(cfg, bundle)?)
 }
 
-/// Testable core of [`resolve_transport_fail_open`]: given a non-empty bundle and
-/// the (possibly failed) config load, resolve the raw transport, failing open to
-/// `Transport::Pty` with a `WARN` on any config/resolution error (defect #3). Kept
-/// separate from the IO so the fail-open contract is unit-testable without touching
-/// the filesystem/`mosaico_home`.
-fn resolve_transport_fail_open_with(
-    bundle: &str,
-    cfg: anyhow::Result<HarnessesConfig>,
-) -> Transport {
-    match cfg.and_then(|cfg| harness::bundle_transport_with(&cfg, bundle)) {
-        Ok(transport) => transport,
-        Err(e) => {
-            tracing::warn!(
-                bundle = %bundle,
-                error = %format!("{e:#}"),
-                "harness bundle transport resolution failed (missing/malformed harnesses.json?); \
-                 falling back to PTY transport"
-            );
-            Transport::Pty
-        }
-    }
-}
-
-/// Testable core of [`select_transport`] that takes the config explicitly. Fails
-/// loud (including the defect #5 `HeadlessExec` bail) rather than fail-open.
-pub fn select_transport_with(cfg: &HarnessesConfig, bundle: Option<&str>) -> Result<TransportImpl> {
-    let transport = match bundle.filter(|b| !b.is_empty()) {
-        Some(bundle) => harness::bundle_transport_with(cfg, bundle)?,
-        None => Transport::Pty,
-    };
-    transport_impl_for(transport)
-}
-
-/// Resolve a bundle name to the [`TransportKind`] that will host it. `None`/empty
-/// bundle => `Pty`. Fails loud if the bundle is neither in `harnesses.json` nor a
-/// built-in harness slug (mirrors `harness::resolve`), and — defect #5 — if the
-/// bundle resolves to `HeadlessExec`, which has no `TransportKind` (it is not a
-/// hosted-session transport; it must reach `session_host::exec`).
-pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: Option<&str>) -> Result<TransportKind> {
-    let Some(bundle) = bundle.filter(|b| !b.is_empty()) else {
-        return Ok(TransportKind::Pty);
-    };
+/// Resolve a required bundle to the hosted-session transport kind.
+pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: &str) -> Result<TransportKind> {
     Ok(match harness::bundle_transport_with(cfg, bundle)? {
         Transport::Acp | Transport::AppServer => TransportKind::Acp,
         Transport::Pty => TransportKind::Pty,

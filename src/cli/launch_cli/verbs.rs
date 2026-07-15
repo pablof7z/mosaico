@@ -16,11 +16,6 @@ pub(super) async fn launch(request: LaunchRequest) -> Result<()> {
         root,
         channel,
         session_name,
-        command_name,
-        harness,
-        headless,
-        override_command,
-        extra_args,
         prompt,
     } = request;
     let root = match root {
@@ -28,54 +23,25 @@ pub(super) async fn launch(request: LaunchRequest) -> Result<()> {
         None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
     };
 
-    if headless {
-        super::harness_picker::configured_rpc_bundle(&agent)?.with_context(|| {
-            format!(
-                "--headless requires agent {agent:?} to select an ACP/app-server harness bundle"
-            )
-        })?;
+    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), &agent)?;
+    let cfg = crate::harness::HarnessesConfig::load()?;
+    let transport = crate::harness::bundle_transport_with(&cfg, &launch.harness)?;
+    if matches!(
+        transport,
+        crate::harness::Transport::Acp | crate::harness::Transport::AppServer
+    ) {
         let channel = resolve_launch_channel(&root, &agent, channel).await?;
-        return launch_acp_headless(agent, root, channel, session_name, extra_args, prompt).await;
+        return launch_acp_headless(agent, root, channel, session_name, prompt).await;
     }
-
-    let pty_source = if let Some(bundle) = harness {
-        super::pty_launch::CommandSource::Bundle(
-            super::harness_picker::validate_explicit_pty_bundle(&bundle)?,
-        )
-    } else if !override_command.is_empty() {
-        super::pty_launch::CommandSource::Command(override_command)
-    } else if command_name.is_some() {
-        super::pty_launch::CommandSource::Command(super::launch_command::resolve_launch_command(
-            &agent,
-            command_name.as_deref(),
-            &extra_args,
-        )?)
-    } else if let Some(bundle) = super::harness_picker::configured_rpc_bundle(&agent)? {
-        match super::harness_picker::choose_rpc_launch(&bundle)? {
-            super::harness_picker::RpcLaunchChoice::PtyBundle(bundle) => {
-                super::pty_launch::CommandSource::Bundle(bundle)
-            }
-            super::harness_picker::RpcLaunchChoice::Headless => {
-                let channel = resolve_launch_channel(&root, &agent, channel).await?;
-                return launch_acp_headless(agent, root, channel, session_name, extra_args, prompt)
-                    .await;
-            }
-        }
-    } else {
-        super::pty_launch::CommandSource::Command(super::launch_command::resolve_launch_command(
-            &agent,
-            None,
-            &extra_args,
-        )?)
-    };
+    if transport == crate::harness::Transport::HeadlessExec {
+        anyhow::bail!("agent {agent:?} uses a headless-exec bundle and cannot be attached");
+    }
     let channel = resolve_launch_channel(&root, &agent, channel).await?;
     super::pty_launch::launch(super::pty_launch::PtyLaunchRequest {
         agent,
         root,
         channel,
         session_name,
-        source: pty_source,
-        extra_args,
         prompt,
     })
     .await
@@ -139,7 +105,6 @@ async fn launch_acp_headless(
     root: String,
     channel: Option<String>,
     session_name: Option<String>,
-    extra_args: Vec<String>,
     prompt: Option<String>,
 ) -> Result<()> {
     let cwd = std::env::current_dir()
@@ -150,8 +115,6 @@ async fn launch_acp_headless(
     let mut params = serde_json::json!({
         "agent": agent,
         "root": root,
-        "launch": { "kind": "configured" },
-        "args": extra_args,
         "channel": channel,
         "session_name": session_name,
         "cwd": cwd,

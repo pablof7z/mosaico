@@ -4,9 +4,9 @@ fn ordinary_agent() -> crate::identity::AgentIdentity {
     crate::identity::AgentIdentity {
         slug: "codex".into(),
         keys: Keys::generate(),
-        commands: Vec::new(),
         per_session_key: true,
-        harness: None,
+        harness: "codex".into(),
+        profile: None,
     }
 }
 

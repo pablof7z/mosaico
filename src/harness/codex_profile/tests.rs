@@ -72,7 +72,7 @@ fn profile_name_validation_rejects_paths_and_whitespace() {
         let error = plan(invalid, source.path(), scratch.path())
             .unwrap_err()
             .to_string();
-        assert!(error.contains("invalid codex_config_profile"), "{error}");
+        assert!(error.contains("invalid Codex profile"), "{error}");
     }
 }
 

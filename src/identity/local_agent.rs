@@ -1,29 +1,27 @@
 use super::{
-    agents_dir, atomic_write, commands, key_path, validate_slug, AgentIdentity, LaunchCommand,
-    StoredKey,
+    agents_dir, atomic_write, key_path, normalize_optional_config_name, validate_config_name,
+    validate_slug, AgentIdentity, StoredKey,
 };
 use anyhow::{bail, Context, Result};
 use nostr_sdk::prelude::*;
 use std::path::{Path, PathBuf};
 
-pub type SpawnAgentEntry = (
-    String,
-    Vec<LaunchCommand>,
-    Option<serde_json::Value>,
-    Option<String>,
-);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentLaunchConfig {
+    pub harness: String,
+    pub profile: Option<String>,
+}
 
 /// A local agent as listed by `mosaico mgmt agent list`: its slug, hex pubkey, and
-/// configured harness launch commands. Distinct from `list_local_agents` (which
-/// the spawn path uses) in that it also surfaces the pubkey for the operator.
+/// configured launch selection. Distinct from `list_local_agents` (which the
+/// roster path uses) in that it also surfaces the pubkey for the operator.
 #[derive(Debug, Clone)]
 pub struct LocalAgent {
     pub slug: String,
     pub pubkey: String,
-    pub commands: Vec<LaunchCommand>,
     pub per_session_key: bool,
-    /// Configured harness bundle name, if any (see [`agent_harness_bundle`]).
-    pub harness: Option<String>,
+    pub harness: String,
+    pub profile: Option<String>,
 }
 
 /// Every agent in the local keystore (their hex pubkeys). Your own fleet trusts
@@ -61,10 +59,10 @@ pub fn list_local_pubkeys(mosaico_home: &Path) -> Vec<String> {
     out
 }
 
-/// All agents in the local keystore with their configured harness commands and
-/// display byline. Used by the spawn machinery: commands from the agent file
-/// take priority over SPAWN_DEFS.
-pub fn list_local_agents(mosaico_home: &Path) -> Vec<SpawnAgentEntry> {
+/// All configured agents as `(slug, harness, profile, byline)`.
+pub fn list_local_agents(
+    mosaico_home: &Path,
+) -> Vec<(String, String, Option<String>, Option<String>)> {
     let dir = agents_dir(mosaico_home);
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -77,12 +75,7 @@ pub fn list_local_agents(mosaico_home: &Path) -> Vec<SpawnAgentEntry> {
                 Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
                     Ok(k) => {
                         let byline = k.effective_byline();
-                        out.push((
-                            k.slug,
-                            commands::normalize_commands(k.commands),
-                            k.agent,
-                            byline,
-                        ));
+                        out.push((k.slug, k.harness, k.profile, byline));
                     }
                     Err(e) => tracing::warn!(
                         path = %path.display(),
@@ -145,11 +138,11 @@ pub fn list_invitable_agents(mosaico_home: &Path) -> Vec<(String, Option<String>
 pub fn list_advertised_agents(mosaico_home: &Path) -> Vec<(String, String)> {
     list_local_agents(mosaico_home)
         .into_iter()
-        .map(|(slug, _commands, _agent_def, byline)| (slug, byline.unwrap_or_default()))
+        .map(|(slug, _harness, _profile, byline)| (slug, byline.unwrap_or_default()))
         .collect()
 }
 
-/// Every agent in the local keystore, with slug + pubkey + commands, sorted by slug.
+/// Every agent in the local keystore, sorted by slug.
 pub fn list_local_agent_details(mosaico_home: &Path) -> Vec<LocalAgent> {
     let dir = agents_dir(mosaico_home);
     let mut out = Vec::new();
@@ -164,9 +157,9 @@ pub fn list_local_agent_details(mosaico_home: &Path) -> Vec<LocalAgent> {
                     Ok(k) => out.push(LocalAgent {
                         slug: k.slug,
                         pubkey: k.public_key,
-                        commands: commands::normalize_commands(k.commands),
                         per_session_key: k.per_session_key,
                         harness: k.harness,
+                        profile: k.profile,
                     }),
                     Err(e) => tracing::warn!(
                         path = %path.display(),
@@ -186,31 +179,18 @@ pub fn list_local_agent_details(mosaico_home: &Path) -> Vec<LocalAgent> {
     out
 }
 
-/// Add a local agent: mint + persist a keypair if the slug is new. When
-/// `command` is `Some`, set (or overwrite) the default named harness launch
-/// command. Returns the resolved identity and whether the keypair was newly
-/// created (`true`) or already existed (`false`).
+/// Add or update a configured local agent. The harness bundle is required; an
+/// absent profile means to use the harness-native default.
 pub fn add_local_agent(
     mosaico_home: &Path,
     slug: &str,
-    command: Option<Vec<String>>,
-    now: u64,
-) -> Result<(AgentIdentity, bool)> {
-    let commands = command
-        .and_then(LaunchCommand::default)
-        .into_iter()
-        .collect();
-    add_local_agent_with_commands(mosaico_home, slug, commands, now)
-}
-
-pub(crate) fn add_local_agent_with_commands(
-    mosaico_home: &Path,
-    slug: &str,
-    commands: Vec<LaunchCommand>,
+    harness: &str,
+    profile: Option<&str>,
     now: u64,
 ) -> Result<(AgentIdentity, bool)> {
     validate_slug(slug)?;
-    let commands = commands::normalize_commands(commands);
+    let harness = validate_config_name("harness", harness)?;
+    let profile = normalize_optional_config_name("profile", profile)?;
     let path = key_path(mosaico_home, slug);
     if path.exists() {
         let s = std::fs::read_to_string(&path)
@@ -219,19 +199,17 @@ pub(crate) fn add_local_agent_with_commands(
             serde_json::from_str(&s).with_context(|| format!("parsing key {}", path.display()))?;
         let keys = Keys::parse(&stored.secret_key)
             .with_context(|| format!("parsing secret key for {slug}"))?;
-        if !commands.is_empty() {
-            stored.commands = commands;
-            let body = serde_json::to_string_pretty(&stored)?;
-            atomic_write(&path, &body)?;
-        }
-        let commands = commands::normalize_commands(stored.commands);
+        stored.harness = harness;
+        stored.profile = profile;
+        let body = serde_json::to_string_pretty(&stored)?;
+        atomic_write(&path, &body)?;
         return Ok((
             AgentIdentity {
                 slug: slug.to_string(),
                 keys,
-                commands,
                 per_session_key: stored.per_session_key,
                 harness: stored.harness,
+                profile: stored.profile,
             },
             false,
         ));
@@ -243,11 +221,10 @@ pub(crate) fn add_local_agent_with_commands(
         secret_key: keys.secret_key().to_secret_hex(),
         public_key: keys.public_key().to_hex(),
         created_at: now,
-        commands: commands.clone(),
-        agent: None,
         byline: None,
         per_session_key: true,
-        harness: None,
+        harness,
+        profile,
     };
     std::fs::create_dir_all(agents_dir(mosaico_home))
         .with_context(|| format!("creating {}", agents_dir(mosaico_home).display()))?;
@@ -257,22 +234,25 @@ pub(crate) fn add_local_agent_with_commands(
         AgentIdentity {
             slug: slug.to_string(),
             keys,
-            commands,
             per_session_key: stored.per_session_key,
             harness: stored.harness,
+            profile: stored.profile,
         },
         true,
     ))
 }
 
-/// The configured harness bundle name for `slug`, if the agent opted into one.
-/// `None` means the built-in PTY spawn (unchanged behavior). A missing or
-/// unreadable keystore file is treated as "no bundle" (fail-open to PTY).
-pub fn agent_harness_bundle(mosaico_home: &Path, slug: &str) -> Option<String> {
+/// Load the exact bundle/profile selection for a configured agent.
+pub fn agent_launch_config(mosaico_home: &Path, slug: &str) -> Result<AgentLaunchConfig> {
     let path = key_path(mosaico_home, slug);
-    let s = std::fs::read_to_string(&path).ok()?;
-    let stored: StoredKey = serde_json::from_str(&s).ok()?;
-    stored.harness.filter(|h| !h.trim().is_empty())
+    let s = std::fs::read_to_string(&path)
+        .with_context(|| format!("reading configured agent {}", path.display()))?;
+    let stored: StoredKey =
+        serde_json::from_str(&s).with_context(|| format!("parsing agent {}", path.display()))?;
+    Ok(AgentLaunchConfig {
+        harness: stored.harness,
+        profile: stored.profile,
+    })
 }
 
 /// Set the local "when to use this agent" byline for an existing agent.

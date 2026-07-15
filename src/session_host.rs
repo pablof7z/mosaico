@@ -30,8 +30,7 @@ pub use launch::{
     resume_agent, resume_agent_in_channel, spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent,
     DispatchedSpawn,
 };
-pub(crate) use launch::{spawn_agent, SpawnRequest, SpawnSource};
-pub(crate) use registry::builtin_spawn_commands;
+pub(crate) use launch::{spawn_agent, SpawnRequest};
 pub use registry::spawnable_agents;
 
 #[cfg(test)]

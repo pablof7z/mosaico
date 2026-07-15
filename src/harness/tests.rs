@@ -1,183 +1,127 @@
 use super::*;
 use crate::session::Harness;
 
-fn tmp_scratch() -> std::path::PathBuf {
-    std::env::temp_dir().join("mosaico-harness-test-scratch")
+fn scratch() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap()
 }
 
 #[test]
-fn every_declared_cell_looks_up() {
-    // Sanity: each row in the table is reachable by its own key.
-    for d in driver::all() {
-        let got = driver::lookup(d.harness, d.transport).expect("row must be findable");
-        assert_eq!(got.harness, d.harness);
-        assert_eq!(got.transport, d.transport);
+fn every_declared_driver_cell_looks_up() {
+    for declared in driver::all() {
+        let resolved = driver::lookup(declared.harness, declared.transport).unwrap();
+        assert_eq!(resolved.harness, declared.harness);
+        assert_eq!(resolved.transport, declared.transport);
     }
 }
 
 #[test]
-fn invalid_cell_is_absent() {
-    // Codex has no native ACP; Grok is PTY-only.
+fn invalid_driver_cells_are_absent() {
     assert!(driver::lookup(Harness::Codex, Transport::Acp).is_none());
     assert!(driver::lookup(Harness::Grok, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Opencode, Transport::AppServer).is_none());
 }
 
 #[test]
-fn claude_acp_uses_adapter_not_binary() {
-    let d = driver::lookup(Harness::ClaudeCode, Transport::Acp).unwrap();
-    assert_eq!(
-        d.base_argv,
-        &["npx", "--yes", "@agentclientprotocol/claude-agent-acp"]
-    );
-    assert!(d
-        .base_env
-        .contains(&driver::EnvDirective::Remove("CLAUDECODE")));
-    assert_eq!(d.resume, driver::ResumeMechanism::AcpSessionLoad);
-    assert_eq!(d.turn, driver::TurnModel::RpcTurn);
-}
-
-#[test]
-fn codex_app_server_steer_and_config_flags() {
-    let d = driver::lookup(Harness::Codex, Transport::AppServer).unwrap();
-    assert_eq!(d.base_argv, &["codex", "app-server"]);
-    assert_eq!(d.steer, driver::SteerPrimitive::AppServerSteer);
-    assert_eq!(
-        d.profile,
-        driver::ProfileMechanism::CliConfigFlags { flag: "-c" }
-    );
-    assert_eq!(d.resume, driver::ResumeMechanism::AppServerThreadResume);
-}
-
-#[test]
-fn config_parses_bundles_and_rejects_unknown_harness() {
-    let json = r#"{
-        "claude-acp": { "harness": "claude", "transport": "acp",
-                        "profile": { "permissions": { "defaultMode": "acceptEdits" } } },
-        "codex": { "harness": "codex", "transport": "app-server",
-                   "codex_config_profile": "planner",
-                   "profile": { "model": "gpt-5-codex", "sandbox_mode": "workspace-write" } }
-    }"#;
-    let cfg: config::HarnessesConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(cfg.get("claude-acp").unwrap().harness, Harness::ClaudeCode);
-    assert_eq!(cfg.get("codex").unwrap().transport, Transport::AppServer);
-    assert_eq!(
-        cfg.get("codex").unwrap().codex_config_profile.as_deref(),
-        Some("planner")
-    );
-
-    let bad = r#"{ "x": { "harness": "gpt5", "transport": "acp" } }"#;
-    assert!(serde_json::from_str::<config::HarnessesConfig>(bad).is_err());
-}
-
-#[test]
-fn missing_config_file_is_empty() {
-    let cfg = config::HarnessesConfig::load_from(std::path::Path::new(
-        "/nonexistent/mosaico/harnesses.json",
-    ))
+fn config_accepts_only_harness_transport_and_args() {
+    let cfg: HarnessesConfig = serde_json::from_str(
+        r#"{
+          "yolo-claude": {
+            "harness": "claude",
+            "transport": "pty",
+            "args": ["--dangerously-skip-permissions"]
+          }
+        }"#,
+    )
     .unwrap();
-    assert!(cfg.bundles.is_empty());
+    assert_eq!(cfg.get("yolo-claude").unwrap().harness, Harness::ClaudeCode);
+    assert_eq!(cfg.get("yolo-claude").unwrap().transport, Transport::Pty);
+
+    for removed in [
+        r#"{"x":{"harness":"claude","transport":"pty","profile":"reviewer"}}"#,
+        r#"{"x":{"harness":"codex","transport":"app-server","codex_config_profile":"planner"}}"#,
+        r#"{"x":{"harness":"claude","transport":"pty","commands":["claude"]}}"#,
+    ] {
+        assert!(serde_json::from_str::<HarnessesConfig>(removed).is_err());
+    }
 }
 
 #[test]
-fn resolve_falls_back_to_builtin_pty_for_bare_slug() {
-    let cfg = config::HarnessesConfig::default();
-    let r = resolve_with(&cfg, "claude", &tmp_scratch()).unwrap();
-    assert_eq!(r.harness, Harness::ClaudeCode);
-    assert_eq!(r.transport, Transport::Pty);
-    assert_eq!(r.base_argv, vec!["claude".to_string()]);
-    assert!(r.profile.extra_argv.is_empty());
+fn missing_bundle_fails_without_builtin_fallback() {
+    let cfg = HarnessesConfig::default();
+    assert!(resolve_with(&cfg, "claude", None, scratch().path()).is_err());
 }
 
 #[test]
-fn resolve_unknown_bundle_fails_loud() {
-    let cfg = config::HarnessesConfig::default();
-    assert!(resolve_with(&cfg, "not-a-harness", &tmp_scratch()).is_err());
+fn claude_pty_combines_bundle_args_and_agent_profile() {
+    let cfg: HarnessesConfig = serde_json::from_str(
+        r#"{"yolo-claude":{"harness":"claude","transport":"pty","args":["--dangerously-skip-permissions"]}}"#,
+    )
+    .unwrap();
+    let resolved = resolve_with(&cfg, "yolo-claude", Some("reviewer"), scratch().path()).unwrap();
+    assert_eq!(
+        resolved.base_argv,
+        [
+            "claude",
+            "--dangerously-skip-permissions",
+            "--agent",
+            "reviewer"
+        ]
+    );
 }
 
 #[test]
-fn codex_profile_becomes_config_flags() {
-    let json = r#"{ "cx": { "harness": "codex", "transport": "app-server",
-                            "profile": { "model": "gpt-5-codex", "sandbox_mode": "workspace-write" } } }"#;
-    let cfg: config::HarnessesConfig = serde_json::from_str(json).unwrap();
-    let r = resolve_with(&cfg, "cx", &tmp_scratch()).unwrap();
-    // base_argv = ["codex","app-server"] + -c pairs (sorted by BTree? no, object
-    // order is preserved by serde_json). Assert both pairs present.
-    let joined = r.base_argv.join(" ");
-    assert!(joined.starts_with("codex app-server"));
-    assert!(joined.contains("-c model=gpt-5-codex"));
-    assert!(joined.contains("-c sandbox_mode=workspace-write"));
-    assert!(r.profile.files.is_empty());
+fn codex_pty_applies_profile_flag_in_code() {
+    let cfg: HarnessesConfig = serde_json::from_str(
+        r#"{"codex-yolo":{"harness":"codex","transport":"pty","args":["--yolo"]}}"#,
+    )
+    .unwrap();
+    let resolved = resolve_with(&cfg, "codex-yolo", Some("reviewer"), scratch().path()).unwrap();
+    assert_eq!(
+        resolved.base_argv,
+        ["codex", "--yolo", "--profile", "reviewer"]
+    );
 }
 
 #[test]
-fn codex_named_profile_composes_home_before_inline_overrides() {
-    let source = tempfile::tempdir().unwrap();
-    let scratch = tempfile::tempdir().unwrap();
+fn missing_agent_profile_uses_harness_default() {
+    let cfg: HarnessesConfig =
+        serde_json::from_str(r#"{"claude":{"harness":"claude","transport":"pty"}}"#).unwrap();
+    let resolved = resolve_with(&cfg, "claude", None, scratch().path()).unwrap();
+    assert_eq!(resolved.base_argv, ["claude"]);
+}
+
+#[test]
+fn codex_app_server_stages_named_profile() {
+    let source = scratch();
+    let target = scratch();
     std::fs::write(source.path().join("config.toml"), "model = 'base'\n").unwrap();
     std::fs::write(
         source.path().join("planner.config.toml"),
         "model = 'planner'\nsandbox_mode = 'read-only'\n",
     )
     .unwrap();
-    let json = r#"{ "cx": { "harness": "codex", "transport": "app-server",
-        "codex_config_profile": "planner",
-        "profile": { "model_reasoning_effort": "high" } } }"#;
-    let cfg: config::HarnessesConfig = serde_json::from_str(json).unwrap();
-    let resolved =
-        resolve_with_codex_home(&cfg, "cx", scratch.path(), Some(source.path())).unwrap();
-    assert!(resolved
-        .base_argv
-        .windows(2)
-        .any(|pair| pair == ["-c", "model_reasoning_effort=high"]));
-    resolved.profile.materialize().unwrap();
-    let staged_home = scratch.path().join("codex-home");
-    let staged: toml::Value =
-        toml::from_str(&std::fs::read_to_string(staged_home.join("config.toml")).unwrap()).unwrap();
-    assert_eq!(staged["model"].as_str(), Some("planner"));
-    assert_eq!(staged["sandbox_mode"].as_str(), Some("read-only"));
-    assert!(resolved.profile.extra_env.contains(&(
-        "CODEX_HOME".to_string(),
-        staged_home.to_string_lossy().into_owned()
-    )));
-}
-
-#[test]
-fn codex_named_profile_is_rejected_for_other_transports() {
-    let cfg: config::HarnessesConfig = serde_json::from_str(
-        r#"{ "cx": { "harness": "codex", "transport": "pty",
-             "codex_config_profile": "planner" } }"#,
+    let cfg: HarnessesConfig =
+        serde_json::from_str(r#"{"codex-rpc":{"harness":"codex","transport":"app-server"}}"#)
+            .unwrap();
+    let resolved = resolve_with_codex_home(
+        &cfg,
+        "codex-rpc",
+        Some("planner"),
+        target.path(),
+        Some(source.path()),
     )
     .unwrap();
-    let error = resolve_with(&cfg, "cx", &tmp_scratch())
-        .err()
-        .unwrap()
-        .to_string();
-    assert!(error.contains("only for a codex app-server bundle"));
+    assert_eq!(resolved.base_argv, ["codex", "app-server"]);
+    resolved.profile.materialize().unwrap();
+    let staged = std::fs::read_to_string(target.path().join("codex-home/config.toml")).unwrap();
+    assert!(staged.contains("model = \"planner\""));
+    assert!(staged.contains("sandbox_mode = \"read-only\""));
 }
 
 #[test]
-fn opencode_acp_profile_becomes_scratch_file_and_env() {
-    let json = r#"{ "oc": { "harness": "opencode", "transport": "acp",
-                            "profile": { "model": "anthropic/claude-sonnet-4-5" } } }"#;
-    let cfg: config::HarnessesConfig = serde_json::from_str(json).unwrap();
-    let scratch = tmp_scratch();
-    let r = resolve_with(&cfg, "oc", &scratch).unwrap();
-    assert_eq!(r.profile.files.len(), 1);
-    let (path, contents) = &r.profile.files[0];
-    assert!(path.ends_with("opencode.json"));
-    assert!(contents.contains("claude-sonnet-4-5"));
-    assert!(r
-        .profile
-        .extra_env
-        .iter()
-        .any(|(k, _)| k == "OPENCODE_CONFIG"));
-}
-
-#[test]
-fn grok_profile_is_unsupported() {
-    let json = r#"{ "g": { "harness": "grok", "transport": "pty",
-                          "profile": { "model": "x" } } }"#;
-    let cfg: config::HarnessesConfig = serde_json::from_str(json).unwrap();
-    assert!(resolve_with(&cfg, "g", &tmp_scratch()).is_err());
+fn unsupported_profile_pair_fails_loud() {
+    let cfg: HarnessesConfig =
+        serde_json::from_str(r#"{"claude-rpc":{"harness":"claude","transport":"acp"}}"#).unwrap();
+    assert!(resolve_with(&cfg, "claude-rpc", Some("reviewer"), scratch().path()).is_err());
+    assert!(resolve_with(&cfg, "claude-rpc", None, scratch().path()).is_ok());
 }

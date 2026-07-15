@@ -2,7 +2,7 @@
 pub(super) struct SessionStartParams {
     pub(super) agent: String,
     #[serde(default)]
-    pub(super) provision_command: Option<Vec<String>>,
+    pub(super) profile: Option<String>,
     /// Authoritative pubkey allocated before a managed process is spawned.
     #[serde(default)]
     pub(super) pubkey: Option<String>,
@@ -30,4 +30,21 @@ pub(super) struct SessionStartParams {
     pub(super) channels: Vec<String>,
     #[serde(default)]
     pub(super) dispatch_event: Option<String>,
+}
+
+pub(super) fn resolve_harness(p: &SessionStartParams) -> crate::session::Harness {
+    use crate::session::Harness;
+    p.harness
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(Harness::from_str)
+        .unwrap_or_else(|| {
+            if p.resume_id.is_some() {
+                Harness::Opencode
+            } else if p.harness_session.is_some() {
+                Harness::ClaudeCode
+            } else {
+                Harness::Unknown
+            }
+        })
 }

@@ -12,28 +12,33 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                     "No local agents in {}",
                     mosaico_home.join("agents").display()
                 );
-                println!("Add one with: mosaico mgmt agent add <slug> [-- <command>]");
+                println!("Add one with: mosaico mgmt agent add <slug> --harness <bundle>");
                 return Ok(());
             }
             let max_slug = rows.iter().map(|r| r.slug.len()).max().unwrap_or(0);
             for r in &rows {
-                let cmd = display_commands(&r.commands);
-                println!("{:<max_slug$}  {}", r.slug.bold(), cmd.dimmed());
+                let profile = r.profile.as_deref().unwrap_or("default");
+                println!(
+                    "{:<max_slug$}  {}  profile={}",
+                    r.slug.bold(),
+                    r.harness.dimmed(),
+                    profile.dimmed()
+                );
             }
         }
         AgentAction::Add {
             slug,
             workspaces,
-            command_str,
-            command,
+            harness,
+            profile,
         } => {
-            let command = match command_str {
-                Some(s) => Some(shlex::split(&s).unwrap_or_else(|| vec![s])),
-                None if !command.is_empty() => Some(command),
-                _ => None,
-            };
-            let (id, created) =
-                crate::identity::add_local_agent(&mosaico_home, &slug, command, now_secs())?;
+            let (id, created) = crate::identity::add_local_agent(
+                &mosaico_home,
+                &slug,
+                &harness,
+                profile.as_deref(),
+                now_secs(),
+            )?;
             let verb = if created { "created" } else { "updated" };
             println!(
                 "{} {} {}",
@@ -41,10 +46,11 @@ pub async fn agent(action: AgentAction) -> Result<()> {
                 slug.bold(),
                 pubkey_short(&id.pubkey_hex()).cyan()
             );
-            match id.commands.first() {
-                Some(c) => println!("  spawns: {}", c.display().dimmed()),
-                None => println!("  spawns: {}", "(no commands)".dimmed()),
-            }
+            println!("  harness: {}", id.harness.dimmed());
+            println!(
+                "  profile: {}",
+                id.profile.as_deref().unwrap_or("default").dimmed()
+            );
             if created {
                 if let Some(byline) = prompt_use_criteria()? {
                     crate::identity::set_local_agent_byline(&mosaico_home, &slug, Some(byline))?;
@@ -90,17 +96,6 @@ pub async fn agent(action: AgentAction) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn display_commands(commands: &[crate::identity::LaunchCommand]) -> String {
-    if commands.is_empty() {
-        return "(no commands)".to_string();
-    }
-    commands
-        .iter()
-        .map(crate::identity::LaunchCommand::display)
-        .collect::<Vec<_>>()
-        .join(" | ")
 }
 
 fn prompt_use_criteria() -> Result<Option<String>> {

@@ -293,7 +293,7 @@ fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) ->
     // would revive an immortal ghost.
     if matches!(
         transport_kind_for_slug(&snap.agent_slug),
-        TransportKind::Acp
+        Ok(TransportKind::Acp)
     ) {
         return endpoint_id_for(state, &snap.pubkey, crate::state::LOCATOR_ACP)
             .map(|endpoint_id| {

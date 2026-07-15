@@ -2,8 +2,6 @@
 
 mod args;
 mod existing;
-mod harness_picker;
-mod launch_command;
 mod pty_launch;
 pub mod verbs;
 

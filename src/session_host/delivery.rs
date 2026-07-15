@@ -58,9 +58,8 @@ pub(crate) fn session_has_live_delivery_path(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let kind = transport_kind_for_slug(&session.agent_slug);
-    let endpoint_id = match endpoint_id_for(store, &session.pubkey, kind) {
-        Ok(endpoint_id) => endpoint_id,
+    let locators = match store.locators_for_pubkey(&session.pubkey) {
+        Ok(locators) => locators,
         Err(e) => {
             tracing::error!(
                 pubkey = %session.pubkey,
@@ -70,7 +69,17 @@ pub(crate) fn session_has_live_delivery_path(
             return false;
         }
     };
-    endpoint_id.is_some_and(|endpoint_id| endpoint_is_live(kind, &endpoint_id))
+    locators
+        .into_iter()
+        .any(|locator| match locator.locator_kind.as_str() {
+            crate::state::LOCATOR_PTY => {
+                endpoint_is_live(TransportKind::Pty, &locator.locator_value)
+            }
+            crate::state::LOCATOR_ACP => {
+                endpoint_is_live(TransportKind::Acp, &locator.locator_value)
+            }
+            _ => false,
+        })
 }
 
 /// How long to wait after `session_start` fires before typing into the PTY.
@@ -124,7 +133,7 @@ pub async fn inject_spawn_message(endpoint_id: &str, text: &str) -> Result<()> {
 /// the doorbell path.
 pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &str) {
     match transport_kind_for_slug(agent_slug) {
-        TransportKind::Acp => {
+        Ok(TransportKind::Acp) => {
             let ep = EndpointRef {
                 kind: TransportKind::Acp,
                 endpoint_id: endpoint_id.to_string(),
@@ -138,7 +147,7 @@ pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &st
                 );
             }
         }
-        TransportKind::Pty => {
+        Ok(TransportKind::Pty) => {
             if let Err(e) = inject_spawn_message(endpoint_id, text).await {
                 tracing::warn!(
                     agent = %agent_slug,
@@ -148,6 +157,11 @@ pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &st
                 );
             }
         }
+        Err(e) => tracing::warn!(
+            agent = %agent_slug,
+            error = %format!("{e:#}"),
+            "failed to resolve transport for spawn prompt"
+        ),
     }
 }
 

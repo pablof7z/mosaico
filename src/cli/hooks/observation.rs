@@ -27,7 +27,7 @@ pub(super) async fn report_observation(
     harness_session_id: Option<String>,
     resume_id: Option<String>,
     watch_pid: Option<i32>,
-    provision_command: Option<Vec<String>>,
+    profile: Option<String>,
 ) -> Result<String> {
     let pty_session = std::env::var("MOSAICO_PTY_SESSION")
         .ok()
@@ -49,10 +49,9 @@ pub(super) async fn report_observation(
         "pubkey": pubkey,
         "endpoint_kind": pty_session.as_ref().map(|_| "pty"),
         "session_name": session_name,
-        // Real argv of a direct `claude --agent <slug>` invocation, detected
-        // when MOSAICO_AGENT was absent. Only used by the daemon to seed a
-        // brand-new identity's spawn command; ignored for an existing one.
-        "provision_command": provision_command,
+        // A direct `claude --agent <profile>` observation seeds only the
+        // agent-owned profile selection. Launch argv remains bundle-owned.
+        "profile": profile,
         // NIP-29 subgroup id this hosted process was spawned into, when
         // present. The daemon stores the session under this `h` instead of the
         // cwd-derived channel so its presence/chat publish into the subgroup.
@@ -151,10 +150,8 @@ fn extract_agent_flag(argv: &[String]) -> Option<String> {
 /// Look for a live ancestor directly running `claude ... --agent <name>` —
 /// i.e. NOT spawned via `mosaico launch`, which sets `MOSAICO_AGENT`
 /// instead and short-circuits this search. Returns the requested slug and
-/// the ancestor's full command line (split into argv), so a brand-new
-/// identity can be provisioned with that exact invocation as its spawn
-/// command.
-pub(super) fn find_direct_agent_invocation() -> Option<(String, Vec<String>)> {
+/// the named profile so a brand-new identity can retain that selection.
+pub(super) fn find_direct_agent_invocation() -> Option<String> {
     let mut pid = std::process::id() as i32;
     let mut seen = std::collections::HashSet::new();
     for _ in 0..16 {
@@ -166,7 +163,7 @@ pub(super) fn find_direct_agent_invocation() -> Option<(String, Vec<String>)> {
             if let Some(args) = ps_args(ppid) {
                 let argv = shlex::split(&args).unwrap_or_else(|| vec![args.clone()]);
                 if let Some(slug) = extract_agent_flag(&argv) {
-                    return Some((slug, argv));
+                    return Some(slug);
                 }
             }
         }

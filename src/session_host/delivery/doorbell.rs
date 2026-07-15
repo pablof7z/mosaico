@@ -45,7 +45,18 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             continue;
         }
 
-        let kind = transport_kind_for_slug(&rec.agent_slug);
+        let kind = match transport_kind_for_slug(&rec.agent_slug) {
+            Ok(kind) => kind,
+            Err(e) => {
+                state.emit_delivery_failure(
+                    &rec.channel_h,
+                    &rec.agent_slug,
+                    &pubkey,
+                    format!("failed to resolve configured transport: {e:#}"),
+                );
+                continue;
+            }
+        };
         let endpoint_id = match state.with_store(|s| endpoint_id_for(s, &pubkey, kind)) {
             Ok(endpoint_id) => endpoint_id,
             Err(e) => {

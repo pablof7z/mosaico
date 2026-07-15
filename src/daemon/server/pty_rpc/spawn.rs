@@ -1,21 +1,9 @@
 use super::*;
 
 #[derive(serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-enum LaunchIntent {
-    Configured,
-    PtyCommand { argv: Vec<String> },
-    PtyBundle { bundle: String },
-}
-
-#[derive(serde::Deserialize)]
 struct PtySpawnParams {
     agent: String,
     root: String,
-    launch: LaunchIntent,
-    /// User arguments appended to the selected command or bundle argv.
-    #[serde(default)]
-    args: Vec<String>,
     /// The client's cwd, forwarded so the daemon spawns the agent in the
     /// directory the user actually invoked `mosaico launch` from.
     #[serde(default)]
@@ -39,11 +27,6 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
     let p: PtySpawnParams =
         serde_json::from_value(params.clone()).context("parsing pty_spawn params")?;
     let client_cwd = p.cwd.as_deref().map(std::path::Path::new);
-    let source = match p.launch {
-        LaunchIntent::Configured => crate::session_host::SpawnSource::Configured,
-        LaunchIntent::PtyCommand { argv } => crate::session_host::SpawnSource::PtyCommand(argv),
-        LaunchIntent::PtyBundle { bundle } => crate::session_host::SpawnSource::PtyBundle(bundle),
-    };
     let group = p.channel.as_deref();
     if let Some(name) = p.session_name.as_deref().filter(|name| !name.is_empty()) {
         state.with_store(|s| s.ensure_custom_handle_available(&p.agent, name))?;
@@ -54,8 +37,6 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         &p.agent,
         &p.root,
         crate::session_host::SpawnRequest {
-            source,
-            launch_args: p.args,
             group,
             client_cwd,
             session_name: p.session_name.as_deref(),

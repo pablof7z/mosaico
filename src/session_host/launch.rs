@@ -1,24 +1,13 @@
 use super::admission;
 use crate::daemon::server::DaemonState;
-use crate::session_host::registry::{
-    apply_agent_def_args, build_resume_command, find_spawn_def, resolve_spawn_entry,
-    resume_shape_for_bin,
-};
+use crate::harness::ResumeMechanism;
 use crate::session_host::transport::{select_transport, LaunchSpec, ResumeSpec, TransportImpl};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
 mod spawn;
-pub(crate) use spawn::{spawn_agent, SpawnRequest, SpawnSource};
+pub(crate) use spawn::{spawn_agent, SpawnRequest};
 pub use spawn::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn};
-
-/// Resolve which transport hosts `slug`, from its configured harness bundle. An
-/// agent with no bundle (the overwhelming majority) resolves to the PTY, and its
-/// launch path is byte-identical to before this wiring existed.
-fn transport_for_slug(slug: &str) -> Result<TransportImpl> {
-    let bundle = crate::identity::agent_harness_bundle(&crate::config::mosaico_home(), slug);
-    select_transport(bundle.as_deref())
-}
 
 /// Kill a just-opened endpoint through its transport (PTY supervisor or ACP
 /// child) — used to roll back a session whose registration failed.
@@ -29,34 +18,6 @@ async fn kill_endpoint(transport: &TransportImpl, endpoint_id: &str) {
         endpoint_id: endpoint_id.to_string(),
     };
     let _ = transport.kill(&ep).await;
-}
-
-/// Resolve the base spawn command + inline agent definition for `slug`.
-///
-/// PTY agents must have a resolvable harness command (unchanged). An ACP/
-/// app-server agent is launched from its harness bundle's driver argv, not a PTY
-/// command, so when it has no `commands` entry we synthesize a nominal command
-/// (the bundle's harness slug) purely so harness inference + recorded session
-/// metadata are correct; the actual child argv comes from the bundle driver.
-fn resolve_spawn_command(
-    slug: &str,
-    transport: &TransportImpl,
-) -> Result<(Vec<String>, Option<serde_json::Value>)> {
-    match resolve_spawn_entry(slug) {
-        Ok(v) => Ok(v),
-        Err(e) => {
-            if matches!(transport, TransportImpl::Acp(_)) {
-                let bundle =
-                    crate::identity::agent_harness_bundle(&crate::config::mosaico_home(), slug);
-                let cfg = crate::harness::config::HarnessesConfig::load()?;
-                let harness =
-                    crate::harness::bundle_harness_with(&cfg, bundle.as_deref().unwrap_or(slug))?;
-                Ok((vec![harness.as_str().to_string()], None))
-            } else {
-                Err(e)
-            }
-        }
-    }
 }
 
 pub(super) fn workspace_abs_path(
@@ -128,7 +89,13 @@ async fn open_agent_session(
                 // The bundle NAME (harnesses.json key) is distinct from the agent
                 // slug; the ACP transport resolves its harness/driver from this,
                 // never from the slug (defect #1).
-                bundle: crate::identity::agent_harness_bundle(&crate::config::mosaico_home(), slug),
+                bundle: crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?
+                    .harness,
+                profile: crate::identity::agent_launch_config(
+                    &crate::config::mosaico_home(),
+                    slug,
+                )?
+                .profile,
                 root: root.to_string(),
                 abs_path: abs_path.to_string(),
                 group: group.map(str::to_string),
@@ -165,19 +132,17 @@ pub async fn resume_agent_in_channel(
         anyhow::bail!("session has no resume token (not resumable)");
     }
 
-    let transport = transport_for_slug(slug)?;
+    let source = resolve_configured_source(slug)?;
+    let transport = source.transport;
     let abs_path = workspace_abs_path(state, root, None)?;
-    let (base, _agent_def) = resolve_spawn_command(slug, &transport)?;
-    let harness = crate::daemon::server::session_start::bootstrap::infer_harness(&base);
+    let base = source.command;
+    let harness = source.harness;
     let reservation =
         admission::reserve_resume(state, slug, harness.as_str(), root, group, resume_id)?;
     let meta = match &transport {
         TransportImpl::Pty(_) => {
-            let bin = base.first().map(String::as_str).unwrap_or("");
-            let shape = resume_shape_for_bin(bin).with_context(|| {
-                format!("don't know how to resume harness binary {bin:?} (agent {slug:?})")
-            })?;
-            let resume_command = build_resume_command(&base, shape, resume_id);
+            let resume_command =
+                build_driver_resume_command(&base, source.resume, resume_id, slug)?;
             open_agent_session(
                 &transport,
                 slug,
@@ -188,7 +153,7 @@ pub async fn resume_agent_in_channel(
                 None,
                 false,
                 &reservation.pubkey,
-                None,
+                source.pty_launch,
             )
             .await?
         }
@@ -199,7 +164,8 @@ pub async fn resume_agent_in_channel(
             use crate::session_host::transport::SessionTransport;
             let spec = LaunchSpec {
                 slug: slug.to_string(),
-                bundle: crate::identity::agent_harness_bundle(&crate::config::mosaico_home(), slug),
+                bundle: source.bundle,
+                profile: source.profile,
                 root: root.to_string(),
                 abs_path: abs_path.clone(),
                 group: Some(group.to_string()),
@@ -237,8 +203,93 @@ pub async fn resume_agent_in_channel(
 }
 
 #[derive(Default)]
-struct PtyLaunchSpec {
+pub(super) struct PtyLaunchSpec {
     id: Option<String>,
     env: Vec<(String, String)>,
     env_remove: Vec<String>,
+}
+
+pub(super) struct ResolvedSource {
+    pub(super) transport: TransportImpl,
+    pub(super) command: Vec<String>,
+    pub(super) harness: crate::session::Harness,
+    pub(super) resume: ResumeMechanism,
+    pub(super) bundle: String,
+    pub(super) profile: Option<String>,
+    pub(super) pty_launch: Option<PtyLaunchSpec>,
+}
+
+pub(super) fn resolve_configured_source(slug: &str) -> Result<ResolvedSource> {
+    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
+    let id = crate::pty::new_endpoint_id(slug);
+    let scratch = crate::config::mosaico_home()
+        .join("harness-profiles")
+        .join(&id);
+    let resolved = crate::harness::resolve(&launch.harness, launch.profile.as_deref(), &scratch)
+        .with_context(|| {
+            format!(
+                "resolving harness bundle {:?} for agent {slug:?}",
+                launch.harness
+            )
+        })?;
+    let transport = select_transport(&launch.harness)?;
+    let pty_launch = if matches!(transport, TransportImpl::Pty(_)) {
+        resolved.profile.materialize()?;
+        let mut env = resolved.profile.extra_env.clone();
+        let mut env_remove = Vec::new();
+        for directive in resolved.driver.base_env {
+            match directive {
+                crate::harness::EnvDirective::Set(key, value) => {
+                    env.push((key.to_string(), value.to_string()));
+                }
+                crate::harness::EnvDirective::Remove(key) => {
+                    env_remove.push(key.to_string());
+                }
+            }
+        }
+        Some(PtyLaunchSpec {
+            id: Some(id),
+            env,
+            env_remove,
+        })
+    } else {
+        None
+    };
+    Ok(ResolvedSource {
+        transport,
+        command: resolved.base_argv,
+        harness: resolved.harness,
+        resume: resolved.driver.resume,
+        bundle: launch.harness,
+        profile: launch.profile,
+        pty_launch,
+    })
+}
+
+fn build_driver_resume_command(
+    base: &[String],
+    mechanism: ResumeMechanism,
+    resume_id: &str,
+    slug: &str,
+) -> Result<Vec<String>> {
+    match mechanism {
+        ResumeMechanism::AppendFlag(flag) => {
+            let mut command = base.to_vec();
+            command.extend([flag.to_string(), resume_id.to_string()]);
+            Ok(command)
+        }
+        ResumeMechanism::Subcommand(subcommand) => {
+            let (program, args) = base
+                .split_first()
+                .with_context(|| format!("agent {slug:?} resolved an empty command"))?;
+            let mut command = vec![
+                program.clone(),
+                subcommand.to_string(),
+                resume_id.to_string(),
+            ];
+            command.extend(args.iter().cloned());
+            Ok(command)
+        }
+        _ => anyhow::bail!("agent {slug:?} uses a non-PTY resume mechanism"),
+    }
 }

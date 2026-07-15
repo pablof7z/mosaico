@@ -1,6 +1,6 @@
 //! Transport-owned output presentation, derived separately from message delivery.
 
-use crate::session_host::transport::{transport_kind_for_slug, TransportKind};
+use crate::session_host::transport::TransportKind;
 
 /// Whether ordinary session output has no current presentation surface. An ACP
 /// session is steerable yet headless; a direct non-PTY harness is headed even
@@ -9,11 +9,6 @@ pub(crate) fn session_is_headless(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let kind = transport_kind_for_slug(&session.agent_slug);
-    let locator_kind = match kind {
-        TransportKind::Pty => crate::state::LOCATOR_PTY,
-        TransportKind::Acp => crate::state::LOCATOR_ACP,
-    };
     let locators = match store.locators_for_pubkey(&session.pubkey) {
         Ok(locators) => locators,
         Err(e) => {
@@ -25,13 +20,20 @@ pub(crate) fn session_is_headless(
             return false;
         }
     };
-    let endpoint = locators
+    if locators
         .iter()
-        .find(|locator| locator.locator_kind == locator_kind)
-        .map(|locator| locator.locator_value.as_str());
-    let pty_output_visible =
-        matches!(kind, TransportKind::Pty) && endpoint.is_some_and(crate::pty::output_is_visible);
-    mode_is_headless(kind, endpoint.is_some(), pty_output_visible)
+        .any(|locator| locator.locator_kind == crate::state::LOCATOR_ACP)
+    {
+        return true;
+    }
+    let pty = locators
+        .iter()
+        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY);
+    mode_is_headless(
+        TransportKind::Pty,
+        pty.is_some(),
+        pty.is_some_and(|locator| crate::pty::output_is_visible(&locator.locator_value)),
+    )
 }
 
 #[cfg(test)]

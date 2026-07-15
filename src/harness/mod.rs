@@ -27,96 +27,60 @@ pub struct ResolvedHarness {
     pub harness: Harness,
     pub transport: Transport,
     pub driver: &'static HarnessDriver,
-    /// `base_argv` + profile `extra_argv`, before the agent's own user flags.
+    /// Driver argv + bundle args + translated agent profile selector.
     pub base_argv: Vec<String>,
     pub profile: ProfilePlan,
 }
 
-/// Resolve a bundle name against `harnesses.json`, falling back to a built-in
-/// default (`bundle == harness slug`, transport = Pty) so existing
-/// `claude`/`codex`/`opencode`/`grok` spawns keep working with zero config.
-///
-/// `session_scratch` is a per-session directory into which any settings file is
-/// materialized (never the user's repo).
-pub fn resolve(bundle: &str, session_scratch: &Path) -> anyhow::Result<ResolvedHarness> {
+/// Resolve an explicit bundle plus the agent's optional harness-specific profile name.
+pub fn resolve(
+    bundle: &str,
+    profile: Option<&str>,
+    session_scratch: &Path,
+) -> anyhow::Result<ResolvedHarness> {
     let cfg = HarnessesConfig::load()?;
-    resolve_with(&cfg, bundle, session_scratch)
+    resolve_with(&cfg, bundle, profile, session_scratch)
 }
 
 /// Resolve just the [`Transport`] a bundle drives, without planning its profile
 /// or argv. Used by transport selection, which only needs the capability axis.
-/// Fails loud on the same conditions as [`resolve`] (unknown bundle that is not
-/// a built-in harness slug).
+/// Missing bundle names fail loudly.
 pub fn bundle_transport_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Transport> {
-    match cfg.get(bundle) {
-        Some(b) => Ok(b.transport),
-        None => {
-            let harness = Harness::from_str(bundle);
-            if harness == Harness::Unknown {
-                anyhow::bail!(
-                    "no harness bundle {bundle:?} in harnesses.json and it is not a built-in \
-                     harness slug (claude|codex|opencode|grok)"
-                );
-            }
-            // Built-in default: bundle name IS a harness slug -> interactive PTY.
-            Ok(Transport::Pty)
-        }
-    }
+    cfg.get(bundle)
+        .map(|bundle| bundle.transport)
+        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))
 }
 
 /// Resolve just the [`Harness`] a bundle drives (the underlying CLI), without
-/// planning its profile. Mirrors [`bundle_transport_with`]'s fallback rules.
+/// planning its profile.
 pub fn bundle_harness_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Harness> {
-    match cfg.get(bundle) {
-        Some(b) => Ok(b.harness),
-        None => {
-            let harness = Harness::from_str(bundle);
-            if harness == Harness::Unknown {
-                anyhow::bail!(
-                    "no harness bundle {bundle:?} in harnesses.json and it is not a built-in \
-                     harness slug (claude|codex|opencode|grok)"
-                );
-            }
-            Ok(harness)
-        }
-    }
+    cfg.get(bundle)
+        .map(|bundle| bundle.harness)
+        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))
 }
 
 /// Testable core of [`resolve`] that takes the config explicitly.
 pub fn resolve_with(
     cfg: &HarnessesConfig,
     bundle: &str,
+    profile: Option<&str>,
     session_scratch: &Path,
 ) -> anyhow::Result<ResolvedHarness> {
-    resolve_with_codex_home(cfg, bundle, session_scratch, None)
+    resolve_with_codex_home(cfg, bundle, profile, session_scratch, None)
 }
 
 fn resolve_with_codex_home(
     cfg: &HarnessesConfig,
     bundle: &str,
+    profile: Option<&str>,
     session_scratch: &Path,
     codex_home: Option<&Path>,
 ) -> anyhow::Result<ResolvedHarness> {
-    let (harness, transport, profile_val, codex_config_profile) = match cfg.get(bundle) {
-        Some(b) => (
-            b.harness,
-            b.transport,
-            b.profile.clone(),
-            b.codex_config_profile.clone(),
-        ),
-        None => {
-            // Built-in default: the bundle name IS a harness slug, driven over
-            // the interactive PTY transport (byte-identical to today's spawn).
-            let harness = Harness::from_str(bundle);
-            if harness == Harness::Unknown {
-                anyhow::bail!(
-                    "no harness bundle {bundle:?} in harnesses.json and it is not a built-in \
-                     harness slug (claude|codex|opencode|grok)"
-                );
-            }
-            (harness, Transport::Pty, None, None)
-        }
-    };
+    let configured = cfg
+        .get(bundle)
+        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))?;
+    let harness = configured.harness;
+    let transport = configured.transport;
 
     let driver = driver::lookup(harness, transport).ok_or_else(|| {
         anyhow::anyhow!(
@@ -126,24 +90,10 @@ fn resolve_with_codex_home(
         )
     })?;
 
-    let mut plan = profile::plan_profile(
-        harness,
-        driver.profile,
-        profile_val.as_ref(),
-        session_scratch,
-    )?;
-    if let Some(name) = codex_config_profile.as_deref() {
-        if harness != Harness::Codex || transport != Transport::AppServer {
-            anyhow::bail!("codex_config_profile is valid only for a codex app-server bundle");
-        }
-        let source_home = match codex_home {
-            Some(path) => path.to_path_buf(),
-            None => codex_profile::source_home()?,
-        };
-        plan.extend(codex_profile::plan(name, &source_home, session_scratch)?);
-    }
+    let plan = profile::plan_profile(driver.profile, profile, session_scratch, codex_home)?;
 
     let mut base_argv: Vec<String> = driver.base_argv.iter().map(|s| s.to_string()).collect();
+    base_argv.extend(configured.args.iter().cloned());
     base_argv.extend(plan.extra_argv.iter().cloned());
 
     Ok(ResolvedHarness {

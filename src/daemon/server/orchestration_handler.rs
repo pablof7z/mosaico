@@ -227,7 +227,7 @@ async fn spawn_target(
 ) -> bool {
     let slug = &target.slug;
     let mosaico_home = config::mosaico_home();
-    let id = match crate::identity::load_or_create(&mosaico_home, slug, now_secs()) {
+    let id = match crate::identity::load(&mosaico_home, slug) {
         Ok(id) => {
             tracing::info!(slug = %slug, child = %op.child_h, "loading local derivation root for orchestration target");
             id
@@ -244,7 +244,6 @@ async fn spawn_target(
         state,
         slug,
         &work_root,
-        Vec::new(),
         Some(&op.child_h),
         None,
     )

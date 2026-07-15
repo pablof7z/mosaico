@@ -31,17 +31,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             .expect("durable launch registers session");
         let first = started["pubkey"].as_str().unwrap().to_string();
 
-        let refused = run_cli(
-            &home,
-            &[
-                "launch",
-                slug,
-                "--workspace",
-                "tmp",
-                "--command",
-                "/usr/bin/true",
-            ],
-        );
+        let refused = run_cli(&home, &["launch", slug, "--workspace", "tmp"]);
         assert!(!refused.status.success());
         let refused = String::from_utf8_lossy(&refused.stderr);
         assert!(refused.contains("active runtime"), "{refused}");
@@ -65,17 +55,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             fresh_alias_error.to_string().contains("active runtime"),
             "{fresh_alias_error:#}"
         );
-        let manual_flip = run_cli(
-            &home,
-            &[
-                "launch",
-                slug,
-                "--workspace",
-                "tmp",
-                "--command",
-                "/usr/bin/true",
-            ],
-        );
+        let manual_flip = run_cli(&home, &["launch", slug, "--workspace", "tmp"]);
         assert!(!manual_flip.status.success());
         assert!(
             String::from_utf8_lossy(&manual_flip.stderr).contains("active runtime"),
@@ -124,7 +104,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         write_agent_config(&home, slug, &original);
 
         let normal_slug = "mode-flip-normal";
-        mosaico::identity::load_or_create(home.dir.path(), normal_slug, 1).unwrap();
+        mosaico::identity::load_or_create(home.dir.path(), normal_slug, "codex", None, 1).unwrap();
         let normal = start_session(
             &mut client,
             normal_slug,

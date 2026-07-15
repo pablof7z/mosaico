@@ -32,13 +32,12 @@ mod tests {
 
     #[test]
     fn nudge_requires_ephemeral_pty_and_non_headless_agent() {
-        // grok has a resume shape but no headless exec, so it stays Class B (PTY
-        // + idle nudge). claude/codex/opencode run headless and are never nudged.
+        // Without a configured headless-exec bundle, a hosted PTY stays Class B.
         assert!(should_nudge(true, Some("pty-1"), "grok"));
         assert!(!should_nudge(false, Some("pty-1"), "grok"));
         assert!(!should_nudge(true, None, "grok"));
-        assert!(!should_nudge(true, Some("pty-1"), "codex"));
-        assert!(!should_nudge(true, Some("pty-1"), "opencode"));
+        assert!(should_nudge(true, Some("pty-1"), "codex"));
+        assert!(should_nudge(true, Some("pty-1"), "opencode"));
     }
 
     #[test]

@@ -5,15 +5,7 @@ pub struct DispatchedSpawn {
     pub pubkey: String,
 }
 
-pub(crate) enum SpawnSource {
-    Configured,
-    PtyCommand(Vec<String>),
-    PtyBundle(String),
-}
-
 pub(crate) struct SpawnRequest<'a> {
-    pub(crate) source: SpawnSource,
-    pub(crate) launch_args: Vec<String>,
     pub(crate) group: Option<&'a str>,
     pub(crate) client_cwd: Option<&'a std::path::Path>,
     pub(crate) session_name: Option<&'a str>,
@@ -31,8 +23,6 @@ pub(crate) async fn spawn_agent(
         state,
         slug,
         root,
-        request.source,
-        request.launch_args,
         request.group,
         request.client_cwd,
         request.session_name,
@@ -45,23 +35,14 @@ pub async fn spawn_ephemeral_agent(
     state: &Arc<DaemonState>,
     slug: &str,
     root: &str,
-    launch_args: Vec<String>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
 ) -> Result<String> {
-    Ok(spawn_agent_inner(
-        state,
-        slug,
-        root,
-        SpawnSource::Configured,
-        launch_args,
-        group,
-        client_cwd,
-        None,
-        true,
+    Ok(
+        spawn_agent_inner(state, slug, root, group, client_cwd, None, true)
+            .await?
+            .id,
     )
-    .await?
-    .id)
 }
 
 pub async fn spawn_dispatched_ephemeral_agent(
@@ -78,8 +59,6 @@ pub async fn spawn_dispatched_ephemeral_agent(
         state,
         slug,
         root,
-        SpawnSource::Configured,
-        Vec::new(),
         Some(group),
         Some(channels),
         Some(dispatch_event),
@@ -99,8 +78,6 @@ async fn spawn_agent_inner(
     state: &Arc<DaemonState>,
     slug: &str,
     root: &str,
-    source: SpawnSource,
-    launch_args: Vec<String>,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
     session_name: Option<&str>,
@@ -110,8 +87,6 @@ async fn spawn_agent_inner(
         state,
         slug,
         root,
-        source,
-        launch_args,
         group,
         None,
         None,
@@ -128,8 +103,6 @@ async fn spawn_agent_inner_full(
     state: &Arc<DaemonState>,
     slug: &str,
     root: &str,
-    source: SpawnSource,
-    launch_args: Vec<String>,
     group: Option<&str>,
     joined_channels: Option<&[String]>,
     dispatch_event: Option<&str>,
@@ -137,15 +110,11 @@ async fn spawn_agent_inner_full(
     session_name: Option<&str>,
     ephemeral: bool,
 ) -> Result<(crate::pty::LaunchMetadata, String)> {
-    let resolved = resolve_source(slug, source)?;
-    let mut agent_command = apply_agent_def_args(resolved.command, slug, resolved.agent_def);
-    if !launch_args.is_empty() {
-        agent_command.extend(launch_args);
-    }
-    let _ = find_spawn_def(slug);
+    let resolved = resolve_configured_source(slug)?;
+    let agent_command = resolved.command;
 
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
-    let harness = crate::daemon::server::session_start::bootstrap::infer_harness(&agent_command);
+    let harness = resolved.harness;
     let reservation =
         admission::reserve_fresh(state, slug, harness.as_str(), root, group, session_name)?;
     let meta = match open_agent_session(
@@ -193,69 +162,4 @@ async fn spawn_agent_inner_full(
         }
     };
     Ok((meta, pubkey))
-}
-
-struct ResolvedSource {
-    transport: crate::session_host::transport::TransportImpl,
-    command: Vec<String>,
-    agent_def: Option<serde_json::Value>,
-    pty_launch: Option<PtyLaunchSpec>,
-}
-
-fn resolve_source(slug: &str, source: SpawnSource) -> Result<ResolvedSource> {
-    match source {
-        SpawnSource::Configured => {
-            let transport = transport_for_slug(slug)?;
-            let (command, agent_def) = resolve_spawn_command(slug, &transport)?;
-            Ok(ResolvedSource {
-                transport,
-                command,
-                agent_def,
-                pty_launch: None,
-            })
-        }
-        SpawnSource::PtyCommand(command) => Ok(ResolvedSource {
-            transport: crate::session_host::transport::select_transport(None)?,
-            command,
-            agent_def: None,
-            pty_launch: None,
-        }),
-        SpawnSource::PtyBundle(bundle) => {
-            let id = crate::pty::new_endpoint_id(slug);
-            let scratch = crate::config::mosaico_home()
-                .join("harness-profiles")
-                .join(&id);
-            let resolved = crate::harness::resolve(&bundle, &scratch)
-                .with_context(|| format!("resolving PTY harness bundle {bundle:?}"))?;
-            if resolved.transport != crate::harness::Transport::Pty {
-                anyhow::bail!(
-                    "harness bundle {bundle:?} uses the {} transport, which cannot attach to a terminal",
-                    resolved.transport.as_str()
-                );
-            }
-            resolved.profile.materialize()?;
-            let mut env = resolved.profile.extra_env;
-            let mut env_remove = Vec::new();
-            for directive in resolved.driver.base_env {
-                match directive {
-                    crate::harness::EnvDirective::Set(key, value) => {
-                        env.push((key.to_string(), value.to_string()));
-                    }
-                    crate::harness::EnvDirective::Remove(key) => {
-                        env_remove.push(key.to_string());
-                    }
-                }
-            }
-            Ok(ResolvedSource {
-                transport: crate::session_host::transport::select_transport(None)?,
-                command: resolved.base_argv,
-                agent_def: None,
-                pty_launch: Some(PtyLaunchSpec {
-                    id: Some(id),
-                    env,
-                    env_remove,
-                }),
-            })
-        }
-    }
 }

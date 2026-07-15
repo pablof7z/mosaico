@@ -2,14 +2,9 @@ use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum AgentAction {
-    /// List the agents in this machine's local keystore (slug, commands).
+    /// List the agents in this machine's local keystore.
     List,
-    /// Add a local agent: mint + persist its keypair if the slug is new. Pass a
-    /// harness launch command after `--` to set its default named command (e.g.
-    /// `mosaico mgmt agent add reviewer -- claude --dangerously-skip-permissions`);
-    /// re-running with a new command overwrites that default. With no commands,
-    /// interactive launch prompts for one and daemon/TUI spawns use built-in
-    /// defaults only for built-in harness slugs.
+    /// Add a local agent and select its required harness bundle.
     ///
     /// Repeat `--workspace <p>` to document the intended assignment. Per-workspace
     /// roster scoping is not implemented yet; current roster publish advertises
@@ -21,13 +16,12 @@ pub(in crate::cli) enum AgentAction {
         /// roster republish; per-workspace scoping is not implemented yet.
         #[arg(long = "workspace", value_name = "WORKSPACE")]
         workspaces: Vec<String>,
-        /// Set the harness command as a string (shell-word split). Takes priority
-        /// over `--` args. Example: `-c 'ollama launch claude -- --dangerously-skip-permissions'`
-        #[arg(short = 'c', long = "command", value_name = "COMMAND")]
-        command_str: Option<String>,
-        /// Harness launch command (everything after `--`). Optional.
-        #[arg(last = true, value_name = "COMMAND")]
-        command: Vec<String>,
+        /// Harness bundle key from harnesses.json.
+        #[arg(long, value_name = "BUNDLE")]
+        harness: String,
+        /// Optional harness-native named profile.
+        #[arg(long, value_name = "PROFILE")]
+        profile: Option<String>,
     },
     /// Assign an existing local agent to one or more workspaces. Per-workspace
     /// roster scoping is not implemented yet; this republished roster still

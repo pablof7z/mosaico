@@ -1,97 +1,23 @@
-use super::registry::{
-    build_headless_command, build_resume_command, headless_shape_for_bin, resume_shape_for_bin,
-    HeadlessShape, ResumeShape,
-};
+use super::registry::{build_headless_command, headless_shape_for_harness, HeadlessShape};
 
 fn cmd(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
 }
 
 #[test]
-fn append_flag_preserves_user_launch_flags() {
-    let base = cmd(&["claude", "--dangerously-skip-permissions"]);
-    let got = build_resume_command(&base, ResumeShape::AppendFlag("--resume"), "abc-123");
+fn headless_shape_is_keyed_by_harness() {
     assert_eq!(
-        got,
-        cmd(&[
-            "claude",
-            "--dangerously-skip-permissions",
-            "--resume",
-            "abc-123"
-        ])
-    );
-}
-
-#[test]
-fn append_flag_bare_command() {
-    let got = build_resume_command(
-        &cmd(&["opencode"]),
-        ResumeShape::AppendFlag("--session"),
-        "ses_x",
-    );
-    assert_eq!(got, cmd(&["opencode", "--session", "ses_x"]));
-}
-
-#[test]
-fn subcommand_inserts_after_binary_and_keeps_flags() {
-    let base = cmd(&["codex", "--dangerously-bypass-approvals-and-sandbox"]);
-    let got = build_resume_command(&base, ResumeShape::Subcommand("resume"), "uuid-9");
-    assert_eq!(
-        got,
-        cmd(&[
-            "codex",
-            "resume",
-            "uuid-9",
-            "--dangerously-bypass-approvals-and-sandbox"
-        ])
-    );
-}
-
-#[test]
-fn subcommand_bare_command() {
-    let got = build_resume_command(
-        &cmd(&["codex"]),
-        ResumeShape::Subcommand("resume"),
-        "uuid-9",
-    );
-    assert_eq!(got, cmd(&["codex", "resume", "uuid-9"]));
-}
-
-#[test]
-fn shape_is_keyed_by_binary_not_slug() {
-    assert!(matches!(
-        resume_shape_for_bin("claude"),
-        Some(ResumeShape::AppendFlag("--resume"))
-    ));
-    assert!(matches!(
-        resume_shape_for_bin("codex"),
-        Some(ResumeShape::Subcommand("resume"))
-    ));
-    assert!(matches!(
-        resume_shape_for_bin("opencode"),
-        Some(ResumeShape::AppendFlag("--session"))
-    ));
-    assert!(matches!(
-        resume_shape_for_bin("/opt/homebrew/bin/claude"),
-        Some(ResumeShape::AppendFlag("--resume"))
-    ));
-    assert!(resume_shape_for_bin("npx").is_none());
-}
-
-#[test]
-fn headless_shape_is_keyed_by_binary() {
-    assert!(matches!(
-        headless_shape_for_bin("claude"),
+        headless_shape_for_harness(crate::session::Harness::ClaudeCode),
         Some(HeadlessShape::ClaudePrint)
-    ));
-    assert!(matches!(
-        headless_shape_for_bin("/opt/homebrew/bin/codex"),
+    );
+    assert_eq!(
+        headless_shape_for_harness(crate::session::Harness::Codex),
         Some(HeadlessShape::CodexExec)
-    ));
-    assert!(matches!(
-        headless_shape_for_bin("opencode"),
+    );
+    assert_eq!(
+        headless_shape_for_harness(crate::session::Harness::Opencode),
         Some(HeadlessShape::OpencodeRun)
-    ));
+    );
 }
 
 #[test]

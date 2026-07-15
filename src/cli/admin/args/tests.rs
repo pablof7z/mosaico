@@ -1,42 +1,13 @@
 use super::*;
 use clap::{error::ErrorKind, Parser};
 
+mod agent;
 mod channel_send;
 
 fn parse_err(args: &[&str]) -> clap::Error {
     match crate::cli::args::Cli::try_parse_from(args) {
         Ok(_) => panic!("expected parse failure for {args:?}"),
         Err(err) => err,
-    }
-}
-
-#[test]
-fn agent_add_workspace_flag_parses() {
-    let cli = crate::cli::args::Cli::try_parse_from([
-        "mosaico",
-        "mgmt",
-        "agent",
-        "add",
-        "reviewer",
-        "--workspace",
-        "mosaico",
-    ])
-    .expect("mgmt agent add --workspace parses");
-
-    match cli.cmd {
-        crate::cli::args::Cmd::Mgmt {
-            action:
-                crate::cli::args::MgmtAction::Agent {
-                    action:
-                        AgentAction::Add {
-                            slug, workspaces, ..
-                        },
-                },
-        } => {
-            assert_eq!(slug, "reviewer");
-            assert_eq!(workspaces, vec!["mosaico".to_string()]);
-        }
-        _ => panic!("expected mgmt agent add command"),
     }
 }
 

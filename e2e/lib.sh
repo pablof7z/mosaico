@@ -30,6 +30,9 @@ set -euo pipefail
 # ambient ones keeps any stray un-wrapped invocation off the caller's real home.
 unset MOSAICO_CHANNEL \
       MOSAICO_AGENT \
+      MOSAICO_PUBKEY \
+      MOSAICO_PTY_SESSION \
+      MOSAICO_PTY_SOCKET \
       CLAUDE_CODE_SESSION_ID \
       MOSAICO_HOME \
       MOSAICO_CONFIG 2>/dev/null || true

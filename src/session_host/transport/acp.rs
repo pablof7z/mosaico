@@ -34,10 +34,9 @@ pub struct AcpTransport;
 
 /// The harness BUNDLE name to resolve a spec's driver from — never the agent slug
 /// (defect #1). An agent `reviewer` may carry bundle `codex-acp`, and `reviewer`
-/// is not a `harnesses.json` key. Falls back to the slug only when no bundle is
-/// set (a bare-slug bundle, e.g. `opencode`).
+/// is not a `harnesses.json` key.
 pub(crate) fn bundle_name(spec: &LaunchSpec) -> &str {
-    spec.bundle.as_deref().unwrap_or(&spec.slug)
+    &spec.bundle
 }
 
 /// The outcome of opening (or resuming) an RPC-hosted session, before it is
@@ -80,7 +79,7 @@ impl AcpTransport {
                 .join("harness-profiles")
                 .join(&spec.slug)
         };
-        let resolved = harness::resolve_with(&cfg, bundle, &scratch)
+        let resolved = harness::resolve_with(&cfg, bundle, spec.profile.as_deref(), &scratch)
             .with_context(|| format!("resolving harness bundle {bundle:?}"))?;
         if !matches!(resolved.transport, Transport::Acp | Transport::AppServer) {
             anyhow::bail!(

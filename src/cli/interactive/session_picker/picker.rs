@@ -73,13 +73,11 @@ impl PickerState {
                     return Some(PickerExit::Attach(choice));
                 }
                 let row = &self.choices[choice].row;
-                self.notice = Some(
-                    if row.transport == "acp" {
-                        "ACP sessions run without a harness terminal — nothing to attach to".into()
-                    } else {
-                        "This session has no live attachable terminal".into()
-                    },
-                );
+                self.notice = Some(if row.transport == "acp" {
+                    "ACP sessions run without a harness terminal — nothing to attach to".into()
+                } else {
+                    "This session has no live attachable terminal".into()
+                });
             }
             KeyCode::Up => self.move_up(1),
             KeyCode::Down => self.move_down(1),

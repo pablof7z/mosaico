@@ -29,10 +29,10 @@ cargo build                 # build the mosaico binary under test
 `run.sh` is hermetic: it tears down any prior run, starts a fresh relay with
 empty data, and exits non-zero with a clear `FAIL` line if anything is wrong.
 
-This rig tests relay/backend coordination; it does not launch model agents.
-Use `skills/mosaico-dev` for provider-backed PTY, ACP, and app-server tests.
-That live lab writes the current `harnesses.json` plus `agents/<slug>.json`
-contract and drives the selected structured bundle through `__acp-smoke`.
+The rig also launches a deterministic Claude shim through the real daemon and
+PTY supervisor. It asserts that `harnesses.json` contributes the permission arg
+and the agent's optional profile is translated by code into `--agent reviewer`.
+Provider-backed PTY, ACP, and app-server tests remain in `skills/mosaico-dev`.
 
 ## The Relay
 
@@ -147,6 +147,7 @@ nip29: agent membership accepted for <session>
 ok  backend-a channel list --all-workspaces shows 'e2e-demo'
 ok  relay holds kind:39000 metadata for 'e2e-demo'
 ok  PASS — backend-b observed backend-a's group 'e2e-demo' through ws://127.0.0.1:10547
+ok  PTY exec argv is claude --dangerously-skip-permissions --agent reviewer
 ```
 
 > An `admin grant rejected for <mosaico-a>` line is normal: mosaico-a's key is also the
@@ -202,6 +203,7 @@ current binary under test.
 |----|-------|------|------|----------|
 | BDD-01 | a clean croissant relay and two isolated backends | backend-a starts a session in a workspace | the workspace group is created on the relay | `e2e/run.sh` |
 | BDD-02 | backend-b shares only the relay with backend-a | backend-b lists workspaces | backend-b sees backend-a's workspace through relay state, not shared files | `e2e/run.sh` |
+| BDD-03 | reviewer selects `yolo-claude` and profile `reviewer` | the daemon launches its PTY | bundle args and the code-owned Claude profile flag form the exact exec argv | `e2e/run.sh` |
 | BDD-16 | a launched PTY-backed session has a `pty_session` alias | a user-authored kind:9 mentions that session | the daemon injects the message into the running PTY | `cargo test --test daemon_integration operator_kind9_injects_into_running_launch_session -- --test-threads=1` |
 | BDD-17 | a user-authored kind:9 mentions an offline local agent identity | the agent is available locally | the daemon spawns a PTY-backed session and injects the triggering message | `cargo test --test daemon_integration operator_kind9_to_offline_local_agent_spawns_and_injects -- --test-threads=1` |
 | BDD-18 | validation targets reference PTY aliases and session surfaces | `mosaico debug validate` renders the target | evidence uses `pty_session:<id>` and reports exact proof boundaries | `cargo test --lib probe validate_render` |
