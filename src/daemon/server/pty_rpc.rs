@@ -1,9 +1,12 @@
 use super::resolution::work_root_for;
 use super::*;
 
+#[path = "pty_rpc/existing.rs"]
+mod existing;
 mod spawn;
 mod status;
 
+pub(super) use existing::rpc_pty_launch_existing;
 pub(super) use spawn::rpc_pty_spawn;
 
 pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
@@ -14,7 +17,7 @@ fn pty_session_for_pubkey(state: &Arc<DaemonState>, pubkey: &str) -> Option<Stri
     let locators = state.with_store(|s| s.locators_for_pubkey(pubkey)).ok()?;
     locators
         .into_iter()
-        .find(|locator| locator.locator_kind == "pty_session")
+        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
         .map(|locator| locator.locator_value)
 }
 

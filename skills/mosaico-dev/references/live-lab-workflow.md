@@ -199,16 +199,11 @@ The command runs:
 bash containers/mosaico/run --profile claude mosaico launch claude -- --model haiku
 ```
 
-The command starts a portable PTY supervisor, prints a line like:
+The command starts a portable PTY supervisor, publishes the agent's public
+kind:0 handle, and prints a line like:
 
 ```text
-[mosaico pty] session: claude-...
-```
-
-Save that id:
-
-```bash
-PTY_ID=claude-...
+Launched amber-claude
 ```
 
 Inspect or attach from another terminal with the same profile/home context:

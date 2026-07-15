@@ -295,7 +295,7 @@ fn removed_top_level_tui_stays_unavailable() {
 }
 
 #[test]
-fn contextual_help_hides_who_from_agents() {
+fn contextual_help_separates_agent_and_operator_commands() {
     let help = super::command_for_context(true)
         .render_long_help()
         .to_string();
@@ -305,6 +305,12 @@ fn contextual_help_hides_who_from_agents() {
         !help.contains("  sessions"),
         "agent help exposed sessions:\n{help}"
     );
+    for command in ["wait", "dispatch", "my"] {
+        assert!(
+            help.contains(&format!("  {command}")),
+            "agent help omitted {command}:\n{help}"
+        );
+    }
 }
 
 #[test]
@@ -318,4 +324,10 @@ fn contextual_help_shows_who_to_humans() {
         help.contains("  sessions"),
         "human help omitted sessions:\n{help}"
     );
+    for command in ["wait", "dispatch", "my"] {
+        assert!(
+            !help.contains(&format!("  {command}")),
+            "human help exposed agent-only {command}:\n{help}"
+        );
+    }
 }

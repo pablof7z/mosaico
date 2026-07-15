@@ -176,7 +176,8 @@ Point `mosaico` at a relay and whitelist your human key in
 ### Agent and operator surfaces
 
 Agents resolve their own session (from the PTY session, harness pid, or working directory),
-so the common commands take no session id:
+so the common commands take no session id. `my`, `wait`, and `dispatch` are
+agent-only commands and are intentionally hidden from default human CLI help:
 
 | Command | What it does |
 |---|---|
@@ -192,7 +193,9 @@ so the common commands take no session id:
 | `mosaico channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `mosaico dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
 
-Human operators start a local host with `mosaico launch <host> [prompt]`. If
+Human operators start a local host with `mosaico launch <host> [prompt]`. A bare
+`mosaico launch <session-handle>` reattaches a live terminal or resumes that
+session when its harness has a native resume token. If
 the host selects an ACP/app-server bundle, an interactive launch offers the
 available PTY bundles to attach to and keeps headless launch as the final choice;
 `--harness <bundle>` and `--headless` bypass that picker explicitly.

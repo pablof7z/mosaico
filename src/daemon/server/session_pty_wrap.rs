@@ -72,7 +72,7 @@ fn live_pty_locator(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
         .with_store(|s| s.locators_for_pubkey(pubkey))
         .ok()?
         .into_iter()
-        .find(|locator| locator.locator_kind == "pty_session")
+        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
         .map(|locator| locator.locator_value)?;
     crate::pty::is_live(&pty_id).then_some(pty_id)
 }

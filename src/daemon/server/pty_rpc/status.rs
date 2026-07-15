@@ -41,7 +41,7 @@ fn pty_session_bindings(
         .with_store(
             |s| -> Result<std::collections::HashMap<String, PtySessionBinding>> {
                 let mut out = std::collections::HashMap::new();
-                for locator in s.list_locators_of_kind("pty_session")? {
+                for locator in s.list_locators_of_kind(crate::state::LOCATOR_PTY)? {
                     if out.contains_key(&locator.locator_value) {
                         continue;
                     }

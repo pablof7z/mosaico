@@ -33,7 +33,7 @@ pub(in crate::cli) async fn sessions() -> Result<()> {
                 let Some(pty_id) = choice.row.pty_id else {
                     bail!("selected session no longer has an attachable endpoint");
                 };
-                return crate::pty::attach(&pty_id);
+                return crate::pty::attach(&pty_id, &choice.row.handle);
             }
             picker::PickerAction::Kill(choice) => kill(choice).await?,
             picker::PickerAction::Cancel => return Ok(()),

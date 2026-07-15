@@ -3,11 +3,14 @@ use anyhow::{Context as _, Result};
 
 // ── launch ───────────────────────────────────────────────────────────────────
 
-/// Launch a fresh harness session and hand the current terminal to it.
+/// Attach or resume a named session, or launch a fresh harness if it is unknown.
 ///
-/// Spawns an independent portable-pty supervisor, starts the selected harness
-/// inside it, then attaches the current terminal to the new session.
+/// A fresh launch spawns an independent portable-pty supervisor, starts the
+/// selected harness inside it, then attaches the current terminal.
 pub(super) async fn launch(request: LaunchRequest) -> Result<()> {
+    if super::existing::launch_if_known(&request).await? {
+        return Ok(());
+    }
     let LaunchRequest {
         agent,
         root,

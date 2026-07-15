@@ -66,9 +66,20 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
     if let Some(prompt) = p.prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
         crate::session_host::deliver_spawn_prompt(&p.agent, &meta.id, prompt).await;
     }
+    let handle = state.with_store(|store| {
+        let session = store
+            .alive_session_for_locator(None, crate::state::LOCATOR_PTY, &meta.id)?
+            .context("spawned PTY has no registered session")?;
+        Ok::<String, anyhow::Error>(
+            store
+                .handle_for_pubkey(&session.pubkey)?
+                .unwrap_or(session.agent_slug),
+        )
+    })?;
     Ok(serde_json::json!({
         "pty_id": meta.id,
         "pty_socket": meta.socket,
+        "handle": handle,
         "agent": p.agent,
         "root": p.root,
     }))

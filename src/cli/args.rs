@@ -31,11 +31,10 @@ fn unhide_subcommands(cmd: &mut Command) {
     }
 }
 
-/// Print top-level help with operator-only commands (`who`, `sessions`, `mgmt`, `launch`)
-/// unhidden when running outside an agent context (no `MOSAICO_AGENT`).
-/// Inside an agent context, those commands stay
-/// hidden so agents see only their own surface. Internal/debug commands remain
-/// hidden in both contexts; use `--help --all` to see everything.
+/// Print top-level help for the current caller context. Human operators see
+/// their local-management commands; agents see their self-service commands.
+/// Internal/debug commands remain hidden in both contexts; use `--help --all`
+/// to see everything.
 pub fn print_help_contextual() {
     let in_agent = super::agent_env_slug().is_some();
     let mut cmd = command_for_context(in_agent);
@@ -44,12 +43,15 @@ pub fn print_help_contextual() {
 
 fn command_for_context(in_agent: bool) -> Command {
     let mut cmd = Cli::command();
-    if !in_agent {
-        for sub in cmd.get_subcommands_mut() {
-            if matches!(sub.get_name(), "who" | "sessions" | "mgmt" | "launch") {
-                let owned = std::mem::take(sub);
-                *sub = owned.hide(false);
-            }
+    let visible: &[&str] = if in_agent {
+        &["wait", "dispatch", "my"]
+    } else {
+        &["who", "sessions", "mgmt", "launch"]
+    };
+    for sub in cmd.get_subcommands_mut() {
+        if visible.contains(&sub.get_name()) {
+            let owned = std::mem::take(sub);
+            *sub = owned.hide(false);
         }
     }
     cmd
@@ -89,6 +91,7 @@ pub(super) enum Cmd {
         action: ChannelAction,
     },
     /// Block until matching chat arrives or the timeout passes.
+    #[command(hide = true)]
     Wait(WaitArgs),
     /// Manage local setup and operator-owned configuration.
     #[command(hide = true)]
@@ -97,6 +100,7 @@ pub(super) enum Cmd {
         action: MgmtAction,
     },
     /// Start an agent session on a backend/workspace and hand it a message after ACK.
+    #[command(hide = true)]
     Dispatch(DispatchArgs),
     /// Hook integration and statusline for any supported agent harness.
     #[command(hide = true)]
@@ -110,6 +114,7 @@ pub(super) enum Cmd {
     /// Start an MCP server over stdio or HTTP.
     Mcp(McpArgs),
     /// Inspect and manage your own session.
+    #[command(hide = true)]
     My {
         #[command(subcommand)]
         action: MyAction,

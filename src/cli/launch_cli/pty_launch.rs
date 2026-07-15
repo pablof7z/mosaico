@@ -23,21 +23,18 @@ pub(super) async fn launch(request: PtyLaunchRequest) -> Result<()> {
     let spawned = super::super::daemon_call_async("pty_spawn", params)
         .await
         .with_context(|| format!("interactive PTY launch of agent {agent:?} failed"))?;
-    let pty_id = spawned["pty_id"]
-        .as_str()
-        .context("pty_spawn did not return pty_id")?;
     let socket = spawned["pty_socket"]
         .as_str()
         .context("pty_spawn did not return pty_socket")?;
+    let handle = spawned["handle"]
+        .as_str()
+        .context("pty_spawn did not return the agent handle")?;
 
-    eprintln!("[mosaico pty] session: {pty_id}");
-    eprintln!("[mosaico pty] detach: close this attach terminal");
-    eprintln!("[mosaico pty] reattach: mosaico sessions");
+    eprintln!("Launched {handle}");
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        eprintln!("[mosaico pty] attach skipped: not running on a TTY");
         return Ok(());
     }
-    crate::pty::attach(socket)
+    crate::pty::attach(socket, handle)
 }
 
 fn pty_spawn_params(request: &PtyLaunchRequest, cwd: &std::path::Path) -> serde_json::Value {

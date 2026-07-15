@@ -29,7 +29,7 @@ The live view command is `mosaico who --live`. <!-- [^75f62-92209] -->
 
 ## Launch
 
-The `mosaico launch` CLI command spawns an agent harness (e.g. claude, codex) inside a detached pty session. <!-- [^abce9-05e58] -->
+The `mosaico launch` CLI command reattaches a live public session handle, resumes an exited handle when its harness supports it, or spawns a new agent harness (e.g. claude, codex) inside a detached pty session. <!-- [^abce9-05e58] -->
 
 Agent launch configuration uses a `commands` array in `~/.mosaico/agents/<slug>.json`, with entries shaped as `{"name":"safe","argv":["claude"]}`.
 

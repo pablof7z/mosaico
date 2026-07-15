@@ -22,7 +22,7 @@ sources:
 
 Agent launch commands are stored as named entries in `~/.mosaico/agents/<slug>.json` under `commands`, for example `{"commands":[{"name":"full","argv":["claude","--dangerously-skip-permissions"]}]}`.
 
-`mosaico launch <agent>` chooses the command before calling the daemon. A single configured command launches directly. Multiple configured commands open a TTY picker unless `--command-name <name>` selects one explicitly. `-c/--command <command>` remains a one-shot full argv override. If no commands exist, interactive launch suggests commands from other agents' `commands` entries with conservative slug/path adaptation; if no local suggestions exist, it suggests built-in harness commands.
+A bare `mosaico launch <agent>` first checks whether `<agent>` is an existing public session handle. A live PTY is reattached; an exited session with a native resume token is resumed. Otherwise it chooses the command before calling the daemon. A single configured command launches directly. Multiple configured commands open a TTY picker unless `--command-name <name>` selects one explicitly. `-c/--command <command>` remains a one-shot full argv override. If no commands exist, interactive launch suggests commands from other agents' `commands` entries with conservative slug/path adaptation; if no local suggestions exist, it suggests built-in harness commands.
 
 ## Initial Prompt
 

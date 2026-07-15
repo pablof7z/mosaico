@@ -133,3 +133,56 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
     let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);
 }
+
+#[test]
+fn launch_existing_reattaches_a_live_handle() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    write_config(&home, false);
+
+    let root = unique_session("launch-existing-root");
+    let work_dir = home.dir.path().join(&root);
+    add_workspace_mapping(&home, &root, &work_dir);
+    let agent = "launch-existing-agent";
+    let (pty_id, handle) = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        let spawned = client
+            .call(
+                "pty_spawn",
+                serde_json::json!({
+                    "agent": agent,
+                    "root": &root,
+                    "channel": &root,
+                    "cwd": &work_dir,
+                    "launch": {"kind": "pty-command", "argv": no_hook_command()},
+                }),
+            )
+            .await
+            .expect("pty_spawn");
+        (
+            spawned["pty_id"].as_str().expect("pty id").to_string(),
+            spawned["handle"]
+                .as_str()
+                .expect("public session handle")
+                .to_string(),
+        )
+    });
+    let _ = wait_for_alive(&home, agent, &root);
+
+    let launched = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "pty_launch_existing",
+                serde_json::json!({ "session": handle }),
+            )
+            .await
+            .expect("reattach live session")
+    });
+    assert_eq!(launched["action"], "attached");
+    assert_eq!(launched["pty_id"], pty_id);
+    assert_eq!(launched["handle"], handle);
+
+    let _ = mosaico::pty::kill(&pty_id);
+    stop_daemon(&home);
+}

@@ -268,6 +268,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "pty_status" => pty_rpc::rpc_pty_status(state).await,
         "pty_send" => pty_rpc::rpc_pty_send(state, &req.params).await,
         "pty_spawn" => pty_rpc::rpc_pty_spawn(state, &req.params).await,
+        "pty_launch_existing" => pty_rpc::rpc_pty_launch_existing(state, &req.params).await,
         "invite" => invite_rpc::rpc_invite(state, &req.params).await,
         "pty_attach" => pty_rpc::rpc_pty_attach(state, &req.params),
         "pty_resume" => pty_rpc::rpc_pty_resume(state, &req.params).await,
