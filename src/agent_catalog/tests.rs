@@ -116,3 +116,58 @@ fn rejects_duplicate_names_within_one_harness_scope() {
     let error = AgentCatalog::discover(&roots(home.path()), &[]).unwrap_err();
     assert!(error.to_string().contains("duplicate codex agent"));
 }
+
+#[test]
+fn codex_activation_separates_catalog_metadata_from_root_config() {
+    let home = TempDir::new().unwrap();
+    write(
+        &home.path().join(".codex/agents/reviewer.toml"),
+        r#"name = "reviewer"
+description = "Reviews correctness"
+developer_instructions = "Review like an owner"
+nickname_candidates = ["Atlas"]
+model = "gpt-test"
+model_reasoning_effort = "high"
+"#,
+    );
+    let profile = AgentCatalog::discover(&roots(home.path()), &[])
+        .unwrap()
+        .resolve("reviewer", None, None)
+        .unwrap();
+
+    let NativeAgentActivation::CodexRoot(activation) = profile.activation().unwrap() else {
+        panic!("expected Codex root activation");
+    };
+    assert_eq!(activation.developer_instructions, "Review like an owner");
+    assert_eq!(activation.config["model"], "gpt-test");
+    assert_eq!(activation.config["model_reasoning_effort"], "high");
+    assert!(!activation.config.contains_key("name"));
+    assert!(!activation.config.contains_key("description"));
+    assert!(!activation.config.contains_key("nickname_candidates"));
+}
+
+#[test]
+fn claude_and_opencode_use_their_native_agent_selector() {
+    let home = TempDir::new().unwrap();
+    write(
+        &home.path().join(".claude/agents/designer.md"),
+        "---\nname: designer\ndescription: Designs interfaces\n---\nPrompt",
+    );
+    write(
+        &home.path().join(".config/opencode/agents/researcher.md"),
+        "---\ndescription: Finds evidence\n---\nPrompt",
+    );
+    let catalog = AgentCatalog::discover(&roots(home.path()), &[]).unwrap();
+    for slug in ["designer", "researcher"] {
+        assert_eq!(
+            catalog
+                .resolve(slug, None, None)
+                .unwrap()
+                .activation()
+                .unwrap(),
+            NativeAgentActivation::NativeSelector {
+                name: slug.to_string()
+            }
+        );
+    }
+}

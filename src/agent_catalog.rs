@@ -8,7 +8,9 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+mod activation;
 mod parse;
+pub use activation::{CodexRootConfig, NativeAgentActivation};
 use parse::discover_dir;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +200,12 @@ impl AgentCatalog {
         anyhow::bail!(
             "installed agent {slug:?} is provided by multiple harnesses ({harnesses}); configure an explicit harness binding"
         )
+    }
+}
+
+impl NativeAgentProfile {
+    pub fn activation(&self) -> Result<NativeAgentActivation> {
+        activation::load(self)
     }
 }
 
