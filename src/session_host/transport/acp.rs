@@ -79,8 +79,12 @@ impl AcpTransport {
                 .join("harness-profiles")
                 .join(&spec.slug)
         };
-        let resolved = harness::resolve_with(&cfg, bundle, spec.profile.as_deref(), &scratch)
+        let mut resolved = harness::resolve_with(&cfg, bundle, spec.profile.as_deref(), &scratch)
             .with_context(|| format!("resolving harness bundle {bundle:?}"))?;
+        if let Some(native_agent) = &spec.native_agent {
+            harness::apply_native_agent(&mut resolved, native_agent, &scratch)
+                .with_context(|| format!("applying native agent {:?}", spec.slug))?;
+        }
         if !matches!(resolved.transport, Transport::Acp | Transport::AppServer) {
             anyhow::bail!(
                 "harness bundle {bundle:?} is transport {} — not an RPC transport",

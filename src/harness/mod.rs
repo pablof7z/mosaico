@@ -69,6 +69,57 @@ pub fn resolve_with(
     resolve_with_codex_home(cfg, bundle, profile, session_scratch, None)
 }
 
+pub fn native_bundle_with(cfg: &HarnessesConfig, harness: Harness) -> anyhow::Result<String> {
+    let preferred = match harness {
+        Harness::Codex => [Some(Transport::AppServer), Some(Transport::Pty)],
+        Harness::ClaudeCode | Harness::Opencode => [Some(Transport::Pty), None],
+        Harness::Grok | Harness::Unknown => [None, None],
+    };
+    for transport in preferred.into_iter().flatten() {
+        let candidates = cfg
+            .bundles
+            .iter()
+            .filter(|(_, bundle)| bundle.harness == harness && bundle.transport == transport)
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [name] => return Ok(name.clone()),
+            [] => continue,
+            _ => anyhow::bail!(
+                "multiple {} {} bundles can launch native agents ({}); add an explicit agent harness binding",
+                harness.as_str(),
+                transport.as_str(),
+                candidates.join(", ")
+            ),
+        }
+    }
+    anyhow::bail!(
+        "no configured hosted bundle can launch native {} agents",
+        harness.as_str()
+    )
+}
+
+pub fn apply_native_agent(
+    resolved: &mut ResolvedHarness,
+    activation: &crate::agent_catalog::NativeAgentActivation,
+    scratch: &Path,
+) -> anyhow::Result<()> {
+    let plan = match activation {
+        crate::agent_catalog::NativeAgentActivation::NativeSelector { name } => {
+            profile::plan_profile(resolved.driver.profile, Some(name), scratch, None)?
+        }
+        crate::agent_catalog::NativeAgentActivation::CodexRoot(agent) => {
+            if resolved.harness != Harness::Codex {
+                anyhow::bail!("Codex custom-agent activation requires a Codex bundle");
+            }
+            codex_profile::plan_custom_agent(agent, &codex_profile::source_home()?, scratch)?
+        }
+    };
+    resolved.base_argv.extend(plan.extra_argv.iter().cloned());
+    resolved.profile.extend(plan);
+    Ok(())
+}
+
 fn resolve_with_codex_home(
     cfg: &HarnessesConfig,
     bundle: &str,

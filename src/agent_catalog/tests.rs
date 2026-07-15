@@ -139,8 +139,11 @@ model_reasoning_effort = "high"
         panic!("expected Codex root activation");
     };
     assert_eq!(activation.developer_instructions, "Review like an owner");
-    assert_eq!(activation.config["model"], "gpt-test");
-    assert_eq!(activation.config["model_reasoning_effort"], "high");
+    assert_eq!(activation.config["model"].as_str(), Some("gpt-test"));
+    assert_eq!(
+        activation.config["model_reasoning_effort"].as_str(),
+        Some("high")
+    );
     assert!(!activation.config.contains_key("name"));
     assert!(!activation.config.contains_key("description"));
     assert!(!activation.config.contains_key("nickname_candidates"));

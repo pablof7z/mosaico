@@ -8,12 +8,16 @@ use std::time::Duration;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 
+pub(crate) struct CatalogChange {
+    pub(crate) removed_slugs: Vec<String>,
+}
+
 impl DaemonState {
     pub(crate) fn agent_catalog(&self) -> AgentCatalog {
         self.agent_catalog.lock().unwrap().clone()
     }
 
-    pub(crate) fn refresh_agent_catalog(&self) -> Result<bool> {
+    pub(crate) fn refresh_agent_catalog(&self) -> Result<Option<CatalogChange>> {
         let roots = DiscoveryRoots::installed()?;
         let workspaces = self.with_store(|store| {
             store
@@ -26,10 +30,16 @@ impl DaemonState {
         let discovered = discover(&roots, workspaces)?;
         let mut current = self.agent_catalog.lock().unwrap();
         if *current == discovered {
-            return Ok(false);
+            return Ok(None);
         }
+        let new_slugs = discovered.slugs();
+        let removed_slugs = current
+            .slugs()
+            .into_iter()
+            .filter(|slug| !new_slugs.contains(slug))
+            .collect();
         *current = discovered;
-        Ok(true)
+        Ok(Some(CatalogChange { removed_slugs }))
     }
 
     pub(crate) fn resolve_native_agent(
@@ -58,9 +68,21 @@ pub(super) fn spawn_monitor(state: Arc<DaemonState>) {
         loop {
             interval.tick().await;
             match state.refresh_agent_catalog() {
-                Ok(false) => {}
-                Ok(true) => {
+                Ok(None) => {}
+                Ok(Some(change)) => {
                     tracing::info!("native agent catalog changed");
+                    for slug in &change.removed_slugs {
+                        if let Err(error) =
+                            super::agent_roster::publish_local_agent_roster(&state, Some(slug))
+                                .await
+                        {
+                            tracing::warn!(
+                                slug,
+                                error = %format!("{error:#}"),
+                                "removed native agent roster publish failed"
+                            );
+                        }
+                    }
                     if let Err(error) =
                         super::agent_roster::publish_local_agent_roster(&state, None).await
                     {

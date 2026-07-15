@@ -30,18 +30,28 @@ pub(super) async fn rpc_session_start_inner(
     let mosaico_home = config::mosaico_home();
     config::ensure_dir(&mosaico_home)?;
     let harness = params::resolve_harness(&p);
-    let agent = identity::load_or_create(
-        &mosaico_home,
-        &p.agent,
-        harness.as_str(),
-        p.profile.as_deref(),
-        now_secs(),
-    )?;
     let cwd = p
         .cwd
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
+    state.refresh_agent_catalog()?;
+    let agent = if identity::is_configured(&mosaico_home, &p.agent) {
+        identity::load(&mosaico_home, &p.agent)?
+    } else if state
+        .resolve_native_agent(&p.agent, Some(&cwd), Some(harness))
+        .is_ok()
+    {
+        identity::AgentIdentity::per_session(&p.agent, harness.as_str())
+    } else {
+        identity::load_or_create(
+            &mosaico_home,
+            &p.agent,
+            harness.as_str(),
+            p.profile.as_deref(),
+            now_secs(),
+        )?
+    };
     let work_root = crate::workspace::resolve(&cwd).unwrap_or_default();
     let rel_cwd = crate::workspace::rel_cwd(&cwd);
     runtime::bind_workspace(state, &cwd, &work_root)?;

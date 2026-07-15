@@ -1,11 +1,14 @@
 use super::admission;
+use crate::agent_catalog::NativeAgentActivation;
 use crate::daemon::server::DaemonState;
 use crate::harness::ResumeMechanism;
-use crate::session_host::transport::{select_transport, LaunchSpec, ResumeSpec, TransportImpl};
+use crate::session_host::transport::{LaunchSpec, ResumeSpec, TransportImpl};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
+mod source;
 mod spawn;
+use source::{resolve_agent_source, PtyLaunchSpec};
 pub(crate) use spawn::{spawn_agent, SpawnRequest};
 pub use spawn::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn};
 
@@ -34,6 +37,9 @@ pub(super) fn workspace_abs_path(
         state
             .with_store(|s| s.upsert_workspace(channel, &abs, now))
             .with_context(|| format!("recording workspace path for {channel:?}"))?;
+        state
+            .refresh_agent_catalog()
+            .context("refreshing native agents for recorded workspace")?;
         return Ok(abs);
     }
     // Resume path (no client cwd): the workspace path MUST already be recorded.
@@ -59,6 +65,9 @@ async fn open_agent_session(
     session_name: Option<&str>,
     ephemeral: bool,
     pubkey: &str,
+    bundle: &str,
+    profile: Option<&str>,
+    native_agent: Option<&NativeAgentActivation>,
     pty_launch: Option<PtyLaunchSpec>,
 ) -> Result<crate::pty::LaunchMetadata> {
     match transport {
@@ -89,13 +98,9 @@ async fn open_agent_session(
                 // The bundle NAME (harnesses.json key) is distinct from the agent
                 // slug; the ACP transport resolves its harness/driver from this,
                 // never from the slug (defect #1).
-                bundle: crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?
-                    .harness,
-                profile: crate::identity::agent_launch_config(
-                    &crate::config::mosaico_home(),
-                    slug,
-                )?
-                .profile,
+                bundle: bundle.to_string(),
+                profile: profile.map(str::to_string),
+                native_agent: native_agent.cloned(),
                 root: root.to_string(),
                 abs_path: abs_path.to_string(),
                 group: group.map(str::to_string),
@@ -132,13 +137,19 @@ pub async fn resume_agent_in_channel(
         anyhow::bail!("session has no resume token (not resumable)");
     }
 
-    let source = resolve_configured_source(slug)?;
-    let transport = source.transport;
     let abs_path = workspace_abs_path(state, root, None)?;
+    let source = resolve_agent_source(state, slug, std::path::Path::new(&abs_path))?;
+    let transport = source.transport;
     let base = source.command;
     let harness = source.harness;
-    let reservation =
-        admission::reserve_resume(state, slug, harness.as_str(), root, group, resume_id)?;
+    let reservation = admission::reserve_resume(
+        state,
+        &source.identity,
+        harness.as_str(),
+        root,
+        group,
+        resume_id,
+    )?;
     let meta = match &transport {
         TransportImpl::Pty(_) => {
             let resume_command =
@@ -153,6 +164,9 @@ pub async fn resume_agent_in_channel(
                 None,
                 false,
                 &reservation.pubkey,
+                &source.bundle,
+                source.profile.as_deref(),
+                source.native_agent.as_ref(),
                 source.pty_launch,
             )
             .await?
@@ -166,6 +180,7 @@ pub async fn resume_agent_in_channel(
                 slug: slug.to_string(),
                 bundle: source.bundle,
                 profile: source.profile,
+                native_agent: source.native_agent,
                 root: root.to_string(),
                 abs_path: abs_path.clone(),
                 group: Some(group.to_string()),
@@ -200,70 +215,6 @@ pub async fn resume_agent_in_channel(
         return Err(e.context("registering resumed hosted session"));
     }
     Ok(pty_id)
-}
-
-#[derive(Default)]
-pub(super) struct PtyLaunchSpec {
-    id: Option<String>,
-    env: Vec<(String, String)>,
-    env_remove: Vec<String>,
-}
-
-pub(super) struct ResolvedSource {
-    pub(super) transport: TransportImpl,
-    pub(super) command: Vec<String>,
-    pub(super) harness: crate::session::Harness,
-    pub(super) resume: ResumeMechanism,
-    pub(super) bundle: String,
-    pub(super) profile: Option<String>,
-    pub(super) pty_launch: Option<PtyLaunchSpec>,
-}
-
-pub(super) fn resolve_configured_source(slug: &str) -> Result<ResolvedSource> {
-    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
-    let id = crate::pty::new_endpoint_id(slug);
-    let scratch = crate::config::mosaico_home()
-        .join("harness-profiles")
-        .join(&id);
-    let resolved = crate::harness::resolve(&launch.harness, launch.profile.as_deref(), &scratch)
-        .with_context(|| {
-            format!(
-                "resolving harness bundle {:?} for agent {slug:?}",
-                launch.harness
-            )
-        })?;
-    let transport = select_transport(&launch.harness)?;
-    let pty_launch = if matches!(transport, TransportImpl::Pty(_)) {
-        resolved.profile.materialize()?;
-        let mut env = resolved.profile.extra_env.clone();
-        let mut env_remove = Vec::new();
-        for directive in resolved.driver.base_env {
-            match directive {
-                crate::harness::EnvDirective::Set(key, value) => {
-                    env.push((key.to_string(), value.to_string()));
-                }
-                crate::harness::EnvDirective::Remove(key) => {
-                    env_remove.push(key.to_string());
-                }
-            }
-        }
-        Some(PtyLaunchSpec {
-            id: Some(id),
-            env,
-            env_remove,
-        })
-    } else {
-        None
-    };
-    Ok(ResolvedSource {
-        transport,
-        command: resolved.base_argv,
-        harness: resolved.harness,
-        resume: resolved.driver.resume,
-        bundle: launch.harness,
-        profile: launch.profile,
-        pty_launch,
-    })
 }
 
 fn build_driver_resume_command(

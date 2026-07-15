@@ -1,7 +1,6 @@
 use super::NativeAgentProfile;
 use crate::session::Harness;
 use anyhow::{Context, Result};
-use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NativeAgentActivation {
@@ -12,7 +11,7 @@ pub enum NativeAgentActivation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodexRootConfig {
     pub developer_instructions: String,
-    pub config: Map<String, Value>,
+    pub config: toml::Table,
 }
 
 pub(super) fn load(profile: &NativeAgentProfile) -> Result<NativeAgentActivation> {
@@ -52,13 +51,8 @@ fn load_codex(profile: &NativeAgentProfile) -> Result<NativeAgentActivation> {
     table.remove("description");
     table.remove("nickname_candidates");
 
-    let config = serde_json::to_value(table)
-        .context("converting Codex custom-agent config to app-server config")?
-        .as_object()
-        .cloned()
-        .context("Codex custom-agent config did not serialize as an object")?;
     Ok(NativeAgentActivation::CodexRoot(CodexRootConfig {
         developer_instructions: instructions,
-        config,
+        config: table,
     }))
 }

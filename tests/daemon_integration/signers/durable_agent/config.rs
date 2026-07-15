@@ -5,12 +5,14 @@ fn path(home: &Home, slug: &str) -> std::path::PathBuf {
 }
 
 pub(super) fn configure_durable_agent(home: &Home, slug: &str) -> String {
-    let identity =
-        mosaico::identity::load_or_create(home.dir.path(), slug, "codex", None, 1).unwrap();
+    mosaico::identity::load_or_create(home.dir.path(), slug, "codex", None, 1).unwrap();
+    let keys = nostr_sdk::Keys::generate();
     let mut config = read_agent_config(home, slug);
     config["perSessionKey"] = serde_json::json!(false);
+    config["secret_key"] = serde_json::json!(keys.secret_key().to_secret_hex());
+    config["public_key"] = serde_json::json!(keys.public_key().to_hex());
     write_agent_config(home, slug, &config);
-    identity.pubkey_hex()
+    keys.public_key().to_hex()
 }
 
 pub(super) fn read_agent_config(home: &Home, slug: &str) -> serde_json::Value {

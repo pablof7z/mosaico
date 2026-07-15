@@ -82,3 +82,30 @@ fn profile_name_validation_accepts_current_codex_names() {
         validate_name(valid).unwrap();
     }
 }
+
+#[test]
+fn custom_agent_layers_instructions_and_config_without_catalog_metadata() {
+    let source = tempfile::tempdir().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    write(&source.path().join("config.toml"), "model = 'base'\n");
+    let plan = plan_custom_agent(
+        &crate::agent_catalog::CodexRootConfig {
+            developer_instructions: "Review like an owner".into(),
+            config: toml::from_str("model='review-model'\nmodel_reasoning_effort='high'").unwrap(),
+        },
+        source.path(),
+        scratch.path(),
+    )
+    .unwrap();
+    plan.materialize().unwrap();
+    let staged: toml::Value = toml::from_str(
+        &std::fs::read_to_string(scratch.path().join("codex-home/config.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        staged["developer_instructions"].as_str(),
+        Some("Review like an owner")
+    );
+    assert_eq!(staged["model"].as_str(), Some("review-model"));
+    assert_eq!(staged["model_reasoning_effort"].as_str(), Some("high"));
+}

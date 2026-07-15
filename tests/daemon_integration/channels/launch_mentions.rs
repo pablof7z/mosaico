@@ -228,12 +228,12 @@ fn operator_kind9_to_offline_local_agent_spawns_and_injects() {
     let log = home.dir.path().join("offline-injected.log");
     let native_session = unique_session("offline-native");
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    let (agent_id, _) = identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
         .expect("add local agent");
     // Seed an offline profile so the mention resolves the p-tagged pubkey to this
     // agent. With no native id to resume, the handler falls through to a fresh
     // spawn (a new session that mints its own pubkey).
-    let agent_pubkey = agent_id.pubkey_hex();
+    let agent_pubkey = Keys::generate().public_key().to_hex();
     Store::open(&home.store_path())
         .unwrap()
         .upsert_profile_with_agent_slug(&agent_pubkey, agent, agent, agent, "test-host", false, 1)

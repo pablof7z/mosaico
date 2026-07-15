@@ -110,13 +110,18 @@ async fn spawn_agent_inner_full(
     session_name: Option<&str>,
     ephemeral: bool,
 ) -> Result<(crate::pty::LaunchMetadata, String)> {
-    let resolved = resolve_configured_source(slug)?;
-    let agent_command = resolved.command;
-
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
+    let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path))?;
+    let agent_command = resolved.command.clone();
     let harness = resolved.harness;
-    let reservation =
-        admission::reserve_fresh(state, slug, harness.as_str(), root, group, session_name)?;
+    let reservation = admission::reserve_fresh(
+        state,
+        &resolved.identity,
+        harness.as_str(),
+        root,
+        group,
+        session_name,
+    )?;
     let meta = match open_agent_session(
         &resolved.transport,
         slug,
@@ -127,6 +132,9 @@ async fn spawn_agent_inner_full(
         session_name,
         ephemeral,
         &reservation.pubkey,
+        &resolved.bundle,
+        resolved.profile.as_deref(),
+        resolved.native_agent.as_ref(),
         resolved.pty_launch,
     )
     .await

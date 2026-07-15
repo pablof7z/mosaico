@@ -165,6 +165,15 @@ impl AgentCatalog {
             .collect()
     }
 
+    pub fn slugs(&self) -> Vec<String> {
+        self.profiles
+            .iter()
+            .map(|profile| profile.slug.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
     pub fn resolve(
         &self,
         slug: &str,

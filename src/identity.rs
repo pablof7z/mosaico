@@ -73,6 +73,20 @@ impl AgentIdentity {
     pub fn pubkey_hex(&self) -> Option<String> {
         self.keys.as_ref().map(|keys| keys.public_key().to_hex())
     }
+
+    pub fn per_session(slug: &str, harness: &str) -> Self {
+        Self {
+            slug: slug.to_string(),
+            keys: None,
+            per_session_key: true,
+            harness: harness.to_string(),
+            profile: None,
+        }
+    }
+}
+
+pub fn is_configured(mosaico_home: &Path, slug: &str) -> bool {
+    key_path(mosaico_home, slug).is_file()
 }
 
 fn agents_dir(mosaico_home: &Path) -> PathBuf {

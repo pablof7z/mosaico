@@ -48,6 +48,8 @@ pub struct LaunchSpec {
     pub bundle: String,
     /// Optional harness-native named profile from the agent definition.
     pub profile: Option<String>,
+    /// Harness-owned native agent definition discovered by Mosaico.
+    pub native_agent: Option<crate::agent_catalog::NativeAgentActivation>,
     pub root: String,
     pub abs_path: String,
     pub group: Option<String>,

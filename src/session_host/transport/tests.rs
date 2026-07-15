@@ -50,6 +50,7 @@ fn acp_resolves_driver_from_bundle_not_agent_slug() {
         slug: "reviewer".into(),
         bundle: "codex-rpc".into(),
         profile: Some("planner".into()),
+        native_agent: None,
         root: "chan".into(),
         abs_path: "/tmp".into(),
         group: None,

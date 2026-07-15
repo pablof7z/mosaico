@@ -84,10 +84,11 @@ pub(crate) async fn spawn_agent_exec(
     );
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
     let harness = harness_for_shape(shape);
+    let identity = crate::identity::load(&crate::config::mosaico_home(), slug)?;
     let reservation = match resume_id {
         Some(native) => crate::session_host::admission::reserve_resume(
             state,
-            slug,
+            &identity,
             harness.as_str(),
             root,
             group.unwrap_or(root),
@@ -95,7 +96,7 @@ pub(crate) async fn spawn_agent_exec(
         )?,
         None => crate::session_host::admission::reserve_fresh(
             state,
-            slug,
+            &identity,
             harness.as_str(),
             root,
             group,

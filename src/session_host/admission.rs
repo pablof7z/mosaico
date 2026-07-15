@@ -11,19 +11,18 @@ pub(super) struct Reservation {
 
 pub(super) fn reserve_fresh(
     state: &Arc<DaemonState>,
-    slug: &str,
+    agent: &crate::identity::AgentIdentity,
     harness: &str,
     root: &str,
     group: Option<&str>,
     session_name: Option<&str>,
 ) -> Result<Reservation> {
-    let agent = crate::identity::load(&crate::config::mosaico_home(), slug)?;
-    let prepared = crate::daemon::server::prepare_session_identity(state, &agent, session_name)?;
+    let prepared = crate::daemon::server::prepare_session_identity(state, agent, session_name)?;
     reserve_prepared(
         state,
         prepared.identity.pubkey,
         prepared.reclaimed_pubkey,
-        slug,
+        &agent.slug,
         harness,
         root,
         group,
@@ -32,7 +31,7 @@ pub(super) fn reserve_fresh(
 
 pub(super) fn reserve_resume(
     state: &Arc<DaemonState>,
-    slug: &str,
+    agent: &crate::identity::AgentIdentity,
     harness: &str,
     root: &str,
     group: &str,
@@ -49,12 +48,11 @@ pub(super) fn reserve_resume(
         .with_context(|| {
             format!("no local pubkey owns {harness} resume locator {native_resume:?}")
         })?;
-    let agent = crate::identity::load(&crate::config::mosaico_home(), slug)?;
     let session = state
         .with_store(|store| store.get_session(&pubkey))?
         .with_context(|| format!("resume pubkey {pubkey} has no local runtime projection"))?;
-    crate::daemon::server::validate_live_session_identity(state, &session, &agent)?;
-    reserve_prepared(state, pubkey, None, slug, harness, root, Some(group))
+    crate::daemon::server::validate_live_session_identity(state, &session, agent)?;
+    reserve_prepared(state, pubkey, None, &agent.slug, harness, root, Some(group))
 }
 
 fn reserve_prepared(

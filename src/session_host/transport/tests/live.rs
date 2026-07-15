@@ -25,6 +25,7 @@ fn live_spec(home: &std::path::Path, pubkey: String) -> LaunchSpec {
         slug: "opencode-acp".into(),
         bundle: "opencode-acp".into(),
         profile: None,
+        native_agent: None,
         root: "live".into(),
         abs_path: cwd.to_string_lossy().into_owned(),
         group: None,

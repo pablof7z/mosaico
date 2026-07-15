@@ -27,6 +27,28 @@ pub(super) fn plan(name: &str, source_home: &Path, scratch: &Path) -> Result<Pro
     let named_path = source_home.join(format!("{name}.config.toml"));
     let named = read_required_toml(&named_path)?;
     let merged = deep_merge(base, named);
+    staged_plan(merged, source_home, scratch)
+}
+
+pub(super) fn plan_custom_agent(
+    agent: &crate::agent_catalog::CodexRootConfig,
+    source_home: &Path,
+    scratch: &Path,
+) -> Result<ProfilePlan> {
+    let base = read_optional_toml(&source_home.join("config.toml"))?;
+    let mut overlay = agent.config.clone();
+    overlay.insert(
+        "developer_instructions".to_string(),
+        toml::Value::String(agent.developer_instructions.clone()),
+    );
+    staged_plan(
+        deep_merge(base, toml::Value::Table(overlay)),
+        source_home,
+        scratch,
+    )
+}
+
+fn staged_plan(merged: toml::Value, source_home: &Path, scratch: &Path) -> Result<ProfilePlan> {
     let contents =
         toml::to_string_pretty(&merged).context("serializing composed Codex config profile")?;
     let target_home = scratch.join("codex-home");
