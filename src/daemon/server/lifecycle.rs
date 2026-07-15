@@ -173,6 +173,11 @@ pub async fn run() -> Result<()> {
         // Revive sessions a previous daemon left behind + (re)open their channel
         // subscriptions. Subscriptions go out post-auth.
         reconcile_sessions(&relay_state).await;
+        // Re-adopted sessions may already have inbox rows from before the daemon
+        // restart. Session start rings these rows, but reconciliation does not;
+        // ring once here so a restart cannot leave messages pending until an
+        // unrelated later relay event arrives.
+        crate::session_host::ring_doorbells(relay_state.clone());
     });
 
     let mut sigterm =
