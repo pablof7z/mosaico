@@ -98,3 +98,47 @@ pub(super) fn resolve_agent_source(
         pty_launch,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_env::EnvGuard;
+
+    fn write(path: &std::path::Path, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    #[tokio::test]
+    async fn installed_codex_agent_resolves_without_agent_json() {
+        let home = tempfile::tempdir().unwrap();
+        let mosaico_home = home.path().join("mosaico");
+        let codex_home = home.path().join(".codex");
+        let mut env = EnvGuard::set("MOSAICO_HOME", &mosaico_home);
+        env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
+        env.set_var("HOME", home.path());
+        env.set_var("CODEX_HOME", &codex_home);
+        write(
+            &mosaico_home.join("harnesses.json"),
+            r#"{"codex-rpc":{"harness":"codex","transport":"app-server"}}"#,
+        );
+        write(
+            &codex_home.join("agents/reviewer.toml"),
+            "name='reviewer'\ndescription='Reviews code'\ndeveloper_instructions='Review carefully'",
+        );
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = DaemonState::new_for_test().await;
+        state.refresh_agent_catalog().unwrap();
+
+        let source = resolve_agent_source(&state, "reviewer", &workspace).unwrap();
+        assert_eq!(source.bundle, "codex-rpc");
+        assert!(source.identity.per_session_key);
+        assert!(source.identity.keys.is_none());
+        assert!(matches!(
+            source.native_agent,
+            Some(NativeAgentActivation::CodexRoot(_))
+        ));
+        assert!(!mosaico_home.join("agents/reviewer.json").exists());
+    }
+}
