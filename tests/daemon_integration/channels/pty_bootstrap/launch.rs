@@ -1,5 +1,13 @@
 use super::*;
 
+struct PtyCleanup(String);
+
+impl Drop for PtyCleanup {
+    fn drop(&mut self) {
+        let _ = mosaico::pty::kill(&self.0);
+    }
+}
+
 fn launch_no_hook(home: &Home, agent: &str, channel: &str, mode: &str) {
     let work_dir = home.dir.path().join(channel);
     add_workspace_mapping(home, channel, &work_dir);
@@ -68,6 +76,12 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
         "launch failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    let pty_id = mosaico::pty::read_all_metadata()
+        .into_iter()
+        .find(|meta| meta.agent == agent)
+        .expect("launched PTY metadata")
+        .id;
+    let cleanup = PtyCleanup(pty_id.clone());
     assert!(
         wait_until(Duration::from_secs(10), || capture.exists()),
         "PTY harness did not capture its assigned identity"
@@ -84,6 +98,11 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
         .unwrap()
         .is_some());
 
+    drop(cleanup);
+    assert!(
+        wait_until(Duration::from_secs(5), || !mosaico::pty::is_live(&pty_id)),
+        "identity test PTY was not reaped"
+    );
     stop_daemon(&home);
 }
 
