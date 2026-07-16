@@ -38,7 +38,7 @@ impl TransportKind {
 }
 
 /// Fully-resolved, transport-agnostic launch intent.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LaunchSpec {
     pub slug: String,
     /// The agent's configured harness bundle name (a `harnesses.json` key).
@@ -58,6 +58,8 @@ pub struct LaunchSpec {
     pub base_command: Vec<String>,
     /// Authoritative session identity allocated before the child starts.
     pub pubkey: String,
+    /// Matching signer exposed only to the assigned harness process.
+    pub agent_nsec: String,
 }
 
 /// A prior session's native resume token.

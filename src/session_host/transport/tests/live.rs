@@ -32,6 +32,7 @@ fn live_spec(home: &std::path::Path, pubkey: String) -> LaunchSpec {
         ephemeral: true,
         base_command: vec!["opencode".into()],
         pubkey,
+        agent_nsec: "test-agent-nsec".into(),
     }
 }
 

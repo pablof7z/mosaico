@@ -13,6 +13,7 @@
 //! returned to the queue so another path can deliver them.
 
 mod admission;
+mod agent_env;
 mod delivery;
 mod exec;
 mod launch;

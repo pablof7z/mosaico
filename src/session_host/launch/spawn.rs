@@ -132,6 +132,7 @@ async fn spawn_agent_inner_full(
         session_name,
         ephemeral,
         &reservation.pubkey,
+        &reservation.agent_nsec,
         &resolved.bundle,
         resolved.profile.as_deref(),
         resolved.native_agent.as_ref(),

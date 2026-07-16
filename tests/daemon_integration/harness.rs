@@ -9,7 +9,9 @@ mod daemon;
 pub(crate) use daemon::stop_daemon;
 #[path = "harness/launch.rs"]
 mod launch;
-pub(crate) use launch::{configure_pty_agent, install_test_harness_shim};
+pub(crate) use launch::{
+    configure_pty_agent, configure_pty_agent_with_args, install_test_harness_shim,
+};
 
 pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 

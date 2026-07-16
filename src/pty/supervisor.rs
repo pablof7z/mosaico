@@ -64,6 +64,11 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     } else {
         cmd.env_remove("MOSAICO_PUBKEY");
     }
+    if let Ok(nsec) = std::env::var("AGENT_NSEC") {
+        cmd.env("AGENT_NSEC", nsec);
+    } else {
+        cmd.env_remove("AGENT_NSEC");
+    }
     if args.ephemeral {
         cmd.env("MOSAICO_EPHEMERAL", "1");
     } else {

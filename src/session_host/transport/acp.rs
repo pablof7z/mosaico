@@ -102,8 +102,7 @@ impl AcpTransport {
             cwd,
             callbacks,
         )?;
-        cfg.env
-            .push(("MOSAICO_PUBKEY".to_string(), spec.pubkey.clone()));
+        crate::session_host::agent_env::assign_launch(&mut cfg.env, &mut cfg.env_remove, spec);
         let dialect = cfg.dialect;
         let (handle, updates) = RpcHandle::spawn(cfg)
             .await

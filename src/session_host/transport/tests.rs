@@ -57,6 +57,7 @@ fn acp_resolves_driver_from_bundle_not_agent_slug() {
         ephemeral: false,
         base_command: vec!["codex".into(), "app-server".into()],
         pubkey: "33".repeat(32),
+        agent_nsec: "test-agent-nsec".into(),
     };
     assert_eq!(super::acp::bundle_name(&spec), "codex-rpc");
     let scratch = tempfile::tempdir().unwrap();

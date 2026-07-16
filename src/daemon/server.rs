@@ -213,7 +213,7 @@ use session_end::{rpc_session_end, rpc_session_kill};
 use session_pty_wrap::rpc_session_pty_wrap;
 use session_signing::retire_reclaimed_profile;
 pub(crate) use session_signing::{
-    load_session_identity, prepare_session_identity, validate_live_session_identity,
+    load_session_identity, prepare_session_identity, PreparedIdentity,
 };
 use session_start::rpc_session_start;
 use status_publish::spawn_outbox_drainer;

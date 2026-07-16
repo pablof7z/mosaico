@@ -2,6 +2,8 @@ use crate::daemon_harness::*;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 
+#[path = "channels/acp_identity.rs"]
+mod acp_identity;
 #[path = "channels/create.rs"]
 mod create;
 #[path = "channels/edit.rs"]

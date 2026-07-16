@@ -65,6 +65,7 @@ async fn open_agent_session(
     session_name: Option<&str>,
     ephemeral: bool,
     pubkey: &str,
+    agent_nsec: &str,
     bundle: &str,
     profile: Option<&str>,
     native_agent: Option<&NativeAgentActivation>,
@@ -72,7 +73,13 @@ async fn open_agent_session(
 ) -> Result<crate::pty::LaunchMetadata> {
     match transport {
         TransportImpl::Pty(_) => {
-            let pty_launch = pty_launch.unwrap_or_default();
+            let mut pty_launch = pty_launch.unwrap_or_default();
+            crate::session_host::agent_env::assign(
+                &mut pty_launch.env,
+                &mut pty_launch.env_remove,
+                pubkey,
+                agent_nsec,
+            );
             let meta = crate::pty::spawn_session(crate::pty::SpawnSessionArgs {
                 id: pty_launch.id,
                 agent: slug.to_string(),
@@ -82,11 +89,7 @@ async fn open_agent_session(
                 session_name: session_name.map(str::to_string),
                 ephemeral,
                 command: command.to_vec(),
-                env: pty_launch
-                    .env
-                    .into_iter()
-                    .chain([(String::from("MOSAICO_PUBKEY"), pubkey.to_string())])
-                    .collect(),
+                env: pty_launch.env,
                 env_remove: pty_launch.env_remove,
             })?;
             Ok(meta)
@@ -107,6 +110,7 @@ async fn open_agent_session(
                 ephemeral,
                 base_command: command.to_vec(),
                 pubkey: pubkey.to_string(),
+                agent_nsec: agent_nsec.to_string(),
             };
             let endpoint = t.launch(&spec).await?;
             Ok(endpoint.meta)
@@ -164,6 +168,7 @@ pub async fn resume_agent_in_channel(
                 None,
                 false,
                 &reservation.pubkey,
+                &reservation.agent_nsec,
                 &source.bundle,
                 source.profile.as_deref(),
                 source.native_agent.as_ref(),
@@ -187,6 +192,7 @@ pub async fn resume_agent_in_channel(
                 ephemeral: false,
                 base_command: base,
                 pubkey: reservation.pubkey.clone(),
+                agent_nsec: reservation.agent_nsec.clone(),
             };
             let resume = ResumeSpec {
                 native_id: resume_id.to_string(),

@@ -111,6 +111,7 @@ pub(crate) async fn spawn_agent_exec(
         command,
         harness,
         &reservation.pubkey,
+        &reservation.agent_nsec,
         reservation.runtime_generation,
         &resolved.profile.extra_env,
     ) {
@@ -148,6 +149,7 @@ fn spawn_process(
     command: Vec<String>,
     harness: Harness,
     pubkey: &str,
+    agent_nsec: &str,
     runtime_generation: u64,
     extra_env: &[(String, String)],
 ) -> Result<ExecLaunch> {
@@ -167,12 +169,14 @@ fn spawn_process(
     let log_err = log.try_clone()?;
 
     let mut child_cmd = std::process::Command::new(&command[0]);
+    let mut env = extra_env.to_vec();
+    let mut env_remove = Vec::new();
+    crate::session_host::agent_env::assign(&mut env, &mut env_remove, pubkey, agent_nsec);
     child_cmd
         .args(&command[1..])
         .current_dir(cwd)
         .env("MOSAICO_SPAWNED", "1")
         .env("MOSAICO_AGENT", slug)
-        .env("MOSAICO_PUBKEY", pubkey)
         .env_remove("MOSAICO_EPHEMERAL")
         .env_remove("MOSAICO_PTY_SESSION")
         .env_remove("MOSAICO_PTY_SOCKET")
@@ -184,7 +188,7 @@ fn spawn_process(
     if let Some(channel) = group.filter(|g| !g.is_empty()) {
         child_cmd.env("MOSAICO_CHANNEL", channel);
     }
-    child_cmd.envs(extra_env.iter().cloned());
+    child_cmd.envs(env);
     unsafe {
         child_cmd.pre_exec(|| {
             if libc::setsid() == -1 {
