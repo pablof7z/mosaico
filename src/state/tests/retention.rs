@@ -8,7 +8,7 @@ fn count_rows(s: &Store, table: &str) -> i64 {
 }
 
 #[test]
-fn incompatible_schema_version_fails_loudly() {
+fn newer_schema_version_fails_loudly() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("state.db");
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -16,12 +16,12 @@ fn incompatible_schema_version_fails_loudly() {
     drop(conn);
 
     let err = match Store::open(&path) {
-        Ok(_) => panic!("incompatible schema must fail"),
+        Ok(_) => panic!("newer schema must fail"),
         Err(e) => e,
     };
 
     assert!(err.to_string().contains("schema version 999"));
-    assert!(err.to_string().contains("incompatible"));
+    assert!(err.to_string().contains("newer than this binary"));
 }
 
 #[test]

@@ -1,6 +1,8 @@
 use crate::state::Store;
 use rusqlite::Connection;
 
+#[path = "tests/migration.rs"]
+mod migration;
 #[path = "tests/session_context.rs"]
 mod session_context;
 
@@ -20,21 +22,6 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
         |r| r.get(0),
     )
     .unwrap()
-}
-
-fn assert_schema_version_rejected(version: u32) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    drop(Store::open(&path).unwrap());
-    let conn = Connection::open(&path).unwrap();
-    conn.pragma_update(None, "user_version", version).unwrap();
-    drop(conn);
-    let error = Store::open(&path)
-        .err()
-        .expect("old schema must be rejected");
-    assert!(error
-        .to_string()
-        .contains(&format!("schema version {version} is incompatible")));
 }
 
 #[test]
@@ -147,7 +134,7 @@ fn schema_v1_is_rejected_instead_of_upgraded_in_place() {
     };
     assert!(error
         .to_string()
-        .contains("schema version 1 is incompatible"));
+        .contains("schema version 1 predates automatic migrations"));
     let conn = Connection::open(&path).unwrap();
     assert!(!table_exists(&conn, "session_locators"));
 }
@@ -170,7 +157,7 @@ fn schema_v2_is_rejected_instead_of_preserving_session_id_derived_signers() {
     };
     assert!(error
         .to_string()
-        .contains("schema version 2 is incompatible"));
+        .contains("schema version 2 predates automatic migrations"));
     let conn = Connection::open(&path).unwrap();
     assert!(!table_exists(&conn, "session_signers"));
 }
@@ -193,29 +180,9 @@ fn schema_v3_is_rejected_instead_of_preserving_session_keyed_inbox() {
     };
     assert!(error
         .to_string()
-        .contains("schema version 3 is incompatible"));
+        .contains("schema version 3 predates automatic migrations"));
     let conn = Connection::open(&path).unwrap();
     assert!(!table_exists(&conn, "event_claims"));
-}
-
-#[test]
-fn schema_v4_is_rejected_instead_of_preserving_session_keyed_messages() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    {
-        let store = Store::open(&path).unwrap();
-        drop(store);
-        let conn = Connection::open(&path).unwrap();
-        conn.pragma_update(None, "user_version", 4).unwrap();
-    }
-
-    let error = match Store::open(&path) {
-        Ok(_) => panic!("schema v4 must be rejected"),
-        Err(error) => error,
-    };
-    assert!(error
-        .to_string()
-        .contains("schema version 4 is incompatible"));
 }
 
 #[test]
@@ -250,21 +217,6 @@ fn stamped_non_canonical_file_db_is_rejected() {
     };
     let text = format!("{err:#}");
     assert!(text.contains("not the current canonical schema"), "{text}");
-}
-
-#[test]
-fn schema_v5_is_rejected_instead_of_being_upgraded() {
-    assert_schema_version_rejected(5);
-}
-
-#[test]
-fn schema_v6_is_rejected_instead_of_retaining_removed_tables() {
-    assert_schema_version_rejected(6);
-}
-
-#[test]
-fn schema_v7_is_rejected_instead_of_retaining_removed_distillation_state() {
-    assert_schema_version_rejected(7);
 }
 
 #[test]

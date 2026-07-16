@@ -1,5 +1,6 @@
 use super::*;
 use crate::reconcile::StatusReconciler;
+mod pending_writes;
 mod roster_bootstrap;
 
 pub async fn run() -> Result<()> {
@@ -44,11 +45,7 @@ pub async fn run() -> Result<()> {
     // The indexer is a direct-client target only for kind:0 profile copies and
     // one-shot lookups. NIP-29 group writes are composed and routed by NMP, so
     // the indexer can never receive or reject them accidentally.
-    let indexer = if cfg.relays.contains(&cfg.indexer_relay) {
-        None
-    } else {
-        Some(cfg.indexer_relay.as_str())
-    };
+    let indexer = (!cfg.relays.contains(&cfg.indexer_relay)).then_some(cfg.indexer_relay.as_str());
     let transport = Arc::new(
         Transport::connect_with_indexer(&cfg.relays, indexer, auth_keys)
             .await
@@ -65,6 +62,7 @@ pub async fn run() -> Result<()> {
         Some(&cfg.indexer_relay),
         Some(&storage.nmp_store_path),
     )?);
+    pending_writes::spawn(&storage.state_db_path, &nmp, &transport);
     let provider = Arc::new(Nip29Provider::new(
         transport.clone(),
         nmp.clone(),
