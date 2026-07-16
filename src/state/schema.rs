@@ -9,9 +9,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 mod ddl;
+mod migration;
 mod version;
 
 use ddl::SCHEMA;
+pub(crate) use migration::{load_pending_writes, replace_pending_writes};
 
 const CANONICAL_TABLES: &[&str] = &[
     "channel_readiness_attempts",
@@ -40,8 +42,9 @@ const CANONICAL_TABLES: &[&str] = &[
 ];
 
 pub(super) fn initialize_file(conn: &mut Connection, path: &Path) -> Result<()> {
-    version::check(conn, path)?;
-    if has_user_tables(conn)? {
+    let initial_version = version::read(conn)?;
+    migration::upgrade(conn, path)?;
+    if initial_version == version::SCHEMA_VERSION && has_user_tables(conn)? {
         validate_canonical(conn, Some(path))?;
     }
     conn.execute_batch(SCHEMA).context("creating schema")?;
@@ -274,12 +277,12 @@ fn table_columns(conn: &Connection, table: &str) -> Result<BTreeSet<String>> {
 fn bail_non_canonical<T>(path: Option<&Path>, reason: String) -> Result<T> {
     match path {
         Some(path) => anyhow::bail!(
-            "refusing to open {}: state.db is not the current canonical schema ({reason}); rebuild it instead of relying on compatibility migrations",
+            "refusing to open {}: state.db is not the current canonical schema ({reason})",
             path.display()
         ),
-        None => anyhow::bail!(
-            "in-memory state schema is not the current canonical schema ({reason})"
-        ),
+        None => {
+            anyhow::bail!("in-memory state schema is not the current canonical schema ({reason})")
+        }
     }
 }
 

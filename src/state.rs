@@ -202,6 +202,7 @@ pub use channel_readiness_attempts::{ChannelReadinessAttempt, NewChannelReadines
 mod channels;
 mod schema;
 pub use channels::{archived_channel_about, is_archived_channel_about, CHANNEL_ABOUT_MAX_CHARS};
+pub(crate) use schema::{load_pending_writes, replace_pending_writes};
 mod core;
 mod event_claims;
 mod events;
