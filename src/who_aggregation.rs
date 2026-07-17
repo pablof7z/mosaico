@@ -8,6 +8,7 @@ use crate::state::{
     AgentAvailability, Channel, ChannelMember, Session, Status, Store, StoreReader,
 };
 use anyhow::{Context, Result};
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 pub(crate) struct WhoAggregation {
@@ -63,7 +64,7 @@ impl WhoAggregation {
                 .push(status);
         }
         for rows in statuses.values_mut() {
-            rows.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+            rows.sort_by_key(|status| Reverse(status.updated_at));
         }
         Ok(Self {
             channels,
