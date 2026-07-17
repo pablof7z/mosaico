@@ -35,6 +35,10 @@ impl<'a> WorkspacePathResolver<'a> {
         self.store.workspace_path(&root)
     }
 
+    pub(crate) fn bindings(&self) -> Result<Vec<crate::state::WorkspaceBinding>> {
+        self.store.list_workspace_bindings()
+    }
+
     pub(crate) fn root_for_session(&self, session: &crate::state::Session) -> String {
         self.store
             .root_channel_of(&session.channel_h)
@@ -84,6 +88,27 @@ mod tests {
         assert_eq!(
             resolver.path_for_channel("child").unwrap().as_deref(),
             Some("/repo")
+        );
+    }
+
+    #[test]
+    fn binding_enumeration_stays_behind_the_resolver() {
+        let store = crate::state::Store::open_memory().unwrap();
+        let resolver = WorkspacePathResolver::new(&store);
+        resolver
+            .bind_root_path("zeta", std::path::Path::new("/work/zeta"), 1)
+            .unwrap();
+        resolver
+            .bind_root_path("alpha", std::path::Path::new("/work/alpha"), 2)
+            .unwrap();
+
+        let bindings = resolver.bindings().unwrap();
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|binding| binding.channel_h.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "zeta"]
         );
     }
 }

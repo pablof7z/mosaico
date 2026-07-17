@@ -112,8 +112,8 @@ pub(super) fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> 
         .map(|c| c.channel_h)
         .collect::<BTreeSet<_>>();
     roots.extend(
-        store
-            .list_workspace_bindings()?
+        crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .bindings()?
             .into_iter()
             .map(|binding| binding.channel_h),
     );

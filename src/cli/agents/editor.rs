@@ -1,6 +1,5 @@
 use super::data::{harness_name, AgentKind, AgentRow};
 use crate::harness::{HarnessBundle, HarnessesConfig, Transport};
-use crate::identity::LocalAgentUpdate;
 use crate::session::Harness;
 use anyhow::{bail, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Select};
@@ -21,7 +20,7 @@ impl OperationMode {
     }
 }
 
-pub(super) fn edit(row: &AgentRow) -> Result<()> {
+pub(super) async fn edit(row: &AgentRow) -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         bail!("agent editing is interactive — run it in a terminal");
     }
@@ -56,20 +55,11 @@ pub(super) fn edit(row: &AgentRow) -> Result<()> {
     let bundle = select_or_create_bundle(harness, transport, row.bundle.as_deref(), &theme)?;
     let per_session_key = select_key_mode(row.per_session_key.unwrap_or(true), &theme)?;
     let profile = profile_for_save(row);
-    let (_, created) = crate::identity::save_local_agent(
-        &crate::config::mosaico_home(),
-        &row.slug,
-        LocalAgentUpdate {
-            harness: bundle.clone(),
-            profile,
-            per_session_key: Some(per_session_key),
-            byline: None,
-        },
-        crate::util::now_secs(),
-    )?;
+    let saved =
+        super::save_agent_config(&row.slug, &bundle, profile, Some(per_session_key)).await?;
     println!(
         "{} {} · {bundle} · {}",
-        if created { "Created" } else { "Updated" },
+        if saved.created { "Created" } else { "Updated" },
         row.slug,
         mode.label()
     );

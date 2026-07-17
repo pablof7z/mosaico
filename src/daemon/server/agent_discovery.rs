@@ -48,8 +48,8 @@ impl DaemonState {
     pub(crate) fn refresh_agent_catalog(&self) -> Result<Option<CatalogChange>> {
         let roots = DiscoveryRoots::installed()?;
         let workspaces = self.with_store(|store| {
-            store
-                .list_workspace_bindings()
+            crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+                .bindings()
                 .unwrap_or_default()
                 .into_iter()
                 .map(|binding| PathBuf::from(binding.abs_path))

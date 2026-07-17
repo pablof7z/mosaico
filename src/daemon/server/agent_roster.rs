@@ -150,7 +150,11 @@ pub(in crate::daemon::server) fn capability_advertisements(
 ) -> (Vec<CapabilityAdvertisement>, Vec<String>) {
     let roots = state.with_store(root_channels);
     let root_set = roots.iter().cloned().collect::<BTreeSet<_>>();
-    let bindings = state.with_store(|store| store.list_workspace_bindings().unwrap_or_default());
+    let bindings = state.with_store(|store| {
+        crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .bindings()
+            .unwrap_or_default()
+    });
     let mut merged = BTreeMap::<String, (String, u64, BTreeSet<String>)>::new();
     let catalog = state.agent_catalog();
     let installed_harnesses = state.installed_harnesses();

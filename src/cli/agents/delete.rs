@@ -59,7 +59,7 @@ pub(super) async fn delete(row: &AgentRow) -> Result<()> {
         return Ok(());
     }
     if matches!(target, DeleteTarget::Agent | DeleteTarget::Both)
-        && crate::identity::remove_local_agent(&crate::config::mosaico_home(), &row.slug)?
+        && super::remove_agent_config(&row.slug).await?
     {
         println!("Deleted agent configuration {}", row.slug);
     }

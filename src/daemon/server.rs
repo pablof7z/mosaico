@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
+mod agent_config;
 mod agent_discovery;
 mod agent_roster;
 mod agent_usage;
@@ -227,6 +228,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
         "agent_inventory" => agent_discovery::rpc_agent_inventory(state, &req.params),
+        "agent_save" => agent_config::rpc_agent_save(&req.params),
+        "agent_remove" => agent_config::rpc_agent_remove(&req.params),
         "agent_usage" => agent_usage::rpc_agent_usage(state, &req.params),
         "pty_supervisor_exit" => rpc::rpc_pty_supervisor_exit(state, &req.params).await,
         "agent_roster_refresh" => rpc_agent_roster_refresh(state, &req.params),
