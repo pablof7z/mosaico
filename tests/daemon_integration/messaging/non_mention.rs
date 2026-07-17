@@ -17,22 +17,28 @@ fn non_mention_chat_does_not_route_to_inbox() {
         let s = c
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "ambient-sender",
-                    "harness_session": "ambient-sender-sess",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "ambient-sender",
+                        "harness_session": "ambient-sender-sess",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .unwrap();
         let r = c
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "ambient-receiver",
-                    "harness_session": "ambient-receiver-sess",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "ambient-receiver",
+                        "harness_session": "ambient-receiver-sess",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .unwrap();

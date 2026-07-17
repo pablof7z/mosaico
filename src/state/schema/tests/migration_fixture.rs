@@ -179,6 +179,34 @@ pub(super) fn create_schema_seven(path: &Path) {
     .unwrap();
 }
 
+pub(super) fn create_schema_eight(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(super::super::super::ddl::SCHEMA)
+        .unwrap();
+    conn.execute_batch(
+        r#"
+        ALTER TABLE sessions DROP COLUMN claimed_harness;
+        ALTER TABLE sessions DROP COLUMN admitted_bundle;
+        ALTER TABLE sessions DROP COLUMN admitted_transport;
+        ALTER TABLE sessions DROP COLUMN endpoint_provenance;
+        ALTER TABLE sessions RENAME COLUMN observed_harness TO harness;
+        INSERT INTO sessions
+            (pubkey, runtime_generation, harness, created_at)
+        VALUES ('pk-pty', 1, 'codex', 1),
+               ('pk-acp', 1, 'claude-code', 1),
+               ('pk-app-server', 1, 'codex', 1);
+        INSERT INTO session_locators
+            (harness, locator_kind, locator_value, pubkey, created_at)
+        VALUES ('codex', 'pty', 'pty-owned', 'pk-pty', 1),
+               ('claude-code', 'acp', 'acp-foreign', 'pk-pty', 2),
+               ('claude-code', 'acp', 'acp-owned', 'pk-acp', 1),
+               ('codex', 'acp', 'app-server-owned', 'pk-app-server', 1);
+        PRAGMA user_version = 8;
+        "#,
+    )
+    .unwrap();
+}
+
 pub(super) fn table_exists(conn: &Connection, table: &str) -> bool {
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",

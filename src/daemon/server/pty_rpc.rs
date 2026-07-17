@@ -14,10 +14,12 @@ pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_jso
 }
 
 fn pty_session_for_pubkey(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
-    let locators = state.with_store(|s| s.locators_for_pubkey(pubkey)).ok()?;
-    locators
-        .into_iter()
-        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
+    let session = state.with_store(|s| s.get_session(pubkey)).ok()??;
+    state
+        .with_store(|s| {
+            s.locator_for_session(pubkey, &session.observed_harness, crate::state::LOCATOR_PTY)
+        })
+        .ok()?
         .map(|locator| locator.locator_value)
 }
 
@@ -176,7 +178,7 @@ pub(in crate::daemon::server) fn resume_token_for(
     rec: &crate::state::Session,
 ) -> Option<String> {
     state
-        .with_store(|store| store.native_resume_locator(&rec.pubkey))
+        .with_store(|store| store.native_resume_locator(&rec.pubkey, &rec.observed_harness))
         .ok()
         .flatten()
         .map(|locator| locator.locator_value)
@@ -247,7 +249,7 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
         if live_pty {
             continue;
         }
-        let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h));
+        let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h))?;
         let pubkey = rec.pubkey.clone();
         let npub = crate::idref::npub(&pubkey).unwrap_or_default();
         let handle = state.with_store(|s| s.handle_for_pubkey(&pubkey).ok().flatten());

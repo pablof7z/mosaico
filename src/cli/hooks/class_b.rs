@@ -1,12 +1,8 @@
 const IDLE_NUDGE: &str = "[mosaico] Are you done with this spawned session? If so, run `mosaico my session end --self`; otherwise continue.";
 
-pub(super) fn inject_idle_nudge(agent_slug: &str) {
+pub(super) fn inject_idle_nudge() {
     let pty_session = crate::cli::pty_session_env();
-    if !should_nudge(
-        crate::cli::ephemeral_session_env(),
-        pty_session.as_deref(),
-        agent_slug,
-    ) {
+    if !should_nudge(crate::cli::ephemeral_session_env(), pty_session.as_deref()) {
         return;
     }
     let Some(pty_id) = pty_session else {
@@ -20,10 +16,8 @@ pub(super) fn inject_idle_nudge(agent_slug: &str) {
     }
 }
 
-fn should_nudge(ephemeral: bool, pty_session: Option<&str>, agent_slug: &str) -> bool {
-    ephemeral
-        && pty_session.is_some_and(|id| !id.is_empty())
-        && !crate::session_host::agent_supports_headless_exec(agent_slug)
+fn should_nudge(ephemeral: bool, pty_session: Option<&str>) -> bool {
+    ephemeral && pty_session.is_some_and(|id| !id.is_empty())
 }
 
 #[cfg(test)]
@@ -31,13 +25,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nudge_requires_ephemeral_pty_and_non_headless_agent() {
-        // Without a configured headless-exec bundle, a hosted PTY stays Class B.
-        assert!(should_nudge(true, Some("pty-1"), "grok"));
-        assert!(!should_nudge(false, Some("pty-1"), "grok"));
-        assert!(!should_nudge(true, None, "grok"));
-        assert!(should_nudge(true, Some("pty-1"), "codex"));
-        assert!(should_nudge(true, Some("pty-1"), "opencode"));
+    fn nudge_requires_an_ephemeral_pty() {
+        assert!(should_nudge(true, Some("pty-1")));
+        assert!(!should_nudge(false, Some("pty-1")));
+        assert!(!should_nudge(true, None));
     }
 
     #[test]

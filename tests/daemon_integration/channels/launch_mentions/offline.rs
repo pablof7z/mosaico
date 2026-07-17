@@ -21,7 +21,7 @@ fn launch_target(home: &Home, agent: &str, channel: &str, work_dir: &Path) -> (S
     wait_for_group_member(home, channel, &session.pubkey);
     let resume = Store::open(&home.store_path())
         .unwrap()
-        .native_resume_locator(&session.pubkey)
+        .native_resume_locator(&session.pubkey, &session.observed_harness)
         .unwrap();
     assert!(resume.is_some(), "launched target must be resumable");
     (pty_id, session)
@@ -33,12 +33,15 @@ fn start_keeper(home: &Home, channel: &str, work_dir: &Path) {
         client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "keeper",
-                    "harness_session": unique_session("keeper"),
-                    "cwd": work_dir,
-                    "watch_pid": std::process::id(),
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "keeper",
+                        "harness_session": unique_session("keeper"),
+                        "cwd": work_dir,
+                        "watch_pid": std::process::id(),
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("keeper session_start");

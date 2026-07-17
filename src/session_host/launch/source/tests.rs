@@ -185,7 +185,10 @@ async fn managed_generic_creates_preferred_rpc_bundle() {
     let source = resolve_agent_source(&state, "codex", &workspace, LaunchIntent::Managed).unwrap();
 
     assert_eq!(source.bundle, "codex-app-server");
-    assert!(matches!(source.transport, TransportImpl::Acp(_)));
+    assert_eq!(
+        source.transport.kind(),
+        crate::session_host::transport::TransportKind::AppServer
+    );
     let saved = HarnessesConfig::load().unwrap();
     assert_eq!(
         saved.get("codex-app-server").unwrap().transport,

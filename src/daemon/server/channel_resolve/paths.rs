@@ -17,16 +17,16 @@ pub(super) fn canonical_segments(root: &str, reference: &str) -> Vec<String> {
 pub(in crate::daemon::server) fn channel_reference_for(
     store: &crate::state::Store,
     channel_h: &str,
-) -> String {
-    let root = super::root_channel(store, channel_h);
+) -> anyhow::Result<String> {
+    let root = super::root_channel(store, channel_h)?;
     if root == channel_h {
-        return crate::channel_ref::full_channel_ref(store, channel_h);
+        return Ok(crate::channel_ref::full_channel_ref(store, channel_h));
     }
     let paths = subtree_paths(store, &root);
     let Some((_, segments)) = paths.iter().find(|(id, _)| id == channel_h) else {
-        return channel_id_reference(channel_h);
+        return Ok(channel_id_reference(channel_h));
     };
-    canonical_channel_reference(&root, segments)
+    Ok(canonical_channel_reference(&root, segments))
 }
 
 pub(super) fn canonical_channel_reference(root: &str, segs: &[String]) -> String {

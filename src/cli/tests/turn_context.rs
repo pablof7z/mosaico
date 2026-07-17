@@ -59,9 +59,9 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
         .replace_channel_members("proj", &["pk-coder1".to_string()], 2)
         .unwrap();
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "pk-coder1".to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: "coder".to_string(),
             channel_h: "proj".to_string(),
             child_pid: None,
@@ -164,7 +164,8 @@ fn first_turn_warns_when_session_has_no_live_pty_endpoint() {
 fn first_turn_omits_pty_warning_when_session_has_a_live_endpoint() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    let rec = test_session("sess-with-pty");
+    let mut rec = test_session("sess-with-pty");
+    rec.admitted_transport = "pty".into();
 
     let dir = tempfile::tempdir().unwrap();
     let socket_path = dir.path().join("live.sock");

@@ -37,7 +37,9 @@ async fn my_session() -> Result<Value> {
 async fn channel_list(args: &Value) -> Result<Value> {
     let channel = match opt_string(args, "channel") {
         Some(channel) => channel,
-        None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
+        None => crate::daemon::workspace_path::channel_for_path_or_bail(
+            &std::env::current_dir().unwrap_or_default(),
+        )?,
     };
     daemon_raw("channel_list", json!({ "channel": channel })).await
 }

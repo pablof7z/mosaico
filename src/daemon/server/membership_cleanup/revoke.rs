@@ -77,9 +77,9 @@ mod tests {
         let session = "pk-operator-kill";
         state.with_store(|store| {
             store
-                .reserve_session(&RegisterSession {
+                .reserve_hook_session_for_test(&RegisterSession {
                     pubkey: session.into(),
-                    harness: "claude".into(),
+                    observed_harness: "claude-code".into(),
                     agent_slug: "reviewer".into(),
                     channel_h: "active".into(),
                     child_pid: None,

@@ -11,22 +11,37 @@ pub(super) struct Reservation {
     pub(super) reclaimed_pubkey: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn reserve_fresh(
     state: &Arc<DaemonState>,
     agent: &crate::identity::AgentIdentity,
     harness: &str,
+    bundle: &str,
+    transport: &str,
     root: &str,
     group: Option<&str>,
     session_name: Option<&str>,
 ) -> Result<Reservation> {
     let prepared = crate::daemon::server::prepare_session_identity(state, agent, session_name)?;
-    reserve_prepared(state, prepared, &agent.slug, harness, root, group)
+    reserve_prepared(
+        state,
+        prepared,
+        &agent.slug,
+        harness,
+        bundle,
+        transport,
+        root,
+        group,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn reserve_fresh_for_pubkey(
     state: &Arc<DaemonState>,
     agent: &crate::identity::AgentIdentity,
     harness: &str,
+    bundle: &str,
+    transport: &str,
     root: &str,
     group: Option<&str>,
     expected_pubkey: &str,
@@ -47,13 +62,25 @@ pub(super) fn reserve_fresh_for_pubkey(
         );
     }
     let prepared = crate::daemon::server::prepare_session_identity(state, agent, None)?;
-    reserve_prepared(state, prepared, &agent.slug, harness, root, group)
+    reserve_prepared(
+        state,
+        prepared,
+        &agent.slug,
+        harness,
+        bundle,
+        transport,
+        root,
+        group,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn reserve_resume(
     state: &Arc<DaemonState>,
     agent: &crate::identity::AgentIdentity,
     harness: &str,
+    bundle: &str,
+    transport: &str,
     root: &str,
     group: &str,
     native_resume: &str,
@@ -70,14 +97,26 @@ pub(super) fn reserve_resume(
             format!("no local pubkey owns {harness} resume locator {native_resume:?}")
         })?;
     let prepared = crate::daemon::server::load_session_identity(state, &pubkey, agent)?;
-    reserve_prepared(state, prepared, &agent.slug, harness, root, Some(group))
+    reserve_prepared(
+        state,
+        prepared,
+        &agent.slug,
+        harness,
+        bundle,
+        transport,
+        root,
+        Some(group),
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reserve_prepared(
     state: &Arc<DaemonState>,
     prepared: crate::daemon::server::PreparedIdentity,
     slug: &str,
     harness: &str,
+    bundle: &str,
+    transport: &str,
     root: &str,
     group: Option<&str>,
 ) -> Result<Reservation> {
@@ -93,15 +132,24 @@ fn reserve_prepared(
         None => root.to_string(),
     };
     let runtime_generation = state.with_store(|store| {
-        store.reserve_session(&crate::state::RegisterSession {
-            pubkey: pubkey.clone(),
-            harness: harness.to_string(),
-            agent_slug: slug.to_string(),
-            channel_h: channel,
-            child_pid: None,
-            transcript_path: None,
-            now: crate::util::now_secs(),
-        })
+        store.reserve_session_with_facts(
+            &crate::state::RegisterSession {
+                pubkey: pubkey.clone(),
+                observed_harness: harness.to_string(),
+                agent_slug: slug.to_string(),
+                channel_h: channel,
+                child_pid: None,
+                transcript_path: None,
+                now: crate::util::now_secs(),
+            },
+            &crate::state::AdmittedRuntimeFacts {
+                observed_harness: harness.to_string(),
+                claimed_harness: String::new(),
+                bundle: bundle.to_string(),
+                transport: transport.to_string(),
+                endpoint_provenance: "launch".to_string(),
+            },
+        )
     })?;
     Ok(Reservation {
         pubkey,
@@ -143,7 +191,17 @@ mod tests {
     async fn fresh_and_resumed_reservations_expose_the_same_assigned_signer() {
         let state = DaemonState::new_for_test().await;
         let agent = agent();
-        let fresh = reserve_fresh(&state, &agent, "codex", "root", None, None).unwrap();
+        let fresh = reserve_fresh(
+            &state,
+            &agent,
+            "codex",
+            "codex-pty",
+            "pty",
+            "root",
+            None,
+            None,
+        )
+        .unwrap();
         state
             .with_store(|store| {
                 store.set_native_resume_locator(&fresh.pubkey, "codex", "native-1", 1)
@@ -151,7 +209,17 @@ mod tests {
             .unwrap();
         release(&state, &fresh);
 
-        let resumed = reserve_resume(&state, &agent, "codex", "root", "root", "native-1").unwrap();
+        let resumed = reserve_resume(
+            &state,
+            &agent,
+            "codex",
+            "codex-pty",
+            "pty",
+            "root",
+            "root",
+            "native-1",
+        )
+        .unwrap();
 
         assert_eq!(resumed.pubkey, fresh.pubkey);
         assert_eq!(resumed.agent_nsec, fresh.agent_nsec);
@@ -172,6 +240,8 @@ mod tests {
             &state,
             &per_session,
             "codex",
+            "codex-pty",
+            "pty",
             "root",
             Some("root"),
             "addressed",
@@ -196,9 +266,17 @@ mod tests {
             harness: "codex".into(),
             profile: None,
         };
-        let reservation =
-            reserve_fresh_for_pubkey(&state, &durable, "codex", "root", Some("root"), &pubkey)
-                .unwrap();
+        let reservation = reserve_fresh_for_pubkey(
+            &state,
+            &durable,
+            "codex",
+            "codex-pty",
+            "pty",
+            "root",
+            Some("root"),
+            &pubkey,
+        )
+        .unwrap();
         assert_eq!(reservation.pubkey, pubkey);
         release(&state, &reservation);
     }

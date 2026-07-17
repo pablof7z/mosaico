@@ -1,6 +1,6 @@
 use super::super::{
-    agents_dir, atomic_write, key_path, normalize_optional_config_name, validate_config_name,
-    validate_slug, AgentIdentity, StoredKey,
+    agents_dir, atomic_write, key_path, normalize_optional_config_name, read_stored_key,
+    validate_config_name, validate_slug, AgentIdentity, StoredKey,
 };
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::Keys;
@@ -35,10 +35,7 @@ pub fn save_local_agent(
     let profile = normalize_optional_config_name("profile", update.profile.as_deref())?;
     let path = key_path(mosaico_home, slug);
     if path.exists() {
-        let s = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading key {}", path.display()))?;
-        let mut stored: StoredKey =
-            serde_json::from_str(&s).with_context(|| format!("parsing key {}", path.display()))?;
+        let mut stored = read_stored_key(&path)?;
         stored.identity_keys()?;
         stored.harness = harness;
         stored.profile = profile;

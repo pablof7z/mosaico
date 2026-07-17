@@ -4,11 +4,18 @@ pub(super) struct FreshAgentSelection {
     pub(super) slug: String,
 }
 
-pub(super) fn resolve_fresh_agent(
+pub(super) async fn resolve_fresh_agent(
     requested: &str,
     cwd: &std::path::Path,
 ) -> Result<FreshAgentSelection> {
-    let inventory = local_inventory(cwd)?;
+    let inventory = daemon_inventory(cwd).await?;
+    resolve_from_inventory(requested, &inventory)
+}
+
+fn resolve_from_inventory(
+    requested: &str,
+    inventory: &crate::agent_inventory::AgentInventory,
+) -> Result<FreshAgentSelection> {
     if let Some(selected) = inventory.find(requested) {
         return Ok(selection(selected));
     }
@@ -44,26 +51,16 @@ fn interactive_terminal() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
-fn selection(selected: &crate::agent_inventory::AvailableAgent) -> FreshAgentSelection {
+fn selection(selected: &crate::agent_inventory::Agent) -> FreshAgentSelection {
     FreshAgentSelection {
         slug: selected.slug.clone(),
     }
 }
 
-fn local_inventory(cwd: &std::path::Path) -> Result<crate::agent_inventory::AgentInventory> {
-    let harnesses = crate::harness::HarnessesConfig::load()?;
-    let installed = crate::config::detect_available_harnesses()?;
-    let catalog = crate::agent_catalog::AgentCatalog::discover(
-        &crate::agent_catalog::DiscoveryRoots::installed()?,
-        &[cwd.to_path_buf()],
-    )?;
-    Ok(crate::agent_inventory::AgentInventory::build(
-        &crate::config::mosaico_home(),
-        &installed,
-        &harnesses,
-        &catalog,
-        Some(cwd),
-    ))
+async fn daemon_inventory(cwd: &std::path::Path) -> Result<crate::agent_inventory::AgentInventory> {
+    let value =
+        crate::cli::daemon_call_async("agent_inventory", serde_json::json!({ "cwd": cwd })).await?;
+    Ok(serde_json::from_value(value)?)
 }
 
 #[cfg(test)]

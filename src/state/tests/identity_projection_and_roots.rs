@@ -10,7 +10,7 @@ fn identity_projection_uses_exact_handle_lease() {
         })
         .unwrap();
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "derived".into(),
             ..reg("codex", "ignored", "h1")
         })
@@ -25,7 +25,7 @@ fn identity_projection_uses_exact_handle_lease() {
 fn configured_identity_uses_bare_slug_as_handle() {
     let store = Store::open_memory().unwrap();
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "configured".into(),
             ..reg("codex", "ignored", "h1")
         })

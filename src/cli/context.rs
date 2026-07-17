@@ -19,14 +19,26 @@ impl InvocationContext {
             .ok()
             .filter(|value| !value.is_empty());
         let pty_session = super::pty_session_env();
-        let watch_anchor = if pty_session.is_none() {
+        let admitted_harness = std::env::var("MOSAICO_OBSERVED_HARNESS")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .and_then(|value| match crate::session::Harness::from_str(&value) {
+                crate::session::Harness::Unknown => None,
+                harness => Some(harness.as_str()),
+            });
+        let watch_anchor = if pty_session.is_none() && admitted_harness.is_none() {
             super::hooks::caller_watch_pid_anchor()
         } else {
             None
         };
-        let (harness, watch_pid) = watch_anchor
-            .map(|(harness, pid)| (Some(harness), Some(pid)))
-            .unwrap_or((None, None));
+        let (harness, watch_pid) = admitted_harness.map_or_else(
+            || {
+                watch_anchor
+                    .map(|(harness, pid)| (Some(harness), Some(pid)))
+                    .unwrap_or((None, None))
+            },
+            |harness| (Some(harness), None),
+        );
         Self {
             session,
             pty_session,

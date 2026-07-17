@@ -12,7 +12,7 @@ mod runtime;
 
 use params::SessionStartParams;
 
-pub(crate) use bootstrap::{bootstrap_exec_session_start, bootstrap_pty_session_start};
+pub(crate) use bootstrap::bootstrap_hosted_session_start;
 pub(in crate::daemon::server) use reservation::rpc_session_start;
 
 pub(super) async fn rpc_session_start_inner(
@@ -29,15 +29,16 @@ pub(super) async fn rpc_session_start_inner(
 
     let mosaico_home = config::mosaico_home();
     config::ensure_dir(&mosaico_home)?;
-    let harness = params::resolve_harness(&p);
+    let facts = params::runtime_facts(&p)?;
+    let harness = facts.observed_harness;
     let cwd = p
         .cwd
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
     state.refresh_agent_catalog()?;
-    let work_root = crate::workspace::resolve(&cwd).unwrap_or_default();
-    let rel_cwd = crate::workspace::rel_cwd(&cwd);
+    let work_root = crate::daemon::workspace_path::channel_for_path(&cwd)?;
+    let rel_cwd = crate::workspace::rel_cwd(&cwd)?;
     runtime::bind_workspace(state, &cwd, &work_root)?;
     let harness_name = harness.as_str();
     let located_pubkey = runtime::resolve_existing_pubkey(state, &p, harness_name)?;
@@ -60,13 +61,15 @@ pub(super) async fn rpc_session_start_inner(
     {
         identity::AgentIdentity::per_session(&p.agent, harness.as_str())
     } else {
-        identity::load_or_create(
-            &mosaico_home,
-            &p.agent,
-            harness.as_str(),
-            p.profile.as_deref(),
-            now_secs(),
-        )?
+        state.mutate_agent_config(|| {
+            identity::load_or_create(
+                &mosaico_home,
+                &p.agent,
+                harness.as_str(),
+                p.profile.as_deref(),
+                now_secs(),
+            )
+        })?
     };
     let prepared = match located_pubkey.as_deref() {
         Some(pubkey) => load_session_identity(state, pubkey, &agent)?,
@@ -100,7 +103,7 @@ pub(super) async fn rpc_session_start_inner(
     )?;
     let existing = state.with_store(|store| store.get_session(&pubkey))?;
     let already_running = existing.as_ref().is_some_and(|session| session.alive)
-        && state.sessions.lock().unwrap().contains_key(&pubkey);
+        && state.runtime.engines.lock().unwrap().contains_key(&pubkey);
     if already_running {
         if let Some(existing) = &existing {
             channel = existing.channel_h.clone();
@@ -114,15 +117,8 @@ pub(super) async fn rpc_session_start_inner(
         existing.as_ref(),
     )?;
     let now = now_secs();
-    let runtime_generation = runtime::reserve_generation(
-        state,
-        &p,
-        harness_name,
-        &pubkey,
-        &channel,
-        now,
-        existing.as_ref(),
-    )?;
+    let runtime_generation =
+        runtime::reserve_generation(state, &p, &facts, &pubkey, &channel, now, existing.as_ref())?;
     let mut reservation = (!already_running)
         .then(|| RuntimeReservation::new(state.clone(), pubkey.clone(), runtime_generation));
 
@@ -133,7 +129,19 @@ pub(super) async fn rpc_session_start_inner(
                 "runtime generation {runtime_generation} for {pubkey} is no longer active"
             );
         }
-        bind_locators(store, &p, harness_name, &pubkey, now)?;
+        store.record_claimed_harness(&pubkey, &facts.claimed_harness)?;
+        let admitted = store
+            .get_session(&pubkey)?
+            .context("reserved session disappeared before locator binding")?;
+        if !facts.claimed_harness.is_empty() && facts.claimed_harness != admitted.observed_harness {
+            tracing::warn!(
+                pubkey = %pubkey,
+                claimed_harness = %facts.claimed_harness,
+                observed_harness = %admitted.observed_harness,
+                "hook harness claim differs from admitted observation"
+            );
+        }
+        runtime::bind_locators(store, &p, &admitted.observed_harness, &pubkey, now)?;
         Ok(())
     })?;
     retire_reclaimed_profile(state, reclaimed_pubkey.as_deref()).await?;
@@ -151,7 +159,12 @@ pub(super) async fn rpc_session_start_inner(
         pty_session: endpoint,
         ring_doorbell: p.pty_session.is_some(),
         already_running,
-        channel_already_subscribed: state.subs.lock().unwrap().covers_channel(&channel),
+        channel_already_subscribed: state
+            .subscriptions
+            .reconciler
+            .lock()
+            .unwrap()
+            .covers_channel(&channel),
     };
     let plan = advisory::plan(&request);
     let joined = joined_channels::record(state, &pubkey, channel.clone(), p.channels, now);
@@ -213,45 +226,6 @@ fn resolve_start_channel(
         return Ok((work_root.to_string(), None));
     };
     Ok((channel_h.to_string(), None))
-}
-
-fn bind_locators(
-    store: &crate::state::Store,
-    p: &SessionStartParams,
-    harness: &str,
-    pubkey: &str,
-    now: u64,
-) -> Result<()> {
-    if let Some(endpoint) = p.pty_session.as_deref().filter(|value| !value.is_empty()) {
-        let kind = if p.endpoint_kind.as_deref() == Some("acp") {
-            crate::state::LOCATOR_ACP
-        } else {
-            crate::state::LOCATOR_PTY
-        };
-        store.put_session_locator(harness, kind, endpoint, pubkey, now)?;
-    }
-    if let Some(native) = p
-        .resume_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            p.harness_session
-                .as_deref()
-                .filter(|value| !value.is_empty())
-        })
-    {
-        store.set_native_resume_locator(pubkey, harness, native, now)?;
-    }
-    if let Some(pid) = p.watch_pid {
-        store.put_session_locator(
-            harness,
-            crate::state::LOCATOR_PID,
-            &pid.to_string(),
-            pubkey,
-            now,
-        )?;
-    }
-    Ok(())
 }
 
 fn progress_emit(progress: &Option<InitProgress>, stage: &str, message: &str) {

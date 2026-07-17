@@ -80,8 +80,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         let target = state
             .with_store(|s| resolve_recipient(s, &destination, &state.host, label))
             .with_context(|| format!("resolving --tag {raw:?}"))?;
-        let same_work_root = state
-            .with_store(|s| work_root_for(s, &destination) == work_root_for(s, &target.channel));
+        let same_work_root = state.with_store(|s| -> Result<bool> {
+            Ok(work_root_for(s, &destination)? == work_root_for(s, &target.channel)?)
+        })?;
         if target.channel != destination && !same_work_root {
             bail!(
                 "tagged agent is in channel {:?}, but this chat is for channel {:?}",

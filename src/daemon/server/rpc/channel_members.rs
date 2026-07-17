@@ -164,7 +164,7 @@ fn resolve_add_channel(
 ) -> Result<ChannelResolution> {
     let anchor = CallerAnchor::from_params(params);
     let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h)),
+        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
         Err(_) => {
             let cwd = params
                 .get("cwd")
@@ -172,7 +172,7 @@ fn resolve_add_channel(
                 .filter(|cwd| !cwd.is_empty())
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::workspace::resolve(&cwd)
+            crate::daemon::workspace_path::channel_for_path(&cwd)
                 .context("channel add must run inside an agent session or workspace directory")?
         }
     };

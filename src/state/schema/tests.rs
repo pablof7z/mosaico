@@ -36,7 +36,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
@@ -93,6 +93,19 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(sess_cols.iter().any(|c| c == "runtime_generation"));
     assert!(sess_cols.iter().any(|c| c == "work_root"));
     assert!(sess_cols.iter().any(|c| c == "readiness_parent"));
+    for admitted in [
+        "observed_harness",
+        "claimed_harness",
+        "admitted_bundle",
+        "admitted_transport",
+        "endpoint_provenance",
+    ] {
+        assert!(
+            sess_cols.iter().any(|c| c == admitted),
+            "sessions.{admitted}"
+        );
+    }
+    assert!(!sess_cols.iter().any(|c| c == "harness"));
     assert!(!sess_cols.iter().any(|c| c == "session_id"));
     assert!(!sess_cols.iter().any(|c| c == "agent_pubkey"));
     assert!(!sess_cols.iter().any(|c| c == "resume_id"));
@@ -208,7 +221,7 @@ fn stamped_non_canonical_file_db_is_rejected() {
         "#,
     )
     .unwrap();
-    conn.pragma_update(None, "user_version", 8u32).unwrap();
+    conn.pragma_update(None, "user_version", 9u32).unwrap();
     drop(conn);
 
     let err = match Store::open(&path) {

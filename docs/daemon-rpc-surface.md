@@ -16,85 +16,76 @@ process, and finally the cwd+agent scan where that fallback is safe. **The
 resolution stays daemon-side** so every client path observes the same identity
 rules.
 
-### `session_start`
-Spawns an in-daemon `SessionTask` (publishes profile and presence, declares its
-NMP live-query demand, and routes mentions — today's `runtime::run_session`).
-```jsonc
-params: {"agent": "coder", "harness": "claude-code", "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
-result: {"pubkey": "hex"}
-```
-`harness_session` is a typed harness locator and never identity. A session is
-addressed by its dashed public handle, such
-as `@quill-codex`, backed by the session's own minted pubkey. The npub is its
-permanent copy-paste resume value; the handle is a seven-day offline lease.
-The provider opens the workspace root NIP-29 group through NMP, names it from the
-workspace slug, and adds the session agent as a relay member before the engine
-publishes presence.
-The workspace and root channel are one entity with the public address `<workspace>`.
-There is no local agent
-allow/block file in the NIP-29 path.
+## Session lifecycle RPCs
 
-### `session_end`
-```jsonc
-params: {"session": "npub1…"|"hex"|"handle"}
-result: {"ended": true|false}    // false ⇒ no such session
-```
-Metadata-only. Stops the `SessionTask` (which publishes idle presence/status
-and marks the session dead) but does **not** touch the hosted PTY/child
-process — a process left running after `session_end` keeps executing
-unsupervised. stderr message (`session … ended` / `no such session: …`) is
-produced client-side to match today's output. CLI: `mosaico my session
-end --self`; agents cannot target another session.
-
-### `session_kill`
-```jsonc
-params: {"session": "npub1…"|"hex"|"handle", "revoke_memberships": bool}
-result: {"killed": true|false, "ended": true|false, "note": "pty=…"|"pid=…", "cleanup_confirmed": bool, "cleanup_failures": ["…"], "reason": "…"}
-```
-Process-kill, the counterpart to `session_end`. Stops the session's hosted
-process (kills the owning PTY if one is tracked, else `SIGTERM`s the tracked
-child pid), then internally calls `session_end` to mark the session's
-metadata dead. `killed` reflects whether process termination itself
-succeeded; `reason` is populated on failure (including "no local session
-matched" when `session` doesn't resolve). `mosaico sessions` sets
-`revoke_memberships`: the daemon also expires presence now, clears the resume
-claim, confirms removal from every recorded NIP-29 channel, and clears local
-channel bindings. `mosaico my session kill --self` leaves that flag false,
-resolves the caller from the PTY/session environment, and refuses a positional
-target — an agent may only kill its own session. The CLI exits non-zero when
-process termination or requested fabric cleanup is not confirmed.
-
-### `session_pty_wrap`
-```jsonc
-params: {"session": "npub1…"|"hex"|"handle"}
-result: {"wrapped": true, "pty_id": "…"}
-       | {"wrapped": false, "refusal": "already_wrapped"|"working"|"not_resumable"|"not_found"|"kill_failed"|"resume_failed", "reason": "…"}
-```
-Re-homes a session started manually outside a daemon-owned PTY (no live
-`pty_session` alias, so idle mentions silently black-hole — see
-`turn_context::start`'s warning) into a fresh daemon PTY supervisor. Refuses
-if the session already has a live `pty_session` alias (`already_wrapped`,
-nothing to do), is mid-turn (`working`, to avoid losing in-flight work), or
-carries no harness resume token (`not_resumable`). Otherwise kills the
-manually-started process (via `session_kill`, marking the old row dead)
-BEFORE resuming the SAME harness session inside a fresh PTY, so the two
-steps cannot race a second caller across CLI round-trips. Only the harness's
-own persisted session state survives the hop; terminal scrollback from the
-killed process is lost. CLI: `mosaico my session pty-wrap-me --self`,
-which resolves the caller from the PTY/session environment and refuses a
-positional target — an agent may only re-home its own session. The CLI
-exits non-zero unless the refusal is `already_wrapped`.
+The exact `session_start`, `session_end`, `session_kill`, and `session_pty_wrap`
+contracts live in [daemon RPC session lifecycle](daemon-rpc-session-lifecycle.md).
 
 ### `who`
 ```jsonc
-params: {"workspace": "…"|null, "all_workspaces": bool, "cwd": "/path"}
-result: {"now": u64, "fabric_human": "…"|null,
-         "rows": [ {source, fresh, slug, channel, status, host,
-                    pubkey, age_secs}, … ]}
+params: {"workspace": "…"|null, "all_workspaces": bool, "cwd": "/path"|null,
+         "human_color": bool, "expired": false}
+result: {
+  "root": "…", "now": u64,
+  "rows": [{
+    "source": "Local"|"Peer",
+    "state": "working"|"idle"|"suspended"|"offline",
+    "slug": "…", "channel": "…", "status": "…", "activity": "…",
+    "dormant": bool, "host": "…", "age_secs": u64|null,
+    "rel_cwd": "…", "remote": bool,
+    "work_root": "…", "work_root_display": "…", "pubkey": "hex"
+  }, …],
+  "other_roots": [{"root": "…", "agent_count": N,
+                    "agents": ["…", …], "about": "…"|null}, …],
+  "spawnable": [{"host": "…", "slug": "…", "command": "…",
+                  "byline": "…"|null}, …],
+  "channel_parent": "…"|null, "root_display": "…"
+}
 ```
-Human/operator-only live fabric projection. It returns terminal-oriented
-`fabric_human` text and never returns agent XML. Exact session anchors and loose
-agent/group hints are rejected with guidance to use `my_session`.
+The normal snapshot result above is the exact serde shape of `WhoSnapshot`; the
+nested row, other-root, and spawnable fields are exhaustive. The RPC may add a
+top-level `fabric_human` string for terminal rendering. `expired: true` selects the alternate
+`{"expired": [{"agent_slug", "pubkey", "npub", "handle", "host", "channel",
+"last_seen", "resumable"}, …]}` result. The live snapshot and `my_session`'s XML
+tree project the same canonical `WhoAggregation` store read, so channel,
+session-state, capability, and live-status rules cannot drift.
+
+### `agent_inventory`
+```jsonc
+params: {"cwd": "/path"|null}
+result: {"agents": [{"slug": "…", "agent_slug": "…", "harness": "…",
+                     "use_criteria": "…", "available_since": N,
+                     "source": {…}}, …],
+         "failures": ["…", …]}
+```
+Daemon-owned projection of durable keystore agents and detected native/PATH
+capabilities. CLI listing and launch selection consume this RPC and never scan
+the keystore, harness configuration, or native profile directories themselves.
+
+### `agent_save`
+```jsonc
+params: {"slug": "…", "harness": "…",
+         "profile": "…"|null, "per_session_key": bool|null}
+result: {"created": bool, "slug": "…", "harness": "…"}
+```
+Strict daemon-owned create/update of one durable agent configuration. `slug` and
+`harness` are required; `profile` and `per_session_key` may be omitted (the same
+as `null`). Unknown fields or wrong JSON types are rejected. Slugs accept only
+`[A-Za-z0-9._-]`; harness/profile names are trimmed and must be non-empty when
+present. A null/omitted profile clears the stored profile. A null/omitted
+`per_session_key` preserves an existing identity mode and defaults a new agent
+to per-session identity. `created` distinguishes create from update; the result
+returns the persisted slug and normalized harness.
+
+### `agent_remove`
+```jsonc
+params: {"slug": "…"}
+result: {"removed": bool}
+```
+Strict daemon-owned permanent removal. `slug` is the only accepted field and
+uses the same validation as `agent_save`; missing, unknown, or wrongly typed
+fields are rejected. `removed` is false only when no configured agent file
+exists for that slug.
 
 ### `my_session`
 ```jsonc
@@ -251,7 +242,9 @@ sessions`. It starts from alive rows in the daemon-owned `sessions` table,
 but exposes only `pubkey`, `npub`, and the current public `handle`; the private
 runtime row id never crosses this RPC boundary. Each row joins agent/harness
 state, workspace-grouped joined channels, filesystem bindings, local host, and
-an optional attach endpoint. Remote relay-only status rows are intentionally
+an optional typed endpoint `{id, kind, live, attachable, cwd, command}` whose
+liveness and attachability are projected by its owning transport. Remote
+relay-only status rows are intentionally
 excluded; they remain observable through `who` and cannot be killed by this
 machine.
 

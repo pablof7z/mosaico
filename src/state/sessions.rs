@@ -5,7 +5,8 @@ use rusqlite::{Transaction, TransactionBehavior};
 
 pub(super) const COLS: &str =
     "pubkey, runtime_generation, agent_slug, channel_h, work_root, readiness_parent, \
-     harness, child_pid, transcript_path, alive, created_at, last_seen, working, \
+     observed_harness, claimed_harness, admitted_bundle, admitted_transport, \
+     endpoint_provenance, child_pid, transcript_path, alive, created_at, last_seen, working, \
      turn_started_at, seen_cursor, title, explicit_chat_published_at";
 
 pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
@@ -16,28 +17,52 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         channel_h: row.get(3)?,
         work_root: row.get(4)?,
         readiness_parent: row.get(5)?,
-        harness: row.get(6)?,
-        child_pid: row.get(7)?,
-        transcript_path: row.get(8)?,
-        alive: row.get::<_, i64>(9)? != 0,
-        created_at: row.get(10)?,
-        last_seen: row.get(11)?,
-        working: row.get::<_, i64>(12)? != 0,
-        turn_started_at: row.get(13)?,
-        seen_cursor: row.get(14)?,
-        title: row.get(15)?,
-        explicit_chat_published_at: row.get(16)?,
+        observed_harness: row.get(6)?,
+        claimed_harness: row.get(7)?,
+        admitted_bundle: row.get(8)?,
+        admitted_transport: row.get(9)?,
+        endpoint_provenance: row.get(10)?,
+        child_pid: row.get(11)?,
+        transcript_path: row.get(12)?,
+        alive: row.get::<_, i64>(13)? != 0,
+        created_at: row.get(14)?,
+        last_seen: row.get(15)?,
+        working: row.get::<_, i64>(16)? != 0,
+        turn_started_at: row.get(17)?,
+        seen_cursor: row.get(18)?,
+        title: row.get(19)?,
+        explicit_chat_published_at: row.get(20)?,
     })
 }
 
 impl Store {
-    /// Atomically reserve the one active runtime for `r.pubkey`. A dead runtime
-    /// may be replaced; its monotonically increasing generation fences late
-    /// completion from the previous incarnation.
-    pub fn reserve_session(&self, r: &RegisterSession) -> Result<u64> {
+    #[cfg(test)]
+    pub(crate) fn reserve_hook_session_for_test(&self, r: &RegisterSession) -> Result<u64> {
+        let observed = r.observed_harness.clone();
+        self.reserve_session_with_facts(
+            r,
+            &AdmittedRuntimeFacts {
+                observed_harness: observed.clone(),
+                claimed_harness: observed,
+                bundle: String::new(),
+                transport: String::new(),
+                endpoint_provenance: "hook".to_string(),
+            },
+        )
+    }
+
+    /// Atomically reserve one runtime together with its complete admitted facts.
+    /// A dead runtime may be replaced; its monotonically increasing generation
+    /// fences late completion from the previous incarnation.
+    pub fn reserve_session_with_facts(
+        &self,
+        r: &RegisterSession,
+        facts: &AdmittedRuntimeFacts,
+    ) -> Result<u64> {
         if r.pubkey.trim().is_empty() {
             anyhow::bail!("session pubkey must not be empty");
         }
+        validate_runtime_facts(r, facts)?;
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let previous = tx
             .query_row(
@@ -57,13 +82,32 @@ impl Store {
         };
         tx.execute(
             "INSERT INTO sessions
-                 (pubkey, runtime_generation, agent_slug, channel_h, harness, child_pid,
-                  transcript_path, alive, created_at, last_seen)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)
+                 (pubkey, runtime_generation, agent_slug, channel_h, observed_harness,
+                  claimed_harness, admitted_bundle, admitted_transport, endpoint_provenance,
+                  child_pid, transcript_path, alive, created_at, last_seen)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?12)
              ON CONFLICT(pubkey) DO UPDATE SET
                  runtime_generation=excluded.runtime_generation,
                  agent_slug=excluded.agent_slug, channel_h=excluded.channel_h,
-                 harness=excluded.harness, child_pid=excluded.child_pid,
+                 observed_harness=CASE
+                     WHEN excluded.endpoint_provenance='launch' THEN excluded.observed_harness
+                     WHEN sessions.endpoint_provenance='launch' THEN sessions.observed_harness
+                     ELSE excluded.observed_harness END,
+                 claimed_harness=CASE WHEN excluded.claimed_harness<>''
+                     THEN excluded.claimed_harness ELSE sessions.claimed_harness END,
+                 admitted_bundle=CASE
+                     WHEN excluded.endpoint_provenance='launch' THEN excluded.admitted_bundle
+                     WHEN sessions.endpoint_provenance='launch' THEN sessions.admitted_bundle
+                     ELSE excluded.admitted_bundle END,
+                 admitted_transport=CASE
+                     WHEN excluded.endpoint_provenance='launch' THEN excluded.admitted_transport
+                     WHEN sessions.endpoint_provenance='launch' THEN sessions.admitted_transport
+                     ELSE excluded.admitted_transport END,
+                 endpoint_provenance=CASE
+                     WHEN excluded.endpoint_provenance='launch' THEN excluded.endpoint_provenance
+                     WHEN sessions.endpoint_provenance='launch' THEN sessions.endpoint_provenance
+                     ELSE excluded.endpoint_provenance END,
+                 child_pid=excluded.child_pid,
                  transcript_path=excluded.transcript_path, alive=1,
                  created_at=excluded.created_at, last_seen=excluded.last_seen,
                  working=0, turn_started_at=0",
@@ -72,7 +116,11 @@ impl Store {
                 generation,
                 r.agent_slug,
                 r.channel_h,
-                r.harness,
+                facts.observed_harness,
+                facts.claimed_harness,
+                facts.bundle,
+                facts.transport,
+                facts.endpoint_provenance,
                 r.child_pid,
                 r.transcript_path,
                 r.now,
@@ -95,6 +143,18 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(generation)
+    }
+
+    /// Record a hook host claim without changing launch/process-observed facts.
+    pub fn record_claimed_harness(&self, pubkey: &str, claimed_harness: &str) -> Result<()> {
+        if claimed_harness.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute(
+            "UPDATE sessions SET claimed_harness=?2 WHERE pubkey=?1",
+            params![pubkey, claimed_harness],
+        )?;
+        Ok(())
     }
 
     pub fn get_session(&self, pubkey: &str) -> Result<Option<Session>> {
@@ -293,4 +353,59 @@ impl Store {
         )?;
         self.mark_handle_offline_for_pubkey(pubkey)
     }
+}
+
+fn validate_runtime_facts(r: &RegisterSession, facts: &AdmittedRuntimeFacts) -> Result<()> {
+    let observed = facts.observed_harness.trim();
+    if observed.is_empty() {
+        anyhow::bail!("runtime facts require observed_harness");
+    }
+    let harness = crate::session::Harness::from_str(observed);
+    if harness == crate::session::Harness::Unknown || harness.as_str() != observed {
+        anyhow::bail!("runtime facts contain unknown observed_harness {observed:?}");
+    }
+    if r.observed_harness != observed {
+        anyhow::bail!(
+            "registration observed_harness {:?} does not match admitted facts {observed:?}",
+            r.observed_harness
+        );
+    }
+    if !matches!(facts.transport.as_str(), "" | "pty" | "acp" | "app-server") {
+        anyhow::bail!(
+            "runtime facts contain unknown transport {:?}",
+            facts.transport
+        );
+    }
+    match facts.endpoint_provenance.as_str() {
+        "launch" => {
+            if !facts.claimed_harness.is_empty() {
+                anyhow::bail!("launch runtime facts forbid claimed_harness");
+            }
+            if facts.bundle.trim().is_empty() {
+                anyhow::bail!("launch runtime facts require bundle");
+            }
+            if facts.transport.is_empty() {
+                anyhow::bail!("launch runtime facts require transport");
+            }
+        }
+        "hook" => {
+            let claimed = facts.claimed_harness.trim();
+            if claimed.is_empty() {
+                anyhow::bail!("hook runtime facts require claimed_harness");
+            }
+            let claimed_harness = crate::session::Harness::from_str(claimed);
+            if claimed_harness == crate::session::Harness::Unknown
+                || claimed_harness.as_str() != claimed
+            {
+                anyhow::bail!("runtime facts contain unknown claimed_harness {claimed:?}");
+            }
+            if !facts.bundle.is_empty() {
+                anyhow::bail!("hook runtime facts forbid bundle");
+            }
+        }
+        provenance => anyhow::bail!(
+            "runtime facts require endpoint_provenance launch or hook, got {provenance:?}"
+        ),
+    }
+    Ok(())
 }

@@ -8,22 +8,22 @@ fn byline_reads_only_the_canonical_field() {
     std::fs::create_dir_all(dir.path().join("agents")).unwrap();
     std::fs::write(
         dir.path().join("agents/a.json"),
-        r#"{"slug":"a","secret_key":"0000000000000000000000000000000000000000000000000000000000000001","public_key":"","created_at":1,"harness":"claude","byline":"front-line triage"}"#,
+        r#"{"slug":"a","created_at":1,"perSessionKey":true,"harness":"claude","byline":"front-line triage"}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/b.json"),
-        r#"{"slug":"b","secret_key":"0000000000000000000000000000000000000000000000000000000000000002","public_key":"","created_at":1,"harness":"claude","useCriteria":"use for deep research"}"#,
+        r#"{"slug":"b","created_at":1,"perSessionKey":true,"harness":"claude","useCriteria":"use for deep research"}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/c.json"),
-        r#"{"slug":"c","secret_key":"0000000000000000000000000000000000000000000000000000000000000003","public_key":"","created_at":1,"harness":"claude","agent":{"description":"writes social posts"}}"#,
+        r#"{"slug":"c","created_at":1,"perSessionKey":true,"harness":"claude","agent":{"description":"writes social posts"}}"#,
     )
     .unwrap();
     std::fs::write(
         dir.path().join("agents/d.json"),
-        r#"{"slug":"d","secret_key":"0000000000000000000000000000000000000000000000000000000000000004","public_key":"","created_at":1,"harness":"claude"}"#,
+        r#"{"slug":"d","created_at":1,"perSessionKey":true,"harness":"claude"}"#,
     )
     .unwrap();
 

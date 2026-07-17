@@ -91,12 +91,15 @@ fn allocate_handle_in(
     }
     for codename in candidates(pubkey) {
         let handle = crate::idref::session_handle(agent_slug, &codename);
-        if remote_profiles::reserves_handle(tx, &handle, Some(pubkey))? {
-            continue;
-        }
         let occupied = tx
             .query_row(
-                "SELECT pubkey, live, last_active_at FROM handle_leases WHERE handle=?1",
+                "SELECT lease.pubkey,
+                        (lease.live=1 OR EXISTS(
+                            SELECT 1 FROM sessions AS session
+                            WHERE session.pubkey=lease.pubkey AND session.alive=1
+                        )),
+                        lease.last_active_at
+                 FROM handle_leases AS lease WHERE lease.handle=?1",
                 [&handle],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -151,17 +154,28 @@ fn allocate_custom_handle_in(
             reclaimed_pubkey: None,
         });
     }
-    if remote_profiles::reserves_handle(tx, &handle, Some(pubkey))?
-        || tx
-            .query_row(
-                "SELECT 1 FROM handle_leases WHERE handle=?1",
-                [&handle],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some()
-    {
-        anyhow::bail!("session name {name:?} is already in use as {handle:?}");
+    let occupied = tx
+        .query_row(
+            "SELECT lease.pubkey,
+                    (lease.live=1 OR EXISTS(
+                        SELECT 1 FROM sessions AS session
+                        WHERE session.pubkey=lease.pubkey AND session.alive=1
+                    ))
+             FROM handle_leases AS lease WHERE lease.handle=?1",
+            [&handle],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .optional()?;
+    let reclaimed_pubkey = occupied.as_ref().map(|(owner, _)| owner.clone());
+    match occupied {
+        Some((_owner, true)) => {
+            anyhow::bail!("session name {name:?} is already in use as {handle:?}")
+        }
+        Some((owner, false)) => {
+            tx.execute("DELETE FROM handle_leases WHERE handle=?1", [&handle])?;
+            tracing::debug!(pubkey = %owner, %handle, "reclaiming dead custom handle lease");
+        }
+        None => {}
     }
     tx.execute(
         "INSERT INTO handle_leases
@@ -171,7 +185,7 @@ fn allocate_custom_handle_in(
     )?;
     Ok(HandleAllocation {
         handle,
-        reclaimed_pubkey: None,
+        reclaimed_pubkey,
     })
 }
 

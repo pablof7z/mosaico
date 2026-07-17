@@ -18,12 +18,12 @@ use crate::transport::Transport;
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::{Event, Keys};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
+mod agent_config;
 mod agent_discovery;
 mod agent_roster;
 mod agent_usage;
@@ -42,12 +42,17 @@ mod rpc;
 mod session_dispatch;
 mod session_dispatch_handler;
 mod session_records;
+mod state;
 use background::spawn_pruner;
 use demux::{spawn_demux, warm_profiles};
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
 use session_dispatch_handler::handle_session_dispatch;
 use session_records::{HostedAgent, PeerTracked, SessionHandle, StatusTailKey, StatusTailSnapshot};
+use state::{
+    AgentConfigState, CatalogState, ConnectionState, DedupState, ReconcilerState,
+    SessionRuntimeState, SubscriptionState,
+};
 /// Shared daemon state. Store guards span synchronous rusqlite calls, never `.await`.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
@@ -57,39 +62,13 @@ pub struct DaemonState {
     cfg: Config,
     host: String,
     owners: Vec<String>,
-    agent_catalog: Mutex<crate::agent_catalog::AgentCatalog>,
-    installed_harnesses: Mutex<Vec<Harness>>,
-    hosted: Mutex<HashMap<String, HostedAgent>>,
-    sessions: Mutex<HashMap<String, SessionHandle>>,
-    subscribed_root_channels: Mutex<Vec<String>>,
-    subs: Mutex<crate::reconcile::SubscriptionReconciler>,
-    subscription_sync: tokio::sync::Mutex<()>,
-    status: Arc<Mutex<crate::reconcile::StatusReconciler>>,
-    hook_contexts: crate::turn_context::HookContextStates,
-    tail_tx: tokio::sync::broadcast::Sender<TailEvent>,
-    open_clients: Mutex<u64>,
-    shutdown: Notify,
-    /// Peer presence join/leave tracking, keyed by `(pubkey, channel)`.
-    /// A single identity status can carry several `h` tags; each channel gets a
-    /// tail-facing presence row.
-    peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
-    /// Bounded first-sight tracking of native event ids: the relay pool
-    /// notifies once per matching subscription, so the same event arrives many
-    /// times. Set + insertion-order queue, capped at SEEN_EVENTS_CAP.
-    seen_events: Mutex<(
-        std::collections::HashSet<String>,
-        std::collections::VecDeque<String>,
-    )>,
-    /// Pubkeys for which a Profile event has already been emitted, for first-seen dedup.
-    seen_profiles: Mutex<std::collections::HashSet<String>>,
-    /// Pubkeys with a kind:0 fetch in flight, so duplicate relay deliveries of the
-    /// same event collapse to ONE warm. Entries clear when the fetch completes, so
-    /// a failed (offline) fetch is retried on the next sighting.
-    warming: Mutex<std::collections::HashSet<String>>,
-    /// Last-seen (title, active) keyed by `(author_pubkey, channel)`
-    /// for tail dedup. Tracking `active` too means an active→idle flip emits a
-    /// tail event even though the persistent title text is unchanged.
-    last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
+    agent_config: AgentConfigState,
+    catalog: CatalogState,
+    runtime: SessionRuntimeState,
+    subscriptions: SubscriptionState,
+    reconcilers: ReconcilerState,
+    connections: ConnectionState,
+    dedup: DedupState,
 }
 impl DaemonState {
     /// Hex pubkey of this backend's identity key. Ensures the daemon-owned
@@ -107,6 +86,9 @@ impl DaemonState {
     pub(crate) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {
         let g = self.store.lock().expect("store mutex poisoned");
         f(&g)
+    }
+    pub(crate) fn mutate_agent_config<R>(&self, operation: impl FnOnce() -> R) -> R {
+        self.agent_config.mutate(operation)
     }
     /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`);
     /// classify a mention's sender as human vs agent for envelope presentation.
@@ -135,10 +117,17 @@ impl DaemonState {
         self.provider.as_ref()
     }
     fn hosted_pubkeys(&self) -> Vec<String> {
-        self.hosted.lock().unwrap().keys().cloned().collect()
+        self.runtime
+            .hosted
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
     }
     fn keys_for(&self, pubkey: &str) -> Option<Keys> {
-        self.hosted
+        self.runtime
+            .hosted
             .lock()
             .unwrap()
             .get(pubkey)
@@ -217,7 +206,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
         "shutdown" => {
-            state.shutdown.notify_waiters();
+            state.connections.shutdown.notify_waiters();
             Ok(serde_json::json!({"stopped": true}))
         }
         "who" => rpc_who(state, &req.params),
@@ -242,6 +231,9 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_add_member" => rpc::rpc_channel_add_member(state, &req.params).await,
         "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
+        "agent_inventory" => agent_discovery::rpc_agent_inventory(state, &req.params),
+        "agent_save" => agent_config::rpc_agent_save(&state.agent_config, &req.params),
+        "agent_remove" => agent_config::rpc_agent_remove(&state.agent_config, &req.params),
         "agent_usage" => agent_usage::rpc_agent_usage(state, &req.params),
         "pty_supervisor_exit" => rpc::rpc_pty_supervisor_exit(state, &req.params).await,
         "agent_roster_refresh" => rpc_agent_roster_refresh(state, &req.params),
@@ -278,7 +270,7 @@ impl DaemonState {
     /// sightings — the relay pool notifying for every matching subscription —
     /// return false and must be ignored.
     fn first_sight(&self, event_id: &str) -> bool {
-        let mut g = self.seen_events.lock().unwrap();
+        let mut g = self.dedup.events.lock().unwrap();
         let (set, order) = &mut *g;
         if set.contains(event_id) {
             return false;
@@ -293,10 +285,10 @@ impl DaemonState {
         true
     }
     fn tail_subscribe(&self) -> tokio::sync::broadcast::Receiver<TailEvent> {
-        self.tail_tx.subscribe()
+        self.connections.tail_tx.subscribe()
     }
     fn emit_tail(&self, ev: TailEvent) {
-        let _ = self.tail_tx.send(ev);
+        let _ = self.connections.tail_tx.send(ev);
     }
 }
 

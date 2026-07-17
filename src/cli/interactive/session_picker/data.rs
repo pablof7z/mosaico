@@ -30,20 +30,15 @@ pub(super) struct SessionRow {
     pub(super) host: String,
     pub(super) harness: String,
     pub(super) pty_id: Option<String>,
-    pub(super) pty_live: bool,
+    pub(super) endpoint_live: bool,
+    pub(super) endpoint_attachable: bool,
     pub(super) cwd: Option<String>,
     pub(super) transport: String,
 }
 
 impl SessionRow {
-    /// Whether this row can be attached to from the picker.
-    /// ACP sessions have no PTY socket, so there is nothing to attach to.
-    fn is_acp(&self) -> bool {
-        self.transport == "acp"
-    }
-
     pub(super) fn attachable(&self) -> bool {
-        self.pty_id.is_some() && self.pty_live && !self.is_acp()
+        self.pty_id.is_some() && self.endpoint_live && self.endpoint_attachable
     }
 
     pub(super) fn fuzzy_score(&self, input: &str) -> Option<i64> {
@@ -107,7 +102,7 @@ fn rows_from_value(value: &serde_json::Value) -> Vec<SessionRow> {
     rows.sort_by(|a, b| {
         state_rank(b.state)
             .cmp(&state_rank(a.state))
-            .then_with(|| b.pty_live.cmp(&a.pty_live))
+            .then_with(|| b.endpoint_live.cmp(&a.endpoint_live))
             .then_with(|| b.last_seen.cmp(&a.last_seen))
             .then_with(|| a.handle.cmp(&b.handle))
     });
@@ -149,10 +144,14 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
         host: value["host"].as_str().unwrap_or("").to_string(),
         harness: value["harness"].as_str().unwrap_or("").to_string(),
         pty_id: endpoint
-            .and_then(|endpoint| endpoint["pty_id"].as_str())
+            .filter(|endpoint| endpoint["attachable"].as_bool().unwrap_or(false))
+            .and_then(|endpoint| endpoint["id"].as_str())
             .map(str::to_string),
-        pty_live: endpoint
+        endpoint_live: endpoint
             .and_then(|endpoint| endpoint["live"].as_bool())
+            .unwrap_or(false),
+        endpoint_attachable: endpoint
+            .and_then(|endpoint| endpoint["attachable"].as_bool())
             .unwrap_or(false),
         cwd,
         transport: value["transport"].as_str().unwrap_or("").to_string(),
@@ -210,7 +209,7 @@ mod tests {
                 "last_seen": 12,
                 "host": "laptop",
                 "harness": "codex",
-                "endpoint": {"pty_id": "pty-1", "live": true, "cwd": "/repo"}
+                "endpoint": {"id": "pty-1", "kind": "pty", "live": true, "attachable": true, "cwd": "/repo"}
             }]
         });
 
@@ -228,7 +227,7 @@ mod tests {
         assert!(rows[0].fuzzy_score("repo").is_some());
         assert_eq!(rows[0].workspaces[0].name, "mosaico");
         assert_eq!(rows[0].pty_id.as_deref(), Some("pty-1"));
-        assert!(rows[0].pty_live);
+        assert!(rows[0].endpoint_live);
     }
 
     #[test]
@@ -250,7 +249,7 @@ mod tests {
                 "host": "laptop",
                 "harness": "codex",
                 "bound": false,
-                "endpoint": {"pty_id": "pty-orphan", "live": true, "cwd": "/repo"}
+                "endpoint": {"id": "pty-orphan", "kind": "pty", "live": true, "attachable": true, "cwd": "/repo"}
             }]
         });
 
@@ -259,7 +258,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].handle, "codex");
         assert_eq!(rows[0].pty_id.as_deref(), Some("pty-orphan"));
-        assert!(rows[0].pty_live);
+        assert!(rows[0].endpoint_live);
     }
 
     #[test]
@@ -281,7 +280,7 @@ mod tests {
                 "host": "laptop",
                 "harness": "claude-code",
                 "transport": "acp",
-                "endpoint": null
+                "endpoint": {"id": "acp-1", "kind": "acp", "live": true, "attachable": false}
             }]
         });
 

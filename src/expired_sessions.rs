@@ -68,9 +68,9 @@ mod tests {
     fn register(store: &Store, ext: &str, channel: &str) -> String {
         let pubkey = format!("pk-{ext}");
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.clone(),
-                harness: "claude-code".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: "coder".into(),
                 channel_h: channel.into(),
                 child_pid: Some(7),

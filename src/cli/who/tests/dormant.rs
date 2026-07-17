@@ -15,6 +15,7 @@ fn claim(owner_backend_pubkey: &str, owner_host: &str) -> SessionClaim {
 }
 
 fn seed_public_handle(store: &Store) {
+    store.upsert_channel("proj", "proj", "", "", 900).unwrap();
     store
         .upsert_profile_with_agent_slug(
             "pk-codex",

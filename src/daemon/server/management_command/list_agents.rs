@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 pub(super) fn list_agents(state: &Arc<DaemonState>) -> Result<String> {
     let now = crate::util::now_secs();
-    let (agents, failures) = super::super::agent_roster::capability_advertisements(state);
+    let (agents, failures) = super::super::agent_roster::capability_advertisements(state)?;
     if agents.is_empty() {
         return Ok(format!("mgmt ok: no agents known on {}", state.host));
     }

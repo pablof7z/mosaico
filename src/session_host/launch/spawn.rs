@@ -1,8 +1,13 @@
 use super::*;
 
 pub struct DispatchedSpawn {
-    pub pty_id: String,
+    pub endpoint: crate::session_host::transport::EndpointRef,
     pub pubkey: String,
+}
+
+pub(crate) struct HostedSpawn {
+    pub(crate) endpoint: crate::session_host::transport::SessionEndpoint,
+    pub(crate) pubkey: String,
 }
 
 pub(crate) struct SpawnRequest<'a> {
@@ -19,8 +24,8 @@ pub(crate) async fn spawn_agent(
     slug: &str,
     root: &str,
     request: SpawnRequest<'_>,
-) -> Result<crate::pty::LaunchMetadata> {
-    spawn_agent_inner(
+) -> Result<HostedSpawn> {
+    let (endpoint, pubkey) = spawn_agent_inner(
         state,
         slug,
         root,
@@ -30,7 +35,8 @@ pub(crate) async fn spawn_agent(
         false,
         request.intent,
     )
-    .await
+    .await?;
+    Ok(HostedSpawn { endpoint, pubkey })
 }
 
 pub async fn spawn_ephemeral_agent(
@@ -39,7 +45,7 @@ pub async fn spawn_ephemeral_agent(
     root: &str,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
-) -> Result<String> {
+) -> Result<crate::session_host::transport::EndpointRef> {
     Ok(spawn_agent_inner(
         state,
         slug,
@@ -51,7 +57,8 @@ pub async fn spawn_ephemeral_agent(
         LaunchIntent::Managed,
     )
     .await?
-    .id)
+    .0
+    .endpoint_ref())
 }
 
 pub(crate) async fn spawn_ephemeral_agent_for_pubkey(
@@ -61,7 +68,7 @@ pub(crate) async fn spawn_ephemeral_agent_for_pubkey(
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
     expected_pubkey: &str,
-) -> Result<String> {
+) -> Result<crate::session_host::transport::EndpointRef> {
     Ok(spawn_agent_inner_full(
         state,
         slug,
@@ -77,7 +84,7 @@ pub(crate) async fn spawn_ephemeral_agent_for_pubkey(
     )
     .await?
     .0
-    .id)
+    .endpoint_ref())
 }
 
 pub async fn spawn_dispatched_ephemeral_agent(
@@ -90,7 +97,7 @@ pub async fn spawn_dispatched_ephemeral_agent(
     let group = channels
         .first()
         .context("dispatch spawn requires at least one channel")?;
-    let (meta, pubkey) = spawn_agent_inner_full(
+    let (endpoint, pubkey) = spawn_agent_inner_full(
         state,
         slug,
         root,
@@ -105,7 +112,7 @@ pub async fn spawn_dispatched_ephemeral_agent(
     )
     .await?;
     Ok(DispatchedSpawn {
-        pty_id: meta.id,
+        endpoint: endpoint.endpoint_ref(),
         pubkey,
     })
 }
@@ -120,8 +127,8 @@ async fn spawn_agent_inner(
     session_name: Option<&str>,
     ephemeral: bool,
     intent: LaunchIntent,
-) -> Result<crate::pty::LaunchMetadata> {
-    Ok(spawn_agent_inner_full(
+) -> Result<(crate::session_host::transport::SessionEndpoint, String)> {
+    spawn_agent_inner_full(
         state,
         slug,
         root,
@@ -134,8 +141,7 @@ async fn spawn_agent_inner(
         intent,
         None,
     )
-    .await?
-    .0)
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -151,7 +157,7 @@ async fn spawn_agent_inner_full(
     ephemeral: bool,
     intent: LaunchIntent,
     expected_pubkey: Option<&str>,
-) -> Result<(crate::pty::LaunchMetadata, String)> {
+) -> Result<(crate::session_host::transport::SessionEndpoint, String)> {
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
     let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
     let agent_slug = resolved.identity.slug.clone();
@@ -163,6 +169,8 @@ async fn spawn_agent_inner_full(
             state,
             &resolved.identity,
             harness.as_str(),
+            &resolved.bundle,
+            resolved.transport.kind().as_str(),
             root,
             group,
             pubkey,
@@ -171,12 +179,14 @@ async fn spawn_agent_inner_full(
             state,
             &resolved.identity,
             harness.as_str(),
+            &resolved.bundle,
+            resolved.transport.kind().as_str(),
             root,
             group,
             session_name,
         )?,
     };
-    let meta = match open_agent_session(
+    let endpoint = match open_agent_session(
         &resolved.transport,
         &agent_slug,
         root,
@@ -187,10 +197,8 @@ async fn spawn_agent_inner_full(
         ephemeral,
         &reservation.pubkey,
         &reservation.agent_nsec,
-        &resolved.bundle,
-        resolved.profile.as_deref(),
         resolved.native_agent.as_ref(),
-        resolved.pty_launch,
+        resolved.prepared_launch,
     )
     .await
     {
@@ -200,12 +208,11 @@ async fn spawn_agent_inner_full(
             return Err(error);
         }
     };
-    let pty_id = meta.id.clone();
     let channels = joined_channels.unwrap_or(&[]);
-    let pubkey = match crate::daemon::server::session_start::bootstrap_pty_session_start(
+    let pubkey = match crate::daemon::server::session_start::bootstrap_hosted_session_start(
         state,
-        &meta,
-        crate::daemon::server::session_start::bootstrap::PtySessionStart {
+        &endpoint,
+        crate::daemon::server::session_start::bootstrap::HostedSessionStart {
             pubkey: &reservation.pubkey,
             reclaimed_pubkey: reservation.reclaimed_pubkey.as_deref(),
             channel: group,
@@ -213,17 +220,20 @@ async fn spawn_agent_inner_full(
             resume_id: None,
             dispatch_event,
             session_name,
+            observed_harness: harness,
+            admitted_bundle: &resolved.bundle,
+            admitted_transport: resolved.transport.kind(),
         },
     )
     .await
     {
         Ok(pubkey) => pubkey,
         Err(e) => {
-            kill_endpoint(&resolved.transport, &pty_id).await;
+            kill_endpoint(&resolved.transport, &endpoint.endpoint_id).await;
             admission::release(state, &reservation);
             return Err(e.context("registering hosted session"));
         }
     };
     state.schedule_agent_roster_refresh(retired_advertisements);
-    Ok((meta, pubkey))
+    Ok((endpoint, pubkey))
 }

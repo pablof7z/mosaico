@@ -17,7 +17,7 @@ fn agent_supplied_title_appears_immediately() {
         "got: {visible}"
     );
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let reconciled = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     assert_eq!(reconciled, visible);
 }

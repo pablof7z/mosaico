@@ -3,9 +3,9 @@ use crate::state::{RegisterSession, Status};
 
 fn local_session(store: &Store) {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "local-pk".into(),
-            harness: "codex".into(),
+            observed_harness: "codex".into(),
             agent_slug: "local-codex".into(),
             channel_h: "room".into(),
             child_pid: None,

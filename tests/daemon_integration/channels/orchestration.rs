@@ -13,7 +13,7 @@ fn orchestration_session_uses_existing_group_without_minting() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "sess-orch-1", "cwd": "/tmp", "channel": "issue-42"}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-orch-1", "cwd": "/tmp", "channel": "issue-42"}), "claude-code"),
         )
         .await
         .expect("session_start");

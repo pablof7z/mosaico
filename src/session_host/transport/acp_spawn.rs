@@ -1,4 +1,4 @@
-//! Fire-and-forget turn helpers for [`super::acp::AcpTransport`]: spawn an ACP
+//! Fire-and-forget turn helpers for [`super::acp::RpcTransport`]: spawn an ACP
 //! `session/prompt`, an app-server `turn/start`, or an app-server `turn/steer`
 //! (immediate or gated on a not-yet-known turn id). Extracted from `acp.rs` to
 //! keep that module under the size ceiling; the deliver path calls these.

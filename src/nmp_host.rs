@@ -3,8 +3,8 @@
 //! NMP owns relay planning, subscription lifecycle, canonical wire-event
 //! deduplication, and acquisition evidence. Mosaico keeps its product read model:
 //! delivered events are projected into `state.db` by the existing fabric
-//! materializer. NMP also owns write routing, signing, receipts, and retries;
-//! the provider supplies product policy and exact NIP-29 group authority.
+//! materializer. NMP also owns every durable write intent, route, receipt, and
+//! bounded retry; the provider supplies product policy and exact host authority.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -27,6 +27,7 @@ const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
 pub(crate) struct NmpHost {
     engine: Engine,
     relays: BTreeSet<RelayUrl>,
+    profile_relays: BTreeSet<RelayUrl>,
     accounts: Mutex<BTreeMap<PublicKey, AccountRegistration>>,
     signing: Mutex<()>,
     subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
@@ -53,6 +54,7 @@ impl NmpHost {
         // A daemon can host many durable agent identities over its lifetime.
         // Keep the registry finite, but do not inherit NMP's small demo default.
         config.max_auth_capabilities = 4096;
+        let mut profile_relays = parsed.clone();
         if let Some(indexer) = indexer_relay.filter(|relay| !relay.is_empty()) {
             let parsed_indexer = RelayUrl::parse(indexer)
                 .with_context(|| format!("invalid indexer relay {indexer}"))?;
@@ -62,6 +64,7 @@ impl NmpHost {
             config.allowed_local_relay_hosts.sort();
             config.allowed_local_relay_hosts.dedup();
             config.indexer_relays.push(indexer.to_string());
+            profile_relays.insert(parsed_indexer);
         }
         let engine = Engine::new(config).context("starting NMP engine")?;
         let (materialization_tx, materialization_rx) =
@@ -69,6 +72,7 @@ impl NmpHost {
         Ok(Self {
             engine,
             relays: parsed,
+            profile_relays,
             accounts: Mutex::new(BTreeMap::new()),
             signing: Mutex::new(()),
             subscriptions: Mutex::new(BTreeMap::new()),

@@ -2,7 +2,7 @@
 //!
 //! This static table is the source of truth for every supported transport. It
 //! supplies the executable, required environment, resume behavior, turn model,
-//! and profile application for PTY, ACP, app-server, and headless execution.
+//! and profile application for PTY, ACP, and app-server sessions.
 //!
 //! Invalid cells (e.g. Codex x Acp — Codex has no native ACP) simply have no
 //! entry; `lookup` returns `None` and the caller fails loud.
@@ -11,6 +11,7 @@ use super::config::Transport;
 use crate::session::Harness;
 
 /// One row of the capability matrix.
+#[derive(Debug)]
 pub struct HarnessDriver {
     pub harness: Harness,
     pub transport: Transport,
@@ -41,14 +42,11 @@ pub enum ResumeMechanism {
     AcpSessionLoad,
     /// Codex app-server `thread/resume` (or `thread/fork`) with the thread id.
     AppServerThreadResume,
-    /// PTY/exec: append `<flag> <id>` to argv. claude `--resume`,
+    /// PTY: append `<flag> <id>` to argv. claude `--resume`,
     /// opencode `--session`, grok `--resume`.
     AppendFlag(&'static str),
     /// PTY: insert `<sub> <id>` right after argv[0]. codex `resume`.
     Subcommand(&'static str),
-    /// Headless: replay the recorded native id through the harness's own resume
-    /// path (`codex exec resume <id>`, `opencode run --session <id>`).
-    ExecReplay,
     /// Not resumable.
     None,
 }
@@ -58,7 +56,7 @@ pub enum ResumeMechanism {
 pub enum SteerPrimitive {
     /// Codex app-server `turn/steer {threadId, expectedTurnId, input}`.
     AppServerSteer,
-    /// Fire the harness's own hooks (settings.json hooks under ACP/exec).
+    /// Fire the harness's own hooks (settings.json hooks under ACP).
     Hooks,
     /// PTY bracketed-paste bytes via `pty::client::inject`.
     PtyPaste,
@@ -73,8 +71,6 @@ pub enum TurnModel {
     RpcTurn,
     /// Long-lived TTY; a turn is "text pasted + Enter", no completion signal.
     InteractivePty,
-    /// Process runs to exit; stdout is the whole turn.
-    OneShot,
 }
 
 /// How an agent's optional harness-specific profile name is applied.
@@ -113,16 +109,6 @@ static DRIVERS: &[HarnessDriver] = &[
         turn: TurnModel::RpcTurn,
         profile: ProfileMechanism::Unsupported,
     },
-    HarnessDriver {
-        harness: Harness::ClaudeCode,
-        transport: Transport::HeadlessExec,
-        base_argv: &["claude"],
-        base_env: &[],
-        resume: ResumeMechanism::AppendFlag("--resume"),
-        steer: SteerPrimitive::None,
-        turn: TurnModel::OneShot,
-        profile: ProfileMechanism::CliFlag { flag: "--agent" },
-    },
     // ── Codex ─────────────────────────────────────────────────────
     HarnessDriver {
         harness: Harness::Codex,
@@ -142,16 +128,6 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::Subcommand("resume"),
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
-        profile: ProfileMechanism::CliFlag { flag: "--profile" },
-    },
-    HarnessDriver {
-        harness: Harness::Codex,
-        transport: Transport::HeadlessExec,
-        base_argv: &["codex"],
-        base_env: &[],
-        resume: ResumeMechanism::ExecReplay,
-        steer: SteerPrimitive::None,
-        turn: TurnModel::OneShot,
         profile: ProfileMechanism::CliFlag { flag: "--profile" },
     },
     // ── OpenCode ──────────────────────────────────────────────────
@@ -174,16 +150,6 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AppendFlag("--session"),
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
-        profile: ProfileMechanism::CliFlag { flag: "--agent" },
-    },
-    HarnessDriver {
-        harness: Harness::Opencode,
-        transport: Transport::HeadlessExec,
-        base_argv: &["opencode", "run", "--format", "json"],
-        base_env: &[],
-        resume: ResumeMechanism::AppendFlag("--session"),
-        steer: SteerPrimitive::None,
-        turn: TurnModel::OneShot,
         profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
     // ── Grok (PTY only, profile unknown) ──────────────────────────

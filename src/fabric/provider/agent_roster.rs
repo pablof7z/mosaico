@@ -41,7 +41,7 @@ impl Nip29Provider {
         )
         .tags(tags);
         let signed = self.nmp.sign_event(builder, &mgmt_keys).await?;
-        let event_id = self.nmp.publish_group_event(&signed, true).await?;
+        let event_id = self.nmp.enqueue_group_event(&signed)?;
         self.with_store(|s| {
             crate::fabric::nip29::materializer::Nip29Materializer::materialize_agent_roster(
                 s, &signed,

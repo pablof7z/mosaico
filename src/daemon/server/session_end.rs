@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "session_end/tests.rs"]
+mod tests;
+
 const CLAIM_GRACE_ENV: &str = "MOSAICO_EPHEMERAL_GRACE_SECS";
 const DEFAULT_CLAIM_GRACE_SECS: u64 = 15 * 60;
 
@@ -32,7 +36,7 @@ pub(in crate::daemon::server) async fn end_runtime_generation(
 
     let ended_at = now_secs();
     cancel_session(state, pubkey);
-    record_ephemeral_claim(state, &rec);
+    record_resumable_claim(state, &rec);
     let ended = state.with_store(|store| {
         store.touch_session(pubkey, ended_at)?;
         store.mark_dead_if_generation(pubkey, runtime_generation)
@@ -49,7 +53,10 @@ pub(in crate::daemon::server) async fn end_runtime_generation(
         state: "end".into(),
         rel_cwd: String::new(),
     });
-    super::subscriptions::reconcile_subs_logged(state, "session_end").await;
+    let state = state.clone();
+    tokio::spawn(async move {
+        super::subscriptions::reconcile_subs_logged(&state, "session_end").await;
+    });
     Ok(true)
 }
 
@@ -155,7 +162,7 @@ async fn revoke_operator_session(
     match state.session_signing_keys(&rec.pubkey) {
         Ok(keys) => {
             crate::status_seam::drive(
-                &state.status,
+                &state.reconcilers.status,
                 state.fabric_provider(),
                 &keys,
                 &state.store,
@@ -173,30 +180,38 @@ async fn revoke_operator_session(
     failures
 }
 
-async fn stop_local_process(
+pub(in crate::daemon::server) async fn stop_local_process(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Result<String> {
-    if let Some(locator) = endpoint_locator(state, &rec.pubkey) {
-        match locator.locator_kind.as_str() {
-            crate::state::LOCATOR_PTY => {
-                crate::pty::kill(&locator.locator_value)
-                    .with_context(|| format!("killing PTY endpoint {}", locator.locator_value))?;
-            }
-            crate::state::LOCATOR_ACP => {
-                use crate::session_host::transport::{EndpointRef, SessionTransport};
-                let transport = crate::session_host::transport::AcpTransport;
-                transport
-                    .kill(&EndpointRef {
-                        kind: crate::session_host::transport::TransportKind::Acp,
-                        endpoint_id: locator.locator_value.clone(),
-                    })
-                    .await?;
-            }
-            _ => {}
+    match state
+        .with_store(|store| crate::session_host::transport::hosted_endpoint_for(store, rec))?
+    {
+        crate::session_host::transport::HostedEndpoint::Resolved {
+            transport,
+            endpoint,
+        } => {
+            transport
+                .kill(&endpoint)
+                .await
+                .with_context(|| format!("killing {} endpoint", endpoint.kind.as_str()))?;
+            state.with_store(|store| {
+                store.clear_session_locator_kind(
+                    &rec.pubkey,
+                    &rec.observed_harness,
+                    endpoint.kind.locator_kind(),
+                )
+            })?;
+            return Ok(format!("endpoint={}", endpoint.endpoint_id));
         }
-        state.with_store(|store| store.clear_locator_kind(&rec.pubkey, &locator.locator_kind))?;
-        return Ok(format!("endpoint={}", locator.locator_value));
+        crate::session_host::transport::HostedEndpoint::Unavailable { kind } => {
+            anyhow::bail!(
+                "session {} was admitted on {} but its endpoint locator is unavailable; refusing PID fallback",
+                rec.pubkey,
+                kind.as_str()
+            );
+        }
+        crate::session_host::transport::HostedEndpoint::Unhosted => {}
     }
     if let Some(pid) = rec.child_pid {
         nix::sys::signal::kill(
@@ -209,27 +224,10 @@ async fn stop_local_process(
     Ok(String::new())
 }
 
-fn endpoint_locator(
-    state: &Arc<DaemonState>,
-    pubkey: &str,
-) -> Option<crate::state::SessionLocator> {
-    state
-        .with_store(|store| store.locators_for_pubkey(pubkey))
-        .ok()?
-        .into_iter()
-        .find(|locator| {
-            matches!(
-                locator.locator_kind.as_str(),
-                crate::state::LOCATOR_PTY | crate::state::LOCATOR_ACP
-            )
-        })
-}
-
-fn record_ephemeral_claim(state: &Arc<DaemonState>, rec: &crate::state::Session) {
+fn record_resumable_claim(state: &Arc<DaemonState>, rec: &crate::state::Session) {
     if rec.channel_h.is_empty()
-        || !crate::session_host::agent_supports_headless_exec(&rec.agent_slug)
         || state
-            .with_store(|store| store.native_resume_locator(&rec.pubkey))
+            .with_store(|store| store.native_resume_locator(&rec.pubkey, &rec.observed_harness))
             .ok()
             .flatten()
             .is_none()
@@ -241,14 +239,14 @@ fn record_ephemeral_claim(state: &Arc<DaemonState>, rec: &crate::state::Session)
         pubkey: rec.pubkey.clone(),
         agent_slug: rec.agent_slug.clone(),
         channel_h: rec.channel_h.clone(),
-        harness: rec.harness.clone(),
+        harness: rec.observed_harness.clone(),
         last_active_at: now,
         expires_at: now.saturating_add(claim_grace_secs()),
         owner_backend_pubkey: state.backend_pubkey().unwrap_or_default(),
         owner_host: state.host.clone(),
     };
     if let Err(error) = state.with_store(|store| store.upsert_session_claim(&claim)) {
-        tracing::warn!(pubkey = %rec.pubkey, error = %error, "failed to record session claim");
+        tracing::warn!(pubkey = %rec.pubkey, error = %error, "failed to record resumable claim");
     }
 }
 

@@ -12,7 +12,10 @@ fn session_start_without_mosaico_private_key_generates_key_and_provisions_channe
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": "/tmp"}),
+            hook_session_start(
+                serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": "/tmp"}),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start should generate a management key and provision");
@@ -98,7 +101,10 @@ fn generated_management_key_self_grants_on_existing_user_owned_channel() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": &cwd}),
+            hook_session_start(
+                serde_json::json!({"agent": "coder", "harness_session": &sid, "cwd": &cwd}),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start should self-grant generated management key");
@@ -155,7 +161,7 @@ fn session_start_schedules_unverified_channel_work_without_blocking() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "sess-nogrp", "cwd": "/tmp"}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-nogrp", "cwd": "/tmp"}), "claude-code"),
         )
         .await
         .expect("session_start should register locally without waiting on relay readiness");
@@ -197,13 +203,16 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
         // First start: engine spawns, channel_h = real_channel.
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "codex",
-                "harness_session": &sid,
-                "cwd": "/tmp",
-                "channel": real_channel,
-                "watch_pid": std::process::id()
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "codex",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": real_channel,
+                    "watch_pid": std::process::id()
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("first session_start");
@@ -230,13 +239,16 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
         // MOSAICO_CHANNEL=stale_channel while the engine is already live).
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "codex",
-                "harness_session": &sid,
-                "cwd": "/tmp",
-                "channel": stale_channel,
-                "watch_pid": std::process::id()
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "codex",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": stale_channel,
+                    "watch_pid": std::process::id()
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("re-assert session_start");

@@ -22,10 +22,13 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         let started = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "harness_session": "durable-native-a",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "harness_session": "durable-native-a",
+                    }),
+                    "opencode",
+                ),
             )
             .await
             .expect("durable launch registers session");
@@ -56,14 +59,19 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         let original = read_agent_config(&home, slug);
         let mut flipped = original.clone();
         flipped["perSessionKey"] = serde_json::json!(true);
+        flipped.as_object_mut().unwrap().remove("secret_key");
+        flipped.as_object_mut().unwrap().remove("public_key");
         write_agent_config(&home, slug, &flipped);
         let fresh_alias_error = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "harness_session": "fresh-after-mode-flip",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "harness_session": "fresh-after-mode-flip",
+                    }),
+                    "opencode",
+                ),
             )
             .await
             .expect_err("fresh alias cannot bypass a live durable identity");
@@ -81,10 +89,13 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         let mode_error = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "harness_session": "durable-native-a",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "harness_session": "durable-native-a",
+                    }),
+                    "opencode",
+                ),
             )
             .await
             .expect_err("durable-to-per-session live mode flip must be rejected");
@@ -104,10 +115,13 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         let key_error = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "harness_session": "durable-native-a",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "harness_session": "durable-native-a",
+                    }),
+                    "opencode",
+                ),
             )
             .await
             .expect_err("live durable key replacement must be rejected");
@@ -130,15 +144,21 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         )
         .await;
         let mut normal_config = read_agent_config(&home, normal_slug);
+        let normal_keys = nostr_sdk::prelude::Keys::generate();
         normal_config["perSessionKey"] = serde_json::json!(false);
+        normal_config["secret_key"] = serde_json::json!(normal_keys.secret_key().to_secret_hex());
+        normal_config["public_key"] = serde_json::json!(normal_keys.public_key().to_hex());
         write_agent_config(&home, normal_slug, &normal_config);
         let normal_flip = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": normal_slug, "cwd": "/tmp", "channel": channel,
-                    "harness": "codex", "harness_session": "normal-native",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": normal_slug, "cwd": "/tmp", "channel": channel,
+                        "harness_session": "normal-native",
+                    }),
+                    "codex",
+                ),
             )
             .await
             .expect_err("per-session-to-durable live mode flip must be rejected");
@@ -149,18 +169,22 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             "{normal_flip:#}"
         );
         normal_config["perSessionKey"] = serde_json::json!(true);
+        normal_config.as_object_mut().unwrap().remove("secret_key");
+        normal_config.as_object_mut().unwrap().remove("public_key");
         write_agent_config(&home, normal_slug, &normal_config);
 
         let error = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": slug,
-                    "cwd": "/tmp",
-                    "channel": channel,
-                    "harness": "codex",
-                    "harness_session": "durable-native-b",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": slug,
+                        "cwd": "/tmp",
+                        "channel": channel,
+                        "harness_session": "durable-native-b",
+                    }),
+                    "opencode",
+                ),
             )
             .await
             .expect_err("a second live durable-agent session must be rejected");

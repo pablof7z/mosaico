@@ -3,12 +3,12 @@ pub(super) struct AgentWhoView {
     pub(super) self_name: String,
     pub(super) self_host: String,
     pub(super) headless: bool,
-    pub(super) agents: Vec<AvailableAgent>,
+    pub(super) agents: Vec<AgentCapabilityView>,
     pub(super) workspaces: Vec<WorkspaceView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct AvailableAgent {
+pub(super) struct AgentCapabilityView {
     pub(super) name: String,
     pub(super) about: String,
     pub(super) workspaces: Vec<String>,

@@ -22,6 +22,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 anyhow = "1"
+async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
@@ -36,6 +37,7 @@ rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
 nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9a8ad1fd1a2999b067c19d842467a76a257f7f25" }
+nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9a8ad1fd1a2999b067c19d842467a76a257f7f25" }
 nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9a8ad1fd1a2999b067c19d842467a76a257f7f25" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }

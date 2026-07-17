@@ -10,23 +10,26 @@ use crate::session::Harness;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum AgentSource {
-    Configured {
+    Durable {
+        pubkey: Option<String>,
         bundle: String,
+        transport: Option<crate::harness::Transport>,
         profile: Option<String>,
         per_session_key: bool,
         native_profile: Option<NativeAgentProfile>,
     },
-    NativeProfile {
+    DetectedProfile {
         profile: NativeAgentProfile,
         persist_binding: bool,
     },
-    Generic,
+    DetectedHarness,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableAgent {
+/// The canonical daemon-owned representation of a launchable agent.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Agent {
     /// Public selector. Cross-harness native conflicts carry a harness suffix.
     pub(crate) slug: String,
     /// Canonical agent/profile name stored in sessions and explicit bindings.
@@ -37,9 +40,9 @@ pub(crate) struct AvailableAgent {
     pub(crate) source: AgentSource,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AgentInventory {
-    pub(crate) agents: Vec<AvailableAgent>,
+    pub(crate) agents: Vec<Agent>,
     pub(crate) failures: Vec<String>,
 }
 
@@ -53,13 +56,14 @@ impl AgentInventory {
     ) -> Self {
         let mut inventory = Self::default();
         let mut configured = BTreeSet::new();
-        let created = crate::identity::list_invitable_agents(mosaico_home)
-            .into_iter()
-            .map(|(slug, _, created_at)| (slug, created_at))
+        let entries = crate::identity::keystore_entries(mosaico_home);
+        let created = entries
+            .iter()
+            .map(|entry| (entry.slug.clone(), entry.created_at))
             .collect::<BTreeMap<_, _>>();
         let capabilities = catalog.capabilities(workspace);
 
-        for agent in crate::identity::list_local_agent_details(mosaico_home) {
+        for agent in entries {
             let bundle = agent.harness;
             let harness = match crate::harness::bundle_harness_with(harnesses, &bundle) {
                 Ok(harness) => harness,
@@ -85,13 +89,15 @@ impl AgentInventory {
                 })
                 .unwrap_or_default();
             configured.insert(agent.slug.clone());
-            inventory.agents.push(AvailableAgent {
+            inventory.agents.push(Agent {
                 slug: agent.slug.clone(),
                 agent_slug: agent.slug.clone(),
                 harness,
                 use_criteria,
                 available_since: created.get(&agent.slug).copied().unwrap_or(0),
-                source: AgentSource::Configured {
+                source: AgentSource::Durable {
+                    pubkey: agent.pubkey,
+                    transport: harnesses.get(&bundle).map(|config| config.transport),
                     bundle,
                     profile: agent.profile,
                     per_session_key: agent.per_session_key,
@@ -116,13 +122,13 @@ impl AgentInventory {
                 } else {
                     capability.slug.clone()
                 };
-                inventory.agents.push(AvailableAgent {
+                inventory.agents.push(Agent {
                     slug,
                     agent_slug: capability.slug.clone(),
                     harness: profile.harness,
                     use_criteria: profile.use_criteria.clone(),
                     available_since: capability.available_since,
-                    source: AgentSource::NativeProfile {
+                    source: AgentSource::DetectedProfile {
                         profile,
                         persist_binding: conflicted,
                     },
@@ -136,18 +142,30 @@ impl AgentInventory {
         inventory
     }
 
-    pub(crate) fn find(&self, slug: &str) -> Option<&AvailableAgent> {
+    pub(crate) fn find(&self, slug: &str) -> Option<&Agent> {
         self.agents.iter().find(|agent| agent.slug == slug)
     }
 
-    pub(crate) fn profile_choices(&self, slug: &str) -> Vec<&AvailableAgent> {
+    pub(crate) fn durable_agent_for_pubkey(&self, pubkey: &str) -> Option<&Agent> {
+        self.agents.iter().find(|agent| {
+            matches!(
+                &agent.source,
+                AgentSource::Durable {
+                    pubkey: Some(configured),
+                    ..
+                } if configured == pubkey
+            )
+        })
+    }
+
+    pub(crate) fn profile_choices(&self, slug: &str) -> Vec<&Agent> {
         self.agents
             .iter()
             .filter(|agent| {
                 agent.agent_slug == slug
                     && matches!(
                         agent.source,
-                        AgentSource::NativeProfile {
+                        AgentSource::DetectedProfile {
                             persist_binding: true,
                             ..
                         }
@@ -162,13 +180,13 @@ impl AgentInventory {
             if self.agents.iter().any(|agent| agent.slug == slug) {
                 continue;
             }
-            self.agents.push(AvailableAgent {
+            self.agents.push(Agent {
                 slug: slug.to_string(),
                 agent_slug: slug.to_string(),
                 harness: *harness,
                 use_criteria: String::new(),
                 available_since: 0,
-                source: AgentSource::Generic,
+                source: AgentSource::DetectedHarness,
             });
         }
     }

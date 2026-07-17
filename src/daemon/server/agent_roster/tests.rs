@@ -57,7 +57,7 @@ async fn discovered_capabilities_are_global_or_workspace_scoped() {
     });
     state.refresh_agent_catalog().unwrap();
 
-    let (advertised, failed) = capability_advertisements(&state);
+    let (advertised, failed) = capability_advertisements(&state).unwrap();
     assert!(failed.is_empty(), "{failed:?}");
     let global = advertised
         .iter()

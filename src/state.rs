@@ -160,12 +160,22 @@ pub struct ReactionRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterSession {
     pub pubkey: String,
-    pub harness: String,
+    pub observed_harness: String,
     pub agent_slug: String,
     pub channel_h: String,
     pub child_pid: Option<i32>,
     pub transcript_path: Option<String>,
     pub now: u64,
+}
+
+/// Immutable runtime facts admitted alongside a session generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdmittedRuntimeFacts {
+    pub observed_harness: String,
+    pub claimed_harness: String,
+    pub bundle: String,
+    pub transport: String,
+    pub endpoint_provenance: String,
 }
 
 /// Aggregate local launch activity for one canonical agent profile.
@@ -205,7 +215,9 @@ mod agent_roster;
 pub use agent_roster::{AgentAvailability, AgentRoster};
 mod agent_usage;
 mod locators;
-pub(crate) use locators::{LOCATOR_ACP, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY};
+pub(crate) use locators::{
+    LOCATOR_ACP, LOCATOR_APP_SERVER, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY,
+};
 mod channel_readiness_attempts;
 pub use channel_readiness_attempts::{ChannelReadinessAttempt, NewChannelReadinessAttempt};
 mod channels;

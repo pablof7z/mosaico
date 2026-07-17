@@ -9,7 +9,8 @@ pub use crate::domain::STATUS_TTL_SECS;
 
 /// Which agent harness produced an observation. The string form is persisted
 /// with typed runtime locators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Harness {
     ClaudeCode,
     Codex,

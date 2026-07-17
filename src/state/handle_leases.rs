@@ -2,7 +2,6 @@ use super::*;
 use std::hash::{Hash, Hasher};
 
 mod allocation;
-mod remote_profiles;
 
 pub(crate) const HANDLE_LEASE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
 
@@ -19,9 +18,20 @@ impl Store {
         name: &str,
     ) -> Result<()> {
         let handle = custom_handle(agent_slug, name)?;
-        if self.pubkey_for_handle(&handle)?.is_some()
-            || remote_profiles::reserves_handle(&self.conn, &handle, None)?
-        {
+        let occupied: bool = self.conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM handle_leases AS lease
+                 WHERE lease.handle=?1 AND (
+                     lease.live=1 OR EXISTS(
+                         SELECT 1 FROM sessions AS session
+                         WHERE session.pubkey=lease.pubkey AND session.alive=1
+                     )
+                 )
+             )",
+            [&handle],
+            |row| row.get(0),
+        )?;
+        if occupied {
             anyhow::bail!("session name {name:?} is already in use as {handle:?}");
         }
         Ok(())

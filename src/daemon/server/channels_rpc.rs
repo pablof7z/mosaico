@@ -86,7 +86,8 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     let cwd_channel: Option<String> = params["cwd"]
         .as_str()
         .filter(|s| !s.is_empty())
-        .and_then(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).ok());
+        .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
+        .transpose()?;
 
     // Parent priority: override, current session, explicit parent, then cwd root.
     let parent: String = if let Some(r) = p
@@ -97,7 +98,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     {
         // Prefer the session's channel root; fall back to cwd-resolved channel.
         let root = if let Some(rec) = &creator_rec {
-            state.with_store(|s| super::root_channel(s, &rec.channel_h))
+            state.with_store(|s| super::root_channel(s, &rec.channel_h))?
         } else {
             cwd_channel.clone().context(
                 "--parent-channel requires running inside an agent session or a channel directory",

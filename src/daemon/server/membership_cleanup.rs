@@ -1,4 +1,3 @@
-use super::engine_lifecycle::pid_alive;
 use super::*;
 use std::collections::BTreeSet;
 
@@ -70,27 +69,31 @@ pub(in crate::daemon::server) fn remove_session_memberships(
 pub(in crate::daemon::server) fn cleanup_dead_local_sessions(state: &Arc<DaemonState>) {
     let now = now_secs();
     let stale_before = now.saturating_sub(STALE_MEMBERSHIP_SECS);
-    let candidates: Vec<(String, u64, bool, bool, bool)> = state.with_store(|s| {
+    let sessions = state.with_store(|s| {
         s.list_membership_cleanup_candidates(stale_before)
             .unwrap_or_default()
-            .into_iter()
-            .filter_map(|rec| {
-                let stale = rec.last_seen > 0 && rec.last_seen < stale_before;
-                let process_dead = rec.alive && rec.child_pid.is_some_and(|pid| !pid_alive(pid));
-                (stale || process_dead).then_some((
-                    rec.pubkey,
-                    rec.runtime_generation,
-                    rec.alive,
-                    stale,
-                    process_dead,
-                ))
-            })
-            .collect()
     });
+    let candidates: Vec<(String, u64, bool, bool, bool)> = sessions
+        .into_iter()
+        .filter_map(|rec| {
+            let stale = rec.last_seen > 0 && rec.last_seen < stale_before;
+            let process_dead = rec.alive
+                && rec.child_pid.is_some()
+                && !super::engine_lifecycle::session_still_live(state, &rec);
+            (stale || process_dead).then_some((
+                rec.pubkey,
+                rec.runtime_generation,
+                rec.alive,
+                stale,
+                process_dead,
+            ))
+        })
+        .collect();
     for (pubkey, runtime_generation, alive, stale, process_dead) in candidates {
         if stale {
             remove_session_memberships(state, &pubkey, "stale-membership");
             state
+                .reconcilers
                 .status
                 .lock()
                 .expect("status mutex poisoned")
@@ -114,9 +117,9 @@ mod tests {
 
     fn register(state: &Arc<DaemonState>, pubkey: &str, slug: &str, now: u64) -> String {
         state.with_store(|s| {
-            s.reserve_session(&RegisterSession {
+            s.reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.into(),
-                harness: "claude".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: slug.into(),
                 channel_h: String::new(),
                 child_pid: None,

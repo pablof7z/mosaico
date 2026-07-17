@@ -39,9 +39,9 @@ pub struct Nip29Provider {
     pub wire: Nip29WireCodec,
     /// Shared store Arc — same handle as `DaemonState.store`. No new Connection.
     pub store: Arc<Mutex<Store>>,
-    /// Narrow direct client for bounded reads, kind:0 copies, and diagnostics.
+    /// Narrow direct client for bounded reads and diagnostics.
     pub(crate) transport: Arc<Transport>,
-    /// NMP owns durable group writes, signer selection, routing, and receipts.
+    /// NMP owns all durable writes, signer selection, routing, and receipts.
     pub(crate) nmp: Arc<NmpHost>,
     /// Backend management signing key (`mosaicoPrivateKey`). Missing keys are
     /// generated and persisted by the shared readiness/provisioning path.
@@ -90,8 +90,9 @@ impl Nip29Provider {
         self.wire.decode(env)
     }
 
-    /// Encode + sign + publish ONE domain event.
-    pub async fn publish(
+    /// Encode, sign, and durably enqueue one domain event. Relay delivery is
+    /// always owned by NMP after this local acceptance boundary.
+    pub async fn enqueue(
         &self,
         ev: &DomainEvent,
         keys: &nostr_sdk::prelude::Keys,
@@ -105,7 +106,7 @@ impl Nip29Provider {
         if matches!(ev, DomainEvent::Profile(_)) {
             let builder = self.wire.encode(ev)?;
             let signed = self.nmp.sign_event(builder, keys).await?;
-            return self.transport.publish_profile_event(&signed).await;
+            return self.nmp.enqueue_profile_event(&signed);
         }
         if let Some(ch) = ev.channel() {
             let agent_pubkey = keys.public_key().to_hex();
@@ -126,7 +127,7 @@ impl Nip29Provider {
         let builder = self.wire.encode(ev)?;
         if matches!(ev, DomainEvent::Status(_)) {
             let signed = self.nmp.sign_event(builder, keys).await?;
-            return self.nmp.publish_group_event(&signed, false).await;
+            return self.nmp.enqueue_group_event(&signed);
         }
         self.nmp.publish_group_builder(builder, keys, false).await
     }

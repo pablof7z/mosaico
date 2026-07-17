@@ -41,7 +41,7 @@ impl Nip29Provider {
             }
         }
 
-        let event_id = self.nmp.publish_group_event(&signed, true).await?;
+        let event_id = self.nmp.enqueue_group_event(&signed)?;
         // Seed locally through the single materializer writer.
         self.with_store(|store| {
             crate::fabric::materialize(&RawEnvelope::Nostr(signed.clone()), store);

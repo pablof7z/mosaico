@@ -7,7 +7,10 @@ mod class_b;
 mod hook_forensics;
 mod observation;
 
-use observation::{find_ancestor_pid, find_direct_agent_invocation, report_observation};
+use observation::{
+    find_ancestor_harness, find_ancestor_pid, find_direct_agent_invocation, harness_for_process,
+    report_observation,
+};
 
 // ── hook adapter registry ─────────────────────────────────────────────────────
 //
@@ -277,7 +280,30 @@ async fn hook_dispatch(
                 .and_then(|o| o.get("pid").or_else(|| o.get("watch_pid")))
                 .and_then(|v| v.as_i64())
                 .map(|n| n as i32)
-                .or_else(|| host.pid_search.and_then(find_ancestor_pid));
+                .or_else(|| find_ancestor_harness().map(|(_, pid)| pid));
+            let observed_harness = std::env::var("MOSAICO_OBSERVED_HARNESS")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .and_then(|value| match crate::session::Harness::from_str(&value) {
+                    crate::session::Harness::Unknown => None,
+                    harness => Some(harness.as_str()),
+                })
+                .or_else(|| watch_pid.and_then(harness_for_process))
+                .or_else(|| find_ancestor_harness().map(|(harness, _)| harness));
+            let Some(observed_harness) = observed_harness else {
+                call_log.note(
+                    "missing-observed-harness",
+                    serde_json::json!({
+                        "claimed_harness": host.name,
+                        "watch_pid": watch_pid,
+                    }),
+                );
+                eprintln!(
+                    "[mosaico] cannot observe a supported harness process for claimed host {:?}; session-start skipped",
+                    host.name
+                );
+                return Ok(());
+            };
 
             // The raw hook id is NOT canonical identity — it is the harness's
             // external session id, one locator among several (resume token, hosted
@@ -306,6 +332,7 @@ async fn hook_dispatch(
 
             if let Err(e) = report_observation(
                 host,
+                observed_harness,
                 &agent_slug,
                 &cwd,
                 harness_session_id,
@@ -321,7 +348,7 @@ async fn hook_dispatch(
         }
         "session-end" => {
             if !sid.is_empty() {
-                session_end_hook(sid)?;
+                session_end_hook(sid, host.name)?;
             }
         }
         "user-prompt-submit" => {
@@ -334,22 +361,45 @@ async fn hook_dispatch(
                     .and_then(|o| o.get("pid").or_else(|| o.get("watch_pid")))
                     .and_then(|v| v.as_i64())
                     .map(|n| n as i32)
-                    .or_else(|| host.pid_search.and_then(find_ancestor_pid));
+                    .or_else(|| find_ancestor_harness().map(|(_, pid)| pid));
+                let observed_harness = std::env::var("MOSAICO_OBSERVED_HARNESS")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .and_then(|value| match crate::session::Harness::from_str(&value) {
+                        crate::session::Harness::Unknown => None,
+                        harness => Some(harness.as_str()),
+                    })
+                    .or_else(|| watch_pid.and_then(harness_for_process))
+                    .or_else(|| find_ancestor_harness().map(|(harness, _)| harness));
                 // Re-report the observation (not a fresh identity): the daemon
                 // resolves the incoming id back to the canonical session via its
                 // aliases and re-registers the live session if it was lost.
-                if let Err(e) = report_observation(
-                    host,
-                    &agent_slug,
-                    &cwd,
-                    Some(sid.clone()),
-                    resume_id.clone(),
-                    watch_pid,
-                    profile,
-                )
-                .await
-                {
-                    eprintln!("[mosaico] session reassert skipped: {e:#}");
+                if let Some(observed_harness) = observed_harness {
+                    if let Err(e) = report_observation(
+                        host,
+                        observed_harness,
+                        &agent_slug,
+                        &cwd,
+                        Some(sid.clone()),
+                        resume_id.clone(),
+                        watch_pid,
+                        profile,
+                    )
+                    .await
+                    {
+                        eprintln!("[mosaico] session reassert skipped: {e:#}");
+                        degraded_notice = Some(
+                            "<mosaico>\n⚠ Fabric temporarily unavailable — this session could not be \
+                             reasserted with the daemon, so your inbox and channel awareness for this \
+                             turn may be incomplete. Do NOT assume the channel is quiet or that you have \
+                             no mentions.\n</mosaico>"
+                                .to_string(),
+                        );
+                    }
+                } else {
+                    eprintln!(
+                        "[mosaico] session reassert skipped: could not observe a supported harness process"
+                    );
                     // Don't silently drop awareness for the turn: hand the turn a
                     // visible degradation marker so the agent knows the fabric was
                     // temporarily unavailable rather than assuming a quiet channel.
@@ -385,7 +435,7 @@ async fn hook_dispatch(
         "stop" => {
             if !sid.is_empty() {
                 turn_end(sid).await?;
-                class_b::inject_idle_nudge(&agent_slug);
+                class_b::inject_idle_nudge();
             }
         }
         other => {

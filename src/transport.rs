@@ -1,8 +1,8 @@
 //! Narrow direct-wire adapter over `nostr-sdk`.
 //!
 //! Speaks the narrow direct-wire operations NMP cannot currently express:
-//! one-shot fetches, the profile indexer copy, and the connectivity probe. NMP
-//! owns group publication, signing, receipts, retries, and live acquisition.
+//! one-shot fetches and the connectivity probe. NMP owns durable publication,
+//! signing, receipts, retries, and live acquisition.
 
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::*;
@@ -10,25 +10,9 @@ use std::time::Duration;
 
 pub(crate) struct Transport {
     client: Client,
-    /// URLs of the main NIP-29 relay(s) — the explicit broadcast target for
-    /// every publish. `nostr-relay-pool` gates BOTH `send_event`'s implicit
-    /// "all WRITE-flagged relays" broadcast AND an explicitly-targeted
-    /// `send_event_to` by the SAME per-relay `WRITE` flag (there is no flag
-    /// combination meaning "writable only when explicitly addressed, excluded
-    /// from broadcast"). Since the indexer relay must carry `WRITE` (so the
-    /// explicit kind:0 publish below can reach it at all), publishing here
-    /// MUST target `write_relay_urls` explicitly rather than call the
-    /// pool's implicit broadcast — otherwise every publish would fan out to
-    /// the indexer too and it would reject non-kind:0 events.
+    /// Main relay targets for the explicit doctor probe. Product writes never
+    /// use this direct client.
     write_relay_urls: Vec<String>,
-    /// URL of the profile indexer relay, if configured. kind:0 profiles are
-    /// routed here explicitly via [`Transport::publish_profile_event`]; it is added
-    /// with full READ+WRITE flags (needed for that explicit publish to
-    /// succeed) but is deliberately excluded from `write_relay_urls`, so it
-    /// never receives the broadcast publishes above and therefore never
-    /// rejects NIP-29 kinds ("blocked: kind 9000 is not allowed") — which
-    /// would otherwise pollute `assert_relay_accepted`'s joined-reason verdict.
-    indexer_url: Option<String>,
 }
 
 // ── relay-ack assertion ─────────────────────────────────────────────────────
@@ -41,7 +25,7 @@ pub(crate) struct Transport {
 /// so a caller reporting "published" off the bare `Ok` would be lying. A
 /// "duplicate" failure is the idempotent exception: the relay already has the
 /// signed event, so durability is satisfied.
-fn assert_relay_accepted(output: &Output<EventId>, event: Option<&Event>) -> Result<()> {
+fn assert_relay_accepted(output: &Output<EventId>) -> Result<()> {
     if !output.success.is_empty() {
         return Ok(());
     }
@@ -59,11 +43,11 @@ fn assert_relay_accepted(output: &Output<EventId>, event: Option<&Event>) -> Res
         .cloned()
         .collect();
     if reasons.is_empty() {
-        crate::relay_log::log_relay_rejection("no relay returned OK (timeout)", event);
+        crate::relay_log::log_relay_rejection("no relay returned OK (timeout)", None);
         anyhow::bail!("no relay accepted the event (timeout or no OK received)");
     }
     let msg = reasons.join("; ");
-    crate::relay_log::log_relay_rejection(&msg, event);
+    crate::relay_log::log_relay_rejection(&msg, None);
     anyhow::bail!("relay rejected event: {msg}");
 }
 
@@ -81,12 +65,8 @@ fn assert_relay_accepted(output: &Output<EventId>, event: Option<&Event>) -> Res
 const PUBLISH_CONNECT_WAIT: Duration = Duration::from_secs(8);
 
 impl Transport {
-    /// Connect to the configured main relays plus an optional profile indexer
-    /// relay. The indexer is added with full READ+WRITE flags (both are needed:
-    /// READ for kind:0 lookups, WRITE for the explicit kind:0 publish), but
-    /// every broadcast publish below explicitly targets `write_relay_urls`
-    /// (the main relays only), so the indexer never receives — and therefore
-    /// never rejects — NIP-29 group events.
+    /// Connect to the configured main relays plus an optional profile indexer.
+    /// Product writes use NMP; this client only reads and runs doctor probes.
     pub(crate) async fn connect_with_indexer(
         relays: &[String],
         indexer_url: Option<&str>,
@@ -100,11 +80,8 @@ impl Transport {
                 .await
                 .with_context(|| format!("adding relay {r}"))?;
         }
-        // Full default flags (READ+WRITE+PING): READ so kind:0 lookups still
-        // resolve here, WRITE so the explicit profile copy below can reach
-        // it — `send_event_to` enforces the per-relay WRITE flag even when the
-        // caller names the relay explicitly, so a READ-only add would make
-        // every indexer publish fail with `write actions are disabled`.
+        // The indexer participates in direct kind:0 lookups only. Product
+        // profile writes are durable NMP pinned-host intents.
         if let Some(url) = indexer_url {
             if !url.is_empty() {
                 client
@@ -122,7 +99,6 @@ impl Transport {
         Ok(Self {
             client,
             write_relay_urls: relays.to_vec(),
-            indexer_url: indexer_url.filter(|s| !s.is_empty()).map(String::from),
         })
     }
 
@@ -150,38 +126,7 @@ impl Transport {
             .send_event_builder_to(self.write_relay_urls.iter().cloned(), builder)
             .await
             .context("publishing event")?;
-        assert_relay_accepted(&out, None)?;
-        Ok(out.val)
-    }
-
-    /// Copy a kind:0 profile to BOTH the indexer and the main relay(s). NMP's
-    /// facade deliberately exposes no arbitrary pinned-host write, while
-    /// author-outbox routing requires NIP-65 evidence that profiles may not yet
-    /// have. This is the sole product write outside NMP.
-    ///
-    /// The main relay accepts kind:0, so profiles go to BOTH the
-    /// indexer relay AND the main NIP-29 relay(s) — the main relay accepts
-    /// kind:0 fine, so profiles must land there too (agent/backend name
-    /// resolution shouldn't depend on the indexer alone). Falls back to the
-    /// main relays when no indexer is configured.
-    pub(crate) async fn publish_profile_event(&self, signed: &Event) -> Result<EventId> {
-        crate::relay_log::log_outgoing_event(signed);
-        self.client.wait_for_connection(PUBLISH_CONNECT_WAIT).await;
-        let mut urls = self.write_relay_urls.clone();
-        if let Some(indexer) = &self.indexer_url {
-            if !urls.contains(indexer) {
-                urls.push(indexer.clone());
-            }
-        }
-        if urls.is_empty() {
-            anyhow::bail!("cannot publish a profile without a configured relay");
-        }
-        let out = self
-            .client
-            .send_event_to(urls, signed)
-            .await
-            .context("publishing signed event to target relays")?;
-        assert_relay_accepted(&out, Some(signed))?;
+        assert_relay_accepted(&out)?;
         Ok(out.val)
     }
 

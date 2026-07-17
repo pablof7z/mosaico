@@ -182,9 +182,11 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
         )?;
         Ok::<_, anyhow::Error>(())
     })?;
-    if let Err(error) = state.provider.publish(&domain, &keys).await {
-        tracing::warn!(pubkey, %error, "reclaimed handle retirement profile submission failed");
-    }
+    state
+        .provider
+        .enqueue(&domain, &keys)
+        .await
+        .with_context(|| format!("queueing reclaimed handle retirement profile for {pubkey}"))?;
     Ok(())
 }
 

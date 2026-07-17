@@ -166,9 +166,9 @@ mod tests {
 
         let old = state
             .with_store(|store| {
-                store.reserve_session(&crate::state::RegisterSession {
+                store.reserve_hook_session_for_test(&crate::state::RegisterSession {
                     pubkey: "pk".into(),
-                    harness: "codex".into(),
+                    observed_harness: "codex".into(),
                     agent_slug: "agent".into(),
                     channel_h: "old-room".into(),
                     child_pid: None,

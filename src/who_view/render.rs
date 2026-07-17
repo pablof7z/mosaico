@@ -19,7 +19,7 @@ pub(super) fn render_agent_who(view: &AgentWhoView) -> String {
     out
 }
 
-fn render_agents(out: &mut String, agents: &[AvailableAgent]) {
+fn render_agents(out: &mut String, agents: &[AgentCapabilityView]) {
     out.push_str("\n  <agents>");
     for agent in agents {
         let _ = write!(out, "\n    <agent name=\"{}\"", attr(&agent.name));

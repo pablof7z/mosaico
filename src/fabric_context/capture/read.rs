@@ -236,12 +236,8 @@ pub(super) fn resolve_pubkey(
     }
 }
 
-pub(super) fn root_channel(store: &Store, channel: &str) -> String {
-    store
-        .root_channel_of(channel)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| channel.to_string())
+pub(super) fn root_channel(store: &Store, channel: &str) -> anyhow::Result<String> {
+    crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
 }
 
 pub(super) fn channel_summary(store: &Store, channel: &str) -> SummaryCap {

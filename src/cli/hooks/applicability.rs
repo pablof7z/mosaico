@@ -5,7 +5,7 @@ use std::path::Path;
 pub(super) fn inapplicable(cwd: &Path) -> Option<(&'static str, Value)> {
     // A harness outside a registered workspace should proceed without fabric
     // features; an explicit command will surface the missing registration.
-    if crate::workspace::resolve(cwd).is_err() {
+    if crate::daemon::workspace_path::channel_for_path(cwd).is_err() {
         return Some((
             "no-channel",
             serde_json::json!({ "cwd": cwd.to_string_lossy() }),

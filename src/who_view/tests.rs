@@ -1,4 +1,4 @@
-use super::{render_agent_who, AgentWhoInput};
+use super::{render_agent_who, render_agent_who_from_aggregation, AgentWhoInput};
 use crate::state::{AgentRoster, Status, Store};
 use std::collections::BTreeSet;
 
@@ -100,6 +100,47 @@ fn render(expand_beta: bool) -> String {
             expanded_workspaces: &expanded_workspaces,
         },
     )
+    .unwrap()
+}
+
+#[test]
+fn both_renderers_use_one_immutable_capture() {
+    let store = seed();
+    let roots = vec!["alpha".to_string(), "beta".to_string()];
+    let expanded = BTreeSet::from(["alpha".to_string()]);
+    let aggregation = crate::who_aggregation::WhoAggregation::load(&store, 100).unwrap();
+    let render_view = || {
+        render_agent_who_from_aggregation(
+            &aggregation,
+            AgentWhoInput {
+                roots: &roots,
+                self_name: "quill-peak-369-codex",
+                self_pubkey: "self-pk",
+                local_host: "laptop",
+                backend_pubkey: "backend-pk",
+                now: 100,
+                headless: false,
+                expanded_workspaces: &expanded,
+            },
+        )
+    };
+    let before_view = render_view().unwrap();
+    let before_snapshot =
+        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop")
+            .unwrap();
+
+    store.upsert_workspace("alpha", "/mutated", 101).unwrap();
+    store
+        .upsert_profile("human-pk", "Changed", "Changed", "", false, 101)
+        .unwrap();
+    store.remove_channel_member("alpha", "human-pk").unwrap();
+
+    assert_eq!(render_view().unwrap(), before_view);
+    assert_eq!(
+        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop")
+            .unwrap(),
+        before_snapshot
+    );
 }
 
 #[test]
@@ -153,7 +194,8 @@ fn agent_about_is_compact_and_bounded() {
             headless: false,
             expanded_workspaces: &BTreeSet::from(["alpha".to_string()]),
         },
-    );
+    )
+    .unwrap();
     let start = xml.find("<agent name=\"architect\"").unwrap();
     let row = &xml[start..xml[start..].find(" />").map(|end| start + end).unwrap()];
     let about = row

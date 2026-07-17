@@ -6,9 +6,9 @@ use crate::state::{RegisterSession, Store};
 
 fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &str) -> String {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pubkey.into(),
-            harness: "claude-code".into(),
+            observed_harness: "claude-code".into(),
             agent_slug: slug.into(),
             channel_h: channel.into(),
             child_pid: Some(42),

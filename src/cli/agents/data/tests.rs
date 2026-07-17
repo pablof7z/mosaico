@@ -1,5 +1,7 @@
 use super::*;
-use crate::agent_catalog::DiscoveryRoots;
+use crate::agent_catalog::{AgentCatalog, DiscoveryRoots};
+use crate::agent_inventory::AgentInventory;
+use crate::harness::HarnessesConfig;
 use std::path::Path;
 
 fn write(path: &Path, body: &str) {
@@ -16,7 +18,7 @@ fn rows(
     AgentInventory::build(home, installed, harnesses, catalog, Some(home))
         .agents
         .into_iter()
-        .map(|agent| project(agent, harnesses))
+        .map(project)
         .collect()
 }
 

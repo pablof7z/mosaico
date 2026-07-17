@@ -86,7 +86,7 @@ fn changed_descendant_metadata_renders_once_with_its_canonical_ref() {
     assert!(!text.contains("<subchannels>"), "{text}");
     assert!(!text.contains("<channels-not-joined>"), "{text}");
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 200, 300)),
         text
@@ -108,7 +108,7 @@ fn full_snapshot_nests_multilevel_channels_by_dotted_reference() {
     assert!(task < leaf, "child must follow its parent: {text}");
     assert_eq!(text.matches("ref=\"root.task\"").count(), 1, "{text}");
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 300, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 300, false)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 0, 300)),
         text
@@ -116,6 +116,7 @@ fn full_snapshot_nests_multilevel_channels_by_dotted_reference() {
 
     let human =
         render_fabric_context_human(&store, input(Some(&rec), "root", 0, 300, false), false)
+            .expect("valid channel ancestry")
             .expect("human tree should render");
     assert!(human.contains("#root.task"), "{human}");
     assert!(human.contains("#root.task.leaf"), "{human}");

@@ -4,7 +4,8 @@ use super::reg;
 #[test]
 fn inbox_idempotency_and_delivery() {
     let s = Store::open_memory().unwrap();
-    s.reserve_session(&reg("claude-code", "x", "h1")).unwrap();
+    s.reserve_hook_session_for_test(&reg("claude-code", "x", "h1"))
+        .unwrap();
     assert!(s
         .enqueue_inbox("ev1", "pk-agent", "from", "h1", "hi", 100)
         .unwrap());

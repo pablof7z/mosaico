@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 use std::sync::mpsc::Receiver;
 
 use anyhow::{Context, Result};
-use nmp::{RelayUrl, SignEventRequest, WritePayload, WriteStatus};
+use nmp::{RelayUrl, SignEventRequest, WriteStatus};
+use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
 use nostr_sdk::prelude::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
 
 use super::scrub::scrub_unsigned;
@@ -90,19 +91,74 @@ impl NmpHost {
         event: &Event,
         checked: bool,
     ) -> Result<EventId> {
-        let mut receivers = Vec::with_capacity(self.relays.len());
-        for relay in &self.relays {
-            let mut intent = group_intent(relay.clone(), event_template(event)?)?;
-            intent.payload = WritePayload::Signed(event.clone());
-            intent.identity_override = Some(event.pubkey);
-            receivers.push(
-                self.engine
-                    .publish(intent)
-                    .context("submitting signed NMP write")?,
+        let receivers = self.submit_signed_group(event)?;
+        wait_for_write(receivers, Some(event.id), checked).await
+    }
+
+    /// Persist a signed group event behind NMP's crash-atomic acceptance door.
+    /// Returns without waiting for signing, routing, relay I/O, or an ACK.
+    pub(crate) fn enqueue_group_event(&self, event: &Event) -> Result<EventId> {
+        drop(self.submit_signed_group(event)?);
+        Ok(event.id)
+    }
+
+    /// Persist a kind:0 copy for every configured app/indexer relay. Profile
+    /// delivery used to bypass NMP and wait up to eight seconds for the direct
+    /// relay pool; it now has the same durable, independently-drained contract
+    /// as every group write.
+    pub(crate) fn enqueue_profile_event(&self, event: &Event) -> Result<EventId> {
+        if event.kind.as_u16() != 0 {
+            anyhow::bail!(
+                "profile enqueue requires kind:0, got {}",
+                event.kind.as_u16()
             );
         }
+        let intents = self
+            .profile_relays
+            .iter()
+            .cloned()
+            .map(|relay| WriteIntent {
+                payload: WritePayload::Signed(event.clone()),
+                durability: Durability::Durable,
+                routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(relay)),
+                identity_override: Some(event.pubkey),
+            })
+            .collect::<Vec<_>>();
+        drop(self.submit_intents(intents, "submitting profile NMP write")?);
+        Ok(event.id)
+    }
+
+    fn submit_signed_group(&self, event: &Event) -> Result<Vec<Receiver<WriteStatus>>> {
+        crate::relay_log::log_outgoing_event(event);
+        let template = event_template(event)?;
+        let intents = self
+            .relays
+            .iter()
+            .cloned()
+            .map(|relay| {
+                let mut intent = group_intent(relay, template.clone())?;
+                intent.payload = WritePayload::Signed(event.clone());
+                intent.identity_override = Some(event.pubkey);
+                Ok(intent)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.submit_intents(intents, "submitting signed NMP write")
+    }
+
+    /// The sole Mosaico -> NMP publication choke-point. `Engine::publish`
+    /// synchronously confirms local durable acceptance and leaves all relay
+    /// effects to NMP's independent retrying worker.
+    fn submit_intents(
+        &self,
+        intents: Vec<WriteIntent>,
+        context: &'static str,
+    ) -> Result<Vec<Receiver<WriteStatus>>> {
+        let receivers = intents
+            .into_iter()
+            .map(|intent| self.engine.publish(intent).context(context))
+            .collect::<Result<Vec<_>>>()?;
         require_configured_host(&receivers)?;
-        wait_for_write(receivers, Some(event.id), checked).await
+        Ok(receivers)
     }
 
     fn ensure_account(&self, keys: &Keys) -> Result<()> {
@@ -134,18 +190,13 @@ impl NmpHost {
             );
         }
         let template = unsigned_template(&unsigned)?;
-        let mut receivers = Vec::with_capacity(self.relays.len());
+        let mut intents = Vec::with_capacity(self.relays.len());
         for relay in &self.relays {
             let mut intent = group_intent(relay.clone(), template.clone())?;
             intent.identity_override = identity_override;
-            receivers.push(
-                self.engine
-                    .publish(intent)
-                    .context("submitting unsigned NMP write")?,
-            );
+            intents.push(intent);
         }
-        require_configured_host(&receivers)?;
-        Ok(receivers)
+        self.submit_intents(intents, "submitting unsigned NMP write")
     }
 }
 

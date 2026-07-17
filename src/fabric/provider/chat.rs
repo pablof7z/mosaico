@@ -111,7 +111,7 @@ impl Nip29Provider {
                 "publish_chat_checked: channel {channel} is not verified (ChannelGate::Degraded) — refusing to publish into an unverified channel"
             );
         }
-        self.nmp.publish_group_event(signed, true).await
+        self.nmp.enqueue_group_event(signed)
     }
 }
 

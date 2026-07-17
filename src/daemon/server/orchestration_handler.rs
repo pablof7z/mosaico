@@ -187,7 +187,13 @@ async fn resume_target(
         );
         return false;
     };
-    let work_root = state.with_store(|s| work_root_for(s, &op.child_h));
+    let work_root = match state.with_store(|s| work_root_for(s, &op.child_h)) {
+        Ok(root) => root,
+        Err(error) => {
+            tracing::error!(child = %op.child_h, %error, "orchestration resume workspace lookup failed");
+            return false;
+        }
+    };
     match crate::session_host::resume_agent_in_channel(
         state,
         &rec.agent_slug,
@@ -227,7 +233,13 @@ async fn spawn_target(
     target: &crate::fabric::nip29::orchestration::AddTarget,
 ) -> bool {
     let slug = &target.slug;
-    let work_root = state.with_store(|s| work_root_for(s, &op.child_h));
+    let work_root = match state.with_store(|s| work_root_for(s, &op.child_h)) {
+        Ok(root) => root,
+        Err(error) => {
+            tracing::error!(child = %op.child_h, %error, "orchestration spawn workspace lookup failed");
+            return false;
+        }
+    };
     match crate::session_host::spawn_ephemeral_agent(
         state,
         slug,
@@ -237,8 +249,8 @@ async fn spawn_target(
     )
     .await
     {
-        Ok(pty_id) => {
-            tracing::info!(slug = %slug, child = %op.child_h, pty_id = %pty_id, "orchestration: agent spawned");
+        Ok(endpoint) => {
+            tracing::info!(slug = %slug, child = %op.child_h, endpoint = %endpoint.endpoint_id, "orchestration: agent spawned");
             true
         }
         Err(e) => {

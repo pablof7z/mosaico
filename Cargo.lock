@@ -1776,6 +1776,7 @@ name = "mosaico"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "base64",
  "clap",
@@ -1788,6 +1789,7 @@ dependencies = [
  "mime_guess",
  "nix 0.29.0",
  "nmp",
+ "nmp-grammar",
  "nmp-nip29",
  "nostr-sdk",
  "owo-colors",

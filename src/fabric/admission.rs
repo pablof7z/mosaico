@@ -194,9 +194,9 @@ mod tests {
 
     fn register(store: &Store, pubkey: &str, channel: &str, agent_slug: &str) {
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.into(),
-                harness: "test".into(),
+                observed_harness: "codex".into(),
                 agent_slug: agent_slug.into(),
                 channel_h: channel.into(),
                 child_pid: None,

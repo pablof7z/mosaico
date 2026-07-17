@@ -6,7 +6,8 @@
 > Provider** owns wire shape, membership/admission, lifecycle side-effects, and
 > projects those events into canonical store rows. Readers query the store;
 > nothing in a read path ever names a kind, a tag, a group, or a relay. NMP also
-> owns Nostr signing, durable group routing, receipts, and retries.
+> owns Nostr signing and the durable `submit_intents` queue for every runtime and
+> profile write, including routing, receipts, and retries.
 
 ---
 
@@ -133,6 +134,12 @@ fix for the multi-writer `state.db` corruption** already hit when ~16
 per-session processes wrote concurrently: one daemon owns the writer, every
 session/CLI is a read-only IPC client.
 
+The `sessions` row also owns immutable runtime admission facts: observed
+harness, selected bundle, transport kind, and endpoint provenance. Hook host
+claims are stored separately for diagnostics. Delivery and liveness use those
+facts plus an exact harness-keyed locator; mutable agent and bundle files are
+never consulted to rediscover an alive runtime's transport.
+
 ```mermaid
 flowchart LR
     subgraph FABRICS["Fabrics — write-side, adapter-facing"]
@@ -235,10 +242,11 @@ flowchart LR
 - **Reads** are exactly the user-facing list — *which projects exist, who's in
   them, who's online, and what they're doing.
   recipient of each.* All are `SELECT`s. None know the fabric.
-- **Intents** are writes: open a project, send a message, beat a heartbeat. The
-  provider encodes the intent to its wire shape and submits it to NMP. NMP
-  registers the exact account, freezes the per-write author, signs, routes,
-  retries, and streams receipts; callers that need convergence wait for an ACK.
+- **Intents** are writes: open a project, send a message, beat a heartbeat, or
+  publish a kind:0 profile. The provider encodes the intent to its wire shape
+  and submits it through NMP's durable `submit_intents` queue. NMP registers the
+  exact account, freezes the per-write author, signs, routes, retries, and
+  streams receipts; callers that need convergence wait for an ACK.
   The provider only then reflects accepted
   local writes into relay-derived read rows. Future optimistic UX must use an
   explicit pending-outbound state, never fabricated relay cache rows.
@@ -286,7 +294,7 @@ flowchart TD
     NMP["NMP Nostr engine<br/>live queries → canonical events<br/>accounts · writes · receipts"] --> M
     PROVIDER --> M["② Materializer<br/>decode · admit · derive<br/>· upsert canonical rows into the store"]
     PROVIDER --> W["③ Provider codec<br/>DomainEvent ⇄ provider-native envelope"]
-    PROVIDER --> D["④ Direct edge<br/>profile indexer copy · probe · one-shot fetch"]
+    PROVIDER --> D["④ Diagnostic edge<br/>doctor probe · bounded readback"]
     PROVIDER --> NMP
 ```
 
@@ -295,13 +303,13 @@ flowchart TD
 | ① | **Lifecycle** | Turn a domain lifecycle event into provider-native setup (create group, invite, or no-op). | Decide *when* a project opens (that's the host/daemon). |
 | ② | **Materializer** | Consume NMP-delivered envelopes through one bounded, backpressured stream, decode via ③, then own admission and canonical upserts — membership, channel metadata, agents, status, and messages. The store is the read contract; this fills it. | Open relay work, drop canonical additions under load, or answer reads. |
 | ③ | **Provider codec** | Pure, symmetric ser/de of the five+ `DomainEvent` nouns to the provider's native envelope. The current NIP-29 provider uses a Nostr-event codec. | Open subscriptions or manage groups. |
-| ④ | **Direct edge** | Copy kind:0 profiles to the configured indexer, run the doctor probe, and perform bounded one-shot resolution fetches that NMP's facade does not express. | Publish group events, sign product writes, own retries, or grow into a second write plane. |
+| ④ | **Diagnostic edge** | Run the explicit doctor connectivity probe and bounded diagnostic/resolution reads. | Publish runtime or profile state, sign product writes, own retries, or grow into a second write plane. |
 
 The runtime only ever talks to one active provider interface. Swapping fabric =
 swap the provider constructor (or a small enum of providers until a truly
 object-safe async trait is needed). App-owned relay filters disappear from the
-provider seam: NMP owns the live-query, signing, group-write, receipt, retry, and
-connection lifecycle.
+provider seam: NMP owns the live-query, signing, durable `submit_intents` queue
+for all runtime/profile writes, receipts, retries, and connection lifecycle.
 
 ---
 
@@ -315,6 +323,7 @@ sequenceDiagram
     participant CC as Claude Code (host)
     participant DOM as Domain / daemon
     participant P as Active Provider
+    participant NMP as NMP durable write queue
     participant FAB as Fabric
     participant STORE as Unified read model
 
@@ -322,20 +331,20 @@ sequenceDiagram
     DOM->>P: lifecycle.react(ProjectOpened)
 
     alt nip29 provider
-        P->>FAB: create group 9007 (h = dir slug)
-        P->>FAB: edit-metadata 9002 (closed + public)
-        P->>FAB: put-user 9000 (agent = member)
+        P->>NMP: submit_intents(create 9007, metadata 9002, member 9000)
+        NMP->>FAB: retrying group writes
         %% NMP observes 39002 members and keeps admission live
-        P->>FAB: declare 39002 observation
+        P->>NMP: declare 39002 observation
     else mls provider
         P->>FAB: create MLS group
         P->>FAB: invite agent key
         FAB-->>P: agent accepts → roster updated
     end
 
-    Note over P,FAB: thereafter the materializer just keeps the store current
-    P->>FAB: NMP live queries (membership, metadata, …)
-    FAB-->>P: events
+    Note over P,NMP: thereafter the materializer just keeps the store current
+    NMP->>FAB: live queries (membership, metadata, …)
+    FAB-->>NMP: events
+    NMP-->>P: canonical additions
     P->>STORE: upsert rows (members, channel metadata)
 ```
 *(`STORE` = the unified read model; the host/CLI reads it directly, never `P`.)*
@@ -347,13 +356,16 @@ both terminate at the store, and the reader is never in the loop:
 sequenceDiagram
     participant ME as Operator
     participant P as Active Provider
+    participant NMP as NMP durable write queue
     participant FAB as Fabric
     participant STORE as Unified read model
     participant RD as Reader (CLI / hook)
 
     ME->>P: send(to = claude, project, body)
-    P->>FAB: publish (provider's wire shape, checked)
-    FAB-->>P: accepted
+    P->>NMP: submit_intents(provider wire shape)
+    NMP->>FAB: retrying routed delivery
+    FAB-->>NMP: receipt
+    NMP-->>P: accepted / confirmed
     P->>STORE: materialize accepted local message
 
     Note over FAB,P: inbound side

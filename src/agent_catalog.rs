@@ -13,13 +13,13 @@ mod parse;
 pub use activation::{CodexRootConfig, NativeAgentActivation};
 use parse::discover_dir;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentScope {
     Global,
     Workspace(PathBuf),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NativeAgentProfile {
     pub slug: String,
     pub use_criteria: String,
@@ -29,7 +29,7 @@ pub struct NativeAgentProfile {
     pub modified_at: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentCapability {
     pub slug: String,
     pub use_criteria: String,

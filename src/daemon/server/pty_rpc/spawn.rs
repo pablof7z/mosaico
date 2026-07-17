@@ -32,7 +32,7 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         state.with_store(|s| s.ensure_custom_handle_available(&p.agent, name))?;
     }
     super::provision_before_spawn(state, &p.agent, &p.root, group).await?;
-    let meta = crate::session_host::spawn_agent(
+    let spawn = crate::session_host::spawn_agent(
         state,
         &p.agent,
         &p.root,
@@ -44,18 +44,12 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         },
     )
     .await?;
-
     if let Some(prompt) = p.prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
-        crate::session_host::deliver_spawn_prompt(&p.agent, &meta.id, prompt).await;
+        crate::session_host::deliver_spawn_prompt(&spawn.endpoint.endpoint_ref(), prompt).await;
     }
-    let endpoint_kind = if meta.socket.is_empty() {
-        crate::state::LOCATOR_ACP
-    } else {
-        crate::state::LOCATOR_PTY
-    };
     let handle = state.with_store(|store| {
         let session = store
-            .alive_session_for_locator(None, endpoint_kind, &meta.id)?
+            .get_session(&spawn.pubkey)?
             .context("spawned endpoint has no registered session")?;
         Ok::<String, anyhow::Error>(
             store
@@ -64,9 +58,9 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         )
     })?;
     Ok(serde_json::json!({
-        "pty_id": meta.id,
-        "pty_socket": meta.socket,
-        "transport": endpoint_kind,
+        "pty_id": spawn.endpoint.endpoint_id,
+        "pty_socket": spawn.endpoint.meta.socket,
+        "transport": spawn.endpoint.kind.as_str(),
         "handle": handle,
         "agent": p.agent,
         "root": p.root,

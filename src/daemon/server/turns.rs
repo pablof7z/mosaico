@@ -85,8 +85,8 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &backend_pubkey,
         &state.host,
         prev_started,
-        &state.hook_contexts,
-    );
+        &state.runtime.hook_contexts,
+    )?;
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)
@@ -133,8 +133,8 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
         &state.host,
         delta_since,
         now,
-        &state.hook_contexts,
-    );
+        &state.runtime.hook_contexts,
+    )?;
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     let context = turn
@@ -194,7 +194,11 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
     // reply so the channel sees a response instead of silence.
     if let Some(rec) = rec.as_ref() {
         if let Some(pending) = auto_reply::take(&rec.pubkey) {
-            auto_reply::publish_last_response(state, rec, pending).await;
+            let state = state.clone();
+            let rec = rec.clone();
+            tokio::spawn(async move {
+                auto_reply::publish_last_response(&state, &rec, pending).await;
+            });
         }
     }
     Ok(serde_json::json!({ "ok": true }))

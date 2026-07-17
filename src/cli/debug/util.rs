@@ -50,16 +50,22 @@ pub(super) fn new_pane(session: &str) -> SessionPane {
     }
 }
 
-pub(super) fn fill_pane_from_hook(pane: &mut SessionPane, host: &str, stdin_json: &Value) {
+pub(super) fn fill_pane_from_hook(
+    pane: &mut SessionPane,
+    host: &str,
+    stdin_json: &Value,
+) -> anyhow::Result<()> {
     if pane.host.is_empty() {
         pane.host = host.to_string();
     }
     if pane.root.is_empty() {
         pane.root = stdin_json["cwd"]
             .as_str()
-            .map(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).unwrap_or_default())
+            .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
+            .transpose()?
             .unwrap_or_default();
     }
+    Ok(())
 }
 
 pub(super) fn hook_session(v: &Value) -> Option<String> {
@@ -76,11 +82,12 @@ pub(super) fn command_session(v: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-pub(super) fn command_root(v: &Value) -> String {
-    v["process"]["cwd"]
+pub(super) fn command_root(v: &Value) -> anyhow::Result<String> {
+    Ok(v["process"]["cwd"]
         .as_str()
-        .map(|cwd| crate::workspace::resolve(std::path::Path::new(cwd)).unwrap_or_default())
-        .unwrap_or_default()
+        .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
+        .transpose()?
+        .unwrap_or_default())
 }
 
 pub(super) fn infer_command_session(

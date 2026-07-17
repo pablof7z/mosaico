@@ -40,14 +40,18 @@ pub(in crate::daemon::server) fn rpc_who(
     let current_root = if p.all_workspaces {
         None
     } else {
-        Some(p.workspace.clone().unwrap_or_else(|| {
-            let cwd = p
-                .cwd
-                .clone()
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::workspace::resolve(&cwd).unwrap_or_default()
-        }))
+        Some(match p.workspace.clone() {
+            Some(workspace) => workspace,
+            None => {
+                let cwd = p
+                    .cwd
+                    .clone()
+                    .map(std::path::PathBuf::from)
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_dir)?;
+                crate::daemon::workspace_path::channel_for_path(&cwd)?
+            }
+        })
     };
     let now = now_secs();
     let host = state.host.clone();
@@ -79,7 +83,7 @@ pub(in crate::daemon::server) fn rpc_who(
                 },
                 p.human_color,
             )
-        });
+        })?;
         if let Some(mut human) = human {
             human_view::append_other_roots(&mut human, &snapshot.other_roots, p.human_color);
             out["fabric_human"] = serde_json::Value::String(human);
@@ -95,7 +99,7 @@ pub(in crate::daemon::server) fn rpc_who(
                 &backend_pk,
                 p.human_color,
             )
-        });
+        })?;
         out["fabric_human"] = serde_json::Value::String(human);
     }
     Ok(out)
@@ -112,8 +116,8 @@ pub(super) fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> 
         .map(|c| c.channel_h)
         .collect::<BTreeSet<_>>();
     roots.extend(
-        store
-            .list_workspace_bindings()?
+        crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .bindings()?
             .into_iter()
             .map(|binding| binding.channel_h),
     );

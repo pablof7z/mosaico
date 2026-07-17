@@ -14,33 +14,42 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         let sender = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "sender",
-                    "harness_session": "explicit-destination-sender",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "sender",
+                        "harness_session": "explicit-destination-sender",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start sender");
         let receiver = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "receiver",
-                    "harness_session": "explicit-destination-receiver",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "receiver",
+                        "harness_session": "explicit-destination-receiver",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start receiver");
         let second_receiver = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "second-receiver",
-                    "harness_session": "explicit-destination-second-receiver",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "second-receiver",
+                        "harness_session": "explicit-destination-second-receiver",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start second receiver");
@@ -229,17 +238,32 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     let home = Home::new().with_backend_key();
 
     let store = Store::open(&home.store_path()).unwrap();
+    store
+        .upsert_channel("root-chat-channel", "root-chat-channel", "", "", 1)
+        .unwrap();
+    store
+        .upsert_channel("other-chat-channel", "other-chat-channel", "", "", 1)
+        .unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
-        .reserve_session(&mosaico::state::RegisterSession {
-            pubkey: pubkey.clone(),
-            harness: "codex".to_string(),
-            agent_slug: "multi-chat".to_string(),
-            channel_h: "root-chat-channel".to_string(),
-            child_pid: None,
-            transcript_path: None,
-            now: 1,
-        })
+        .reserve_session_with_facts(
+            &mosaico::state::RegisterSession {
+                pubkey: pubkey.clone(),
+                observed_harness: "codex".to_string(),
+                agent_slug: "multi-chat".to_string(),
+                channel_h: "root-chat-channel".to_string(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1,
+            },
+            &mosaico::state::AdmittedRuntimeFacts {
+                observed_harness: "codex".into(),
+                claimed_harness: "codex".into(),
+                bundle: String::new(),
+                transport: String::new(),
+                endpoint_provenance: "hook".into(),
+            },
+        )
         .unwrap();
     store
         .join_session_channel(&pubkey, "root-chat-channel", 1)

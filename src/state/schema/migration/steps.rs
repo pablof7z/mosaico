@@ -165,6 +165,67 @@ pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
     tx.commit().context("committing schema-7 migration")
 }
 
+pub(super) fn v8_to_v9(conn: &mut Connection, _path: &Path) -> Result<()> {
+    require_shape(
+        conn,
+        8,
+        "sessions",
+        &["pubkey", "runtime_generation", "harness", "work_root"],
+        &["observed_harness", "admitted_transport"],
+    )?;
+    let tx = conn.transaction().context("starting schema-8 migration")?;
+    tx.execute_batch(
+        r#"
+        ALTER TABLE sessions RENAME COLUMN harness TO observed_harness;
+        ALTER TABLE sessions ADD COLUMN claimed_harness TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions ADD COLUMN admitted_bundle TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions ADD COLUMN admitted_transport TEXT NOT NULL DEFAULT ''
+            CHECK (admitted_transport IN ('', 'pty', 'acp', 'app-server'));
+        ALTER TABLE sessions ADD COLUMN endpoint_provenance TEXT NOT NULL DEFAULT ''
+            CHECK (endpoint_provenance IN ('', 'launch', 'hook', 'migration'));
+        ALTER TABLE session_locators RENAME TO session_locators_v8;
+        CREATE TABLE session_locators (
+            harness TEXT NOT NULL,
+            locator_kind TEXT NOT NULL
+                CHECK (locator_kind IN ('native_resume', 'pty', 'acp', 'app_server', 'pid')),
+            locator_value TEXT NOT NULL,
+            pubkey TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (harness, locator_kind, locator_value)
+        );
+        INSERT INTO session_locators
+            (harness, locator_kind, locator_value, pubkey, created_at)
+        SELECT harness,
+               CASE WHEN harness='codex' AND locator_kind='acp'
+                    THEN 'app_server' ELSE locator_kind END,
+               locator_value, pubkey, created_at
+        FROM session_locators_v8;
+        DROP TABLE session_locators_v8;
+        CREATE INDEX idx_session_locators_pubkey ON session_locators(pubkey);
+        CREATE INDEX idx_session_locators_value ON session_locators(locator_value);
+        CREATE UNIQUE INDEX idx_session_locators_native_resume
+            ON session_locators(pubkey) WHERE locator_kind='native_resume';
+        UPDATE sessions SET admitted_transport = CASE
+            WHEN EXISTS (SELECT 1 FROM session_locators l
+                         WHERE l.pubkey=sessions.pubkey
+                           AND l.harness=sessions.observed_harness
+                           AND l.locator_kind='app_server') THEN 'app-server'
+            WHEN EXISTS (SELECT 1 FROM session_locators l
+                         WHERE l.pubkey=sessions.pubkey
+                           AND l.harness=sessions.observed_harness
+                           AND l.locator_kind='acp') THEN 'acp'
+            WHEN EXISTS (SELECT 1 FROM session_locators l
+                         WHERE l.pubkey=sessions.pubkey
+                           AND l.harness=sessions.observed_harness
+                           AND l.locator_kind='pty') THEN 'pty'
+            ELSE '' END;
+        UPDATE sessions SET endpoint_provenance = 'migration';
+        PRAGMA user_version = 9;
+        "#,
+    )?;
+    tx.commit().context("committing schema-8 migration")
+}
+
 fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
     let mut statement =
         conn.prepare("SELECT event_json FROM outbox WHERE state='pending' ORDER BY local_id")?;

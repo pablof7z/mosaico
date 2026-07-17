@@ -25,7 +25,7 @@ pub(in crate::daemon::server) async fn spawn_session(
 
     let cancel = Arc::new(Notify::new());
     {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = state.runtime.engines.lock().unwrap();
         if let Some(previous) = sessions.get(&pubkey) {
             if previous.runtime_generation >= runtime_generation {
                 anyhow::bail!("pubkey {pubkey} already has an active runtime");
@@ -43,7 +43,7 @@ pub(in crate::daemon::server) async fn spawn_session(
             },
         );
     }
-    state.hosted.lock().unwrap().insert(
+    state.runtime.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {
             keys: params.keys.clone(),
@@ -65,14 +65,14 @@ pub(in crate::daemon::server) async fn spawn_session(
     let task_pubkey = pubkey.clone();
     let provider = state.provider.clone();
     let store = state.store.clone();
-    let status = state.status.clone();
+    let status = state.reconcilers.status.clone();
     tokio::spawn(async move {
         let res = runtime::run_session_in_daemon(params, provider, store, cancel, status).await;
         if let Err(e) = res {
             tracing::warn!(pubkey = %task_pubkey, runtime_generation, error = %e, "session task exited with error");
         }
         let owns_generation = {
-            let mut sessions = st.sessions.lock().unwrap();
+            let mut sessions = st.runtime.engines.lock().unwrap();
             if sessions
                 .get(&task_pubkey)
                 .is_some_and(|handle| handle.runtime_generation == runtime_generation)
@@ -114,6 +114,7 @@ pub(in crate::daemon::server) fn prune_hosted(state: &Arc<DaemonState>) {
         .map(|r| r.pubkey)
         .collect();
     state
+        .runtime
         .hosted
         .lock()
         .unwrap()
@@ -121,7 +122,7 @@ pub(in crate::daemon::server) fn prune_hosted(state: &Arc<DaemonState>) {
 }
 
 pub(in crate::daemon::server) fn cancel_session(state: &Arc<DaemonState>, pubkey: &str) -> bool {
-    if let Some(h) = state.sessions.lock().unwrap().get(pubkey) {
+    if let Some(h) = state.runtime.engines.lock().unwrap().get(pubkey) {
         // `notify_one` retains a permit when the engine is still doing startup
         // I/O; `notify_waiters` would lose cancellation before `notified()` is
         // first polled and leave a dead generation occupying the runtime map.
@@ -238,7 +239,18 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         if let Err(e) = ensure_subscription(state, &snap.channel_h).await {
             tracing::warn!(channel = %snap.channel_h, error = %e, "ensure_subscription failed during reconcile");
         }
-        let workspace = reconcile_context::workspace(state, &snap);
+        let workspace = match reconcile_context::workspace(state, &snap) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                tracing::error!(
+                    pubkey,
+                    channel = %snap.channel_h,
+                    %error,
+                    "cannot reconcile session with unresolved workspace ancestry"
+                );
+                continue;
+            }
+        };
         let ep = engine_params_for(
             &state.cfg,
             identity,
@@ -272,56 +284,49 @@ pub(in crate::daemon::server) use crate::liveness::pid_alive;
 /// Whether reconcile should treat a session left behind by a previous daemon as
 /// still alive (and therefore revive it rather than reap it).
 ///
-/// `child_pid` liveness alone is unsafe: PIDs recycle, so a dead supervisor's
-/// reused PID could revive a ghost session against an unrelated process. When the
-/// session owns a PTY supervisor socket, that socket being reachable —
-/// connect+write, not a round-trip reply ([`crate::pty::is_live`]) — is the
-/// authoritative, unspoofable signal; exec sessions with no socket fall back to
-/// the PID check alone (risk #1).
-fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) -> bool {
-    use crate::session_host::transport::{
-        transport_kind_for_slug, AcpTransport, EndpointRef, SessionTransport, TransportKind,
-    };
-    // ACP/RPC sessions have neither an OS-inspectable supervisor pid nor a PTY
-    // socket; their liveness is the in-process child registry (defect #3). That
-    // registry cannot survive a daemon restart, so at reconcile it is empty and an
-    // ACP session is correctly treated as gone. NEVER fall back to `pid_alive` for
-    // ACP: the recorded pid is a synth `0` (or a since-recycled child pid), which
-    // would revive an immortal ghost.
-    if matches!(
-        transport_kind_for_slug(&snap.agent_slug),
-        Ok(TransportKind::Acp)
-    ) {
-        return endpoint_id_for(state, &snap.pubkey, crate::state::LOCATOR_ACP)
-            .map(|endpoint_id| {
-                AcpTransport.is_live(&EndpointRef {
-                    kind: TransportKind::Acp,
-                    endpoint_id,
-                })
-            })
-            .unwrap_or(false);
-    }
+/// `child_pid` liveness alone is unsafe: PIDs recycle, so a dead hosted endpoint's
+/// reused PID could revive a ghost session against an unrelated process. A hosted
+/// locator delegates the authoritative check to its transport; native harness
+/// sessions with no hosted endpoint fall back to the PID check alone (risk #1).
+pub(in crate::daemon::server) fn session_still_live(
+    state: &Arc<DaemonState>,
+    snap: &crate::state::Session,
+) -> bool {
     let pid_ok = snap.child_pid.map(pid_alive).unwrap_or(false);
-    let endpoint_live = endpoint_id_for(state, &snap.pubkey, crate::state::LOCATOR_PTY)
-        .map(|endpoint_id| crate::pty::is_live(&endpoint_id));
-    revive_decision(pid_ok, endpoint_live)
+    match state.with_store(|store| crate::session_host::transport::hosted_endpoint_for(store, snap))
+    {
+        Ok(crate::session_host::transport::HostedEndpoint::Unhosted) => {
+            revive_decision(pid_ok, false, None)
+        }
+        Ok(crate::session_host::transport::HostedEndpoint::Unavailable { kind }) => {
+            tracing::warn!(
+                pubkey = %snap.pubkey,
+                transport = kind.as_str(),
+                "admitted hosted endpoint locator is unavailable; refusing PID fallback"
+            );
+            revive_decision(pid_ok, true, None)
+        }
+        Ok(crate::session_host::transport::HostedEndpoint::Resolved {
+            transport,
+            endpoint,
+        }) => revive_decision(pid_ok, true, Some(transport.is_live(&endpoint))),
+        Err(error) => {
+            tracing::error!(
+                pubkey = %snap.pubkey,
+                admitted_transport = %snap.admitted_transport,
+                %error,
+                "hosted endpoint lookup failed; refusing PID fallback"
+            );
+            false
+        }
+    }
 }
 
-/// The typed host endpoint bound to this pubkey, if one exists.
-fn endpoint_id_for(state: &Arc<DaemonState>, pubkey: &str, locator_kind: &str) -> Option<String> {
-    state.with_store(|s| {
-        s.locators_for_pubkey(pubkey).ok().and_then(|locators| {
-            locators
-                .into_iter()
-                .find(|locator| locator.locator_kind == locator_kind)
-                .map(|locator| locator.locator_value)
-        })
-    })
-}
-
-/// Pure revive decision, split out for unit testing. `endpoint_live` is `None` for a
-/// session with no PTY supervisor socket (an exec/native session), in which case
-/// the PID check is authoritative.
-fn revive_decision(pid_ok: bool, endpoint_live: Option<bool>) -> bool {
-    pid_ok && endpoint_live.unwrap_or(true)
+/// PID liveness is authoritative only when no hosted transport was admitted.
+fn revive_decision(pid_ok: bool, hosted_admitted: bool, endpoint_live: Option<bool>) -> bool {
+    match endpoint_live {
+        Some(live) => live,
+        None if hosted_admitted => false,
+        None => pid_ok,
+    }
 }

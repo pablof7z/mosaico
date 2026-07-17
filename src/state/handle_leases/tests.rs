@@ -21,7 +21,7 @@ fn first_allocation_uses_one_word_tier_and_resume_keeps_it() {
 }
 
 #[test]
-fn hydrated_remote_session_handle_blocks_local_allocation() {
+fn relay_profile_cache_never_blocks_local_allocation() {
     let store = Store::open_memory().unwrap();
     let wanted_codename = candidates("local-new").next().unwrap();
     let wanted_handle = crate::idref::session_handle("codex", &wanted_codename);
@@ -38,11 +38,11 @@ fn hydrated_remote_session_handle_blocks_local_allocation() {
         .unwrap();
 
     let allocated = allocate(&store, "local-new", 20);
-    assert_ne!(allocated.handle, wanted_handle);
+    assert_eq!(allocated.handle, wanted_handle);
 }
 
 #[test]
-fn hydrated_remote_session_handle_blocks_custom_name_until_retired() {
+fn relay_profile_cache_never_blocks_custom_name() {
     let store = Store::open_memory().unwrap();
     store
         .upsert_profile_with_agent_slug(
@@ -56,25 +56,44 @@ fn hydrated_remote_session_handle_blocks_custom_name_until_retired() {
         )
         .unwrap();
 
-    let error = store
-        .ensure_custom_handle_available("codex", "quill")
-        .expect_err("hydrated remote handle must reserve the custom name");
-    assert!(error.to_string().contains("already in use"));
-
     store
-        .upsert_profile_with_agent_slug(
-            "remote-pubkey",
-            "npub1retired",
-            "npub1retired",
-            "codex",
-            "remote-backend",
-            false,
-            20,
-        )
+        .ensure_custom_handle_available("codex", "quill")
+        .expect("rebuildable relay cache is never handle authority");
+}
+
+#[test]
+fn dead_custom_handle_is_available_and_atomically_reclaimed() {
+    let store = Store::open_memory().unwrap();
+    store
+        .allocate_custom_handle("old", "codex", "quill", 10)
+        .unwrap();
+    store
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
+            pubkey: "old".into(),
+            observed_harness: "codex".into(),
+            agent_slug: "codex".into(),
+            channel_h: "root".into(),
+            child_pid: None,
+            transcript_path: None,
+            now: 10,
+        })
         .unwrap();
     store
         .ensure_custom_handle_available("codex", "quill")
-        .expect("retired profile releases its old handle");
+        .expect_err("live session retains its lease");
+
+    store.mark_dead("old").unwrap();
+    store
+        .ensure_custom_handle_available("codex", "quill")
+        .expect("dead session releases custom-name authority");
+    let allocation = store
+        .allocate_custom_handle("new", "codex", "quill", 20)
+        .unwrap();
+    assert_eq!(allocation.reclaimed_pubkey.as_deref(), Some("old"));
+    assert_eq!(
+        store.pubkey_for_handle("quill-codex").unwrap().as_deref(),
+        Some("new")
+    );
 }
 
 #[test]

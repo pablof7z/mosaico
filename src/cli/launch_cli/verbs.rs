@@ -20,11 +20,13 @@ pub(in crate::cli) async fn launch(request: LaunchRequest) -> Result<()> {
         prompt,
     } = request;
     let cwd = std::env::current_dir().unwrap_or_default();
-    let selection = resolve_fresh_agent(&requested_agent, &cwd)?;
+    let selection = resolve_fresh_agent(&requested_agent, &cwd).await?;
     let agent = selection.slug;
     let root = match root {
         Some(p) => p,
-        None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default())?,
+        None => crate::daemon::workspace_path::channel_for_path_or_bail(
+            &std::env::current_dir().unwrap_or_default(),
+        )?,
     };
 
     let channel = resolve_launch_channel(&root, &agent, channel).await?;

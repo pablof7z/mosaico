@@ -19,14 +19,14 @@ fn resolves_to_specific_session_when_pubkey_is_supplied() {
         let a = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "claude", "harness_session": "sess-a", "cwd": "/tmp"}),
+                hook_session_start(serde_json::json!({"agent": "claude", "harness_session": "sess-a", "cwd": "/tmp"}), "claude-code"),
             )
             .await
             .expect("session_start a");
         let b = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "claude", "harness_session": "sess-b", "cwd": "/tmp"}),
+                hook_session_start(serde_json::json!({"agent": "claude", "harness_session": "sess-b", "cwd": "/tmp"}), "claude-code"),
             )
             .await
             .expect("session_start b");

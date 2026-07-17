@@ -12,8 +12,28 @@ mod launch;
 pub(crate) use launch::{
     configure_pty_agent, configure_pty_agent_with_args, install_test_harness_shim,
 };
+#[path = "harness/wedge_relay.rs"]
+mod wedge_relay;
+pub(crate) use wedge_relay::WedgeRelay;
 
 pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn hook_session_start(
+    mut params: serde_json::Value,
+    observed_harness: &str,
+) -> serde_json::Value {
+    let object = params.as_object_mut().expect("session-start params object");
+    object.insert(
+        "observed_harness".into(),
+        observed_harness.to_string().into(),
+    );
+    object.insert(
+        "claimed_harness".into(),
+        observed_harness.to_string().into(),
+    );
+    object.insert("endpoint_provenance".into(), "hook".into());
+    params
+}
 
 pub(crate) fn shared_relay_url() -> String {
     static RELAY: OnceLock<TestRelay> = OnceLock::new();
@@ -75,6 +95,19 @@ impl Home {
         )
         .unwrap();
         Home { dir }
+    }
+
+    pub(crate) fn with_wedged_relay(relay_url: &str) -> Self {
+        let home = Self::new();
+        let cfg = home.dir.path().join("config.json");
+        let body = serde_json::json!({
+            "whitelistedPubkeys": [],
+            "backendName": "test-host",
+            "relays": [relay_url],
+            "indexerRelay": relay_url,
+        });
+        std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
+        home
     }
     /// Rewrite the config to include a backend signing key (`mosaicoPrivateKey`).
     /// Needed by tests that start multiple CONCURRENT same-agent sessions in one

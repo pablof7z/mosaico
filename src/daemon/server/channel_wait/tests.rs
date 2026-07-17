@@ -10,9 +10,9 @@ fn seed_session(state: &Arc<DaemonState>) -> Session {
             store.upsert_channel("x", "x", "", "root", 2)?;
             store.upsert_channel("y", "y", "", "root", 3)?;
             store.upsert_channel("z", "z", "", "root", 4)?;
-            store.reserve_session(&RegisterSession {
+            store.reserve_hook_session_for_test(&RegisterSession {
                 pubkey: SELF_PUBKEY.into(),
-                harness: "codex".into(),
+                observed_harness: "codex".into(),
                 agent_slug: "self".into(),
                 channel_h: "x".into(),
                 child_pid: None,

@@ -18,7 +18,7 @@ validate_mosaico_configs() {
       (.harness == "claude" or .harness == "claude-code" or
         .harness == "codex" or .harness == "opencode" or .harness == "grok") and
       (.transport == "pty" or .transport == "acp" or
-        .transport == "app-server" or .transport == "headless-exec") and
+        .transport == "app-server") and
       ((.args // []) | type == "array") and
       all((.args // [])[]; type == "string")
     )

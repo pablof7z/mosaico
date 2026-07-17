@@ -1,6 +1,7 @@
 use super::*;
 
 mod byline;
+mod record_validation;
 
 #[test]
 fn creates_then_reloads_keyless_agent_config() {
@@ -62,26 +63,6 @@ fn per_session_key_defaults_true_and_can_select_durable_mode() {
 }
 
 #[test]
-fn loading_ordinary_agent_scrubs_legacy_redundant_key_fields() {
-    let dir = tempfile::tempdir().unwrap();
-    load_or_create(dir.path(), "coder", "codex", None, 1).unwrap();
-    let path = dir.path().join("agents/coder.json");
-    let keys = Keys::generate();
-    let mut config: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    config["secret_key"] = serde_json::json!(keys.secret_key().to_secret_hex());
-    config["public_key"] = serde_json::json!(keys.public_key().to_hex());
-    std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
-
-    let loaded = load(dir.path(), "coder").unwrap();
-    assert!(loaded.keys.is_none());
-    let scrubbed: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    assert!(scrubbed.get("secret_key").is_none());
-    assert!(scrubbed.get("public_key").is_none());
-}
-
-#[test]
 fn add_local_agent_creates_then_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let (a, created) = add_local_agent(dir.path(), "coder", "codex", Some("reviewer"), 1).unwrap();
@@ -106,7 +87,7 @@ fn remove_local_agent_permanently_unlinks_then_reports_missing() {
     assert!(remove_local_agent(dir.path(), "coder").unwrap());
     assert!(!live.exists(), "live key file is gone");
     assert!(!dir.path().join("agents/coder.json.removed").exists());
-    assert!(list_local_agent_details(dir.path()).is_empty());
+    assert!(keystore_entries(dir.path()).is_empty());
     assert!(list_local_pubkeys(dir.path()).is_empty());
 
     assert!(!remove_local_agent(dir.path(), "coder").unwrap());
@@ -160,7 +141,7 @@ fn structured_save_transitions_identity_mode_and_preserves_owned_fields() {
         preserved.pubkey_hex().as_deref(),
         Some(durable_pubkey.as_str())
     );
-    assert!(list_local_agent_details(dir.path())[0].byline.is_none());
+    assert!(keystore_entries(dir.path())[0].byline.is_none());
 
     let (per_session, _) = save_local_agent(
         dir.path(),
@@ -204,7 +185,7 @@ fn structured_save_can_create_a_durable_agent_directly() {
     assert!(!agent.per_session_key);
     assert!(agent.keys.is_some());
     assert_eq!(
-        list_local_agent_details(dir.path())[0].byline.as_deref(),
+        keystore_entries(dir.path())[0].byline.as_deref(),
         Some("Coordinates work")
     );
 }

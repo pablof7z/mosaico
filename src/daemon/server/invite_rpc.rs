@@ -46,7 +46,7 @@ pub(super) async fn rpc_invite(
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
-    let work_root = state.with_store(|s| work_root_for(s, &channel_h));
+    let work_root = state.with_store(|s| work_root_for(s, &channel_h))?;
     let mut result = invite_session(state, &channel_h, &work_root, session_id).await?;
     maybe_post_add_message(state, params, &channel_h, &p, &mut result).await;
     Ok(result)
@@ -88,14 +88,14 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
         ..Default::default()
     };
     let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h)),
+        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
         Err(_) => {
             let cwd = p
                 .cwd
                 .as_deref()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::workspace::resolve(&cwd)
+            crate::daemon::workspace_path::channel_for_path(&cwd)
                 .context("invite must run inside an agent session or channel directory")?
         }
     };
@@ -151,7 +151,7 @@ pub(super) async fn invite_agent(
 
     let before = live_session_ids(state);
     super::pty_rpc::provision_before_spawn(state, &target.slug, work_root, Some(channel_h)).await?;
-    let meta = crate::session_host::spawn_agent(
+    let spawn = crate::session_host::spawn_agent(
         state,
         &target.slug,
         work_root,
@@ -165,7 +165,7 @@ pub(super) async fn invite_agent(
     .await?;
     let online = wait_local_agent_online(state, channel_h, &target.slug, &before).await?;
     Ok(serde_json::json!({
-        "pty_id": meta.id,
+        "pty_id": spawn.endpoint.endpoint_id,
         "agent": target.slug,
         "online_agent": online,
         "channel": channel_h,

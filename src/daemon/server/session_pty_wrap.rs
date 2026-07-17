@@ -67,13 +67,17 @@ fn refusal(refusal: &str, reason: impl Into<String>) -> serde_json::Value {
 /// The `pty_session` alias for a session, if it currently resolves to a LIVE
 /// endpoint. Mirrors the doorbell scan / `session_end`'s PTY-endpoint lookup
 /// (`src/session_host/delivery.rs`, `src/daemon/server/session_end.rs`).
-fn live_pty_locator(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
+fn live_pty_locator(state: &Arc<DaemonState>, rec: &crate::state::Session) -> Option<String> {
     let pty_id = state
-        .with_store(|s| s.locators_for_pubkey(pubkey))
-        .ok()?
-        .into_iter()
-        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
-        .map(|locator| locator.locator_value)?;
+        .with_store(|s| {
+            s.locator_for_session(
+                &rec.pubkey,
+                &rec.observed_harness,
+                crate::state::LOCATOR_PTY,
+            )
+        })
+        .ok()??
+        .locator_value;
     crate::pty::is_live(&pty_id).then_some(pty_id)
 }
 
@@ -87,7 +91,7 @@ pub(in crate::daemon::server) async fn rpc_session_pty_wrap(
         return Ok(refusal("not_found", "no local session matched"));
     };
 
-    let already_wrapped = live_pty_locator(state, &rec.pubkey).is_some();
+    let already_wrapped = live_pty_locator(state, &rec).is_some();
     let resume_id = resume_token_for(state, &rec);
     let decision = decide_pty_wrap(rec.working, already_wrapped, resume_id.is_some());
 

@@ -1,97 +1,82 @@
 //! Transport-agnostic session hosting seam.
 //!
-//! A "hosted session" is opened over exactly one transport. The portable PTY is
-//! driven DIRECTLY (`pty::spawn_session` / `pty::inject`, argv shaped by the
-//! `registry` sniffers) and reaches [`PtyTransport`] only for `kind`/`kill`.
-//! `AcpTransport` is the JSON-RPC backend (ACP / codex app-server) for harnesses
-//! that expose an `RpcTurn` model, and is the sole full [`SessionTransport`] impl
-//! — its `launch`/`resume`/`deliver`/`is_live` are the ones actually invoked.
-//!
-//! Object dispatch is via the [`TransportImpl`] enum rather than `dyn` (native
-//! async-fn-in-trait is not object-safe and we avoid pulling `async-trait`).
-//! The [`SessionTransport`] trait documents the RPC contract `AcpTransport`
-//! fulfils.
+//! A hosted session is opened and driven through one [`SessionTransport`].
+//! Transport-specific launch, resume, delivery, liveness, and teardown stay in
+//! the implementing module; callers never branch on transport kind.
 
 pub mod acp;
 mod acp_runtime;
 mod acp_spawn;
 pub mod pty;
+mod types;
 
 use anyhow::Result;
 
 use crate::harness::{self, config::HarnessesConfig, Transport};
 
-/// Which transport hosts a session. Stringifies to `"pty"` / `"acp"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which transport hosts a session. This is the persisted runtime contract;
+/// configured app-server sessions never collapse into ACP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TransportKind {
     Pty,
     Acp,
+    AppServer,
 }
 
 impl TransportKind {
+    pub const ALL: [Self; 3] = [Self::Pty, Self::Acp, Self::AppServer];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             TransportKind::Pty => "pty",
             TransportKind::Acp => "acp",
+            TransportKind::AppServer => "app-server",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pty" => Some(Self::Pty),
+            "acp" => Some(Self::Acp),
+            "app-server" => Some(Self::AppServer),
+            _ => None,
+        }
+    }
+
+    pub fn locator_kind(self) -> &'static str {
+        match self {
+            TransportKind::Pty => crate::state::LOCATOR_PTY,
+            TransportKind::Acp => crate::state::LOCATOR_ACP,
+            TransportKind::AppServer => crate::state::LOCATOR_APP_SERVER,
+        }
+    }
+
+    pub fn from_locator_kind(locator_kind: &str) -> Option<Self> {
+        match locator_kind {
+            crate::state::LOCATOR_PTY => Some(TransportKind::Pty),
+            crate::state::LOCATOR_ACP => Some(TransportKind::Acp),
+            crate::state::LOCATOR_APP_SERVER => Some(TransportKind::AppServer),
+            _ => None,
         }
     }
 }
 
-/// Fully-resolved, transport-agnostic launch intent.
-#[derive(Clone)]
-pub struct LaunchSpec {
-    pub slug: String,
-    /// The agent's configured harness bundle name (a `harnesses.json` key).
-    /// Distinct from [`Self::slug`]: an agent
-    /// `reviewer` may run bundle `codex-acp`. The ACP transport MUST resolve its
-    /// harness/driver from this bundle, never from the agent slug (defect #1).
-    pub bundle: String,
-    /// Optional harness-native named profile from the agent definition.
-    pub profile: Option<String>,
-    /// Harness-owned native agent definition discovered by Mosaico.
-    pub native_agent: Option<crate::agent_catalog::NativeAgentActivation>,
-    pub root: String,
-    pub abs_path: String,
-    pub group: Option<String>,
-    pub ephemeral: bool,
-    /// Resolved argv incl. base_argv + profile + user flags + agent-def args.
-    pub base_command: Vec<String>,
-    /// Authoritative session identity allocated before the child starts.
-    pub pubkey: String,
-    /// Matching signer exposed only to the assigned harness process.
-    pub agent_nsec: String,
-}
+pub use types::*;
 
-/// A prior session's native resume token.
-#[derive(Debug, Clone)]
-pub struct ResumeSpec {
-    pub native_id: String,
-}
-
-/// What the daemon needs after a session opens. For PTY this carries a real
-/// `LaunchMetadata` so `bootstrap_pty_session_start` stays unchanged.
-#[derive(Debug)]
-pub struct SessionEndpoint {
-    pub kind: TransportKind,
-    pub endpoint_id: String,
-    pub watch_pid: Option<i32>,
-    pub meta: crate::pty::LaunchMetadata,
-}
-
-/// A live-session address the daemon holds after registration.
-#[derive(Debug, Clone)]
-pub struct EndpointRef {
-    pub kind: TransportKind,
-    pub endpoint_id: String,
-}
-
-/// The RPC transport contract, fulfilled by [`AcpTransport`]. Each method maps to
-/// an existing daemon behavior over JSON-RPC (ACP / codex app-server). The PTY
-/// path does NOT implement this trait — it is driven directly (relaunch-with-flag
-/// + bracketed-paste), and [`PtyTransport`] exposes only `kind`/`kill`.
-#[allow(async_fn_in_trait)]
-pub trait SessionTransport {
+/// Complete hosted-session contract. Every selectable transport implements it.
+#[async_trait::async_trait]
+pub trait SessionTransport: Send + Sync {
     fn kind(&self) -> TransportKind;
+
+    /// Prepare transport-owned launch inputs after harness resolution.
+    fn prepare_launch(
+        &self,
+        _resolved: &mut crate::harness::ResolvedHarness,
+        _endpoint_id: String,
+    ) -> Result<PreparedLaunch> {
+        Ok(PreparedLaunch::default())
+    }
 
     /// Open a brand-new harness session.
     async fn launch(&self, spec: &LaunchSpec) -> Result<SessionEndpoint>;
@@ -104,38 +89,133 @@ pub trait SessionTransport {
 
     fn is_live(&self, ep: &EndpointRef) -> bool;
 
+    /// Whether ordinary endpoint output currently has a visible presentation.
+    fn output_is_visible(&self, _ep: &EndpointRef) -> bool {
+        false
+    }
+
+    /// Transport-owned operator projection. Non-PTY transports are not attachable.
+    fn describe(&self, ep: &EndpointRef) -> EndpointDescriptor {
+        EndpointDescriptor {
+            id: ep.endpoint_id.clone(),
+            kind: self.kind(),
+            live: self.is_live(ep),
+            attachable: false,
+            cwd: None,
+            command: Vec::new(),
+        }
+    }
+
+    /// Delay before the opening prompt can be delivered to a newly launched endpoint.
+    fn opening_delivery_delay(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+
     async fn kill(&self, ep: &EndpointRef) -> Result<()>;
 }
 
-pub use acp::AcpTransport;
+pub use acp::RpcTransport;
 pub use pty::PtyTransport;
 
-/// Enum dispatcher giving dynamic transport selection without `dyn`.
-///
-/// Only `kind` and `kill` are dispatched here: the ACP path invokes
-/// `AcpTransport`'s [`SessionTransport`] methods on the concrete variant directly
-/// (`launch.rs`/`delivery.rs`), and the PTY path is driven outside the trait
-/// entirely. The former per-method enum forwarders for
-/// `launch`/`resume`/`deliver`/`is_live` were dead and removed.
-pub enum TransportImpl {
-    Pty(PtyTransport),
-    Acp(AcpTransport),
-}
+/// Type-erased transport selected from a configured harness bundle.
+pub struct TransportImpl(Box<dyn SessionTransport>);
 
 impl TransportImpl {
+    fn new(transport: impl SessionTransport + 'static) -> Self {
+        Self(Box::new(transport))
+    }
+
     pub fn kind(&self) -> TransportKind {
-        match self {
-            TransportImpl::Pty(t) => t.kind(),
-            TransportImpl::Acp(t) => t.kind(),
-        }
+        self.0.kind()
+    }
+
+    pub fn prepare_launch(
+        &self,
+        resolved: &mut crate::harness::ResolvedHarness,
+        endpoint_id: String,
+    ) -> Result<PreparedLaunch> {
+        self.0.prepare_launch(resolved, endpoint_id)
+    }
+
+    pub async fn launch(&self, spec: &LaunchSpec) -> Result<SessionEndpoint> {
+        self.0.launch(spec).await
+    }
+
+    pub async fn resume(&self, spec: &LaunchSpec, resume: &ResumeSpec) -> Result<SessionEndpoint> {
+        self.0.resume(spec, resume).await
+    }
+
+    pub async fn deliver(&self, ep: &EndpointRef, text: &str, submit: bool) -> Result<()> {
+        self.0.deliver(ep, text, submit).await
+    }
+
+    pub fn is_live(&self, ep: &EndpointRef) -> bool {
+        self.0.is_live(ep)
+    }
+
+    pub fn output_is_visible(&self, ep: &EndpointRef) -> bool {
+        self.0.output_is_visible(ep)
+    }
+
+    pub fn describe(&self, ep: &EndpointRef) -> EndpointDescriptor {
+        self.0.describe(ep)
+    }
+
+    pub fn opening_delivery_delay(&self) -> std::time::Duration {
+        self.0.opening_delivery_delay()
     }
 
     pub async fn kill(&self, ep: &EndpointRef) -> Result<()> {
-        match self {
-            TransportImpl::Pty(t) => t.kill(ep).await,
-            TransportImpl::Acp(t) => t.kill(ep).await,
+        self.0.kill(ep).await
+    }
+}
+
+pub fn transport_for_kind(kind: TransportKind) -> TransportImpl {
+    match kind {
+        TransportKind::Pty => TransportImpl::new(PtyTransport),
+        TransportKind::Acp | TransportKind::AppServer => {
+            TransportImpl::new(RpcTransport::new(kind))
         }
     }
+}
+
+/// Resolve a persisted hosted-session locator through the sole transport table.
+pub fn transport_for_locator(
+    locator: &crate::state::SessionLocator,
+) -> Option<(TransportImpl, EndpointRef)> {
+    let kind = TransportKind::from_locator_kind(&locator.locator_kind)?;
+    Some((
+        transport_for_kind(kind),
+        EndpointRef {
+            kind,
+            endpoint_id: locator.locator_value.clone(),
+        },
+    ))
+}
+
+/// The hosted endpoint bound to a session, if one exists.
+pub fn hosted_endpoint_for(
+    store: &crate::state::Store,
+    session: &crate::state::Session,
+) -> Result<HostedEndpoint> {
+    let Some(kind) = TransportKind::parse(&session.admitted_transport) else {
+        return Ok(HostedEndpoint::Unhosted);
+    };
+    let Some(locator) = store.locator_for_session(
+        &session.pubkey,
+        &session.observed_harness,
+        kind.locator_kind(),
+    )?
+    else {
+        return Ok(HostedEndpoint::Unavailable { kind });
+    };
+    Ok(HostedEndpoint::Resolved {
+        transport: transport_for_kind(kind),
+        endpoint: EndpointRef {
+            kind,
+            endpoint_id: locator.locator_value,
+        },
+    })
 }
 
 /// Pick the exact transport for a required configured bundle.
@@ -144,24 +224,12 @@ pub fn select_transport(bundle: &str) -> Result<TransportImpl> {
     select_transport_with(&cfg, bundle)
 }
 
-/// Resolve an agent's configured hosted-session transport without fallback.
-pub fn transport_kind_for_slug(slug: &str) -> Result<TransportKind> {
-    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
-    let cfg = HarnessesConfig::load()?;
-    transport_kind_for(&cfg, &launch.harness)
-}
-
-/// Map a fully-resolved raw [`Transport`] to its hosting [`TransportImpl`], with
-/// the defect #5 hard-bail on `HeadlessExec` (see [`select_transport`]).
+/// Map a fully-resolved raw [`Transport`] to its hosting implementation.
 fn transport_impl_for(transport: Transport) -> Result<TransportImpl> {
     Ok(match transport {
-        Transport::Acp | Transport::AppServer => TransportImpl::Acp(AcpTransport),
-        Transport::Pty => TransportImpl::Pty(PtyTransport),
-        Transport::HeadlessExec => anyhow::bail!(
-            "headless-exec harness bundles are not yet wired into session hosting; \
-             refusing to launch (a one-shot exec argv must not run inside the \
-             interactive PTY supervisor — route it through session_host::exec once wired)"
-        ),
+        Transport::Acp => TransportImpl::new(RpcTransport::new(TransportKind::Acp)),
+        Transport::AppServer => TransportImpl::new(RpcTransport::new(TransportKind::AppServer)),
+        Transport::Pty => TransportImpl::new(PtyTransport),
     })
 }
 
@@ -172,12 +240,9 @@ pub fn select_transport_with(cfg: &HarnessesConfig, bundle: &str) -> Result<Tran
 /// Resolve a required bundle to the hosted-session transport kind.
 pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: &str) -> Result<TransportKind> {
     Ok(match harness::bundle_transport_with(cfg, bundle)? {
-        Transport::Acp | Transport::AppServer => TransportKind::Acp,
+        Transport::Acp => TransportKind::Acp,
+        Transport::AppServer => TransportKind::AppServer,
         Transport::Pty => TransportKind::Pty,
-        Transport::HeadlessExec => anyhow::bail!(
-            "harness bundle {bundle:?} uses the headless-exec transport, which is not a \
-             hosted-session transport and must not be collapsed onto the PTY (defect #5)"
-        ),
     })
 }
 

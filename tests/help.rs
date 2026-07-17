@@ -74,9 +74,10 @@ fn bare_invocation_without_installation_shows_install_guide() {
 
 #[test]
 fn bare_invocation_with_installation_is_exactly_agents() {
-    let home = installed_codex_home();
-    let bare = isolated_command(home.path(), &[]);
-    let agents = isolated_command(home.path(), &["agents"]);
+    let bare_home = installed_codex_home();
+    let agents_home = installed_codex_home();
+    let bare = isolated_command(bare_home.path(), &[]);
+    let agents = isolated_command(agents_home.path(), &["agents"]);
 
     assert!(bare.status.success(), "bare mosaico failed: {bare:?}");
     assert!(agents.status.success(), "mosaico agents failed: {agents:?}");

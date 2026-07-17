@@ -129,7 +129,7 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "channel": parent, "watch_pid": std::process::id()}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "channel": parent, "watch_pid": std::process::id()}), "claude-code"),
         )
         .await
         .expect("session_start");
@@ -151,6 +151,7 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
                 "name": "subtask",
                 "agents": [],
                 "harness_session": sid,
+                "harness": "claude-code",
                 "agent": "coder",
                 "cwd": "/tmp",
             }),

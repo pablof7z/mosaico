@@ -45,9 +45,9 @@ pub(super) fn seed_channel(store: &Store) {
         .upsert_profile_with_agent_slug("pk-coder", "coder", "coder", "coder", "laptop", false, 1)
         .unwrap();
     store
-        .reserve_session(&crate::state::RegisterSession {
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: "pk-coder".to_string(),
-            harness: "claude-code".to_string(),
+            observed_harness: "claude-code".to_string(),
             agent_slug: "coder".to_string(),
             channel_h: "proj".to_string(),
             child_pid: None,
@@ -65,7 +65,11 @@ pub(super) fn test_session(_id: &str) -> Session {
         channel_h: "proj".to_string(),
         work_root: "proj".to_string(),
         readiness_parent: String::new(),
-        harness: "claude-code".to_string(),
+        observed_harness: "claude-code".to_string(),
+        claimed_harness: String::new(),
+        admitted_bundle: String::new(),
+        admitted_transport: String::new(),
+        endpoint_provenance: "hook".to_string(),
         child_pid: None,
         transcript_path: None,
         alive: true,

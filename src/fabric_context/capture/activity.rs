@@ -26,17 +26,18 @@ pub(in crate::fabric_context) struct StatusCap {
     pub(in crate::fabric_context) expiration: u64,
 }
 
-pub(super) fn workspace_caps(store: &Store, current_root: &str) -> Vec<WorkspaceCap> {
+pub(super) fn workspace_caps(
+    store: &Store,
+    current_root: &str,
+) -> anyhow::Result<Vec<WorkspaceCap>> {
     let mut by_root: BTreeMap<String, Vec<ChannelCap>> = BTreeMap::new();
     for channel in store
-        .list_channels()
-        .unwrap_or_default()
+        .list_channels()?
         .into_iter()
         .filter(|channel| !channel.is_archived())
     {
-        let Some(root) = store.root_channel_of(&channel.channel_h).ok().flatten() else {
-            continue;
-        };
+        let root = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .root_for_channel(&channel.channel_h)?;
         if root == current_root {
             continue;
         }
@@ -49,13 +50,13 @@ pub(super) fn workspace_caps(store: &Store, current_root: &str) -> Vec<Workspace
             subchannels: Vec::new(),
         });
     }
-    by_root
+    Ok(by_root
         .into_iter()
         .map(|(root, channels)| WorkspaceCap {
             summary: read::workspace_summary(store, &root),
             channels,
         })
-        .collect()
+        .collect())
 }
 
 pub(super) fn capture_statuses(

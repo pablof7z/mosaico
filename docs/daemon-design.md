@@ -48,7 +48,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
  (one-shot)   │   │ (CLI verb)  │ ◀─────── │                                  │  │
               │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
               │                            │  • owns NMP reads + writes ──────┼──┼──▶ relays
-              │                            │  • profile indexer / fetch edge  │  │
+              │                            │  • doctor diagnostic Transport  │  │
               │                            │  • per-session async tasks       │  │
               │                            │  • chat / presence / pruning     │  │
               │                            │  • NIP-29 membership cache       │  │
@@ -59,9 +59,11 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 - The daemon is a normal `mosaico` invocation: `mosaico daemon`.
 - The daemon runs the **tokio multi-thread runtime** (already how `main` builds
   it). It holds exactly one `Store` (single SQLite connection → one writer by
-  construction), one NMP engine for acquisition, account signing, durable group
-  writes, receipts, and retries, plus one narrow direct client for kind:0 indexer
-  copies, the doctor probe, and one-shot fetches.
+  construction) and one NMP engine for acquisition, account signing, and every
+  runtime/profile write. Those writes enter NMP through the durable
+  `submit_intents` queue, which owns routing, receipts, and retries. The direct
+  `Transport` has no product-write authority; its only direct publish is the
+  doctor diagnostic probe and matching readback.
 - Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
   by a private run key.
 
@@ -235,8 +237,8 @@ The `session_start` RPC makes the daemon spawn a tokio task running
   Mentions route via the `compute_targets` / `route_mention` logic over all alive
   sessions.
 - Presence/status publishing, heartbeats, and `watch_pid` death detection all
-  run in the per-session task. Group writes are signed and submitted through the
-  shared NMP host.
+  run in the per-session task. Every runtime and kind:0 profile write is signed
+  and accepted through the shared NMP host's durable `submit_intents` queue.
 - Peer-staleness pruning is a single daemon-level periodic task.
 
 `EngineParams` is reused largely as-is, minus `store_path` (the task gets the
@@ -260,10 +262,11 @@ construction — that is the whole point. Concurrency model inside the daemon:
   from today's code and already guarantees one writer. Revisit the actor shape
   only if lock contention shows up (unlikely at this call frequency).
 
-- The NMP engine owns live queries, relay acquisition, local account capabilities,
-  group-write routing, durable receipts, and retries. The direct `Transport` is
-  shared only for kind:0 indexer copies, the doctor probe, and one-shot resolution
-  fetches.
+- The NMP engine owns live queries, relay acquisition, local account
+  capabilities, and the durable `submit_intents` queue for all runtime and
+  profile writes, including pinned-host indexer delivery. The direct
+  `Transport` is not a second write plane: direct publication exists only for
+  the explicit doctor diagnostic probe and its readback.
 
 Because there is exactly one writer process, the
 multi-writer corruption class is eliminated regardless of WAL (WAL stays as
@@ -358,9 +361,10 @@ channels, and member sessions. There is no agent renderer or XML branch under
 - **Identical standard-Nostr wire output** — the codec seam
   (`fabric::nip29::wire`) remains the event-shape authority; group writes route
   through NMP.
-- **Narrow direct-client warm-up** remains for profile/indexer copies, the
-  doctor probe, and bounded one-shot reads. It does not own live acquisition or
-  ordinary group writes. NMP authorization policy is not required by the current
+- **Narrow direct-client diagnostics** remain for the doctor probe and bounded
+  diagnostic/resolution reads. The direct client never publishes runtime or
+  profile state; every product write is durably accepted by NMP through
+  `submit_intents`. NMP authorization policy is not required by the current
   public group-query/write configuration.
 - **NIP-29 membership semantics** — group creation, owner admin backfill, and
   agent member admission remain provider-owned and relay-authoritative. Local

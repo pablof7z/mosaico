@@ -1,8 +1,8 @@
 use crate::daemon::server::DaemonState;
+use crate::session_host::transport::{EndpointRef, TransportImpl};
 use crate::util::now_secs;
 use anyhow::Result;
 use std::sync::Arc;
-use std::time::Duration;
 
 struct PendingPrompt {
     text: String,
@@ -64,63 +64,29 @@ async fn collect_pending_prompt(
     }))
 }
 
-pub(super) async fn inject_planned_messages_pty(
+pub(super) async fn inject_planned_messages(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
+    transport: &TransportImpl,
     endpoint_id: &str,
     event_ids: &[String],
 ) -> Result<bool> {
-    if !crate::pty::is_live(endpoint_id) {
-        anyhow::bail!("pty session {endpoint_id} is not live");
-    }
-    let Some(prompt) = collect_pending_prompt(state, rec, event_ids).await? else {
-        return Ok(false);
-    };
-
-    // Bracketed-paste the rendered mention WITHOUT submitting, so terminal echo
-    // and the follow-up newline stay under our control.
-    if let Err(e) = crate::pty::inject(endpoint_id, &prompt.text, true, false) {
-        reenqueue_after_failure(state, rec, &prompt.chat_ids, "pty inject");
-        return Err(e);
-    }
-    finalize_injection(state, rec, &prompt)?;
-    // The mention is now in the agent's PTY. Submit it after a short beat so the
-    // paste settles before the newline (PTY-only: ACP submits inline).
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    crate::pty::inject(endpoint_id, "", false, true)?;
-    Ok(true)
-}
-
-/// ACP counterpart of [`inject_planned_messages_pty`]: deliver the rendered
-/// mention over JSON-RPC (`AcpTransport::deliver`, fire-and-forget) rather than a
-/// PTY bracketed paste. `endpoint_id` is the ACP endpoint recorded under the
-/// session's `pty_session` alias. ACP has no terminal echo, so there is no
-/// paste/newline split and no echo round-trip to await — the render is submitted
-/// as a fresh turn in one call.
-pub(super) async fn inject_planned_messages_acp(
-    state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
-    endpoint_id: &str,
-    event_ids: &[String],
-) -> Result<bool> {
-    use crate::session_host::transport::{
-        AcpTransport, EndpointRef, SessionTransport, TransportKind,
-    };
-    let ep = EndpointRef {
-        kind: TransportKind::Acp,
+    let endpoint = EndpointRef {
+        kind: transport.kind(),
         endpoint_id: endpoint_id.to_string(),
     };
-    if !AcpTransport.is_live(&ep) {
-        anyhow::bail!("acp session {endpoint_id} is not live");
+    if !transport.is_live(&endpoint) {
+        anyhow::bail!(
+            "{} session {endpoint_id} is not live",
+            transport.kind().as_str()
+        );
     }
     let Some(prompt) = collect_pending_prompt(state, rec, event_ids).await? else {
         return Ok(false);
     };
 
-    // Submit the rendered mention as a fresh turn (submit=true). `deliver` returns
-    // promptly (the turn runs in a detached task); it does not block for the turn.
-    if let Err(e) = AcpTransport.deliver(&ep, &prompt.text, true).await {
-        reenqueue_after_failure(state, rec, &prompt.chat_ids, "acp deliver");
+    if let Err(e) = transport.deliver(&endpoint, &prompt.text, true).await {
+        reenqueue_after_failure(state, rec, &prompt.chat_ids, "transport delivery");
         return Err(e);
     }
     finalize_injection(state, rec, &prompt)?;

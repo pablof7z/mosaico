@@ -2,23 +2,15 @@ use super::*;
 use crate::agent_inventory::AgentSource;
 use crate::harness::{HarnessesConfig, Transport};
 
-#[derive(Default)]
-pub(super) struct PtyLaunchSpec {
-    pub(super) id: Option<String>,
-    pub(super) env: Vec<(String, String)>,
-    pub(super) env_remove: Vec<String>,
-}
-
 pub(super) struct ResolvedSource {
     pub(super) transport: TransportImpl,
     pub(super) command: Vec<String>,
     pub(super) harness: crate::session::Harness,
     pub(super) resume: ResumeMechanism,
     pub(super) bundle: String,
-    pub(super) profile: Option<String>,
     pub(super) native_agent: Option<NativeAgentActivation>,
     pub(super) identity: crate::identity::AgentIdentity,
-    pub(super) pty_launch: Option<PtyLaunchSpec>,
+    pub(super) prepared_launch: crate::session_host::transport::PreparedLaunch,
     pub(super) retired_advertisements: Vec<String>,
 }
 
@@ -57,7 +49,7 @@ pub(super) fn resolve_agent_source(
 
     let (identity, bundle, profile, native_profile, retired_advertisements) = match selected.source
     {
-        AgentSource::Configured {
+        AgentSource::Durable {
             bundle,
             profile,
             native_profile,
@@ -67,7 +59,7 @@ pub(super) fn resolve_agent_source(
             let native_profile = profile.is_none().then_some(native_profile).flatten();
             (identity, bundle, profile, native_profile, Vec::new())
         }
-        AgentSource::Generic => {
+        AgentSource::DetectedHarness => {
             let bundle = realize_implicit_bundle(&mut harnesses, selected.harness, intent, false)?;
             (
                 crate::identity::AgentIdentity::per_session(&selected.agent_slug, &bundle),
@@ -77,7 +69,7 @@ pub(super) fn resolve_agent_source(
                 Vec::new(),
             )
         }
-        AgentSource::NativeProfile {
+        AgentSource::DetectedProfile {
             profile: native_profile,
             persist_binding,
         } => {
@@ -90,14 +82,17 @@ pub(super) fn resolve_agent_source(
                     .collect::<Vec<_>>()
             });
             let identity = if persist_binding {
-                crate::identity::add_local_agent(
-                    &home,
-                    &selected.agent_slug,
-                    &bundle,
-                    None,
-                    crate::util::now_secs(),
-                )?
-                .0
+                state
+                    .mutate_agent_config(|| {
+                        crate::identity::add_local_agent(
+                            &home,
+                            &selected.agent_slug,
+                            &bundle,
+                            None,
+                            crate::util::now_secs(),
+                        )
+                    })?
+                    .0
             } else {
                 crate::identity::AgentIdentity::per_session(&selected.agent_slug, &bundle)
             };
@@ -127,38 +122,16 @@ pub(super) fn resolve_agent_source(
             .with_context(|| format!("applying native agent {selector:?}"))?;
     }
     let transport = crate::session_host::transport::select_transport_with(&harnesses, &bundle)?;
-    let pty_launch = if matches!(transport, TransportImpl::Pty(_)) {
-        resolved.profile.materialize()?;
-        let mut env = resolved.profile.extra_env.clone();
-        let mut env_remove = Vec::new();
-        for directive in resolved.driver.base_env {
-            match directive {
-                crate::harness::EnvDirective::Set(key, value) => {
-                    env.push((key.to_string(), value.to_string()));
-                }
-                crate::harness::EnvDirective::Remove(key) => {
-                    env_remove.push(key.to_string());
-                }
-            }
-        }
-        Some(PtyLaunchSpec {
-            id: Some(id),
-            env,
-            env_remove,
-        })
-    } else {
-        None
-    };
+    let prepared_launch = transport.prepare_launch(&mut resolved, id)?;
     Ok(ResolvedSource {
         transport,
         command: resolved.base_argv,
         harness: resolved.harness,
         resume: resolved.driver.resume,
         bundle,
-        profile,
         native_agent,
         identity,
-        pty_launch,
+        prepared_launch,
         retired_advertisements,
     })
 }

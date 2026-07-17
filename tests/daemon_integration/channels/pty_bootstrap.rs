@@ -76,6 +76,11 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     });
 
     let rec = wait_for_alive(&home, agent, &channel);
+    assert_eq!(rec.observed_harness, "opencode");
+    assert_eq!(rec.claimed_harness, "");
+    assert_eq!(rec.admitted_bundle, "test-pty");
+    assert_eq!(rec.admitted_transport, "pty");
+    assert_eq!(rec.endpoint_provenance, "launch");
     let store = Store::open(&home.store_path()).unwrap();
     let locators = store.locators_for_pubkey(&rec.pubkey).unwrap();
     assert_eq!(
@@ -143,12 +148,16 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
             "session_start",
             serde_json::json!({
                 "agent": agent,
-                "harness": "codex",
+                "claimed_harness": "codex",
+                "observed_harness": "opencode",
+                "admitted_transport": "pty",
+                "endpoint_provenance": "hook",
                 "harness_session": &native_session,
                 "cwd": &work_dir,
                 "channel": &channel,
                 "watch_pid": i32::try_from(meta.supervisor_pid).ok(),
                 "pty_session": &pty_id,
+                "endpoint_kind": "pty",
             }),
         )
         .await
@@ -170,11 +179,17 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
     );
     assert_eq!(
         store
-            .resolve_pubkey_by_locator("codex", "native_resume", &native_session,)
+            .resolve_pubkey_by_locator("opencode", "native_resume", &native_session,)
             .unwrap()
             .as_deref(),
         Some(first.pubkey.as_str())
     );
+    let reasserted = store.get_session(&first.pubkey).unwrap().unwrap();
+    assert_eq!(reasserted.observed_harness, "opencode");
+    assert_eq!(reasserted.claimed_harness, "codex");
+    assert_eq!(reasserted.admitted_bundle, "test-pty");
+    assert_eq!(reasserted.admitted_transport, "pty");
+    assert_eq!(reasserted.endpoint_provenance, "launch");
 
     let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);
@@ -219,6 +234,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
             ("MOSAICO_AGENT", agent),
             ("MOSAICO_PTY_SESSION", pty_id.as_str()),
             ("MOSAICO_PTY_SOCKET", meta.socket.as_str()),
+            ("MOSAICO_OBSERVED_HARNESS", "opencode"),
             ("MOSAICO_INIT_PROGRESS", "0"),
         ],
         &work_dir,
@@ -232,7 +248,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
     let store = Store::open(&home.store_path()).unwrap();
     assert_eq!(
         store
-            .resolve_pubkey_by_locator("codex", "pty", &pty_id)
+            .resolve_pubkey_by_locator("opencode", "pty", &pty_id)
             .unwrap()
             .as_deref(),
         Some(first.pubkey.as_str())
@@ -243,7 +259,26 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
         .into_iter()
         .filter(|rec| rec.agent_slug == agent && rec.channel_h == channel)
         .collect::<Vec<_>>();
-    assert_eq!(alive.len(), 1, "codex hook should not mint a duplicate");
+    assert_eq!(
+        alive.len(),
+        1,
+        "codex hook should not mint a duplicate: {:?}",
+        alive
+            .iter()
+            .map(|rec| (
+                rec.pubkey.as_str(),
+                rec.observed_harness.as_str(),
+                rec.claimed_harness.as_str(),
+                rec.endpoint_provenance.as_str(),
+            ))
+            .collect::<Vec<_>>()
+    );
+    let reasserted = &alive[0];
+    assert_eq!(reasserted.observed_harness, "opencode");
+    assert_eq!(reasserted.claimed_harness, "codex");
+    assert_eq!(reasserted.admitted_bundle, "test-pty");
+    assert_eq!(reasserted.admitted_transport, "pty");
+    assert_eq!(reasserted.endpoint_provenance, "launch");
 
     let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);

@@ -82,9 +82,9 @@ fn same_event_is_independent_per_pubkey() {
 
 fn upsert_runtime(store: &Store, pubkey: &str, now: u64) {
     store
-        .reserve_session(&crate::state::RegisterSession {
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: pubkey.into(),
-            harness: "codex".into(),
+            observed_harness: "codex".into(),
             agent_slug: "codex".into(),
             channel_h: "room".into(),
             child_pid: None,

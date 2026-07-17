@@ -180,18 +180,8 @@ pub(in crate::daemon::server) enum ChannelResolution {
 pub(in crate::daemon::server) fn root_channel(
     store: &crate::state::Store,
     channel: &str,
-) -> String {
-    store
-        .root_channel_of(channel)
-        .unwrap_or_else(|e| {
-            tracing::error!(
-                channel = %channel,
-                error = %e,
-                "root_channel: channel ancestry lookup failed"
-            );
-            None
-        })
-        .unwrap_or_else(|| channel.to_string())
+) -> Result<String> {
+    crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
 }
 
 /// Resolve a channel-relative `reference` within `root`'s subtree. Forms:

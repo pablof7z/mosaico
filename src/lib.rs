@@ -34,7 +34,7 @@ pub mod profile;
 pub mod session;
 pub mod session_state;
 pub mod util;
-pub mod workspace;
+pub(crate) mod workspace;
 
 pub mod cli;
 pub mod daemon;
@@ -54,6 +54,7 @@ pub mod reconcile;
 
 mod expired_sessions;
 mod turn_context;
+mod who_aggregation;
 mod who_snapshot;
 mod who_view;
 

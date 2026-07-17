@@ -102,9 +102,29 @@ fn invalid_same_named_agent_does_not_shadow_available_harness() {
     let codex = inventory
         .find("codex")
         .expect("bare harness remains available");
-    assert_eq!(codex.source, AgentSource::Generic);
+    assert_eq!(codex.source, AgentSource::DetectedHarness);
     assert!(inventory
         .failures
         .iter()
         .any(|failure| failure.contains("codex")));
+}
+
+#[test]
+fn daemon_inventory_wire_roundtrips_the_domain_model() {
+    let inventory = AgentInventory {
+        agents: vec![Agent {
+            slug: "codex".into(),
+            agent_slug: "codex".into(),
+            harness: Harness::Codex,
+            use_criteria: "General coding".into(),
+            available_since: 7,
+            source: AgentSource::DetectedHarness,
+        }],
+        failures: vec!["broken: unavailable".into()],
+    };
+
+    let value = serde_json::to_value(&inventory).unwrap();
+    let decoded: AgentInventory = serde_json::from_value(value).unwrap();
+    assert_eq!(decoded.agents, inventory.agents);
+    assert_eq!(decoded.failures, inventory.failures);
 }

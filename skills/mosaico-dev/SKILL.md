@@ -1,6 +1,6 @@
 ---
 name: mosaico-dev
-description: "Use for Mosaico development live labs: run a local croissant relay, configure isolated PTY, ACP, app-server, or headless-exec bundles with real host AI auth, launch Claude/Codex/Grok/OpenCode agents, and inspect sessions, logs, relay traffic, and Nostr events."
+description: "Use for Mosaico development live labs: run a local croissant relay, configure isolated PTY or ACP hosted bundles (including the app-server ACP dialect) with real host AI auth, launch Claude/Codex/Grok/OpenCode agents, and inspect sessions, logs, relay traffic, and Nostr events."
 ---
 
 # Mosaico development live lab
@@ -41,14 +41,14 @@ Treat these ownership boundaries as fixed:
 - `mosaico agents [TARGET] [PROMPT]` selects an available target. It accepts
   `--workspace`, `--channel`, and `--name`; it does not accept provider argv or
   launch overrides.
-- The selected bundle's transport decides whether the session is PTY, ACP,
-  app-server, or headless-exec. There is no launch-time headed/headless or
-  harness selector.
+- The selected bundle admits exactly one hosted transport kind: `pty` or `acp`.
+  A configured `app-server` bundle uses the ACP hosted kind with the app-server
+  protocol dialect; `app-server` is not a third admitted kind. There is no
+  launch-time transport or harness selector.
 - Bundle `args` are operational provider flags. An agent `profile` is a named
-  native profile: Claude PTY/headless-exec applies `--agent`, Codex
-  PTY/headless-exec applies `--profile`, and Codex app-server composes the named
-  config into an isolated `CODEX_HOME`. ACP transports that do not support a
-  named profile reject it.
+  native profile: Claude PTY applies `--agent`, Codex PTY applies `--profile`,
+  and Codex app-server composes the named config into an isolated `CODEX_HOME`.
+  ACP dialects that do not support a named profile reject it.
 
 Never add old launch flags, separator-forwarded provider arguments, duplicate
 config fields, or fallback bundle names. Fix the generated config or caller.

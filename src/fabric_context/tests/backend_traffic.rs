@@ -48,7 +48,7 @@ fn backend_pubkey_excluded_from_roster_without_cached_profile() {
             warnings: &[],
             force: true,
         };
-        let captured = capture_inputs(&store, &cap_input);
+        let captured = capture_inputs(&store, &cap_input).unwrap();
         let rendered = render_view_text(&assemble::assemble_view(&captured, 0, 100));
         assert_eq!(rendered, text, "captured rendering must be deterministic");
         text
@@ -146,7 +146,7 @@ fn backend_traffic_excluded_from_chatter() {
             warnings: &[],
             force: false,
         };
-        let captured = capture_inputs(&store, &cap_input);
+        let captured = capture_inputs(&store, &cap_input).unwrap();
         let rendered = render_view_text(&assemble::assemble_view(&captured, 0, 1_000));
         assert_eq!(rendered, text, "captured rendering must be deterministic");
         text

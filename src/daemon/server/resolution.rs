@@ -79,11 +79,8 @@ pub(in crate::daemon::server) fn resolve_session(
 
 /// The root channel a routing scope belongs under: a top-level channel is its
 /// own work root; sub-channels walk to the top-level channel root.
-pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> String {
-    s.root_channel_of(scope)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| scope.to_string())
+pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> Result<String> {
+    crate::daemon::workspace_path::WorkspacePathResolver::new(s).root_for_channel(scope)
 }
 
 /// Resolve the caller's session through the single priority order:
@@ -108,21 +105,28 @@ pub(in crate::daemon::server) fn resolve_session_inner(
     }
     // 2. Hosted PTY endpoint.
     if let Some(pty_session) = anchor.pty_session.filter(|s| !s.is_empty()) {
-        if let Some(rec) = state
-            .with_store(|s| {
-                s.alive_session_for_locator(None, crate::state::LOCATOR_PTY, pty_session)
-            })
-            .ok()
-            .flatten()
-        {
-            return Ok(rec);
+        if let Some(harness) = anchor.harness.filter(|harness| !harness.is_empty()) {
+            if let Some(rec) = state
+                .with_store(|s| {
+                    s.alive_session_for_locator(
+                        crate::session::Harness::from_str(harness).as_str(),
+                        crate::state::LOCATOR_PTY,
+                        pty_session,
+                    )
+                })
+                .ok()
+                .flatten()
+            {
+                return Ok(rec);
+            }
         }
     }
     // 3. Harness-native resume locator reported by a hook (live only).
-    if let Some(hs) = anchor.harness_session.filter(|s| !s.is_empty()) {
-        let harness = anchor
-            .harness
-            .map(|h| crate::session::Harness::from_str(h).as_str());
+    if let (Some(hs), Some(harness)) = (
+        anchor.harness_session.filter(|s| !s.is_empty()),
+        anchor.harness.filter(|harness| !harness.is_empty()),
+    ) {
+        let harness = crate::session::Harness::from_str(harness).as_str();
         if let Some(rec) = state
             .with_store(|s| {
                 s.alive_session_for_locator(harness, crate::state::LOCATOR_NATIVE_RESUME, hs)
@@ -139,9 +143,7 @@ pub(in crate::daemon::server) fn resolve_session_inner(
         let harness = crate::session::Harness::from_str(harness).as_str();
         let pid = pid.to_string();
         if let Some(rec) = state
-            .with_store(|s| {
-                s.alive_session_for_locator(Some(harness), crate::state::LOCATOR_PID, &pid)
-            })
+            .with_store(|s| s.alive_session_for_locator(harness, crate::state::LOCATOR_PID, &pid))
             .ok()
             .flatten()
         {
@@ -166,8 +168,8 @@ mod tests {
         store.upsert_channel("task", "Task", "", "root", 1).unwrap();
         store.upsert_channel("deep", "Deep", "", "task", 1).unwrap();
 
-        assert_eq!(work_root_for(&store, "deep"), "root");
-        assert_eq!(work_root_for(&store, "root"), "root");
-        assert_eq!(work_root_for(&store, "unknown"), "unknown");
+        assert_eq!(work_root_for(&store, "deep").unwrap(), "root");
+        assert_eq!(work_root_for(&store, "root").unwrap(), "root");
+        assert!(work_root_for(&store, "unknown").is_err());
     }
 }

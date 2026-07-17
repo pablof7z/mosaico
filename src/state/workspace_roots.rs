@@ -1,6 +1,6 @@
 //! `workspace_roots` — local filesystem map (channel id -> abs path on THIS
-//! machine). The one fact about a channel's workspace that is genuinely
-//! machine-local.
+//! machine). This is the persistence input consumed by the daemon-owned
+//! workspace resolver; callers do not select or combine path stores directly.
 
 use super::*;
 

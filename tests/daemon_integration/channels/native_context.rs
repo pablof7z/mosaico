@@ -13,14 +13,16 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &parent,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &parent,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");
@@ -83,14 +85,16 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &parent,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &parent,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");
@@ -168,14 +172,16 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &parent,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &parent,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");

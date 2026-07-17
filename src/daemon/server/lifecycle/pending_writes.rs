@@ -8,15 +8,12 @@ use anyhow::{Context, Result};
 use nostr_sdk::prelude::{Event, JsonUtil};
 
 use crate::nmp_host::NmpHost;
-use crate::transport::Transport;
-
-pub(super) fn spawn(state_db: &Path, nmp: &Arc<NmpHost>, transport: &Arc<Transport>) {
+pub(super) fn spawn(state_db: &Path, nmp: &Arc<NmpHost>) {
     let state_db = state_db.to_path_buf();
     let nmp = nmp.clone();
-    let transport = transport.clone();
     tokio::spawn(async move {
         loop {
-            match drain_once(&state_db, &nmp, &transport).await {
+            match drain_once(&state_db, &nmp).await {
                 Ok(Drain::Complete { imported }) => {
                     if imported > 0 {
                         tracing::info!(imported, "schema migration pending writes imported");
@@ -58,7 +55,7 @@ enum Drain {
     },
 }
 
-async fn drain_once(state_db: &Path, nmp: &NmpHost, transport: &Transport) -> Result<Drain> {
+async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
     let rows = crate::state::load_pending_writes(state_db)?;
     if rows.is_empty() {
         return Ok(Drain::Complete { imported: 0 });
@@ -76,9 +73,9 @@ async fn drain_once(state_db: &Path, nmp: &NmpHost, transport: &Transport) -> Re
             }
         };
         let result = if has_group_tag(&event) {
-            nmp.publish_group_event(&event, false).await.map(|_| ())
+            nmp.enqueue_group_event(&event).map(|_| ())
         } else if event.kind.as_u16() == 0 {
-            transport.publish_profile_event(&event).await.map(|_| ())
+            nmp.enqueue_profile_event(&event).map(|_| ())
         } else {
             Err(anyhow::anyhow!(
                 "schema-7 pending event {} has neither one h tag nor profile kind",

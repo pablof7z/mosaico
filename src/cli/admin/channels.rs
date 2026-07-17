@@ -6,7 +6,9 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
     fn resolve_workspace(workspace: Option<String>) -> Result<String> {
         match workspace {
             Some(p) => Ok(p),
-            None => crate::workspace::resolve_or_bail(&std::env::current_dir().unwrap_or_default()),
+            None => crate::daemon::workspace_path::channel_for_path_or_bail(
+                &std::env::current_dir().unwrap_or_default(),
+            ),
         }
     }
     fn print_ambiguous(verb: &str, channel: &str, v: &serde_json::Value) -> ! {

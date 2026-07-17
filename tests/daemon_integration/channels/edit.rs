@@ -13,14 +13,16 @@ fn channel_edit_updates_about_from_relay_truth() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &parent,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &parent,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");
@@ -84,14 +86,16 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &root,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &root,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");
@@ -104,6 +108,10 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         .root_channel_of(&active_channel)
         .unwrap()
         .unwrap_or(active_channel);
+    Store::open(&home.store_path())
+        .unwrap()
+        .upsert_channel(&actual_root, &actual_root, "", "", 1)
+        .unwrap();
     Store::open(&home.store_path())
         .unwrap()
         .upsert_channel("h-direct", "planning", "", &actual_root, 1)

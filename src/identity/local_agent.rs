@@ -1,4 +1,4 @@
-use super::{agents_dir, atomic_write, key_path, validate_slug, AgentIdentity, StoredKey};
+use super::{agents_dir, atomic_write, key_path, read_stored_key, validate_slug, AgentIdentity};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -11,23 +11,19 @@ pub struct AgentLaunchConfig {
     pub profile: Option<String>,
 }
 
-/// A local agent as listed by `mosaico agents`: its slug, hex pubkey, and
-/// configured launch selection. Distinct from `list_local_agents` (which the
-/// roster path uses) in that it also surfaces the pubkey for the operator.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalAgent {
-    pub slug: String,
-    pub pubkey: Option<String>,
-    pub per_session_key: bool,
-    pub harness: String,
-    pub profile: Option<String>,
-    pub byline: Option<String>,
+pub(crate) struct KeystoreEntry {
+    pub(crate) slug: String,
+    pub(crate) pubkey: Option<String>,
+    pub(crate) created_at: u64,
+    pub(crate) per_session_key: bool,
+    pub(crate) harness: String,
+    pub(crate) profile: Option<String>,
+    pub(crate) byline: Option<String>,
 }
 
-/// Every agent in the local keystore (their hex pubkeys). Your own fleet trusts
-/// itself automatically, so agents on one device see each other without the
-/// operator having to pre-whitelist keys that are generated on first use.
-pub fn list_local_pubkeys(mosaico_home: &Path) -> Vec<String> {
+/// The sole directory reader for the local agent keystore.
+pub(crate) fn keystore_entries(mosaico_home: &Path) -> Vec<KeystoreEntry> {
     let dir = agents_dir(mosaico_home);
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -39,102 +35,58 @@ pub fn list_local_pubkeys(mosaico_home: &Path) -> Vec<String> {
             // This list is the self-trust whitelist: a key silently skipped here
             // drops an agent's own fleet member out of the trusted set, so a
             // read/parse failure is loud at error! before we skip it.
-            match std::fs::read_to_string(&path) {
-                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
-                    Ok(k) => {
-                        if !k.per_session_key {
-                            if let Some(public_key) = k.public_key {
-                                out.push(public_key);
-                            }
-                        }
-                    }
-                    Err(e) => tracing::error!(
-                        path = %path.display(),
-                        error = %e,
-                        "list_local_pubkeys: skipping corrupt keystore file — agent dropped from self-trust whitelist"
-                    ),
-                },
+            match read_stored_key(&path) {
+                Ok(k) => {
+                    let byline = k.effective_byline();
+                    out.push(KeystoreEntry {
+                        slug: k.slug,
+                        pubkey: k.public_key,
+                        created_at: k.created_at,
+                        per_session_key: k.per_session_key,
+                        harness: k.harness,
+                        profile: k.profile,
+                        byline,
+                    })
+                }
                 Err(e) => tracing::error!(
                     path = %path.display(),
                     error = %e,
-                    "list_local_pubkeys: skipping unreadable keystore file — agent dropped from self-trust whitelist"
+                    "keystore_entries: skipping corrupt agent file"
                 ),
             }
         }
     }
+    out.sort_by(|a, b| a.slug.cmp(&b.slug));
     out
+}
+
+/// Every durable agent pubkey trusted as part of this machine's own fleet.
+pub fn list_local_pubkeys(mosaico_home: &Path) -> Vec<String> {
+    keystore_entries(mosaico_home)
+        .into_iter()
+        .filter(|entry| !entry.per_session_key)
+        .filter_map(|entry| entry.pubkey)
+        .collect()
 }
 
 /// All configured agents as `(slug, harness, profile, byline)`.
 pub fn list_local_agents(
     mosaico_home: &Path,
 ) -> Vec<(String, String, Option<String>, Option<String>)> {
-    let dir = agents_dir(mosaico_home);
-    let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("json") {
-                continue;
-            }
-            match std::fs::read_to_string(&path) {
-                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
-                    Ok(k) => {
-                        let byline = k.effective_byline();
-                        out.push((k.slug, k.harness, k.profile, byline));
-                    }
-                    Err(e) => tracing::warn!(
-                        path = %path.display(),
-                        error = %e,
-                        "list_local_agents: skipping corrupt keystore file"
-                    ),
-                },
-                Err(e) => tracing::warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "list_local_agents: skipping unreadable keystore file"
-                ),
-            }
-        }
-    }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
+    keystore_entries(mosaico_home)
+        .into_iter()
+        .map(|entry| (entry.slug, entry.harness, entry.profile, entry.byline))
+        .collect()
 }
 
 /// The invitable roster as `(slug, byline, created_at)`, sorted by slug. The
 /// `created_at` lets the awareness delta surface only agents that became
 /// available since a session's last turn.
 pub fn list_invitable_agents(mosaico_home: &Path) -> Vec<(String, Option<String>, u64)> {
-    let dir = agents_dir(mosaico_home);
-    let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("json") {
-                continue;
-            }
-            match std::fs::read_to_string(&path) {
-                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
-                    Ok(k) => {
-                        let byline = k.effective_byline();
-                        out.push((k.slug, byline, k.created_at));
-                    }
-                    Err(e) => tracing::warn!(
-                        path = %path.display(),
-                        error = %e,
-                        "list_invitable_agents: skipping corrupt keystore file"
-                    ),
-                },
-                Err(e) => tracing::warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "list_invitable_agents: skipping unreadable keystore file"
-                ),
-            }
-        }
-    }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
+    keystore_entries(mosaico_home)
+        .into_iter()
+        .map(|entry| (entry.slug, entry.byline, entry.created_at))
+        .collect()
 }
 
 /// `(slug, effective_byline_or_empty)` for every local agent, sorted by slug —
@@ -146,47 +98,6 @@ pub fn list_advertised_agents(mosaico_home: &Path) -> Vec<(String, String)> {
         .into_iter()
         .map(|(slug, _harness, _profile, byline)| (slug, byline.unwrap_or_default()))
         .collect()
-}
-
-/// Every agent in the local keystore, sorted by slug.
-pub fn list_local_agent_details(mosaico_home: &Path) -> Vec<LocalAgent> {
-    let dir = agents_dir(mosaico_home);
-    let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("json") {
-                continue;
-            }
-            match std::fs::read_to_string(&path) {
-                Ok(s) => match serde_json::from_str::<StoredKey>(&s) {
-                    Ok(k) => {
-                        let byline = k.effective_byline();
-                        out.push(LocalAgent {
-                            slug: k.slug,
-                            pubkey: k.public_key,
-                            per_session_key: k.per_session_key,
-                            harness: k.harness,
-                            profile: k.profile,
-                            byline,
-                        });
-                    }
-                    Err(e) => tracing::warn!(
-                        path = %path.display(),
-                        error = %e,
-                        "list_local_agent_details: skipping corrupt keystore file"
-                    ),
-                },
-                Err(e) => tracing::warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "list_local_agent_details: skipping unreadable keystore file"
-                ),
-            }
-        }
-    }
-    out.sort_by(|a, b| a.slug.cmp(&b.slug));
-    out
 }
 
 /// Add or update a configured local agent. The harness bundle is required; an
@@ -214,10 +125,7 @@ pub fn add_local_agent(
 /// Load the exact bundle/profile selection for a configured agent.
 pub fn agent_launch_config(mosaico_home: &Path, slug: &str) -> Result<AgentLaunchConfig> {
     let path = key_path(mosaico_home, slug);
-    let s = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading configured agent {}", path.display()))?;
-    let stored: StoredKey =
-        serde_json::from_str(&s).with_context(|| format!("parsing agent {}", path.display()))?;
+    let stored = read_stored_key(&path)?;
     Ok(AgentLaunchConfig {
         harness: stored.harness,
         profile: stored.profile,
@@ -231,10 +139,7 @@ pub fn set_local_agent_byline(home: &Path, slug: &str, byline: Option<String>) -
     if !path.exists() {
         bail!("no such local agent: {slug}");
     }
-    let s = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading key {}", path.display()))?;
-    let mut stored: StoredKey =
-        serde_json::from_str(&s).with_context(|| format!("parsing key {}", path.display()))?;
+    let mut stored = read_stored_key(&path)?;
     stored.byline = byline
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());

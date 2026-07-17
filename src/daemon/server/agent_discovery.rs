@@ -1,7 +1,7 @@
 use super::DaemonState;
 use crate::agent_catalog::{AgentCatalog, DiscoveryRoots, NativeAgentProfile};
 use crate::session::Harness;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,28 +12,59 @@ pub(crate) struct CatalogChange {
     pub(crate) removed_slugs: Vec<String>,
 }
 
+pub(in crate::daemon::server) fn rpc_agent_inventory(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    struct Params {
+        #[serde(default)]
+        cwd: Option<PathBuf>,
+    }
+
+    let params: Params =
+        serde_json::from_value(params.clone()).context("agent_inventory params")?;
+    let inventory = state.agent_inventory(params.cwd.as_deref())?;
+    Ok(serde_json::to_value(inventory)?)
+}
+
 impl DaemonState {
+    pub(crate) fn agent_inventory(
+        &self,
+        workspace: Option<&Path>,
+    ) -> Result<crate::agent_inventory::AgentInventory> {
+        self.refresh_agent_catalog()?;
+        let harnesses = crate::harness::HarnessesConfig::load()?;
+        Ok(crate::agent_inventory::AgentInventory::build(
+            &crate::config::mosaico_home(),
+            &self.installed_harnesses(),
+            &harnesses,
+            &self.agent_catalog(),
+            workspace,
+        ))
+    }
+
     pub(crate) fn installed_harnesses(&self) -> Vec<Harness> {
-        self.installed_harnesses.lock().unwrap().clone()
+        self.catalog.harnesses.lock().unwrap().clone()
     }
 
     pub(crate) fn agent_catalog(&self) -> AgentCatalog {
-        self.agent_catalog.lock().unwrap().clone()
+        self.catalog.agents.lock().unwrap().clone()
     }
 
     pub(crate) fn refresh_agent_catalog(&self) -> Result<Option<CatalogChange>> {
         let roots = DiscoveryRoots::installed()?;
-        let workspaces = self.with_store(|store| {
-            store
-                .list_workspace_bindings()
-                .unwrap_or_default()
+        let workspaces = self.with_store(|store| -> Result<Vec<PathBuf>> {
+            let bindings =
+                crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()?;
+            Ok(bindings
                 .into_iter()
                 .map(|binding| PathBuf::from(binding.abs_path))
-                .collect::<Vec<_>>()
-        });
+                .collect())
+        })?;
         let discovered = discover(&roots, workspaces)?;
         let installed = crate::config::detect_available_harnesses()?;
-        let current = self.agent_catalog.lock().unwrap().clone();
+        let current = self.catalog.agents.lock().unwrap().clone();
         let current_harnesses = self.installed_harnesses();
         if current == discovered && current_harnesses == installed {
             return Ok(None);
@@ -52,8 +83,8 @@ impl DaemonState {
         );
         removed_slugs.sort();
         removed_slugs.dedup();
-        *self.agent_catalog.lock().unwrap() = discovered;
-        *self.installed_harnesses.lock().unwrap() = installed;
+        *self.catalog.agents.lock().unwrap() = discovered;
+        *self.catalog.harnesses.lock().unwrap() = installed;
         Ok(Some(CatalogChange { removed_slugs }))
     }
 
@@ -63,7 +94,8 @@ impl DaemonState {
         workspace: Option<&Path>,
         harness: Option<Harness>,
     ) -> Result<NativeAgentProfile> {
-        self.agent_catalog
+        self.catalog
+            .agents
             .lock()
             .unwrap()
             .resolve(slug, workspace, harness)
@@ -122,6 +154,7 @@ pub(super) fn start_monitor(state: Arc<DaemonState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_env::EnvGuard;
     use tempfile::TempDir;
 
     #[test]
@@ -144,5 +177,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(catalog.capabilities(Some(workspace.path())).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rpc_serves_durable_inventory_without_a_cli_keystore_read() {
+        let root = TempDir::new().unwrap();
+        let mosaico_home = root.path().join(".mosaico");
+        std::fs::create_dir_all(&mosaico_home).unwrap();
+        std::fs::write(
+            mosaico_home.join("harnesses.json"),
+            r#"{"codex-pty":{"harness":"codex","transport":"pty"}}"#,
+        )
+        .unwrap();
+        let mut env = EnvGuard::set("HOME", root.path());
+        env.set_var("MOSAICO_HOME", &mosaico_home);
+        env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
+        crate::identity::add_local_agent(&mosaico_home, "writer", "codex-pty", None, 7).unwrap();
+        let state = DaemonState::new_for_test().await;
+
+        let value =
+            rpc_agent_inventory(&state, &serde_json::json!({ "cwd": root.path() })).unwrap();
+        let inventory: crate::agent_inventory::AgentInventory =
+            serde_json::from_value(value).unwrap();
+        let writer = inventory.find("writer").expect("durable writer");
+        assert!(matches!(
+            writer.source,
+            crate::agent_inventory::AgentSource::Durable { .. }
+        ));
     }
 }

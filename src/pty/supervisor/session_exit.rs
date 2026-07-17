@@ -31,6 +31,7 @@ fn notify_daemon(pty_id: String) {
                     "pty_supervisor_exit",
                     serde_json::json!({
                         "pty_id": pty_id,
+                        "pubkey": std::env::var("MOSAICO_PUBKEY").ok(),
                     }),
                 )
                 .await

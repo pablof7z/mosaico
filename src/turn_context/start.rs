@@ -10,6 +10,7 @@ use super::TurnContext;
 use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
 use crate::state::{Session, Store};
 use crate::util::now_secs;
+use anyhow::Result;
 
 /// The full turn-start context assembly, shared by the daemon's `turn_start` RPC
 /// (the only caller now). Mutating reads that belong to rendering (drain inbox
@@ -39,6 +40,7 @@ pub(crate) fn render_turn_start_text_for_test(
         prev_turn_started_at,
         &hook_contexts,
     )
+    .unwrap()
     .text
 }
 
@@ -49,7 +51,7 @@ pub(crate) fn assemble_turn_start(
     self_host: &str,
     _prev_turn_started_at: u64,
     hook_contexts: &super::HookContextStates,
-) -> TurnContext {
+) -> Result<TurnContext> {
     let first_turn = rec.seen_cursor == 0;
     // Routing scope is the session's `channel_h` — a root channel, or the
     // session/task channel a `channel switch` moved it into. All fabric
@@ -73,7 +75,7 @@ pub(crate) fn assemble_turn_start(
         // admin, channel/room-minting is responsible for signing the member-add
         // itself; a cache miss here is transient local state, not a user action.
         // Compute membership AND the names needed for the warning in one lock.
-        let warn = {
+        let warn: Option<(String, String, String)> = {
             let s = store.lock().expect("store mutex poisoned");
             // A lookup error is NOT membership: treat an Err as "unknown" and
             // fail loud rather than assuming the agent is a member (which would
@@ -102,13 +104,25 @@ pub(crate) fn assemble_turn_start(
                     false
                 }
             };
-            (!member && !locally_managed).then(|| {
-                let root = root_channel_h(&s, &scope);
+            if !member && !locally_managed {
+                let root = match root_channel_h(&s, &scope) {
+                    Ok(root) => root,
+                    Err(error) => {
+                        tracing::warn!(
+                            channel = %scope,
+                            %error,
+                            "turn_start: channel ancestry unavailable; warning uses exact scope"
+                        );
+                        scope.clone()
+                    }
+                };
                 let channel_name = crate::injection::channel_display(&s, &scope);
                 let root_name = crate::injection::channel_display(&s, &root);
-                (root, channel_name, root_name)
-            })
-        };
+                Ok::<_, anyhow::Error>(Some((root, channel_name, root_name)))
+            } else {
+                Ok::<_, anyhow::Error>(None)
+            }
+        }?;
         if let Some((root, channel_name, root_name)) = warn {
             // Name the scope precisely: a channel distinct from its root channel
             // gets both. When the scope IS the root channel, the channel and root
@@ -244,7 +258,7 @@ pub(crate) fn assemble_turn_start(
                 force: false,
             },
         )
-    };
+    }?;
     let outcome = super::render_hook_context(
         hook_contexts,
         &rec.pubkey,
@@ -253,10 +267,10 @@ pub(crate) fn assemble_turn_start(
         now as i64,
         inputs,
     );
-    TurnContext {
+    Ok(TurnContext {
         text: outcome.text,
         receipt: outcome.receipt,
         transaction_id: outcome.transaction_id,
         revision: outcome.revision,
-    }
+    })
 }

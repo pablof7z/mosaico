@@ -155,6 +155,11 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "runtime_generation",
             "work_root",
             "readiness_parent",
+            "observed_harness",
+            "claimed_harness",
+            "admitted_bundle",
+            "admitted_transport",
+            "endpoint_provenance",
             "explicit_chat_published_at",
         ],
         &[
@@ -167,6 +172,7 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "work_topic",
             "work_topic_set_at",
             "activity",
+            "harness",
         ],
         path,
     )?;

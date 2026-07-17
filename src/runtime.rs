@@ -114,7 +114,7 @@ pub async fn run_session_in_daemon(
         let provider = provider.clone();
         let keys = signing_keys.clone();
         async move {
-            if let Err(e) = provider.publish(&ev, &keys).await {
+            if let Err(e) = provider.enqueue(&ev, &keys).await {
                 tracing::error!(error = %format!("{e:#}"), "run_session_in_daemon: domain-event publish failed");
             }
         }

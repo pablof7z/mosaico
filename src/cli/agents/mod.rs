@@ -4,7 +4,7 @@ mod delete;
 mod editor;
 mod usage;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use owo_colors::OwoColorize as _;
 use std::io::IsTerminal as _;
 
@@ -57,7 +57,8 @@ async fn interactive() -> Result<()> {
                 .await;
             }
             crate::cli::interactive::agent_picker::PickerAction::Edit(index) => {
-                editor::edit(&rows[index])?;
+                editor::edit(&rows[index]).await?;
+                schedule_roster_refresh(None).await;
             }
             crate::cli::interactive::agent_picker::PickerAction::Delete(index) => {
                 delete::delete(&rows[index]).await?;
@@ -101,31 +102,65 @@ async fn list() -> Result<()> {
 }
 
 async fn add(slug: &str, harness: &str, profile: Option<&str>) -> Result<()> {
-    let (identity, created) = crate::identity::add_local_agent(
-        &crate::config::mosaico_home(),
-        slug,
-        harness,
-        profile,
-        crate::util::now_secs(),
-    )?;
+    let saved = save_agent_config(slug, harness, profile.map(str::to_string), None).await?;
     println!(
         "{} {} · {}",
-        if created { "Created" } else { "Updated" },
+        if saved.created { "Created" } else { "Updated" },
         slug.bold(),
-        identity.harness
+        saved.harness
     );
     schedule_roster_refresh(None).await;
     Ok(())
 }
 
 async fn remove(slug: &str) -> Result<()> {
-    if crate::identity::remove_local_agent(&crate::config::mosaico_home(), slug)? {
+    if remove_agent_config(slug).await? {
         println!("Deleted {}", slug.bold());
         schedule_roster_refresh(Some(slug)).await;
     } else {
         eprintln!("no such configured agent: {slug}");
     }
     Ok(())
+}
+
+pub(super) struct SavedAgent {
+    pub(super) created: bool,
+    pub(super) harness: String,
+}
+
+pub(super) async fn save_agent_config(
+    slug: &str,
+    harness: &str,
+    profile: Option<String>,
+    per_session_key: Option<bool>,
+) -> Result<SavedAgent> {
+    let value = crate::cli::daemon_call_async(
+        "agent_save",
+        serde_json::json!({
+            "slug": slug,
+            "harness": harness,
+            "profile": profile,
+            "per_session_key": per_session_key,
+        }),
+    )
+    .await?;
+    Ok(SavedAgent {
+        created: value["created"]
+            .as_bool()
+            .context("agent_save response missing created")?,
+        harness: value["harness"]
+            .as_str()
+            .context("agent_save response missing harness")?
+            .to_string(),
+    })
+}
+
+pub(super) async fn remove_agent_config(slug: &str) -> Result<bool> {
+    let value =
+        crate::cli::daemon_call_async("agent_remove", serde_json::json!({ "slug": slug })).await?;
+    value["removed"]
+        .as_bool()
+        .context("agent_remove response missing removed")
 }
 
 pub(super) async fn schedule_roster_refresh(remove_slug: Option<&str>) {

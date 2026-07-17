@@ -1,7 +1,7 @@
 //! Fabric abstraction layer around NMP I/O and provider materialization.
 //!
 //! Layering intent:
-//!   Acquisition + durable group writes ← NMP
+//!   Acquisition + all durable writes ← NMP
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
 //!   Materializer (store writes)       ← materialize()
 //!   Profile indexer + one-shot reads   ← Transport
@@ -166,9 +166,9 @@ mod tests {
 
     fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.into(),
-                harness: "claude-code".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: agent_slug.into(),
                 channel_h: channel_h.into(),
                 child_pid: None,

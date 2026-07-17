@@ -41,9 +41,9 @@ fn session(store: &Store) -> Session {
 
 fn session_record(store: &Store, _label: &str, channel_h: &str) -> Session {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: SELF_PK.into(),
-            harness: "test".into(),
+            observed_harness: "codex".into(),
             agent_slug: "coder".into(),
             channel_h: channel_h.into(),
             child_pid: None,
@@ -96,6 +96,7 @@ fn human_who_renderer_is_non_xml_and_terminal_friendly() {
     let store = seed_store();
 
     let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), false)
+        .expect("valid channel ancestry")
         .expect("human who should render");
 
     assert!(human.starts_with("root\nRoot room\n\n"), "got: {human}");
@@ -114,6 +115,7 @@ fn human_who_renderer_colorizes_when_requested() {
     let store = seed_store();
 
     let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), true)
+        .expect("valid channel ancestry")
         .expect("human who should render");
 
     assert!(
@@ -243,7 +245,7 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
     assert!(text.contains("please ask @target@laptop for review"));
     assert!(!text.contains("nostr:npub"), "got: {text}");
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(rendered, text);
 }
@@ -278,7 +280,7 @@ fn missing_channels_are_warned_not_rendered() {
     assert!(!direct.contains("<channel name=\"#ghost\""));
     assert!(!direct.contains("<members>"));
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "ghost", 0, 100, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "ghost", 0, 100, false)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     assert_eq!(rendered, direct);
 }
@@ -326,7 +328,8 @@ fn all_workspaces_factors_shared_agents_and_preserves_roster_deltas() {
     );
     assert!(rendered.contains("@other-only"), "got: {rendered}");
 
-    let human = render_fabric_all_workspaces_human(&store, &roots, 100, "laptop", "", false);
+    let human =
+        render_fabric_all_workspaces_human(&store, &roots, 100, "laptop", "", false).unwrap();
     assert_eq!(
         human.matches("Available agents (all workspaces)").count(),
         1,
@@ -359,7 +362,7 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
     assert!(!text.contains("<channel name="), "got: {text}");
 
     // Parity: the pure capture→assemble path renders identically.
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, true)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(rendered, text);
 }

@@ -13,6 +13,10 @@ mod who;
 fn sixteen_concurrent_writers_no_corruption_single_writer() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    Store::open(&home.store_path())
+        .unwrap()
+        .upsert_channel("mosaico", "mosaico", "", "", 1)
+        .unwrap();
 
     // Start one session, then 16 concurrent clients hammer write-RPCs
     // (turn_start/turn_end flip turn state; this is the corruption repro path,
@@ -22,7 +26,7 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
         let started = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "coder", "harness_session": "s-load", "cwd": "/tmp"}),
+                hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "s-load", "cwd": "/tmp"}), "claude-code"),
             )
             .await
             .unwrap();
@@ -167,10 +171,11 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
 
     // session-end is a hook: it should exit cleanly and mark the session dead,
     // without relying on user-facing confirmation text.
-    let out = run_cli_stdin(
+    let out = run_cli_stdin_with_env(
         &home,
         &["harness", "hook", "opencode", "--type", "session-end"],
         &format!(r#"{{"session_id":"{sid}"}}"#),
+        &[("MOSAICO_PUBKEY", &sid)],
     );
     assert!(out.status.success());
     assert!(wait_until(std::time::Duration::from_secs(5), || {
@@ -265,7 +270,7 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
         c.call("ping", serde_json::json!({})).await.expect("ping");
     });
 
-    let out = run_cli_stdin(
+    let out = run_cli_stdin_with_env(
         &home,
         &[
             "harness",
@@ -275,6 +280,7 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
             "user-prompt-submit",
         ],
         r#"{"session_id":"revive-claude","cwd":"/tmp","prompt":"hello"}"#,
+        &[("MOSAICO_OBSERVED_HARNESS", "claude-code")],
     );
     assert!(
         out.status.success(),
@@ -339,7 +345,7 @@ fn turn_lifecycle_drives_pubkey_row_resolved_from_harness_locator() {
         let resp = c
             .call(
                 "session_start",
-                serde_json::json!({"agent":"coder","harness_session":"harness-xyz","cwd":"/tmp"}),
+                hook_session_start(serde_json::json!({"agent":"coder","harness_session":"harness-xyz","cwd":"/tmp"}), "claude-code"),
             )
             .await
             .unwrap();

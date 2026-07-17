@@ -21,7 +21,7 @@ pub(super) async fn launch(request: FreshLaunchRequest) -> Result<()> {
         .context("pty_spawn did not return transport")?
     {
         crate::state::LOCATOR_PTY => attach_pty(&spawned),
-        crate::state::LOCATOR_ACP => report_headless(&spawned),
+        crate::state::LOCATOR_ACP | crate::state::LOCATOR_APP_SERVER => report_headless(&spawned),
         transport => bail!("pty_spawn returned unknown transport {transport:?}"),
     }
 }
@@ -44,9 +44,9 @@ fn report_headless(spawned: &serde_json::Value) -> Result<()> {
     let session = spawned["pty_id"]
         .as_str()
         .context("pty_spawn did not return pty_id")?;
-    eprintln!("[mosaico acp] session: {session}");
+    eprintln!("[mosaico hosted] session: {session}");
     eprintln!(
-        "[mosaico acp] headless agent launched; it responds to channel mentions (no PTY to attach)"
+        "[mosaico hosted] headless agent launched; it responds to channel mentions (no PTY to attach)"
     );
     Ok(())
 }

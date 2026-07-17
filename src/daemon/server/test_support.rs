@@ -52,6 +52,8 @@ impl DaemonState {
             None,
             Vec::new(),
         ));
+        let catalog = CatalogState::new();
+        *catalog.harnesses.lock().unwrap() = installed_harnesses;
         Arc::new(DaemonState {
             store,
             transport,
@@ -60,28 +62,15 @@ impl DaemonState {
             cfg,
             host,
             owners,
-            agent_catalog: Mutex::new(crate::agent_catalog::AgentCatalog::default()),
-            installed_harnesses: Mutex::new(installed_harnesses),
-            hosted: Mutex::new(HashMap::new()),
-            sessions: Mutex::new(HashMap::new()),
-            subscribed_root_channels: Mutex::new(Vec::new()),
-            subs: Mutex::new(crate::reconcile::SubscriptionReconciler::new()),
-            subscription_sync: tokio::sync::Mutex::new(()),
-            status: Arc::new(Mutex::new(crate::reconcile::StatusReconciler::for_ttl(
+            agent_config: AgentConfigState::new(),
+            catalog,
+            runtime: SessionRuntimeState::new(),
+            subscriptions: SubscriptionState::new(),
+            reconcilers: ReconcilerState::new(crate::reconcile::StatusReconciler::for_ttl(
                 status_ttl_duration(),
-            ))),
-            hook_contexts: Mutex::new(HashMap::new()),
-            tail_tx: tokio::sync::broadcast::channel(512).0,
-            open_clients: Mutex::new(0),
-            shutdown: Notify::new(),
-            peer_sessions: Mutex::new(HashMap::new()),
-            seen_events: Mutex::new((
-                std::collections::HashSet::new(),
-                std::collections::VecDeque::new(),
             )),
-            seen_profiles: Mutex::new(std::collections::HashSet::new()),
-            warming: Mutex::new(std::collections::HashSet::new()),
-            last_status: Mutex::new(HashMap::new()),
+            connections: ConnectionState::new(),
+            dedup: DedupState::new(),
         })
     }
 }

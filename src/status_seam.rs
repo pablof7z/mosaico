@@ -89,7 +89,7 @@ async fn enqueue_status(
     status: Status,
     source_ref: String,
 ) -> Option<String> {
-    match provider.publish(&DomainEvent::Status(status), keys).await {
+    match provider.enqueue(&DomainEvent::Status(status), keys).await {
         Ok(event_id) => {
             tracing::debug!(event_id = %event_id.to_hex(), source_ref, "status accepted by NMP");
             Some(event_id.to_hex())

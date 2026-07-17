@@ -62,7 +62,7 @@ fn delta_includes_other_workspace_root_and_descendant_presence_only() {
     assert!(text.contains("text=\"reviewing patch\""), "{text}");
     assert!(!text.contains("private unjoined chatter"), "{text}");
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 200, 300)),
         text
@@ -72,6 +72,7 @@ fn delta_includes_other_workspace_root_and_descendant_presence_only() {
     assert_eq!(outcome.text.as_deref(), Some(text.as_str()));
     let human =
         render_fabric_context_human(&store, input(Some(&rec), "root", 200, 300, false), false)
+            .expect("valid channel ancestry")
             .expect("human delta");
     assert!(human.contains("remote\nRemote room"), "{human}");
     assert!(human.contains("#remote.review"), "{human}");
