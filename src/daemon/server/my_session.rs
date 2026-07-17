@@ -61,7 +61,7 @@ pub(in crate::daemon::server) async fn rpc_my_session_status(
     state.with_store(|s| s.set_session_title(&rec.pubkey, &title))?;
     let keys = state.session_signing_keys(&rec.pubkey)?;
     crate::status_seam::drive(
-        &state.status,
+        &state.reconcilers.status,
         state.fabric_provider(),
         &keys,
         &state.store,
@@ -168,7 +168,7 @@ mod tests {
                 .unwrap();
         });
         {
-            let mut status = state.status.lock().unwrap();
+            let mut status = state.reconcilers.status.lock().unwrap();
             let out = status.on_session_started(
                 &pubkey,
                 "test-host",

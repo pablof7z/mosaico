@@ -36,7 +36,7 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
             // Identify which peer sessions will be pruned by checking the map
             // against sessions that are about to expire.
             let tracked_keys: Vec<(String, String)> = {
-                let map = state.peer_sessions.lock().unwrap();
+                let map = state.dedup.peer_sessions.lock().unwrap();
                 // We'll emit Leave for (pubkey, channel) tuples in our map
                 // that are no longer live in the store. Cross-reference below.
                 map.keys().cloned().collect()
@@ -63,7 +63,7 @@ pub fn spawn_pruner(state: Arc<DaemonState>) {
 
             // Emit Leave for tuples that were in our map but are now expired.
             let to_leave: Vec<(String, PeerTracked)> = {
-                let mut map = state.peer_sessions.lock().unwrap();
+                let mut map = state.dedup.peer_sessions.lock().unwrap();
                 let expired: Vec<(String, String)> = tracked_keys
                     .into_iter()
                     .filter(|k| !still_alive.contains(k))

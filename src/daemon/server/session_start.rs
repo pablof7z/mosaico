@@ -100,7 +100,7 @@ pub(super) async fn rpc_session_start_inner(
     )?;
     let existing = state.with_store(|store| store.get_session(&pubkey))?;
     let already_running = existing.as_ref().is_some_and(|session| session.alive)
-        && state.sessions.lock().unwrap().contains_key(&pubkey);
+        && state.runtime.engines.lock().unwrap().contains_key(&pubkey);
     if already_running {
         if let Some(existing) = &existing {
             channel = existing.channel_h.clone();
@@ -151,7 +151,12 @@ pub(super) async fn rpc_session_start_inner(
         pty_session: endpoint,
         ring_doorbell: p.pty_session.is_some(),
         already_running,
-        channel_already_subscribed: state.subs.lock().unwrap().covers_channel(&channel),
+        channel_already_subscribed: state
+            .subscriptions
+            .reconciler
+            .lock()
+            .unwrap()
+            .covers_channel(&channel),
     };
     let plan = advisory::plan(&request);
     let joined = joined_channels::record(state, &pubkey, channel.clone(), p.channels, now);

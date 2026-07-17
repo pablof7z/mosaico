@@ -155,7 +155,7 @@ async fn revoke_operator_session(
     match state.session_signing_keys(&rec.pubkey) {
         Ok(keys) => {
             crate::status_seam::drive(
-                &state.status,
+                &state.reconcilers.status,
                 state.fabric_provider(),
                 &keys,
                 &state.store,

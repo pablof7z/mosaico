@@ -79,26 +79,12 @@ pub async fn run() -> Result<()> {
         cfg,
         host,
         owners,
-        agent_catalog: Mutex::new(crate::agent_catalog::AgentCatalog::default()),
-        installed_harnesses: Mutex::new(Vec::new()),
-        hosted: Mutex::new(HashMap::new()),
-        sessions: Mutex::new(HashMap::new()),
-        subscribed_root_channels: Mutex::new(Vec::new()),
-        subs: Mutex::new(crate::reconcile::SubscriptionReconciler::new()),
-        subscription_sync: tokio::sync::Mutex::new(()),
-        status: Arc::new(Mutex::new(StatusReconciler::for_ttl(status_ttl_duration()))),
-        hook_contexts: Mutex::new(HashMap::new()),
-        tail_tx: tokio::sync::broadcast::channel(512).0,
-        open_clients: Mutex::new(0),
-        shutdown: Notify::new(),
-        peer_sessions: Mutex::new(HashMap::new()),
-        seen_events: Mutex::new((
-            std::collections::HashSet::new(),
-            std::collections::VecDeque::new(),
-        )),
-        seen_profiles: Mutex::new(std::collections::HashSet::new()),
-        warming: Mutex::new(std::collections::HashSet::new()),
-        last_status: Mutex::new(HashMap::new()),
+        catalog: CatalogState::new(),
+        runtime: SessionRuntimeState::new(),
+        subscriptions: SubscriptionState::new(),
+        reconcilers: ReconcilerState::new(StatusReconciler::for_ttl(status_ttl_duration())),
+        connections: ConnectionState::new(),
+        dedup: DedupState::new(),
     });
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());
@@ -174,7 +160,7 @@ pub async fn run() -> Result<()> {
     let mut sigterm =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
     tokio::select! {
-        _ = state.shutdown.notified() => {}
+        _ = state.connections.shutdown.notified() => {}
         _ = async { match &mut sigterm { Some(s) => { s.recv().await; }, None => std::future::pending().await } } => {}
     }
     tracing::info!("daemon shutting down");
@@ -233,7 +219,7 @@ pub(in crate::daemon::server) async fn serve_connection(
                 client_protocol = hello.protocol,
                 "newer client; restarting daemon for re-exec"
             );
-            state.shutdown.notify_waiters();
+            state.connections.shutdown.notify_waiters();
         }
         let _ = write_json(
             &mut writer,
@@ -244,7 +230,7 @@ pub(in crate::daemon::server) async fn serve_connection(
     }
 
     {
-        *state.open_clients.lock().unwrap() += 1;
+        *state.connections.open_clients.lock().unwrap() += 1;
     }
     let _guard = ClientGuard(state.clone());
 
@@ -295,7 +281,7 @@ pub(in crate::daemon::server) async fn serve_connection(
 pub(in crate::daemon::server) struct ClientGuard(pub(in crate::daemon::server) Arc<DaemonState>);
 impl Drop for ClientGuard {
     fn drop(&mut self) {
-        let mut n = self.0.open_clients.lock().unwrap();
+        let mut n = self.0.connections.open_clients.lock().unwrap();
         *n = n.saturating_sub(1);
     }
 }

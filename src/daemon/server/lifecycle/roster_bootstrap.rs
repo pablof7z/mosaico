@@ -72,7 +72,7 @@ pub(super) fn seed_spawn_on_mention_coverage(state: &Arc<DaemonState>) {
         groups
     });
     {
-        let mut projs = state.subscribed_root_channels.lock().unwrap();
+        let mut projs = state.subscriptions.roots.lock().unwrap();
         for group in &member_groups {
             if !projs.iter().any(|p| p == group) {
                 projs.push(group.clone());

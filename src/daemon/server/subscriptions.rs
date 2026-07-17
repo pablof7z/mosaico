@@ -11,7 +11,7 @@ pub(in crate::daemon::server) async fn ensure_subscription(
     channel: &str,
 ) -> Result<()> {
     {
-        let mut projs = state.subscribed_root_channels.lock().unwrap();
+        let mut projs = state.subscriptions.roots.lock().unwrap();
         if !projs.iter().any(|p| p == channel) {
             projs.push(channel.to_string());
         }
@@ -25,17 +25,22 @@ pub(in crate::daemon::server) async fn ensure_subscription(
 /// writer funnels through — no split-brain. A channel a session just left with
 /// no other owner closes its NMP observation here.
 pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonState>) -> Result<()> {
-    let _serial = state.subscription_sync.lock().await;
+    let _serial = state.subscriptions.sync.lock().await;
     let snapshot = build_coverage_snapshot(state);
     // Compute the plan under the policy lock, then drop it before handing the
     // effects to NMP's engine.
     let effects = {
-        let mut rec = state.subs.lock().unwrap();
+        let mut rec = state.subscriptions.reconciler.lock().unwrap();
         rec.plan(&snapshot)
     };
     for effect in effects {
         apply_effect(state, &effect).await?;
-        state.subs.lock().unwrap().confirm(&effect);
+        state
+            .subscriptions
+            .reconciler
+            .lock()
+            .unwrap()
+            .confirm(&effect);
     }
     Ok(())
 }
@@ -111,7 +116,8 @@ pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonSta
 ///   Owned by the daemon scope.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
-        .subscribed_root_channels
+        .subscriptions
+        .roots
         .lock()
         .unwrap()
         .iter()

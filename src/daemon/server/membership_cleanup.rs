@@ -91,6 +91,7 @@ pub(in crate::daemon::server) fn cleanup_dead_local_sessions(state: &Arc<DaemonS
         if stale {
             remove_session_memberships(state, &pubkey, "stale-membership");
             state
+                .reconcilers
                 .status
                 .lock()
                 .expect("status mutex poisoned")

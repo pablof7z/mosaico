@@ -25,7 +25,7 @@ pub(in crate::daemon::server) async fn spawn_session(
 
     let cancel = Arc::new(Notify::new());
     {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = state.runtime.engines.lock().unwrap();
         if let Some(previous) = sessions.get(&pubkey) {
             if previous.runtime_generation >= runtime_generation {
                 anyhow::bail!("pubkey {pubkey} already has an active runtime");
@@ -43,7 +43,7 @@ pub(in crate::daemon::server) async fn spawn_session(
             },
         );
     }
-    state.hosted.lock().unwrap().insert(
+    state.runtime.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {
             keys: params.keys.clone(),
@@ -65,14 +65,14 @@ pub(in crate::daemon::server) async fn spawn_session(
     let task_pubkey = pubkey.clone();
     let provider = state.provider.clone();
     let store = state.store.clone();
-    let status = state.status.clone();
+    let status = state.reconcilers.status.clone();
     tokio::spawn(async move {
         let res = runtime::run_session_in_daemon(params, provider, store, cancel, status).await;
         if let Err(e) = res {
             tracing::warn!(pubkey = %task_pubkey, runtime_generation, error = %e, "session task exited with error");
         }
         let owns_generation = {
-            let mut sessions = st.sessions.lock().unwrap();
+            let mut sessions = st.runtime.engines.lock().unwrap();
             if sessions
                 .get(&task_pubkey)
                 .is_some_and(|handle| handle.runtime_generation == runtime_generation)
@@ -114,6 +114,7 @@ pub(in crate::daemon::server) fn prune_hosted(state: &Arc<DaemonState>) {
         .map(|r| r.pubkey)
         .collect();
     state
+        .runtime
         .hosted
         .lock()
         .unwrap()
@@ -121,7 +122,7 @@ pub(in crate::daemon::server) fn prune_hosted(state: &Arc<DaemonState>) {
 }
 
 pub(in crate::daemon::server) fn cancel_session(state: &Arc<DaemonState>, pubkey: &str) -> bool {
-    if let Some(h) = state.sessions.lock().unwrap().get(pubkey) {
+    if let Some(h) = state.runtime.engines.lock().unwrap().get(pubkey) {
         // `notify_one` retains a permit when the engine is still doing startup
         // I/O; `notify_waiters` would lose cancellation before `notified()` is
         // first polled and leave a dead generation occupying the runtime map.

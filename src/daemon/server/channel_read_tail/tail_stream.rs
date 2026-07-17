@@ -37,7 +37,7 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     let mut rx = state.tail_subscribe();
 
     {
-        *state.open_clients.lock().unwrap() += 1;
+        *state.connections.open_clients.lock().unwrap() += 1;
     }
     let _guard = ClientGuard(state.clone());
 

@@ -85,7 +85,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &backend_pubkey,
         &state.host,
         prev_started,
-        &state.hook_contexts,
+        &state.runtime.hook_contexts,
     );
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
@@ -133,7 +133,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
         &state.host,
         delta_since,
         now,
-        &state.hook_contexts,
+        &state.runtime.hook_contexts,
     );
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
