@@ -218,7 +218,7 @@ mod tests {
         let store = Store::open_memory().unwrap();
         let rec = session("root");
         store
-            .reserve_session(&crate::state::RegisterSession {
+            .reserve_hook_session_for_test(&crate::state::RegisterSession {
                 pubkey: "pk".to_string(),
                 observed_harness: "codex".to_string(),
                 agent_slug: "codex".to_string(),

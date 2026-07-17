@@ -44,7 +44,8 @@ fn unstamped_existing_schema_fails_loudly() {
 #[test]
 fn retention_prune_preserves_pending_inbox() {
     let s = Store::open_memory().unwrap();
-    s.reserve_session(&reg("claude-code", "x", "h1")).unwrap();
+    s.reserve_hook_session_for_test(&reg("claude-code", "x", "h1"))
+        .unwrap();
     s.enqueue_inbox("pending", "pk-agent", "from", "h1", "pending", 1)
         .unwrap();
     s.enqueue_inbox("old-done", "pk-agent", "from", "h1", "old", 1)
@@ -82,8 +83,10 @@ fn retention_prune_only_safe_rows() {
     };
     assert!(s.insert_event(&mk("old", 1)).unwrap());
     assert!(s.insert_event(&mk("new", 10)).unwrap());
-    s.reserve_session(&reg("codex", "alive", "h1")).unwrap();
-    s.reserve_session(&reg("codex", "dead", "h1")).unwrap();
+    s.reserve_hook_session_for_test(&reg("codex", "alive", "h1"))
+        .unwrap();
+    s.reserve_hook_session_for_test(&reg("codex", "dead", "h1"))
+        .unwrap();
     s.mark_dead("dead").unwrap();
     s.put_session_locator("codex", LOCATOR_NATIVE_RESUME, "resume-dead", "dead", 2)
         .unwrap();

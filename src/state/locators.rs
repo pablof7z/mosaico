@@ -205,7 +205,9 @@ mod tests {
     #[test]
     fn native_resume_is_stored_once_per_pubkey() {
         let store = Store::open_memory().unwrap();
-        store.reserve_session(&registration("pk", 1)).unwrap();
+        store
+            .reserve_hook_session_for_test(&registration("pk", 1))
+            .unwrap();
         store
             .put_session_locator("codex", LOCATOR_NATIVE_RESUME, "old", "pk", 2)
             .unwrap();
@@ -228,7 +230,9 @@ mod tests {
     #[test]
     fn locator_vocabulary_is_closed() {
         let store = Store::open_memory().unwrap();
-        store.reserve_session(&registration("pk", 1)).unwrap();
+        store
+            .reserve_hook_session_for_test(&registration("pk", 1))
+            .unwrap();
         let error = store
             .put_session_locator("codex", "harness_session", "old", "pk", 2)
             .unwrap_err();
@@ -238,7 +242,9 @@ mod tests {
     #[test]
     fn session_locator_lookup_requires_the_observed_harness_dimension() {
         let store = Store::open_memory().unwrap();
-        store.reserve_session(&registration("pk", 1)).unwrap();
+        store
+            .reserve_hook_session_for_test(&registration("pk", 1))
+            .unwrap();
         store
             .put_session_locator("claude-code", LOCATOR_PTY, "foreign", "pk", 3)
             .unwrap();

@@ -68,7 +68,7 @@ fn dead_custom_handle_is_available_and_atomically_reclaimed() {
         .allocate_custom_handle("old", "codex", "quill", 10)
         .unwrap();
     store
-        .reserve_session(&crate::state::RegisterSession {
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: "old".into(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),

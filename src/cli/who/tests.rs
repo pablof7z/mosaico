@@ -16,7 +16,7 @@ fn register_local_in(
     ts: u64,
 ) -> String {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pubkey.to_string(),
             observed_harness: "claude-code".to_string(),
             agent_slug: slug.to_string(),

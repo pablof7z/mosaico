@@ -8,9 +8,9 @@ const OTHER_PK: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pk.to_string(),
-            observed_harness: "test".into(),
+            observed_harness: "codex".into(),
             agent_slug: "test-agent".into(),
             channel_h: channel.to_string(),
             child_pid: None,

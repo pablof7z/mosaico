@@ -240,15 +240,24 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
-        .reserve_session(&mosaico::state::RegisterSession {
-            pubkey: pubkey.clone(),
-            observed_harness: "codex".to_string(),
-            agent_slug: "multi-chat".to_string(),
-            channel_h: "root-chat-channel".to_string(),
-            child_pid: None,
-            transcript_path: None,
-            now: 1,
-        })
+        .reserve_session_with_facts(
+            &mosaico::state::RegisterSession {
+                pubkey: pubkey.clone(),
+                observed_harness: "codex".to_string(),
+                agent_slug: "multi-chat".to_string(),
+                channel_h: "root-chat-channel".to_string(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1,
+            },
+            &mosaico::state::AdmittedRuntimeFacts {
+                observed_harness: "codex".into(),
+                claimed_harness: "codex".into(),
+                bundle: String::new(),
+                transport: String::new(),
+                endpoint_provenance: "hook".into(),
+            },
+        )
         .unwrap();
     store
         .join_session_channel(&pubkey, "root-chat-channel", 1)

@@ -45,7 +45,7 @@ pub(super) fn seed_channel(store: &Store) {
         .upsert_profile_with_agent_slug("pk-coder", "coder", "coder", "coder", "laptop", false, 1)
         .unwrap();
     store
-        .reserve_session(&crate::state::RegisterSession {
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: "pk-coder".to_string(),
             observed_harness: "claude-code".to_string(),
             agent_slug: "coder".to_string(),

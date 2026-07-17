@@ -36,15 +36,14 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
 }
 
 impl Store {
-    /// Atomically reserve the one active runtime for `r.pubkey`. A dead runtime
-    /// may be replaced; its monotonically increasing generation fences late
-    /// completion from the previous incarnation.
-    pub fn reserve_session(&self, r: &RegisterSession) -> Result<u64> {
+    #[cfg(test)]
+    pub(crate) fn reserve_hook_session_for_test(&self, r: &RegisterSession) -> Result<u64> {
+        let observed = r.observed_harness.clone();
         self.reserve_session_with_facts(
             r,
             &AdmittedRuntimeFacts {
-                observed_harness: r.observed_harness.clone(),
-                claimed_harness: String::new(),
+                observed_harness: observed.clone(),
+                claimed_harness: observed,
                 bundle: String::new(),
                 transport: String::new(),
                 endpoint_provenance: "hook".to_string(),
@@ -52,6 +51,9 @@ impl Store {
         )
     }
 
+    /// Atomically reserve one runtime together with its complete admitted facts.
+    /// A dead runtime may be replaced; its monotonically increasing generation
+    /// fences late completion from the previous incarnation.
     pub fn reserve_session_with_facts(
         &self,
         r: &RegisterSession,
@@ -60,6 +62,7 @@ impl Store {
         if r.pubkey.trim().is_empty() {
             anyhow::bail!("session pubkey must not be empty");
         }
+        validate_runtime_facts(r, facts)?;
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let previous = tx
             .query_row(
@@ -350,4 +353,59 @@ impl Store {
         )?;
         self.mark_handle_offline_for_pubkey(pubkey)
     }
+}
+
+fn validate_runtime_facts(r: &RegisterSession, facts: &AdmittedRuntimeFacts) -> Result<()> {
+    let observed = facts.observed_harness.trim();
+    if observed.is_empty() {
+        anyhow::bail!("runtime facts require observed_harness");
+    }
+    let harness = crate::session::Harness::from_str(observed);
+    if harness == crate::session::Harness::Unknown || harness.as_str() != observed {
+        anyhow::bail!("runtime facts contain unknown observed_harness {observed:?}");
+    }
+    if r.observed_harness != observed {
+        anyhow::bail!(
+            "registration observed_harness {:?} does not match admitted facts {observed:?}",
+            r.observed_harness
+        );
+    }
+    if !matches!(facts.transport.as_str(), "" | "pty" | "acp") {
+        anyhow::bail!(
+            "runtime facts contain unknown transport {:?}",
+            facts.transport
+        );
+    }
+    match facts.endpoint_provenance.as_str() {
+        "launch" => {
+            if !facts.claimed_harness.is_empty() {
+                anyhow::bail!("launch runtime facts forbid claimed_harness");
+            }
+            if facts.bundle.trim().is_empty() {
+                anyhow::bail!("launch runtime facts require bundle");
+            }
+            if facts.transport.is_empty() {
+                anyhow::bail!("launch runtime facts require transport");
+            }
+        }
+        "hook" => {
+            let claimed = facts.claimed_harness.trim();
+            if claimed.is_empty() {
+                anyhow::bail!("hook runtime facts require claimed_harness");
+            }
+            let claimed_harness = crate::session::Harness::from_str(claimed);
+            if claimed_harness == crate::session::Harness::Unknown
+                || claimed_harness.as_str() != claimed
+            {
+                anyhow::bail!("runtime facts contain unknown claimed_harness {claimed:?}");
+            }
+            if !facts.bundle.is_empty() {
+                anyhow::bail!("hook runtime facts forbid bundle");
+            }
+        }
+        provenance => anyhow::bail!(
+            "runtime facts require endpoint_provenance launch or hook, got {provenance:?}"
+        ),
+    }
+    Ok(())
 }

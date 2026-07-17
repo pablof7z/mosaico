@@ -117,9 +117,9 @@ mod tests {
 
     fn register(state: &Arc<DaemonState>, pubkey: &str, slug: &str, now: u64) -> String {
         state.with_store(|s| {
-            s.reserve_session(&RegisterSession {
+            s.reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.into(),
-                observed_harness: "claude".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: slug.into(),
                 channel_h: String::new(),
                 child_pid: None,

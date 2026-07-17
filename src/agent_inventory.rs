@@ -13,6 +13,7 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum AgentSource {
     Durable {
+        pubkey: Option<String>,
         bundle: String,
         transport: Option<crate::harness::Transport>,
         profile: Option<String>,
@@ -95,6 +96,7 @@ impl AgentInventory {
                 use_criteria,
                 available_since: created.get(&agent.slug).copied().unwrap_or(0),
                 source: AgentSource::Durable {
+                    pubkey: agent.pubkey,
                     transport: harnesses.get(&bundle).map(|config| config.transport),
                     bundle,
                     profile: agent.profile,
@@ -142,6 +144,18 @@ impl AgentInventory {
 
     pub(crate) fn find(&self, slug: &str) -> Option<&Agent> {
         self.agents.iter().find(|agent| agent.slug == slug)
+    }
+
+    pub(crate) fn durable_agent_for_pubkey(&self, pubkey: &str) -> Option<&Agent> {
+        self.agents.iter().find(|agent| {
+            matches!(
+                &agent.source,
+                AgentSource::Durable {
+                    pubkey: Some(configured),
+                    ..
+                } if configured == pubkey
+            )
+        })
     }
 
     pub(crate) fn profile_choices(&self, slug: &str) -> Vec<&Agent> {

@@ -5,11 +5,11 @@ use super::reg;
 fn one_active_runtime_per_pubkey_and_generation_fences_exit() {
     let store = Store::open_memory().unwrap();
     let registration = reg("codex", "pk", "h1");
-    let first = store.reserve_session(&registration).unwrap();
-    assert!(store.reserve_session(&registration).is_err());
+    let first = store.reserve_hook_session_for_test(&registration).unwrap();
+    assert!(store.reserve_hook_session_for_test(&registration).is_err());
 
     assert!(store.mark_dead_if_generation("pk", first).unwrap());
-    let second = store.reserve_session(&registration).unwrap();
+    let second = store.reserve_hook_session_for_test(&registration).unwrap();
     assert_eq!(second, first + 1);
     assert!(!store.mark_dead_if_generation("pk", first).unwrap());
     assert!(store.get_session("pk").unwrap().unwrap().alive);
@@ -18,7 +18,9 @@ fn one_active_runtime_per_pubkey_and_generation_fences_exit() {
 #[test]
 fn typed_locator_resolves_directly_to_pubkey() {
     let store = Store::open_memory().unwrap();
-    store.reserve_session(&reg("codex", "pk", "h1")).unwrap();
+    store
+        .reserve_hook_session_for_test(&reg("codex", "pk", "h1"))
+        .unwrap();
     store
         .put_session_locator("codex", LOCATOR_PTY, "endpoint", "pk", 2)
         .unwrap();
@@ -37,7 +39,9 @@ fn typed_locator_resolves_directly_to_pubkey() {
 #[test]
 fn explicit_chat_marker_keeps_first_publish() {
     let store = Store::open_memory().unwrap();
-    store.reserve_session(&reg("codex", "pk", "h1")).unwrap();
+    store
+        .reserve_hook_session_for_test(&reg("codex", "pk", "h1"))
+        .unwrap();
     store
         .mark_session_explicit_chat_published("pk", 1200)
         .unwrap();

@@ -18,7 +18,7 @@ fn register(
                 now: 1,
             };
             if admitted_transport.is_empty() {
-                store.reserve_session(&registration)?;
+                store.reserve_hook_session_for_test(&registration)?;
             } else {
                 store.reserve_session_with_facts(
                     &registration,

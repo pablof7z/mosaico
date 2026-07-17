@@ -3,7 +3,7 @@ use crate::state::{RegisterSession, Store};
 
 fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &str) {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pubkey.to_string(),
             observed_harness: "codex".to_string(),
             agent_slug: agent_slug.to_string(),

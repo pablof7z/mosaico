@@ -59,7 +59,7 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
         .replace_channel_members("proj", &["pk-coder1".to_string()], 2)
         .unwrap();
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "pk-coder1".to_string(),
             observed_harness: "codex".to_string(),
             agent_slug: "coder".to_string(),

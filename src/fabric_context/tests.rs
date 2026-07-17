@@ -41,9 +41,9 @@ fn session(store: &Store) -> Session {
 
 fn session_record(store: &Store, _label: &str, channel_h: &str) -> Session {
     store
-        .reserve_session(&RegisterSession {
+        .reserve_hook_session_for_test(&RegisterSession {
             pubkey: SELF_PK.into(),
-            observed_harness: "test".into(),
+            observed_harness: "codex".into(),
             agent_slug: "coder".into(),
             channel_h: channel_h.into(),
             child_pid: None,

@@ -166,7 +166,7 @@ mod tests {
 
     fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.into(),
                 observed_harness: "claude-code".into(),
                 agent_slug: agent_slug.into(),

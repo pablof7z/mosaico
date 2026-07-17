@@ -31,7 +31,7 @@ mod tests {
     fn durable_alive_gate_is_backend_global_across_channels() {
         let store = Store::open_memory().unwrap();
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: "durable-pk".into(),
                 observed_harness: "codex".into(),
                 agent_slug: "chief".into(),

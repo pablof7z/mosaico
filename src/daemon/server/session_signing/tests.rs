@@ -17,7 +17,7 @@ async fn reconstructs_signer_from_pubkey_bound_material() {
     let pubkey = prepared.identity.pubkey.clone();
     state
         .with_store(|store| {
-            store.reserve_session(&crate::state::RegisterSession {
+            store.reserve_hook_session_for_test(&crate::state::RegisterSession {
                 pubkey: pubkey.clone(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),

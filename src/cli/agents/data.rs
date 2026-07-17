@@ -46,6 +46,7 @@ fn project(agent: crate::agent_inventory::Agent) -> AgentRow {
     };
     let (kind, bundle, transport, profile, per_session_key, native_profile) = match agent.source {
         AgentSource::Durable {
+            pubkey: _,
             bundle,
             transport,
             profile,

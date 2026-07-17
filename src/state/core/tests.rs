@@ -15,8 +15,12 @@ fn reg(pubkey: &str, channel: &str, now: u64) -> RegisterSession {
 #[test]
 fn table_samples_prefer_alive_sessions_and_locators() {
     let store = Store::open_memory().unwrap();
-    store.reserve_session(&reg("alive", "room", 100)).unwrap();
-    store.reserve_session(&reg("dead", "room", 200)).unwrap();
+    store
+        .reserve_hook_session_for_test(&reg("alive", "room", 100))
+        .unwrap();
+    store
+        .reserve_hook_session_for_test(&reg("dead", "room", 200))
+        .unwrap();
     store.mark_dead("dead").unwrap();
     store
         .put_session_locator("codex", LOCATOR_PTY, "alive-endpoint", "alive", 100)
@@ -41,7 +45,7 @@ fn table_samples_prefer_alive_sessions_and_locators() {
 fn session_context_persists_host_workspace_without_fabricating_channel_metadata() {
     let store = Store::open_memory().unwrap();
     store
-        .reserve_session(&reg("pk", "pending-room", 100))
+        .reserve_hook_session_for_test(&reg("pk", "pending-room", 100))
         .unwrap();
     store
         .set_session_context("pk", "pending-room", "workspace", "immediate-parent")

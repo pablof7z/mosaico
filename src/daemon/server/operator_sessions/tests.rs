@@ -20,7 +20,7 @@ fn projection_exposes_public_identity_without_private_runtime_id() {
     store.upsert_workspace("skills-root", "/skills", 4).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
-        .reserve_session(&crate::state::RegisterSession {
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: pubkey.clone(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),

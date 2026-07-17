@@ -29,7 +29,7 @@ mod tests {
         let store = Store::open_memory().unwrap();
         let pubkey = Keys::generate().public_key().to_hex();
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: pubkey.clone(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),

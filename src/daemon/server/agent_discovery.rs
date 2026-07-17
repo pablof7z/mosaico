@@ -24,19 +24,26 @@ pub(in crate::daemon::server) fn rpc_agent_inventory(
 
     let params: Params =
         serde_json::from_value(params.clone()).context("agent_inventory params")?;
-    state.refresh_agent_catalog()?;
-    let harnesses = crate::harness::HarnessesConfig::load()?;
-    let inventory = crate::agent_inventory::AgentInventory::build(
-        &crate::config::mosaico_home(),
-        &state.installed_harnesses(),
-        &harnesses,
-        &state.agent_catalog(),
-        params.cwd.as_deref(),
-    );
+    let inventory = state.agent_inventory(params.cwd.as_deref())?;
     Ok(serde_json::to_value(inventory)?)
 }
 
 impl DaemonState {
+    pub(crate) fn agent_inventory(
+        &self,
+        workspace: Option<&Path>,
+    ) -> Result<crate::agent_inventory::AgentInventory> {
+        self.refresh_agent_catalog()?;
+        let harnesses = crate::harness::HarnessesConfig::load()?;
+        Ok(crate::agent_inventory::AgentInventory::build(
+            &crate::config::mosaico_home(),
+            &self.installed_harnesses(),
+            &harnesses,
+            &self.agent_catalog(),
+            workspace,
+        ))
+    }
+
     pub(crate) fn installed_harnesses(&self) -> Vec<Harness> {
         self.catalog.harnesses.lock().unwrap().clone()
     }

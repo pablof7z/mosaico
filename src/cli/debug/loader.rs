@@ -428,7 +428,7 @@ mod tests {
         let path = dir.path().join("state.db");
         let store = crate::state::Store::open(&path).unwrap();
         store
-            .reserve_session(&RegisterSession {
+            .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: "pk".into(),
                 observed_harness: "claude-code".into(),
                 agent_slug: "haiku".into(),

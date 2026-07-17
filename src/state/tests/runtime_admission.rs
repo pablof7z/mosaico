@@ -67,3 +67,54 @@ fn diagnostic_claim_update_does_not_touch_admitted_facts() {
     assert_eq!(session.admitted_transport, "acp");
     assert_eq!(session.endpoint_provenance, "launch");
 }
+
+#[test]
+fn store_rejects_incomplete_or_inconsistent_runtime_facts() {
+    let cases = [
+        (
+            facts("", "", "codex-pty", "pty", "launch"),
+            "require observed_harness",
+        ),
+        (
+            facts("grok", "", "grok-pty", "pty", "launch"),
+            "does not match admitted facts",
+        ),
+        (
+            facts("codex", "codex", "codex-pty", "pty", "launch"),
+            "launch runtime facts forbid claimed_harness",
+        ),
+        (
+            facts("codex", "", "", "pty", "launch"),
+            "launch runtime facts require bundle",
+        ),
+        (
+            facts("codex", "", "codex-pty", "", "launch"),
+            "launch runtime facts require transport",
+        ),
+        (
+            facts("codex", "", "", "", "hook"),
+            "hook runtime facts require claimed_harness",
+        ),
+        (
+            facts("codex", "codex", "codex-pty", "pty", "hook"),
+            "hook runtime facts forbid bundle",
+        ),
+        (
+            facts("codex", "codex", "", "exec", "hook"),
+            "unknown transport",
+        ),
+        (
+            facts("codex", "codex", "", "", "migration"),
+            "endpoint_provenance launch or hook",
+        ),
+    ];
+
+    for (candidate, expected) in cases {
+        let store = Store::open_memory().unwrap();
+        let error = store
+            .reserve_session_with_facts(&reg("codex", "pk", "room"), &candidate)
+            .unwrap_err();
+        assert!(error.to_string().contains(expected), "{error:#}");
+        assert!(store.get_session("pk").unwrap().is_none());
+    }
+}
