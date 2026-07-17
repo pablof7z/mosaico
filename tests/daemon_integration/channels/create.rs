@@ -151,6 +151,7 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
                 "name": "subtask",
                 "agents": [],
                 "harness_session": sid,
+                "harness": "claude-code",
                 "agent": "coder",
                 "cwd": "/tmp",
             }),
