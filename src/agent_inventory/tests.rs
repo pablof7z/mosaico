@@ -7,7 +7,7 @@ fn write(path: &Path, body: &str) {
 }
 
 #[test]
-fn expands_conflicts_and_includes_bare_harnesses() {
+fn bundleless_catalog_expands_profiles_and_includes_generic_agents() {
     let home = tempfile::tempdir().unwrap();
     write(
         &home.path().join(".codex/agents/writer.toml"),
@@ -18,14 +18,7 @@ fn expands_conflicts_and_includes_bare_harnesses() {
         "---\nname: writer\ndescription: Writes with Claude\n---\nWrite",
     );
     let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
-    let harnesses: HarnessesConfig = serde_json::from_str(
-        r#"{
-          "claude-pty":{"harness":"claude","transport":"pty"},
-          "codex-pty":{"harness":"codex","transport":"pty"},
-          "opencode-pty":{"harness":"opencode","transport":"pty"}
-        }"#,
-    )
-    .unwrap();
+    let harnesses = HarnessesConfig::default();
 
     let inventory = AgentInventory::build(
         home.path(),
@@ -109,8 +102,7 @@ fn invalid_same_named_agent_does_not_shadow_available_harness() {
     let codex = inventory
         .find("codex")
         .expect("bare harness remains available");
-    assert_eq!(codex.source, AgentSource::DefaultAgent);
-    assert_eq!(codex.bundle, "codex-pty");
+    assert_eq!(codex.source, AgentSource::Generic);
     assert!(inventory
         .failures
         .iter()

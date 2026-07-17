@@ -13,8 +13,8 @@ pub(crate) struct CatalogChange {
 }
 
 impl DaemonState {
-    pub(crate) fn available_harnesses(&self) -> &[Harness] {
-        &self.cfg.available_harnesses
+    pub(crate) fn installed_harnesses(&self) -> Vec<Harness> {
+        self.installed_harnesses.lock().unwrap().clone()
     }
 
     pub(crate) fn agent_catalog(&self) -> AgentCatalog {
@@ -32,17 +32,28 @@ impl DaemonState {
                 .collect::<Vec<_>>()
         });
         let discovered = discover(&roots, workspaces)?;
-        let mut current = self.agent_catalog.lock().unwrap();
-        if *current == discovered {
+        let installed = crate::config::detect_available_harnesses()?;
+        let current = self.agent_catalog.lock().unwrap().clone();
+        let current_harnesses = self.installed_harnesses();
+        if current == discovered && current_harnesses == installed {
             return Ok(None);
         }
         let new_slugs = discovered.slugs();
-        let removed_slugs = current
+        let mut removed_slugs = current
             .slugs()
             .into_iter()
             .filter(|slug| !new_slugs.contains(slug))
-            .collect();
-        *current = discovered;
+            .collect::<Vec<_>>();
+        removed_slugs.extend(
+            current_harnesses
+                .iter()
+                .filter(|harness| !installed.contains(harness))
+                .map(|harness| harness.agent_slug().to_string()),
+        );
+        removed_slugs.sort();
+        removed_slugs.dedup();
+        *self.agent_catalog.lock().unwrap() = discovered;
+        *self.installed_harnesses.lock().unwrap() = installed;
         Ok(Some(CatalogChange { removed_slugs }))
     }
 

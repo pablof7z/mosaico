@@ -9,11 +9,10 @@ use serde::Deserialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-mod available_harnesses;
 mod management_key;
-pub use available_harnesses::{
-    detect as detect_available_harnesses, ensure_configured as ensure_available_harnesses,
-};
+pub use harness_detection::detect as detect_available_harnesses;
+#[path = "config/harness_detection.rs"]
+mod harness_detection;
 pub(crate) use management_key::{ensure_mosaico_private_key, generate_mosaico_private_key};
 
 pub const DEFAULT_RELAY: &str = "wss://nip29.f7z.io";
@@ -52,9 +51,6 @@ pub struct Config {
     /// `--channel`) opens the interactive channel picker instead of minting.
     /// When `true`, per-session rooms are enabled (mint a per-session room).
     pub per_session_rooms: bool,
-    /// Harnesses installed on this machine and eligible to appear as default
-    /// launchable agents in addition to configured and native profiles.
-    pub available_harnesses: Vec<crate::session::Harness>,
 }
 
 impl Config {
@@ -114,8 +110,6 @@ struct RawConfig {
     /// Defaults to `false` (use the root channel; `launch` opens the picker).
     #[serde(default, rename = "perSessionRooms")]
     per_session_rooms: bool,
-    #[serde(default, rename = "availableHarnesses")]
-    available_harnesses: serde_json::Value,
 }
 
 impl Config {
@@ -135,11 +129,6 @@ impl Config {
             .indexer_relay
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_INDEXER_RELAY.to_string());
-        let available_harnesses = if raw.available_harnesses.is_null() {
-            Vec::new()
-        } else {
-            available_harnesses::parse(&raw.available_harnesses)?
-        };
         Ok(Config {
             whitelisted_pubkeys: raw.whitelisted_pubkeys,
             relays,
@@ -148,13 +137,11 @@ impl Config {
             user_nsec: raw.user_nsec,
             mosaico_private_key: raw.mosaico_private_key,
             per_session_rooms: raw.per_session_rooms,
-            available_harnesses,
         })
     }
 
     /// Load from `~/.mosaico/config.json` (or `$MOSAICO_CONFIG` override).
     pub fn load() -> Result<Self> {
-        ensure_available_harnesses().context("recording available harnesses in config")?;
         let path = config_path();
         let s = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

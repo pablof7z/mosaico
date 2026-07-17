@@ -9,7 +9,6 @@ use crate::cli::interactive::agent_picker::{
 
 pub(super) struct FreshAgentSelection {
     pub(super) slug: String,
-    pub(super) retired_advertisements: Vec<String>,
 }
 
 pub(super) async fn select_available() -> Result<Option<String>> {
@@ -47,7 +46,7 @@ pub(super) fn resolve_fresh_agent(
 ) -> Result<FreshAgentSelection> {
     let inventory = local_inventory(cwd)?;
     if let Some(selected) = inventory.find(requested) {
-        return persist_selection(selected, &inventory);
+        return Ok(selection(selected));
     }
 
     let choices = inventory.profile_choices(requested);
@@ -73,7 +72,7 @@ pub(super) fn resolve_fresh_agent(
         .items(&labels)
         .default(0)
         .interact()?;
-    persist_selection(choices[index], &inventory)
+    Ok(selection(choices[index]))
 }
 
 fn interactive_terminal() -> bool {
@@ -87,11 +86,11 @@ fn menu_rows(agents: &[&crate::agent_inventory::AvailableAgent]) -> Vec<AgentPic
 
 fn menu_row(agent: &crate::agent_inventory::AvailableAgent) -> AgentPickerRow {
     let description = compact(&agent.use_criteria);
-    let (description, description_harness, provenance) = match agent.source {
-        crate::agent_inventory::AgentSource::Configured => {
+    let (description, description_harness, provenance) = match &agent.source {
+        crate::agent_inventory::AgentSource::Configured { .. } => {
             (nonempty(description, "Configured agent"), None, None)
         }
-        crate::agent_inventory::AgentSource::NativeProfile => {
+        crate::agent_inventory::AgentSource::NativeProfile { .. } => {
             let label = format!("{} profile", harness_label(agent.harness));
             (
                 nonempty(description, "Native agent profile"),
@@ -102,7 +101,7 @@ fn menu_row(agent: &crate::agent_inventory::AvailableAgent) -> AgentPickerRow {
                 }),
             )
         }
-        crate::agent_inventory::AgentSource::DefaultAgent => (
+        crate::agent_inventory::AgentSource::Generic => (
             format!("Generic {} agent", harness_label(agent.harness)),
             Some(agent.harness),
             None,
@@ -142,43 +141,22 @@ fn compact(value: &str) -> String {
         .join(" ")
 }
 
-fn persist_selection(
-    selected: &crate::agent_inventory::AvailableAgent,
-    inventory: &crate::agent_inventory::AgentInventory,
-) -> Result<FreshAgentSelection> {
-    let retired_advertisements = if selected.persist_binding {
-        let retired = inventory
-            .profile_choices(&selected.agent_slug)
-            .into_iter()
-            .map(|choice| choice.slug.clone())
-            .collect();
-        crate::identity::add_local_agent(
-            &crate::config::mosaico_home(),
-            &selected.agent_slug,
-            &selected.bundle,
-            None,
-            crate::util::now_secs(),
-        )?;
-        retired
-    } else {
-        Vec::new()
-    };
-    Ok(FreshAgentSelection {
-        slug: selected.agent_slug.clone(),
-        retired_advertisements,
-    })
+fn selection(selected: &crate::agent_inventory::AvailableAgent) -> FreshAgentSelection {
+    FreshAgentSelection {
+        slug: selected.slug.clone(),
+    }
 }
 
 fn local_inventory(cwd: &std::path::Path) -> Result<crate::agent_inventory::AgentInventory> {
-    let config = crate::config::Config::load()?;
     let harnesses = crate::harness::HarnessesConfig::load()?;
+    let installed = crate::config::detect_available_harnesses()?;
     let catalog = crate::agent_catalog::AgentCatalog::discover(
         &crate::agent_catalog::DiscoveryRoots::installed()?,
         &[cwd.to_path_buf()],
     )?;
     Ok(crate::agent_inventory::AgentInventory::build(
         &crate::config::mosaico_home(),
-        &config.available_harnesses,
+        &installed,
         &harnesses,
         &catalog,
         Some(cwd),

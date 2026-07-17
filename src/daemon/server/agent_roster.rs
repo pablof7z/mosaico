@@ -156,6 +156,7 @@ pub(in crate::daemon::server) fn capability_advertisements(
     let bindings = state.with_store(|store| store.list_workspace_bindings().unwrap_or_default());
     let mut merged = BTreeMap::<String, (String, u64, BTreeSet<String>)>::new();
     let catalog = state.agent_catalog();
+    let installed_harnesses = state.installed_harnesses();
     let mut failed = Vec::new();
     let harnesses = match crate::harness::HarnessesConfig::load() {
         Ok(config) => config,
@@ -168,7 +169,7 @@ pub(in crate::daemon::server) fn capability_advertisements(
         &mut merged,
         crate::agent_inventory::AgentInventory::build(
             &crate::config::mosaico_home(),
-            state.available_harnesses(),
+            &installed_harnesses,
             &harnesses,
             &catalog,
             None,
@@ -184,7 +185,7 @@ pub(in crate::daemon::server) fn capability_advertisements(
             &mut merged,
             crate::agent_inventory::AgentInventory::build(
                 &crate::config::mosaico_home(),
-                state.available_harnesses(),
+                &installed_harnesses,
                 &harnesses,
                 &catalog,
                 Some(std::path::Path::new(&binding.abs_path)),

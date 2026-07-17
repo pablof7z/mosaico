@@ -86,8 +86,7 @@ fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Harness> {
     if row.harness != Harness::Unknown {
         return Ok(row.harness);
     }
-    let available = crate::config::Config::load()?
-        .available_harnesses
+    let available = crate::config::detect_available_harnesses()?
         .into_iter()
         .filter(|harness| *harness != Harness::Unknown)
         .collect::<Vec<_>>();

@@ -41,6 +41,7 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
         &root,
         &rec.channel_h,
         &resume_id,
+        crate::session_host::LaunchIntent::Interactive,
     )
     .await?;
     Ok(serde_json::json!({

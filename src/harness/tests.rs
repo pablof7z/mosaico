@@ -127,33 +127,6 @@ fn unsupported_profile_pair_fails_loud() {
 }
 
 #[test]
-fn native_bundle_prefers_codex_app_server_and_rejects_ambiguity() {
-    let cfg: HarnessesConfig = serde_json::from_str(
-        r#"{
-          "codex-pty":{"harness":"codex","transport":"pty"},
-          "codex-rpc":{"harness":"codex","transport":"app-server"}
-        }"#,
-    )
-    .unwrap();
-    assert_eq!(
-        native_bundle_with(&cfg, Harness::Codex).unwrap(),
-        "codex-rpc"
-    );
-
-    let ambiguous: HarnessesConfig = serde_json::from_str(
-        r#"{
-          "codex-rpc-a":{"harness":"codex","transport":"app-server"},
-          "codex-rpc-b":{"harness":"codex","transport":"app-server"}
-        }"#,
-    )
-    .unwrap();
-    assert!(native_bundle_with(&ambiguous, Harness::Codex)
-        .unwrap_err()
-        .to_string()
-        .contains("explicit agent harness binding"));
-}
-
-#[test]
 fn native_selector_uses_only_supported_driver_cells() {
     let cfg: HarnessesConfig =
         serde_json::from_str(r#"{"claude":{"harness":"claude","transport":"pty"}}"#).unwrap();

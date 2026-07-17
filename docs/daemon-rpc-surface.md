@@ -260,8 +260,10 @@ Sends keystrokes or text to a portable PTY session.
 
 ### `pty_spawn`
 Spawns an agent through either its explicit bundle binding or an unambiguous
-bundle selected for its discovered native harness profile, optionally pre-loading
-a message. The RPC accepts no argv, command, or bundle override.
+logical native/generic provider. This interactive boundary selects PTY launch
+policy and atomically creates the canonical zero-argument bundle when none is
+configured, optionally pre-loading a message. The RPC accepts no argv, command,
+or bundle override.
 
 ### `pty_attach`
 Accepts an npub, hex pubkey, or handle and returns the PTY target plus public identity.

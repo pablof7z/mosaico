@@ -72,6 +72,7 @@ mod tests {
             &root.path().join(".claude/agents/writer.md"),
             "---\nname: writer\ndescription: Writes\n---\nWrite",
         );
+        std::fs::create_dir_all(root.path().join(".config/opencode")).unwrap();
         let state = DaemonState::new_for_test().await;
         state.refresh_agent_catalog().unwrap();
 

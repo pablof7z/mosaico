@@ -1,31 +1,40 @@
-//! One launch inventory shared by the CLI, daemon roster, and spawn resolver.
+//! Canonical logical agent inventory shared by every local consumer.
+//!
+//! This module answers which agents exist. It deliberately does not choose a
+//! harness bundle for native profiles or generic installed harnesses; hosted
+//! launch intent owns that later realization step.
 
-use crate::agent_catalog::{AgentCapability, AgentCatalog};
+use crate::agent_catalog::{AgentCatalog, NativeAgentProfile};
 use crate::harness::HarnessesConfig;
 use crate::session::Harness;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentSource {
-    Configured,
-    NativeProfile,
-    DefaultAgent,
+    Configured {
+        bundle: String,
+        profile: Option<String>,
+        per_session_key: bool,
+        native_profile: Option<NativeAgentProfile>,
+    },
+    NativeProfile {
+        profile: NativeAgentProfile,
+        persist_binding: bool,
+    },
+    Generic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableAgent {
-    /// Public selection/advertisement name. Conflicts carry a harness suffix.
+    /// Public selector. Cross-harness native conflicts carry a harness suffix.
     pub(crate) slug: String,
-    /// Canonical agent/profile name stored in sessions and agent JSON.
+    /// Canonical agent/profile name stored in sessions and explicit bindings.
     pub(crate) agent_slug: String,
-    pub(crate) bundle: String,
     pub(crate) harness: Harness,
     pub(crate) use_criteria: String,
     pub(crate) available_since: u64,
     pub(crate) source: AgentSource,
-    /// Selecting a suffixed conflict option makes the choice durable.
-    pub(crate) persist_binding: bool,
 }
 
 #[derive(Debug, Default)]
@@ -37,7 +46,7 @@ pub(crate) struct AgentInventory {
 impl AgentInventory {
     pub(crate) fn build(
         mosaico_home: &Path,
-        available_harnesses: &[Harness],
+        installed_harnesses: &[Harness],
         harnesses: &HarnessesConfig,
         catalog: &AgentCatalog,
         workspace: Option<&Path>,
@@ -48,32 +57,79 @@ impl AgentInventory {
             .into_iter()
             .map(|(slug, _, created_at)| (slug, created_at))
             .collect::<BTreeMap<_, _>>();
+        let capabilities = catalog.capabilities(workspace);
 
-        for (slug, bundle, _, byline) in crate::identity::list_local_agents(mosaico_home) {
-            match crate::harness::bundle_harness_with(harnesses, &bundle) {
-                Ok(harness) => {
-                    configured.insert(slug.clone());
-                    inventory.agents.push(AvailableAgent {
-                        slug: slug.clone(),
-                        agent_slug: slug.clone(),
-                        bundle,
-                        harness,
-                        use_criteria: byline.unwrap_or_default(),
-                        available_since: created.get(&slug).copied().unwrap_or(0),
-                        source: AgentSource::Configured,
-                        persist_binding: false,
-                    });
+        for agent in crate::identity::list_local_agent_details(mosaico_home) {
+            let bundle = agent.harness;
+            let harness = match crate::harness::bundle_harness_with(harnesses, &bundle) {
+                Ok(harness) => harness,
+                Err(error) => {
+                    inventory
+                        .failures
+                        .push(format!("{}: {error:#}", agent.slug));
+                    continue;
                 }
-                Err(error) => inventory.failures.push(format!("{slug}: {error:#}")),
-            }
+            };
+            let native_profile = capabilities
+                .iter()
+                .flat_map(|capability| capability.profiles.iter())
+                .find(|profile| profile.slug == agent.slug && profile.harness == harness)
+                .cloned();
+            let use_criteria = agent
+                .byline
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    native_profile
+                        .as_ref()
+                        .map(|profile| profile.use_criteria.clone())
+                })
+                .unwrap_or_default();
+            configured.insert(agent.slug.clone());
+            inventory.agents.push(AvailableAgent {
+                slug: agent.slug.clone(),
+                agent_slug: agent.slug.clone(),
+                harness,
+                use_criteria,
+                available_since: created.get(&agent.slug).copied().unwrap_or(0),
+                source: AgentSource::Configured {
+                    bundle,
+                    profile: agent.profile,
+                    per_session_key: agent.per_session_key,
+                    native_profile,
+                },
+            });
         }
 
-        for capability in catalog.capabilities(workspace) {
-            if !configured.contains(&capability.slug) {
-                inventory.add_capability(capability, available_harnesses, harnesses);
+        for capability in capabilities {
+            if configured.contains(&capability.slug) {
+                continue;
+            }
+            let profiles = capability
+                .profiles
+                .into_iter()
+                .filter(|profile| installed_harnesses.contains(&profile.harness))
+                .collect::<Vec<_>>();
+            let conflicted = profiles.len() > 1;
+            for profile in profiles {
+                let slug = if conflicted {
+                    format!("{}-{}", capability.slug, profile.harness.agent_slug())
+                } else {
+                    capability.slug.clone()
+                };
+                inventory.agents.push(AvailableAgent {
+                    slug,
+                    agent_slug: capability.slug.clone(),
+                    harness: profile.harness,
+                    use_criteria: profile.use_criteria.clone(),
+                    available_since: capability.available_since,
+                    source: AgentSource::NativeProfile {
+                        profile,
+                        persist_binding: conflicted,
+                    },
+                });
             }
         }
-        inventory.add_harnesses(available_harnesses, harnesses);
+        inventory.add_generic_agents(installed_harnesses);
         inventory.agents.sort_by(|a, b| a.slug.cmp(&b.slug));
         inventory.failures.sort();
         inventory.failures.dedup();
@@ -88,70 +144,32 @@ impl AgentInventory {
         self.agents
             .iter()
             .filter(|agent| {
-                agent.source == AgentSource::NativeProfile
-                    && agent.persist_binding
-                    && agent.agent_slug == slug
+                agent.agent_slug == slug
+                    && matches!(
+                        agent.source,
+                        AgentSource::NativeProfile {
+                            persist_binding: true,
+                            ..
+                        }
+                    )
             })
             .collect()
     }
 
-    fn add_capability(
-        &mut self,
-        capability: AgentCapability,
-        available_harnesses: &[Harness],
-        harnesses: &HarnessesConfig,
-    ) {
-        let mut choices = Vec::new();
-        for profile in capability.profiles {
-            if !available_harnesses.contains(&profile.harness) {
-                continue;
-            }
-            match crate::harness::native_bundle_with(harnesses, profile.harness) {
-                Ok(bundle) => choices.push((profile.harness, bundle, profile.use_criteria)),
-                Err(error) => self
-                    .failures
-                    .push(format!("{}: {error:#}", capability.slug)),
-            }
-        }
-        let conflicted = choices.len() > 1;
-        for (harness, bundle, use_criteria) in choices {
-            let slug = if conflicted {
-                format!("{}-{}", capability.slug, harness.agent_slug())
-            } else {
-                capability.slug.clone()
-            };
-            self.agents.push(AvailableAgent {
-                slug,
-                agent_slug: capability.slug.clone(),
-                bundle,
-                harness,
-                use_criteria,
-                available_since: capability.available_since,
-                source: AgentSource::NativeProfile,
-                persist_binding: conflicted,
-            });
-        }
-    }
-
-    fn add_harnesses(&mut self, available: &[Harness], harnesses: &HarnessesConfig) {
-        for harness in available {
+    fn add_generic_agents(&mut self, installed: &[Harness]) {
+        for harness in installed {
             let slug = harness.agent_slug();
             if self.agents.iter().any(|agent| agent.slug == slug) {
                 continue;
             }
-            match crate::harness::native_bundle_with(harnesses, *harness) {
-                Ok(bundle) => self.agents.push(AvailableAgent {
-                    slug: slug.to_string(),
-                    agent_slug: slug.to_string(),
-                    bundle,
-                    harness: *harness,
-                    use_criteria: String::new(),
-                    available_since: 0,
-                    source: AgentSource::DefaultAgent,
-                    persist_binding: false,
-                }),
-                Err(error) => self.failures.push(format!("{slug}: {error:#}")),
-            }
+            self.agents.push(AvailableAgent {
+                slug: slug.to_string(),
+                agent_slug: slug.to_string(),
+                harness: *harness,
+                use_criteria: String::new(),
+                available_since: 0,
+                source: AgentSource::Generic,
+            });
         }
     }
 }

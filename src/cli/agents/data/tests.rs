@@ -1,9 +1,23 @@
 use super::*;
 use crate::agent_catalog::DiscoveryRoots;
+use std::path::Path;
 
 fn write(path: &Path, body: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, body).unwrap();
+}
+
+fn rows(
+    home: &Path,
+    installed: &[Harness],
+    harnesses: &HarnessesConfig,
+    catalog: &AgentCatalog,
+) -> Vec<AgentRow> {
+    AgentInventory::build(home, installed, harnesses, catalog, Some(home))
+        .agents
+        .into_iter()
+        .map(|agent| project(agent, harnesses))
+        .collect()
 }
 
 #[test]
@@ -19,12 +33,11 @@ fn combines_configured_native_and_generic_agents() {
     )
     .unwrap();
     crate::identity::add_local_agent(home.path(), "writer", "codex-pty", None, 1).unwrap();
-    let rows = build(
+    let rows = rows(
         home.path(),
         &[Harness::ClaudeCode, Harness::Codex],
         &harnesses,
         &catalog,
-        home.path(),
     );
     assert!(rows.iter().any(|row| row.slug == "reviewer"));
     assert!(rows.iter().any(|row| row.slug == "writer"));
@@ -48,34 +61,29 @@ fn configured_native_profile_is_one_row_with_exact_profile_attached() {
     let harnesses: HarnessesConfig =
         serde_json::from_str(r#"{"claude-pty":{"harness":"claude","transport":"pty"}}"#).unwrap();
     crate::identity::add_local_agent(home.path(), "reviewer", "claude-pty", None, 1).unwrap();
-    let rows = build(
-        home.path(),
-        &[Harness::ClaudeCode],
-        &harnesses,
-        &catalog,
-        home.path(),
-    );
+    let rows = rows(home.path(), &[Harness::ClaudeCode], &harnesses, &catalog);
     let reviewer = rows.iter().find(|row| row.slug == "reviewer").unwrap();
     assert_eq!(reviewer.kind, AgentKind::Configured);
     assert!(reviewer.native_profile.is_some());
 }
 
 #[test]
-fn native_profile_preview_never_selects_an_unsupported_transport() {
-    let harnesses: HarnessesConfig = serde_json::from_str(
-        r#"{
-          "opencode-acp":{"harness":"opencode","transport":"acp"},
-          "opencode-pty":{"harness":"opencode","transport":"pty"}
-        }"#,
-    )
-    .unwrap();
+fn implicit_rows_remain_bundle_independent() {
+    let home = tempfile::tempdir().unwrap();
+    write(
+        &home.path().join(".config/opencode/agents/reviewer.md"),
+        "---\nname: reviewer\ndescription: Reviews changes\n---\nReview",
+    );
+    let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
+    let rows = rows(
+        home.path(),
+        &[Harness::Opencode],
+        &HarnessesConfig::default(),
+        &catalog,
+    );
 
-    assert_eq!(
-        preferred_bundle(&harnesses, Harness::Opencode, true).as_deref(),
-        Some("opencode-pty")
-    );
-    assert_eq!(
-        preferred_bundle(&harnesses, Harness::Opencode, false).as_deref(),
-        Some("opencode-acp")
-    );
+    for row in rows {
+        assert!(row.bundle.is_none());
+        assert!(row.transport.is_none());
+    }
 }

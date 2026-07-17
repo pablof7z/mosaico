@@ -1,5 +1,6 @@
 use super::*;
-use crate::session_host::transport::select_transport;
+use crate::agent_inventory::AgentSource;
+use crate::harness::{HarnessesConfig, Transport};
 
 #[derive(Default)]
 pub(super) struct PtyLaunchSpec {
@@ -23,26 +24,28 @@ pub(super) struct ResolvedSource {
 
 pub(super) fn resolve_agent_source(
     state: &Arc<DaemonState>,
-    slug: &str,
+    selector: &str,
     workspace: &std::path::Path,
+    intent: LaunchIntent,
 ) -> Result<ResolvedSource> {
     let home = crate::config::mosaico_home();
-    let cfg = crate::harness::HarnessesConfig::load()?;
+    let mut harnesses = HarnessesConfig::load()?;
     let catalog = state.agent_catalog();
+    let installed = state.installed_harnesses();
     let inventory = crate::agent_inventory::AgentInventory::build(
         &home,
-        state.available_harnesses(),
-        &cfg,
+        &installed,
+        &harnesses,
         &catalog,
         Some(workspace),
     );
-    let selected = inventory.find(slug).cloned().with_context(|| {
-        let choices = inventory.profile_choices(slug);
+    let selected = inventory.find(selector).cloned().with_context(|| {
+        let choices = inventory.profile_choices(selector);
         if choices.is_empty() {
-            format!("no available agent or harness named {slug:?}")
+            format!("no available agent or harness named {selector:?}")
         } else {
             format!(
-                "agent {slug:?} is available from multiple harnesses; choose {}",
+                "agent {selector:?} is available from multiple harnesses; choose {}",
                 choices
                     .iter()
                     .map(|choice| choice.slug.as_str())
@@ -51,80 +54,79 @@ pub(super) fn resolve_agent_source(
             )
         }
     })?;
+
     let (identity, bundle, profile, native_profile, retired_advertisements) = match selected.source
     {
-        crate::agent_inventory::AgentSource::Configured => {
-            let identity = crate::identity::load(&home, slug)?;
-            let bundle = selected.bundle;
-            let profile = identity.profile.clone();
-            let native_profile = profile
-                .is_none()
-                .then(|| {
-                    state
-                        .resolve_native_agent(slug, Some(workspace), Some(selected.harness))
-                        .ok()
-                })
-                .flatten();
+        AgentSource::Configured {
+            bundle,
+            profile,
+            native_profile,
+            ..
+        } => {
+            let identity = crate::identity::load(&home, &selected.agent_slug)?;
+            let native_profile = profile.is_none().then_some(native_profile).flatten();
             (identity, bundle, profile, native_profile, Vec::new())
         }
-        crate::agent_inventory::AgentSource::DefaultAgent => (
-            crate::identity::AgentIdentity::per_session(&selected.agent_slug, &selected.bundle),
-            selected.bundle,
-            None,
-            None,
-            Vec::new(),
-        ),
-        crate::agent_inventory::AgentSource::NativeProfile => {
-            let native_profile = state.resolve_native_agent(
-                &selected.agent_slug,
-                Some(workspace),
-                Some(selected.harness),
-            )?;
-            let retired = if selected.persist_binding {
+        AgentSource::Generic => {
+            let bundle = realize_implicit_bundle(&mut harnesses, selected.harness, intent, false)?;
+            (
+                crate::identity::AgentIdentity::per_session(&selected.agent_slug, &bundle),
+                bundle,
+                None,
+                None,
+                Vec::new(),
+            )
+        }
+        AgentSource::NativeProfile {
+            profile: native_profile,
+            persist_binding,
+        } => {
+            let bundle = realize_implicit_bundle(&mut harnesses, selected.harness, intent, true)?;
+            let retired = persist_binding.then(|| {
                 inventory
                     .profile_choices(&selected.agent_slug)
                     .into_iter()
                     .map(|choice| choice.slug.clone())
                     .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            let identity = if selected.persist_binding {
+            });
+            let identity = if persist_binding {
                 crate::identity::add_local_agent(
                     &home,
                     &selected.agent_slug,
-                    &selected.bundle,
+                    &bundle,
                     None,
                     crate::util::now_secs(),
                 )?
                 .0
             } else {
-                crate::identity::AgentIdentity::per_session(&selected.agent_slug, &selected.bundle)
+                crate::identity::AgentIdentity::per_session(&selected.agent_slug, &bundle)
             };
             (
                 identity,
-                selected.bundle,
+                bundle,
                 None,
                 Some(native_profile),
-                retired,
+                retired.unwrap_or_default(),
             )
         }
     };
+
     let native_agent = native_profile
         .as_ref()
-        .map(|profile| profile.activation())
+        .map(|native| native.activation())
         .transpose()?;
     let id = crate::pty::new_endpoint_id(&identity.slug);
-    let scratch = crate::config::mosaico_home()
-        .join("harness-profiles")
-        .join(&id);
-    let mut resolved = crate::harness::resolve_with(&cfg, &bundle, profile.as_deref(), &scratch)
-        .with_context(|| format!("resolving harness bundle {bundle:?} for agent {slug:?}"))?;
+    let scratch = home.join("harness-profiles").join(&id);
+    let mut resolved =
+        crate::harness::resolve_with(&harnesses, &bundle, profile.as_deref(), &scratch)
+            .with_context(|| {
+                format!("resolving harness bundle {bundle:?} for agent {selector:?}")
+            })?;
     if let Some(native_agent) = &native_agent {
         crate::harness::apply_native_agent(&mut resolved, native_agent, &scratch)
-            .with_context(|| format!("applying native agent {slug:?}"))?;
+            .with_context(|| format!("applying native agent {selector:?}"))?;
     }
-    let transport = select_transport(&bundle)?;
+    let transport = crate::session_host::transport::select_transport_with(&harnesses, &bundle)?;
     let pty_launch = if matches!(transport, TransportImpl::Pty(_)) {
         resolved.profile.materialize()?;
         let mut env = resolved.profile.extra_env.clone();
@@ -159,6 +161,60 @@ pub(super) fn resolve_agent_source(
         pty_launch,
         retired_advertisements,
     })
+}
+
+fn realize_implicit_bundle(
+    harnesses: &mut HarnessesConfig,
+    harness: crate::session::Harness,
+    intent: LaunchIntent,
+    native_profile: bool,
+) -> Result<String> {
+    let transport = desired_transport(harness, intent, native_profile)?;
+    let (bundle, created) = harnesses.resolve_or_create_hosted(harness, transport)?;
+    if created {
+        harnesses.save_to(&crate::config::mosaico_home().join("harnesses.json"))?;
+    }
+    Ok(bundle)
+}
+
+fn desired_transport(
+    harness: crate::session::Harness,
+    intent: LaunchIntent,
+    native_profile: bool,
+) -> Result<Transport> {
+    let preferred = match intent {
+        LaunchIntent::Interactive => [Some(Transport::Pty), None],
+        LaunchIntent::Managed => match harness {
+            crate::session::Harness::Codex => [Some(Transport::AppServer), Some(Transport::Pty)],
+            crate::session::Harness::ClaudeCode | crate::session::Harness::Opencode => {
+                [Some(Transport::Acp), Some(Transport::Pty)]
+            }
+            crate::session::Harness::Grok => [Some(Transport::Pty), None],
+            crate::session::Harness::Unknown => [None, None],
+        },
+    };
+    preferred
+        .into_iter()
+        .flatten()
+        .find(|transport| {
+            crate::harness::driver::lookup(harness, *transport).is_some()
+                && (!native_profile || crate::harness::supports_native_agent(harness, *transport))
+        })
+        .with_context(|| {
+            format!(
+                "{} has no {} hosted transport{}",
+                harness.as_str(),
+                match intent {
+                    LaunchIntent::Interactive => "interactive",
+                    LaunchIntent::Managed => "managed",
+                },
+                if native_profile {
+                    " that can activate native profiles"
+                } else {
+                    ""
+                }
+            )
+        })
 }
 
 #[cfg(test)]

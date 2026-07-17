@@ -80,6 +80,7 @@ pub async fn run() -> Result<()> {
         host,
         owners,
         agent_catalog: Mutex::new(crate::agent_catalog::AgentCatalog::default()),
+        installed_harnesses: Mutex::new(Vec::new()),
         hosted: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
         subscribed_root_channels: Mutex::new(Vec::new()),
@@ -99,7 +100,6 @@ pub async fn run() -> Result<()> {
         warming: Mutex::new(std::collections::HashSet::new()),
         last_status: Mutex::new(HashMap::new()),
     });
-
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());
     spawn_pruner(state.clone());

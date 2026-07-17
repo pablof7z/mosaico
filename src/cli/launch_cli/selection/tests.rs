@@ -8,7 +8,7 @@ fn write(path: &std::path::Path, body: &str) {
 }
 
 #[test]
-fn explicit_conflict_combination_persists_canonical_profile_binding() {
+fn conflict_selector_is_forwarded_for_daemon_side_realization() {
     let root = tempfile::tempdir().unwrap();
     let mosaico_home = root.path().join("mosaico");
     let codex_home = root.path().join(".codex");
@@ -17,17 +17,6 @@ fn explicit_conflict_combination_persists_canonical_profile_binding() {
     env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
     env.set_var("CODEX_HOME", &codex_home);
     env.set_var("XDG_CONFIG_HOME", root.path().join(".config"));
-    write(
-        &mosaico_home.join("config.json"),
-        r#"{"availableHarnesses":["claude","codex"]}"#,
-    );
-    write(
-        &mosaico_home.join("harnesses.json"),
-        r#"{
-          "claude-pty":{"harness":"claude","transport":"pty"},
-          "codex-pty":{"harness":"codex","transport":"pty"}
-        }"#,
-    );
     write(
         &codex_home.join("agents/writer.toml"),
         "name='writer'\ndescription='Writes'\ndeveloper_instructions='Write'",
@@ -39,18 +28,8 @@ fn explicit_conflict_combination_persists_canonical_profile_binding() {
 
     let selection = resolve_fresh_agent("writer-codex", root.path()).unwrap();
 
-    assert_eq!(selection.slug, "writer");
-    assert_eq!(
-        selection.retired_advertisements,
-        ["writer-claude", "writer-codex"]
-    );
-    let binding: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(mosaico_home.join("agents/writer.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(binding["slug"], "writer");
-    assert_eq!(binding["harness"], "codex-pty");
-    assert!(binding.get("profile").is_none());
+    assert_eq!(selection.slug, "writer-codex");
+    assert!(!mosaico_home.join("agents/writer.json").exists());
 }
 
 #[test]
@@ -60,22 +39,18 @@ fn menu_rows_are_aligned_single_line_and_bounded() {
             crate::agent_inventory::AvailableAgent {
                 slug: "writing-partner".into(),
                 agent_slug: "writing-partner".into(),
-                bundle: "claude-pty".into(),
                 harness: crate::session::Harness::ClaudeCode,
                 use_criteria: "Drafts\\nrevises   and publishes ".repeat(20),
                 available_since: 0,
-                source: crate::agent_inventory::AgentSource::Configured,
-                persist_binding: false,
+                source: configured_source(),
             },
             crate::agent_inventory::AvailableAgent {
                 slug: "codex".into(),
                 agent_slug: "codex".into(),
-                bundle: "codex-pty".into(),
                 harness: crate::session::Harness::Codex,
                 use_criteria: String::new(),
                 available_since: 0,
-                source: crate::agent_inventory::AgentSource::DefaultAgent,
-                persist_binding: false,
+                source: crate::agent_inventory::AgentSource::Generic,
             },
         ],
         failures: Vec::new(),
@@ -102,12 +77,10 @@ fn recent_count_then_last_use_determine_agent_order() {
     let agent = |slug: &str, agent_slug: &str| crate::agent_inventory::AvailableAgent {
         slug: slug.into(),
         agent_slug: agent_slug.into(),
-        bundle: "codex-pty".into(),
         harness: crate::session::Harness::Codex,
         use_criteria: String::new(),
         available_since: 0,
-        source: crate::agent_inventory::AgentSource::DefaultAgent,
-        persist_binding: false,
+        source: crate::agent_inventory::AgentSource::Generic,
     };
     let inventory = crate::agent_inventory::AgentInventory {
         agents: vec![
@@ -149,12 +122,20 @@ fn native_profile_description_precedes_colored_harness_provenance() {
     let agent = crate::agent_inventory::AvailableAgent {
         slug: "writer".into(),
         agent_slug: "writer".into(),
-        bundle: "claude-pty".into(),
         harness: crate::session::Harness::ClaudeCode,
         use_criteria: "Drafts release notes".into(),
         available_since: 0,
-        source: crate::agent_inventory::AgentSource::NativeProfile,
-        persist_binding: false,
+        source: crate::agent_inventory::AgentSource::NativeProfile {
+            profile: crate::agent_catalog::NativeAgentProfile {
+                slug: "writer".into(),
+                use_criteria: "Drafts release notes".into(),
+                harness: crate::session::Harness::ClaudeCode,
+                path: "/tmp/writer.md".into(),
+                scope: crate::agent_catalog::AgentScope::Global,
+                modified_at: 0,
+            },
+            persist_binding: false,
+        },
     };
 
     let row = menu_row(&agent);
@@ -176,12 +157,10 @@ fn configured_agent_uses_byline_or_generic_configured_description_without_proven
     let configured = |criteria: &str| crate::agent_inventory::AvailableAgent {
         slug: "writer".into(),
         agent_slug: "writer".into(),
-        bundle: "claude-pty".into(),
         harness: crate::session::Harness::ClaudeCode,
         use_criteria: criteria.into(),
         available_since: 0,
-        source: crate::agent_inventory::AgentSource::Configured,
-        persist_binding: false,
+        source: configured_source(),
     };
 
     let described = menu_row(&configured("Drafts release notes"));
@@ -191,4 +170,13 @@ fn configured_agent_uses_byline_or_generic_configured_description_without_proven
     assert_eq!(generic.description, "Configured agent");
     assert!(described.provenance.is_none());
     assert!(generic.provenance.is_none());
+}
+
+fn configured_source() -> crate::agent_inventory::AgentSource {
+    crate::agent_inventory::AgentSource::Configured {
+        bundle: "claude-pty".into(),
+        profile: None,
+        per_session_key: true,
+        native_profile: None,
+    }
 }
