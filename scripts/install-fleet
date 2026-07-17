@@ -96,7 +96,15 @@ install_host() {
   assert_at_origin_master "${repo}" "${expected}"
 
   echo "==> $(hostname -s): building ${expected}"
-  (cd "${repo}" && just install)
+  (cd "${repo}" && cargo build --release)
+  mkdir -p "$(dirname "${binary}")"
+  rm -f "${binary}"
+  cp "${repo}/target/release/mosaico" "${binary}"
+  chmod +x "${binary}"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    xattr -cr "${binary}"
+    codesign --force --sign - "${binary}"
+  fi
   [[ -x "${binary}" ]] || fail "${binary} was not installed"
 
   echo "==> $(hostname -s): installing harnesses and skills"

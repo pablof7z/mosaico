@@ -33,6 +33,7 @@ printf '%s\n' '---' 'name: mosaico-dev' '---' \
   >"${SEED}/skills/mosaico-dev/SKILL.md"
 printf 'current grok lab\n' \
   >"${SEED}/skills/mosaico-dev/references/grok-pty-lab.md"
+printf '/target\n' >"${SEED}/.gitignore"
 git -C "${SEED}" add .
 git -C "${SEED}" commit -m initial >/dev/null
 git -C "${SEED}" push -u origin master >/dev/null
@@ -55,13 +56,14 @@ mkdir -p "${FAKE_BIN}" "${TEST_HOME}/.claude" "${TEST_HOME}/.local/bin" \
 printf 'stale copied skill\n' \
   >"${TEST_HOME}/.agents/skills/mosaico-dev/STALE"
 
-cat >"${FAKE_BIN}/just" <<'EOF'
+cat >"${FAKE_BIN}/cargo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "${1:-}" == install ]]
-printf 'just install %s\n' "${PWD}" >>"${FLEET_TEST_LOG}"
-cp "${FLEET_FAKE_MOSAICO}" "${HOME}/.local/bin/mosaico"
-chmod +x "${HOME}/.local/bin/mosaico"
+[[ "${1:-} ${2:-}" == 'build --release' ]]
+printf 'cargo build --release %s\n' "${PWD}" >>"${FLEET_TEST_LOG}"
+mkdir -p target/release
+cp "${FLEET_FAKE_MOSAICO}" target/release/mosaico
+chmod +x target/release/mosaico
 EOF
 
 cat >"${FAKE_BIN}/mosaico-fake" <<'EOF'
@@ -98,6 +100,11 @@ printf 'ssh %s\n' "$1" >>"${FLEET_TEST_LOG}"
 shift
 exec "$@"
 EOF
+
+cat >"${FAKE_BIN}/uname" <<'EOF'
+#!/usr/bin/env bash
+echo Linux
+EOF
 chmod +x "${FAKE_BIN}"/*
 
 OUTPUT="${TMP}/output"
@@ -122,6 +129,9 @@ MOSAICO_FLEET_LOCAL_REPO="${LOCAL_REPO}" \
 assert_contains 'fleet verified: local + 1 remote host(s)' "${OUTPUT}" \
   'fleet success summary'
 assert_contains 'binary:' "${OUTPUT}" 'installed binary hash is reported'
+[[ "$(grep -Fc 'cargo build --release' "${LOG}")" -eq 2 ]] \
+  || fail 'release binary was not built exactly once per host'
+echo 'ok: portable release build ran once per host'
 assert_contains 'ssh fake-host' "${LOG}" 'remote worker was streamed over SSH'
 [[ "$(grep -Fc 'mosaico daemon restart' "${LOG}")" -eq 2 ]] \
   || fail 'daemon was not restarted exactly once per host'
