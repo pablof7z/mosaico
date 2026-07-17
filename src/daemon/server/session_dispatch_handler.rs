@@ -97,7 +97,7 @@ async fn spawn_dispatched(
             tracing::info!(
                 slug = %slug,
                 workspace = %op.target.workspace,
-                pty_id = %spawned.pty_id,
+                endpoint = %spawned.endpoint.endpoint_id,
                 pubkey = %spawned.pubkey,
                 "session dispatch: agent spawned"
             );

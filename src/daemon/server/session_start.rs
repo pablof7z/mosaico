@@ -12,7 +12,7 @@ mod runtime;
 
 use params::SessionStartParams;
 
-pub(crate) use bootstrap::bootstrap_pty_session_start;
+pub(crate) use bootstrap::bootstrap_hosted_session_start;
 pub(in crate::daemon::server) use reservation::rpc_session_start;
 
 pub(super) async fn rpc_session_start_inner(
@@ -236,12 +236,10 @@ fn bind_locators(
     now: u64,
 ) -> Result<()> {
     if let Some(endpoint) = p.pty_session.as_deref().filter(|value| !value.is_empty()) {
-        let kind = if p.endpoint_kind.as_deref() == Some("acp") {
-            crate::state::LOCATOR_ACP
-        } else {
-            crate::state::LOCATOR_PTY
-        };
-        store.put_session_locator(harness, kind, endpoint, pubkey, now)?;
+        let kind = p
+            .endpoint_kind
+            .unwrap_or(crate::session_host::transport::TransportKind::Pty);
+        store.put_session_locator(harness, kind.locator_kind(), endpoint, pubkey, now)?;
     }
     if let Some(native) = p
         .resume_id

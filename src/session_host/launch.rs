@@ -2,7 +2,9 @@ use super::admission;
 use crate::agent_catalog::NativeAgentActivation;
 use crate::daemon::server::DaemonState;
 use crate::harness::ResumeMechanism;
-use crate::session_host::transport::{LaunchSpec, PtyLaunchSpec, ResumeSpec, TransportImpl};
+use crate::session_host::transport::{
+    LaunchSpec, PtyLaunchSpec, ResumeSpec, SessionEndpoint, TransportImpl,
+};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -84,7 +86,7 @@ async fn open_agent_session(
     profile: Option<&str>,
     native_agent: Option<&NativeAgentActivation>,
     pty_launch: PtyLaunchSpec,
-) -> Result<crate::pty::LaunchMetadata> {
+) -> Result<SessionEndpoint> {
     let spec = LaunchSpec {
         slug: slug.to_string(),
         bundle: bundle.to_string(),
@@ -100,7 +102,7 @@ async fn open_agent_session(
         agent_nsec: agent_nsec.to_string(),
         pty: pty_launch,
     };
-    Ok(transport.launch(&spec).await?.meta)
+    transport.launch(&spec).await
 }
 
 /// Resume a prior session by replaying its harness with the native resume token.
@@ -170,12 +172,11 @@ pub(crate) async fn resume_agent_in_channel(
     let resume = ResumeSpec {
         native_id: resume_id.to_string(),
     };
-    let meta = transport.resume(&spec, &resume).await?.meta;
-    let pty_id = meta.id.clone();
-    if let Err(e) = crate::daemon::server::session_start::bootstrap_pty_session_start(
+    let endpoint = transport.resume(&spec, &resume).await?;
+    if let Err(e) = crate::daemon::server::session_start::bootstrap_hosted_session_start(
         state,
-        &meta,
-        crate::daemon::server::session_start::bootstrap::PtySessionStart {
+        &endpoint,
+        crate::daemon::server::session_start::bootstrap::HostedSessionStart {
             pubkey: &reservation.pubkey,
             reclaimed_pubkey: None,
             channel: Some(group),
@@ -190,11 +191,11 @@ pub(crate) async fn resume_agent_in_channel(
     )
     .await
     {
-        kill_endpoint(&transport, &pty_id).await;
+        kill_endpoint(&transport, &endpoint.endpoint_id).await;
         admission::release(state, &reservation);
         return Err(e.context("registering resumed hosted session"));
     }
-    Ok(pty_id)
+    Ok(endpoint.endpoint_id)
 }
 
 fn build_driver_resume_command(

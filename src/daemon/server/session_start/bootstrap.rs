@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) struct PtySessionStart<'a> {
+pub(crate) struct HostedSessionStart<'a> {
     pub(crate) pubkey: &'a str,
     pub(crate) reclaimed_pubkey: Option<&'a str>,
     pub(crate) channel: Option<&'a str>,
@@ -13,12 +13,12 @@ pub(crate) struct PtySessionStart<'a> {
     pub(crate) admitted_transport: crate::session_host::transport::TransportKind,
 }
 
-pub(crate) async fn bootstrap_pty_session_start(
+pub(crate) async fn bootstrap_hosted_session_start(
     state: &Arc<DaemonState>,
-    meta: &crate::pty::LaunchMetadata,
-    request: PtySessionStart<'_>,
+    endpoint: &crate::session_host::transport::SessionEndpoint,
+    request: HostedSessionStart<'_>,
 ) -> Result<String> {
-    let watch_pid = i32::try_from(meta.supervisor_pid).ok();
+    let meta = &endpoint.meta;
     let response = rpc_session_start(
         state,
         &serde_json::json!({
@@ -32,9 +32,9 @@ pub(crate) async fn bootstrap_pty_session_start(
             "cwd": &meta.cwd,
             "channel": request.channel,
             "channels": request.channels,
-            "watch_pid": watch_pid,
-            "pty_session": &meta.id,
-            "endpoint_kind": if meta.socket.is_empty() { "acp" } else { "pty" },
+            "watch_pid": endpoint.watch_pid,
+            "pty_session": &endpoint.endpoint_id,
+            "endpoint_kind": endpoint.kind,
             "resume_id": request.resume_id,
             "dispatch_event": request.dispatch_event,
             "session_name": request.session_name,

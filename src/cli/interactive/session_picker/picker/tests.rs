@@ -9,7 +9,8 @@ fn choice(handle: &str, activity: &str, attachable: bool) -> SessionChoice {
             handle: handle.into(),
             activity: activity.into(),
             pty_id: attachable.then(|| format!("pty-{handle}")),
-            pty_live: attachable,
+            endpoint_live: attachable,
+            endpoint_attachable: attachable,
             transport: if attachable {
                 "pty".into()
             } else {

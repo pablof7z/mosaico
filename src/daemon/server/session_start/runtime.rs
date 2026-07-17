@@ -10,11 +10,10 @@ pub(super) fn resolve_existing_pubkey(
             .map(Some)
             .context("session_start pubkey must be hex or npub");
     }
-    let endpoint_kind = if params.endpoint_kind.as_deref() == Some("acp") {
-        crate::state::LOCATOR_ACP
-    } else {
-        crate::state::LOCATOR_PTY
-    };
+    let endpoint_kind = params
+        .endpoint_kind
+        .unwrap_or(crate::session_host::transport::TransportKind::Pty)
+        .locator_kind();
     let endpoint_pubkey = match params
         .pty_session
         .as_deref()

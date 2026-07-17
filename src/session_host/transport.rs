@@ -14,7 +14,8 @@ use anyhow::Result;
 use crate::harness::{self, config::HarnessesConfig, Transport};
 
 /// Which transport hosts a session. Stringifies to `"pty"` / `"acp"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TransportKind {
     Pty,
     Acp,
@@ -32,6 +33,21 @@ impl TransportKind {
         match value {
             "pty" => Some(Self::Pty),
             "acp" => Some(Self::Acp),
+            _ => None,
+        }
+    }
+
+    pub fn locator_kind(self) -> &'static str {
+        match self {
+            TransportKind::Pty => crate::state::LOCATOR_PTY,
+            TransportKind::Acp => crate::state::LOCATOR_ACP,
+        }
+    }
+
+    pub fn from_locator_kind(locator_kind: &str) -> Option<Self> {
+        match locator_kind {
+            crate::state::LOCATOR_PTY => Some(TransportKind::Pty),
+            crate::state::LOCATOR_ACP => Some(TransportKind::Acp),
             _ => None,
         }
     }
@@ -78,14 +94,23 @@ pub struct ResumeSpec {
     pub native_id: String,
 }
 
-/// What the daemon needs after a session opens. For PTY this carries a real
-/// `LaunchMetadata` so `bootstrap_pty_session_start` stays unchanged.
+/// What the daemon needs after a session opens. The typed kind must survive
+/// registration; callers never infer it from transport-specific metadata.
 #[derive(Debug)]
 pub struct SessionEndpoint {
     pub kind: TransportKind,
     pub endpoint_id: String,
     pub watch_pid: Option<i32>,
     pub meta: crate::pty::LaunchMetadata,
+}
+
+impl SessionEndpoint {
+    pub fn endpoint_ref(&self) -> EndpointRef {
+        EndpointRef {
+            kind: self.kind,
+            endpoint_id: self.endpoint_id.clone(),
+        }
+    }
 }
 
 /// A live-session address the daemon holds after registration.
@@ -95,10 +120,30 @@ pub struct EndpointRef {
     pub endpoint_id: String,
 }
 
+/// Operator-facing endpoint capabilities projected by the owning transport.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EndpointDescriptor {
+    pub id: String,
+    pub kind: TransportKind,
+    pub live: bool,
+    pub attachable: bool,
+    pub cwd: Option<String>,
+    pub command: Vec<String>,
+}
+
 /// Complete hosted-session contract. Every selectable transport implements it.
 #[async_trait::async_trait]
 pub trait SessionTransport: Send + Sync {
     fn kind(&self) -> TransportKind;
+
+    /// Prepare transport-owned launch inputs after harness resolution.
+    fn prepare_launch(
+        &self,
+        _resolved: &mut crate::harness::ResolvedHarness,
+        _endpoint_id: String,
+    ) -> Result<PtyLaunchSpec> {
+        Ok(PtyLaunchSpec::default())
+    }
 
     /// Open a brand-new harness session.
     async fn launch(&self, spec: &LaunchSpec) -> Result<SessionEndpoint>;
@@ -110,6 +155,23 @@ pub trait SessionTransport: Send + Sync {
     async fn deliver(&self, ep: &EndpointRef, text: &str, submit: bool) -> Result<()>;
 
     fn is_live(&self, ep: &EndpointRef) -> bool;
+
+    /// Whether ordinary endpoint output currently has a visible presentation.
+    fn output_is_visible(&self, _ep: &EndpointRef) -> bool {
+        false
+    }
+
+    /// Transport-owned operator projection. Non-PTY transports are not attachable.
+    fn describe(&self, ep: &EndpointRef) -> EndpointDescriptor {
+        EndpointDescriptor {
+            id: ep.endpoint_id.clone(),
+            kind: self.kind(),
+            live: self.is_live(ep),
+            attachable: false,
+            cwd: None,
+            command: Vec::new(),
+        }
+    }
 
     /// Delay before the opening prompt can be delivered to a newly launched endpoint.
     fn opening_delivery_delay(&self) -> std::time::Duration {
@@ -134,6 +196,14 @@ impl TransportImpl {
         self.0.kind()
     }
 
+    pub fn prepare_launch(
+        &self,
+        resolved: &mut crate::harness::ResolvedHarness,
+        endpoint_id: String,
+    ) -> Result<PtyLaunchSpec> {
+        self.0.prepare_launch(resolved, endpoint_id)
+    }
+
     pub async fn launch(&self, spec: &LaunchSpec) -> Result<SessionEndpoint> {
         self.0.launch(spec).await
     }
@@ -150,6 +220,14 @@ impl TransportImpl {
         self.0.is_live(ep)
     }
 
+    pub fn output_is_visible(&self, ep: &EndpointRef) -> bool {
+        self.0.output_is_visible(ep)
+    }
+
+    pub fn describe(&self, ep: &EndpointRef) -> EndpointDescriptor {
+        self.0.describe(ep)
+    }
+
     pub fn opening_delivery_delay(&self) -> std::time::Duration {
         self.0.opening_delivery_delay()
     }
@@ -164,6 +242,37 @@ pub fn transport_for_kind(kind: TransportKind) -> TransportImpl {
         TransportKind::Pty => TransportImpl::new(PtyTransport),
         TransportKind::Acp => TransportImpl::new(AcpTransport),
     }
+}
+
+/// Resolve a persisted hosted-session locator through the sole transport table.
+pub fn transport_for_locator(
+    locator: &crate::state::SessionLocator,
+) -> Option<(TransportImpl, EndpointRef)> {
+    let kind = TransportKind::from_locator_kind(&locator.locator_kind)?;
+    Some((
+        transport_for_kind(kind),
+        EndpointRef {
+            kind,
+            endpoint_id: locator.locator_value.clone(),
+        },
+    ))
+}
+
+/// The hosted endpoint bound to a session, if one exists.
+pub fn hosted_endpoint_for(
+    store: &crate::state::Store,
+    session: &crate::state::Session,
+) -> Result<Option<(TransportImpl, EndpointRef)>> {
+    let Some(kind) = TransportKind::parse(&session.admitted_transport) else {
+        return Ok(None);
+    };
+    Ok(store
+        .locator_for_session(
+            &session.pubkey,
+            &session.observed_harness,
+            kind.locator_kind(),
+        )?
+        .and_then(|locator| transport_for_locator(&locator)))
 }
 
 /// Pick the exact transport for a required configured bundle.

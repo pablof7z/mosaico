@@ -222,33 +222,10 @@ async fn stop_local_process(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Result<String> {
-    if let Some(pty_id) = pty_session_for_session(state, &rec.pubkey) {
-        crate::pty::kill(&pty_id).with_context(|| format!("killing PTY session {pty_id}"))?;
-        state.with_store(|s| {
-            s.clear_locator_kind(&rec.pubkey, crate::state::LOCATOR_PTY)
-                .ok()
-        });
-        return Ok(format!(" pty={pty_id}"));
-    }
-    if let Some(pid) = rec.child_pid {
-        nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(pid),
-            Some(nix::sys::signal::Signal::SIGTERM),
-        )
-        .with_context(|| format!("sending SIGTERM to pid {pid}"))?;
-        return Ok(format!(" pid={pid}"));
-    }
-    Ok(String::new())
-}
-
-fn pty_session_for_session(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
-    let session = state.with_store(|s| s.get_session(pubkey)).ok()??;
-    state
-        .with_store(|s| {
-            s.locator_for_session(pubkey, &session.observed_harness, crate::state::LOCATOR_PTY)
-        })
-        .ok()?
-        .map(|locator| locator.locator_value)
+    let note = super::session_end::stop_local_process(state, rec).await?;
+    Ok((!note.is_empty())
+        .then(|| format!(" {note}"))
+        .unwrap_or_default())
 }
 
 fn channel_label(state: &Arc<DaemonState>, channel_h: &str) -> String {

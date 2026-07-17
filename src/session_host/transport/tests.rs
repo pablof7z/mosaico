@@ -7,6 +7,33 @@ mod live;
 fn transport_kind_strings() {
     assert_eq!(TransportKind::Pty.as_str(), "pty");
     assert_eq!(TransportKind::Acp.as_str(), "acp");
+    assert_eq!(TransportKind::Pty.locator_kind(), crate::state::LOCATOR_PTY);
+    assert_eq!(TransportKind::Acp.locator_kind(), crate::state::LOCATOR_ACP);
+    assert_eq!(
+        TransportKind::from_locator_kind(crate::state::LOCATOR_ACP),
+        Some(TransportKind::Acp)
+    );
+    assert_eq!(serde_json::to_value(TransportKind::Acp).unwrap(), "acp");
+    assert_eq!(
+        serde_json::from_value::<TransportKind>(serde_json::json!("pty")).unwrap(),
+        TransportKind::Pty
+    );
+}
+
+#[test]
+fn persisted_locator_selects_the_transport_without_agent_config() {
+    let locator = crate::state::SessionLocator {
+        harness: "codex".into(),
+        locator_kind: crate::state::LOCATOR_ACP.into(),
+        locator_value: "acp-owned-endpoint".into(),
+        pubkey: "pk".into(),
+        created_at: 1,
+    };
+
+    let (transport, endpoint) = transport_for_locator(&locator).expect("hosted locator");
+    assert_eq!(transport.kind(), TransportKind::Acp);
+    assert_eq!(endpoint.kind, TransportKind::Acp);
+    assert_eq!(endpoint.endpoint_id, "acp-owned-endpoint");
 }
 
 #[test]

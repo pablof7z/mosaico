@@ -176,36 +176,25 @@ async fn revoke_operator_session(
     failures
 }
 
-async fn stop_local_process(
+pub(in crate::daemon::server) async fn stop_local_process(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Result<String> {
-    if let Some(locator) = endpoint_locator(state, rec) {
-        match locator.locator_kind.as_str() {
-            crate::state::LOCATOR_PTY => {
-                crate::pty::kill(&locator.locator_value)
-                    .with_context(|| format!("killing PTY endpoint {}", locator.locator_value))?;
-            }
-            crate::state::LOCATOR_ACP => {
-                use crate::session_host::transport::{EndpointRef, SessionTransport};
-                let transport = crate::session_host::transport::AcpTransport;
-                transport
-                    .kill(&EndpointRef {
-                        kind: crate::session_host::transport::TransportKind::Acp,
-                        endpoint_id: locator.locator_value.clone(),
-                    })
-                    .await?;
-            }
-            _ => {}
-        }
+    if let Some((transport, endpoint)) =
+        state.with_store(|store| crate::session_host::transport::hosted_endpoint_for(store, rec))?
+    {
+        transport
+            .kill(&endpoint)
+            .await
+            .with_context(|| format!("killing {} endpoint", endpoint.kind.as_str()))?;
         state.with_store(|store| {
             store.clear_session_locator_kind(
                 &rec.pubkey,
                 &rec.observed_harness,
-                &locator.locator_kind,
+                endpoint.kind.locator_kind(),
             )
         })?;
-        return Ok(format!("endpoint={}", locator.locator_value));
+        return Ok(format!("endpoint={}", endpoint.endpoint_id));
     }
     if let Some(pid) = rec.child_pid {
         nix::sys::signal::kill(
@@ -216,20 +205,6 @@ async fn stop_local_process(
         return Ok(format!("pid={pid}"));
     }
     Ok(String::new())
-}
-
-fn endpoint_locator(
-    state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
-) -> Option<crate::state::SessionLocator> {
-    let kind = match rec.admitted_transport.as_str() {
-        "pty" => crate::state::LOCATOR_PTY,
-        "acp" => crate::state::LOCATOR_ACP,
-        _ => return None,
-    };
-    state
-        .with_store(|store| store.locator_for_session(&rec.pubkey, &rec.observed_harness, kind))
-        .ok()?
 }
 
 fn record_resumable_claim(state: &Arc<DaemonState>, rec: &crate::state::Session) {

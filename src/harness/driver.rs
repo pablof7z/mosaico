@@ -41,7 +41,7 @@ pub enum ResumeMechanism {
     AcpSessionLoad,
     /// Codex app-server `thread/resume` (or `thread/fork`) with the thread id.
     AppServerThreadResume,
-    /// PTY/exec: append `<flag> <id>` to argv. claude `--resume`,
+    /// PTY: append `<flag> <id>` to argv. claude `--resume`,
     /// opencode `--session`, grok `--resume`.
     AppendFlag(&'static str),
     /// PTY: insert `<sub> <id>` right after argv[0]. codex `resume`.
@@ -55,7 +55,7 @@ pub enum ResumeMechanism {
 pub enum SteerPrimitive {
     /// Codex app-server `turn/steer {threadId, expectedTurnId, input}`.
     AppServerSteer,
-    /// Fire the harness's own hooks (settings.json hooks under ACP/exec).
+    /// Fire the harness's own hooks (settings.json hooks under ACP).
     Hooks,
     /// PTY bracketed-paste bytes via `pty::client::inject`.
     PtyPaste,

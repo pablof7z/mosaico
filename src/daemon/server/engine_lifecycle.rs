@@ -273,66 +273,25 @@ pub(in crate::daemon::server) use crate::liveness::pid_alive;
 /// Whether reconcile should treat a session left behind by a previous daemon as
 /// still alive (and therefore revive it rather than reap it).
 ///
-/// `child_pid` liveness alone is unsafe: PIDs recycle, so a dead supervisor's
-/// reused PID could revive a ghost session against an unrelated process. When the
-/// session owns a PTY supervisor socket, that socket being reachable —
-/// connect+write, not a round-trip reply ([`crate::pty::is_live`]) — is the
-/// authoritative, unspoofable signal; sessions with no socket fall back to
-/// the PID check alone (risk #1).
-fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) -> bool {
-    use crate::session_host::transport::{
-        AcpTransport, EndpointRef, SessionTransport, TransportKind,
-    };
-    // ACP/RPC sessions have neither an OS-inspectable supervisor pid nor a PTY
-    // socket; their liveness is the in-process child registry (defect #3). That
-    // registry cannot survive a daemon restart, so at reconcile it is empty and an
-    // ACP session is correctly treated as gone. NEVER fall back to `pid_alive` for
-    // ACP: the recorded pid is a synth `0` (or a since-recycled child pid), which
-    // would revive an immortal ghost.
-    if TransportKind::parse(&snap.admitted_transport) == Some(TransportKind::Acp) {
-        return endpoint_id_for(
-            state,
-            &snap.pubkey,
-            &snap.observed_harness,
-            crate::state::LOCATOR_ACP,
-        )
-        .map(|endpoint_id| {
-            AcpTransport.is_live(&EndpointRef {
-                kind: TransportKind::Acp,
-                endpoint_id,
-            })
-        })
-        .unwrap_or(false);
-    }
+/// `child_pid` liveness alone is unsafe: PIDs recycle, so a dead hosted endpoint's
+/// reused PID could revive a ghost session against an unrelated process. A hosted
+/// locator delegates the authoritative check to its transport; native harness
+/// sessions with no hosted endpoint fall back to the PID check alone (risk #1).
+pub(in crate::daemon::server) fn session_still_live(
+    state: &Arc<DaemonState>,
+    snap: &crate::state::Session,
+) -> bool {
     let pid_ok = snap.child_pid.map(pid_alive).unwrap_or(false);
-    let endpoint_live = endpoint_id_for(
-        state,
-        &snap.pubkey,
-        &snap.observed_harness,
-        crate::state::LOCATOR_PTY,
-    )
-    .map(|endpoint_id| crate::pty::is_live(&endpoint_id));
+    let endpoint_live = state
+        .with_store(|store| crate::session_host::transport::hosted_endpoint_for(store, snap))
+        .ok()
+        .flatten()
+        .map(|(transport, endpoint)| transport.is_live(&endpoint));
     revive_decision(pid_ok, endpoint_live)
 }
-
-/// The typed host endpoint bound to this pubkey, if one exists.
-fn endpoint_id_for(
-    state: &Arc<DaemonState>,
-    pubkey: &str,
-    harness: &str,
-    locator_kind: &str,
-) -> Option<String> {
-    state.with_store(|s| {
-        s.locator_for_session(pubkey, harness, locator_kind)
-            .ok()
-            .flatten()
-            .map(|locator| locator.locator_value)
-    })
-}
-
 /// Pure revive decision, split out for unit testing. `endpoint_live` is `None` for a
-/// session with no PTY supervisor socket (an exec/native session), in which case
+/// session with no hosted endpoint (a native harness process), in which case
 /// the PID check is authoritative.
 fn revive_decision(pid_ok: bool, endpoint_live: Option<bool>) -> bool {
-    pid_ok && endpoint_live.unwrap_or(true)
+    endpoint_live.unwrap_or(pid_ok)
 }

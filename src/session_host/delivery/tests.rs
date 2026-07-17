@@ -7,6 +7,14 @@
 
 use super::*;
 
+fn endpoint_is_live(kind: TransportKind, endpoint_id: &str) -> bool {
+    let transport = transport_for_kind(kind);
+    transport.is_live(&EndpointRef {
+        kind,
+        endpoint_id: endpoint_id.to_string(),
+    })
+}
+
 #[test]
 fn acp_endpoint_liveness_uses_the_acp_registry() {
     // An unregistered ACP endpoint id is reported dead by the ACP registry probe.
@@ -125,11 +133,62 @@ fn session_has_live_delivery_path_true_only_for_a_live_locator() {
 
 #[test]
 fn headless_mode_separates_output_visibility_from_reachability() {
-    assert!(!headless_for_endpoint(TransportKind::Pty, false, false));
-    assert!(headless_for_endpoint(TransportKind::Pty, true, false));
-    assert!(!headless_for_endpoint(TransportKind::Pty, true, true));
-    assert!(headless_for_endpoint(TransportKind::Acp, false, false));
-    assert!(headless_for_endpoint(TransportKind::Acp, true, false));
+    let store = crate::state::Store::open_memory().unwrap();
+    store
+        .reserve_session_with_facts(
+            &crate::state::RegisterSession {
+                pubkey: "pk-output".into(),
+                agent_slug: "agent".into(),
+                channel_h: "root".into(),
+                observed_harness: "codex".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1,
+            },
+            &crate::state::AdmittedRuntimeFacts {
+                observed_harness: "codex".into(),
+                claimed_harness: String::new(),
+                bundle: "codex-acp".into(),
+                transport: "acp".into(),
+                endpoint_provenance: "launch".into(),
+            },
+        )
+        .unwrap();
+    let session = store.get_session("pk-output").unwrap().unwrap();
+    assert!(!session_is_headless(&store, &session));
+
+    store
+        .put_session_locator("codex", crate::state::LOCATOR_ACP, "acp-1", "pk-output", 2)
+        .unwrap();
+    assert!(session_is_headless(&store, &session));
+    store
+        .clear_session_locator_kind("pk-output", "codex", crate::state::LOCATOR_ACP)
+        .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("visible.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let worker = std::thread::spawn(move || {
+        use std::io::{BufRead, Write};
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+        let mut command = String::new();
+        reader.read_line(&mut command).unwrap();
+        reader.get_mut().write_all(b"headed\n").unwrap();
+    });
+    store
+        .put_session_locator(
+            "codex",
+            crate::state::LOCATOR_PTY,
+            socket.to_str().unwrap(),
+            "pk-output",
+            3,
+        )
+        .unwrap();
+    let mut session = session;
+    session.admitted_transport = "pty".into();
+    assert!(!session_is_headless(&store, &session));
+    worker.join().unwrap();
 }
 
 /// The delivery policy is transport-neutral: it plans an `Inject` carrying the

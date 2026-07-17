@@ -44,21 +44,9 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         },
     )
     .await?;
-    let meta = spawn.meta;
-
     if let Some(prompt) = p.prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
-        let kind = if meta.socket.is_empty() {
-            crate::session_host::transport::TransportKind::Acp
-        } else {
-            crate::session_host::transport::TransportKind::Pty
-        };
-        crate::session_host::deliver_spawn_prompt(kind, &meta.id, prompt).await;
+        crate::session_host::deliver_spawn_prompt(&spawn.endpoint.endpoint_ref(), prompt).await;
     }
-    let endpoint_kind = if meta.socket.is_empty() {
-        crate::state::LOCATOR_ACP
-    } else {
-        crate::state::LOCATOR_PTY
-    };
     let handle = state.with_store(|store| {
         let session = store
             .get_session(&spawn.pubkey)?
@@ -70,9 +58,9 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
         )
     })?;
     Ok(serde_json::json!({
-        "pty_id": meta.id,
-        "pty_socket": meta.socket,
-        "transport": endpoint_kind,
+        "pty_id": spawn.endpoint.endpoint_id,
+        "pty_socket": spawn.endpoint.meta.socket,
+        "transport": spawn.endpoint.kind.as_str(),
         "handle": handle,
         "agent": p.agent,
         "root": p.root,

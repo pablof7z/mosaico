@@ -177,8 +177,8 @@ pub(super) async fn handle(
     )
     .await
     {
-        Ok(pty_id) => {
-            tracing::info!(agent = %agent_slug, pty_id = %pty_id, channel, "agent spawned successfully");
+        Ok(endpoint) => {
+            tracing::info!(agent = %agent_slug, endpoint = %endpoint.endpoint_id, channel, "agent spawned successfully");
         }
         Err(e) => {
             tracing::warn!(agent = %agent_slug, channel, error = %e, "agent spawn failed");

@@ -3,7 +3,8 @@
 use anyhow::Result;
 
 use super::{
-    EndpointRef, LaunchSpec, ResumeSpec, SessionEndpoint, SessionTransport, TransportKind,
+    EndpointDescriptor, EndpointRef, LaunchSpec, ResumeSpec, SessionEndpoint, SessionTransport,
+    TransportKind,
 };
 
 pub struct PtyTransport;
@@ -12,6 +13,35 @@ pub struct PtyTransport;
 impl SessionTransport for PtyTransport {
     fn kind(&self) -> TransportKind {
         TransportKind::Pty
+    }
+
+    fn prepare_launch(
+        &self,
+        resolved: &mut crate::harness::ResolvedHarness,
+        endpoint_id: String,
+    ) -> Result<super::PtyLaunchSpec> {
+        resolved.profile.materialize()?;
+        let mut env = resolved.profile.extra_env.clone();
+        let mut env_remove = Vec::new();
+        for directive in resolved.driver.base_env {
+            match directive {
+                crate::harness::EnvDirective::Set(key, value) => {
+                    env.push((key.to_string(), value.to_string()));
+                }
+                crate::harness::EnvDirective::Remove(key) => {
+                    env_remove.push(key.to_string());
+                }
+            }
+        }
+        env.push((
+            "MOSAICO_OBSERVED_HARNESS".to_string(),
+            resolved.harness.as_str().to_string(),
+        ));
+        Ok(super::PtyLaunchSpec {
+            id: Some(endpoint_id),
+            env,
+            env_remove,
+        })
     }
 
     async fn launch(&self, spec: &LaunchSpec) -> Result<SessionEndpoint> {
@@ -61,6 +91,27 @@ impl SessionTransport for PtyTransport {
 
     fn is_live(&self, ep: &EndpointRef) -> bool {
         crate::pty::is_live(&ep.endpoint_id)
+    }
+
+    fn output_is_visible(&self, ep: &EndpointRef) -> bool {
+        crate::pty::output_is_visible(&ep.endpoint_id)
+    }
+
+    fn describe(&self, ep: &EndpointRef) -> EndpointDescriptor {
+        let live = self.is_live(ep);
+        let metadata = crate::pty::read_all_metadata()
+            .into_iter()
+            .find(|metadata| metadata.id == ep.endpoint_id);
+        EndpointDescriptor {
+            id: ep.endpoint_id.clone(),
+            kind: TransportKind::Pty,
+            live,
+            attachable: live && metadata.is_some(),
+            cwd: metadata.as_ref().map(|metadata| metadata.cwd.clone()),
+            command: metadata
+                .map(|metadata| metadata.command)
+                .unwrap_or_default(),
+        }
     }
 
     fn opening_delivery_delay(&self) -> std::time::Duration {

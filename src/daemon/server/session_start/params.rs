@@ -17,7 +17,7 @@ pub(super) struct SessionStartParams {
     #[serde(default)]
     pub(super) pty_session: Option<String>,
     #[serde(default)]
-    pub(super) endpoint_kind: Option<String>,
+    pub(super) endpoint_kind: Option<crate::session_host::transport::TransportKind>,
     #[serde(default)]
     pub(super) session_name: Option<String>,
     #[serde(default)]
@@ -127,5 +127,25 @@ mod tests {
         let facts = runtime_facts(&params).unwrap();
         assert_eq!(facts.observed_harness, crate::session::Harness::Grok);
         assert_eq!(facts.claimed_harness, "claude-code");
+    }
+
+    #[test]
+    fn endpoint_kind_is_typed_and_rejects_unknown_values() {
+        let params: SessionStartParams = serde_json::from_value(serde_json::json!({
+            "agent": "codex",
+            "endpoint_kind": "acp"
+        }))
+        .unwrap();
+        assert_eq!(
+            params.endpoint_kind,
+            Some(crate::session_host::transport::TransportKind::Acp)
+        );
+        assert!(
+            serde_json::from_value::<SessionStartParams>(serde_json::json!({
+                "agent": "codex",
+                "endpoint_kind": "other"
+            }))
+            .is_err()
+        );
     }
 }

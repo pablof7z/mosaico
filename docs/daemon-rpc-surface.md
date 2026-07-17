@@ -57,10 +57,10 @@ end --self`; agents cannot target another session.
 ### `session_kill`
 ```jsonc
 params: {"session": "npub1…"|"hex"|"handle", "revoke_memberships": bool}
-result: {"killed": true|false, "ended": true|false, "note": "pty=…"|"pid=…", "cleanup_confirmed": bool, "cleanup_failures": ["…"], "reason": "…"}
+result: {"killed": true|false, "ended": true|false, "note": "endpoint=…"|"pid=…", "cleanup_confirmed": bool, "cleanup_failures": ["…"], "reason": "…"}
 ```
 Process-kill, the counterpart to `session_end`. Stops the session's hosted
-process (kills the owning PTY if one is tracked, else `SIGTERM`s the tracked
+endpoint through its transport if one is tracked, else `SIGTERM`s the tracked
 child pid), then internally calls `session_end` to mark the session's
 metadata dead. `killed` reflects whether process termination itself
 succeeded; `reason` is populated on failure (including "no local session
@@ -273,7 +273,9 @@ sessions`. It starts from alive rows in the daemon-owned `sessions` table,
 but exposes only `pubkey`, `npub`, and the current public `handle`; the private
 runtime row id never crosses this RPC boundary. Each row joins agent/harness
 state, workspace-grouped joined channels, filesystem bindings, local host, and
-an optional attach endpoint. Remote relay-only status rows are intentionally
+an optional typed endpoint `{id, kind, live, attachable, cwd, command}` whose
+liveness and attachability are projected by its owning transport. Remote
+relay-only status rows are intentionally
 excluded; they remain observable through `who` and cannot be killed by this
 machine.
 

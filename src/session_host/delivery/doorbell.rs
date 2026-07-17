@@ -45,26 +45,8 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             continue;
         }
 
-        let kind = match TransportKind::parse(&rec.admitted_transport) {
-            Some(kind) => kind,
-            None => {
-                state.emit_delivery_failure(
-                    &rec.channel_h,
-                    &rec.agent_slug,
-                    &pubkey,
-                    format!(
-                        "session has no hosted admitted transport (recorded {:?})",
-                        rec.admitted_transport
-                    ),
-                );
-                continue;
-            }
-        };
-        let transport = transport_for_kind(kind);
-        let endpoint_id = match state
-            .with_store(|s| endpoint_id_for(s, &pubkey, &rec.observed_harness, kind))
-        {
-            Ok(endpoint_id) => endpoint_id,
+        let hosted = match state.with_store(|s| hosted_endpoint_for(s, &rec)) {
+            Ok(hosted) => hosted,
             Err(e) => {
                 tracing::error!(%pubkey, error = %e, "ring_doorbells: locator lookup failed — cannot resolve endpoint this tick");
                 state.emit_delivery_failure(
@@ -76,12 +58,12 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
                 continue;
             }
         };
-        let endpoint_live = endpoint_id.as_deref().is_some_and(|id| {
-            transport.is_live(&EndpointRef {
-                kind,
-                endpoint_id: id.to_string(),
-            })
-        });
+        let endpoint_live = hosted
+            .as_ref()
+            .is_some_and(|(transport, endpoint)| transport.is_live(endpoint));
+        let endpoint_id = hosted
+            .as_ref()
+            .map(|(_, endpoint)| endpoint.endpoint_id.clone());
         let fact = delivery_scan_fact(
             &rec,
             pending.into_iter().map(|row| row.event_id).collect(),
@@ -101,7 +83,9 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
                 continue;
             }
         };
-        apply_delivery_effects(state, &rec, &transport, effects).await;
+        if let Some((transport, _)) = hosted {
+            apply_delivery_effects(state, &rec, &transport, effects).await;
+        }
     }
     Ok(())
 }
@@ -151,7 +135,7 @@ async fn apply_delivery_effects(
                     s.clear_session_locator_kind(
                         &pubkey,
                         &rec.observed_harness,
-                        locator_kind(transport.kind()),
+                        transport.kind().locator_kind(),
                     )
                 });
             }
@@ -163,7 +147,7 @@ fn schedule_delivery_retry(state: Arc<DaemonState>, pubkey: String, delay_secs: 
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(delay_secs.max(1))).await;
         if std::env::var("MOSAICO_DEBUG").is_ok() {
-            eprintln!("[pty] retrying deferred delivery for {pubkey}");
+            eprintln!("[transport] retrying deferred delivery for {pubkey}");
         }
         ring_doorbells(state);
     });

@@ -1,7 +1,6 @@
 use super::*;
 use crate::agent_inventory::AgentSource;
 use crate::harness::{HarnessesConfig, Transport};
-use crate::session_host::transport::{PtyLaunchSpec, TransportKind};
 
 pub(super) struct ResolvedSource {
     pub(super) transport: TransportImpl,
@@ -124,34 +123,7 @@ pub(super) fn resolve_agent_source(
             .with_context(|| format!("applying native agent {selector:?}"))?;
     }
     let transport = crate::session_host::transport::select_transport_with(&harnesses, &bundle)?;
-    let pty_launch = if transport.kind() == TransportKind::Pty {
-        resolved.profile.materialize()?;
-        let mut env = resolved.profile.extra_env.clone();
-        let mut env_remove = Vec::new();
-        for directive in resolved.driver.base_env {
-            match directive {
-                crate::harness::EnvDirective::Set(key, value) => {
-                    env.push((key.to_string(), value.to_string()));
-                }
-                crate::harness::EnvDirective::Remove(key) => {
-                    env_remove.push(key.to_string());
-                }
-            }
-        }
-        PtyLaunchSpec {
-            id: Some(id),
-            env: {
-                env.push((
-                    "MOSAICO_OBSERVED_HARNESS".to_string(),
-                    resolved.harness.as_str().to_string(),
-                ));
-                env
-            },
-            env_remove,
-        }
-    } else {
-        PtyLaunchSpec::default()
-    };
+    let pty_launch = transport.prepare_launch(&mut resolved, id)?;
     Ok(ResolvedSource {
         transport,
         command: resolved.base_argv,

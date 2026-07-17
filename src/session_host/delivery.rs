@@ -10,10 +10,10 @@ mod doorbell;
 #[path = "delivery/output_mode.rs"]
 mod output_mode;
 mod prompt;
-use crate::session_host::transport::{transport_for_kind, EndpointRef, TransportKind};
+use crate::session_host::transport::{
+    hosted_endpoint_for, transport_for_kind, EndpointRef, TransportKind,
+};
 pub use doorbell::ring_doorbells;
-#[cfg(test)]
-pub(crate) use output_mode::headless_for_endpoint;
 pub(crate) use output_mode::session_is_headless;
 use prompt::inject_planned_messages;
 
@@ -21,80 +21,13 @@ use prompt::inject_planned_messages;
 #[path = "delivery/tests.rs"]
 mod delivery_tests;
 
-fn locator_kind(kind: TransportKind) -> &'static str {
-    match kind {
-        TransportKind::Pty => crate::state::LOCATOR_PTY,
-        TransportKind::Acp => crate::state::LOCATOR_ACP,
-    }
-}
-
-fn endpoint_id_for(
-    store: &crate::state::Store,
-    pubkey: &str,
-    harness: &str,
-    kind: TransportKind,
-) -> Result<Option<String>> {
-    Ok(store
-        .locator_for_session(pubkey, harness, locator_kind(kind))?
-        .map(|locator| locator.locator_value))
-}
-
-/// Liveness of a session's typed transport endpoint.
-fn endpoint_is_live(kind: TransportKind, endpoint_id: &str) -> bool {
-    let transport = transport_for_kind(kind);
-    transport.is_live(&EndpointRef {
-        kind,
-        endpoint_id: endpoint_id.to_string(),
-    })
-}
-
-fn delivery_endpoint_for(
-    store: &crate::state::Store,
-    pubkey: &str,
-) -> Result<Option<(EndpointRef, bool)>> {
-    let endpoints = store
-        .locators_for_pubkey(pubkey)?
-        .into_iter()
-        .filter_map(|locator| {
-            let kind = match locator.locator_kind.as_str() {
-                crate::state::LOCATOR_PTY => TransportKind::Pty,
-                crate::state::LOCATOR_ACP => TransportKind::Acp,
-                _ => return None,
-            };
-            Some(EndpointRef {
-                kind,
-                endpoint_id: locator.locator_value,
-            })
-        })
-        .collect::<Vec<_>>();
-    Ok(endpoints
-        .iter()
-        .find(|endpoint| endpoint_is_live(endpoint.kind, &endpoint.endpoint_id))
-        .cloned()
-        .map(|endpoint| (endpoint, true))
-        .or_else(|| {
-            endpoints
-                .into_iter()
-                .next()
-                .map(|endpoint| (endpoint, false))
-        }))
-}
-
 /// Whether `session` has a live daemon-owned delivery endpoint.
 pub(crate) fn session_has_live_delivery_path(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let kind = match TransportKind::parse(&session.admitted_transport) {
-        Some(kind) => kind,
-        None => return false,
-    };
-    let locator = match store.locator_for_session(
-        &session.pubkey,
-        &session.observed_harness,
-        locator_kind(kind),
-    ) {
-        Ok(locator) => locator,
+    let endpoint = match hosted_endpoint_for(store, session) {
+        Ok(endpoint) => endpoint,
         Err(e) => {
             tracing::error!(
                 pubkey = %session.pubkey,
@@ -104,7 +37,7 @@ pub(crate) fn session_has_live_delivery_path(
             return false;
         }
     };
-    locator.is_some_and(|locator| endpoint_is_live(kind, &locator.locator_value))
+    endpoint.is_some_and(|(transport, endpoint)| transport.is_live(&endpoint))
 }
 
 /// Don't re-inject into the same session within this window (seconds).
@@ -139,17 +72,13 @@ fn prune_debounce(active_pubkeys: &HashSet<String>) {
 /// this MUST run in the daemon (the caller that spawned it). Failures are logged,
 /// not propagated: the session is already live and can still receive mentions via
 /// the doorbell path.
-pub async fn deliver_spawn_prompt(kind: TransportKind, endpoint_id: &str, text: &str) {
-    let transport = transport_for_kind(kind);
+pub async fn deliver_spawn_prompt(endpoint: &EndpointRef, text: &str) {
+    let transport = transport_for_kind(endpoint.kind);
     tokio::time::sleep(transport.opening_delivery_delay()).await;
-    let endpoint = EndpointRef {
-        kind,
-        endpoint_id: endpoint_id.to_string(),
-    };
     if let Err(e) = transport.deliver(&endpoint, text, true).await {
         tracing::warn!(
-            endpoint = %endpoint_id,
-            transport = kind.as_str(),
+            endpoint = %endpoint.endpoint_id,
+            transport = endpoint.kind.as_str(),
             error = %format!("{e:#}"),
             "failed to deliver spawn prompt"
         );

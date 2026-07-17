@@ -163,10 +163,9 @@ pub(super) async fn invite_agent(
         },
     )
     .await?;
-    let meta = spawn.meta;
     let online = wait_local_agent_online(state, channel_h, &target.slug, &before).await?;
     Ok(serde_json::json!({
-        "pty_id": meta.id,
+        "pty_id": spawn.endpoint.endpoint_id,
         "agent": target.slug,
         "online_agent": online,
         "channel": channel_h,

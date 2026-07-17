@@ -1,7 +1,6 @@
 //! Canonical local-session projection for the operator session picker.
 
 use super::*;
-use crate::session_host::transport::SessionTransport;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Clone)]
@@ -10,8 +9,7 @@ struct OperatorEndpoint {
     live: bool,
 }
 
-const TRANSPORT_PTY: &str = "pty";
-const TRANSPORT_ACP: &str = "acp";
+const TRANSPORT_PROCESS: &str = "process";
 const TRANSPORT_HARNESS: &str = "harness";
 
 pub(super) fn rpc_operator_sessions(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
@@ -52,46 +50,18 @@ fn project_sessions(
             .into_iter()
             .map(|(root_id, channel_ids)| workspace_value(store, &root_id, &channel_ids, &channels))
             .collect::<Result<Vec<_>>>()?;
-        let pty_locator = store.locator_for_session(
-            &rec.pubkey,
-            &rec.observed_harness,
-            crate::state::LOCATOR_PTY,
-        )?;
-        let pty_endpoint = pty_locator
-            .as_ref()
-            .and_then(|locator| endpoints.get(&locator.locator_value))
-            .map(|endpoint| {
-                let meta = &endpoint.metadata;
-                projected_endpoints.insert(meta.id.clone());
-                serde_json::json!({
-                    "pty_id": meta.id,
-                    "live": endpoint.live,
-                    "cwd": meta.cwd,
-                    "command": meta.command,
-                })
-            });
-        let acp_endpoint_id = store
-            .locator_for_session(
-                &rec.pubkey,
-                &rec.observed_harness,
-                crate::state::LOCATOR_ACP,
-            )?
-            .map(|locator| locator.locator_value);
-        let acp_live = acp_endpoint_id
-            .as_deref()
-            .map(|endpoint_id| {
-                crate::session_host::transport::AcpTransport.is_live(
-                    &crate::session_host::transport::EndpointRef {
-                        kind: crate::session_host::transport::TransportKind::Acp,
-                        endpoint_id: endpoint_id.to_string(),
-                    },
-                )
-            })
-            .unwrap_or(false);
-        let transport = match rec.admitted_transport.as_str() {
-            TRANSPORT_PTY => TRANSPORT_PTY,
-            TRANSPORT_ACP => TRANSPORT_ACP,
-            _ => TRANSPORT_HARNESS,
+        let endpoint = crate::session_host::transport::hosted_endpoint_for(store, &rec)?.map(
+            |(transport, endpoint)| {
+                projected_endpoints.insert(endpoint.endpoint_id.clone());
+                transport.describe(&endpoint)
+            },
+        );
+        let transport = if let Some(endpoint) = &endpoint {
+            endpoint.kind.as_str()
+        } else if rec.child_pid.is_some() {
+            TRANSPORT_PROCESS
+        } else {
+            TRANSPORT_HARNESS
         };
         let npub = crate::idref::npub(&rec.pubkey)
             .with_context(|| format!("invalid session pubkey {}", rec.pubkey))?;
@@ -108,9 +78,7 @@ fn project_sessions(
             "transport": transport,
             "child_pid": rec.child_pid,
             "workspaces": workspaces,
-            "endpoint": pty_endpoint,
-            "acp_endpoint_id": acp_endpoint_id,
-            "acp_live": acp_live,
+            "endpoint": endpoint,
         }));
     }
     let mut unbound = endpoints
@@ -160,8 +128,10 @@ fn unbound_endpoint_value(
         "child_pid": meta.supervisor_pid,
         "bound": false,
         "endpoint": {
-            "pty_id": meta.id,
+            "id": meta.id,
+            "kind": "pty",
             "live": endpoint.live,
+            "attachable": endpoint.live,
             "cwd": meta.cwd,
             "command": meta.command,
         },
@@ -201,100 +171,5 @@ fn channel_name(channel: Option<&crate::state::Channel>, fallback: &str) -> Stri
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn projection_exposes_public_identity_without_the_private_runtime_id() {
-        use nostr_sdk::prelude::Keys;
-
-        let store = Store::open_memory().unwrap();
-        store
-            .upsert_channel("workspace", "mosaico", "", "", 1)
-            .unwrap();
-        store
-            .upsert_channel("room", "review", "", "workspace", 2)
-            .unwrap();
-        store.upsert_workspace("workspace", "/repo", 3).unwrap();
-        store
-            .upsert_channel("skills-root", "skills", "", "", 3)
-            .unwrap();
-        store
-            .upsert_channel("skill-dev", "skill-dev", "", "skills-root", 4)
-            .unwrap();
-        store.upsert_workspace("skills-root", "/skills", 4).unwrap();
-        let pubkey = Keys::generate().public_key().to_hex();
-        store
-            .reserve_session(&crate::state::RegisterSession {
-                pubkey: pubkey.clone(),
-                observed_harness: "codex".into(),
-                agent_slug: "codex".into(),
-                channel_h: "room".into(),
-                child_pid: Some(42),
-                transcript_path: None,
-                now: 10,
-            })
-            .unwrap();
-        store
-            .join_session_channel(&pubkey, "skill-dev", 11)
-            .unwrap();
-
-        let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["pubkey"], pubkey);
-        assert_eq!(
-            rows[0]["npub"],
-            crate::idref::npub(&pubkey).expect("valid npub")
-        );
-        assert!(rows[0].get("session_id").is_none());
-        assert_eq!(rows[0]["workspaces"].as_array().unwrap().len(), 2);
-        assert_eq!(rows[0]["workspaces"][0]["id"], "skills-root");
-        assert_eq!(rows[0]["workspaces"][0]["path"], "/skills");
-        assert_eq!(rows[0]["workspaces"][0]["channels"][0]["name"], "skill-dev");
-        assert_eq!(rows[0]["workspaces"][1]["id"], "workspace");
-        assert_eq!(rows[0]["workspaces"][1]["path"], "/repo");
-        assert_eq!(rows[0]["workspaces"][1]["channels"][0]["name"], "review");
-        assert_eq!(rows[0]["transport"], "harness");
-        assert!(rows[0]["endpoint"].is_null());
-
-        store.mark_dead(&pubkey).unwrap();
-        assert!(project_sessions(&store, "laptop", &HashMap::new())
-            .unwrap()
-            .is_empty());
-    }
-
-    #[test]
-    fn projection_includes_live_unbound_supervisor() {
-        let store = Store::open_memory().unwrap();
-        store
-            .upsert_channel("workspace", "mosaico", "", "", 1)
-            .unwrap();
-        store.upsert_workspace("workspace", "/repo", 1).unwrap();
-        let metadata = crate::pty::LaunchMetadata {
-            id: "pty-1".into(),
-            socket: "/tmp/pty-1.sock".into(),
-            supervisor_pid: 42,
-            agent: "codex".into(),
-            root: "workspace".into(),
-            cwd: "/repo/subdir".into(),
-            ephemeral: false,
-            command: vec!["codex".into(), "--yolo".into()],
-        };
-        let endpoints = HashMap::from([(
-            metadata.id.clone(),
-            OperatorEndpoint {
-                metadata,
-                live: true,
-            },
-        )]);
-
-        let rows = project_sessions(&store, "laptop", &endpoints).unwrap();
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["bound"], false);
-        assert_eq!(rows[0]["handle"], "codex");
-        assert_eq!(rows[0]["endpoint"]["pty_id"], "pty-1");
-        assert_eq!(rows[0]["workspaces"][0]["name"], "mosaico");
-        assert_eq!(rows[0]["title"], "codex --yolo");
-    }
-}
+#[path = "operator_sessions/tests.rs"]
+mod tests;

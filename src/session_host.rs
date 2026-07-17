@@ -3,11 +3,11 @@
 //! Two public surfaces:
 //!
 //!   • `ring_doorbells(state)` — called after chat delivery events.
-//!     Finds sessions that have unread chat mentions + a live PTY endpoint, then
-//!     injects the rendered pending messages into the agent.
+//!     Finds sessions that have unread chat mentions + a live hosted endpoint,
+//!     then delivers the rendered pending messages through its transport.
 //!
 //!   • `spawn_agent(state, slug, root, launch_args)` — spawns a new
-//!     PTY-hosted harness. Manual spawns start clean; no prompt is injected.
+//!     hosted harness. Manual spawns start clean; no prompt is injected.
 //!
 //! Delivery is fail-open: endpoint failures are logged and pending inbox rows are
 //! returned to the queue so another path can deliver them.
