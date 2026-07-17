@@ -34,7 +34,7 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
             "handle": handle,
         }));
     };
-    let root = state.with_store(|store| super::work_root_for(store, &rec.channel_h));
+    let root = state.with_store(|store| super::work_root_for(store, &rec.channel_h))?;
     let pty_id = crate::session_host::resume_agent_in_channel(
         state,
         &rec.agent_slug,

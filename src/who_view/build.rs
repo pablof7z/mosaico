@@ -17,26 +17,26 @@ pub(crate) struct AgentWhoInput<'a> {
 pub(super) fn build_agent_who(
     aggregation: &crate::who_aggregation::WhoAggregation,
     input: AgentWhoInput<'_>,
-) -> AgentWhoView {
+) -> anyhow::Result<AgentWhoView> {
     let by_parent = channels_by_parent(aggregation.channels.clone());
     let workspaces = input
         .roots
         .iter()
         .map(|root| workspace_view(aggregation, &by_parent, root, &input))
-        .collect();
-    AgentWhoView {
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(AgentWhoView {
         self_name: input.self_name.to_string(),
         self_host: input.local_host.to_string(),
         headless: input.headless,
-        agents: available_agents(aggregation, input.local_host),
+        agents: available_agents(aggregation, input.local_host)?,
         workspaces,
-    }
+    })
 }
 
 fn available_agents(
     aggregation: &crate::who_aggregation::WhoAggregation,
     local_host: &str,
-) -> Vec<AgentCapabilityView> {
+) -> anyhow::Result<Vec<AgentCapabilityView>> {
     let mut grouped: BTreeMap<(String, String, String), BTreeSet<String>> = BTreeMap::new();
     for row in &aggregation.agents {
         let name = if row.host.is_empty() || row.host == local_host {
@@ -45,12 +45,13 @@ fn available_agents(
             format!("{}@{}", row.slug, row.host)
         };
         let about = crate::agent_about::for_injection(&row.use_criteria);
+        let workspace = aggregation.root_for_channel(&row.channel_h)?;
         grouped
             .entry((row.backend_pubkey.clone(), name, about))
             .or_default()
-            .insert(aggregation.root_for_channel(&row.channel_h));
+            .insert(workspace);
     }
-    grouped
+    Ok(grouped
         .into_iter()
         .map(
             |((_backend, name, about), workspaces)| AgentCapabilityView {
@@ -59,7 +60,7 @@ fn available_agents(
                 workspaces: workspaces.into_iter().collect(),
             },
         )
-        .collect()
+        .collect())
 }
 
 fn channels_by_parent(channels: Vec<Channel>) -> BTreeMap<String, Vec<Channel>> {
@@ -84,7 +85,7 @@ fn workspace_view(
     by_parent: &BTreeMap<String, Vec<Channel>>,
     root: &str,
     input: &AgentWhoInput<'_>,
-) -> WorkspaceView {
+) -> anyhow::Result<WorkspaceView> {
     let meta = aggregation.channel(root);
     let members = member_views(aggregation, root, input);
     let expanded = input.expanded_workspaces.contains(root);
@@ -105,17 +106,20 @@ fn workspace_view(
                     &mut seen,
                 )
             })
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()?
     } else {
         Vec::new()
     };
-    WorkspaceView {
+    Ok(WorkspaceView {
         name: root.to_string(),
         channel: root.to_string(),
-        path: aggregation
-            .workspace_path(root)
-            .unwrap_or_default()
-            .to_string(),
+        path: {
+            aggregation.root_for_channel(root)?;
+            aggregation
+                .workspace_path(root)
+                .unwrap_or_default()
+                .to_string()
+        },
         about: meta
             .map(|channel| channel.about.clone())
             .unwrap_or_default(),
@@ -123,7 +127,7 @@ fn workspace_view(
         expanded,
         members: if expanded { members } else { Vec::new() },
         channels,
-    }
+    })
 }
 
 fn channel_view(
@@ -133,9 +137,9 @@ fn channel_view(
     channel_h: &str,
     input: &AgentWhoInput<'_>,
     seen: &mut BTreeSet<String>,
-) -> ChannelView {
+) -> anyhow::Result<ChannelView> {
     if !seen.insert(channel_h.to_string()) {
-        return empty_channel(workspace, channel_h);
+        return Ok(empty_channel(workspace, channel_h));
     }
     let meta = aggregation.channel(channel_h);
     let name = aggregation.channel_name(channel_h).to_string();
@@ -157,13 +161,13 @@ fn channel_view(
                     seen,
                 )
             })
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()?
     } else {
         Vec::new()
     };
-    ChannelView {
+    Ok(ChannelView {
         name,
-        id: aggregation.full_channel_ref(channel_h),
+        id: aggregation.full_channel_ref(channel_h)?,
         about: meta
             .map(|channel| channel.about.clone())
             .unwrap_or_default(),
@@ -171,7 +175,7 @@ fn channel_view(
         expanded,
         members: if expanded { members } else { Vec::new() },
         children,
-    }
+    })
 }
 
 fn empty_channel(workspace: &str, channel_h: &str) -> ChannelView {

@@ -9,14 +9,17 @@ pub(crate) fn render_agent_who(
     input: AgentWhoInput<'_>,
 ) -> anyhow::Result<String> {
     let aggregation = crate::who_aggregation::WhoAggregation::load(store, input.now)?;
-    Ok(render_agent_who_from_aggregation(&aggregation, input))
+    render_agent_who_from_aggregation(&aggregation, input)
 }
 
 pub(crate) fn render_agent_who_from_aggregation(
     aggregation: &crate::who_aggregation::WhoAggregation,
     input: AgentWhoInput<'_>,
-) -> String {
-    render::render_agent_who(&build::build_agent_who(aggregation, input))
+) -> anyhow::Result<String> {
+    Ok(render::render_agent_who(&build::build_agent_who(
+        aggregation,
+        input,
+    )?))
 }
 
 #[cfg(test)]

@@ -164,7 +164,7 @@ fn resolve_add_channel(
 ) -> Result<ChannelResolution> {
     let anchor = CallerAnchor::from_params(params);
     let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h)),
+        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
         Err(_) => {
             let cwd = params
                 .get("cwd")

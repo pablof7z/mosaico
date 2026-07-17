@@ -68,7 +68,7 @@ pub(super) fn bind_workspace(
     if work_root.is_empty() {
         return Ok(());
     }
-    let Some(root_path) = crate::daemon::workspace_path::root_path_for(cwd) else {
+    let Some(root_path) = crate::daemon::workspace_path::root_path_for(cwd)? else {
         return Ok(());
     };
     state.with_store(|store| {

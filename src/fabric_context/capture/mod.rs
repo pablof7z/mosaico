@@ -158,10 +158,13 @@ pub(super) struct EvCap {
 /// Read the store once and freeze the four canonical inputs. `now`/`cursor`
 /// filtering stays out of the superset captures so the reconciler owns that
 /// decision.
-pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> ViewInputs {
-    let root = read::root_channel(store, input.scope);
+pub(crate) fn capture_inputs(
+    store: &Store,
+    input: &FabricContextInput<'_>,
+) -> anyhow::Result<ViewInputs> {
+    let root = read::root_channel(store, input.scope)?;
     let channel_hs = read::selected_channels(store, input);
-    let other_workspaces = activity::workspace_caps(store, &root);
+    let other_workspaces = activity::workspace_caps(store, &root)?;
     let mut warnings = input.warnings.to_vec();
     warnings.extend(
         read::missing_channels(store, input)
@@ -276,7 +279,7 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         input.backend_pubkey,
     );
 
-    ViewInputs {
+    Ok(ViewInputs {
         meta,
         members: MembersInput {
             roster,
@@ -289,5 +292,5 @@ pub(crate) fn capture_inputs(store: &Store, input: &FabricContextInput<'_>) -> V
         reactions: ReactionsInput {
             rows: reaction_rows,
         },
-    }
+    })
 }

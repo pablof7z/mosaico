@@ -31,7 +31,7 @@ pub(super) fn retire_conflicting_pid_runtime(
     }
     let old_work_root = state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_session(&old)
-    });
+    })?;
     if old_work_root != new_work_root {
         return Ok(());
     }

@@ -59,7 +59,7 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
     );
 
     // Parity: the pure capture→assemble path renders byte-identically.
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     assert_eq!(rendered, text);
 }
@@ -87,7 +87,7 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
         suspended.contains("state=\"suspended\""),
         "got: {suspended}"
     );
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 80, 100, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 80, 100, true)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 80, 100)),
         suspended
@@ -102,7 +102,7 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
         .expect("expiry delta should render");
     assert!(offline.contains("state=\"offline\""), "got: {offline}");
     assert!(!offline.contains("stale live activity"), "got: {offline}");
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 120, 130, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 120, 130, true)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 120, 130)),
         offline
@@ -133,7 +133,7 @@ fn heartbeat_without_state_change_produces_no_presence_delta() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("forced quiet delta should render");
     assert!(!text.contains("<recent-presence>"), "got: {text}");
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 160, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 160, true)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 100, 160)),
         text
@@ -247,7 +247,7 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
     );
     assert!(text.contains(&format!("ref=\"@{tester}\"")), "got: {text}");
 
-    let captured = capture_inputs(&store, &input(Some(&rec), "test1-xxx", 200, 300, true));
+    let captured = capture_inputs(&store, &input(Some(&rec), "test1-xxx", 200, 300, true)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(rendered, text);
 
@@ -256,6 +256,7 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
         input(Some(&rec), "test1-xxx", 200, 300, true),
         false,
     )
+    .expect("valid channel ancestry")
     .expect("human context should render");
     assert!(human.contains("#test1.xxx"), "got: {human}");
     assert!(human.contains("#test2.xxx"), "got: {human}");

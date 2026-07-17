@@ -58,8 +58,8 @@ pub(in crate::daemon::server) fn rpc_statusline(
             .unwrap_or_default();
         // `work_root` is the top-level root this channel belongs under.
         // This is the "Root" line in `who`, surfaced as `root-name`.
-        let work_root =
-            crate::daemon::workspace_path::WorkspacePathResolver::new(s).root_for_channel(&scope);
+        let work_root = crate::daemon::workspace_path::WorkspacePathResolver::new(s)
+            .root_for_channel(&scope)?;
         let pending_chat = s.peek_pending_for_pubkey(&rec.pubkey).unwrap_or_default();
         let recent_since = now.saturating_sub(STATUSLINE_RECENT_SECS);
         let recent_chat = s

@@ -180,7 +180,7 @@ pub(in crate::daemon::server) enum ChannelResolution {
 pub(in crate::daemon::server) fn root_channel(
     store: &crate::state::Store,
     channel: &str,
-) -> String {
+) -> Result<String> {
     crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
 }
 

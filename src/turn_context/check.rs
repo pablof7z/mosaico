@@ -1,5 +1,6 @@
 use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
 use crate::state::{Session, Store};
+use anyhow::Result;
 
 use super::reads::{ambient_by_joined_channel, context_instance, joined_channels, take_inbox};
 use super::TurnContext;
@@ -15,7 +16,9 @@ pub(crate) fn assemble_turn_check_context(
     now: u64,
 ) -> Option<String> {
     let hook_contexts = super::HookContextStates::default();
-    assemble_turn_check(store, rec, self_host, delta_since, now, &hook_contexts).text
+    assemble_turn_check(store, rec, self_host, delta_since, now, &hook_contexts)
+        .unwrap()
+        .text
 }
 
 /// Mid-turn context for the PostToolUse `turn_check` hook.
@@ -26,7 +29,7 @@ pub(crate) fn assemble_turn_check(
     delta_since: Option<u64>,
     now: u64,
     hook_contexts: &super::HookContextStates,
-) -> TurnContext {
+) -> Result<TurnContext> {
     let mut warnings: Vec<String> = Vec::new();
     super::headless::push_mode_notice(hook_contexts, store, rec, false, &mut warnings);
     let scope = rec.channel_h.clone();
@@ -96,6 +99,7 @@ pub(crate) fn assemble_turn_check(
             },
         )
     };
+    let inputs = inputs?;
     let outcome = super::render_hook_context(
         hook_contexts,
         &rec.pubkey,
@@ -104,10 +108,10 @@ pub(crate) fn assemble_turn_check(
         now as i64,
         inputs,
     );
-    TurnContext {
+    Ok(TurnContext {
         text: outcome.text,
         receipt: outcome.receipt,
         transaction_id: outcome.transaction_id,
         revision: outcome.revision,
-    }
+    })
 }

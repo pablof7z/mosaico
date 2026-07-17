@@ -25,11 +25,11 @@ pub(crate) fn render_view_text(view: &FabricView) -> String {
     render_view(view)
 }
 
-fn derive_view(store: &Store, input: FabricContextInput<'_>) -> FabricView {
+fn derive_view(store: &Store, input: FabricContextInput<'_>) -> anyhow::Result<FabricView> {
     let cursor = input.cursor;
     let now = input.now;
-    let inputs = capture_inputs(store, &input);
-    assemble::assemble_view(&inputs, cursor, now)
+    let inputs = capture_inputs(store, &input)?;
+    Ok(assemble::assemble_view(&inputs, cursor, now))
 }
 
 pub(crate) struct FabricContextInput<'a> {
@@ -75,7 +75,7 @@ pub(crate) fn render_fabric_context(
     input: FabricContextInput<'_>,
 ) -> Option<String> {
     let force = input.force;
-    let view = derive_view(store, input);
+    let view = derive_view(store, input).expect("fabric test fixture has valid channel ancestry");
     if !force && view.is_empty() {
         return None;
     }
@@ -86,13 +86,13 @@ pub(crate) fn render_fabric_context_human(
     store: &Store,
     input: FabricContextInput<'_>,
     color: bool,
-) -> Option<String> {
+) -> anyhow::Result<Option<String>> {
     let force = input.force;
-    let view = derive_view(store, input);
+    let view = derive_view(store, input)?;
     if !force && view.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(render_human_view(&view, color))
+    Ok(Some(render_human_view(&view, color)))
 }
 
 /// `--all-workspaces`: the same fabric renderer as a single-scope `who`, one
@@ -110,7 +110,8 @@ pub(crate) fn render_fabric_all_workspaces(
     let views = roots
         .iter()
         .map(|root| derive_view(store, root_input(root, now, local_host, backend_pubkey)))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()
+        .expect("fabric test fixtures have valid channel ancestry");
     render::all_workspaces::render_views(&views)
 }
 
@@ -122,12 +123,12 @@ pub(crate) fn render_fabric_all_workspaces_human(
     local_host: &str,
     backend_pubkey: &str,
     color: bool,
-) -> String {
+) -> anyhow::Result<String> {
     let views = roots
         .iter()
         .map(|root| derive_view(store, root_input(root, now, local_host, backend_pubkey)))
-        .collect::<Vec<_>>();
-    render_human_views(&views, color)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(render_human_views(&views, color))
 }
 
 fn root_input<'a>(

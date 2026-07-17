@@ -14,7 +14,7 @@ pub(super) fn context_instance(
         .expect("registered session identity")
 }
 
-pub(super) fn root_channel_h(s: &Store, channel: &str) -> String {
+pub(super) fn root_channel_h(s: &Store, channel: &str) -> Result<String> {
     crate::daemon::workspace_path::WorkspacePathResolver::new(s).root_for_channel(channel)
 }
 

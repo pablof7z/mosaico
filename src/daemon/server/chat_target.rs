@@ -18,7 +18,7 @@ pub(in crate::daemon::server) fn resolve_chat_target(
                 explicit: true,
             });
         }
-        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
+        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
         let channel_h = state.with_store(|s| resolve_chat_channel_ref(s, &root, reference))?;
         return Ok(ChatTarget {
             channel_h,
@@ -41,8 +41,8 @@ pub(in crate::daemon::server) fn resolve_chat_target(
                 joined
                     .iter()
                     .map(|(h, _)| super::channel_resolve::channel_reference_for(s, h))
-                    .collect::<Vec<_>>()
-            });
+                    .collect::<Result<Vec<_>>>()
+            })?;
             anyhow::bail!(
                 "{} is ambiguous because this session is joined to {} channels. \
 Pass one explicitly:\n{}",
@@ -74,7 +74,7 @@ pub(in crate::daemon::server) async fn resolve_chat_target_provisioning(
                 explicit: true,
             });
         }
-        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
+        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
         match state.with_store(|s| super::resolve_channel_ref(s, &root, reference)) {
             super::ChannelResolution::Unique(channel_h) => {
                 return Ok(ChatTarget {
@@ -236,7 +236,8 @@ mod tests {
         let refs = joined
             .iter()
             .map(|(h, _)| channel_reference_for(&store, h))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         assert!(refs.contains(&"root".to_string()));
         assert!(refs.contains(&"other".to_string()));
         assert_eq!(rec.channel_h, "root");
@@ -254,7 +255,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            channel_reference_for(&store, "h-plan"),
+            channel_reference_for(&store, "h-plan").unwrap(),
             "root.epic.planning"
         );
     }

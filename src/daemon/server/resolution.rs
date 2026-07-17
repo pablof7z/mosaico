@@ -79,7 +79,7 @@ pub(in crate::daemon::server) fn resolve_session(
 
 /// The root channel a routing scope belongs under: a top-level channel is its
 /// own work root; sub-channels walk to the top-level channel root.
-pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> String {
+pub(in crate::daemon::server) fn work_root_for(s: &Store, scope: &str) -> Result<String> {
     crate::daemon::workspace_path::WorkspacePathResolver::new(s).root_for_channel(scope)
 }
 
@@ -168,8 +168,8 @@ mod tests {
         store.upsert_channel("task", "Task", "", "root", 1).unwrap();
         store.upsert_channel("deep", "Deep", "", "task", 1).unwrap();
 
-        assert_eq!(work_root_for(&store, "deep"), "root");
-        assert_eq!(work_root_for(&store, "root"), "root");
-        assert_eq!(work_root_for(&store, "unknown"), "unknown");
+        assert_eq!(work_root_for(&store, "deep").unwrap(), "root");
+        assert_eq!(work_root_for(&store, "root").unwrap(), "root");
+        assert!(work_root_for(&store, "unknown").is_err());
     }
 }

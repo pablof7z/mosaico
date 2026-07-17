@@ -6,14 +6,14 @@
 use anyhow::Result;
 
 pub(crate) fn channel_for_path(path: &std::path::Path) -> Result<String> {
-    Ok(crate::workspace::resolve(path)?)
+    crate::workspace::resolve(path)
 }
 
 pub(crate) fn channel_for_path_or_bail(path: &std::path::Path) -> Result<String> {
     crate::workspace::resolve_or_bail(path)
 }
 
-pub(crate) fn root_path_for(path: &std::path::Path) -> Option<std::path::PathBuf> {
+pub(crate) fn root_path_for(path: &std::path::Path) -> Result<Option<std::path::PathBuf>> {
     crate::workspace::workspace_dir(path)
 }
 
@@ -26,12 +26,12 @@ impl<'a> WorkspacePathResolver<'a> {
         Self { store }
     }
 
-    pub(crate) fn root_for_channel(&self, channel_h: &str) -> String {
+    pub(crate) fn root_for_channel(&self, channel_h: &str) -> Result<String> {
         root_for_reader(self.store.reader(), channel_h)
     }
 
     pub(crate) fn path_for_channel(&self, channel_h: &str) -> Result<Option<String>> {
-        let root = self.root_for_channel(channel_h);
+        let root = self.root_for_channel(channel_h)?;
         self.store.workspace_path(&root)
     }
 
@@ -39,13 +39,8 @@ impl<'a> WorkspacePathResolver<'a> {
         self.store.list_workspace_bindings()
     }
 
-    pub(crate) fn root_for_session(&self, session: &crate::state::Session) -> String {
-        self.store
-            .root_channel_of(&session.channel_h)
-            .ok()
-            .flatten()
-            .or_else(|| (!session.work_root.is_empty()).then(|| session.work_root.clone()))
-            .unwrap_or_else(|| session.channel_h.clone())
+    pub(crate) fn root_for_session(&self, session: &crate::state::Session) -> Result<String> {
+        self.root_for_channel(&session.channel_h)
     }
 
     pub(crate) fn bind_root_path(&self, root: &str, path: &std::path::Path, at: u64) -> Result<()> {
@@ -54,18 +49,19 @@ impl<'a> WorkspacePathResolver<'a> {
     }
 }
 
-pub(crate) fn root_for_reader(store: crate::state::StoreReader<'_>, channel_h: &str) -> String {
-    store
-        .root_channel_of(channel_h)
-        .unwrap_or_else(|error| {
-            tracing::error!(
-                channel = %channel_h,
-                %error,
-                "workspace resolver: channel ancestry lookup failed"
-            );
-            None
-        })
-        .unwrap_or_else(|| channel_h.to_string())
+pub(crate) fn root_for_reader(
+    store: crate::state::StoreReader<'_>,
+    channel_h: &str,
+) -> Result<String> {
+    if let Some(root) = store.root_channel_of(channel_h)? {
+        return Ok(root);
+    }
+    if store.workspace_path(channel_h)?.is_some() {
+        return Ok(channel_h.to_string());
+    }
+    Err(anyhow::anyhow!(
+        "workspace resolver: incomplete ancestry for channel {channel_h:?}"
+    ))
 }
 
 #[cfg(test)]
@@ -84,10 +80,25 @@ mod tests {
             .bind_root_path("root", std::path::Path::new("/repo"), 2)
             .unwrap();
 
-        assert_eq!(resolver.root_for_channel("child"), "root");
+        assert_eq!(resolver.root_for_channel("child").unwrap(), "root");
         assert_eq!(
             resolver.path_for_channel("child").unwrap().as_deref(),
             Some("/repo")
+        );
+    }
+
+    #[test]
+    fn broken_ancestry_is_an_error_instead_of_a_root_fallback() {
+        let store = crate::state::Store::open_memory().unwrap();
+        store
+            .upsert_channel("child", "child", "", "missing-parent", 1)
+            .unwrap();
+        let resolver = WorkspacePathResolver::new(&store);
+
+        let error = resolver.root_for_channel("child").unwrap_err();
+        assert!(
+            error.to_string().contains("incomplete ancestry"),
+            "error = {error:#}"
         );
     }
 

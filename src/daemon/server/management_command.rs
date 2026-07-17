@@ -109,7 +109,7 @@ async fn execute_claimed(
 }
 
 async fn add_agent(state: &Arc<DaemonState>, channel_h: &str, spec: &str) -> Result<String> {
-    let work_root = state.with_store(|s| work_root_for(s, channel_h));
+    let work_root = state.with_store(|s| work_root_for(s, channel_h))?;
     let out = super::invite_rpc::invite_agent(state, channel_h, &work_root, spec, None).await?;
     let who = out
         .get("online_agent")
@@ -158,7 +158,7 @@ async fn archive_named_channel(
     channel_ref: &str,
 ) -> Result<String> {
     let target = state.with_store(|s| {
-        let root = root_channel(s, command_channel);
+        let root = root_channel(s, command_channel)?;
         match resolve_channel_ref(s, &root, channel_ref) {
             ChannelResolution::Unique(h) => Ok(h),
             ChannelResolution::Ambiguous(refs) => {

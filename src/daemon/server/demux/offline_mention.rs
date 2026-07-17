@@ -48,14 +48,22 @@ pub(super) async fn handle(
     let agent_slug = target.agent_slug;
     let target_session = target.session;
 
-    let work_root = state.with_store(|s| work_root_for(s, channel));
-    let has_path = state.with_store(|s| {
-        crate::daemon::workspace_path::WorkspacePathResolver::new(s)
-            .path_for_channel(&work_root)
-            .ok()
-            .flatten()
-            .is_some()
-    });
+    let work_root = match state.with_store(|s| work_root_for(s, channel)) {
+        Ok(root) => root,
+        Err(error) => {
+            tracing::error!(channel, %error, "mention spawn workspace ancestry lookup failed");
+            return;
+        }
+    };
+    let has_path = match state.with_store(|s| {
+        crate::daemon::workspace_path::WorkspacePathResolver::new(s).path_for_channel(&work_root)
+    }) {
+        Ok(path) => path.is_some(),
+        Err(error) => {
+            tracing::error!(channel, work_root, %error, "mention spawn workspace path lookup failed");
+            return;
+        }
+    };
     if !has_path {
         tracing::warn!(agent = %agent_slug, work_root = %work_root, channel, "no local channel root found - cannot spawn");
         return;

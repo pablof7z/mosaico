@@ -46,7 +46,7 @@ pub(super) async fn rpc_invite(
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
-    let work_root = state.with_store(|s| work_root_for(s, &channel_h));
+    let work_root = state.with_store(|s| work_root_for(s, &channel_h))?;
     let mut result = invite_session(state, &channel_h, &work_root, session_id).await?;
     maybe_post_add_message(state, params, &channel_h, &p, &mut result).await;
     Ok(result)
@@ -88,7 +88,7 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
         ..Default::default()
     };
     let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h)),
+        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
         Err(_) => {
             let cwd = p
                 .cwd

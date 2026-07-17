@@ -86,7 +86,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &state.host,
         prev_started,
         &state.runtime.hook_contexts,
-    );
+    )?;
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)
@@ -134,7 +134,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
         delta_since,
         now,
         &state.runtime.hook_contexts,
-    );
+    )?;
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     let context = turn

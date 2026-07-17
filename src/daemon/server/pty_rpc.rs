@@ -249,7 +249,7 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
         if live_pty {
             continue;
         }
-        let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h));
+        let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h))?;
         let pubkey = rec.pubkey.clone();
         let npub = crate::idref::npub(&pubkey).unwrap_or_default();
         let handle = state.with_store(|s| s.handle_for_pubkey(&pubkey).ok().flatten());

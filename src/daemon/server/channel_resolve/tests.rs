@@ -133,7 +133,7 @@ fn channel_reference_prefers_unique_relative_path() {
     chan(&store, "h-plan", "planning", "h-epic");
 
     assert_eq!(
-        channel_reference_for(&store, "h-plan"),
+        channel_reference_for(&store, "h-plan").unwrap(),
         "h-root.epic.planning"
     );
 }
@@ -183,7 +183,7 @@ fn nested_sender_explicit_channel_refs_resolve_from_root_channel() {
     chan(&store, "h-leaf", "leaf", "h-plan");
     chan(&store, "h-review", "review", "h-epic");
 
-    let root = root_channel(&store, "h-leaf");
+    let root = root_channel(&store, "h-leaf").unwrap();
     assert_eq!(root, "h-root");
     assert!(matches!(
         resolve_channel_ref(&store, &root, "epic.review"),

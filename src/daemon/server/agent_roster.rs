@@ -37,7 +37,7 @@ pub(in crate::daemon::server) async fn publish_local_agent_roster(
     state: &Arc<DaemonState>,
     remove_slug: Option<&str>,
 ) -> Result<RosterPublishReport> {
-    let (advertisements, mut failed) = capability_advertisements(state);
+    let (advertisements, mut failed) = capability_advertisements(state)?;
     let mut published = 0usize;
     let mut removed = 0usize;
 
@@ -114,7 +114,13 @@ pub(in crate::daemon::server) async fn publish_backend_profile(state: &Arc<Daemo
     let Some(backend_keys) = state.provider.management_keys() else {
         return;
     };
-    let (advertisements, failures) = capability_advertisements(state);
+    let (advertisements, failures) = match capability_advertisements(state) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!(%error, "agent capability authority lookup failed");
+            return;
+        }
+    };
     for failure in failures {
         tracing::error!(error = %failure, "agent capability is not advertisable");
     }
@@ -135,26 +141,23 @@ pub(in crate::daemon::server) async fn publish_backend_profile(state: &Arc<Daemo
     }
 }
 
-fn root_channels(store: &Store) -> Vec<String> {
-    store
-        .list_root_channels()
-        .unwrap_or_default()
+fn root_channels(store: &Store) -> Result<Vec<String>> {
+    Ok(store
+        .list_root_channels()?
         .into_iter()
         .filter(|c| !c.is_archived())
         .map(|c| c.channel_h)
-        .collect()
+        .collect())
 }
 
 pub(in crate::daemon::server) fn capability_advertisements(
     state: &Arc<DaemonState>,
-) -> (Vec<CapabilityAdvertisement>, Vec<String>) {
-    let roots = state.with_store(root_channels);
+) -> Result<(Vec<CapabilityAdvertisement>, Vec<String>)> {
+    let roots = state.with_store(root_channels)?;
     let root_set = roots.iter().cloned().collect::<BTreeSet<_>>();
     let bindings = state.with_store(|store| {
-        crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .bindings()
-            .unwrap_or_default()
-    });
+        crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()
+    })?;
     let mut merged = BTreeMap::<String, (String, u64, BTreeSet<String>)>::new();
     let catalog = state.agent_catalog();
     let installed_harnesses = state.installed_harnesses();
@@ -209,7 +212,7 @@ pub(in crate::daemon::server) fn capability_advertisements(
         .collect();
     failed.sort();
     failed.dedup();
-    (advertisements, failed)
+    Ok((advertisements, failed))
 }
 
 fn merge_inventory(

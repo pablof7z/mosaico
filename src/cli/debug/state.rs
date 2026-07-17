@@ -45,21 +45,26 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
     };
 
     let refresh = opts.refresh.max(Duration::from_millis(100));
-    let mut snapshot = load_hook_tail_snapshot(&state.root_filters, &state.session_filter);
+    let mut snapshot = load_hook_tail_snapshot(&state.root_filters, &state.session_filter)?;
     let mut pane_order = Vec::new();
     stabilize_pane_order(&mut snapshot, &mut pane_order);
 
     let _terminal = TuiTerminal::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut next_refresh = Instant::now();
-    let (snap_tx, snap_rx) = std::sync::mpsc::channel::<HookTailSnapshot>();
+    let (snap_tx, snap_rx) = std::sync::mpsc::channel::<Result<HookTailSnapshot>>();
     let mut loading = false;
 
     loop {
-        while let Ok(mut new) = snap_rx.try_recv() {
-            stabilize_pane_order(&mut new, &mut pane_order);
-            snapshot = new;
+        while let Ok(result) = snap_rx.try_recv() {
             loading = false;
+            match result {
+                Ok(mut new) => {
+                    stabilize_pane_order(&mut new, &mut pane_order);
+                    snapshot = new;
+                }
+                Err(error) => state.status = format!("refresh failed: {error:#}"),
+            }
         }
 
         // Re-anchor focused index to the same session after a snapshot re-sort.

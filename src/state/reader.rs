@@ -21,4 +21,8 @@ impl StoreReader<'_> {
     pub(crate) fn root_channel_of(self, channel_h: &str) -> Result<Option<String>> {
         self.store.root_channel_of(channel_h)
     }
+
+    pub(crate) fn workspace_path(self, channel_h: &str) -> Result<Option<String>> {
+        self.store.workspace_path(channel_h)
+    }
 }

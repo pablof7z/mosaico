@@ -57,6 +57,22 @@ fn resolve_errors_when_no_git_and_not_in_map() {
     }
 }
 
+#[test]
+fn resolve_rejects_a_corrupt_workspace_map() {
+    let (_g, home) = isolated_home();
+    let dir = tempfile::tempdir().unwrap();
+    let abs = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::write(home.path().join("workspaces.json"), "{not json").unwrap();
+
+    if git_toplevel(&abs).is_none() {
+        let error = resolve(&abs).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("corrupt workspace map"),
+            "error = {error:#}"
+        );
+    }
+}
+
 // -- workspace_dir ---------------------------------------------------------
 
 #[test]
@@ -67,7 +83,7 @@ fn workspace_dir_from_map_returns_ancestor_dir() {
     write_workspaces_map(&[("ws", abs.to_str().unwrap())]);
     let nested = abs.join("sub");
     std::fs::create_dir_all(&nested).unwrap();
-    assert_eq!(workspace_dir(&nested), Some(abs));
+    assert_eq!(workspace_dir(&nested).unwrap(), Some(abs));
 }
 
 // -- rel_cwd --------------------------------------------------------------
@@ -78,7 +94,7 @@ fn rel_cwd_root_is_dot() {
     let dir = tempfile::tempdir().unwrap();
     let abs = std::fs::canonicalize(dir.path()).unwrap();
     write_workspaces_map(&[("p", abs.to_str().unwrap())]);
-    assert_eq!(rel_cwd(&abs), ".");
+    assert_eq!(rel_cwd(&abs).unwrap(), ".");
 }
 
 #[test]
@@ -89,7 +105,7 @@ fn rel_cwd_subdir_is_relative_joined() {
     write_workspaces_map(&[("p", abs.to_str().unwrap())]);
     let sub = abs.join("worktree1").join("nested");
     std::fs::create_dir_all(&sub).unwrap();
-    assert_eq!(rel_cwd(&sub), "worktree1/nested");
+    assert_eq!(rel_cwd(&sub).unwrap(), "worktree1/nested");
 }
 
 // -- register_workspace ---------------------------------------------------

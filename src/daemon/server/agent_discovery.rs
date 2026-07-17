@@ -54,14 +54,14 @@ impl DaemonState {
 
     pub(crate) fn refresh_agent_catalog(&self) -> Result<Option<CatalogChange>> {
         let roots = DiscoveryRoots::installed()?;
-        let workspaces = self.with_store(|store| {
-            crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                .bindings()
-                .unwrap_or_default()
+        let workspaces = self.with_store(|store| -> Result<Vec<PathBuf>> {
+            let bindings =
+                crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()?;
+            Ok(bindings
                 .into_iter()
                 .map(|binding| PathBuf::from(binding.abs_path))
-                .collect::<Vec<_>>()
-        });
+                .collect())
+        })?;
         let discovered = discover(&roots, workspaces)?;
         let installed = crate::config::detect_available_harnesses()?;
         let current = self.catalog.agents.lock().unwrap().clone();

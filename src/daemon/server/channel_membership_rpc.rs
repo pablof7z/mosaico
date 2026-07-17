@@ -37,7 +37,7 @@ fn resolve_ref_in_channel(
     if reference.trim().is_empty() {
         anyhow::bail!("channel h must not be empty");
     }
-    let root = state.with_store(|s| super::root_channel(s, &rec.channel_h));
+    let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
     let resolution = state.with_store(|s| super::resolve_channel_ref(s, &root, reference));
     Ok((root, resolution))
 }

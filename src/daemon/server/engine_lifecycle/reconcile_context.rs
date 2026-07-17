@@ -1,5 +1,6 @@
 use crate::daemon::server::DaemonState;
 use crate::state::Session;
+use anyhow::Result;
 
 pub(super) fn parent_hint(state: &DaemonState, session: &Session) -> Option<String> {
     let relay_parent =
@@ -11,7 +12,7 @@ pub(super) fn parent_hint(state: &DaemonState, session: &Session) -> Option<Stri
     )
 }
 
-pub(super) fn workspace(state: &DaemonState, session: &Session) -> String {
+pub(super) fn workspace(state: &DaemonState, session: &Session) -> Result<String> {
     state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_session(session)
     })

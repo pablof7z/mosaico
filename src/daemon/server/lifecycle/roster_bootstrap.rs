@@ -19,7 +19,14 @@ async fn restore_workspace_root_names(state: &Arc<DaemonState>) {
     let Some(backend_pubkey) = state.backend_pubkey() else {
         return;
     };
-    let roots = state.with_store(|store| roots_needing_workspace_name(store, &backend_pubkey));
+    let roots = match state.with_store(|store| roots_needing_workspace_name(store, &backend_pubkey))
+    {
+        Ok(roots) => roots,
+        Err(error) => {
+            tracing::error!(%error, "workspace root repair authority lookup failed");
+            return;
+        }
+    };
     for root in roots {
         if state.provider.nip29_set_group_name(&root, &root).await {
             state.provider.fetch_and_materialize_channel(&root).await;
@@ -32,24 +39,24 @@ async fn restore_workspace_root_names(state: &Arc<DaemonState>) {
     }
 }
 
-fn roots_needing_workspace_name(store: &crate::state::Store, backend_pubkey: &str) -> Vec<String> {
-    store
-        .list_root_channels()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|channel| channel.name.trim() != channel.channel_h)
-        .filter(|channel| {
-            store
-                .is_channel_admin(&channel.channel_h, backend_pubkey)
-                .unwrap_or(false)
-                || crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                    .path_for_channel(&channel.channel_h)
-                    .ok()
-                    .flatten()
-                    .is_some()
-        })
-        .map(|channel| channel.channel_h)
-        .collect()
+fn roots_needing_workspace_name(
+    store: &crate::state::Store,
+    backend_pubkey: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut roots = Vec::new();
+    for channel in store.list_root_channels()? {
+        if channel.name.trim() == channel.channel_h {
+            continue;
+        }
+        if store.is_channel_admin(&channel.channel_h, backend_pubkey)?
+            || crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+                .path_for_channel(&channel.channel_h)?
+                .is_some()
+        {
+            roots.push(channel.channel_h);
+        }
+    }
+    Ok(roots)
 }
 
 pub(super) fn seed_spawn_on_mention_coverage(state: &Arc<DaemonState>) {
@@ -109,7 +116,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            roots_needing_workspace_name(&store, "backend"),
+            roots_needing_workspace_name(&store, "backend").unwrap(),
             vec!["bound", "one"]
         );
     }

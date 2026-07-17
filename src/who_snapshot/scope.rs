@@ -2,7 +2,7 @@
 pub(super) fn work_root_for(
     aggregation: &crate::who_aggregation::WhoAggregation,
     scope: &str,
-) -> String {
+) -> anyhow::Result<String> {
     aggregation.root_for_channel(scope)
 }
 
@@ -10,7 +10,7 @@ pub(super) fn scope_contains_channel(
     aggregation: &crate::who_aggregation::WhoAggregation,
     current: &str,
     scope: &str,
-) -> bool {
+) -> anyhow::Result<bool> {
     aggregation.scope_contains(current, scope)
 }
 

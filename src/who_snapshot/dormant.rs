@@ -1,4 +1,5 @@
 use super::{scope, WhoRow, WhoSource};
+use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub(super) fn push_claim_rows(
@@ -8,7 +9,7 @@ pub(super) fn push_claim_rows(
     local_host: &str,
     rows: &mut Vec<WhoRow>,
     other_agents: &mut BTreeMap<String, BTreeSet<String>>,
-) {
+) -> Result<()> {
     let live_pubkeys: HashSet<String> = rows.iter().map(|r| r.pubkey.clone()).collect();
     for claim in aggregation.claims.iter().cloned() {
         if live_pubkeys.contains(&claim.pubkey) {
@@ -23,13 +24,15 @@ pub(super) fn push_claim_rows(
             .unwrap_or_else(|| claim.agent_slug.clone());
         if current_root
             .map(|p| scope::scope_contains_channel(aggregation, p, &scope))
+            .transpose()?
             .unwrap_or(true)
         {
-            rows.push(dormant_row(aggregation, claim, slug, local_host, now));
+            rows.push(dormant_row(aggregation, claim, slug, local_host, now)?);
         } else if scope::is_root_channel(aggregation, &scope) {
             other_agents.entry(scope).or_default().insert(slug);
         }
     }
+    Ok(())
 }
 
 fn dormant_row(
@@ -38,7 +41,7 @@ fn dormant_row(
     slug: String,
     local_host: &str,
     now: u64,
-) -> WhoRow {
+) -> Result<WhoRow> {
     let owner_host = claim.owner_host.trim();
     let host = if owner_host.is_empty() {
         local_host.to_string()
@@ -50,9 +53,9 @@ fn dormant_row(
         .session(&claim.pubkey)
         .map(|s| s.title.clone())
         .unwrap_or_default();
-    let work_root = scope::work_root_for(aggregation, &claim.channel_h);
+    let work_root = scope::work_root_for(aggregation, &claim.channel_h)?;
     let work_root_display = work_root.clone();
-    WhoRow {
+    Ok(WhoRow {
         source: WhoSource::Local,
         state: crate::session_state::SessionState::Offline,
         slug,
@@ -67,5 +70,5 @@ fn dormant_row(
         work_root,
         work_root_display,
         pubkey: claim.pubkey,
-    }
+    })
 }

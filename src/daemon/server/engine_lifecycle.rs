@@ -239,7 +239,18 @@ pub(in crate::daemon::server) async fn reconcile_sessions(state: &Arc<DaemonStat
         if let Err(e) = ensure_subscription(state, &snap.channel_h).await {
             tracing::warn!(channel = %snap.channel_h, error = %e, "ensure_subscription failed during reconcile");
         }
-        let workspace = reconcile_context::workspace(state, &snap);
+        let workspace = match reconcile_context::workspace(state, &snap) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                tracing::error!(
+                    pubkey,
+                    channel = %snap.channel_h,
+                    %error,
+                    "cannot reconcile session with unresolved workspace ancestry"
+                );
+                continue;
+            }
+        };
         let ep = engine_params_for(
             &state.cfg,
             identity,

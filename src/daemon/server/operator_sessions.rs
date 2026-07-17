@@ -43,7 +43,7 @@ fn project_sessions(
         let mut grouped = BTreeMap::<String, Vec<String>>::new();
         for (channel_id, _) in store.list_session_joined_channels(&rec.pubkey)? {
             let root_id = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                .root_for_channel(&channel_id);
+                .root_for_channel(&channel_id)?;
             grouped.entry(root_id).or_default().push(channel_id);
         }
         let workspaces = grouped

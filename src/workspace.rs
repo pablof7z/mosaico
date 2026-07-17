@@ -40,7 +40,7 @@ impl std::error::Error for NoWorkspace {}
 ///
 /// Returns the slug, or [`NoWorkspace`] when the cwd is not in a git repo and is
 /// not registered in `~/.mosaico/workspaces.json` (nor any ancestor of it).
-pub(crate) fn resolve(cwd: &Path) -> std::result::Result<String, NoWorkspace> {
+pub(crate) fn resolve(cwd: &Path) -> Result<String> {
     // 1. git repo name (shared across all worktrees of the same repo).
     if let Some(root) = git_toplevel(cwd) {
         if let Some(name) = basename(&root) {
@@ -48,13 +48,14 @@ pub(crate) fn resolve(cwd: &Path) -> std::result::Result<String, NoWorkspace> {
         }
     }
     // 2. workspaces.json: cwd or nearest ancestor present in the map.
-    if let Some(slug) = lookup_in_map(cwd) {
+    if let Some(slug) = lookup_in_map(cwd)? {
         return Ok(slug);
     }
     // 3. No resolvable workspace.
     Err(NoWorkspace {
         cwd: cwd.to_path_buf(),
-    })
+    }
+    .into())
 }
 
 /// The workspace directory for a working dir: the dir whose slug `resolve`
@@ -62,9 +63,9 @@ pub(crate) fn resolve(cwd: &Path) -> std::result::Result<String, NoWorkspace> {
 ///   1. the git repo root (derived from git-common-dir, shared across worktrees),
 ///   2. the nearest ancestor (or cwd itself) present in `workspaces.json`,
 ///   3. else `None`.
-pub(crate) fn workspace_dir(cwd: &Path) -> Option<PathBuf> {
+pub(crate) fn workspace_dir(cwd: &Path) -> Result<Option<PathBuf>> {
     if let Some(root) = git_toplevel(cwd) {
-        return Some(root);
+        return Ok(Some(root));
     }
     workspace_dir_from_map(cwd)
 }
@@ -75,14 +76,14 @@ pub(crate) fn workspace_dir(cwd: &Path) -> Option<PathBuf> {
 ///     with the dir itself rendered as `.`.
 ///   - no resolvable dir → the cwd **basename** (still not absolute).
 ///   - empty basename (fs root) → empty string.
-pub fn rel_cwd(cwd: &Path) -> String {
-    if let Some(root) = workspace_dir(cwd) {
+pub fn rel_cwd(cwd: &Path) -> Result<String> {
+    if let Some(root) = workspace_dir(cwd)? {
         if let Ok(rel) = cwd.strip_prefix(&root) {
             let s = rel.to_string_lossy().replace('\\', "/");
-            return if s.is_empty() { ".".to_string() } else { s };
+            return Ok(if s.is_empty() { ".".to_string() } else { s });
         }
     }
-    basename(cwd).unwrap_or_default()
+    Ok(basename(cwd).unwrap_or_default())
 }
 
 /// Like [`resolve`], but on [`NoWorkspace`] returns an `anyhow::Error` whose
@@ -90,11 +91,15 @@ pub fn rel_cwd(cwd: &Path) -> String {
 /// channel init` or `git init`" message. For the explicit-CLI-verb path only;
 /// hooks should call [`resolve`] and exit 0 on `Err`.
 pub(crate) fn resolve_or_bail(cwd: &Path) -> Result<String> {
-    resolve(cwd).map_err(|e| {
-        anyhow::anyhow!(
-            "{e}; run `mosaico channel init` or `git init` first, or pass `--workspace <slug>`"
-        )
-    })
+    match resolve(cwd) {
+        Ok(slug) => Ok(slug),
+        Err(error) => match error.downcast::<NoWorkspace>() {
+            Ok(no_workspace) => Err(anyhow::anyhow!(
+                "{no_workspace}; run `mosaico channel init` or `git init` first, or pass `--workspace <slug>`"
+            )),
+            Err(error) => Err(error),
+        },
+    }
 }
 
 /// Register the current directory as a new workspace in `workspaces.json`, using
@@ -163,16 +168,10 @@ fn write_map(obj: &std::collections::BTreeMap<String, String>) -> Result<()> {
 
 /// Look up `cwd` (or its nearest ancestor) in the map. Returns the slug for the
 /// nearest ancestor present, or `None` if no ancestor is registered.
-fn lookup_in_map(cwd: &Path) -> Option<String> {
-    let map = match read_map() {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::error!(error = %format!("{e:#}"), "lookup_in_map: workspace map unreadable — treating as no registered workspaces");
-            return None;
-        }
-    };
+fn lookup_in_map(cwd: &Path) -> Result<Option<String>> {
+    let map = read_map()?;
     if map.is_empty() {
-        return None;
+        return Ok(None);
     }
     let abs = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     let mut dir: Option<PathBuf> = Some(abs);
@@ -183,7 +182,7 @@ fn lookup_in_map(cwd: &Path) -> Option<String> {
                 .unwrap_or_else(|_| PathBuf::from(p.as_str()));
             (canon == d.as_path()).then_some(s.clone())
         }) {
-            return Some(slug);
+            return Ok(Some(slug));
         }
         let parent = d.parent().map(|p| p.to_path_buf());
         if dir.as_deref() == parent.as_deref() {
@@ -191,21 +190,15 @@ fn lookup_in_map(cwd: &Path) -> Option<String> {
         }
         dir = parent;
     }
-    None
+    Ok(None)
 }
 
 /// Like [`lookup_in_map`], but returns the workspace **dir** (the ancestor that
 /// is registered), not the slug.
-fn workspace_dir_from_map(cwd: &Path) -> Option<PathBuf> {
-    let map = match read_map() {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::error!(error = %format!("{e:#}"), "workspace_dir_from_map: workspace map unreadable — treating as no registered workspaces");
-            return None;
-        }
-    };
+fn workspace_dir_from_map(cwd: &Path) -> Result<Option<PathBuf>> {
+    let map = read_map()?;
     if map.is_empty() {
-        return None;
+        return Ok(None);
     }
     let abs = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     let mut dir: Option<PathBuf> = Some(abs);
@@ -216,7 +209,7 @@ fn workspace_dir_from_map(cwd: &Path) -> Option<PathBuf> {
                 .unwrap_or_else(|_| PathBuf::from(p.as_str()));
             canon == d.as_path()
         }) {
-            return Some(d.clone());
+            return Ok(Some(d.clone()));
         }
         let parent = d.parent().map(|p| p.to_path_buf());
         if dir.as_deref() == parent.as_deref() {
@@ -224,7 +217,7 @@ fn workspace_dir_from_map(cwd: &Path) -> Option<PathBuf> {
         }
         dir = parent;
     }
-    None
+    Ok(None)
 }
 
 // ── git ──────────────────────────────────────────────────────────────────────

@@ -15,17 +15,16 @@ pub(in crate::daemon::server) fn rpc_my_session(
     let roots = state.with_store(super::who::root_channels)?;
     let instance = state.session_instance(&rec);
     let headless = state.with_store(|store| crate::session_host::session_is_headless(store, &rec));
-    let expanded_workspaces = state.with_store(|store| {
+    let expanded_workspaces = state.with_store(|store| -> Result<BTreeSet<String>> {
         store
-            .list_session_joined_channels(&rec.pubkey)
-            .unwrap_or_default()
+            .list_session_joined_channels(&rec.pubkey)?
             .into_iter()
             .map(|(channel, _)| {
                 crate::daemon::workspace_path::WorkspacePathResolver::new(store)
                     .root_for_channel(&channel)
             })
-            .collect::<BTreeSet<_>>()
-    });
+            .collect()
+    })?;
     let host = state.host.clone();
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
     let fabric = state.with_store(|store| {

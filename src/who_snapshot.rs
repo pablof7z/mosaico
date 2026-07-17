@@ -100,12 +100,7 @@ pub(crate) fn load_who_snapshot(
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
     let aggregation = crate::who_aggregation::WhoAggregation::load(store, now)?;
-    Ok(build_who_snapshot(
-        &aggregation,
-        current_root,
-        now,
-        daemon_host,
-    ))
+    build_who_snapshot(&aggregation, current_root, now, daemon_host)
 }
 
 pub(crate) fn build_who_snapshot(
@@ -113,7 +108,7 @@ pub(crate) fn build_who_snapshot(
     current_root: Option<&str>,
     now: u64,
     daemon_host: &str,
-) -> WhoSnapshot {
+) -> Result<WhoSnapshot> {
     // "Remote" is computed daemon-side by comparing each peer's backend label to
     // this daemon's; local sessions are on this daemon → never remote.
     let local_host = daemon_host.trim().to_string();
@@ -134,9 +129,10 @@ pub(crate) fn build_who_snapshot(
         }
         if current_root
             .map(|p| scope_contains_channel(aggregation, p, &scope))
+            .transpose()?
             .unwrap_or(true)
         {
-            rows.push(local_row(aggregation, s, &local_host, now));
+            rows.push(local_row(aggregation, s, &local_host, now)?);
         } else if is_root_channel(aggregation, &scope) {
             other_agents
                 .entry(scope)
@@ -151,7 +147,7 @@ pub(crate) fn build_who_snapshot(
         &local_host,
         &mut rows,
         &mut other_agents,
-    );
+    )?;
 
     // ── peers: relay_status across all channels, minus our own keys ────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
@@ -175,9 +171,10 @@ pub(crate) fn build_who_snapshot(
             }
             let in_scope = current_root
                 .map(|p| scope_contains_channel(aggregation, p, ch))
+                .transpose()?
                 .unwrap_or(true);
             if in_scope {
-                rows.push(peer_row(aggregation, st, &local_host, now));
+                rows.push(peer_row(aggregation, st, &local_host, now)?);
             } else if is_root_channel(aggregation, ch) {
                 let slug = peer_slug(aggregation, st);
                 other_agents.entry(ch.clone()).or_default().insert(slug);
@@ -208,7 +205,9 @@ pub(crate) fn build_who_snapshot(
         .into_iter()
         .map(|(slug, command, byline)| (slug, (command, byline)))
         .collect::<BTreeMap<_, _>>();
-    let roster_scope = current_root.map(|p| work_root_for(aggregation, p));
+    let roster_scope = current_root
+        .map(|p| work_root_for(aggregation, p))
+        .transpose()?;
     let mut seen_spawnable = BTreeSet::new();
     let mut spawnable: Vec<SpawnableRow> = aggregation
         .agents_for_root(roster_scope.as_deref())
@@ -260,7 +259,7 @@ pub(crate) fn build_who_snapshot(
         (None, _) => "*".to_string(),
     };
 
-    WhoSnapshot {
+    Ok(WhoSnapshot {
         root: current_root.unwrap_or("*").to_string(),
         now,
         rows,
@@ -268,5 +267,5 @@ pub(crate) fn build_who_snapshot(
         spawnable,
         channel_parent,
         root_display,
-    }
+    })
 }

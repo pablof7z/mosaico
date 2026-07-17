@@ -34,25 +34,28 @@ impl WhoAggregation {
             .is_some_and(|channel| channel.parent.is_empty())
     }
 
-    pub(crate) fn root_for_channel(&self, channel_h: &str) -> String {
+    pub(crate) fn root_for_channel(&self, channel_h: &str) -> anyhow::Result<String> {
         let mut current = channel_h;
         for _ in 0..32 {
             let Some(channel) = self.channel(current) else {
-                return current.to_string();
+                if current == channel_h && self.workspace_paths.contains_key(channel_h) {
+                    return Ok(channel_h.to_string());
+                }
+                anyhow::bail!("workspace resolver: incomplete ancestry for channel {channel_h:?}");
             };
             if channel.parent.is_empty() {
-                return channel.channel_h.clone();
+                return Ok(channel.channel_h.clone());
             }
             current = &channel.parent;
         }
-        channel_h.to_string()
+        anyhow::bail!("workspace resolver: cyclic ancestry for channel {channel_h:?}")
     }
 
-    pub(crate) fn scope_contains(&self, current: &str, channel_h: &str) -> bool {
-        !self.is_archived(current)
+    pub(crate) fn scope_contains(&self, current: &str, channel_h: &str) -> anyhow::Result<bool> {
+        Ok(!self.is_archived(current)
             && !self.is_archived(channel_h)
             && (current == channel_h
-                || (self.is_root(current) && self.root_for_channel(channel_h) == current))
+                || (self.is_root(current) && self.root_for_channel(channel_h)? == current)))
     }
 
     pub(crate) fn is_member(&self, channel_h: &str, pubkey: &str) -> bool {
@@ -61,23 +64,23 @@ impl WhoAggregation {
             .any(|member| member.pubkey == pubkey)
     }
 
-    pub(crate) fn full_channel_ref(&self, channel_h: &str) -> String {
+    pub(crate) fn full_channel_ref(&self, channel_h: &str) -> anyhow::Result<String> {
         let mut parts = Vec::new();
         let mut current = channel_h;
         for _ in 0..32 {
             let Some(channel) = self.channel(current) else {
-                return channel_h.to_string();
+                anyhow::bail!("workspace resolver: incomplete ancestry for channel {channel_h:?}");
             };
             if channel.parent.is_empty() {
                 let mut reference = vec![channel.channel_h.clone()];
                 parts.reverse();
                 reference.extend(parts);
-                return reference.join(".");
+                return Ok(reference.join("."));
             }
             parts.push(self.channel_name(current).to_string());
             current = &channel.parent;
         }
-        channel_h.to_string()
+        anyhow::bail!("workspace resolver: cyclic ancestry for channel {channel_h:?}")
     }
 
     pub(crate) fn display_slug(&self, pubkey: &str) -> Option<String> {

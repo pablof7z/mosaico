@@ -43,7 +43,7 @@ fn reaction_on_own_message_renders_once_then_is_silent() {
     );
 
     // Parity: the pure capture→assemble path renders identically.
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false));
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     let rendered = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(rendered, text);
 

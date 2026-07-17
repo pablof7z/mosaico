@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn load_hook_tail_snapshot(
     root_filters: &BTreeSet<String>,
     session_filter: &Option<String>,
-) -> HookTailSnapshot {
+) -> anyhow::Result<HookTailSnapshot> {
     let mut panes: BTreeMap<String, SessionPane> = BTreeMap::new();
     seed_live_sessions(&mut panes);
 
@@ -31,17 +31,17 @@ pub(super) fn load_hook_tail_snapshot(
                 } else {
                     Some(dir_name.as_str())
                 };
-                read_session_hook_log(&dir.join("hook-calls.jsonl"), &mut panes, hint);
+                read_session_hook_log(&dir.join("hook-calls.jsonl"), &mut panes, hint)?;
                 let cmd_unscoped =
-                    read_session_command_log(&dir.join("command-calls.jsonl"), &mut panes, hint);
+                    read_session_command_log(&dir.join("command-calls.jsonl"), &mut panes, hint)?;
                 unscoped.extend(cmd_unscoped);
             }
         }
     }
     if let Some(path) = crate::command_forensics::configured_log_path() {
-        unscoped.extend(read_configured_command_log(&path, &mut panes));
+        unscoped.extend(read_configured_command_log(&path, &mut panes)?);
     }
-    enrich_panes_from_store(&mut panes);
+    enrich_panes_from_store(&mut panes)?;
 
     let mut roots = BTreeSet::new();
     let mut sessions = BTreeSet::new();
@@ -76,12 +76,12 @@ pub(super) fn load_hook_tail_snapshot(
     }
     panes.sort_by(|a, b| latest_ts(b).cmp(&latest_ts(a)).then(a.short.cmp(&b.short)));
 
-    HookTailSnapshot {
+    Ok(HookTailSnapshot {
         panes,
         unscoped,
         roots: roots.into_iter().collect(),
         sessions: sessions.into_iter().collect(),
-    }
+    })
 }
 
 fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
@@ -115,13 +115,16 @@ fn seed_live_sessions(panes: &mut BTreeMap<String, SessionPane>) {
     }
 }
 
-fn enrich_panes_from_store(panes: &mut BTreeMap<String, SessionPane>) {
-    enrich_panes_from_store_path(panes, &crate::daemon::store_path());
+fn enrich_panes_from_store(panes: &mut BTreeMap<String, SessionPane>) -> anyhow::Result<()> {
+    enrich_panes_from_store_path(panes, &crate::daemon::store_path())
 }
 
-fn enrich_panes_from_store_path(panes: &mut BTreeMap<String, SessionPane>, path: &std::path::Path) {
+fn enrich_panes_from_store_path(
+    panes: &mut BTreeMap<String, SessionPane>,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
     let Ok(store) = crate::state::Store::open(path) else {
-        return;
+        return Ok(());
     };
     for pane in panes.values_mut() {
         if let Ok(Some(session)) = store.get_session(&pane.session) {
@@ -131,16 +134,20 @@ fn enrich_panes_from_store_path(panes: &mut BTreeMap<String, SessionPane>, path:
                 .flatten()
                 .unwrap_or(session.agent_slug);
         }
-        enrich_pane_scope_from_store(pane, &store);
+        enrich_pane_scope_from_store(pane, &store)?;
     }
+    Ok(())
 }
 
-fn enrich_pane_scope_from_store(pane: &mut SessionPane, store: &crate::state::Store) {
+fn enrich_pane_scope_from_store(
+    pane: &mut SessionPane,
+    store: &crate::state::Store,
+) -> anyhow::Result<()> {
     let Ok(channels) = store.list_session_joined_channels(&pane.session) else {
-        return;
+        return Ok(());
     };
     if channels.is_empty() {
-        return;
+        return Ok(());
     }
     pane.channels = channels
         .iter()
@@ -148,9 +155,10 @@ fn enrich_pane_scope_from_store(pane: &mut SessionPane, store: &crate::state::St
         .collect();
     if let Some((channel, _)) = channels.first() {
         let workspace = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .root_for_channel(channel);
+            .root_for_channel(channel)?;
         pane.root = channel_display_label(store, &workspace);
     }
+    Ok(())
 }
 
 fn channel_display_label(store: &crate::state::Store, channel_h: &str) -> String {
@@ -182,18 +190,18 @@ fn read_session_hook_log(
     path: &std::path::Path,
     panes: &mut BTreeMap<String, SessionPane>,
     session_hint: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     let Ok(raw) = std::fs::read_to_string(path) else {
-        return;
+        return Ok(());
     };
-    parse_hook_log(&raw, panes, session_hint);
+    parse_hook_log(&raw, panes, session_hint)
 }
 
 fn parse_hook_log(
     raw: &str,
     panes: &mut BTreeMap<String, SessionPane>,
     session_hint: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     use std::collections::HashMap;
     let mut hook_sessions: HashMap<String, String> = HashMap::new();
     for line in raw.lines() {
@@ -217,7 +225,7 @@ fn parse_hook_log(
                 let pane = panes
                     .entry(session.clone())
                     .or_insert_with(|| new_pane(&session));
-                fill_pane_from_hook(pane, host, stdin_json);
+                fill_pane_from_hook(pane, host, stdin_json)?;
                 let (label, summary, detail) = classify_hook(hook_type, stdin_json);
                 pane.lines.push(DebugLine {
                     ts_ms,
@@ -307,6 +315,7 @@ fn parse_hook_log(
             _ => {}
         }
     }
+    Ok(())
 }
 
 /// Read a per-session command log. `_unscoped` accumulates across all sessions
@@ -315,10 +324,10 @@ fn read_session_command_log(
     path: &std::path::Path,
     panes: &mut BTreeMap<String, SessionPane>,
     session_hint: Option<&str>,
-) -> Vec<DebugLine> {
+) -> anyhow::Result<Vec<DebugLine>> {
     let raw = tail_read(path, 2_000_000);
     if raw.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     parse_command_log(&raw, panes, session_hint)
 }
@@ -327,10 +336,10 @@ fn read_session_command_log(
 fn read_configured_command_log(
     path: &std::path::Path,
     panes: &mut BTreeMap<String, SessionPane>,
-) -> Vec<DebugLine> {
+) -> anyhow::Result<Vec<DebugLine>> {
     let raw = tail_read(path, 2_000_000);
     if raw.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     parse_command_log(&raw, panes, None)
 }
@@ -339,7 +348,7 @@ fn parse_command_log(
     raw: &str,
     panes: &mut BTreeMap<String, SessionPane>,
     session_hint: Option<&str>,
-) -> Vec<DebugLine> {
+) -> anyhow::Result<Vec<DebugLine>> {
     use std::collections::HashMap;
     let mut received: HashMap<String, Value> = HashMap::new();
     let mut unscoped = Vec::new();
@@ -359,7 +368,7 @@ fn parse_command_log(
                 let Some(start) = received.get(&call_id) else {
                     continue;
                 };
-                let root = command_root(start);
+                let root = command_root(start)?;
                 let agent = start["env"]["MOSAICO_AGENT"]
                     .as_str()
                     .unwrap_or("")
@@ -414,7 +423,7 @@ fn parse_command_log(
             _ => {}
         }
     }
-    unscoped
+    Ok(unscoped)
 }
 
 #[cfg(test)]
@@ -455,7 +464,7 @@ mod tests {
             },
         )]);
 
-        enrich_panes_from_store_path(&mut panes, &path);
+        enrich_panes_from_store_path(&mut panes, &path).unwrap();
 
         assert_eq!(panes["pk"].agent, "pearl-cliff-395-haiku");
         assert_eq!(panes["pk"].root, "aaa");

@@ -139,8 +139,8 @@ fn first_shared_channel(
         joined
             .iter()
             .map(|(h, _)| super::channel_resolve::channel_reference_for(s, h))
-            .collect::<Vec<_>>()
-    });
+            .collect::<Result<Vec<_>>>()
+    })?;
     anyhow::bail!(
         "you need to specify a channel you're active on: {}",
         refs.join(", ")

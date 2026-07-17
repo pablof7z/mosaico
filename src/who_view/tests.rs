@@ -124,9 +124,10 @@ fn both_renderers_use_one_immutable_capture() {
             },
         )
     };
-    let before_view = render_view();
+    let before_view = render_view().unwrap();
     let before_snapshot =
-        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop");
+        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop")
+            .unwrap();
 
     store.upsert_workspace("alpha", "/mutated", 101).unwrap();
     store
@@ -134,9 +135,10 @@ fn both_renderers_use_one_immutable_capture() {
         .unwrap();
     store.remove_channel_member("alpha", "human-pk").unwrap();
 
-    assert_eq!(render_view(), before_view);
+    assert_eq!(render_view().unwrap(), before_view);
     assert_eq!(
-        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop"),
+        crate::who_snapshot::build_who_snapshot(&aggregation, Some("alpha"), 100, "laptop")
+            .unwrap(),
         before_snapshot
     );
 }

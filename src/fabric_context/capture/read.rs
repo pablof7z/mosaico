@@ -236,7 +236,7 @@ pub(super) fn resolve_pubkey(
     }
 }
 
-pub(super) fn root_channel(store: &Store, channel: &str) -> String {
+pub(super) fn root_channel(store: &Store, channel: &str) -> anyhow::Result<String> {
     crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
 }
 
