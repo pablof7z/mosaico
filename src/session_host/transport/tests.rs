@@ -96,3 +96,54 @@ async fn transport_matrix_routes_liveness_delivery_and_kill_through_the_trait() 
         assert!(transport.kill(&endpoint).await.is_ok());
     }
 }
+
+#[tokio::test]
+async fn pty_transport_reports_a_controlled_socket_live_and_delivers_to_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let socket = scratch.path().join("pty-fixture.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (delivered_tx, delivered_rx) = std::sync::mpsc::channel();
+    let fixture = std::thread::spawn(move || {
+        use std::io::Read as _;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    let mut frame = Vec::new();
+                    stream.read_to_end(&mut frame).unwrap();
+                    if frame.starts_with(b"INJECT ") {
+                        delivered_tx.send(frame).unwrap();
+                        return;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(error) => panic!("PTY fixture accept failed: {error}"),
+            }
+        }
+        panic!("PTY fixture did not receive delivery before deadline");
+    });
+
+    let endpoint = EndpointRef {
+        kind: TransportKind::Pty,
+        endpoint_id: socket.to_string_lossy().into_owned(),
+    };
+    assert!(PtyTransport.is_live(&endpoint));
+    PtyTransport
+        .deliver(&endpoint, "positive PTY delivery", false)
+        .await
+        .unwrap();
+
+    let delivered = delivered_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("PTY fixture delivery");
+    assert!(delivered.starts_with(b"INJECT "));
+    assert!(delivered
+        .windows(b"positive PTY delivery".len())
+        .any(|window| window == b"positive PTY delivery"));
+    fixture.join().unwrap();
+}

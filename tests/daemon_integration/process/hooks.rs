@@ -72,6 +72,23 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
     let relay = WedgeRelay::start();
     let home = Home::with_wedged_relay(&relay.url);
 
+    let hook_started = std::time::Instant::now();
+    let out = run_cli_stdin(
+        &home,
+        &["harness", "hook", "claude-code", "--type", "session-start"],
+        r#"{"cwd":"/tmp","session_id":"wedged-hook-start"}"#,
+    );
+    assert!(
+        out.status.success(),
+        "session-start hook failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        hook_started.elapsed() < DEADLINE,
+        "session-start hook exceeded latency budget: {:?}",
+        hook_started.elapsed()
+    );
+
     let old_pubkey = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect to daemon");
         let started = tokio::time::timeout(
@@ -134,6 +151,23 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
     assert!(
         hook_started.elapsed() < DEADLINE,
         "turn hook exceeded latency budget: {:?}",
+        hook_started.elapsed()
+    );
+
+    let hook_started = std::time::Instant::now();
+    let out = run_cli_stdin(
+        &home,
+        &["harness", "hook", "claude-code", "--type", "post-tool-use"],
+        r#"{"cwd":"/tmp","session_id":"wedged-old"}"#,
+    );
+    assert!(
+        out.status.success(),
+        "post-tool-use hook failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        hook_started.elapsed() < DEADLINE,
+        "post-tool-use hook exceeded latency budget: {:?}",
         hook_started.elapsed()
     );
 
