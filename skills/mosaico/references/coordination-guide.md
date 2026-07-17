@@ -75,6 +75,11 @@ Give the recipient enough context to act independently:
 The delegating agent remains responsible for integrating the result and
 communicating the consequence to the right audience.
 
+Directed messages enter the recipient's inbox even while it is working, and
+pending inbox delivery is replayed after a daemon restart. Do not resend merely
+because the target was busy or the daemon restarted; resend only when the send
+itself failed or authoritative evidence shows the message was not accepted.
+
 ## Escalate Human Decisions
 
 Escalate to the human only for preference, priority, consent, materially risky

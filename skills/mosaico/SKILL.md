@@ -51,6 +51,9 @@ coordination overhead.
   `<workspace>`; descendants use dotted paths such as `<workspace>.reviews`.
 - Read the global agent inventory as capabilities, not channel membership.
   `agent@backend` identifies a capability supplied by a remote backend.
+- Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
+  when identity, installed-agent discovery, backend availability, or a
+  secret-bearing environment affects the work.
 - Expect every known workspace to be listed. Workspaces joined by this exact
   session are expanded; merely known workspaces remain compact.
 - Expect a channel's descendants and typed member rows only when you belong to
@@ -90,10 +93,13 @@ The agent-facing CLI is `my session`, `channel`, `wait`, and `dispatch`.
   Guide](references/coordination-guide.md) first; it is not a substitute for an
   existing session that already owns the work.
 
-Do not use `who`, `sessions`, `mgmt`, `launch`, `mcp`, `daemon`, `harness`,
-`debug`, `probe`, `install`, `__pty-supervisor`, or `__acp-smoke` as ordinary
-agent coordination. They are human/operator, host-integration, or diagnostic
-surfaces; use one only when the user explicitly asks for that operation.
+Do not use `who`, `sessions`, `mgmt`, `launch`, `daemon`, `harness`, `debug`,
+`probe`, `install`, `__pty-supervisor`, or `__acp-smoke` as ordinary agent
+coordination. They are human/operator, host-integration, or diagnostic
+surfaces; use one only when the user explicitly asks for that operation. Treat
+`mcp` the same way except for an explicit third-party chatbot integration; read
+[Third-Party Chatbots Through MCP](references/mcp-chatbot-setup.md) before
+starting or exposing it.
 
 ## Work In Headless Mode
 
@@ -121,6 +127,9 @@ surfaces; use one only when the user explicitly asks for that operation.
 - Use a named or clearly matched fabric agent. Otherwise use an in-session
   subagent, especially for explicit `subagent` requests and unnamed bounded
   helpers.
+- Use the capability and identity rules in [Identity And Agent
+  Capabilities](references/identity-and-capabilities.md) when the inventory
+  contains installed native agents or multiple providers for a role.
 - React to acknowledge, use untagged room messages for shared awareness, and tag
   participants when they should act or focus now. Reserve chat for substantive
   coordination.
@@ -144,3 +153,10 @@ surfaces; use one only when the user explicitly asks for that operation.
   decision, or participant.
 - Read [Cross-Workspace Coordination](references/cross-workspace.md) before
   joining another workspace's channels or involving agents there.
+
+## Connect A Third-Party Chatbot Only On Request
+
+- Read [Third-Party Chatbots Through
+  MCP](references/mcp-chatbot-setup.md) when the user asks to connect ChatGPT,
+  Grok, or another MCP client. It covers identity anchoring, stdio versus remote
+  HTTP, OAuth, verification, current limitations, and safe exposure.
