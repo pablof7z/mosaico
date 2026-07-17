@@ -117,7 +117,7 @@ mod tests {
         state.with_store(|s| {
             s.reserve_session(&RegisterSession {
                 pubkey: pubkey.into(),
-                harness: "claude".into(),
+                observed_harness: "claude".into(),
                 agent_slug: slug.into(),
                 channel_h: String::new(),
                 child_pid: None,

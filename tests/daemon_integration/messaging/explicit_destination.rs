@@ -14,33 +14,42 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         let sender = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "sender",
-                    "harness_session": "explicit-destination-sender",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "sender",
+                        "harness_session": "explicit-destination-sender",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start sender");
         let receiver = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "receiver",
-                    "harness_session": "explicit-destination-receiver",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "receiver",
+                        "harness_session": "explicit-destination-receiver",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start receiver");
         let second_receiver = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "second-receiver",
-                    "harness_session": "explicit-destination-second-receiver",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "second-receiver",
+                        "harness_session": "explicit-destination-second-receiver",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("start second receiver");
@@ -233,7 +242,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     store
         .reserve_session(&mosaico::state::RegisterSession {
             pubkey: pubkey.clone(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: "multi-chat".to_string(),
             channel_h: "root-chat-channel".to_string(),
             child_pid: None,

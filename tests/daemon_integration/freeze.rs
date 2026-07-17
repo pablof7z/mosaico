@@ -65,7 +65,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
         // initial 39000/39002 subscription.
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "freeze-grp-idem-1", "cwd": "/tmp"}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "freeze-grp-idem-1", "cwd": "/tmp"}), "claude-code"),
         )
         .await
         .expect("first session_start");
@@ -179,7 +179,7 @@ fn freeze_status_presence_is_unified() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let started = c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "freeze-status-1", "cwd": "/tmp"}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "freeze-status-1", "cwd": "/tmp"}), "claude-code"),
         )
         .await
         .expect("session_start");

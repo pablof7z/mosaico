@@ -18,7 +18,7 @@ fn register_local_in(
     store
         .reserve_session(&RegisterSession {
             pubkey: pubkey.to_string(),
-            harness: "claude-code".to_string(),
+            observed_harness: "claude-code".to_string(),
             agent_slug: slug.to_string(),
             channel_h: channel.to_string(),
             child_pid: Some(42),

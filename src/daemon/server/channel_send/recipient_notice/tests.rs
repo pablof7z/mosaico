@@ -5,7 +5,7 @@ fn local_session(store: &Store) {
     store
         .reserve_session(&RegisterSession {
             pubkey: "local-pk".into(),
-            harness: "codex".into(),
+            observed_harness: "codex".into(),
             agent_slug: "local-codex".into(),
             channel_h: "room".into(),
             child_pid: None,

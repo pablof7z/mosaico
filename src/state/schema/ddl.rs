@@ -148,7 +148,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     channel_h         TEXT NOT NULL DEFAULT '',
     work_root         TEXT NOT NULL DEFAULT '',
     readiness_parent  TEXT NOT NULL DEFAULT '',
-    harness           TEXT NOT NULL DEFAULT '',
+    observed_harness  TEXT NOT NULL DEFAULT '',
+    claimed_harness   TEXT NOT NULL DEFAULT '',
+    admitted_bundle   TEXT NOT NULL DEFAULT '',
+    admitted_transport TEXT NOT NULL DEFAULT ''
+        CHECK (admitted_transport IN ('', 'pty', 'acp')),
+    endpoint_provenance TEXT NOT NULL DEFAULT ''
+        CHECK (endpoint_provenance IN ('', 'launch', 'hook', 'migration')),
     child_pid         INTEGER,
     transcript_path   TEXT,
     alive             INTEGER NOT NULL DEFAULT 1,

@@ -47,7 +47,7 @@ fn session_reassert_clears_its_claim() {
     store
         .reserve_session(&RegisterSession {
             pubkey: "pk".to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: "codex".to_string(),
             channel_h: "chan".to_string(),
             child_pid: Some(1),
@@ -61,7 +61,7 @@ fn session_reassert_clears_its_claim() {
     store
         .reserve_session(&RegisterSession {
             pubkey: "pk".to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: "codex".to_string(),
             channel_h: "chan".to_string(),
             child_pid: Some(2),

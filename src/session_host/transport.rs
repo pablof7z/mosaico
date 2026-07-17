@@ -27,6 +27,14 @@ impl TransportKind {
             TransportKind::Acp => "acp",
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pty" => Some(Self::Pty),
+            "acp" => Some(Self::Acp),
+            _ => None,
+        }
+    }
 }
 
 /// Fully-resolved, transport-agnostic launch intent.
@@ -164,13 +172,7 @@ pub fn select_transport(bundle: &str) -> Result<TransportImpl> {
     select_transport_with(&cfg, bundle)
 }
 
-/// Resolve an agent's configured hosted-session transport without fallback.
-pub fn transport_kind_for_slug(slug: &str) -> Result<TransportKind> {
-    let launch = crate::identity::agent_launch_config(&crate::config::mosaico_home(), slug)?;
-    let cfg = HarnessesConfig::load()?;
-    transport_kind_for(&cfg, &launch.harness)
-}
-
+/// Map a fully-resolved raw [`Transport`] to its hosting implementation.
 fn transport_impl_for(transport: Transport) -> Result<TransportImpl> {
     Ok(match transport {
         Transport::Acp | Transport::AppServer => TransportImpl::new(AcpTransport),

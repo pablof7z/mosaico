@@ -237,8 +237,8 @@ async fn spawn_target(
     )
     .await
     {
-        Ok(pty_id) => {
-            tracing::info!(slug = %slug, child = %op.child_h, pty_id = %pty_id, "orchestration: agent spawned");
+        Ok(spawn) => {
+            tracing::info!(slug = %slug, child = %op.child_h, pty_id = %spawn.pty_id, "orchestration: agent spawned");
             true
         }
         Err(e) => {

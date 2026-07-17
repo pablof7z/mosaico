@@ -70,7 +70,7 @@ fn dead_custom_handle_is_available_and_atomically_reclaimed() {
     store
         .reserve_session(&crate::state::RegisterSession {
             pubkey: "old".into(),
-            harness: "codex".into(),
+            observed_harness: "codex".into(),
             agent_slug: "codex".into(),
             channel_h: "root".into(),
             child_pid: None,

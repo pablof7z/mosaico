@@ -165,6 +165,36 @@ pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
     tx.commit().context("committing schema-7 migration")
 }
 
+pub(super) fn v8_to_v9(conn: &mut Connection, _path: &Path) -> Result<()> {
+    require_shape(
+        conn,
+        8,
+        "sessions",
+        &["pubkey", "runtime_generation", "harness", "work_root"],
+        &["observed_harness", "admitted_transport"],
+    )?;
+    let tx = conn.transaction().context("starting schema-8 migration")?;
+    tx.execute_batch(
+        r#"
+        ALTER TABLE sessions RENAME COLUMN harness TO observed_harness;
+        ALTER TABLE sessions ADD COLUMN claimed_harness TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions ADD COLUMN admitted_bundle TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions ADD COLUMN admitted_transport TEXT NOT NULL DEFAULT ''
+            CHECK (admitted_transport IN ('', 'pty', 'acp'));
+        ALTER TABLE sessions ADD COLUMN endpoint_provenance TEXT NOT NULL DEFAULT 'migration'
+            CHECK (endpoint_provenance IN ('', 'launch', 'hook', 'migration'));
+        UPDATE sessions SET admitted_transport = CASE
+            WHEN EXISTS (SELECT 1 FROM session_locators l
+                         WHERE l.pubkey=sessions.pubkey AND l.locator_kind='acp') THEN 'acp'
+            WHEN EXISTS (SELECT 1 FROM session_locators l
+                         WHERE l.pubkey=sessions.pubkey AND l.locator_kind='pty') THEN 'pty'
+            ELSE '' END;
+        PRAGMA user_version = 9;
+        "#,
+    )?;
+    tx.commit().context("committing schema-8 migration")
+}
+
 fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
     let mut statement =
         conn.prepare("SELECT event_json FROM outbox WHERE state='pending' ORDER BY local_id")?;

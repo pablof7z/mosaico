@@ -9,30 +9,29 @@ pub(crate) fn session_is_headless(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let locators = match store.locators_for_pubkey(&session.pubkey) {
-        Ok(locators) => locators,
-        Err(e) => {
-            tracing::error!(
-                pubkey = %session.pubkey,
-                error = %e,
-                "output-mode check: locator lookup failed; assuming headed"
-            );
-            return false;
-        }
+    let Some(kind) = TransportKind::parse(&session.admitted_transport) else {
+        return false;
     };
-    if locators
-        .iter()
-        .any(|locator| locator.locator_kind == crate::state::LOCATOR_ACP)
-    {
-        return true;
-    }
-    let pty = locators
-        .iter()
-        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY);
+    let locator_kind = match kind {
+        TransportKind::Pty => crate::state::LOCATOR_PTY,
+        TransportKind::Acp => crate::state::LOCATOR_ACP,
+    };
+    let endpoint =
+        match store.locator_for_session(&session.pubkey, &session.observed_harness, locator_kind) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                tracing::error!(
+                    pubkey = %session.pubkey,
+                    error = %e,
+                    "output-mode check: locator lookup failed; assuming headed"
+                );
+                return false;
+            }
+        };
     mode_is_headless(
-        TransportKind::Pty,
-        pty.is_some(),
-        pty.is_some_and(|locator| crate::pty::output_is_visible(&locator.locator_value)),
+        kind,
+        endpoint.is_some(),
+        endpoint.is_some_and(|locator| crate::pty::output_is_visible(&locator.locator_value)),
     )
 }
 

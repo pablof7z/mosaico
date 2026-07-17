@@ -33,7 +33,7 @@ mod tests {
         store
             .reserve_session(&RegisterSession {
                 pubkey: "durable-pk".into(),
-                harness: "codex".into(),
+                observed_harness: "codex".into(),
                 agent_slug: "chief".into(),
                 channel_h: "channel-a".into(),
                 child_pid: None,

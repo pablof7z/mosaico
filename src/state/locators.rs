@@ -70,68 +70,26 @@ impl Store {
 
     pub fn alive_session_for_locator(
         &self,
-        harness: Option<&str>,
+        harness: &str,
         locator_kind: &str,
         locator_value: &str,
     ) -> Result<Option<Session>> {
         validate_locator_kind(locator_kind)?;
-        let pubkey: Option<String> = match harness {
-            Some(harness) => self
-                .conn
-                .query_row(
-                    "SELECT l.pubkey FROM session_locators l
+        let pubkey: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT l.pubkey FROM session_locators l
                  JOIN sessions s ON s.pubkey=l.pubkey
                  WHERE l.harness=?1 AND l.locator_kind=?2 AND l.locator_value=?3
                    AND s.alive=1 LIMIT 1",
-                    params![harness, locator_kind, locator_value],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?,
-            None => self
-                .conn
-                .query_row(
-                    "SELECT l.pubkey FROM session_locators l
-                 JOIN sessions s ON s.pubkey=l.pubkey
-                 WHERE l.locator_kind=?1 AND l.locator_value=?2 AND s.alive=1
-                 ORDER BY l.created_at DESC LIMIT 1",
-                    params![locator_kind, locator_value],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?,
-        };
+                params![harness, locator_kind, locator_value],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
         match pubkey {
             Some(pubkey) => self.get_session(&pubkey),
             None => Ok(None),
         }
-    }
-
-    pub fn locators_for_value(
-        &self,
-        harness: Option<&str>,
-        locator_kind: &str,
-        locator_value: &str,
-    ) -> Result<Vec<SessionLocator>> {
-        validate_locator_kind(locator_kind)?;
-        let sql = match harness {
-            Some(_) => format!(
-                "SELECT {COLS} FROM session_locators
-                 WHERE harness=?1 AND locator_kind=?2 AND locator_value=?3
-                 ORDER BY created_at DESC"
-            ),
-            None => format!(
-                "SELECT {COLS} FROM session_locators
-                 WHERE locator_kind=?1 AND locator_value=?2 ORDER BY created_at DESC"
-            ),
-        };
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = match harness {
-            Some(harness) => stmt.query_map(
-                params![harness, locator_kind, locator_value],
-                row_to_locator,
-            )?,
-            None => stmt.query_map(params![locator_kind, locator_value], row_to_locator)?,
-        };
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn list_locators_of_kind(&self, locator_kind: &str) -> Result<Vec<SessionLocator>> {
@@ -150,6 +108,27 @@ impl Store {
         ))?;
         let rows = stmt.query_map([pubkey], row_to_locator)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn locator_for_session(
+        &self,
+        pubkey: &str,
+        harness: &str,
+        locator_kind: &str,
+    ) -> Result<Option<SessionLocator>> {
+        validate_locator_kind(locator_kind)?;
+        Ok(self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {COLS} FROM session_locators
+                     WHERE pubkey=?1 AND harness=?2 AND locator_kind=?3
+                     ORDER BY created_at DESC LIMIT 1"
+                ),
+                params![pubkey, harness, locator_kind],
+                row_to_locator,
+            )
+            .optional()?)
     }
 
     pub fn native_resume_locator(&self, pubkey: &str) -> Result<Option<SessionLocator>> {
@@ -175,6 +154,21 @@ impl Store {
         Ok(())
     }
 
+    pub fn clear_session_locator_kind(
+        &self,
+        pubkey: &str,
+        harness: &str,
+        locator_kind: &str,
+    ) -> Result<()> {
+        validate_locator_kind(locator_kind)?;
+        self.conn.execute(
+            "DELETE FROM session_locators
+             WHERE pubkey=?1 AND harness=?2 AND locator_kind=?3",
+            params![pubkey, harness, locator_kind],
+        )?;
+        Ok(())
+    }
+
     pub fn retire_dead_endpoint(&self, pubkey: &str) -> Result<()> {
         self.clear_locator_kind(pubkey, LOCATOR_PTY)?;
         self.mark_dead(pubkey)
@@ -195,7 +189,7 @@ mod tests {
     fn registration(pubkey: &str, at: u64) -> RegisterSession {
         RegisterSession {
             pubkey: pubkey.into(),
-            harness: "codex".into(),
+            observed_harness: "codex".into(),
             agent_slug: "codex".into(),
             channel_h: "root".into(),
             child_pid: None,
@@ -231,5 +225,34 @@ mod tests {
             .put_session_locator("codex", "harness_session", "old", "pk", 2)
             .unwrap_err();
         assert!(error.to_string().contains("unknown session locator kind"));
+    }
+
+    #[test]
+    fn session_locator_lookup_requires_the_observed_harness_dimension() {
+        let store = Store::open_memory().unwrap();
+        store.reserve_session(&registration("pk", 1)).unwrap();
+        store
+            .put_session_locator("claude-code", LOCATOR_PTY, "foreign", "pk", 3)
+            .unwrap();
+        store
+            .put_session_locator("codex", LOCATOR_PTY, "owned", "pk", 2)
+            .unwrap();
+
+        assert_eq!(
+            store
+                .locator_for_session("pk", "codex", LOCATOR_PTY)
+                .unwrap()
+                .unwrap()
+                .locator_value,
+            "owned"
+        );
+        assert_eq!(
+            store
+                .locator_for_session("pk", "claude-code", LOCATOR_PTY)
+                .unwrap()
+                .unwrap()
+                .locator_value,
+            "foreign"
+        );
     }
 }

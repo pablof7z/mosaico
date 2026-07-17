@@ -168,7 +168,7 @@ mod tests {
             .with_store(|store| {
                 store.reserve_session(&crate::state::RegisterSession {
                     pubkey: "pk".into(),
-                    harness: "codex".into(),
+                    observed_harness: "codex".into(),
                     agent_slug: "agent".into(),
                     channel_h: "old-room".into(),
                     child_pid: None,

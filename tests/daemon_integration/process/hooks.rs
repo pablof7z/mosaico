@@ -73,10 +73,11 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
     let home = Home::with_wedged_relay(&relay.url);
 
     let hook_started = std::time::Instant::now();
-    let out = run_cli_stdin(
+    let out = run_cli_stdin_with_env(
         &home,
         &["harness", "hook", "claude-code", "--type", "session-start"],
         r#"{"cwd":"/tmp","session_id":"wedged-hook-start"}"#,
+        &[("MOSAICO_OBSERVED_HARNESS", "claude-code")],
     );
     assert!(
         out.status.success(),
@@ -95,12 +96,14 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
             DEADLINE,
             client.call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "claude-code",
-                    "harness": "claude-code",
-                    "harness_session": "wedged-old",
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "claude-code",
+                        "harness_session": "wedged-old",
+                        "cwd": "/tmp"
+                    }),
+                    "claude-code",
+                ),
             ),
         )
         .await
@@ -117,13 +120,15 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
             DEADLINE,
             client.call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "codex",
-                    "harness": "codex",
-                    "harness_session": "wedged-replacement",
-                    "reclaimed_pubkey": &old_pubkey,
-                    "cwd": "/tmp"
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "codex",
+                        "harness_session": "wedged-replacement",
+                        "reclaimed_pubkey": &old_pubkey,
+                        "cwd": "/tmp"
+                    }),
+                    "codex",
+                ),
             ),
         )
         .await
@@ -132,7 +137,7 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
     });
 
     let hook_started = std::time::Instant::now();
-    let out = run_cli_stdin(
+    let out = run_cli_stdin_with_env(
         &home,
         &[
             "harness",
@@ -142,6 +147,7 @@ fn hook_serving_rpcs_return_while_relay_is_wedged() {
             "user-prompt-submit",
         ],
         r#"{"cwd":"/tmp","session_id":"wedged-old","prompt":"work"}"#,
+        &[("MOSAICO_OBSERVED_HARNESS", "claude-code")],
     );
     assert!(
         out.status.success(),

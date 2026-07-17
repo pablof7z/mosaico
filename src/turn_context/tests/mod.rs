@@ -10,7 +10,7 @@ fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
     store
         .reserve_session(&RegisterSession {
             pubkey: pk.to_string(),
-            harness: "test".into(),
+            observed_harness: "test".into(),
             agent_slug: "test-agent".into(),
             channel_h: channel.to_string(),
             child_pid: None,

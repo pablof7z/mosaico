@@ -3,7 +3,7 @@ use super::*;
 fn reg(pubkey: &str, channel: &str, now: u64) -> RegisterSession {
     RegisterSession {
         pubkey: pubkey.into(),
-        harness: "codex".into(),
+        observed_harness: "codex".into(),
         agent_slug: "agent".into(),
         channel_h: channel.into(),
         child_pid: None,

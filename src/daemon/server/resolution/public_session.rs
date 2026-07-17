@@ -31,7 +31,7 @@ mod tests {
         store
             .reserve_session(&RegisterSession {
                 pubkey: pubkey.clone(),
-                harness: "codex".into(),
+                observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
                 channel_h: "root".into(),
                 child_pid: None,

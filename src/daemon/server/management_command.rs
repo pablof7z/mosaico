@@ -242,15 +242,13 @@ async fn stop_local_process(
 }
 
 fn pty_session_for_session(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
+    let session = state.with_store(|s| s.get_session(pubkey)).ok()??;
     state
-        .with_store(|s| s.locators_for_pubkey(pubkey))
-        .ok()
-        .and_then(|locators| {
-            locators
-                .into_iter()
-                .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
-                .map(|locator| locator.locator_value)
+        .with_store(|s| {
+            s.locator_for_session(pubkey, &session.observed_harness, crate::state::LOCATOR_PTY)
         })
+        .ok()?
+        .map(|locator| locator.locator_value)
 }
 
 fn channel_label(state: &Arc<DaemonState>, channel_h: &str) -> String {

@@ -133,6 +133,12 @@ fix for the multi-writer `state.db` corruption** already hit when ~16
 per-session processes wrote concurrently: one daemon owns the writer, every
 session/CLI is a read-only IPC client.
 
+The `sessions` row also owns immutable runtime admission facts: observed
+harness, selected bundle, transport kind, and endpoint provenance. Hook host
+claims are stored separately for diagnostics. Delivery and liveness use those
+facts plus an exact harness-keyed locator; mutable agent and bundle files are
+never consulted to rediscover an alive runtime's transport.
+
 ```mermaid
 flowchart LR
     subgraph FABRICS["Fabrics — write-side, adapter-facing"]

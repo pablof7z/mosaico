@@ -12,7 +12,6 @@ struct OperatorEndpoint {
 
 const TRANSPORT_PTY: &str = "pty";
 const TRANSPORT_ACP: &str = "acp";
-const TRANSPORT_PROCESS: &str = "process";
 const TRANSPORT_HARNESS: &str = "harness";
 
 pub(super) fn rpc_operator_sessions(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
@@ -53,10 +52,13 @@ fn project_sessions(
             .into_iter()
             .map(|(root_id, channel_ids)| workspace_value(store, &root_id, &channel_ids, &channels))
             .collect::<Result<Vec<_>>>()?;
-        let locators = store.locators_for_pubkey(&rec.pubkey)?;
-        let pty_endpoint = locators
-            .iter()
-            .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
+        let pty_locator = store.locator_for_session(
+            &rec.pubkey,
+            &rec.observed_harness,
+            crate::state::LOCATOR_PTY,
+        )?;
+        let pty_endpoint = pty_locator
+            .as_ref()
             .and_then(|locator| endpoints.get(&locator.locator_value))
             .map(|endpoint| {
                 let meta = &endpoint.metadata;
@@ -68,10 +70,13 @@ fn project_sessions(
                     "command": meta.command,
                 })
             });
-        let acp_endpoint_id = locators
-            .iter()
-            .find(|locator| locator.locator_kind == crate::state::LOCATOR_ACP)
-            .map(|locator| locator.locator_value.clone());
+        let acp_endpoint_id = store
+            .locator_for_session(
+                &rec.pubkey,
+                &rec.observed_harness,
+                crate::state::LOCATOR_ACP,
+            )?
+            .map(|locator| locator.locator_value);
         let acp_live = acp_endpoint_id
             .as_deref()
             .map(|endpoint_id| {
@@ -83,14 +88,10 @@ fn project_sessions(
                 )
             })
             .unwrap_or(false);
-        let transport = if pty_endpoint.is_some() {
-            TRANSPORT_PTY
-        } else if acp_endpoint_id.is_some() {
-            TRANSPORT_ACP
-        } else if rec.child_pid.is_some() {
-            TRANSPORT_PROCESS
-        } else {
-            TRANSPORT_HARNESS
+        let transport = match rec.admitted_transport.as_str() {
+            TRANSPORT_PTY => TRANSPORT_PTY,
+            TRANSPORT_ACP => TRANSPORT_ACP,
+            _ => TRANSPORT_HARNESS,
         };
         let npub = crate::idref::npub(&rec.pubkey)
             .with_context(|| format!("invalid session pubkey {}", rec.pubkey))?;
@@ -103,7 +104,7 @@ fn project_sessions(
             "busy": rec.working,
             "last_seen": rec.last_seen,
             "host": host,
-            "harness": rec.harness,
+            "harness": rec.observed_harness,
             "transport": transport,
             "child_pid": rec.child_pid,
             "workspaces": workspaces,
@@ -226,7 +227,7 @@ mod tests {
         store
             .reserve_session(&crate::state::RegisterSession {
                 pubkey: pubkey.clone(),
-                harness: "codex".into(),
+                observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
                 channel_h: "room".into(),
                 child_pid: Some(42),
@@ -253,7 +254,7 @@ mod tests {
         assert_eq!(rows[0]["workspaces"][1]["id"], "workspace");
         assert_eq!(rows[0]["workspaces"][1]["path"], "/repo");
         assert_eq!(rows[0]["workspaces"][1]["channels"][0]["name"], "review");
-        assert_eq!(rows[0]["transport"], "process");
+        assert_eq!(rows[0]["transport"], "harness");
         assert!(rows[0]["endpoint"].is_null());
 
         store.mark_dead(&pubkey).unwrap();

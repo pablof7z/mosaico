@@ -22,7 +22,7 @@ pub(super) fn resolve_existing_pubkey(
     {
         Some(endpoint) => state.with_store(|store| {
             store
-                .alive_session_for_locator(None, endpoint_kind, endpoint)
+                .alive_session_for_locator(harness, endpoint_kind, endpoint)
                 .map(|session| session.map(|session| session.pubkey))
         })?,
         None => None,
@@ -85,7 +85,7 @@ pub(super) fn bind_workspace(
 pub(super) fn reserve_generation(
     state: &Arc<DaemonState>,
     params: &SessionStartParams,
-    harness: &str,
+    facts: &super::params::RuntimeFacts,
     pubkey: &str,
     channel: &str,
     now: u64,
@@ -104,14 +104,23 @@ pub(super) fn reserve_generation(
         }
     }
     state.with_store(|store| {
-        store.reserve_session(&crate::state::RegisterSession {
-            pubkey: pubkey.to_string(),
-            harness: harness.to_string(),
-            agent_slug: params.agent.clone(),
-            channel_h: channel.to_string(),
-            child_pid: params.watch_pid,
-            transcript_path: None,
-            now,
-        })
+        store.reserve_session_with_facts(
+            &crate::state::RegisterSession {
+                pubkey: pubkey.to_string(),
+                observed_harness: facts.observed_harness.as_str().to_string(),
+                agent_slug: params.agent.clone(),
+                channel_h: channel.to_string(),
+                child_pid: params.watch_pid,
+                transcript_path: None,
+                now,
+            },
+            &crate::state::AdmittedRuntimeFacts {
+                observed_harness: facts.observed_harness.as_str().to_string(),
+                claimed_harness: facts.claimed_harness.clone(),
+                bundle: facts.admitted_bundle.clone(),
+                transport: facts.admitted_transport.clone(),
+                endpoint_provenance: facts.endpoint_provenance.clone(),
+            },
+        )
     })
 }

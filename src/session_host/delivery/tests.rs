@@ -50,15 +50,24 @@ fn acp_endpoint_id_would_read_dead_under_the_old_pty_probe() {
 fn session_has_live_delivery_path_true_only_for_a_live_locator() {
     let store = crate::state::Store::open_memory().unwrap();
     store
-        .reserve_session(&crate::state::RegisterSession {
-            pubkey: "pk-probe".into(),
-            agent_slug: "probe-agent".into(),
-            channel_h: "proj".into(),
-            harness: "claude-code".into(),
-            child_pid: None,
-            transcript_path: None,
-            now: 1,
-        })
+        .reserve_session_with_facts(
+            &crate::state::RegisterSession {
+                pubkey: "pk-probe".into(),
+                agent_slug: "probe-agent".into(),
+                channel_h: "proj".into(),
+                observed_harness: "claude-code".into(),
+                child_pid: None,
+                transcript_path: None,
+                now: 1,
+            },
+            &crate::state::AdmittedRuntimeFacts {
+                observed_harness: "claude-code".into(),
+                claimed_harness: String::new(),
+                bundle: "claude-pty".into(),
+                transport: "pty".into(),
+                endpoint_provenance: "launch".into(),
+            },
+        )
         .unwrap();
     let rec = store.get_session("pk-probe").unwrap().unwrap();
 
@@ -97,6 +106,20 @@ fn session_has_live_delivery_path_true_only_for_a_live_locator() {
     assert!(
         session_has_live_delivery_path(&store, &rec),
         "a PTY locator resolving to a live listener must read as available"
+    );
+
+    store
+        .put_session_locator(
+            "codex",
+            crate::state::LOCATOR_PTY,
+            "newer-but-foreign",
+            &rec.pubkey,
+            3,
+        )
+        .unwrap();
+    assert!(
+        session_has_live_delivery_path(&store, &rec),
+        "a newer locator under a claimed foreign harness cannot shadow the admitted endpoint"
     );
 }
 

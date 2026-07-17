@@ -140,7 +140,11 @@ mod tests {
             channel_h: channel_h.to_string(),
             work_root: "root".to_string(),
             readiness_parent: "root".to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
+            claimed_harness: String::new(),
+            admitted_bundle: String::new(),
+            admitted_transport: String::new(),
+            endpoint_provenance: "hook".to_string(),
             child_pid: None,
             transcript_path: None,
             alive: true,
@@ -216,7 +220,7 @@ mod tests {
         store
             .reserve_session(&crate::state::RegisterSession {
                 pubkey: "pk".to_string(),
-                harness: "codex".to_string(),
+                observed_harness: "codex".to_string(),
                 agent_slug: "codex".to_string(),
                 channel_h: "root".to_string(),
                 child_pid: None,

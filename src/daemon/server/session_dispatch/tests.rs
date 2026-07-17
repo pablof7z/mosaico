@@ -8,7 +8,7 @@ fn caller_session(state: &Arc<DaemonState>, channels: &[&str]) -> crate::state::
     state.with_store(|s| {
         s.reserve_session(&RegisterSession {
             pubkey: "caller-pubkey".to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: "codex".to_string(),
             channel_h: channels.first().copied().unwrap_or("project1").to_string(),
             child_pid: None,

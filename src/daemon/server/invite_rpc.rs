@@ -151,7 +151,7 @@ pub(super) async fn invite_agent(
 
     let before = live_session_ids(state);
     super::pty_rpc::provision_before_spawn(state, &target.slug, work_root, Some(channel_h)).await?;
-    let meta = crate::session_host::spawn_agent(
+    let spawn = crate::session_host::spawn_agent(
         state,
         &target.slug,
         work_root,
@@ -163,6 +163,7 @@ pub(super) async fn invite_agent(
         },
     )
     .await?;
+    let meta = spawn.meta;
     let online = wait_local_agent_online(state, channel_h, &target.slug, &before).await?;
     Ok(serde_json::json!({
         "pty_id": meta.id,

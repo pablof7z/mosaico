@@ -19,7 +19,7 @@ async fn reconstructs_signer_from_pubkey_bound_material() {
         .with_store(|store| {
             store.reserve_session(&crate::state::RegisterSession {
                 pubkey: pubkey.clone(),
-                harness: "codex".into(),
+                observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
                 channel_h: "root".into(),
                 child_pid: None,

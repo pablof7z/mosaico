@@ -29,7 +29,8 @@ pub(super) async fn rpc_session_start_inner(
 
     let mosaico_home = config::mosaico_home();
     config::ensure_dir(&mosaico_home)?;
-    let harness = params::resolve_harness(&p);
+    let facts = params::runtime_facts(&p)?;
+    let harness = facts.observed_harness;
     let cwd = p
         .cwd
         .as_deref()
@@ -114,15 +115,8 @@ pub(super) async fn rpc_session_start_inner(
         existing.as_ref(),
     )?;
     let now = now_secs();
-    let runtime_generation = runtime::reserve_generation(
-        state,
-        &p,
-        harness_name,
-        &pubkey,
-        &channel,
-        now,
-        existing.as_ref(),
-    )?;
+    let runtime_generation =
+        runtime::reserve_generation(state, &p, &facts, &pubkey, &channel, now, existing.as_ref())?;
     let mut reservation = (!already_running)
         .then(|| RuntimeReservation::new(state.clone(), pubkey.clone(), runtime_generation));
 
@@ -133,7 +127,19 @@ pub(super) async fn rpc_session_start_inner(
                 "runtime generation {runtime_generation} for {pubkey} is no longer active"
             );
         }
-        bind_locators(store, &p, harness_name, &pubkey, now)?;
+        store.record_claimed_harness(&pubkey, &facts.claimed_harness)?;
+        let admitted = store
+            .get_session(&pubkey)?
+            .context("reserved session disappeared before locator binding")?;
+        if !facts.claimed_harness.is_empty() && facts.claimed_harness != admitted.observed_harness {
+            tracing::warn!(
+                pubkey = %pubkey,
+                claimed_harness = %facts.claimed_harness,
+                observed_harness = %admitted.observed_harness,
+                "hook harness claim differs from admitted observation"
+            );
+        }
+        bind_locators(store, &p, &admitted.observed_harness, &pubkey, now)?;
         Ok(())
     })?;
     retire_reclaimed_profile(state, reclaimed_pubkey.as_deref()).await?;

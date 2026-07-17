@@ -281,7 +281,7 @@ pub(in crate::daemon::server) use crate::liveness::pid_alive;
 /// the PID check alone (risk #1).
 fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) -> bool {
     use crate::session_host::transport::{
-        transport_kind_for_slug, AcpTransport, EndpointRef, SessionTransport, TransportKind,
+        AcpTransport, EndpointRef, SessionTransport, TransportKind,
     };
     // ACP/RPC sessions have neither an OS-inspectable supervisor pid nor a PTY
     // socket; their liveness is the in-process child registry (defect #3). That
@@ -289,34 +289,44 @@ fn session_still_live(state: &Arc<DaemonState>, snap: &crate::state::Session) ->
     // ACP session is correctly treated as gone. NEVER fall back to `pid_alive` for
     // ACP: the recorded pid is a synth `0` (or a since-recycled child pid), which
     // would revive an immortal ghost.
-    if matches!(
-        transport_kind_for_slug(&snap.agent_slug),
-        Ok(TransportKind::Acp)
-    ) {
-        return endpoint_id_for(state, &snap.pubkey, crate::state::LOCATOR_ACP)
-            .map(|endpoint_id| {
-                AcpTransport.is_live(&EndpointRef {
-                    kind: TransportKind::Acp,
-                    endpoint_id,
-                })
+    if TransportKind::parse(&snap.admitted_transport) == Some(TransportKind::Acp) {
+        return endpoint_id_for(
+            state,
+            &snap.pubkey,
+            &snap.observed_harness,
+            crate::state::LOCATOR_ACP,
+        )
+        .map(|endpoint_id| {
+            AcpTransport.is_live(&EndpointRef {
+                kind: TransportKind::Acp,
+                endpoint_id,
             })
-            .unwrap_or(false);
+        })
+        .unwrap_or(false);
     }
     let pid_ok = snap.child_pid.map(pid_alive).unwrap_or(false);
-    let endpoint_live = endpoint_id_for(state, &snap.pubkey, crate::state::LOCATOR_PTY)
-        .map(|endpoint_id| crate::pty::is_live(&endpoint_id));
+    let endpoint_live = endpoint_id_for(
+        state,
+        &snap.pubkey,
+        &snap.observed_harness,
+        crate::state::LOCATOR_PTY,
+    )
+    .map(|endpoint_id| crate::pty::is_live(&endpoint_id));
     revive_decision(pid_ok, endpoint_live)
 }
 
 /// The typed host endpoint bound to this pubkey, if one exists.
-fn endpoint_id_for(state: &Arc<DaemonState>, pubkey: &str, locator_kind: &str) -> Option<String> {
+fn endpoint_id_for(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    harness: &str,
+    locator_kind: &str,
+) -> Option<String> {
     state.with_store(|s| {
-        s.locators_for_pubkey(pubkey).ok().and_then(|locators| {
-            locators
-                .into_iter()
-                .find(|locator| locator.locator_kind == locator_kind)
-                .map(|locator| locator.locator_value)
-        })
+        s.locator_for_session(pubkey, harness, locator_kind)
+            .ok()
+            .flatten()
+            .map(|locator| locator.locator_value)
     })
 }
 

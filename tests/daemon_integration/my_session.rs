@@ -12,13 +12,15 @@ fn cli_my_session_status_sets_the_exact_pty_session_title() {
         let response = client
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "codex",
-                    "harness": "codex",
-                    "harness_session": "native-title-session",
-                    "cwd": "/tmp",
-                    "pty_session": "pty-title-session",
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "codex",
+                        "harness_session": "native-title-session",
+                        "cwd": "/tmp",
+                        "pty_session": "pty-title-session",
+                    }),
+                    "codex",
+                ),
             )
             .await
             .expect("session start");
@@ -32,7 +34,10 @@ fn cli_my_session_status_sets_the_exact_pty_session_title() {
     let out = run_cli_with_env(
         &home,
         &["my", "session", "status", title],
-        &[("MOSAICO_PTY_SESSION", "pty-title-session")],
+        &[
+            ("MOSAICO_PTY_SESSION", "pty-title-session"),
+            ("MOSAICO_OBSERVED_HARNESS", "codex"),
+        ],
     );
     assert!(
         out.status.success(),

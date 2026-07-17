@@ -5,7 +5,7 @@ fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &s
     store
         .reserve_session(&RegisterSession {
             pubkey: pubkey.to_string(),
-            harness: "codex".to_string(),
+            observed_harness: "codex".to_string(),
             agent_slug: agent_slug.to_string(),
             channel_h: channel_h.to_string(),
             child_pid: None,

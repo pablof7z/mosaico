@@ -3,7 +3,7 @@ use super::{
     unique_session, write_config,
 };
 use crate::daemon_harness::{
-    pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
+    hook_session_start, pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
 };
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
@@ -67,7 +67,7 @@ fn first_turn_injects_channel_context_block() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "sess-ctx-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-ctx-1", "cwd": "/tmp", "watch_pid": std::process::id()}), "claude-code"),
         )
         .await
         .expect("session_start");
@@ -134,7 +134,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let started = c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "watch_pid": std::process::id()}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "watch_pid": std::process::id()}), "claude-code"),
         )
         .await
         .expect("session_start");
@@ -192,7 +192,7 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": "sess-grp-1", "cwd": "/tmp", "watch_pid": std::process::id()}),
+            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-grp-1", "cwd": "/tmp", "watch_pid": std::process::id()}), "claude-code"),
         )
         .await
         .expect("session_start");
@@ -225,7 +225,10 @@ fn human_initiated_session_mints_per_session_room() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp"}),
+            hook_session_start(
+                serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp"}),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");

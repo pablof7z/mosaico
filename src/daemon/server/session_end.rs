@@ -180,7 +180,7 @@ async fn stop_local_process(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Result<String> {
-    if let Some(locator) = endpoint_locator(state, &rec.pubkey) {
+    if let Some(locator) = endpoint_locator(state, rec) {
         match locator.locator_kind.as_str() {
             crate::state::LOCATOR_PTY => {
                 crate::pty::kill(&locator.locator_value)
@@ -198,7 +198,13 @@ async fn stop_local_process(
             }
             _ => {}
         }
-        state.with_store(|store| store.clear_locator_kind(&rec.pubkey, &locator.locator_kind))?;
+        state.with_store(|store| {
+            store.clear_session_locator_kind(
+                &rec.pubkey,
+                &rec.observed_harness,
+                &locator.locator_kind,
+            )
+        })?;
         return Ok(format!("endpoint={}", locator.locator_value));
     }
     if let Some(pid) = rec.child_pid {
@@ -214,18 +220,16 @@ async fn stop_local_process(
 
 fn endpoint_locator(
     state: &Arc<DaemonState>,
-    pubkey: &str,
+    rec: &crate::state::Session,
 ) -> Option<crate::state::SessionLocator> {
+    let kind = match rec.admitted_transport.as_str() {
+        "pty" => crate::state::LOCATOR_PTY,
+        "acp" => crate::state::LOCATOR_ACP,
+        _ => return None,
+    };
     state
-        .with_store(|store| store.locators_for_pubkey(pubkey))
+        .with_store(|store| store.locator_for_session(&rec.pubkey, &rec.observed_harness, kind))
         .ok()?
-        .into_iter()
-        .find(|locator| {
-            matches!(
-                locator.locator_kind.as_str(),
-                crate::state::LOCATOR_PTY | crate::state::LOCATOR_ACP
-            )
-        })
 }
 
 fn record_resumable_claim(state: &Arc<DaemonState>, rec: &crate::state::Session) {
@@ -243,7 +247,7 @@ fn record_resumable_claim(state: &Arc<DaemonState>, rec: &crate::state::Session)
         pubkey: rec.pubkey.clone(),
         agent_slug: rec.agent_slug.clone(),
         channel_h: rec.channel_h.clone(),
-        harness: rec.harness.clone(),
+        harness: rec.observed_harness.clone(),
         last_active_at: now,
         expires_at: now.saturating_add(claim_grace_secs()),
         owner_backend_pubkey: state.backend_pubkey().unwrap_or_default(),

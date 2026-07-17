@@ -56,7 +56,6 @@ async fn start_session(
         "agent": agent,
         "cwd": "/tmp",
         "channel": channel,
-        "harness": "codex",
     });
     if let Some(id) = harness_id {
         params["harness_session"] = serde_json::json!(id);
@@ -65,7 +64,7 @@ async fn start_session(
         params["resume_id"] = serde_json::json!(id);
     }
     let v = client
-        .call("session_start", params)
+        .call("session_start", hook_session_start(params, "codex"))
         .await
         .expect("session_start");
     v["pubkey"].as_str().unwrap().to_string()

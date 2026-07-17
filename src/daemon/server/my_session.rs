@@ -87,15 +87,24 @@ mod tests {
                 .unwrap();
             s.upsert_channel_member("alpha", "pk", "member", 1).unwrap();
             s.upsert_channel_member("beta", "pk", "member", 1).unwrap();
-            s.reserve_session(&RegisterSession {
-                pubkey: "pk".into(),
-                harness: "codex".into(),
-                agent_slug: "codex".into(),
-                channel_h: "alpha".into(),
-                child_pid: Some(42),
-                transcript_path: None,
-                now: 10,
-            })
+            s.reserve_session_with_facts(
+                &RegisterSession {
+                    pubkey: "pk".into(),
+                    observed_harness: "codex".into(),
+                    agent_slug: "codex".into(),
+                    channel_h: "alpha".into(),
+                    child_pid: Some(42),
+                    transcript_path: None,
+                    now: 10,
+                },
+                &crate::state::AdmittedRuntimeFacts {
+                    observed_harness: "codex".into(),
+                    claimed_harness: String::new(),
+                    bundle: "codex-pty".into(),
+                    transport: "pty".into(),
+                    endpoint_provenance: "launch".into(),
+                },
+            )
             .unwrap();
             s.put_session_locator("codex", crate::state::LOCATOR_PTY, "pty-briefing", "pk", 10)
                 .unwrap();
@@ -105,7 +114,8 @@ mod tests {
         let first = rpc_my_session(
             &state,
             &serde_json::json!({
-                "pty_session": "pty-briefing"
+                "pty_session": "pty-briefing",
+                "harness": "codex"
             }),
         )
         .unwrap();
@@ -123,7 +133,8 @@ mod tests {
         let second = rpc_my_session(
             &state,
             &serde_json::json!({
-                "pty_session": "pty-briefing"
+                "pty_session": "pty-briefing",
+                "harness": "codex"
             }),
         )
         .unwrap();
@@ -151,15 +162,24 @@ mod tests {
         .unwrap();
         let pubkey = keys.public_key().to_hex();
         state.with_store(|s| {
-            s.reserve_session(&RegisterSession {
-                pubkey: pubkey.clone(),
-                harness: "codex".into(),
-                agent_slug: "codex".into(),
-                channel_h: "root".into(),
-                child_pid: None,
-                transcript_path: None,
-                now: 1,
-            })
+            s.reserve_session_with_facts(
+                &RegisterSession {
+                    pubkey: pubkey.clone(),
+                    observed_harness: "codex".into(),
+                    agent_slug: "codex".into(),
+                    channel_h: "root".into(),
+                    child_pid: None,
+                    transcript_path: None,
+                    now: 1,
+                },
+                &crate::state::AdmittedRuntimeFacts {
+                    observed_harness: "codex".into(),
+                    claimed_harness: String::new(),
+                    bundle: "codex-pty".into(),
+                    transport: "pty".into(),
+                    endpoint_provenance: "launch".into(),
+                },
+            )
             .unwrap();
             s.put_session_locator("codex", crate::state::LOCATOR_PTY, "pty-1", &pubkey, 1)
                 .unwrap();
@@ -185,6 +205,7 @@ mod tests {
             &state,
             &serde_json::json!({
                 "pty_session": "pty-1",
+                "harness": "codex",
                 "title": "Researching MCP improvements around resource allocation",
             }),
         )

@@ -14,7 +14,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     drop(Store::open(&path).expect("schema four upgrades to current"));
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 8);
+    assert_eq!(version(&conn), 9);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -86,7 +86,10 @@ fn malformed_schema_seven_fails_before_mutating_the_database() {
 
 #[test]
 fn migration_chain_covers_every_version_before_current() {
-    assert_eq!(super::super::migration::supported_versions(), [4, 5, 6, 7]);
+    assert_eq!(
+        super::super::migration::supported_versions(),
+        [4, 5, 6, 7, 8]
+    );
 }
 
 fn version(conn: &Connection) -> u32 {

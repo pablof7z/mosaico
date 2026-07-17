@@ -14,10 +14,12 @@ pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_jso
 }
 
 fn pty_session_for_pubkey(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
-    let locators = state.with_store(|s| s.locators_for_pubkey(pubkey)).ok()?;
-    locators
-        .into_iter()
-        .find(|locator| locator.locator_kind == crate::state::LOCATOR_PTY)
+    let session = state.with_store(|s| s.get_session(pubkey)).ok()??;
+    state
+        .with_store(|s| {
+            s.locator_for_session(pubkey, &session.observed_harness, crate::state::LOCATOR_PTY)
+        })
+        .ok()?
         .map(|locator| locator.locator_value)
 }
 

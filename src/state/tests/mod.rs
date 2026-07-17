@@ -9,7 +9,7 @@ use super::*;
 fn reg(harness: &str, ext: &str, channel: &str) -> RegisterSession {
     RegisterSession {
         pubkey: ext.into(),
-        harness: harness.into(),
+        observed_harness: harness.into(),
         agent_slug: "agent".into(),
         channel_h: channel.into(),
         child_pid: Some(42),
@@ -24,5 +24,6 @@ mod identity_projection_and_roots;
 mod inbox_ledger;
 mod nip01_events;
 mod retention;
+mod runtime_admission;
 mod session_identity;
 mod status_membership;

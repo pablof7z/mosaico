@@ -140,10 +140,13 @@ pub(crate) async fn resume_agent_in_channel(
     let transport = source.transport;
     let base = source.command;
     let harness = source.harness;
+    let bundle = source.bundle;
     let reservation = admission::reserve_resume(
         state,
         &source.identity,
         harness.as_str(),
+        &bundle,
+        transport.kind().as_str(),
         root,
         group,
         resume_id,
@@ -151,7 +154,7 @@ pub(crate) async fn resume_agent_in_channel(
     let resume_command = build_driver_resume_command(&base, source.resume, resume_id, slug)?;
     let spec = LaunchSpec {
         slug: slug.to_string(),
-        bundle: source.bundle,
+        bundle: bundle.clone(),
         profile: source.profile,
         native_agent: source.native_agent,
         root: root.to_string(),
@@ -180,6 +183,9 @@ pub(crate) async fn resume_agent_in_channel(
             resume_id: Some(resume_id),
             dispatch_event: None,
             session_name: None,
+            observed_harness: harness,
+            admitted_bundle: &bundle,
+            admitted_transport: transport.kind(),
         },
     )
     .await

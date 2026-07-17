@@ -79,7 +79,7 @@ mod tests {
             store
                 .reserve_session(&RegisterSession {
                     pubkey: session.into(),
-                    harness: "claude".into(),
+                    observed_harness: "claude".into(),
                     agent_slug: "reviewer".into(),
                     channel_h: "active".into(),
                     child_pid: None,

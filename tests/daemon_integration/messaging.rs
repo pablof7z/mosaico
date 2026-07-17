@@ -22,7 +22,7 @@ fn session_start_runs_engine_and_records_alive_session() {
         let v = c
             .call(
                 "session_start",
-                serde_json::json!({"agent": "coder", "harness_session": "sess-int-1", "cwd": "/tmp"}),
+                hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-int-1", "cwd": "/tmp"}), "claude-code"),
             )
             .await
             .expect("session_start");
@@ -76,24 +76,30 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
         let v1 = c
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "claude",
-                    "harness_session": "old-session",
-                    "cwd": "/tmp",
-                    "watch_pid": pid
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "claude",
+                        "harness_session": "old-session",
+                        "cwd": "/tmp",
+                        "watch_pid": pid
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("first session_start");
         let v2 = c
             .call(
                 "session_start",
-                serde_json::json!({
-                    "agent": "claude",
-                    "harness_session": "new-session",
-                    "cwd": "/tmp",
-                    "watch_pid": pid
-                }),
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "claude",
+                        "harness_session": "new-session",
+                        "cwd": "/tmp",
+                        "watch_pid": pid
+                    }),
+                    "claude-code",
+                ),
             )
             .await
             .expect("second session_start");
@@ -145,13 +151,13 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let s = c.call(
             "session_start",
-            serde_json::json!({"agent": "chat-sender", "harness_session": "chat-sender-session", "cwd": "/tmp"}),
+            hook_session_start(serde_json::json!({"agent": "chat-sender", "harness_session": "chat-sender-session", "cwd": "/tmp"}), "claude-code"),
         )
         .await
         .unwrap();
         let r = c.call(
             "session_start",
-            serde_json::json!({"agent": "chat-receiver", "harness_session": "chat-receiver-session", "cwd": "/tmp"}),
+            hook_session_start(serde_json::json!({"agent": "chat-receiver", "harness_session": "chat-receiver-session", "cwd": "/tmp"}), "claude-code"),
         )
         .await
         .unwrap();

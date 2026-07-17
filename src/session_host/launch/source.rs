@@ -137,7 +137,13 @@ pub(super) fn resolve_agent_source(
         }
         PtyLaunchSpec {
             id: Some(id),
-            env,
+            env: {
+                env.push((
+                    "MOSAICO_OBSERVED_HARNESS".to_string(),
+                    resolved.harness.as_str().to_string(),
+                ));
+                env
+            },
             env_remove,
         }
     } else {

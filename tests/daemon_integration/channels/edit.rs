@@ -13,14 +13,16 @@ fn channel_edit_updates_about_from_relay_truth() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &parent,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &parent,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");
@@ -84,14 +86,16 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "session_start",
-            serde_json::json!({
-                "agent": "coder",
-                "harness_session": &sid,
-                "harness": "claude-code",
-                "cwd": "/tmp",
-                "channel": &root,
-                "watch_pid": watch_pid
-            }),
+            hook_session_start(
+                serde_json::json!({
+                    "agent": "coder",
+                    "harness_session": &sid,
+                    "cwd": "/tmp",
+                    "channel": &root,
+                    "watch_pid": watch_pid
+                }),
+                "claude-code",
+            ),
         )
         .await
         .expect("session_start");

@@ -430,7 +430,7 @@ mod tests {
         store
             .reserve_session(&RegisterSession {
                 pubkey: "pk".into(),
-                harness: "claude-code".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: "haiku".into(),
                 channel_h: "aaa".into(),
                 child_pid: None,

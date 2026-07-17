@@ -20,7 +20,7 @@ rules.
 Spawns an in-daemon `SessionTask` (publishes profile and presence, declares its
 NMP live-query demand, and routes mentions — today's `runtime::run_session`).
 ```jsonc
-params: {"agent": "coder", "harness": "claude-code", "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
+params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_bundle": "claude-pty"|null, "admitted_transport": "pty"|"acp"|null, "endpoint_provenance": "launch"|"hook", "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
 result: {"pubkey": "hex"}
 ```
 `harness_session` is a typed harness locator and never identity. A session is
@@ -30,6 +30,14 @@ permanent copy-paste resume value; the handle is a seven-day offline lease.
 The provider opens the workspace root NIP-29 group through NMP, names it from the
 workspace slug, and adds the session agent as a relay member before the engine
 publishes presence.
+Launch admission persists `observed_harness`, bundle, transport, and endpoint
+provenance as immutable facts for that runtime. A hook reports its host string
+separately as `claimed_harness`; the adapter derives `observed_harness` from the
+owned launch environment or a recognized ancestor process. Missing or unknown
+observations fail instead of being guessed from locator shape. Claims are kept
+for mismatch diagnostics and never reclassify a launch-owned runtime, including
+when a dead row is reasserted. Endpoint access always uses the session's exact
+`(observed_harness, locator_kind)` address.
 The workspace and root channel are one entity with the public address `<workspace>`.
 There is no local agent
 allow/block file in the NIP-29 path.

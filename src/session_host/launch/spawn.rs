@@ -3,6 +3,12 @@ use super::*;
 pub struct DispatchedSpawn {
     pub pty_id: String,
     pub pubkey: String,
+    pub transport: crate::session_host::transport::TransportKind,
+}
+
+pub(crate) struct HostedSpawn {
+    pub(crate) meta: crate::pty::LaunchMetadata,
+    pub(crate) pubkey: String,
 }
 
 pub(crate) struct SpawnRequest<'a> {
@@ -19,8 +25,8 @@ pub(crate) async fn spawn_agent(
     slug: &str,
     root: &str,
     request: SpawnRequest<'_>,
-) -> Result<crate::pty::LaunchMetadata> {
-    spawn_agent_inner(
+) -> Result<HostedSpawn> {
+    let (meta, pubkey) = spawn_agent_inner(
         state,
         slug,
         root,
@@ -30,7 +36,8 @@ pub(crate) async fn spawn_agent(
         false,
         request.intent,
     )
-    .await
+    .await?;
+    Ok(HostedSpawn { meta, pubkey })
 }
 
 pub async fn spawn_ephemeral_agent(
@@ -39,19 +46,30 @@ pub async fn spawn_ephemeral_agent(
     root: &str,
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
-) -> Result<String> {
-    Ok(spawn_agent_inner(
+) -> Result<DispatchedSpawn> {
+    let (meta, pubkey) = spawn_agent_inner_full(
         state,
         slug,
         root,
         group,
+        None,
+        None,
         client_cwd,
         None,
         true,
         LaunchIntent::Managed,
     )
-    .await?
-    .id)
+    .await?;
+    let transport = if meta.socket.is_empty() {
+        crate::session_host::transport::TransportKind::Acp
+    } else {
+        crate::session_host::transport::TransportKind::Pty
+    };
+    Ok(DispatchedSpawn {
+        pty_id: meta.id,
+        pubkey,
+        transport,
+    })
 }
 
 pub(crate) async fn spawn_ephemeral_agent_for_pubkey(
@@ -104,9 +122,15 @@ pub async fn spawn_dispatched_ephemeral_agent(
         None,
     )
     .await?;
+    let transport = if meta.socket.is_empty() {
+        crate::session_host::transport::TransportKind::Acp
+    } else {
+        crate::session_host::transport::TransportKind::Pty
+    };
     Ok(DispatchedSpawn {
         pty_id: meta.id,
         pubkey,
+        transport,
     })
 }
 
@@ -120,8 +144,8 @@ async fn spawn_agent_inner(
     session_name: Option<&str>,
     ephemeral: bool,
     intent: LaunchIntent,
-) -> Result<crate::pty::LaunchMetadata> {
-    Ok(spawn_agent_inner_full(
+) -> Result<(crate::pty::LaunchMetadata, String)> {
+    spawn_agent_inner_full(
         state,
         slug,
         root,
@@ -134,8 +158,7 @@ async fn spawn_agent_inner(
         intent,
         None,
     )
-    .await?
-    .0)
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -163,6 +186,8 @@ async fn spawn_agent_inner_full(
             state,
             &resolved.identity,
             harness.as_str(),
+            &resolved.bundle,
+            resolved.transport.kind().as_str(),
             root,
             group,
             pubkey,
@@ -171,6 +196,8 @@ async fn spawn_agent_inner_full(
             state,
             &resolved.identity,
             harness.as_str(),
+            &resolved.bundle,
+            resolved.transport.kind().as_str(),
             root,
             group,
             session_name,
@@ -213,6 +240,9 @@ async fn spawn_agent_inner_full(
             resume_id: None,
             dispatch_event,
             session_name,
+            observed_harness: harness,
+            admitted_bundle: &resolved.bundle,
+            admitted_transport: resolved.transport.kind(),
         },
     )
     .await

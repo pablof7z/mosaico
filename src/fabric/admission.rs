@@ -196,7 +196,7 @@ mod tests {
         store
             .reserve_session(&RegisterSession {
                 pubkey: pubkey.into(),
-                harness: "test".into(),
+                observed_harness: "test".into(),
                 agent_slug: agent_slug.into(),
                 channel_h: channel.into(),
                 child_pid: None,

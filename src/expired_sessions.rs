@@ -70,7 +70,7 @@ mod tests {
         store
             .reserve_session(&RegisterSession {
                 pubkey: pubkey.clone(),
-                harness: "claude-code".into(),
+                observed_harness: "claude-code".into(),
                 agent_slug: "coder".into(),
                 channel_h: channel.into(),
                 child_pid: Some(7),

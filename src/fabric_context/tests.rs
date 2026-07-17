@@ -43,7 +43,7 @@ fn session_record(store: &Store, _label: &str, channel_h: &str) -> Session {
     store
         .reserve_session(&RegisterSession {
             pubkey: SELF_PK.into(),
-            harness: "test".into(),
+            observed_harness: "test".into(),
             agent_slug: "coder".into(),
             channel_h: channel_h.into(),
             child_pid: None,

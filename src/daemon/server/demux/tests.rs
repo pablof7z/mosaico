@@ -8,7 +8,7 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
     store
         .reserve_session(&RegisterSession {
             pubkey: pubkey.into(),
-            harness: "claude-code".into(),
+            observed_harness: "claude-code".into(),
             agent_slug: slug.into(),
             channel_h: channel.into(),
             child_pid: Some(42),

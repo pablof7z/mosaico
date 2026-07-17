@@ -45,20 +45,25 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             continue;
         }
 
-        let kind = match transport_kind_for_slug(&rec.agent_slug) {
-            Ok(kind) => kind,
-            Err(e) => {
+        let kind = match TransportKind::parse(&rec.admitted_transport) {
+            Some(kind) => kind,
+            None => {
                 state.emit_delivery_failure(
                     &rec.channel_h,
                     &rec.agent_slug,
                     &pubkey,
-                    format!("failed to resolve configured transport: {e:#}"),
+                    format!(
+                        "session has no hosted admitted transport (recorded {:?})",
+                        rec.admitted_transport
+                    ),
                 );
                 continue;
             }
         };
         let transport = transport_for_kind(kind);
-        let endpoint_id = match state.with_store(|s| endpoint_id_for(s, &pubkey, kind)) {
+        let endpoint_id = match state
+            .with_store(|s| endpoint_id_for(s, &pubkey, &rec.observed_harness, kind))
+        {
             Ok(endpoint_id) => endpoint_id,
             Err(e) => {
                 tracing::error!(%pubkey, error = %e, "ring_doorbells: locator lookup failed — cannot resolve endpoint this tick");
@@ -142,8 +147,13 @@ async fn apply_delivery_effects(
                 schedule_delivery_retry(state.clone(), pubkey, delay_secs)
             }
             crate::reconcile::DeliveryEffect::ClearDeadEndpoint { pubkey } => {
-                let _ = state
-                    .with_store(|s| s.clear_locator_kind(&pubkey, locator_kind(transport.kind())));
+                let _ = state.with_store(|s| {
+                    s.clear_session_locator_kind(
+                        &pubkey,
+                        &rec.observed_harness,
+                        locator_kind(transport.kind()),
+                    )
+                });
             }
         }
     }

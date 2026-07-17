@@ -10,9 +10,7 @@ mod doorbell;
 #[path = "delivery/output_mode.rs"]
 mod output_mode;
 mod prompt;
-use crate::session_host::transport::{
-    transport_for_kind, transport_kind_for_slug, EndpointRef, TransportKind,
-};
+use crate::session_host::transport::{transport_for_kind, EndpointRef, TransportKind};
 pub use doorbell::ring_doorbells;
 #[cfg(test)]
 pub(crate) use output_mode::headless_for_endpoint;
@@ -28,6 +26,17 @@ fn locator_kind(kind: TransportKind) -> &'static str {
         TransportKind::Pty => crate::state::LOCATOR_PTY,
         TransportKind::Acp => crate::state::LOCATOR_ACP,
     }
+}
+
+fn endpoint_id_for(
+    store: &crate::state::Store,
+    pubkey: &str,
+    harness: &str,
+    kind: TransportKind,
+) -> Result<Option<String>> {
+    Ok(store
+        .locator_for_session(pubkey, harness, locator_kind(kind))?
+        .map(|locator| locator.locator_value))
 }
 
 /// Liveness of a session's typed transport endpoint.
@@ -76,8 +85,16 @@ pub(crate) fn session_has_live_delivery_path(
     store: &crate::state::Store,
     session: &crate::state::Session,
 ) -> bool {
-    let endpoint = match delivery_endpoint_for(store, &session.pubkey) {
-        Ok(endpoint) => endpoint,
+    let kind = match TransportKind::parse(&session.admitted_transport) {
+        Some(kind) => kind,
+        None => return false,
+    };
+    let locator = match store.locator_for_session(
+        &session.pubkey,
+        &session.observed_harness,
+        locator_kind(kind),
+    ) {
+        Ok(locator) => locator,
         Err(e) => {
             tracing::error!(
                 pubkey = %session.pubkey,
@@ -87,7 +104,7 @@ pub(crate) fn session_has_live_delivery_path(
             return false;
         }
     };
-    endpoint.is_some_and(|(_, live)| live)
+    locator.is_some_and(|locator| endpoint_is_live(kind, &locator.locator_value))
 }
 
 /// Don't re-inject into the same session within this window (seconds).
@@ -122,18 +139,7 @@ fn prune_debounce(active_pubkeys: &HashSet<String>) {
 /// this MUST run in the daemon (the caller that spawned it). Failures are logged,
 /// not propagated: the session is already live and can still receive mentions via
 /// the doorbell path.
-pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &str) {
-    let kind = match transport_kind_for_slug(agent_slug) {
-        Ok(kind) => kind,
-        Err(e) => {
-            tracing::warn!(
-            agent = %agent_slug,
-            error = %format!("{e:#}"),
-            "failed to resolve transport for spawn prompt"
-            );
-            return;
-        }
-    };
+pub async fn deliver_spawn_prompt(kind: TransportKind, endpoint_id: &str, text: &str) {
     let transport = transport_for_kind(kind);
     tokio::time::sleep(transport.opening_delivery_delay()).await;
     let endpoint = EndpointRef {
@@ -142,7 +148,6 @@ pub async fn deliver_spawn_prompt(agent_slug: &str, endpoint_id: &str, text: &st
     };
     if let Err(e) = transport.deliver(&endpoint, text, true).await {
         tracing::warn!(
-            agent = %agent_slug,
             endpoint = %endpoint_id,
             transport = kind.as_str(),
             error = %format!("{e:#}"),

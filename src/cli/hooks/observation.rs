@@ -20,8 +20,10 @@ use std::path::Path;
 /// `pty_session` is read from the hook's environment so the daemon can register
 /// a local attach/injection endpoint and reattach a resumed session. Its PTY
 /// metadata owns the socket path.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn report_observation(
     host: &HostDef,
+    observed_harness: &str,
     agent_slug: &str,
     cwd: &Path,
     harness_session_id: Option<String>,
@@ -40,7 +42,10 @@ pub(super) async fn report_observation(
         .filter(|s| !s.is_empty());
     let params = serde_json::json!({
         "agent": agent_slug,
-        "harness": host.name,
+        "claimed_harness": host.name,
+        "observed_harness": observed_harness,
+        "admitted_transport": pty_session.as_ref().map(|_| "pty"),
+        "endpoint_provenance": "hook",
         "harness_session": harness_session_id,
         "resume_id": resume_id,
         "cwd": cwd.to_string_lossy(),
@@ -103,6 +108,41 @@ pub(super) fn find_ancestor_pid(needle: &str) -> Option<i32> {
         pid = ppid;
     }
     None
+}
+
+/// Identify the nearest supported harness ancestor independently of the hook
+/// adapter's host claim. Returning `None` is intentional: callers must diagnose
+/// missing observation instead of inferring a harness from payload shape.
+pub(super) fn find_ancestor_harness() -> Option<(&'static str, i32)> {
+    let mut pid = std::process::id() as i32;
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..16 {
+        let ppid = ps_ppid(pid)?;
+        if ppid <= 1 || !seen.insert(ppid) {
+            return None;
+        }
+        if let Some(harness) = harness_for_process(ppid) {
+            return Some((harness, ppid));
+        }
+        pid = ppid;
+    }
+    None
+}
+
+pub(super) fn harness_for_process(pid: i32) -> Option<&'static str> {
+    let command = ps_comm(pid).to_lowercase();
+    let args = ps_args(pid).unwrap_or_default().to_lowercase();
+    if command.contains("claude") || args.contains("claude-agent-acp") {
+        Some("claude-code")
+    } else if command.contains("codex") {
+        Some("codex")
+    } else if command.contains("opencode") {
+        Some("opencode")
+    } else if command.contains("grok") {
+        Some("grok")
+    } else {
+        None
+    }
 }
 
 fn ps_ppid(pid: i32) -> Option<i32> {
