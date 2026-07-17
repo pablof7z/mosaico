@@ -238,6 +238,7 @@ mod tests {
     fn editing_a_configured_agent_preserves_its_explicit_profile() {
         let row = AgentRow {
             slug: "reviewer".into(),
+            agent_slug: "reviewer".into(),
             description: "Reviews".into(),
             harness: Harness::ClaudeCode,
             bundle: Some("claude-pty".into()),

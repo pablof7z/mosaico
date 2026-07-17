@@ -15,7 +15,7 @@ pub use spawn::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, Dispatc
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LaunchIntent {
-    /// A human invoked `mosaico launch` and needs an attachable PTY.
+    /// A human invoked `mosaico agents` and needs an attachable PTY.
     Interactive,
     /// Fabric provisioning prefers the harness's hosted RPC transport.
     Managed,

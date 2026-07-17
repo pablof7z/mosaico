@@ -148,7 +148,7 @@ fn extract_agent_flag(argv: &[String]) -> Option<String> {
 }
 
 /// Look for a live ancestor directly running `claude ... --agent <name>` —
-/// i.e. NOT spawned via `mosaico launch`, which sets `MOSAICO_AGENT`
+/// i.e. NOT spawned via `mosaico agents`, which sets `MOSAICO_AGENT`
 /// instead and short-circuits this search. Returns the requested slug and
 /// the named profile so a brand-new identity can retain that selection.
 pub(super) fn find_direct_agent_invocation() -> Option<String> {

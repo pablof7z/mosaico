@@ -43,8 +43,8 @@ assert_json() {
   echo "ok: ${label}"
 }
 
-launch_tail() {
-  awk 'seen || $0 == "<launch>" { seen = 1; print }'
+agents_tail() {
+  awk 'seen || $0 == "<agents>" { seen = 1; print }'
 }
 
 mkdir -p "${TMP}/launcher-bin" "${TMP}/work"
@@ -65,8 +65,8 @@ ACP_OUTPUT="$(
     MOSAICO_DEV_PROMPT='prompt with spaces' \
     bash "${SKILL}/scripts/launch-agent" "${ACP_ENV}" launch claude-acp
 )"
-ACP_TAIL="$(printf '%s\n' "${ACP_OUTPUT}" | launch_tail | sed -n '1,3p')"
-assert_eq $'<launch>\n<claude>\n<prompt with spaces>' "${ACP_TAIL}" \
+ACP_TAIL="$(printf '%s\n' "${ACP_OUTPUT}" | agents_tail | sed -n '1,3p')"
+assert_eq $'<agents>\n<claude>\n<prompt with spaces>' "${ACP_TAIL}" \
   'ACP launch uses the positional prompt contract'
 if printf '%s\n' "${ACP_OUTPUT}" | grep -Eq '^<--(prompt|headless)>$'; then
   fail 'ACP launch emits a removed launch flag'
@@ -82,8 +82,8 @@ PTY_OUTPUT="$(
     MOSAICO_DEV_PROMPT='inspect identity' \
     bash "${SKILL}/scripts/launch-agent" "${PTY_ENV}" launch claude
 )"
-PTY_TAIL="$(printf '%s\n' "${PTY_OUTPUT}" | launch_tail | sed -n '1,3p')"
-assert_eq $'<launch>\n<claude>\n<inspect identity>' \
+PTY_TAIL="$(printf '%s\n' "${PTY_OUTPUT}" | agents_tail | sed -n '1,3p')"
+assert_eq $'<agents>\n<claude>\n<inspect identity>' \
   "${PTY_TAIL}" 'PTY launch uses only target and positional prompt'
 
 set +e
@@ -222,8 +222,8 @@ GROK_OUTPUT="$(
     MOSAICO_DEV_PROMPT='inspect grok identity' \
     bash "${SKILL}/scripts/launch-agent" "${GROK_ENV}" launch grok
 )"
-GROK_TAIL="$(printf '%s\n' "${GROK_OUTPUT}" | launch_tail | sed -n '1,3p')"
-assert_eq $'<launch>\n<grok>\n<inspect grok identity>' \
+GROK_TAIL="$(printf '%s\n' "${GROK_OUTPUT}" | agents_tail | sed -n '1,3p')"
+assert_eq $'<agents>\n<grok>\n<inspect grok identity>' \
   "${GROK_TAIL}" 'Grok uses the current PTY launch contract'
 
 HOST_HOME="${TMP}/host-home"

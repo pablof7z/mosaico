@@ -25,7 +25,7 @@ proof, not model quality.
 - `scripts/write-container-profiles`: writes current device, harness-bundle, and
   agent-selection state.
 - `scripts/launch-agent`: runs a provider directly, runs `__acp-smoke`, or calls
-  the current `mosaico launch` surface.
+  the current `mosaico agents` surface.
 - `scripts/probe-lab`: captures relay metadata, logs, and Nostr events.
 - `scripts/cleanup-lab`: stops recorded containers before stopping the relay.
 
@@ -38,7 +38,7 @@ Treat these ownership boundaries as fixed:
   driver are code-owned.
 - `agents/<slug>.json` owns the public slug, selected bundle in `harness`,
   optional harness-native `profile`, identity mode, and metadata.
-- `mosaico launch [TARGET] [PROMPT]` selects an available target. It accepts
+- `mosaico agents [TARGET] [PROMPT]` selects an available target. It accepts
   `--workspace`, `--channel`, and `--name`; it does not accept provider argv or
   launch overrides.
 - The selected bundle's transport decides whether the session is PTY, ACP,
@@ -154,7 +154,7 @@ MOSAICO_DEV_PROMPT="Run mosaico my session." \
   skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 
-To audit launch inventory, run `mosaico launch` without a target. In a
+To audit launch inventory, run `mosaico agents` without a target. In a
 non-interactive command it prints the available configured agents, raw harness
 targets, and installed native profiles. Native profiles are discovered from
 Codex, Claude, and OpenCode global directories plus workspace-local agent

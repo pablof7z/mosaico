@@ -10,7 +10,7 @@ pub(super) use public_session::resolve as resolve_public_session;
 ///
 /// Public identity is the session pubkey. Hosted sessions expose a typed PTY
 /// locator from process birth, recorded at session-start. Native harness shells
-/// outside mosaico launch use the
+/// outside `mosaico agents` use the
 /// watched harness process (`watch_pid`) as their exact anchor.
 /// `harness_session` covers harness-native resume locators reported by hooks.
 #[derive(Default, Clone, Copy)]

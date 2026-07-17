@@ -165,7 +165,7 @@ in bundle `args`, then regenerate the profile.
 
 ## Native profile inventory
 
-`mosaico launch` without a target prints or interactively selects the full
+`mosaico agents` without a target prints or interactively selects the full
 launch inventory. It includes configured agents, eligible raw harnesses, and
 native agent profiles discovered from:
 

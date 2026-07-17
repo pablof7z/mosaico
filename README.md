@@ -210,14 +210,14 @@ agent-only commands and are intentionally hidden from default human CLI help:
 | `mosaico channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `mosaico dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
 
-`mosaico launch` opens a colored, searchable selector over every local launch target:
+Bare `mosaico` and `mosaico agents` open the same colored, searchable selector over every local agent:
 configured agents, unique native profiles, expanded profile/harness conflicts, and available
 harness defaults. Catalog membership is bundle-independent; direct launch resolves a PTY bundle
 and creates its canonical zero-argument policy when none is configured. Start one directly with
-`mosaico launch <agent> [prompt]`. A conflicted
+`mosaico agents <agent> [prompt]`. A conflicted
 native profile opens a harness radio picker; its expanded name such as `writer-codex` selects
 the same choice non-interactively. A bare
-`mosaico launch <session-handle>` reattaches a live terminal or resumes that session when its
+`mosaico agents <session-handle>` reattaches a live terminal or resumes that session when its
 harness has a native resume token. `mosaico dispatch` accepts the same harness defaults and
 expanded conflict names, preferring ACP or Codex app-server realization when supported.
 

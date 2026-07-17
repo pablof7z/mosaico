@@ -6,7 +6,6 @@ use super::debug::DebugAction;
 use super::dispatch::DispatchArgs;
 use super::harness::HarnessAction;
 use super::install::InstallArgs;
-use super::launch_cli::LaunchArgs;
 use super::mcp::McpArgs;
 use super::messaging::WaitArgs;
 use super::my::MyAction;
@@ -45,7 +44,7 @@ fn command_for_context(in_agent: bool) -> Command {
     let visible: &[&str] = if in_agent {
         &["wait", "dispatch", "my"]
     } else {
-        &["who", "sessions", "agents", "launch"]
+        &["who", "sessions", "agents"]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -104,9 +103,6 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: HarnessAction,
     },
-    /// Launch an agent through an attachable PTY or a headless RPC transport.
-    #[command(hide = true)]
-    Launch(LaunchArgs),
     /// Start an MCP server over stdio or HTTP.
     Mcp(McpArgs),
     /// Inspect and manage your own session.

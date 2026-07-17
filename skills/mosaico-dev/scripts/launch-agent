@@ -87,7 +87,7 @@ case "${MODE}" in
     cmd=("${common[@]}" mosaico __acp-smoke "${BUNDLE}" "$@")
     ;;
   launch)
-    launch_args=(launch "${AGENT_SLUG}")
+    launch_args=(agents "${AGENT_SLUG}")
     if [[ -n "${MOSAICO_DEV_PROMPT:-}" ]]; then
       launch_args+=("${MOSAICO_DEV_PROMPT}")
     fi

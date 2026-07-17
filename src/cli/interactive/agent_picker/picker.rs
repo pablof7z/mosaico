@@ -16,12 +16,6 @@ const MAX_VISIBLE_ROWS: u16 = 40;
 const CHROME_ROWS: u16 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::cli) enum PickerMode {
-    Launch,
-    Manage,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum PickerAction {
     Launch(usize),
     Edit(usize),
@@ -33,7 +27,6 @@ pub(in crate::cli) enum PickerAction {
 struct PickerState {
     rows: Vec<AgentPickerRow>,
     visible: Vec<usize>,
-    mode: PickerMode,
     query: String,
     filtering: bool,
     cursor: usize,
@@ -41,14 +34,13 @@ struct PickerState {
 }
 
 impl PickerState {
-    fn new(rows: Vec<AgentPickerRow>, mode: PickerMode) -> Self {
+    fn new(rows: Vec<AgentPickerRow>) -> Self {
         let visible = (0..rows.len()).collect();
         Self {
             rows,
             visible,
-            mode,
             query: String::new(),
-            filtering: mode == PickerMode::Launch,
+            filtering: false,
             cursor: 0,
             offset: 0,
         }
@@ -59,7 +51,7 @@ impl PickerState {
             return None;
         }
         match key.code {
-            KeyCode::Esc if self.mode == PickerMode::Manage && self.filtering => {
+            KeyCode::Esc if self.filtering => {
                 self.query.clear();
                 self.filtering = false;
                 self.refilter();
@@ -69,13 +61,13 @@ impl PickerState {
                 return Some(PickerAction::Cancel);
             }
             KeyCode::Enter => return self.current().map(PickerAction::Launch),
-            KeyCode::Char('e') if self.mode == PickerMode::Manage && !self.filtering => {
+            KeyCode::Char('e') if !self.filtering => {
                 return self.current().map(PickerAction::Edit);
             }
-            KeyCode::Char('d') if self.mode == PickerMode::Manage && !self.filtering => {
+            KeyCode::Char('d') if !self.filtering => {
                 return self.current().map(PickerAction::Delete);
             }
-            KeyCode::Char('/') if self.mode == PickerMode::Manage && !self.filtering => {
+            KeyCode::Char('/') if !self.filtering => {
                 self.filtering = true;
             }
             KeyCode::Up => self.move_up(1),
@@ -186,7 +178,7 @@ impl Drop for RawMode {
     }
 }
 
-pub(in crate::cli) fn select(rows: Vec<AgentPickerRow>, mode: PickerMode) -> Result<PickerAction> {
+pub(in crate::cli) fn select(rows: Vec<AgentPickerRow>) -> Result<PickerAction> {
     let (_, terminal_height) = terminal::size().unwrap_or((100, 28));
     let height = viewport_height(terminal_height);
     let _raw_mode = RawMode::enter()?;
@@ -200,7 +192,7 @@ pub(in crate::cli) fn select(rows: Vec<AgentPickerRow>, mode: PickerMode) -> Res
     .context("creating inline agent picker")?;
     terminal.hide_cursor()?;
 
-    let mut state = PickerState::new(rows, mode);
+    let mut state = PickerState::new(rows);
     let mut last_area = Rect::new(0, 0, 0, height);
     let interaction = interaction_loop(&mut terminal, &mut state, &mut last_area);
     let cleanup = cleanup_terminal(&mut terminal, last_area);

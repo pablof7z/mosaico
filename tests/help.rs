@@ -73,16 +73,25 @@ fn bare_invocation_without_installation_shows_install_guide() {
 }
 
 #[test]
-fn bare_invocation_with_installation_is_exactly_bare_launch() {
+fn bare_invocation_with_installation_is_exactly_agents() {
     let home = installed_codex_home();
     let bare = isolated_command(home.path(), &[]);
-    let launch = isolated_command(home.path(), &["launch"]);
+    let agents = isolated_command(home.path(), &["agents"]);
 
     assert!(bare.status.success(), "bare mosaico failed: {bare:?}");
-    assert!(launch.status.success(), "mosaico launch failed: {launch:?}");
-    assert_eq!(bare.stdout, launch.stdout);
-    assert_eq!(bare.stderr, launch.stderr);
-    assert!(String::from_utf8_lossy(&bare.stdout).contains("No available agents."));
+    assert!(agents.status.success(), "mosaico agents failed: {agents:?}");
+    assert_eq!(bare.stdout, agents.stdout);
+    assert_eq!(bare.stderr, agents.stderr);
+    assert!(String::from_utf8_lossy(&bare.stdout).contains("codex"));
+}
+
+#[test]
+fn removed_launch_subcommand_is_rejected() {
+    let home = installed_codex_home();
+    let output = isolated_command(home.path(), &["launch"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand 'launch'"));
 }
 
 #[test]

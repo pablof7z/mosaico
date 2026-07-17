@@ -2,8 +2,9 @@ mod args;
 mod data;
 mod delete;
 mod editor;
+mod usage;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use owo_colors::OwoColorize as _;
 use std::io::IsTerminal as _;
 
@@ -12,33 +13,36 @@ pub(in crate::cli) use args::AgentsArgs;
 use data::{AgentKind, AgentRow};
 
 pub(in crate::cli) async fn agents(args: AgentsArgs) -> Result<()> {
-    match args.action {
-        Some(AgentAction::List) => list(),
-        Some(AgentAction::Add {
+    if args.action.is_none() {
+        return match args.launch_request()? {
+            Some(request) => crate::cli::launch_cli::verbs::launch(request).await,
+            None => interactive().await,
+        };
+    }
+    match args.action.expect("checked above") {
+        AgentAction::List => list().await,
+        AgentAction::Add {
             slug,
             harness,
             profile,
-        }) => add(&slug, &harness, profile.as_deref()).await,
-        Some(AgentAction::Remove { slug }) => remove(&slug).await,
-        None => interactive().await,
+        } => add(&slug, &harness, profile.as_deref()).await,
+        AgentAction::Remove { slug } => remove(&slug).await,
     }
 }
 
 async fn interactive() -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        bail!("mosaico agents is interactive — run it in a terminal");
+        return list().await;
     }
     loop {
-        let rows = data::load()?;
+        let rows =
+            usage::ordered_rows(data::load()?, &usage::fetch(crate::util::now_secs()).await?);
         if rows.is_empty() {
             println!("No configured or installed agents.");
             return Ok(());
         }
         let picker_rows = rows.iter().map(picker_row).collect();
-        match crate::cli::interactive::agent_picker::select(
-            picker_rows,
-            crate::cli::interactive::agent_picker::PickerMode::Manage,
-        )? {
+        match crate::cli::interactive::agent_picker::select(picker_rows)? {
             crate::cli::interactive::agent_picker::PickerAction::Launch(index) => {
                 let row = &rows[index];
                 return crate::cli::launch_cli::verbs::launch(
@@ -54,7 +58,6 @@ async fn interactive() -> Result<()> {
             }
             crate::cli::interactive::agent_picker::PickerAction::Edit(index) => {
                 editor::edit(&rows[index])?;
-                publish_roster(None).await;
             }
             crate::cli::interactive::agent_picker::PickerAction::Delete(index) => {
                 delete::delete(&rows[index]).await?;
@@ -65,32 +68,18 @@ async fn interactive() -> Result<()> {
 }
 
 fn picker_row(row: &AgentRow) -> crate::cli::interactive::agent_picker::AgentPickerRow {
-    let key = match row.per_session_key {
-        Some(true) => "per-session key",
-        Some(false) => "persistent key",
-        None => "not configured",
-    };
-    let transport = row
-        .transport
-        .map(|value| value.as_str())
-        .unwrap_or("choose transport");
-    let bundle = row.bundle.as_deref().unwrap_or("new configuration");
     crate::cli::interactive::agent_picker::AgentPickerRow {
         name: row.slug.clone(),
         description: row.description.clone(),
-        provenance: Some(crate::cli::interactive::agent_picker::AgentProvenance {
-            label: data::harness_name(row.harness).to_string(),
-            harness: row.harness,
-        }),
         status: Some(crate::cli::interactive::agent_picker::AgentProvenance {
-            label: format!("Harness config: {bundle} · {transport} · {key}"),
+            label: data::harness_name(row.harness).to_string(),
             harness: row.harness,
         }),
     }
 }
 
-fn list() -> Result<()> {
-    let rows = data::load()?;
+async fn list() -> Result<()> {
+    let rows = usage::ordered_rows(data::load()?, &usage::fetch(crate::util::now_secs()).await?);
     if rows.is_empty() {
         println!("No configured or installed agents.");
         return Ok(());
@@ -102,10 +91,9 @@ fn list() -> Result<()> {
             AgentKind::Generic => "generic",
         };
         println!(
-            "{}  {}  {} · {}",
+            "{}  {} · {}",
             row.slug.bold(),
             row.description,
-            data::harness_name(row.harness).dimmed(),
             source.dimmed()
         );
     }
@@ -126,34 +114,29 @@ async fn add(slug: &str, harness: &str, profile: Option<&str>) -> Result<()> {
         slug.bold(),
         identity.harness
     );
-    publish_roster(None).await;
+    schedule_roster_refresh(None).await;
     Ok(())
 }
 
 async fn remove(slug: &str) -> Result<()> {
     if crate::identity::remove_local_agent(&crate::config::mosaico_home(), slug)? {
         println!("Deleted {}", slug.bold());
-        publish_roster(Some(slug)).await;
+        schedule_roster_refresh(Some(slug)).await;
     } else {
         eprintln!("no such configured agent: {slug}");
     }
     Ok(())
 }
 
-pub(super) async fn publish_roster(remove_slug: Option<&str>) {
+pub(super) async fn schedule_roster_refresh(remove_slug: Option<&str>) {
     match crate::cli::daemon_call_async(
-        "agent_roster_publish",
+        "agent_roster_refresh",
         serde_json::json!({ "remove_slug": remove_slug }),
     )
     .await
     {
-        Ok(value) => println!(
-            "  roster publish: {} advertised, {} removed, {} failed",
-            value["published"].as_u64().unwrap_or(0),
-            value["removed"].as_u64().unwrap_or(0),
-            value["failed"].as_array().map(Vec::len).unwrap_or(0)
-        ),
-        Err(error) => eprintln!("  roster publish deferred: {error}"),
+        Ok(_) => {}
+        Err(error) => eprintln!("  roster refresh deferred: {error}"),
     }
 }
 
@@ -161,9 +144,10 @@ pub(super) async fn publish_roster(remove_slug: Option<&str>) {
 mod tests {
     use super::*;
     #[test]
-    fn management_row_names_actual_harness_last() {
+    fn management_row_keeps_harness_in_status_only() {
         let row = AgentRow {
             slug: "reviewer".into(),
+            agent_slug: "reviewer".into(),
             description: "Reviews changes".into(),
             harness: crate::session::Harness::ClaudeCode,
             bundle: Some("claude-acp".into()),
@@ -175,10 +159,6 @@ mod tests {
         };
         let picker = picker_row(&row);
         assert_eq!(picker.description, "Reviews changes");
-        assert_eq!(picker.provenance.unwrap().label, "Claude");
-        assert_eq!(
-            picker.status.unwrap().label,
-            "Harness config: claude-acp · acp · per-session key"
-        );
+        assert_eq!(picker.status.unwrap().label, "Claude");
     }
 }

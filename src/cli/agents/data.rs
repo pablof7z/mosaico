@@ -14,6 +14,7 @@ pub(super) enum AgentKind {
 #[derive(Clone, Debug)]
 pub(super) struct AgentRow {
     pub(super) slug: String,
+    pub(super) agent_slug: String,
     pub(super) description: String,
     pub(super) harness: Harness,
     pub(super) bundle: Option<String>,
@@ -78,6 +79,7 @@ fn project(agent: crate::agent_inventory::AvailableAgent, harnesses: &HarnessesC
     };
     AgentRow {
         slug: agent.slug,
+        agent_slug: agent.agent_slug,
         description,
         harness: agent.harness,
         bundle,

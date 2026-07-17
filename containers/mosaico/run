@@ -246,7 +246,7 @@ with_mosaico() {
 
 # Same staging as with_mosaico (build + hook install), but runs the final
 # command directly. Reattachable hosted sessions are covered by
-# `mosaico launch`.
+# `mosaico agents`.
 with_mosaico_direct() {
   local harness="${1}"
   shift
@@ -261,7 +261,7 @@ with_mosaico_direct() {
   ' bash "${harness}" "$@"
 }
 
-# ACP/app-server launch is headless: `mosaico launch` returns after the
+# ACP/app-server launch is headless: `mosaico agents` returns after the
 # daemon owns the JSON-RPC child. Keep the container alive so Docker/Apple
 # container lifecycle does not immediately reap that daemon and child.
 with_mosaico_hosted() {

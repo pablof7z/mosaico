@@ -14,7 +14,7 @@ root channel used by launch.
 
 ## Launch configuration is transport-owned
 
-`mosaico launch <target> [prompt]` does not accept provider argv, a harness
+`mosaico agents <target> [prompt]` does not accept provider argv, a harness
 override, a command override, or a headed/headless selector. The selected
 agent's `harness` points to one `harnesses.json` bundle; that bundle owns
 `harness`, `transport`, and `args`. The transport selects PTY, ACP, app-server,

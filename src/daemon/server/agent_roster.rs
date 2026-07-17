@@ -22,15 +22,15 @@ pub(in crate::daemon::server) struct PublishRosterParams {
     remove_slug: Option<String>,
 }
 
-pub(in crate::daemon::server) async fn rpc_agent_roster_publish(
+pub(in crate::daemon::server) fn rpc_agent_roster_refresh(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
     let params: PublishRosterParams =
-        serde_json::from_value(params.clone()).context("agent_roster_publish params")?;
+        serde_json::from_value(params.clone()).context("agent_roster_refresh params")?;
     state.refresh_agent_catalog()?;
-    let report = publish_local_agent_roster(state, params.remove_slug.as_deref()).await?;
-    Ok(serde_json::to_value(report)?)
+    state.schedule_agent_roster_refresh(params.remove_slug.into_iter().collect());
+    Ok(serde_json::json!({"scheduled": true}))
 }
 
 pub(in crate::daemon::server) async fn publish_local_agent_roster(
@@ -92,9 +92,6 @@ fn should_tombstone(advertisements: &[CapabilityAdvertisement], slug: &str) -> b
 
 impl DaemonState {
     pub(crate) fn schedule_agent_roster_refresh(self: &Arc<Self>, removed_slugs: Vec<String>) {
-        if removed_slugs.is_empty() {
-            return;
-        }
         let state = self.clone();
         tokio::spawn(async move {
             for slug in removed_slugs {

@@ -180,7 +180,7 @@ mod test_support;
 mod turn_lifecycle;
 mod turns;
 mod who;
-use agent_roster::{publish_local_agent_roster, rpc_agent_roster_publish};
+use agent_roster::{publish_local_agent_roster, rpc_agent_roster_refresh};
 use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave, rpc_channel_switch};
 use channel_read_tail::{handle_channel_read, handle_tail};
 use channel_resolve::{
@@ -244,7 +244,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
         "agent_usage" => agent_usage::rpc_agent_usage(state, &req.params),
         "pty_supervisor_exit" => rpc::rpc_pty_supervisor_exit(state, &req.params).await,
-        "agent_roster_publish" => rpc_agent_roster_publish(state, &req.params).await,
+        "agent_roster_refresh" => rpc_agent_roster_refresh(state, &req.params),
         "channel_create" => rpc_channel_create(state, &req.params).await,
         "channel_edit" => rpc_channel_edit(state, &req.params).await,
         "channel_resolve" => rpc_channel_resolve(state, &req.params).await,

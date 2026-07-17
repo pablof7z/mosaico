@@ -73,7 +73,7 @@ fields.
 The current surface is:
 
 ```text
-mosaico launch [TARGET] [PROMPT] [--workspace ...] [--channel [ROOM]] [--name ...]
+mosaico agents [TARGET] [PROMPT] [--workspace ...] [--channel [ROOM]] [--name ...]
 ```
 
 Provider flags belong in bundle `args`, not after a separator or in launch-time
@@ -83,7 +83,7 @@ launch args. Direct mode may still receive provider CLI args.
 ## Launch target is missing or ambiguous
 
 ```bash
-bash containers/mosaico/run --profile <profile> mosaico launch
+bash containers/mosaico/run --profile <profile> mosaico agents
 ```
 
 A non-interactive run prints available targets. Check live harness detection,
@@ -162,7 +162,7 @@ relay. Prefer a fresh auto-selected port and freshly generated profile state.
 Capture the provider's exact error. For direct mode, choose the cheapest model
 the installed CLI accepts. For launch mode, change the profile's explicit
 `MOSAICO_DEV_*_ARGS_JSON` override and regenerate it. Do not append flags to
-`mosaico launch`.
+`mosaico agents`.
 
 ## Missing events
 

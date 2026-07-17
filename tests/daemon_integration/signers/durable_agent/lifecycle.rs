@@ -2,7 +2,7 @@ use super::*;
 
 fn launch(home: &Home, slug: &str, mode: &str) -> std::process::Output {
     configure_pty_agent(home, slug, mode);
-    run_cli(home, &["launch", slug, "--workspace", "tmp"])
+    run_cli(home, &["agents", slug, "--workspace", "tmp"])
 }
 
 pub(super) async fn assert_supervisor_releases_reservations(home: &Home, slug: &str) {

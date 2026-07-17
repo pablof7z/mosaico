@@ -36,11 +36,11 @@ fn main() {
     }
 
     // Bare mosaico is the primary operator flow: route it exactly through the
-    // existing launch command when a harness integration exists. A binary with
+    // canonical agents command when a harness integration exists. A binary with
     // no installed integration gives setup guidance without starting a daemon.
     if argv.len() == 1 {
         match cli::install::route_bare_invocation() {
-            Ok(true) => argv.push("launch".to_string()),
+            Ok(true) => argv.push("agents".to_string()),
             Ok(false) => return,
             Err(error) => {
                 command_log.finish_result(&Err(anyhow::anyhow!(error.to_string())));

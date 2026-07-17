@@ -47,7 +47,7 @@ pub struct Config {
     pub mosaico_private_key: Option<String>,
     /// Whether human-initiated sessions (no `MOSAICO_CHANNEL` override) mint
     /// their own per-session NIP-29 subgroup. Default `false`: such sessions
-    /// land in the bare root channel, and `mosaico launch` (without
+    /// land in the bare root channel, and `mosaico agents` (without
     /// `--channel`) opens the interactive channel picker instead of minting.
     /// When `true`, per-session rooms are enabled (mint a per-session room).
     pub per_session_rooms: bool,

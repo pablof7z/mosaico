@@ -5,7 +5,7 @@ struct PtySpawnParams {
     agent: String,
     root: String,
     /// The client's cwd, forwarded so the daemon spawns the agent in the
-    /// directory the user actually invoked `mosaico launch` from.
+    /// directory the user actually invoked `mosaico agents` from.
     #[serde(default)]
     cwd: Option<String>,
     /// The resolved opaque channel id to scope the spawned session into.

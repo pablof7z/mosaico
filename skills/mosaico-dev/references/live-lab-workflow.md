@@ -116,7 +116,7 @@ skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" direct codex \
   -m gpt-5.3-codex-spark
 ```
 
-Use it for auth and integration staging. It does not prove Mosaico launch
+Use it for auth and integration staging. It does not prove Mosaico hosted
 routing or hosted lifecycle.
 
 ### PTY launch
@@ -130,7 +130,7 @@ MOSAICO_DEV_PROMPT="Run mosaico my session." \
 ```
 
 The bundle's `transport: "pty"` selects portable PTY hosting. The current launch
-surface is `mosaico launch <target> [prompt]`; provider flags must already be in
+surface is `mosaico agents <target> [prompt]`; provider flags must already be in
 bundle `args`. Use the attached terminal for UI evidence.
 
 Use `grok-pty-lab.md` for native Grok hook provenance and p-tagged injection
@@ -153,7 +153,7 @@ Expected output contains an RPC session id; there is no PTY.
 Run a targetless launch in the generated profile:
 
 ```bash
-bash containers/mosaico/run --profile codex mosaico launch
+bash containers/mosaico/run --profile codex mosaico agents
 ```
 
 In a non-interactive command this prints available launch targets and exits. In

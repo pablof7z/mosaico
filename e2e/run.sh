@@ -198,7 +198,7 @@ log "4c: harness-owned PTY launch applies the agent profile"
 rm -f "${E2E_CLAUDE_ARGV_LOG}"
 (
   cd "${A_WORKSPACE_DIR}"
-  mosaico mosaico-a launch reviewer --workspace "${E2E_WORKSPACE}" >/dev/null
+  mosaico mosaico-a agents reviewer --workspace "${E2E_WORKSPACE}" >/dev/null
 ) || die "configured reviewer launch failed"
 wait_for "Claude shim argv to be recorded" 10 "test -s '${E2E_CLAUDE_ARGV_LOG}'"
 CLAUDE_ARGV="$(paste -sd ' ' "${E2E_CLAUDE_ARGV_LOG}")"

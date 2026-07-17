@@ -14,7 +14,7 @@ fn launch_no_hook(home: &Home, agent: &str, channel: &str, mode: &str) {
     configure_pty_agent(home, agent, mode);
     let out = run_cli_with_env_in_dir(
         home,
-        &["launch", agent, "--workspace", channel],
+        &["agents", agent, "--workspace", channel],
         &[],
         &work_dir,
     );
@@ -55,7 +55,7 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
     let out = run_cli_with_env_in_dir(
         &home,
-        &["launch", "writing-partner"],
+        &["agents", "writing-partner"],
         &[("HOME", &isolated_home)],
         &work_dir,
     );
@@ -116,16 +116,16 @@ fn launch_lists_and_starts_harness_despite_invalid_same_named_agent() {
 
     let listed = run_cli_with_env_in_dir(
         &home,
-        &["launch"],
+        &["agents"],
         &[("HOME", &isolated_home), ("XDG_CONFIG_HOME", &xdg)],
         &work_dir,
     );
     assert!(listed.status.success());
-    assert!(String::from_utf8_lossy(&listed.stdout).contains("- opencode"));
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("opencode"));
 
     let launched = run_cli_with_env_in_dir(
         &home,
-        &["launch", "opencode", "--workspace", &channel],
+        &["agents", "opencode", "--workspace", &channel],
         &[("HOME", &isolated_home), ("XDG_CONFIG_HOME", &xdg)],
         &work_dir,
     );
@@ -189,7 +189,7 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
 
     let out = run_cli_with_env_in_dir(
         &home,
-        &["launch", agent, "--workspace", &channel],
+        &["agents", agent, "--workspace", &channel],
         &[],
         &work_dir,
     );

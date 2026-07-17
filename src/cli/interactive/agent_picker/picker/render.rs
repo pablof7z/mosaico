@@ -1,4 +1,4 @@
-use super::{PickerMode, PickerState};
+use super::PickerState;
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
@@ -14,7 +14,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     let area = frame.area();
     frame.render_widget(Clear, area);
     if area.height < 3 {
-        frame.render_widget(Paragraph::new(title(state.mode)), area);
+        frame.render_widget(Paragraph::new("Agents"), area);
         return;
     }
     let [title_area, options_area, help_area] = Layout::vertical([
@@ -33,10 +33,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                title(state.mode),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("Agents", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw("  Filter: "),
             query,
         ])),
@@ -55,7 +52,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
         .map(|(visible_index, row)| {
             let focused = visible_index == state.cursor;
             let name = truncate(&row.name, name_width);
-            let mut spans = vec![
+            let spans = vec![
                 Span::styled(
                     if focused { "❯ " } else { "  " },
                     Style::default().fg(if focused { ACCENT } else { MUTED }),
@@ -69,15 +66,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
                 Span::raw("  "),
                 Span::styled(row.description.clone(), Style::default().fg(MUTED)),
             ];
-            if let Some(provenance) = &row.provenance {
-                spans.push(Span::styled(" · ", Style::default().fg(MUTED)));
-                spans.push(Span::styled(
-                    provenance.label.clone(),
-                    Style::default().fg(crate::console_style::harness_ratatui_color(
-                        provenance.harness,
-                    )),
-                ));
-            }
             ListItem::new(Line::from(spans))
         })
         .collect::<Vec<_>>();
@@ -96,16 +84,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
         format!("{}/{}", state.cursor + 1, state.visible.len())
     };
     let mut status = Vec::new();
-    if state.mode == PickerMode::Manage {
-        if let Some(configuration) = state.current_row().and_then(|row| row.status.as_ref()) {
-            status.push(Span::styled(
-                configuration.label.clone(),
-                Style::default().fg(crate::console_style::harness_ratatui_color(
-                    configuration.harness,
-                )),
-            ));
-            status.push(Span::styled("  ·  ", Style::default().fg(MUTED)));
-        }
+    if let Some(configuration) = state.current_row().and_then(|row| row.status.as_ref()) {
+        status.push(Span::styled(
+            configuration.label.clone(),
+            Style::default().fg(crate::console_style::harness_ratatui_color(
+                configuration.harness,
+            )),
+        ));
+        status.push(Span::styled("  ·  ", Style::default().fg(MUTED)));
     }
     status.push(Span::styled(
         format!("{} · {position}", help(state)),
@@ -114,20 +100,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     frame.render_widget(Paragraph::new(Line::from(status)), help_area);
 }
 
-fn title(mode: PickerMode) -> &'static str {
-    match mode {
-        PickerMode::Launch => "Launch agent",
-        PickerMode::Manage => "Agents",
-    }
-}
-
 fn help(state: &PickerState) -> &'static str {
-    match (state.mode, state.filtering) {
-        (PickerMode::Launch, _) => "enter launch · type filter · ↑↓ move · esc",
-        (PickerMode::Manage, false) => {
-            "enter launch · e edit · d delete · / filter · ↑↓ move · esc"
-        }
-        (PickerMode::Manage, true) => "enter launch · type filter · ↑↓ move · esc clear",
+    if state.filtering {
+        "enter launch · type filter · ↑↓ move · esc clear"
+    } else {
+        "enter launch · e edit · d delete · / filter · ↑↓ move · esc"
     }
 }
 

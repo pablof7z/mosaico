@@ -25,7 +25,7 @@ fn acp_agent_receives_the_signer_matching_its_assigned_pubkey() {
 
     let out = run_cli_with_env_in_dir(
         &home,
-        &["launch", agent, "--workspace", &channel],
+        &["agents", agent, "--workspace", &channel],
         &[],
         &work_dir,
     );

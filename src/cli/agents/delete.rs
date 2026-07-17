@@ -68,6 +68,6 @@ pub(super) async fn delete(row: &AgentRow) -> Result<()> {
     {
         println!("Deleted native profile {}", profile.unwrap().path.display());
     }
-    super::publish_roster(Some(&row.slug)).await;
+    super::schedule_roster_refresh(Some(&row.slug)).await;
     Ok(())
 }

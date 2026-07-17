@@ -108,7 +108,6 @@ pub async fn run(cli: Cli) -> Result<()> {
         Cmd::Agents(args) => agents::agents(args).await,
         Cmd::Dispatch(args) => dispatch::dispatch(args).await,
         Cmd::Harness { action } => harness::harness(action).await,
-        Cmd::Launch(args) => launch_cli::launch(args).await,
         Cmd::Mcp(args) => mcp::mcp(args).await,
         Cmd::My { action } => my::my(action),
         Cmd::Daemon(args) => match args.action {
