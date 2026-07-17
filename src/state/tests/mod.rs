@@ -18,6 +18,7 @@ fn reg(harness: &str, ext: &str, channel: &str) -> RegisterSession {
     }
 }
 
+mod agent_usage;
 mod channels_tree;
 mod identity_projection_and_roots;
 mod inbox_ledger;

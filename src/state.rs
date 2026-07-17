@@ -168,6 +168,14 @@ pub struct RegisterSession {
     pub now: u64,
 }
 
+/// Aggregate local launch activity for one canonical agent profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentUsage {
+    pub agent_slug: String,
+    pub recent_uses: u64,
+    pub last_used: u64,
+}
+
 /// A typed host-local locator pointing to the sole session identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionLocator {
@@ -195,6 +203,7 @@ pub struct InboxRow {
 
 mod agent_roster;
 pub use agent_roster::{AgentAvailability, AgentRoster};
+mod agent_usage;
 mod locators;
 pub(crate) use locators::{LOCATOR_ACP, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY};
 mod channel_readiness_attempts;

@@ -26,6 +26,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
 mod agent_discovery;
 mod agent_roster;
+mod agent_usage;
 pub(crate) mod auto_reply;
 mod background;
 mod delivery_drive;
@@ -241,6 +242,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_add_member" => rpc::rpc_channel_add_member(state, &req.params).await,
         "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
+        "agent_usage" => agent_usage::rpc_agent_usage(state, &req.params),
         "pty_supervisor_exit" => rpc::rpc_pty_supervisor_exit(state, &req.params).await,
         "agent_roster_publish" => rpc_agent_roster_publish(state, &req.params).await,
         "channel_create" => rpc_channel_create(state, &req.params).await,
@@ -290,7 +292,6 @@ impl DaemonState {
         }
         true
     }
-
     fn tail_subscribe(&self) -> tokio::sync::broadcast::Receiver<TailEvent> {
         self.tail_tx.subscribe()
     }
@@ -326,7 +327,6 @@ fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value>
 fn sort_message_json(rows: &mut [serde_json::Value]) {
     rows.sort_by_key(|row| row["created_at"].as_i64().unwrap_or_default());
 }
-
 fn env_duration(key: &str, default: Duration) -> Duration {
     std::env::var(key)
         .ok()

@@ -43,7 +43,7 @@ pub(super) struct LaunchRequest {
 pub(in crate::cli) async fn launch(args: LaunchArgs) -> Result<()> {
     let slug = match args.slug {
         Some(slug) => slug,
-        None => match super::selection::select_available()? {
+        None => match super::selection::select_available().await? {
             Some(slug) => slug,
             None => return Ok(()),
         },

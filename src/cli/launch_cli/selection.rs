@@ -1,15 +1,36 @@
 use anyhow::Result;
 
+mod theme;
+mod usage;
+use usage::{fetch_agent_usage, ordered_agents, usage_for, AgentUsage, AgentUsageMap};
+
 const MAX_MENU_ROWS: usize = 16;
 const MAX_NAME_CHARS: usize = 30;
 const MAX_DETAIL_CHARS: usize = 76;
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MenuRow {
+    name: String,
+    detail: String,
+}
+
+impl MenuRow {
+    fn plain(&self) -> String {
+        format!("{}  {}", self.name, self.detail)
+    }
+}
+
+impl std::fmt::Display for MenuRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}", self.name, theme::ROW_SEPARATOR, self.detail)
+    }
+}
 
 pub(super) struct FreshAgentSelection {
     pub(super) slug: String,
     pub(super) retired_advertisements: Vec<String>,
 }
 
-pub(super) fn select_available() -> Result<Option<String>> {
+pub(super) async fn select_available() -> Result<Option<String>> {
     let cwd = std::env::current_dir().unwrap_or_default();
     let inventory = local_inventory(&cwd)?;
     if inventory.agents.is_empty() {
@@ -19,20 +40,22 @@ pub(super) fn select_available() -> Result<Option<String>> {
         }
         return Ok(None);
     }
-    let agents = ordered_agents(&inventory);
-    let labels = menu_labels(&agents);
+    let now = crate::util::now_secs();
+    let usage = fetch_agent_usage(now).await?;
+    let agents = ordered_agents(&inventory, &usage);
+    let rows = menu_rows(&agents, &usage, now);
     if !interactive_terminal() {
         println!("Available launch targets:");
-        for label in labels {
-            println!("- {label}");
+        for row in rows {
+            println!("- {}", row.plain());
         }
         return Ok(None);
     }
 
-    let theme = dialoguer::theme::ColorfulTheme::default();
+    let theme = theme::LaunchTheme::default();
     let selected = dialoguer::FuzzySelect::with_theme(&theme)
         .with_prompt("Launch agent · type to filter")
-        .items(&labels)
+        .items(&rows)
         .default(0)
         .max_length(MAX_MENU_ROWS)
         .vim_mode(true)
@@ -80,27 +103,11 @@ fn interactive_terminal() -> bool {
     std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
 }
 
-fn ordered_agents(
-    inventory: &crate::agent_inventory::AgentInventory,
-) -> Vec<&crate::agent_inventory::AvailableAgent> {
-    let mut agents = inventory.agents.iter().collect::<Vec<_>>();
-    agents.sort_by(|a, b| {
-        source_rank(a.source)
-            .cmp(&source_rank(b.source))
-            .then_with(|| a.slug.to_lowercase().cmp(&b.slug.to_lowercase()))
-    });
-    agents
-}
-
-fn source_rank(source: crate::agent_inventory::AgentSource) -> u8 {
-    match source {
-        crate::agent_inventory::AgentSource::Harness => 0,
-        crate::agent_inventory::AgentSource::Configured => 1,
-        crate::agent_inventory::AgentSource::NativeProfile => 2,
-    }
-}
-
-fn menu_labels(agents: &[&crate::agent_inventory::AvailableAgent]) -> Vec<String> {
+fn menu_rows(
+    agents: &[&crate::agent_inventory::AvailableAgent],
+    usage: &AgentUsageMap,
+    now: u64,
+) -> Vec<MenuRow> {
     let name_width = agents
         .iter()
         .map(|agent| agent.slug.chars().count())
@@ -109,11 +116,16 @@ fn menu_labels(agents: &[&crate::agent_inventory::AvailableAgent]) -> Vec<String
         .min(MAX_NAME_CHARS);
     agents
         .iter()
-        .map(|agent| menu_label(agent, name_width))
+        .map(|agent| menu_row(agent, usage_for(usage, agent), name_width, now))
         .collect()
 }
 
-fn menu_label(agent: &crate::agent_inventory::AvailableAgent, name_width: usize) -> String {
+fn menu_row(
+    agent: &crate::agent_inventory::AvailableAgent,
+    usage: &AgentUsage,
+    name_width: usize,
+    now: u64,
+) -> MenuRow {
     let source = match agent.source {
         crate::agent_inventory::AgentSource::Configured => "configured".to_string(),
         crate::agent_inventory::AgentSource::NativeProfile => {
@@ -124,18 +136,30 @@ fn menu_label(agent: &crate::agent_inventory::AvailableAgent, name_width: usize)
         }
     };
     let criteria = compact(&agent.use_criteria);
-    let detail = if criteria.is_empty() {
+    let identity_detail = if criteria.is_empty() {
         source
     } else {
         format!("{source} · {criteria}")
     };
+    let detail = if usage.last_used == 0 {
+        identity_detail
+    } else {
+        let uses = if usage.recent_uses == 1 {
+            "use"
+        } else {
+            "uses"
+        };
+        format!(
+            "{} {uses} / 30d · {} · {identity_detail}",
+            usage.recent_uses,
+            crate::util::relative_time(usage.last_used, now)
+        )
+    };
     let name = truncate(&agent.slug, name_width);
-    format!(
-        "{:<width$}  {}",
-        name,
-        truncate(&detail, MAX_DETAIL_CHARS),
-        width = name_width
-    )
+    MenuRow {
+        name: format!("{name:<name_width$}"),
+        detail: truncate(&detail, MAX_DETAIL_CHARS),
+    }
 }
 
 fn harness_label(harness: crate::session::Harness) -> &'static str {

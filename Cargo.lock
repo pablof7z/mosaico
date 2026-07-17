@@ -1779,6 +1779,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "console",
  "crossterm 0.28.1",
  "dialoguer",
  "fuzzy-matcher",

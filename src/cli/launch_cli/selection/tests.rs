@@ -80,11 +80,59 @@ fn menu_rows_are_aligned_single_line_and_bounded() {
         failures: Vec::new(),
     };
 
-    let agents = ordered_agents(&inventory);
-    let labels = menu_labels(&agents);
+    let usage = AgentUsageMap::new();
+    let agents = ordered_agents(&inventory, &usage);
+    let rows = menu_rows(&agents, &usage, 100);
 
-    assert_eq!(labels[0], "codex            Codex harness");
-    assert!(!labels[1].contains('\n'));
-    assert!(labels[1].ends_with('…'));
-    assert!(labels[1].chars().count() <= MAX_NAME_CHARS + 2 + MAX_DETAIL_CHARS);
+    assert_eq!(rows[0].plain(), "codex            Codex harness");
+    assert!(!rows[1].plain().contains('\n'));
+    assert!(rows[1].detail.ends_with('…'));
+    assert!(rows[1].plain().chars().count() <= MAX_NAME_CHARS + 2 + MAX_DETAIL_CHARS);
+}
+
+#[test]
+fn recent_count_then_last_use_determine_agent_order() {
+    let agent = |slug: &str, agent_slug: &str| crate::agent_inventory::AvailableAgent {
+        slug: slug.into(),
+        agent_slug: agent_slug.into(),
+        bundle: "codex-pty".into(),
+        harness: crate::session::Harness::Codex,
+        use_criteria: String::new(),
+        available_since: 0,
+        source: crate::agent_inventory::AgentSource::Harness,
+        persist_binding: false,
+    };
+    let inventory = crate::agent_inventory::AgentInventory {
+        agents: vec![
+            agent("codex", "codex"),
+            agent("writer-codex", "writer"),
+            agent("grok", "grok"),
+        ],
+        failures: Vec::new(),
+    };
+    let usage = [("codex", 2, 90), ("writer", 3, 80), ("grok", 3, 95)]
+        .into_iter()
+        .map(|(agent_slug, recent_uses, last_used)| {
+            (
+                agent_slug.to_string(),
+                AgentUsage {
+                    agent_slug: agent_slug.to_string(),
+                    recent_uses,
+                    last_used,
+                },
+            )
+        })
+        .collect();
+
+    let ordered = ordered_agents(&inventory, &usage)
+        .into_iter()
+        .map(|agent| agent.slug.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(ordered, ["grok", "writer-codex", "codex"]);
+    assert!(
+        menu_rows(&ordered_agents(&inventory, &usage), &usage, 100)[0]
+            .detail
+            .starts_with("3 uses / 30d · just now")
+    );
 }
