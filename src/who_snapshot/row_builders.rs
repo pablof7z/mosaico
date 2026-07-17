@@ -1,25 +1,25 @@
-use super::{scope::work_root_for, WhoRow, WhoSource};
-use crate::state::{Session, Status, StoreReader};
+use super::{WhoRow, WhoSource};
+use crate::state::{Session, Status};
 
 /// Build a local-session row. Relay-confirmed agent-supplied status wins when present.
 pub(super) fn local_row(
     aggregation: &crate::who_aggregation::WhoAggregation,
-    store: StoreReader<'_>,
     s: &Session,
     local_host: &str,
     now: u64,
 ) -> WhoRow {
-    let instance = local_instance(store, s);
-    let live = store
-        .get_status(&instance.pubkey, &s.channel_h)
-        .ok()
-        .flatten()
-        .filter(|st| st.expiration == 0 || st.expiration >= now);
-    let state = aggregation.local_session_state(store, s);
+    let instance = local_instance(aggregation, s);
+    let live = aggregation.status_for(&instance.pubkey, &s.channel_h);
+    let state = aggregation.local_session_state(s);
     let (title, activity) = live
-        .map(|st| (st.title, live_activity(state.is_working(), st.activity)))
+        .map(|st| {
+            (
+                st.title.clone(),
+                live_activity(state.is_working(), st.activity.clone()),
+            )
+        })
         .unwrap_or_else(|| (s.title.clone(), String::new()));
-    let work_root = work_root_for(store, &s.channel_h);
+    let work_root = aggregation.root_for_channel(&s.channel_h);
     WhoRow {
         source: WhoSource::Local,
         state,
@@ -39,36 +39,33 @@ pub(super) fn local_row(
 }
 
 pub(super) fn local_instance(
-    store: StoreReader<'_>,
+    aggregation: &crate::who_aggregation::WhoAggregation,
     s: &Session,
 ) -> crate::identity::SessionIdentity {
-    store
+    aggregation
         .session_identity(&s.pubkey)
-        .expect("session identity lookup failed")
+        .cloned()
         .expect("live session is missing its identity projection")
 }
 
 /// Build a peer row from relay-confirmed status; unknown host is treated local.
 pub(super) fn peer_row(
     aggregation: &crate::who_aggregation::WhoAggregation,
-    store: StoreReader<'_>,
     st: &Status,
     local_host: &str,
     now: u64,
 ) -> WhoRow {
-    let host = store
-        .get_profile(&st.pubkey)
-        .ok()
-        .flatten()
-        .map(|p| p.host)
+    let host = aggregation
+        .profile(&st.pubkey)
+        .map(|p| p.host.clone())
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| local_host.to_string());
-    let work_root = work_root_for(store, &st.channel_h);
+    let work_root = aggregation.root_for_channel(&st.channel_h);
     let state = aggregation.observed_state(st);
     WhoRow {
         source: WhoSource::Peer,
         state,
-        slug: peer_slug(store, st),
+        slug: peer_slug(aggregation, st),
         channel: st.channel_h.clone(),
         status: st.title.clone(),
         activity: live_activity(state.is_working(), st.activity.clone()),
@@ -83,14 +80,15 @@ pub(super) fn peer_row(
     }
 }
 
-pub(super) fn peer_slug(store: StoreReader<'_>, st: &Status) -> String {
+pub(super) fn peer_slug(
+    aggregation: &crate::who_aggregation::WhoAggregation,
+    st: &Status,
+) -> String {
     if !st.slug.is_empty() {
         return st.slug.clone();
     }
-    store
-        .resolve_slug_for_pubkey(&st.pubkey)
-        .ok()
-        .flatten()
+    aggregation
+        .display_slug(&st.pubkey)
         .unwrap_or_else(|| crate::util::pubkey_short(&st.pubkey))
 }
 
@@ -121,7 +119,7 @@ mod tests {
             expiration: 100,
         };
         let aggregation = crate::who_aggregation::WhoAggregation::load(&store, 101).unwrap();
-        let row = peer_row(&aggregation, store.reader(), &status, "laptop", 101);
+        let row = peer_row(&aggregation, &status, "laptop", 101);
         assert_eq!(row.state, crate::session_state::SessionState::Offline);
         assert!(row.activity.is_empty());
     }

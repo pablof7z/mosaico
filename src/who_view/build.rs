@@ -1,5 +1,5 @@
 use super::model::*;
-use crate::state::{Channel, Status, Store};
+use crate::state::{Channel, Status};
 use crate::util::relative_time;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,7 +15,6 @@ pub(crate) struct AgentWhoInput<'a> {
 }
 
 pub(super) fn build_agent_who(
-    store: &Store,
     aggregation: &crate::who_aggregation::WhoAggregation,
     input: AgentWhoInput<'_>,
 ) -> AgentWhoView {
@@ -23,19 +22,18 @@ pub(super) fn build_agent_who(
     let workspaces = input
         .roots
         .iter()
-        .map(|root| workspace_view(store, aggregation, &by_parent, root, &input))
+        .map(|root| workspace_view(aggregation, &by_parent, root, &input))
         .collect();
     AgentWhoView {
         self_name: input.self_name.to_string(),
         self_host: input.local_host.to_string(),
         headless: input.headless,
-        agents: available_agents(store, aggregation, input.local_host),
+        agents: available_agents(aggregation, input.local_host),
         workspaces,
     }
 }
 
 fn available_agents(
-    store: &Store,
     aggregation: &crate::who_aggregation::WhoAggregation,
     local_host: &str,
 ) -> Vec<AgentCapabilityView> {
@@ -50,10 +48,7 @@ fn available_agents(
         grouped
             .entry((row.backend_pubkey.clone(), name, about))
             .or_default()
-            .insert(
-                crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                    .root_for_channel(&row.channel_h),
-            );
+            .insert(aggregation.root_for_channel(&row.channel_h));
     }
     grouped
         .into_iter()
@@ -85,14 +80,13 @@ fn channels_by_parent(channels: Vec<Channel>) -> BTreeMap<String, Vec<Channel>> 
 }
 
 fn workspace_view(
-    store: &Store,
     aggregation: &crate::who_aggregation::WhoAggregation,
     by_parent: &BTreeMap<String, Vec<Channel>>,
     root: &str,
     input: &AgentWhoInput<'_>,
 ) -> WorkspaceView {
     let meta = aggregation.channel(root);
-    let members = member_views(store, aggregation, root, input);
+    let members = member_views(aggregation, root, input);
     let expanded = input.expanded_workspaces.contains(root);
     let channels = if expanded {
         let mut seen = BTreeSet::from([root.to_string()]);
@@ -103,7 +97,6 @@ fn workspace_view(
             .iter()
             .map(|child| {
                 channel_view(
-                    store,
                     aggregation,
                     by_parent,
                     root,
@@ -119,11 +112,10 @@ fn workspace_view(
     WorkspaceView {
         name: root.to_string(),
         channel: root.to_string(),
-        path: crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .path_for_channel(root)
-            .ok()
-            .flatten()
-            .unwrap_or_default(),
+        path: aggregation
+            .workspace_path(root)
+            .unwrap_or_default()
+            .to_string(),
         about: meta
             .map(|channel| channel.about.clone())
             .unwrap_or_default(),
@@ -135,7 +127,6 @@ fn workspace_view(
 }
 
 fn channel_view(
-    store: &Store,
     aggregation: &crate::who_aggregation::WhoAggregation,
     by_parent: &BTreeMap<String, Vec<Channel>>,
     workspace: &str,
@@ -148,10 +139,8 @@ fn channel_view(
     }
     let meta = aggregation.channel(channel_h);
     let name = aggregation.channel_name(channel_h).to_string();
-    let members = member_views(store, aggregation, channel_h, input);
-    let expanded = store
-        .is_channel_member(channel_h, input.self_pubkey)
-        .unwrap_or(false);
+    let members = member_views(aggregation, channel_h, input);
+    let expanded = aggregation.is_member(channel_h, input.self_pubkey);
     let children = if expanded {
         by_parent
             .get(channel_h)
@@ -160,7 +149,6 @@ fn channel_view(
             .iter()
             .map(|child| {
                 channel_view(
-                    store,
                     aggregation,
                     by_parent,
                     workspace,
@@ -175,7 +163,7 @@ fn channel_view(
     };
     ChannelView {
         name,
-        id: crate::channel_ref::full_channel_ref(store, channel_h),
+        id: aggregation.full_channel_ref(channel_h),
         about: meta
             .map(|channel| channel.about.clone())
             .unwrap_or_default(),
@@ -199,7 +187,6 @@ fn empty_channel(workspace: &str, channel_h: &str) -> ChannelView {
 }
 
 fn member_views(
-    store: &Store,
     aggregation: &crate::who_aggregation::WhoAggregation,
     channel: &str,
     input: &AgentWhoInput<'_>,
@@ -220,18 +207,15 @@ fn member_views(
         .filter(|member| {
             member.pubkey != input.backend_pubkey
                 && !backend_pubkeys.contains(&member.pubkey)
-                && !store
-                    .get_profile(&member.pubkey)
-                    .ok()
-                    .flatten()
+                && !aggregation
+                    .profile(&member.pubkey)
                     .is_some_and(|profile| profile.is_backend)
         })
         .map(|member| {
             member_view(
-                store,
+                aggregation,
                 &member.pubkey,
                 statuses.get(&member.pubkey).copied(),
-                aggregation,
                 input,
             )
         })
@@ -239,22 +223,19 @@ fn member_views(
 }
 
 fn member_view(
-    store: &Store,
+    aggregation: &crate::who_aggregation::WhoAggregation,
     pubkey: &str,
     status: Option<&Status>,
-    aggregation: &crate::who_aggregation::WhoAggregation,
     input: &AgentWhoInput<'_>,
 ) -> MemberView {
-    let profile = store.get_profile(pubkey).ok().flatten();
+    let profile = aggregation.profile(pubkey);
     let is_agent = pubkey == input.self_pubkey
         || status.is_some()
-        || profile
-            .as_ref()
-            .is_some_and(|row| !row.agent_slug.is_empty());
+        || profile.is_some_and(|row| !row.agent_slug.is_empty());
     let name = if pubkey == input.self_pubkey {
         input.self_name.to_string()
     } else {
-        crate::fabric_context::refs::pubkey_ref(store, pubkey, input.local_host)
+        aggregation.pubkey_ref(pubkey, input.local_host)
     };
     let (state, text, seen) = match status {
         Some(row) => {

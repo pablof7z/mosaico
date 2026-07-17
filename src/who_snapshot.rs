@@ -1,5 +1,5 @@
-use crate::state::{Store, StoreReader};
-use anyhow::{Context, Result};
+use crate::state::Store;
+use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 mod dormant;
@@ -100,7 +100,20 @@ pub(crate) fn load_who_snapshot(
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
     let aggregation = crate::who_aggregation::WhoAggregation::load(store, now)?;
-    let store = store.reader();
+    Ok(build_who_snapshot(
+        &aggregation,
+        current_root,
+        now,
+        daemon_host,
+    ))
+}
+
+pub(crate) fn build_who_snapshot(
+    aggregation: &crate::who_aggregation::WhoAggregation,
+    current_root: Option<&str>,
+    now: u64,
+    daemon_host: &str,
+) -> WhoSnapshot {
     // "Remote" is computed daemon-side by comparing each peer's backend label to
     // this daemon's; local sessions are on this daemon → never remote.
     let local_host = daemon_host.trim().to_string();
@@ -108,11 +121,7 @@ pub(crate) fn load_who_snapshot(
     // Pubkeys this daemon signs as — used to drop our own relay echoes from the
     // peer set. A read failure here would render our OWN sessions as remote peers,
     // so fail loud rather than mislabel.
-    let my_pubkeys: HashSet<String> = store
-        .list_local_session_pubkeys()
-        .context("who snapshot: failed to load this daemon's local session pubkeys")?
-        .into_iter()
-        .collect();
+    let my_pubkeys: HashSet<String> = aggregation.local_pubkeys.iter().cloned().collect();
 
     let mut rows = Vec::new();
     let mut other_agents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -120,30 +129,29 @@ pub(crate) fn load_who_snapshot(
     // ── local sessions on this machine (read failure must error, not go quiet) ──
     for s in &aggregation.local_sessions {
         let scope = s.channel_h.clone();
-        if is_archived_channel(store, &scope) {
+        if is_archived_channel(aggregation, &scope) {
             continue;
         }
         if current_root
-            .map(|p| scope_contains_channel(store, p, &scope))
+            .map(|p| scope_contains_channel(aggregation, p, &scope))
             .unwrap_or(true)
         {
-            rows.push(local_row(&aggregation, store, s, &local_host, now));
-        } else if is_root_channel(store, &scope) {
+            rows.push(local_row(aggregation, s, &local_host, now));
+        } else if is_root_channel(aggregation, &scope) {
             other_agents
                 .entry(scope)
                 .or_default()
-                .insert(local_instance(store, s).display_slug());
+                .insert(local_instance(aggregation, s).display_slug());
         }
     }
     dormant::push_claim_rows(
-        store,
+        aggregation,
         current_root,
         now,
         &local_host,
         &mut rows,
         &mut other_agents,
-    )
-    .context("who snapshot: failed to read dormant session claims")?;
+    );
 
     // ── peers: relay_status across all channels, minus our own keys ────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
@@ -155,7 +163,7 @@ pub(crate) fn load_who_snapshot(
         .map(|c| c.channel_h.clone())
         .collect();
     if let Some(p) = current_root {
-        if !is_archived_channel(store, p) && !channels.iter().any(|c| c == p) {
+        if !is_archived_channel(aggregation, p) && !channels.iter().any(|c| c == p) {
             channels.push(p.to_string());
         }
     }
@@ -166,12 +174,12 @@ pub(crate) fn load_who_snapshot(
                 continue;
             }
             let in_scope = current_root
-                .map(|p| scope_contains_channel(store, p, ch))
+                .map(|p| scope_contains_channel(aggregation, p, ch))
                 .unwrap_or(true);
             if in_scope {
-                rows.push(peer_row(&aggregation, store, st, &local_host, now));
-            } else if is_root_channel(store, ch) {
-                let slug = peer_slug(store, st);
+                rows.push(peer_row(aggregation, st, &local_host, now));
+            } else if is_root_channel(aggregation, ch) {
+                let slug = peer_slug(aggregation, st);
                 other_agents.entry(ch.clone()).or_default().insert(slug);
             }
         }
@@ -200,7 +208,7 @@ pub(crate) fn load_who_snapshot(
         .into_iter()
         .map(|(slug, command, byline)| (slug, (command, byline)))
         .collect::<BTreeMap<_, _>>();
-    let roster_scope = current_root.map(|p| work_root_for(store, p));
+    let roster_scope = current_root.map(|p| work_root_for(aggregation, p));
     let mut seen_spawnable = BTreeSet::new();
     let mut spawnable: Vec<SpawnableRow> = aggregation
         .agents_for_root(roster_scope.as_deref())
@@ -241,16 +249,10 @@ pub(crate) fn load_who_snapshot(
     });
 
     // Session/task channel parent lets the renderer label channel vs root.
-    let channel_parent = current_root.and_then(|p| {
-        match store.channel_parent(p) {
-            Ok(parent) => parent,
-            Err(e) => {
-                tracing::error!(channel = %p, error = ?e, "who snapshot: channel_parent lookup failed resolving current-scope parent");
-                None
-            }
-        }
-        .filter(|parent| !parent.is_empty())
-    });
+    let channel_parent = current_root
+        .and_then(|scope| aggregation.channel(scope))
+        .map(|channel| channel.parent.clone())
+        .filter(|parent| !parent.is_empty());
 
     let root_display = match (current_root, channel_parent.is_some()) {
         (Some(scope), true) => aggregation.channel_name(scope).to_string(),
@@ -258,7 +260,7 @@ pub(crate) fn load_who_snapshot(
         (None, _) => "*".to_string(),
     };
 
-    Ok(WhoSnapshot {
+    WhoSnapshot {
         root: current_root.unwrap_or("*").to_string(),
         now,
         rows,
@@ -266,5 +268,5 @@ pub(crate) fn load_who_snapshot(
         spawnable,
         channel_parent,
         root_display,
-    })
+    }
 }
