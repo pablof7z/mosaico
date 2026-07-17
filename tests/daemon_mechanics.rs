@@ -153,6 +153,25 @@ fn spawn_if_absent_then_ping_roundtrip() {
 }
 
 #[test]
+fn cargo_test_harness_cannot_spawn_itself_as_daemon() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = Home::new();
+    std::env::set_var("MOSAICO_BIN", std::env::current_exe().unwrap());
+
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(Client::connect_or_spawn());
+    let error = match result {
+        Ok(_) => panic!("test harness unexpectedly spawned as the daemon"),
+        Err(error) => error.to_string(),
+    };
+
+    assert!(error.contains("refusing to spawn Cargo test harness"));
+    assert!(!home.sock().exists());
+    std::env::set_var("MOSAICO_BIN", bin());
+}
+
+#[test]
 fn spawn_race_single_winner() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
