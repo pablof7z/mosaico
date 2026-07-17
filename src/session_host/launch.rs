@@ -12,6 +12,14 @@ use source::{resolve_agent_source, PtyLaunchSpec};
 pub(crate) use spawn::{spawn_agent, SpawnRequest};
 pub use spawn::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LaunchIntent {
+    /// A human invoked `mosaico launch` and needs an attachable PTY.
+    Interactive,
+    /// Fabric provisioning prefers the harness's hosted RPC transport.
+    Managed,
+}
+
 /// Kill a just-opened endpoint through its transport (PTY supervisor or ACP
 /// child) — used to roll back a session whose registration failed.
 async fn kill_endpoint(transport: &TransportImpl, endpoint_id: &str) {
@@ -125,24 +133,33 @@ pub async fn resume_agent(
     root: &str,
     resume_id: &str,
 ) -> Result<String> {
-    resume_agent_in_channel(state, slug, root, root, resume_id).await
+    resume_agent_in_channel(
+        state,
+        slug,
+        root,
+        root,
+        resume_id,
+        LaunchIntent::Interactive,
+    )
+    .await
 }
 
 /// Resume a prior session into an explicit channel while using `root` to
 /// resolve the working directory.
-pub async fn resume_agent_in_channel(
+pub(crate) async fn resume_agent_in_channel(
     state: &Arc<DaemonState>,
     slug: &str,
     root: &str,
     group: &str,
     resume_id: &str,
+    intent: LaunchIntent,
 ) -> Result<String> {
     if resume_id.is_empty() {
         anyhow::bail!("session has no resume token (not resumable)");
     }
 
     let abs_path = workspace_abs_path(state, root, None)?;
-    let source = resolve_agent_source(state, slug, std::path::Path::new(&abs_path))?;
+    let source = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
     let transport = source.transport;
     let base = source.command;
     let harness = source.harness;

@@ -34,7 +34,6 @@ pub(in crate::cli) async fn launch(request: LaunchRequest) -> Result<()> {
         channel,
         session_name,
         prompt,
-        retired_advertisements: selection.retired_advertisements,
     })
     .await
 }

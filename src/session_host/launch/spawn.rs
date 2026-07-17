@@ -9,6 +9,7 @@ pub(crate) struct SpawnRequest<'a> {
     pub(crate) group: Option<&'a str>,
     pub(crate) client_cwd: Option<&'a std::path::Path>,
     pub(crate) session_name: Option<&'a str>,
+    pub(crate) intent: LaunchIntent,
 }
 
 /// Spawn and register a hosted harness in `root`'s directory. Returns the
@@ -27,6 +28,7 @@ pub(crate) async fn spawn_agent(
         request.client_cwd,
         request.session_name,
         false,
+        request.intent,
     )
     .await
 }
@@ -38,11 +40,18 @@ pub async fn spawn_ephemeral_agent(
     group: Option<&str>,
     client_cwd: Option<&std::path::Path>,
 ) -> Result<String> {
-    Ok(
-        spawn_agent_inner(state, slug, root, group, client_cwd, None, true)
-            .await?
-            .id,
+    Ok(spawn_agent_inner(
+        state,
+        slug,
+        root,
+        group,
+        client_cwd,
+        None,
+        true,
+        LaunchIntent::Managed,
     )
+    .await?
+    .id)
 }
 
 pub async fn spawn_dispatched_ephemeral_agent(
@@ -65,6 +74,7 @@ pub async fn spawn_dispatched_ephemeral_agent(
         None,
         None,
         true,
+        LaunchIntent::Managed,
     )
     .await?;
     Ok(DispatchedSpawn {
@@ -82,6 +92,7 @@ async fn spawn_agent_inner(
     client_cwd: Option<&std::path::Path>,
     session_name: Option<&str>,
     ephemeral: bool,
+    intent: LaunchIntent,
 ) -> Result<crate::pty::LaunchMetadata> {
     Ok(spawn_agent_inner_full(
         state,
@@ -93,6 +104,7 @@ async fn spawn_agent_inner(
         client_cwd,
         session_name,
         ephemeral,
+        intent,
     )
     .await?
     .0)
@@ -109,9 +121,10 @@ async fn spawn_agent_inner_full(
     client_cwd: Option<&std::path::Path>,
     session_name: Option<&str>,
     ephemeral: bool,
+    intent: LaunchIntent,
 ) -> Result<(crate::pty::LaunchMetadata, String)> {
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
-    let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path))?;
+    let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
     let agent_slug = resolved.identity.slug.clone();
     let retired_advertisements = resolved.retired_advertisements.clone();
     let agent_command = resolved.command.clone();

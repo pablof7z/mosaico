@@ -69,11 +69,9 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(500), notifications.recv()).await {
-            Ok(Ok(RelayPoolNotification::Event { event, .. })) => {
-                if event.content == marker {
-                    got = true;
-                    break;
-                }
+            Ok(Ok(RelayPoolNotification::Event { event, .. })) if event.content == marker => {
+                got = true;
+                break;
             }
             Ok(Ok(RelayPoolNotification::Message {
                 message: RelayMessage::Event { event, .. },

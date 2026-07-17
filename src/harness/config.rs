@@ -62,8 +62,8 @@ impl Transport {
 }
 
 impl HarnessesConfig {
-    /// Load `<mosaico_home>/harnesses.json`. Absent file => empty map; a launch
-    /// still fails unless its agent-selected bundle is explicitly configured.
+    /// Load `<mosaico_home>/harnesses.json`. Absent file => empty map; implicit
+    /// launch realization may populate it with canonical hosted policy.
     pub fn load() -> anyhow::Result<Self> {
         let path = crate::config::mosaico_home().join("harnesses.json");
         Self::load_from(&path)
@@ -85,6 +85,47 @@ impl HarnessesConfig {
 
     pub fn get(&self, bundle: &str) -> Option<&HarnessBundle> {
         self.bundles.get(bundle)
+    }
+
+    /// Select the sole configured bundle for one hosted matrix cell, or add a
+    /// canonical zero-argument bundle when none exists. Tuned bundles remain
+    /// authoritative; several candidates are ambiguous and never silently
+    /// collapse onto whichever map entry sorts first.
+    pub fn resolve_or_create_hosted(
+        &mut self,
+        harness: Harness,
+        transport: Transport,
+    ) -> Result<(String, bool)> {
+        if crate::harness::driver::lookup(harness, transport).is_none() {
+            anyhow::bail!(
+                "unsupported hosted harness combination: {} x {}",
+                harness.as_str(),
+                transport.as_str()
+            );
+        }
+        let candidates = self
+            .bundles
+            .iter()
+            .filter(|(_, bundle)| bundle.harness == harness && bundle.transport == transport)
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [name] => Ok((name.clone(), false)),
+            [] => self.ensure_bundle(
+                &format!("{}-{}", harness.agent_slug(), transport.as_str()),
+                HarnessBundle {
+                    harness,
+                    transport,
+                    args: Vec::new(),
+                },
+            ),
+            _ => anyhow::bail!(
+                "multiple {} {} bundles are configured ({}); bind an explicit agent to one bundle",
+                harness.as_str(),
+                transport.as_str(),
+                candidates.join(", ")
+            ),
+        }
     }
 
     /// Persist the complete bundle map with a temp-file rename.
@@ -158,89 +199,5 @@ mod harness_serde {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn bundle(harness: Harness, transport: Transport, args: &[&str]) -> HarnessBundle {
-        HarnessBundle {
-            harness,
-            transport,
-            args: args.iter().map(|arg| (*arg).to_string()).collect(),
-        }
-    }
-
-    #[test]
-    fn ensure_bundle_reuses_an_exact_existing_entry() {
-        let mut config = HarnessesConfig::default();
-        config.bundles.insert(
-            "my-claude".into(),
-            bundle(Harness::ClaudeCode, Transport::Acp, &[]),
-        );
-
-        let (name, created) = config
-            .ensure_bundle(
-                "claude-acp",
-                bundle(Harness::ClaudeCode, Transport::Acp, &[]),
-            )
-            .unwrap();
-
-        assert_eq!(name, "my-claude");
-        assert!(!created);
-        assert_eq!(config.bundles.len(), 1);
-    }
-
-    #[test]
-    fn ensure_bundle_preserves_conflicts_and_uses_stable_suffixes() {
-        let mut config = HarnessesConfig::default();
-        let tuned = bundle(
-            Harness::ClaudeCode,
-            Transport::Pty,
-            &["--dangerously-skip-permissions"],
-        );
-        config.bundles.insert("claude-pty".into(), tuned.clone());
-        config.bundles.insert(
-            "claude-pty-2".into(),
-            bundle(Harness::Codex, Transport::Pty, &[]),
-        );
-
-        let desired = bundle(Harness::ClaudeCode, Transport::Pty, &[]);
-        let (name, created) = config.ensure_bundle("claude-pty", desired.clone()).unwrap();
-
-        assert!(created);
-        assert_eq!(name, "claude-pty-3");
-        assert_eq!(config.bundles["claude-pty"], tuned);
-        assert_eq!(config.bundles["claude-pty-3"], desired);
-    }
-
-    #[test]
-    fn save_round_trip_preserves_every_entry_and_arg() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested/harnesses.json");
-        let mut config = HarnessesConfig::default();
-        config.bundles.insert(
-            "claude-pty".into(),
-            bundle(
-                Harness::ClaudeCode,
-                Transport::Pty,
-                &["--dangerously-skip-permissions"],
-            ),
-        );
-        config.bundles.insert(
-            "codex-app".into(),
-            bundle(Harness::Codex, Transport::AppServer, &[]),
-        );
-
-        config.save_to(&path).unwrap();
-
-        assert_eq!(HarnessesConfig::load_from(&path).unwrap(), config);
-        assert!(std::fs::read_to_string(path).unwrap().ends_with('\n'));
-    }
-
-    #[test]
-    fn ensure_bundle_rejects_a_blank_name() {
-        let mut config = HarnessesConfig::default();
-        assert!(config
-            .ensure_bundle("  ", bundle(Harness::Codex, Transport::Pty, &[]))
-            .is_err());
-    }
-}
+#[path = "config/tests.rs"]
+mod tests;

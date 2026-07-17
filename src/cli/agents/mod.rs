@@ -41,10 +41,6 @@ async fn interactive() -> Result<()> {
         )? {
             crate::cli::interactive::agent_picker::PickerAction::Launch(index) => {
                 let row = &rows[index];
-                if row.kind != AgentKind::Configured {
-                    editor::edit(row)?;
-                    publish_roster(None).await;
-                }
                 return crate::cli::launch_cli::verbs::launch(
                     crate::cli::launch_cli::LaunchRequest {
                         agent: row.slug.clone(),

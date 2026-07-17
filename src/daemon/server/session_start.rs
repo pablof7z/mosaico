@@ -56,7 +56,7 @@ pub(super) async fn rpc_session_start_inner(
     } else if state
         .resolve_native_agent(&p.agent, Some(&cwd), Some(harness))
         .is_ok()
-        || (state.available_harnesses().contains(&harness) && p.agent == harness.agent_slug())
+        || (state.installed_harnesses().contains(&harness) && p.agent == harness.agent_slug())
     {
         identity::AgentIdentity::per_session(&p.agent, harness.as_str())
     } else {

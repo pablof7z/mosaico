@@ -93,15 +93,11 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> Result<()> {
                             state.popup = None;
                             next_refresh = Instant::now();
                         }
-                        KeyCode::Up => {
-                            if popup.cursor > 0 {
-                                popup.cursor -= 1;
-                            }
+                        KeyCode::Up if popup.cursor > 0 => {
+                            popup.cursor -= 1;
                         }
-                        KeyCode::Down => {
-                            if popup.cursor + 1 < snapshot.roots.len() {
-                                popup.cursor += 1;
-                            }
+                        KeyCode::Down if popup.cursor + 1 < snapshot.roots.len() => {
+                            popup.cursor += 1;
                         }
                         KeyCode::Char(' ') => {
                             if let Some(root) = snapshot.roots.get(popup.cursor) {

@@ -69,36 +69,6 @@ pub fn resolve_with(
     resolve_with_codex_home(cfg, bundle, profile, session_scratch, None)
 }
 
-pub fn native_bundle_with(cfg: &HarnessesConfig, harness: Harness) -> anyhow::Result<String> {
-    let preferred = match harness {
-        Harness::Codex => [Some(Transport::AppServer), Some(Transport::Pty)],
-        Harness::ClaudeCode | Harness::Opencode | Harness::Grok => [Some(Transport::Pty), None],
-        Harness::Unknown => [None, None],
-    };
-    for transport in preferred.into_iter().flatten() {
-        let candidates = cfg
-            .bundles
-            .iter()
-            .filter(|(_, bundle)| bundle.harness == harness && bundle.transport == transport)
-            .map(|(name, _)| name.clone())
-            .collect::<Vec<_>>();
-        match candidates.as_slice() {
-            [name] => return Ok(name.clone()),
-            [] => continue,
-            _ => anyhow::bail!(
-                "multiple {} {} bundles can launch native agents ({}); add an explicit agent harness binding",
-                harness.as_str(),
-                transport.as_str(),
-                candidates.join(", ")
-            ),
-        }
-    }
-    anyhow::bail!(
-        "no configured hosted bundle can launch native {} agents",
-        harness.as_str()
-    )
-}
-
 pub fn apply_native_agent(
     resolved: &mut ResolvedHarness,
     activation: &crate::agent_catalog::NativeAgentActivation,

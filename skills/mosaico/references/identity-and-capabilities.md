@@ -30,8 +30,11 @@ capabilities, or identity-bearing environment variables affect a decision.
   can appear without a duplicate Mosaico agent JSON.
 - A workspace-local profile applies only in that workspace and takes precedence
   over the same harness's global profile there.
-- The target backend still needs a compatible configured harness bundle. If one
-  role is supplied by multiple harnesses without an explicit binding, launch is
+- Explicit Mosaico agents remain pinned to their configured harness bundle.
+  Native profiles and generic detected harness agents acquire launch policy at
+  realization time: interactive launch selects or creates PTY, while managed
+  provisioning selects or creates the supported RPC transport. If one role is
+  supplied by multiple harnesses without an explicit binding, launch remains
   ambiguous and must fail rather than silently choose one.
 - Route by the advertised use criteria, workspace, and ownership. If dispatch
   reports missing, ambiguous, or incompatible activation, surface that exact

@@ -69,10 +69,10 @@ real end-to-end demos against a live relay across four hosts. If it's here, it r
   workspace-local Codex, Claude Code, and OpenCode agent directories and advertises valid
   profiles in the backend roster. Cross-harness name conflicts appear as combinations such
   as `writer-codex` and `writer-claude`; selecting one records the binding in
-  `~/.mosaico/agents/writer.json`. The harnesses recorded in `config.json` are also available
-  as default agents such as `codex`, `claude`, and `opencode`. A compatible
-  `harnesses.json` bundle is still required, but ordinary native profiles do not need a
-  duplicate Mosaico agent JSON.
+  `~/.mosaico/agents/writer.json`. Live harness detection also exposes generic agents such
+  as `codex`, `claude`, and `opencode`. Interactive launch selects or creates a PTY bundle;
+  managed fabric provisioning selects or creates the harness's RPC transport when supported.
+  Ordinary native profiles do not need a duplicate Mosaico agent JSON.
 - **Presence and liveness.** Every agent on the repo broadcasts that it's alive; dead
   ones fall off on their own after a short heartbeat timeout.
 - **Agent-owned status.** Every session publishes working/idle presence and can declare
@@ -178,9 +178,9 @@ mosaico install --all   # wire hooks into every detected host
 ```
 
 Point `mosaico` at a relay and whitelist your human key in
-`~/.mosaico/config.json` (`relays`, `whitelistedPubkeys`). Install and daemon startup add
-`availableHarnesses` from local detection when that field is absent; an explicit list is
-left unchanged. Override the whole home with `$MOSAICO_HOME`. Then run your agents; run
+`~/.mosaico/config.json` (`relays`, `whitelistedPubkeys`). Harness capability is detected
+live from the native configuration directories and executables on `PATH`; it is not copied
+into device config. Override the whole home with `$MOSAICO_HOME`. Then run your agents; run
 `mosaico debug doctor` if anything looks off.
 
 For a development fleet, `scripts/install-fleet host-a user@host-b` updates the local
@@ -212,12 +212,14 @@ agent-only commands and are intentionally hidden from default human CLI help:
 
 `mosaico launch` opens a colored, searchable selector over every local launch target:
 configured agents, unique native profiles, expanded profile/harness conflicts, and available
-harness defaults. Start one directly with `mosaico launch <agent> [prompt]`. A conflicted
+harness defaults. Catalog membership is bundle-independent; direct launch resolves a PTY bundle
+and creates its canonical zero-argument policy when none is configured. Start one directly with
+`mosaico launch <agent> [prompt]`. A conflicted
 native profile opens a harness radio picker; its expanded name such as `writer-codex` selects
 the same choice non-interactively. A bare
 `mosaico launch <session-handle>` reattaches a live terminal or resumes that session when its
 harness has a native resume token. `mosaico dispatch` accepts the same harness defaults and
-expanded conflict names.
+expanded conflict names, preferring ACP or Codex app-server realization when supported.
 
 The session/turn lifecycle has no hand-run commands — every host drives it through the
 single `mosaico harness hook` entry point, which reads the host's hook payload on stdin

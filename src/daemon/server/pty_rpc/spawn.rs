@@ -18,10 +18,6 @@ struct PtySpawnParams {
     /// launch path, where the child lives in the daemon.
     #[serde(default)]
     prompt: Option<String>,
-    /// Conflict-combination advertisements replaced by a just-persisted CLI
-    /// selection. Retire them only after the canonical agent launches.
-    #[serde(default)]
-    retired_advertisements: Vec<String>,
 }
 
 pub(in crate::daemon::server) async fn rpc_pty_spawn(
@@ -44,10 +40,10 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
             group,
             client_cwd,
             session_name: p.session_name.as_deref(),
+            intent: crate::session_host::LaunchIntent::Interactive,
         },
     )
     .await?;
-    state.schedule_agent_roster_refresh(p.retired_advertisements);
 
     if let Some(prompt) = p.prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
         crate::session_host::deliver_spawn_prompt(&p.agent, &meta.id, prompt).await;

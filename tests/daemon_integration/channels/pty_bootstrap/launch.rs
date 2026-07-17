@@ -89,11 +89,7 @@ fn launch_lists_and_starts_harness_despite_invalid_same_named_agent() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     write_config(&home, false);
-    let config_path = home.dir.path().join("config.json");
-    let mut config: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-    config["availableHarnesses"] = serde_json::json!(["opencode"]);
-    std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    std::fs::create_dir_all(home.dir.path().join(".config/opencode")).unwrap();
     std::fs::write(
         home.dir.path().join("harnesses.json"),
         r#"{"opencode-pty":{"harness":"opencode","transport":"pty","args":["forever"]}}"#,

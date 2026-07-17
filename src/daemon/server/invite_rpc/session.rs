@@ -64,6 +64,7 @@ async fn resume_local_session(
         work_root,
         channel_h,
         &resume_id,
+        crate::session_host::LaunchIntent::Managed,
     )
     .await?;
     let online = wait_local_session_online(state, channel_h, &rec.pubkey).await?;

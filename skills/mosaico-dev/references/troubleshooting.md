@@ -86,11 +86,11 @@ launch args. Direct mode may still receive provider CLI args.
 bash containers/mosaico/run --profile <profile> mosaico launch
 ```
 
-A non-interactive run prints available targets. Check `availableHarnesses`,
-`harnesses.json`, configured agents, and the installed global/workspace native
-agent directories. If the same native slug exists in several harnesses, use the
-harness-suffixed target printed by the inventory. Do not hide the conflict with
-a fallback bundle.
+A non-interactive run prints available targets. Check live harness detection,
+configured agents, and the installed global/workspace native agent directories.
+`harnesses.json` is launch policy, not catalog membership; a missing compatible
+bundle is created on first realization. If the same native slug exists in several
+harnesses, use the harness-suffixed target printed by the inventory.
 
 ## Workspace is unknown
 

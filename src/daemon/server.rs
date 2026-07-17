@@ -58,6 +58,7 @@ pub struct DaemonState {
     host: String,
     owners: Vec<String>,
     agent_catalog: Mutex<crate::agent_catalog::AgentCatalog>,
+    installed_harnesses: Mutex<Vec<Harness>>,
     hosted: Mutex<HashMap<String, HostedAgent>>,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     subscribed_root_channels: Mutex<Vec<String>>,
@@ -90,7 +91,6 @@ pub struct DaemonState {
     /// tail event even though the persistent title text is unchanged.
     last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
 }
-
 impl DaemonState {
     /// Hex pubkey of this backend's identity key. Ensures the daemon-owned
     /// management key exists before deriving the pubkey.

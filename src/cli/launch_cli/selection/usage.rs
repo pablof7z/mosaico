@@ -48,7 +48,7 @@ pub(super) fn ordered_agents<'a>(
                     .last_used
                     .cmp(&usage_for(usage, a).last_used)
             })
-            .then_with(|| source_rank(a.source).cmp(&source_rank(b.source)))
+            .then_with(|| source_rank(&a.source).cmp(&source_rank(&b.source)))
             .then_with(|| a.slug.to_lowercase().cmp(&b.slug.to_lowercase()))
     });
     agents
@@ -61,10 +61,10 @@ pub(super) fn usage_for<'a>(
     usage.get(&agent.agent_slug).unwrap_or(&EMPTY_AGENT_USAGE)
 }
 
-fn source_rank(source: crate::agent_inventory::AgentSource) -> u8 {
+fn source_rank(source: &crate::agent_inventory::AgentSource) -> u8 {
     match source {
-        crate::agent_inventory::AgentSource::DefaultAgent => 0,
-        crate::agent_inventory::AgentSource::Configured => 1,
-        crate::agent_inventory::AgentSource::NativeProfile => 2,
+        crate::agent_inventory::AgentSource::Generic => 0,
+        crate::agent_inventory::AgentSource::Configured { .. } => 1,
+        crate::agent_inventory::AgentSource::NativeProfile { .. } => 2,
     }
 }

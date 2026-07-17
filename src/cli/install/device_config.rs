@@ -20,7 +20,6 @@ pub(super) fn run_if_needed(opts: &super::args::InstallOpts) -> Result<()> {
         Ok(())
     } else {
         ensure_device_config()?;
-        crate::config::ensure_available_harnesses()?;
         Ok(())
     }
 }

@@ -74,23 +74,6 @@ fn per_session_rooms_defaults_off_and_parses_when_set() {
 }
 
 #[test]
-fn available_harnesses_parse_to_launchable_harness_types() {
-    let config = Config::from_json_str(
-        r#"{"availableHarnesses":["claude","codex","opencode"]}"#,
-        "host",
-    )
-    .unwrap();
-    assert_eq!(
-        config.available_harnesses,
-        [
-            crate::session::Harness::ClaudeCode,
-            crate::session::Harness::Codex,
-            crate::session::Harness::Opencode,
-        ]
-    );
-}
-
-#[test]
 fn mosaico_home_selection_uses_default_home_without_override() {
     let selected = select_mosaico_home(None, Some(OsString::from("/home/alice"))).unwrap();
     assert_eq!(selected.mosaico_home, PathBuf::from("/home/alice/.mosaico"));
