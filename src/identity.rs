@@ -106,12 +106,19 @@ fn key_path(mosaico_home: &Path, slug: &str) -> PathBuf {
     agents_dir(mosaico_home).join(format!("{slug}.json"))
 }
 
-fn validate_slug(slug: &str) -> Result<()> {
-    if slug.is_empty()
-        || !slug
+/// True if `slug` satisfies the on-disk/wire slug charset as-is. Callers that
+/// accept free-text display names (e.g. a cross-harness agent profile's
+/// `name:`) use this to decide whether [`crate::util::slugify`] must run
+/// first, rather than duplicating the accepted charset.
+pub(crate) fn is_valid_slug(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
+}
+
+fn validate_slug(slug: &str) -> Result<()> {
+    if !is_valid_slug(slug) {
         bail!("invalid agent slug {slug:?}: use [A-Za-z0-9._-]");
     }
     Ok(())

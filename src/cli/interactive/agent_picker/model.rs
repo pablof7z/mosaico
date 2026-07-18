@@ -7,11 +7,20 @@ pub(in crate::cli) struct AgentProvenance {
     pub(in crate::cli) harness: Harness,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::cli) enum DeleteScope {
+    Agent,
+    Profile,
+    Both,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct AgentPickerRow {
     pub(in crate::cli) name: String,
     pub(in crate::cli) description: String,
     pub(in crate::cli) status: Option<AgentProvenance>,
+    pub(in crate::cli) has_configured: bool,
+    pub(in crate::cli) has_native_profile: bool,
 }
 
 impl AgentPickerRow {

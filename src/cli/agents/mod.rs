@@ -34,15 +34,21 @@ async fn interactive() -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return list().await;
     }
+    let mut cursor = 0usize;
     loop {
-        let rows =
+        let mut rows =
             usage::ordered_rows(data::load()?, &usage::fetch(crate::util::now_secs()).await?);
         if rows.is_empty() {
             println!("No configured or installed agents.");
             return Ok(());
         }
+        // Native-profile-only agents (no mosaico agent.json yet) sort after
+        // everything else; `render::draw` uses this same grouping to draw a
+        // separating blank line. `sort_by_key` is stable, so ordering within
+        // each group is otherwise untouched.
+        rows.sort_by_key(|row| row.kind == AgentKind::NativeProfile);
         let picker_rows = rows.iter().map(picker_row).collect();
-        match crate::cli::interactive::agent_picker::select(picker_rows)? {
+        match crate::cli::interactive::agent_picker::select(picker_rows, cursor)? {
             crate::cli::interactive::agent_picker::PickerAction::Launch(index) => {
                 let row = &rows[index];
                 return crate::cli::launch_cli::verbs::launch(
@@ -57,11 +63,15 @@ async fn interactive() -> Result<()> {
                 .await;
             }
             crate::cli::interactive::agent_picker::PickerAction::Edit(index) => {
+                cursor = index;
                 editor::edit(&rows[index]).await?;
                 schedule_roster_refresh(None).await;
             }
-            crate::cli::interactive::agent_picker::PickerAction::Delete(index) => {
-                delete::delete(&rows[index]).await?;
+            crate::cli::interactive::agent_picker::PickerAction::Delete(plan) => {
+                cursor = plan.iter().map(|(index, _)| *index).min().unwrap_or(0);
+                for (index, scope) in plan {
+                    delete::delete(&rows[index], scope).await?;
+                }
             }
             crate::cli::interactive::agent_picker::PickerAction::Cancel => return Ok(()),
         }
@@ -76,6 +86,8 @@ fn picker_row(row: &AgentRow) -> crate::cli::interactive::agent_picker::AgentPic
             label: data::harness_name(row.harness).to_string(),
             harness: row.harness,
         }),
+        has_configured: row.kind == AgentKind::Configured,
+        has_native_profile: row.native_profile.is_some(),
     }
 }
 

@@ -20,12 +20,17 @@ impl OperationMode {
     }
 }
 
+/// Any `esc` press during this flow backs all the way out to the picker
+/// without saving, rather than erroring or forcing the operator through the
+/// remaining prompts.
 pub(super) async fn edit(row: &AgentRow) -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         bail!("agent editing is interactive — run it in a terminal");
     }
     let theme = ColorfulTheme::default();
-    let harness = select_harness(row, &theme)?;
+    let Some(harness) = select_harness(row, &theme)? else {
+        return Ok(());
+    };
     let options = operation_modes(harness, row.native_profile.is_some());
     if options.is_empty() {
         bail!(
@@ -45,25 +50,51 @@ pub(super) async fn edit(row: &AgentRow) -> Result<()> {
         options[0]
     } else {
         let labels = options.iter().map(|mode| mode.label()).collect::<Vec<_>>();
-        options[Select::with_theme(&theme)
+        let Some(choice) = Select::with_theme(&theme)
             .with_prompt("How should this agent run?")
             .items(&labels)
             .default(default_mode)
-            .interact()?]
+            .interact_opt()?
+        else {
+            return Ok(());
+        };
+        options[choice]
     };
     let transport = mode_transport(harness, mode);
-    let bundle = select_or_create_bundle(harness, transport, row.bundle.as_deref(), &theme)?;
-    let per_session_key = select_key_mode(row.per_session_key.unwrap_or(true), &theme)?;
+    let Some(bundle) =
+        select_or_create_bundle(harness, transport, row.bundle.as_deref(), &theme)?
+    else {
+        return Ok(());
+    };
+    let Some(per_session_key) = select_key_mode(row.per_session_key.unwrap_or(true), &theme)?
+    else {
+        return Ok(());
+    };
     let profile = profile_for_save(row);
+    let slug = persistable_slug(&row.slug);
     let saved =
-        super::save_agent_config(&row.slug, &bundle, profile, Some(per_session_key)).await?;
+        super::save_agent_config(&slug, &bundle, profile, Some(per_session_key)).await?;
     println!(
         "{} {} · {bundle} · {}",
         if saved.created { "Created" } else { "Updated" },
-        row.slug,
+        slug,
         mode.label()
     );
+    if slug != row.slug {
+        println!("  (native profile name {:?} isn't a valid agent slug — saved as {slug})", row.slug);
+    }
     Ok(())
+}
+
+/// Some harnesses allow free-text profile names (e.g. "Ava Chen") that don't
+/// satisfy the agent slug charset. Sanitize only when necessary so an
+/// already-valid slug round-trips unchanged.
+fn persistable_slug(slug: &str) -> String {
+    if crate::identity::is_valid_slug(slug) {
+        slug.to_string()
+    } else {
+        crate::util::slugify(slug)
+    }
 }
 
 fn profile_for_save(row: &AgentRow) -> Option<String> {
@@ -72,9 +103,9 @@ fn profile_for_save(row: &AgentRow) -> Option<String> {
         .flatten()
 }
 
-fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Harness> {
+fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Option<Harness>> {
     if row.harness != Harness::Unknown {
-        return Ok(row.harness);
+        return Ok(Some(row.harness));
     }
     let available = crate::config::detect_available_harnesses()?
         .into_iter()
@@ -87,11 +118,15 @@ fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Harness> {
         .iter()
         .map(|harness| harness_name(*harness))
         .collect::<Vec<_>>();
-    Ok(available[Select::with_theme(theme)
+    let Some(choice) = Select::with_theme(theme)
         .with_prompt("Select harness")
         .items(&labels)
         .default(0)
-        .interact()?])
+        .interact_opt()?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(available[choice]))
 }
 
 fn operation_modes(harness: Harness, native_profile: bool) -> Vec<OperationMode> {
@@ -118,7 +153,7 @@ fn select_or_create_bundle(
     transport: Transport,
     current: Option<&str>,
     theme: &ColorfulTheme,
-) -> Result<String> {
+) -> Result<Option<String>> {
     let path = crate::config::mosaico_home().join("harnesses.json");
     let mut config = HarnessesConfig::load_from(&path)?;
     let compatible = compatible_bundles(&config, harness, transport);
@@ -127,14 +162,17 @@ fn select_or_create_bundle(
             .and_then(|current| compatible.iter().position(|name| name == current))
             .unwrap_or(0);
         if compatible.len() == 1 {
-            return Ok(compatible[0].clone());
+            return Ok(Some(compatible[0].clone()));
         }
-        return Ok(compatible[Select::with_theme(theme)
+        let Some(choice) = Select::with_theme(theme)
             .with_prompt("Select harness configuration")
             .items(&compatible)
             .default(default)
-            .interact()?]
-        .clone());
+            .interact_opt()?
+        else {
+            return Ok(None);
+        };
+        return Ok(Some(compatible[choice].clone()));
     }
 
     let (name, created) = config.ensure_bundle(
@@ -151,7 +189,7 @@ fn select_or_create_bundle(
         })?;
         println!("Created harness configuration {name}");
     }
-    Ok(name)
+    Ok(Some(name))
 }
 
 fn compatible_bundles(
@@ -171,17 +209,20 @@ fn compatible_bundles(
         .collect()
 }
 
-fn select_key_mode(current_per_session: bool, theme: &ColorfulTheme) -> Result<bool> {
+fn select_key_mode(current_per_session: bool, theme: &ColorfulTheme) -> Result<Option<bool>> {
     let options = [
         "Per-session key — a fresh identity for every session",
         "Persistent key — reuse one identity across sessions",
     ];
-    Ok(Select::with_theme(theme)
+    let Some(choice) = Select::with_theme(theme)
         .with_prompt("Agent identity")
         .items(&options)
         .default(usize::from(!current_per_session))
-        .interact()?
-        == 0)
+        .interact_opt()?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(choice == 0))
 }
 
 #[cfg(test)]

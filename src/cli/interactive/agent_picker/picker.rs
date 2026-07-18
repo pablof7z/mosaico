@@ -2,7 +2,7 @@ mod render;
 #[cfg(test)]
 mod tests;
 
-use super::AgentPickerRow;
+use super::{AgentPickerRow, DeleteScope};
 use anyhow::{Context, Result};
 use crossterm::{
     cursor::Show,
@@ -10,17 +10,31 @@ use crossterm::{
     execute, terminal,
 };
 use ratatui::{backend::CrosstermBackend, layout::Rect, Terminal, TerminalOptions, Viewport};
+use std::collections::BTreeSet;
 use std::io;
 
 const MAX_VISIBLE_ROWS: u16 = 40;
 const CHROME_ROWS: u16 = 2;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum PickerAction {
     Launch(usize),
     Edit(usize),
-    Delete(usize),
+    /// One `(row index, scope)` pair per agent to delete. A single-row
+    /// delete with both a configured entry and a native profile lets the
+    /// scope differ from `Both`; a multi-select delete always uses `Both`.
+    Delete(Vec<(usize, DeleteScope)>),
     Cancel,
+}
+
+/// Delete confirmation state, shown inline in the footer rather than an
+/// overlay dialog. `Nothing` and `ChooseScope` are dismissed by any key that
+/// doesn't advance them; `Confirm` requires `y`/`d` to proceed, `esc` cancels.
+#[derive(Debug)]
+enum PendingDelete {
+    Nothing { index: usize },
+    ChooseScope { index: usize },
+    Confirm { plan: Vec<(usize, DeleteScope)> },
 }
 
 #[derive(Debug)]
@@ -31,24 +45,33 @@ struct PickerState {
     filtering: bool,
     cursor: usize,
     offset: usize,
+    selected: BTreeSet<usize>,
+    pending_delete: Option<PendingDelete>,
 }
 
 impl PickerState {
-    fn new(rows: Vec<AgentPickerRow>) -> Self {
-        let visible = (0..rows.len()).collect();
+    fn new(rows: Vec<AgentPickerRow>, initial_cursor: usize) -> Self {
+        let visible: Vec<usize> = (0..rows.len()).collect();
+        let cursor = initial_cursor.min(visible.len().saturating_sub(1));
         Self {
             rows,
             visible,
             query: String::new(),
             filtering: false,
-            cursor: 0,
+            cursor,
             offset: 0,
+            selected: BTreeSet::new(),
+            pending_delete: None,
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent, rows: usize) -> Option<PickerAction> {
         if key.kind == KeyEventKind::Release {
             return None;
+        }
+        if self.pending_delete.is_some() {
+            let pending = self.pending_delete.take().expect("checked above");
+            return self.handle_pending_delete(pending, key);
         }
         match key.code {
             KeyCode::Esc if self.filtering => {
@@ -64,8 +87,15 @@ impl PickerState {
             KeyCode::Char('e') if !self.filtering => {
                 return self.current().map(PickerAction::Edit);
             }
+            KeyCode::Char(' ') if !self.filtering => {
+                if let Some(index) = self.current() {
+                    if !self.selected.remove(&index) {
+                        self.selected.insert(index);
+                    }
+                }
+            }
             KeyCode::Char('d') if !self.filtering => {
-                return self.current().map(PickerAction::Delete);
+                self.begin_delete();
             }
             KeyCode::Char('/') if !self.filtering => {
                 self.filtering = true;
@@ -92,6 +122,82 @@ impl PickerState {
             _ => {}
         }
         self.ensure_visible(rows);
+        None
+    }
+
+    /// With no multi-selection, mirrors a single row's exact deletable
+    /// targets (asking which to delete when both a configured entry and a
+    /// native profile exist). With a multi-selection, every selected row
+    /// that has anything to delete is queued with `DeleteScope::Both` —
+    /// bulk delete doesn't offer per-row target picking.
+    fn begin_delete(&mut self) {
+        if self.selected.is_empty() {
+            let Some(index) = self.current() else {
+                return;
+            };
+            let row = &self.rows[index];
+            self.pending_delete = Some(match (row.has_configured, row.has_native_profile) {
+                (false, false) => PendingDelete::Nothing { index },
+                (true, false) => PendingDelete::Confirm {
+                    plan: vec![(index, DeleteScope::Agent)],
+                },
+                (false, true) => PendingDelete::Confirm {
+                    plan: vec![(index, DeleteScope::Profile)],
+                },
+                (true, true) => PendingDelete::ChooseScope { index },
+            });
+            return;
+        }
+        let plan = self
+            .selected
+            .iter()
+            .filter(|&&index| self.rows[index].has_configured || self.rows[index].has_native_profile)
+            .map(|&index| (index, DeleteScope::Both))
+            .collect::<Vec<_>>();
+        self.pending_delete = Some(if plan.is_empty() {
+            PendingDelete::Nothing {
+                index: *self.selected.iter().next().expect("checked non-empty above"),
+            }
+        } else {
+            PendingDelete::Confirm { plan }
+        });
+    }
+
+    fn handle_pending_delete(
+        &mut self,
+        pending: PendingDelete,
+        key: KeyEvent,
+    ) -> Option<PickerAction> {
+        match pending {
+            PendingDelete::Nothing { .. } => {}
+            PendingDelete::ChooseScope { index } => match key.code {
+                KeyCode::Char('a') => {
+                    self.pending_delete = Some(PendingDelete::Confirm {
+                        plan: vec![(index, DeleteScope::Agent)],
+                    });
+                }
+                KeyCode::Char('p') => {
+                    self.pending_delete = Some(PendingDelete::Confirm {
+                        plan: vec![(index, DeleteScope::Profile)],
+                    });
+                }
+                KeyCode::Char('b') => {
+                    self.pending_delete = Some(PendingDelete::Confirm {
+                        plan: vec![(index, DeleteScope::Both)],
+                    });
+                }
+                KeyCode::Esc => {}
+                _ => self.pending_delete = Some(PendingDelete::ChooseScope { index }),
+            },
+            PendingDelete::Confirm { plan } => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('d') | KeyCode::Char('D') => {
+                    self.selected.clear();
+                    return Some(PickerAction::Delete(plan));
+                }
+                KeyCode::Esc => {}
+                _ => self.pending_delete = Some(PendingDelete::Confirm { plan }),
+            },
+        }
         None
     }
 
@@ -178,7 +284,10 @@ impl Drop for RawMode {
     }
 }
 
-pub(in crate::cli) fn select(rows: Vec<AgentPickerRow>) -> Result<PickerAction> {
+pub(in crate::cli) fn select(
+    rows: Vec<AgentPickerRow>,
+    initial_cursor: usize,
+) -> Result<PickerAction> {
     let (_, terminal_height) = terminal::size().unwrap_or((100, 28));
     let height = viewport_height(terminal_height);
     let _raw_mode = RawMode::enter()?;
@@ -192,7 +301,7 @@ pub(in crate::cli) fn select(rows: Vec<AgentPickerRow>) -> Result<PickerAction> 
     .context("creating inline agent picker")?;
     terminal.hide_cursor()?;
 
-    let mut state = PickerState::new(rows);
+    let mut state = PickerState::new(rows, initial_cursor);
     let mut last_area = Rect::new(0, 0, 0, height);
     let interaction = interaction_loop(&mut terminal, &mut state, &mut last_area);
     let cleanup = cleanup_terminal(&mut terminal, last_area);

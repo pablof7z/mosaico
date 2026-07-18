@@ -89,6 +89,49 @@ fn configured_binding_collapses_profile_conflicts() {
 }
 
 #[test]
+fn sanitized_slug_reattaches_to_a_native_profile_with_spaces_in_its_name() {
+    let home = tempfile::tempdir().unwrap();
+    write(
+        &home.path().join(".claude/agents/ava-chen.md"),
+        "---\nname: Ava Chen\ndescription: Investigative analyst\n---\nResearch",
+    );
+    let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
+    let harnesses: HarnessesConfig =
+        serde_json::from_str(r#"{"claude-pty":{"harness":"claude","transport":"pty"}}"#).unwrap();
+    // Mirrors `cli::agents::editor`'s `persistable_slug`: the raw native
+    // profile name ("Ava Chen") isn't a valid slug, so the configured entry
+    // is persisted under its sanitized form instead.
+    crate::identity::add_local_agent(home.path(), "ava-chen", "claude-pty", None, 10).unwrap();
+
+    let inventory = AgentInventory::build(
+        home.path(),
+        &[Harness::ClaudeCode],
+        &harnesses,
+        &catalog,
+        None,
+    );
+
+    assert_eq!(
+        inventory
+            .agents
+            .iter()
+            .map(|agent| agent.slug.as_str())
+            .collect::<Vec<_>>(),
+        ["ava-chen", "claude"],
+        "the raw-named native profile must not also appear as its own unconfigured row"
+    );
+    let configured = inventory.find("ava-chen").unwrap();
+    let AgentSource::Durable { native_profile, .. } = &configured.source else {
+        panic!("expected a durable agent source");
+    };
+    assert_eq!(
+        native_profile.as_ref().map(|profile| profile.slug.as_str()),
+        Some("Ava Chen"),
+        "the configured entry must reattach to its native profile despite the slug mismatch"
+    );
+}
+
+#[test]
 fn invalid_same_named_agent_does_not_shadow_available_harness() {
     let home = tempfile::tempdir().unwrap();
     let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
