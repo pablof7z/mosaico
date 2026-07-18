@@ -70,6 +70,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // `--channel` is destination selection only. When present it pins the event
     // to that channel; it never changes caller identity or message content.
     let destination = target.channel_h;
+    super::mcp_actor::ensure_membership_if_actor(state, &rec, &destination).await?;
     let pinned_destination = target.explicit.then_some(destination.clone());
     let mut tagged = Vec::new();
     for raw in &p.tags {

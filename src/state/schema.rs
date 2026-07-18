@@ -23,6 +23,7 @@ const CANONICAL_TABLES: &[&str] = &[
     "inbox",
     "message_recipients",
     "messages",
+    "mcp_actor_aliases",
     "receipts",
     "relay_agent_roster",
     "relay_channel_member_sets",
@@ -64,6 +65,7 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     ensure_table(conn, "workspace_roots", path)?;
     ensure_absent_table(conn, "project_roots", path)?;
     ensure_table(conn, "session_signers", path)?;
+    ensure_table(conn, "mcp_actor_aliases", path)?;
     ensure_table(conn, "session_locators", path)?;
     ensure_absent_table(conn, "session_aliases", path)?;
     ensure_absent_table(conn, "identities", path)?;

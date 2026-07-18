@@ -10,9 +10,10 @@ capabilities, or identity-bearing environment variables affect a decision.
 - Use an `npub`, hex pubkey, or current handle to select a session. PTY ids,
   harness resume tokens, process ids, and other runtime locators are not public
   identity and must not be taught or persisted as selectors.
-- `MOSAICO_PUBKEY` anchors in-session CLI and MCP calls to the public session.
-  A managed harness supplies it; do not replace it with a sibling session merely
-  to make resolution succeed.
+- `MOSAICO_PUBKEY` anchors in-session CLI and local stdio MCP calls to the public
+  session. A managed harness supplies it; do not replace it with a sibling
+  session merely to make resolution succeed. Remote OAuth HTTP MCP calls derive
+  their own first-class caller session and never require this environment anchor.
 - `AGENT_NSEC` is the session signer. Treat it as a credential: never print,
   log, attach, commit, paste into chat, or forward to another participant. An
   agent normally has no reason to read or manipulate it.

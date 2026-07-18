@@ -79,7 +79,7 @@ pub(in crate::daemon::server) async fn resolve_or_create_target_channel(
     }
 }
 
-async fn ensure_joinable(
+pub(in crate::daemon::server) async fn ensure_joinable(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     channel_h: &str,

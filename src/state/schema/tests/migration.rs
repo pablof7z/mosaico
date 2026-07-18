@@ -14,7 +14,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     drop(Store::open(&path).expect("schema four upgrades to current"));
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 11);
+    assert_eq!(version(&conn), 12);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -122,7 +122,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
     drop(Store::open(&migrated_path).expect("schema eight upgrades to current"));
 
     let migrated = Connection::open(&migrated_path).unwrap();
-    assert_eq!(version(&migrated), 11);
+    assert_eq!(version(&migrated), 12);
     assert_eq!(
         session_runtime_facts(&migrated, "pk-pty"),
         ("pty".to_string(), "migration".to_string())
@@ -163,7 +163,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
 fn migration_chain_covers_every_version_before_current() {
     assert_eq!(
         super::super::migration::supported_versions(),
-        [4, 5, 6, 7, 8, 9, 10]
+        [4, 5, 6, 7, 8, 9, 10, 11]
     );
 }
 
@@ -191,7 +191,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     drop(Store::open(&path).expect("schema ten upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 11);
+    assert_eq!(version(&conn), 12);
     let states = conn
         .prepare("SELECT event_id, state FROM inbox ORDER BY event_id")
         .unwrap()

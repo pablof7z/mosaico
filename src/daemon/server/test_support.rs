@@ -72,6 +72,7 @@ impl DaemonState {
             connections: ConnectionState::new(),
             dedup: DedupState::new(),
             standing_sync: tokio::sync::Mutex::new(()),
+            mcp_actor_sync: tokio::sync::Mutex::new(()),
         })
     }
 }

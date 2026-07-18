@@ -29,6 +29,7 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .with_store(|s| s.get_message_by_prefix(p.id.trim()))
         .with_context(|| format!("resolving react id {:?}", p.id.trim()))?
         .with_context(|| format!("message not found for react id {:?}", p.id.trim()))?;
+    super::super::mcp_actor::ensure_membership_if_actor(state, &rec, &original.channel_h).await?;
     // React against the target's native event id so the `e` tag references the
     // exact relay event the peer will see.
     let target_event_id = original

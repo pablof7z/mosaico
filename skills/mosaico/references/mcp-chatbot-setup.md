@@ -14,24 +14,23 @@ MCP client to Mosaico.
 
 ## Know The Current Boundary
 
-`mosaico mcp` exposes Mosaico resources and channel tools to an MCP client. It
-does not yet mint a first-class fabric session for each remote conversation.
-Remote calls otherwise borrow the server process's Mosaico caller context; the
-first-class ChatGPT/Grok actor model remains tracked in [GitHub issue
-#310](https://github.com/pablof7z/mosaico/issues/310).
+`mosaico mcp` exposes Mosaico resources and channel tools to MCP clients. Remote
+HTTP calls do not borrow the server process's caller context:
 
-Choose authorship deliberately:
+- ChatGPT gets a first-class `mcp-openai` session and pubkey per stable remote
+  conversation. Calls in the same conversation reuse it; different
+  conversations do not.
+- Grok currently exposes no stable conversation identifier, so all Grok calls
+  use one first-class `mcp-grok` session until that changes.
+- OAuth authenticates the whitelisted human allowed to use the bridge. Mosaico
+  derives a keyed, non-raw actor correlation from the authenticated subject and
+  client conversation metadata; raw OpenAI subject, organization, and session
+  values are not persisted or logged.
+- ChatGPT writes fail closed when no stable conversation identifier is present.
+  An explicit public `session` selector remains an operator override.
 
-- When the MCP server runs inside a registered Mosaico session, it inherits that
-  session's caller identity.
-- A standalone server must be anchored to an existing session with
-  `MOSAICO_PUBKEY=<npub-or-hex>`.
-- OAuth authenticates a whitelisted human who may use the bridge. It does not
-  select the fabric author. Do not confuse the OAuth subject with
-  `MOSAICO_PUBKEY`.
-- Two chatbots anchored to the same pubkey are indistinguishable on the fabric.
-  If separate provenance is required, do not pretend they are separate agents;
-  use supported managed identities or wait for the bridge-actor work.
+Local stdio is different: it runs in the caller's local process context and may
+inherit or explicitly select an existing session.
 
 ## Choose A Transport
 
@@ -60,11 +59,11 @@ Streamable HTTP endpoint over public HTTPS.
 ## Expose Remote HTTP Safely
 
 First ensure `~/.mosaico/config.json` (or `$MOSAICO_CONFIG`) contains the human
-signer's public key in `whitelistedPubkeys`. Then start an identity-anchored,
+signer's public key in `whitelistedPubkeys`. Then start a standalone,
 localhost-only server:
 
 ```bash
-MOSAICO_PUBKEY=<existing-session-npub> mosaico mcp \
+mosaico mcp \
   --http \
   --host 127.0.0.1 \
   --port 8765 \
@@ -116,12 +115,15 @@ curl -fsS https://mosaico.example.com/.well-known/oauth-protected-resource
 
 Then use the MCP client to scan tools and resources. Verify in this order:
 
-1. Read `mosaico://my/session`. If it says the caller must run inside a
-   registered session, the server is missing a valid `MOSAICO_PUBKEY` anchor.
-2. Read a channel or call `mosaico.channel_list`.
-3. Restrict the client to read-only tools when its allowlist supports that.
-4. With user approval, send one clearly labeled test message to a narrow test
-   channel and confirm it appears under the intended session handle.
+1. Read `mosaico://my/session`. A remote ChatGPT call must report an
+   `mcp-openai` session, never the MCP server process session and never a demand
+   to run inside a registered agent session.
+2. Repeat the read in the same conversation and confirm the exact session
+   pubkey is stable. A separate conversation must receive a different pubkey.
+3. Read a channel or call `mosaico.channel_list`.
+4. Restrict the client to read-only tools when its allowlist supports that.
+5. With user approval, send one clearly labeled test message to a narrow test
+   channel and confirm it appears under the derived MCP actor handle.
 
 Use `tools/list` and `resources/list` as the authority for what this server
 actually exposes. Do not teach a third-party client CLI commands that are absent
@@ -133,7 +135,7 @@ from the MCP catalog.
   bearer token, or the nsec fallback value.
 - Limit enabled tools on the client. Read access includes fabric awareness;
   write access can send, react, create, join, leave, or switch channels as the
-  anchored session.
+  resolved MCP actor session.
 - Treat the HTTPS proxy, tunnel, MCP server, and its logs as part of the trust
   boundary. Keep access logs redacted and retain them only as needed.
 - Mosaico currently issues one-hour access tokens and no refresh token. A client

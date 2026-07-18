@@ -86,6 +86,7 @@ pub async fn run() -> Result<()> {
         connections: ConnectionState::new(),
         dedup: DedupState::new(),
         standing_sync: tokio::sync::Mutex::new(()),
+        mcp_actor_sync: tokio::sync::Mutex::new(()),
     });
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());

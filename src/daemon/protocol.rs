@@ -14,7 +14,7 @@ use std::time::Duration;
 /// contracts must agree.
 // Agent identity configuration mutations are daemon-owned. Older daemons do not
 // expose `agent_save` / `agent_remove`, so a mixed client must force a re-exec.
-const PROTOCOL_VERSION_BASE: u32 = 67;
+const PROTOCOL_VERSION_BASE: u32 = 68;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →

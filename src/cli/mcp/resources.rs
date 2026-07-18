@@ -62,14 +62,22 @@ pub(super) fn templates() -> Value {
 }
 
 pub(super) async fn read(params: &Value) -> Result<Value> {
+    read_as(params, None).await
+}
+
+pub(super) async fn read_as(params: &Value, caller: Option<&str>) -> Result<Value> {
     let uri = required_string(params, "uri")?;
     let parsed = parse_uri(&uri)?;
     let value = match parsed {
         ResourceUri::MySession => {
-            daemon_call("my_session", crate::cli::rpc_params(json!({}))).await?
+            daemon_call("my_session", caller_params(json!({}), caller)).await?
         }
         ResourceUri::ChannelStatus(channel) => {
-            daemon_call("who", operator_params(json!({ "channel": channel }))).await?
+            daemon_call(
+                "who",
+                caller_params(operator_params(json!({ "channel": channel })), caller),
+            )
+            .await?
         }
     };
     let text = serde_json::to_string_pretty(&value)?;
@@ -80,6 +88,13 @@ pub(super) async fn read(params: &Value) -> Result<Value> {
             "text": text,
         }]
     }))
+}
+
+fn caller_params(mut extra: Value, caller: Option<&str>) -> Value {
+    if let (Some(caller), Some(object)) = (caller, extra.as_object_mut()) {
+        object.insert("session".into(), json!(caller));
+    }
+    crate::cli::rpc_params(extra)
 }
 
 impl Subscriptions {
