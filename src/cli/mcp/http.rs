@@ -18,6 +18,9 @@ use tokio_stream::StreamExt;
 
 use super::access_log::log_http_event;
 
+type SubscriptionKey = (String, String);
+type SubscriptionTasks = Arc<Mutex<HashMap<SubscriptionKey, JoinHandle<()>>>>;
+
 #[derive(Clone)]
 pub(super) struct HttpState {
     subscriptions: HttpSubscriptions,
@@ -26,7 +29,7 @@ pub(super) struct HttpState {
 
 #[derive(Clone)]
 pub(super) struct HttpSubscriptions {
-    tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    tasks: SubscriptionTasks,
     tx: broadcast::Sender<Value>,
 }
 
@@ -92,9 +95,11 @@ async fn post_mcp(
     let Some(method) = message.method.as_deref() else {
         return StatusCode::ACCEPTED.into_response();
     };
-    if let Err(response) = state.require_auth(&headers, required_scope(method, &message.params)) {
-        return *response;
-    }
+    let scope = required_scope(method, &message.params);
+    let authenticated = match state.require_auth(&headers, scope) {
+        Ok(authenticated) => authenticated,
+        Err(response) => return *response,
+    };
     if message.is_notification() {
         return StatusCode::ACCEPTED.into_response();
     }
@@ -104,7 +109,27 @@ async fn post_mcp(
             error(Value::Null, INVALID_REQUEST, "request id is required"),
         );
     };
-    let response = dispatch_http(&state, method, &message.params, id).await;
+    let caller = match authenticated {
+        Some(authenticated) => match super::caller::resolve(
+            state.auth.as_ref().expect("authenticated state"),
+            &authenticated,
+            &headers,
+            &message.params,
+            scope == "mosaico:write",
+        )
+        .await
+        {
+            Ok(caller) => Some(caller),
+            Err(err) => {
+                return json_response(
+                    StatusCode::OK,
+                    error(id, super::protocol::INVALID_PARAMS, format!("{err:#}")),
+                )
+            }
+        },
+        None => None,
+    };
+    let response = dispatch_http(&state, method, &message.params, id, caller.as_deref()).await;
     json_response(StatusCode::OK, response)
 }
 
@@ -115,8 +140,29 @@ async fn root_health(headers: HeaderMap) -> impl IntoResponse {
 
 async fn get_mcp(State(state): State<HttpState>, headers: HeaderMap) -> impl IntoResponse {
     log_http_event("sse_get", &headers, None, &Value::Null);
-    if let Err(response) = state.require_auth(&headers, "mosaico:read") {
-        return *response;
+    let authenticated = match state.require_auth(&headers, "mosaico:read") {
+        Ok(authenticated) => authenticated,
+        Err(response) => return *response,
+    };
+    if let Some(authenticated) = authenticated {
+        if let Err(err) = super::caller::resolve(
+            state.auth.as_ref().expect("authenticated state"),
+            &authenticated,
+            &headers,
+            &Value::Null,
+            false,
+        )
+        .await
+        {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                error(
+                    Value::Null,
+                    super::protocol::INVALID_PARAMS,
+                    format!("{err:#}"),
+                ),
+            );
+        }
     }
     let rx = state.subscriptions.tx.subscribe();
     let stream = BroadcastStream::new(rx).filter_map(|value| match value {
@@ -140,10 +186,10 @@ impl HttpState {
         &self,
         headers: &HeaderMap,
         scope: &str,
-    ) -> std::result::Result<(), Box<Response>> {
+    ) -> std::result::Result<Option<super::auth::Authenticated>, Box<Response>> {
         match &self.auth {
-            Some(auth) => auth.verify(headers, scope).map(|_| ()),
-            None => Ok(()),
+            Some(auth) => auth.verify(headers, scope).map(Some),
+            None => Ok(None),
         }
     }
 }
@@ -172,26 +218,32 @@ fn required_scope(method: &str, params: &Value) -> &'static str {
     "mosaico:read"
 }
 
-async fn dispatch_http(state: &HttpState, method: &str, params: &Value, id: Value) -> Value {
+async fn dispatch_http(
+    state: &HttpState,
+    method: &str,
+    params: &Value,
+    id: Value,
+    caller: Option<&str>,
+) -> Value {
     match method {
         "initialize" => result(id, super::initialize(params)),
         "ping" => result(id, json!({})),
         "tools/list" => result(id, super::tools::list()),
-        "tools/call" => match super::tools::call(params).await {
+        "tools/call" => match super::tools::call_as(params, caller).await {
             Ok(value) => result(id, value),
             Err(err) => error(id, super::protocol::INVALID_PARAMS, format!("{err:#}")),
         },
         "resources/list" => result(id, super::resources::list()),
         "resources/templates/list" => result(id, super::resources::templates()),
-        "resources/read" => match super::resources::read(params).await {
+        "resources/read" => match super::resources::read_as(params, caller).await {
             Ok(value) => result(id, value),
             Err(err) => error(id, super::protocol::INVALID_PARAMS, format!("{err:#}")),
         },
-        "resources/subscribe" => match state.subscriptions.add(params).await {
+        "resources/subscribe" => match state.subscriptions.add(params, caller).await {
             Ok(()) => result(id, json!({})),
             Err(err) => error(id, super::protocol::INVALID_PARAMS, format!("{err:#}")),
         },
-        "resources/unsubscribe" => match state.subscriptions.remove(params).await {
+        "resources/unsubscribe" => match state.subscriptions.remove(params, caller).await {
             Ok(()) => result(id, json!({})),
             Err(err) => error(id, super::protocol::INVALID_PARAMS, format!("{err:#}")),
         },
@@ -200,31 +252,39 @@ async fn dispatch_http(state: &HttpState, method: &str, params: &Value, id: Valu
 }
 
 impl HttpSubscriptions {
-    async fn add(&self, params: &Value) -> Result<()> {
+    async fn add(&self, params: &Value, caller: Option<&str>) -> Result<()> {
         let uri = super::protocol::required_string(params, "uri")?;
         let channel = super::resources::subscription_channel(&uri)?;
+        let actor = caller.unwrap_or_default().to_string();
+        let key = (actor.clone(), uri.clone());
         let mut tasks = self.tasks.lock().await;
-        if tasks.contains_key(&uri) {
+        if tasks.contains_key(&key) {
             return Ok(());
         }
         tasks.insert(
-            uri.clone(),
-            tokio::spawn(run_subscription(uri, channel, self.tx.clone())),
+            key,
+            tokio::spawn(run_subscription(uri, channel, actor, self.tx.clone())),
         );
         Ok(())
     }
 
-    async fn remove(&self, params: &Value) -> Result<()> {
+    async fn remove(&self, params: &Value, caller: Option<&str>) -> Result<()> {
         let uri = super::protocol::required_string(params, "uri")?;
-        if let Some(task) = self.tasks.lock().await.remove(&uri) {
+        let key = (caller.unwrap_or_default().to_string(), uri);
+        if let Some(task) = self.tasks.lock().await.remove(&key) {
             task.abort();
         }
         Ok(())
     }
 }
 
-async fn run_subscription(uri: String, channel: Option<String>, tx: broadcast::Sender<Value>) {
-    let params = json!({ "channel": channel, "backfill": 0 });
+async fn run_subscription(
+    uri: String,
+    channel: Option<String>,
+    actor: String,
+    tx: broadcast::Sender<Value>,
+) {
+    let params = json!({ "channel": channel, "backfill": 0, "session": actor });
     let note_uri = uri.clone();
     let stream_result = async {
         let mut client = crate::daemon::client::Client::connect_or_spawn().await?;

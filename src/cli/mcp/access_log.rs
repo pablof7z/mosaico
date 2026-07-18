@@ -37,7 +37,6 @@ fn add_param_shape(event: &mut serde_json::Map<String, Value>, params: &Value) {
         event.insert("argument_keys".into(), json!(keys));
         add_arg(event, arguments, "session");
         add_arg(event, arguments, "channel");
-        add_arg(event, arguments, "channel");
     }
 }
 
@@ -55,9 +54,15 @@ fn selected_headers(headers: &HeaderMap) -> serde_json::Map<String, Value> {
     let mut out = serde_json::Map::new();
     for (name, value) in headers {
         let key = name.as_str().to_ascii_lowercase();
-        if matches!(
+        if !matches!(
             key.as_str(),
-            "authorization" | "cookie" | "set-cookie" | "proxy-authorization"
+            "accept"
+                | "content-type"
+                | "host"
+                | "mcp-protocol-version"
+                | "user-agent"
+                | "x-forwarded-host"
+                | "x-forwarded-proto"
         ) {
             continue;
         }

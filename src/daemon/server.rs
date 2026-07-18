@@ -67,6 +67,9 @@ pub struct DaemonState {
     /// are asynchronous, so an expired removal finishes before a concurrent
     /// exact-session re-admission decides whether it must add again.
     standing_sync: tokio::sync::Mutex<()>,
+    /// Makes remote caller correlation and first-session creation atomic across
+    /// concurrent MCP requests for the same conversation.
+    mcp_actor_sync: tokio::sync::Mutex<()>,
     agent_config: AgentConfigState,
     catalog: CatalogState,
     runtime: SessionRuntimeState,
@@ -161,6 +164,7 @@ mod cursor;
 mod diagnostics;
 mod engine_lifecycle;
 mod lifecycle;
+mod mcp_actor;
 mod profile_rpc;
 mod resolution;
 mod session_end;
@@ -217,6 +221,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "who" => rpc_who(state, &req.params),
         "my_session" => rpc_my_session(state, &req.params),
         "my_session_status" => rpc_my_session_status(state, &req.params).await,
+        "mcp_actor_resolve" => mcp_actor::rpc_resolve(state, &req.params).await,
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params).await,
         "session_kill" => rpc_session_kill(state, &req.params).await,

@@ -12,6 +12,7 @@ mod auth_nip07;
 mod auth_routes;
 mod auth_support;
 mod auth_types;
+mod caller;
 mod catalog;
 mod http;
 mod protocol;

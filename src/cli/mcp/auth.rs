@@ -39,6 +39,10 @@ struct TokenClaims {
     exp: u64,
 }
 
+pub(super) struct Authenticated {
+    pub(super) subject: String,
+}
+
 impl AuthState {
     pub(super) fn new(public_url: String) -> Result<Self> {
         let cfg = crate::config::Config::load()?;
@@ -153,7 +157,11 @@ impl AuthState {
         .into_response()
     }
 
-    pub(super) fn verify(&self, headers: &HeaderMap, scope: &str) -> Result<(), Box<Response>> {
+    pub(super) fn verify(
+        &self,
+        headers: &HeaderMap,
+        scope: &str,
+    ) -> Result<Authenticated, Box<Response>> {
         let token = bearer(headers).ok_or_else(|| Box::new(self.challenge()))?;
         let claims = self
             .verify_token(token)
@@ -161,7 +169,14 @@ impl AuthState {
         if !scope_allowed(&claims.scope, scope) {
             return Err(Box::new(self.challenge()));
         }
-        Ok(())
+        Ok(Authenticated {
+            subject: claims.sub,
+        })
+    }
+
+    pub(super) fn redact_actor_key(&self, fields: &[&str]) -> String {
+        let joined = fields.join("\u{1f}");
+        format!("mcp1_{}", sign(&self.secret, joined.as_bytes()))
     }
 
     pub(super) fn challenge(&self) -> Response {
@@ -280,4 +295,31 @@ impl AuthState {
 
 fn default_scope() -> String {
     SCOPES.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn auth() -> AuthState {
+        AuthState {
+            public_url: "https://mosaico.example".into(),
+            secret: b"test-secret".to_vec(),
+            whitelisted: Arc::new(Vec::new()),
+            codes: Arc::new(Mutex::new(HashMap::new())),
+            challenges: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    #[test]
+    fn actor_correlation_is_keyed_stable_and_contains_no_raw_identifiers() {
+        let auth = auth();
+        let first = auth.redact_actor_key(&["openai-v1", "subject", "conversation-one"]);
+        let repeat = auth.redact_actor_key(&["openai-v1", "subject", "conversation-one"]);
+        let second = auth.redact_actor_key(&["openai-v1", "subject", "conversation-two"]);
+        assert_eq!(first, repeat);
+        assert_ne!(first, second);
+        assert!(!first.contains("subject"));
+        assert!(!first.contains("conversation"));
+    }
 }

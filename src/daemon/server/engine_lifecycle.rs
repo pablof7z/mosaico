@@ -185,6 +185,13 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
     for snap in snaps {
         let pubkey = snap.pubkey.clone();
         let runtime_generation = snap.runtime_generation;
+        if state
+            .with_store(|store| store.is_mcp_actor_pubkey(&pubkey))
+            .unwrap_or(false)
+        {
+            tracing::debug!(pubkey, "retaining daemon-owned MCP actor session");
+            continue;
+        }
         // Only a genuinely-gone session is reaped. `child_pid` liveness alone is
         // unsafe (PIDs recycle, reviving a ghost), so for PTY sessions a
         // reachable supervisor socket (connect+write) is the authoritative

@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use super::journal;
 
 mod v10_v11;
+mod v11_v12;
 mod v5_v6;
 mod v9_v10;
 
@@ -20,6 +21,10 @@ pub(super) fn v9_to_v10(conn: &mut Connection, path: &Path) -> Result<()> {
 
 pub(super) fn v10_to_v11(conn: &mut Connection, path: &Path) -> Result<()> {
     v10_v11::migrate(conn, path)
+}
+
+pub(super) fn v11_to_v12(conn: &mut Connection, path: &Path) -> Result<()> {
+    v11_v12::migrate(conn, path)
 }
 
 pub(super) fn v4_to_v5(conn: &mut Connection, _path: &Path) -> Result<()> {

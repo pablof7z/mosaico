@@ -7,21 +7,25 @@ pub(super) fn list() -> Value {
 }
 
 pub(super) async fn call(params: &Value) -> Result<Value> {
+    call_as(params, None).await
+}
+
+pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Value> {
     let name = required_string(params, "name")?;
     let args = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
     let result = match name.as_str() {
-        "mosaico.my_session" => my_session().await,
-        "mosaico.channel_list" => channel_list(&args).await,
-        "mosaico.channel_read" => channel_read(&args).await,
-        "mosaico.channel_send" => channel_send(&args).await,
-        "mosaico.react" => react(&args).await,
-        "mosaico.channel_create" => channel_create(&args).await,
-        "mosaico.channel_join" => channel_mutation("channel_join", &args).await,
-        "mosaico.channel_leave" => channel_mutation("channel_leave", &args).await,
-        "mosaico.channel_switch" => channel_mutation("channel_switch", &args).await,
+        "mosaico.my_session" => my_session(caller).await,
+        "mosaico.channel_list" => channel_list(&args, caller).await,
+        "mosaico.channel_read" => channel_read(&args, caller).await,
+        "mosaico.channel_send" => channel_send(&args, caller).await,
+        "mosaico.react" => react(&args, caller).await,
+        "mosaico.channel_create" => channel_create(&args, caller).await,
+        "mosaico.channel_join" => channel_mutation("channel_join", &args, caller).await,
+        "mosaico.channel_leave" => channel_mutation("channel_leave", &args, caller).await,
+        "mosaico.channel_switch" => channel_mutation("channel_switch", &args, caller).await,
         other => anyhow::bail!("unknown tool: {other}"),
     };
     Ok(match result {
@@ -30,31 +34,34 @@ pub(super) async fn call(params: &Value) -> Result<Value> {
     })
 }
 
-async fn my_session() -> Result<Value> {
-    daemon_identity("my_session", json!({})).await
+async fn my_session(caller: Option<&str>) -> Result<Value> {
+    daemon_identity("my_session", json!({}), caller).await
 }
 
-async fn channel_list(args: &Value) -> Result<Value> {
+async fn channel_list(args: &Value, caller: Option<&str>) -> Result<Value> {
     let channel = match opt_string(args, "channel") {
         Some(channel) => channel,
         None => crate::daemon::workspace_path::channel_for_path_or_bail(
             &std::env::current_dir().unwrap_or_default(),
         )?,
     };
-    daemon_raw("channel_list", json!({ "channel": channel })).await
+    daemon_identity("channel_list", json!({ "channel": channel }), caller).await
 }
 
-async fn channel_read(args: &Value) -> Result<Value> {
-    let params = crate::cli::rpc_params(json!({
-        "id": opt_string(args, "id"),
-        "channel": opt_string(args, "channel"),
-        "session": opt_string(args, "session"),
-        "since": since_arg(args),
-        "limit": args.get("limit").and_then(Value::as_u64).unwrap_or(20),
-        "offset": args.get("offset").and_then(Value::as_u64).unwrap_or(0),
-        "tail": true,
-        "live": false,
-    }));
+async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
+    let params = caller_params(
+        json!({
+            "id": opt_string(args, "id"),
+            "channel": opt_string(args, "channel"),
+            "session": opt_string(args, "session"),
+            "since": since_arg(args),
+            "limit": args.get("limit").and_then(Value::as_u64).unwrap_or(20),
+            "offset": args.get("offset").and_then(Value::as_u64).unwrap_or(0),
+            "tail": true,
+            "live": false,
+        }),
+        caller,
+    );
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     let mut messages = Vec::new();
     client
@@ -63,11 +70,11 @@ async fn channel_read(args: &Value) -> Result<Value> {
     Ok(json!({ "messages": messages }))
 }
 
-async fn channel_send(args: &Value) -> Result<Value> {
-    daemon_identity("channel_send", channel_send_params(args)?).await
+async fn channel_send(args: &Value, caller: Option<&str>) -> Result<Value> {
+    daemon_identity("channel_send", channel_send_params(args)?, caller).await
 }
 
-async fn react(args: &Value) -> Result<Value> {
+async fn react(args: &Value, caller: Option<&str>) -> Result<Value> {
     let params = with_session(
         json!({
             "id": required_string(args, "message_id")?,
@@ -75,10 +82,10 @@ async fn react(args: &Value) -> Result<Value> {
         }),
         args,
     );
-    daemon_identity("channel_react", params).await
+    daemon_identity("channel_react", params, caller).await
 }
 
-async fn channel_create(args: &Value) -> Result<Value> {
+async fn channel_create(args: &Value, caller: Option<&str>) -> Result<Value> {
     let name = required_string(args, "name")?;
     let about = required_string(args, "about")?;
     let agents = agent_specs(args)?;
@@ -93,17 +100,19 @@ async fn channel_create(args: &Value) -> Result<Value> {
             }),
             args,
         ),
+        caller,
     )
     .await
 }
 
-async fn channel_mutation(method: &str, args: &Value) -> Result<Value> {
+async fn channel_mutation(method: &str, args: &Value, caller: Option<&str>) -> Result<Value> {
     daemon_identity(
         method,
         with_session(
             json!({ "channel": required_string(args, "channel")? }),
             args,
         ),
+        caller,
     )
     .await
 }
@@ -192,11 +201,35 @@ fn since_arg(args: &Value) -> Option<u64> {
     })
 }
 
-async fn daemon_identity(method: &str, extra: Value) -> Result<Value> {
-    daemon_raw(method, crate::cli::rpc_params(extra)).await
+async fn daemon_identity(method: &str, extra: Value, caller: Option<&str>) -> Result<Value> {
+    daemon_raw(method, caller_params(extra, caller)).await
+}
+
+fn caller_params(mut extra: Value, caller: Option<&str>) -> Value {
+    if let (Some(caller), Some(object)) = (caller, extra.as_object_mut()) {
+        object.entry("session").or_insert_with(|| json!(caller));
+    }
+    crate::cli::rpc_params(extra)
 }
 
 async fn daemon_raw(method: &str, params: Value) -> Result<Value> {
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     client.call(method, params).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_session_remains_an_operator_override() {
+        let params = caller_params(json!({ "session": "explicit" }), Some("remote-actor"));
+        assert_eq!(params["session"], "explicit");
+    }
+
+    #[test]
+    fn remote_actor_is_the_default_session() {
+        let params = caller_params(json!({}), Some("remote-actor"));
+        assert_eq!(params["session"], "remote-actor");
+    }
 }

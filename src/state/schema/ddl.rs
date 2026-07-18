@@ -187,6 +187,15 @@ CREATE INDEX IF NOT EXISTS idx_sessions_runtime
 CREATE INDEX IF NOT EXISTS idx_sessions_idle_deadline
     ON sessions(runtime_state, presentation_state, work_state, idle_deadline);
 
+-- Keyed, non-raw correlation aliases for remote MCP conversation actors.
+CREATE TABLE IF NOT EXISTS mcp_actor_aliases (
+    actor_key  TEXT PRIMARY KEY,
+    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('openai', 'grok')),
+    pubkey     TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL
+);
+
 -- Durable exact-session routing affinity. These rows do not assert NIP-29
 -- membership; fabric standing is owned exclusively by session_standing.
 CREATE TABLE IF NOT EXISTS session_channels (

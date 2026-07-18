@@ -235,6 +235,7 @@ mod inbox;
 mod members;
 mod session_signers;
 pub use members::ChannelMemberSet;
+mod mcp_actors;
 mod messages;
 mod profiles;
 mod workspace_roots;
