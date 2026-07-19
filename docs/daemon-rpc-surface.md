@@ -94,11 +94,10 @@ params: {"pty_session": "…"|null, "harness_session": "…"|null,
 result: {"fabric": "<mosaico>…</mosaico>"}
 ```
 Strict self-scoped agent briefing. It resolves the exact live caller and emits
-self identity, a concise `mosaico agents list` discovery hint, all known
-workspaces, nested channels, and typed member sessions. It does not embed an
-agent roster. Every workspace joined by this exact session is expanded; merely
-known workspaces stay compact. This is a pure read and does not advance the
-hook-awareness cursor.
+`<self>`, global `<agents>` capabilities, all known workspaces, nested channels,
+and typed member sessions. Every workspace joined by this exact session is
+expanded; merely known workspaces stay compact. This is a pure read and does
+not advance the hook-awareness cursor.
 
 ### `my_session_status`
 ```jsonc
@@ -118,6 +117,8 @@ mentions from the inbox ledger, and returns the hook fabric context. A first
 turn (`seen_cursor=0`) renders the relevant channel snapshot;
 later turns render only rows changed since the session cursor. The cursor
 advances after rendering. An absent harness locator yields `context: null`.
+Hook context does not embed the agent roster; it points agents to
+`mosaico agents list`, and roster-only updates do not emit a delta.
 
 ### `turn_check`
 ```jsonc

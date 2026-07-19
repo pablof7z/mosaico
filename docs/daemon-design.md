@@ -371,9 +371,9 @@ that value for the human `who` view and the agent `my session` briefing.
 - `remote` is derived by comparing exact backend labels.
 
 Human `who` renders terminal-oriented fabric text and supports `--live`. Agent
-`my session` renders XML with self identity, an on-demand `mosaico agents list`
-discovery hint, workspaces, channels, and member sessions; the roster is not
-embedded. There is no agent renderer or XML branch under `who`.
+`my session` renders XML with self identity, capabilities, workspaces, channels,
+and member sessions. Turn hook context instead omits the roster and points to
+`mosaico agents list`. There is no agent renderer or XML branch under `who`.
 
 ## 9. Landmines preserved (must not regress)
 
