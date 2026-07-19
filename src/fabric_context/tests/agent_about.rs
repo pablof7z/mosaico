@@ -1,7 +1,8 @@
 use super::*;
+use crate::reconcile::{hook_context::FrameKind, HookContextState};
 
 #[test]
-fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
+fn agent_context_uses_on_demand_discovery_while_human_view_keeps_roster() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -17,10 +18,17 @@ fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("context should render");
-    assert!(text.contains("<available-agents>"));
-    assert!(text.contains("<agent ref=\"@helper\" about=\"For testing\""));
-    assert!(!text.contains("<agents>"));
+    assert!(text.contains("List agents available to spawn: `mosaico agents list`"));
+    assert!(!text.contains("<available-agents>"));
+    assert!(!text.contains("<workspace-agents>"));
+    assert!(!text.contains("@helper"));
     assert!(text.contains("<member ref=\"@coder\""));
+
+    let human = render_fabric_context_human(&store, input(Some(&rec), "root", 0, 100, true), false)
+        .unwrap()
+        .unwrap();
+    assert!(human.contains("Available agents"));
+    assert!(human.contains("@helper  For testing"));
 
     let empty = Store::open_memory().unwrap();
     empty.upsert_channel("solo", "solo", "", "", 1).unwrap();
@@ -35,7 +43,7 @@ fn members_are_relay_roster_backed_and_local_agents_are_labeled() {
 }
 
 #[test]
-fn available_agent_about_is_compact_and_bounded() {
+fn human_agent_about_is_compact_and_bounded() {
     let store = seed_store();
     let rec = session(&store);
     let long_about = format!("Routes\\nreview work {}", "carefully ".repeat(40));
@@ -50,12 +58,37 @@ fn available_agent_about_is_compact_and_bounded() {
         })
         .unwrap();
 
-    let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
+    let text = render_fabric_context_human(&store, input(Some(&rec), "root", 0, 100, true), false)
+        .unwrap()
         .expect("context should render");
     let expected = crate::agent_about::for_injection(&long_about);
-    assert!(
-        text.contains(&format!("about=\"{expected}\"")),
-        "got: {text}"
-    );
+    assert!(text.contains(&expected), "got: {text}");
     assert!(expected.chars().count() <= crate::agent_about::AGENT_ABOUT_MAX_CHARS);
+}
+
+#[test]
+fn roster_only_delta_does_not_emit_agent_hook_context() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut state = HookContextState::default();
+
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
+    let baseline = state.render_context("sess", "turn_start", 100, 200, before);
+    assert!(baseline.text.is_none());
+
+    store
+        .replace_agent_roster(&crate::state::AgentRoster {
+            backend_pubkey: "backend".into(),
+            host: "laptop".into(),
+            slug: "new-helper".into(),
+            use_criteria: "Newly available".into(),
+            channels: vec!["root".into()],
+            updated_at: 150,
+        })
+        .unwrap();
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
+    let unchanged = state.render_context("sess", "turn_start", 100, 200, after);
+
+    assert!(unchanged.text.is_none());
+    assert_eq!(unchanged.receipt.frame, FrameKind::Unchanged);
 }

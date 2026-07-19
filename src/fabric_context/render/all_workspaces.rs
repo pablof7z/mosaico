@@ -1,15 +1,13 @@
-use super::{render_agents, render_workspace};
-use crate::fabric_context::model::{shared_agents, workspace_agents, FabricView};
+use super::{render_agent_discovery, render_workspace};
+use crate::fabric_context::model::FabricView;
 
 #[allow(dead_code)]
 pub(in crate::fabric_context) fn render_views(views: &[FabricView]) -> String {
-    let shared = shared_agents(views);
     let mut out = String::from("<mosaico>");
-    render_agents(&mut out, &shared, "available-agents");
+    render_agent_discovery(&mut out);
 
     for view in views {
-        let additions = workspace_agents(view, &shared);
-        render_workspace(&mut out, view, &additions, "workspace-agents");
+        render_workspace(&mut out, view);
     }
 
     out.push_str("\n</mosaico>");

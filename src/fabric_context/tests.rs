@@ -286,7 +286,7 @@ fn missing_channels_are_warned_not_rendered() {
 }
 
 #[test]
-fn all_workspaces_factors_shared_agents_and_preserves_roster_deltas() {
+fn all_workspaces_agent_context_omits_rosters_while_human_view_preserves_them() {
     let store = seed_store();
     store
         .upsert_channel("other", "other", "Other workspace", "", 1)
@@ -316,17 +316,16 @@ fn all_workspaces_factors_shared_agents_and_preserves_roster_deltas() {
     let rendered = render_fabric_all_workspaces(&store, &roots, 100, "laptop", "");
     assert_eq!(rendered.matches("<mosaico>").count(), 1, "got: {rendered}");
     assert_eq!(
-        rendered.matches("<available-agents>").count(),
+        rendered
+            .matches("List agents available to spawn: `mosaico agents list`")
+            .count(),
         1,
         "got: {rendered}"
     );
-    assert_eq!(rendered.matches("@shared").count(), 1, "got: {rendered}");
-    assert_eq!(
-        rendered.matches("<workspace-agents>").count(),
-        1,
-        "got: {rendered}"
-    );
-    assert!(rendered.contains("@other-only"), "got: {rendered}");
+    assert!(!rendered.contains("<available-agents>"), "got: {rendered}");
+    assert!(!rendered.contains("<workspace-agents>"), "got: {rendered}");
+    assert!(!rendered.contains("@shared"), "got: {rendered}");
+    assert!(!rendered.contains("@other-only"), "got: {rendered}");
 
     let human =
         render_fabric_all_workspaces_human(&store, &roots, 100, "laptop", "", false).unwrap();

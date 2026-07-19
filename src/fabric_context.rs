@@ -22,7 +22,7 @@ use render::render_view;
 /// Stringify an already-derived [`FabricView`] into the exact `<mosaico>`
 /// snapshot agents see.
 pub(crate) fn render_view_text(view: &FabricView) -> String {
-    render_view(view)
+    render_view(&view.clone().for_agent_context())
 }
 
 fn derive_view(store: &Store, input: FabricContextInput<'_>) -> anyhow::Result<FabricView> {
@@ -75,7 +75,9 @@ pub(crate) fn render_fabric_context(
     input: FabricContextInput<'_>,
 ) -> Option<String> {
     let force = input.force;
-    let view = derive_view(store, input).expect("fabric test fixture has valid channel ancestry");
+    let view = derive_view(store, input)
+        .expect("fabric test fixture has valid channel ancestry")
+        .for_agent_context();
     if !force && view.is_empty() {
         return None;
     }

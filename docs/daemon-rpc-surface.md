@@ -94,10 +94,11 @@ params: {"pty_session": "…"|null, "harness_session": "…"|null,
 result: {"fabric": "<mosaico>…</mosaico>"}
 ```
 Strict self-scoped agent briefing. It resolves the exact live caller and emits
-`<self>`, global `<agents>` capabilities, all known workspaces, nested channels,
-and typed member sessions. Every workspace joined by this exact session is
-expanded; merely known workspaces stay compact. This is a pure read and does
-not advance the hook-awareness cursor.
+self identity, a concise `mosaico agents list` discovery hint, all known
+workspaces, nested channels, and typed member sessions. It does not embed an
+agent roster. Every workspace joined by this exact session is expanded; merely
+known workspaces stay compact. This is a pure read and does not advance the
+hook-awareness cursor.
 
 ### `my_session_status`
 ```jsonc

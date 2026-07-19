@@ -29,6 +29,14 @@ pub(crate) struct FabricView {
 }
 
 impl FabricView {
+    /// Agent hook context teaches capability discovery on demand instead of
+    /// embedding a roster. Removing the rows before change detection also keeps
+    /// roster-only relay updates from producing empty hook frames.
+    pub(crate) fn for_agent_context(mut self) -> Self {
+        self.agents.clear();
+        self
+    }
+
     /// Whether the view carries nothing renderable — the daemon suppresses an
     /// empty snapshot unless the caller forced it.
     pub(crate) fn is_empty(&self) -> bool {

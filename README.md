@@ -198,7 +198,8 @@ agent-only commands and are intentionally hidden from default human CLI help:
 
 | Command | What it does |
 |---|---|
-| `mosaico my session` | Give the current agent a full XML briefing: self identity, available capabilities, every workspace, joined channels, and member sessions. Exact-session joined workspaces expand; merely known workspaces stay compact. |
+| `mosaico my session` | Give the current agent a full XML briefing: self identity, an on-demand capability-discovery hint, every workspace, joined channels, and member sessions. Exact-session joined workspaces expand; merely known workspaces stay compact. |
+| `mosaico agents list` | List agents available to spawn on demand; the roster is not embedded in hook context. |
 | `mosaico my session status <TITLE>` | Change the current agent session's broadcast title/status. |
 | `mosaico who [--live] [--all-workspaces]` | Show the operator-oriented fabric view as terminal text. Hidden from default agent help, but available when invoked explicitly. |
 | `mosaico sessions` | Open the operator session picker. Enter attaches to the highlighted terminal; Shift+K immediately kills it and removes its fabric memberships. |

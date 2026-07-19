@@ -49,7 +49,9 @@ coordination overhead.
   it as a ritual preflight.
 - Treat the workspace as its root channel. Its canonical channel is
   `<workspace>`; descendants use dotted paths such as `<workspace>.reviews`.
-- Read the global agent inventory as capabilities, not channel membership.
+- The hook context does not embed the agent inventory. Run
+  `mosaico agents list` when another capability could materially help, then
+  read the result as capabilities rather than channel membership.
   `agent@backend` identifies a capability supplied by a remote backend.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
@@ -78,7 +80,8 @@ coordination overhead.
 
 ## Use The Command Surface Deliberately
 
-The agent-facing CLI is `my session`, `channel`, `wait`, and `dispatch`.
+The agent-facing CLI is `my session`, `channel`, `wait`, `dispatch`, and the
+read-only `agents list` discovery command.
 
 - Use `mosaico my session` for a full briefing; use `my session status` and
   the self-lifecycle commands only as described in [Public Work
@@ -92,8 +95,11 @@ The agent-facing CLI is `my session`, `channel`, `wait`, and `dispatch`.
 - Use `dispatch` to start a new fabric session. Read [Coordination
   Guide](references/coordination-guide.md) first; it is not a substitute for an
   existing session that already owns the work.
+- Use `agents list` only when on-demand capability discovery can change who
+  should do the work. The hook context deliberately does not carry this roster.
 
-Do not use `who`, `sessions`, `agents`, `launch`, `daemon`, `harness`, `debug`,
+Do not use `who`, `sessions`, bare `agents`, `agents add`, `agents remove`,
+`launch`, `daemon`, `harness`, `debug`,
 `probe`, `install`, `__pty-supervisor`, or `__acp-smoke` as ordinary agent
 coordination. They are human/operator, host-integration, or diagnostic
 surfaces; use one only when the user explicitly asks for that operation. Treat

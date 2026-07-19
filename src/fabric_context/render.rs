@@ -6,42 +6,33 @@ use workspace::render_workspace_block;
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<mosaico>");
     render_self(&mut out, view.self_row.as_ref());
-    render_workspace(&mut out, view, &view.agents, "available-agents");
+    render_agent_discovery(&mut out);
+    render_workspace(&mut out, view);
     out.push_str("\n</mosaico>");
     out
 }
 
-pub(super) fn render_workspace(
-    out: &mut String,
-    view: &FabricView,
-    agents: &[AgentRow],
-    agents_tag: &str,
-) {
+pub(super) fn render_workspace(out: &mut String, view: &FabricView) {
     if view.is_quiet_delta() {
         render_no_new_activity(out, &view.workspace.name);
         return;
     }
-    render_workspace_block(
-        out,
-        &view.workspace,
-        view.root.as_ref(),
-        &view.channels,
-        agents,
-        agents_tag,
-    );
+    render_workspace_block(out, &view.workspace, view.root.as_ref(), &view.channels);
     for activity in &view.other_workspaces {
         render_workspace_block(
             out,
             &activity.workspace,
             activity.root.as_ref(),
             &activity.channels,
-            &[],
-            agents_tag,
         );
     }
     render_important(out, &view.important);
     render_reactions(out, &view.reactions, view.reactions_omitted);
     render_warnings(out, &view.warnings);
+}
+
+pub(super) fn render_agent_discovery(out: &mut String) {
+    out.push_str("\n  List agents available to spawn: `mosaico agents list`");
 }
 
 fn render_no_new_activity(out: &mut String, workspace: &str) {
@@ -73,25 +64,6 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
             esc_text(&row.title)
         );
     }
-}
-
-pub(super) fn render_agents(out: &mut String, agents: &[AgentRow], tag: &str) {
-    if agents.is_empty() {
-        return;
-    }
-    let _ = write!(out, "\n    <{tag}>");
-    for agent in agents {
-        let _ = write!(
-            out,
-            "\n      <agent ref=\"@{}\"",
-            esc_attr(&agent.reference)
-        );
-        if !agent.about.is_empty() {
-            let _ = write!(out, " about=\"{}\"", esc_attr(&agent.about));
-        }
-        out.push_str(" />");
-    }
-    let _ = write!(out, "\n    </{tag}>");
 }
 
 pub(super) fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize) {
