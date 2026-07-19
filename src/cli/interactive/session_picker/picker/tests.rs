@@ -11,6 +11,7 @@ fn choice(handle: &str, activity: &str, attachable: bool) -> SessionChoice {
             pty_id: attachable.then(|| format!("pty-{handle}")),
             endpoint_live: attachable,
             endpoint_attachable: attachable,
+            running: true,
             transport: if attachable {
                 "pty".into()
             } else {
@@ -27,6 +28,7 @@ fn takeover_choice(handle: &str, turn_open: bool) -> SessionChoice {
             handle: handle.into(),
             transport: "process".into(),
             takeover_available: true,
+            running: true,
             turn_open,
             turn_count: 7,
             ..SessionRow::default()
@@ -63,6 +65,7 @@ fn enter_on_acp_session_reports_no_harness_terminal() {
     let row = SessionRow {
         handle: "delta-claude".into(),
         transport: "acp".into(),
+        running: true,
         ..SessionRow::default()
     };
     let mut state = PickerState::new(vec![SessionChoice { row }]);
@@ -123,6 +126,88 @@ fn shift_k_kills_the_highlighted_session_without_selection_state() {
     state.handle_key(key(KeyCode::Down), 10);
     let shift_k = KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT);
     assert_eq!(state.handle_key(shift_k, 10), Some(PickerExit::Kill(1)));
+}
+
+#[test]
+fn search_reaches_exited_sessions_while_live_scope_is_selected() {
+    let mut exited = choice("juno-codex", "finished earlier", false);
+    exited.row.running = false;
+    exited.row.state = crate::session_state::SessionState::Offline;
+    exited.row.resumable = true;
+    let mut state = PickerState::new(vec![choice("opal-codex", "working", true), exited]);
+
+    assert_eq!(state.visible, vec![0]);
+    for character in "juno".chars() {
+        state.handle_key(key(KeyCode::Char(character)), 10);
+    }
+    assert_eq!(state.visible, vec![1]);
+    assert_eq!(
+        state.handle_key(key(KeyCode::Enter), 10),
+        Some(PickerExit::Resume(1))
+    );
+}
+
+#[test]
+fn tab_expands_the_empty_query_from_live_sessions_to_all_history() {
+    let mut exited = choice("juno-codex", "finished earlier", false);
+    exited.row.running = false;
+    exited.row.state = crate::session_state::SessionState::Offline;
+    let mut state = PickerState::new(vec![choice("opal-codex", "working", true), exited]);
+
+    state.handle_key(key(KeyCode::Tab), 10);
+
+    assert_eq!(state.scope, SessionScope::All);
+    assert_eq!(state.visible, vec![0, 1]);
+}
+
+#[test]
+fn project_picker_applies_an_independent_workspace_filter() {
+    let mut mosaico = choice("juno-codex", "mosaico work", false);
+    mosaico.row.workspaces = vec![
+        crate::cli::interactive::session_picker::data::WorkspaceGroup {
+            id: "mosaico-id".into(),
+            name: "mosaico".into(),
+            path: Some("/repo/mosaico".into()),
+            ..Default::default()
+        },
+    ];
+    let mut skills = choice("juno-codex", "skills work", false);
+    skills.row.workspaces = vec![
+        crate::cli::interactive::session_picker::data::WorkspaceGroup {
+            id: "skills-id".into(),
+            name: "skills".into(),
+            path: Some("/repo/skills".into()),
+            ..Default::default()
+        },
+    ];
+    let mut state = PickerState::new(vec![mosaico, skills]);
+
+    state.handle_key(key(KeyCode::Char('p')), 10);
+    state.handle_key(key(KeyCode::Down), 10);
+    state.handle_key(key(KeyCode::Enter), 10);
+
+    assert_eq!(state.project_filter.as_deref(), Some("mosaico-id"));
+    assert_eq!(state.visible, vec![0]);
+}
+
+#[test]
+fn refresh_preserves_the_selected_session_and_updates_its_row() {
+    let mut first = choice("opal-codex", "old", false);
+    first.row.pubkey = "pk-opal".into();
+    let mut selected = choice("juno-codex", "old", false);
+    selected.row.pubkey = "pk-juno".into();
+    let mut state = PickerState::new(vec![first, selected]);
+    state.handle_key(key(KeyCode::Down), 10);
+
+    let mut refreshed_first = choice("opal-codex", "new", false);
+    refreshed_first.row.pubkey = "pk-opal".into();
+    let mut refreshed_selected = choice("juno-codex", "new title", false);
+    refreshed_selected.row.pubkey = "pk-juno".into();
+    state.replace_choices(vec![refreshed_first, refreshed_selected]);
+
+    assert_eq!(state.cursor, 1);
+    let choice = state.current_choice().unwrap();
+    assert_eq!(state.choices[choice].row.activity, "new title");
 }
 
 #[test]

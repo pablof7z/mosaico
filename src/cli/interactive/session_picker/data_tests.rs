@@ -67,6 +67,33 @@ fn parses_unhosted_takeover_and_open_turn_state() {
 }
 
 #[test]
+fn parses_stopped_resumable_session_as_searchable_history() {
+    let value = serde_json::json!({
+        "sessions": [{
+            "pubkey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "npub": "npub1stoppedselector",
+            "handle": "juno-codex",
+            "agent": "codex",
+            "workspaces": workspace(),
+            "title": "finished picker work",
+            "activity": "tests passed",
+            "state": "offline",
+            "running": false,
+            "resumable": true,
+            "last_seen": 40
+        }]
+    });
+
+    let rows = rows_from_value(&value);
+
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].running);
+    assert!(rows[0].resumable);
+    assert_eq!(rows[0].state, SessionState::Offline);
+    assert!(rows[0].fuzzy_score("juno").is_some());
+}
+
+#[test]
 fn malformed_takeover_contract_is_rejected() {
     let value = serde_json::json!({
         "sessions": [{

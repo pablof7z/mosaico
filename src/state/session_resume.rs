@@ -4,6 +4,16 @@ use super::sessions::{row_to_session, COLS};
 use super::*;
 
 impl Store {
+    /// Every durable local session, newest activity first.
+    pub fn list_sessions(&self) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM sessions
+             ORDER BY MAX(last_seen, stopped_at, created_at) DESC, pubkey ASC"
+        ))?;
+        let rows = stmt.query_map([], row_to_session)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Recent sessions that have exactly one native resume locator.
     pub fn list_resumable_sessions(&self, limit: u32) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(

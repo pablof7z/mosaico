@@ -55,9 +55,50 @@ fn projection_exposes_public_identity_without_private_runtime_id() {
             crate::util::now_secs(),
         )
         .unwrap();
-    assert!(project_sessions(&store, "laptop", &HashMap::new())
-        .unwrap()
-        .is_empty());
+    let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["state"], "offline");
+    assert_eq!(rows[0]["running"], false);
+    assert_eq!(rows[0]["resumable"], false);
+}
+
+#[test]
+fn stopped_session_projection_retains_project_and_restart_capability() {
+    let store = Store::open_memory().unwrap();
+    store.upsert_channel("root", "mosaico", "", "", 1).unwrap();
+    store.upsert_workspace("root", "/repo/mosaico", 1).unwrap();
+    let pubkey = Keys::generate().public_key().to_hex();
+    store
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
+            pubkey: pubkey.clone(),
+            observed_harness: "codex".into(),
+            agent_slug: "codex".into(),
+            channel_h: "root".into(),
+            child_pid: Some(42),
+            transcript_path: None,
+            now: 10,
+        })
+        .unwrap();
+    store
+        .put_session_locator(
+            "codex",
+            crate::state::LOCATOR_NATIVE_RESUME,
+            "thread-juno",
+            &pubkey,
+            11,
+        )
+        .unwrap();
+    store
+        .mark_runtime_stopped(&pubkey, crate::state::StopReason::HeadlessExit, 12)
+        .unwrap();
+
+    let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["state"], "offline");
+    assert_eq!(rows[0]["resumable"], true);
+    assert_eq!(rows[0]["workspaces"][0]["name"], "mosaico");
+    assert_eq!(rows[0]["workspaces"][0]["path"], "/repo/mosaico");
 }
 
 #[test]

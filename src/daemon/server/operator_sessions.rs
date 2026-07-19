@@ -36,68 +36,87 @@ fn project_sessions(
         .collect::<HashMap<_, _>>();
     let mut rows = Vec::new();
     let mut projected_endpoints = HashSet::new();
-    for rec in store.list_running_sessions()? {
-        let identity = store
-            .session_identity(&rec.pubkey)?
-            .with_context(|| format!("live session {} has no identity projection", rec.pubkey))?;
-        let mut grouped = BTreeMap::<String, Vec<String>>::new();
-        for (channel_id, _) in store.list_session_routes(&rec.pubkey)? {
-            let root_id = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                .root_for_channel(&channel_id)?;
-            grouped.entry(root_id).or_default().push(channel_id);
-        }
-        let workspaces = grouped
-            .into_iter()
-            .map(|(root_id, channel_ids)| workspace_value(store, &root_id, &channel_ids, &channels))
-            .collect::<Result<Vec<_>>>()?;
-        let hosted = crate::session_host::transport::hosted_endpoint_for(store, &rec)?;
-        let (endpoint, transport, takeover) = match hosted {
-            crate::session_host::transport::HostedEndpoint::Resolved {
-                transport,
-                endpoint,
-            } => {
-                projected_endpoints.insert(endpoint.endpoint_id.clone());
-                let descriptor = transport.describe(&endpoint);
-                let kind = descriptor.kind.as_str();
-                (Some(descriptor), kind, None)
+    let activities = latest_activities(store)?;
+    for rec in store.list_sessions()? {
+        let workspaces = session_workspaces(store, &rec.pubkey, &channels)?;
+        let (endpoint, transport, takeover) = if rec.is_running() {
+            match crate::session_host::transport::hosted_endpoint_for(store, &rec)? {
+                crate::session_host::transport::HostedEndpoint::Resolved {
+                    transport,
+                    endpoint,
+                } => {
+                    projected_endpoints.insert(endpoint.endpoint_id.clone());
+                    let descriptor = transport.describe(&endpoint);
+                    let kind = descriptor.kind.as_str();
+                    (Some(descriptor), kind, None)
+                }
+                crate::session_host::transport::HostedEndpoint::Unavailable { kind } => {
+                    (None, kind.as_str(), None)
+                }
+                crate::session_host::transport::HostedEndpoint::Unhosted => {
+                    let resumable = rec.child_pid.is_some()
+                        && store
+                            .native_resume_locator(&rec.pubkey, &rec.observed_harness)?
+                            .is_some();
+                    (
+                        None,
+                        if rec.child_pid.is_some() {
+                            TRANSPORT_PROCESS
+                        } else {
+                            TRANSPORT_HARNESS
+                        },
+                        resumable.then(|| {
+                            serde_json::json!({
+                                "turn_open": rec.is_working(),
+                                "turn_count": rec.turn_count,
+                            })
+                        }),
+                    )
+                }
             }
-            crate::session_host::transport::HostedEndpoint::Unavailable { kind } => {
-                (None, kind.as_str(), None)
-            }
-            crate::session_host::transport::HostedEndpoint::Unhosted => {
-                let resumable = rec.child_pid.is_some()
-                    && store
-                        .native_resume_locator(&rec.pubkey, &rec.observed_harness)?
-                        .is_some();
-                (
-                    None,
-                    if rec.child_pid.is_some() {
-                        TRANSPORT_PROCESS
-                    } else {
-                        TRANSPORT_HARNESS
-                    },
-                    resumable.then(|| {
-                        serde_json::json!({
-                            "turn_open": rec.is_working(),
-                            "turn_count": rec.turn_count,
-                        })
-                    }),
-                )
-            }
+        } else {
+            (
+                None,
+                if rec.admitted_transport.is_empty() {
+                    TRANSPORT_HARNESS
+                } else {
+                    rec.admitted_transport.as_str()
+                },
+                None,
+            )
         };
         let npub = crate::idref::npub(&rec.pubkey)
             .with_context(|| format!("invalid session pubkey {}", rec.pubkey))?;
+        let handle = store
+            .handle_for_pubkey(&rec.pubkey)?
+            .unwrap_or_else(|| rec.agent_slug.clone());
+        let resumable = !rec.is_running()
+            && rec.recovery_state != crate::state::RecoveryState::Revoked
+            && store
+                .native_resume_locator(&rec.pubkey, &rec.observed_harness)?
+                .is_some();
+        let activity = activities
+            .get(&rec.pubkey)
+            .map(String::as_str)
+            .unwrap_or_default();
         rows.push(serde_json::json!({
             "pubkey": rec.pubkey.clone(),
             "npub": npub,
-            "handle": identity.display_slug(),
+            "handle": handle,
             "agent": rec.agent_slug,
             "title": rec.title,
-            "state": crate::session_state::SessionState::classify(
-                rec.is_running(),
-                rec.is_working(),
-                crate::session_host::session_has_live_delivery_path(store, &rec),
-            ),
+            "activity": activity,
+            "state": if rec.is_running() {
+                crate::session_state::SessionState::classify(
+                    true,
+                    rec.is_working(),
+                    crate::session_host::session_has_live_delivery_path(store, &rec),
+                )
+            } else {
+                crate::session_state::SessionState::Offline
+            },
+            "running": rec.is_running(),
+            "resumable": resumable,
             "last_seen": rec.last_seen,
             "host": host,
             "harness": rec.observed_harness,
@@ -117,6 +136,39 @@ fn project_sessions(
         rows.push(unbound_endpoint_value(store, host, endpoint)?);
     }
     Ok(rows)
+}
+
+fn latest_activities(store: &Store) -> Result<HashMap<String, String>> {
+    let mut latest = HashMap::<String, (u64, String)>::new();
+    for status in store.list_status_sessions(None, None)? {
+        let entry = latest
+            .entry(status.pubkey)
+            .or_insert_with(|| (status.updated_at, status.activity.clone()));
+        if status.updated_at > entry.0 {
+            *entry = (status.updated_at, status.activity);
+        }
+    }
+    Ok(latest
+        .into_iter()
+        .map(|(pubkey, (_, activity))| (pubkey, activity))
+        .collect())
+}
+
+fn session_workspaces(
+    store: &Store,
+    pubkey: &str,
+    channels: &HashMap<String, crate::state::Channel>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut grouped = BTreeMap::<String, Vec<String>>::new();
+    for (channel_id, _) in store.list_session_routes(pubkey)? {
+        let root_id = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .root_for_channel(&channel_id)?;
+        grouped.entry(root_id).or_default().push(channel_id);
+    }
+    grouped
+        .into_iter()
+        .map(|(root_id, channel_ids)| workspace_value(store, &root_id, &channel_ids, channels))
+        .collect()
 }
 
 fn unbound_endpoint_value(
@@ -148,6 +200,8 @@ fn unbound_endpoint_value(
         "title": meta.command.join(" "),
         "activity": meta.cwd,
         "state": crate::session_state::SessionState::Suspended,
+        "running": true,
+        "resumable": false,
         "last_seen": 0,
         "host": host,
         "harness": meta.agent,

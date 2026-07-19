@@ -22,13 +22,8 @@ pub(in crate::cli) async fn sessions() -> Result<()> {
             .into_iter()
             .map(|row| SessionChoice { row })
             .collect::<Vec<_>>();
-        if choices.is_empty() {
-            println!("No local sessions.");
-            return Ok(());
-        }
-
         let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((100, 28));
-        match picker::select(choices, terminal_rows)? {
+        match picker::select(choices, terminal_rows).await? {
             picker::PickerAction::Attach(choice) => {
                 let Some(pty_id) = choice.row.pty_id else {
                     bail!("selected session no longer has an attachable endpoint");
@@ -37,6 +32,15 @@ pub(in crate::cli) async fn sessions() -> Result<()> {
             }
             picker::PickerAction::TakeOver(choice, interrupt_turn) => {
                 return take_over(choice, interrupt_turn).await;
+            }
+            picker::PickerAction::Resume(choice) => {
+                return crate::cli::launch_cli::attach_or_resume(&choice.row.npub)
+                    .await
+                    .and_then(|found| {
+                        found.then_some(()).ok_or_else(|| {
+                            anyhow::anyhow!("selected session disappeared before restart")
+                        })
+                    });
             }
             picker::PickerAction::Kill(choice) => kill(choice).await?,
             picker::PickerAction::Cancel => return Ok(()),

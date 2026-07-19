@@ -26,6 +26,8 @@ pub(super) struct SessionRow {
     pub(super) title: String,
     pub(super) activity: String,
     pub(super) state: SessionState,
+    pub(super) running: bool,
+    pub(super) resumable: bool,
     pub(super) last_seen: u64,
     pub(super) host: String,
     pub(super) harness: String,
@@ -46,6 +48,20 @@ impl SessionRow {
 
     pub(super) fn can_take_over(&self) -> bool {
         self.takeover_available && !self.attachable()
+    }
+
+    pub(super) fn stable_id(&self) -> String {
+        if self.pubkey.is_empty() {
+            format!("pty:{}", self.pty_id.as_deref().unwrap_or(&self.handle))
+        } else {
+            self.pubkey.clone()
+        }
+    }
+
+    pub(super) fn belongs_to(&self, workspace_id: &str) -> bool {
+        self.workspaces
+            .iter()
+            .any(|workspace| workspace.id == workspace_id)
     }
 
     pub(super) fn fuzzy_score(&self, input: &str) -> Option<i64> {
@@ -144,6 +160,10 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
                 .iter()
                 .find_map(|workspace| workspace.path.clone())
         });
+    let state = value["state"]
+        .as_str()
+        .and_then(SessionState::parse)
+        .unwrap_or_default();
     Some(SessionRow {
         pubkey,
         npub,
@@ -152,10 +172,11 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
         workspaces,
         title: value["title"].as_str().unwrap_or("").to_string(),
         activity: value["activity"].as_str().unwrap_or("").to_string(),
-        state: value["state"]
-            .as_str()
-            .and_then(SessionState::parse)
-            .unwrap_or_default(),
+        state,
+        running: value["running"]
+            .as_bool()
+            .unwrap_or(state != SessionState::Offline),
+        resumable: value["resumable"].as_bool().unwrap_or(false),
         last_seen: value["last_seen"].as_u64().unwrap_or(0),
         host: value["host"].as_str().unwrap_or("").to_string(),
         harness: value["harness"].as_str().unwrap_or("").to_string(),

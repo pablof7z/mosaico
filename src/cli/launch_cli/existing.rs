@@ -8,7 +8,7 @@ pub(super) async fn launch_if_known(request: &super::args::LaunchRequest) -> Res
     attach_or_resume(&request.agent).await
 }
 
-pub(super) async fn attach_or_resume(selector: &str) -> Result<bool> {
+pub(in crate::cli) async fn attach_or_resume(selector: &str) -> Result<bool> {
     let response = crate::cli::daemon_call_async(
         "pty_launch_existing",
         serde_json::json!({ "session": selector }),
