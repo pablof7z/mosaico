@@ -6,7 +6,6 @@ use workspace::render_workspace_block;
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<mosaico>");
     render_self(&mut out, view.self_row.as_ref());
-    render_agent_discovery(&mut out);
     render_workspace(&mut out, view);
     out.push_str("\n</mosaico>");
     out
@@ -29,10 +28,6 @@ pub(super) fn render_workspace(out: &mut String, view: &FabricView) {
     render_important(out, &view.important);
     render_reactions(out, &view.reactions, view.reactions_omitted);
     render_warnings(out, &view.warnings);
-}
-
-pub(super) fn render_agent_discovery(out: &mut String) {
-    out.push_str("\n  List agents available to spawn: `mosaico agents list`");
 }
 
 fn render_no_new_activity(out: &mut String, workspace: &str) {

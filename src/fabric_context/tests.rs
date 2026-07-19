@@ -315,13 +315,7 @@ fn all_workspaces_agent_context_omits_rosters_while_human_view_preserves_them() 
     let roots = vec!["root".into(), "other".into()];
     let rendered = render_fabric_all_workspaces(&store, &roots, 100, "laptop", "");
     assert_eq!(rendered.matches("<mosaico>").count(), 1, "got: {rendered}");
-    assert_eq!(
-        rendered
-            .matches("List agents available to spawn: `mosaico agents list`")
-            .count(),
-        1,
-        "got: {rendered}"
-    );
+    assert!(!rendered.contains("mosaico agents list"), "got: {rendered}");
     assert!(!rendered.contains("<available-agents>"), "got: {rendered}");
     assert!(!rendered.contains("<workspace-agents>"), "got: {rendered}");
     assert!(!rendered.contains("@shared"), "got: {rendered}");

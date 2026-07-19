@@ -372,8 +372,8 @@ that value for the human `who` view and the agent `my session` briefing.
 
 Human `who` renders terminal-oriented fabric text and supports `--live`. Agent
 `my session` renders XML with self identity, capabilities, workspaces, channels,
-and member sessions. Turn hook context instead omits the roster and points to
-`mosaico agents list`. There is no agent renderer or XML branch under `who`.
+and member sessions. Turn hook context omits the roster. There is no agent
+renderer or XML branch under `who`.
 
 ## 9. Landmines preserved (must not regress)
 

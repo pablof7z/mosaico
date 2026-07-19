@@ -117,8 +117,8 @@ mentions from the inbox ledger, and returns the hook fabric context. A first
 turn (`seen_cursor=0`) renders the relevant channel snapshot;
 later turns render only rows changed since the session cursor. The cursor
 advances after rendering. An absent harness locator yields `context: null`.
-Hook context does not embed the agent roster; it points agents to
-`mosaico agents list`, and roster-only updates do not emit a delta.
+Hook context does not embed the agent roster, and roster-only updates do not
+emit a delta.
 
 ### `turn_check`
 ```jsonc

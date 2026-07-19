@@ -23,8 +23,7 @@ capabilities, or identity-bearing environment variables affect a decision.
 
 ## Interpret The Agent Inventory
 
-- Discover capabilities on demand with `mosaico agents list`; the hook context
-  deliberately does not embed the roster.
+- Discover capabilities on demand with `mosaico agents list`.
 - `agent@backend` means the backend advertises an available capability. It is
   not a guarantee that launch will complete, a live session, channel member,
   lock, or proof that work is already assigned.

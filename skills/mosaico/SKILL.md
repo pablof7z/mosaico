@@ -49,10 +49,6 @@ coordination overhead.
   it as a ritual preflight.
 - Treat the workspace as its root channel. Its canonical channel is
   `<workspace>`; descendants use dotted paths such as `<workspace>.reviews`.
-- The hook context does not embed the agent inventory. Run
-  `mosaico agents list` when another capability could materially help, then
-  read the result as capabilities rather than channel membership.
-  `agent@backend` identifies a capability supplied by a remote backend.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
   secret-bearing environment affects the work.
@@ -95,8 +91,9 @@ read-only `agents list` discovery command.
 - Use `dispatch` to start a new fabric session. Read [Coordination
   Guide](references/coordination-guide.md) first; it is not a substitute for an
   existing session that already owns the work.
-- Use `agents list` only when on-demand capability discovery can change who
-  should do the work. The hook context deliberately does not carry this roster.
+- Run `mosaico agents list` to list available agents. Read the result as
+  capabilities rather than channel membership; `agent@backend` identifies a
+  capability supplied by a remote backend.
 
 Do not use `who`, `sessions`, bare `agents`, `agents add`, `agents remove`,
 `launch`, `daemon`, `harness`, `debug`,

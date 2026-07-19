@@ -2,7 +2,7 @@ use super::*;
 use crate::reconcile::{hook_context::FrameKind, HookContextState};
 
 #[test]
-fn agent_context_uses_on_demand_discovery_while_human_view_keeps_roster() {
+fn agent_context_omits_capabilities_while_human_view_keeps_roster() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -18,7 +18,7 @@ fn agent_context_uses_on_demand_discovery_while_human_view_keeps_roster() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("context should render");
-    assert!(text.contains("List agents available to spawn: `mosaico agents list`"));
+    assert!(!text.contains("mosaico agents list"));
     assert!(!text.contains("<available-agents>"));
     assert!(!text.contains("<workspace-agents>"));
     assert!(!text.contains("@helper"));
