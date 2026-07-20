@@ -1,6 +1,6 @@
 use super::*;
 use crate::agent_inventory::AgentSource;
-use crate::harness::{HarnessesConfig, Transport};
+use crate::harness::{HarnessesConfig, ResumeMechanism, Transport};
 
 pub(super) struct ResolvedSource {
     pub(super) transport: TransportImpl,
@@ -106,22 +106,80 @@ pub(super) fn resolve_agent_source(
         }
     };
 
+    finish_source(
+        &home,
+        &harnesses,
+        bundle,
+        profile.as_deref(),
+        native_profile.as_ref(),
+        identity,
+        retired_advertisements,
+        selector,
+    )
+}
+
+/// Resolve only the harness-owned interactive launch policy. A resumed
+/// session's logical agent and signer come from its persisted session row, not
+/// from the current agent inventory, so stale or removed profile bindings
+/// cannot silently change its identity.
+pub(super) fn resolve_harness_source(
+    harness: crate::session::Harness,
+    slug: &str,
+    admitted_bundle: Option<&str>,
+    intent: LaunchIntent,
+) -> Result<ResolvedSource> {
+    let home = crate::config::mosaico_home();
+    let mut harnesses = HarnessesConfig::load()?;
+    let bundle = admitted_bundle
+        .filter(|bundle| {
+            harnesses
+                .get(bundle)
+                .map(|configured| {
+                    configured.harness == harness
+                        && (intent == LaunchIntent::Managed
+                            || configured.transport == Transport::Pty)
+                })
+                .unwrap_or(false)
+        })
+        .map(str::to_string)
+        .map(Ok)
+        .unwrap_or_else(|| realize_implicit_bundle(&mut harnesses, harness, intent, false))?;
+    let identity = crate::identity::AgentIdentity::per_session(slug, &bundle);
+    finish_source(
+        &home,
+        &harnesses,
+        bundle,
+        None,
+        None,
+        identity,
+        Vec::new(),
+        slug,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_source(
+    home: &std::path::Path,
+    harnesses: &HarnessesConfig,
+    bundle: String,
+    profile: Option<&str>,
+    native_profile: Option<&crate::agent_catalog::NativeAgentProfile>,
+    identity: crate::identity::AgentIdentity,
+    retired_advertisements: Vec<String>,
+    selector: &str,
+) -> Result<ResolvedSource> {
     let native_agent = native_profile
-        .as_ref()
         .map(|native| native.activation())
         .transpose()?;
     let id = crate::pty::new_endpoint_id(&identity.slug);
     let scratch = home.join("harness-profiles").join(&id);
-    let mut resolved =
-        crate::harness::resolve_with(&harnesses, &bundle, profile.as_deref(), &scratch)
-            .with_context(|| {
-                format!("resolving harness bundle {bundle:?} for agent {selector:?}")
-            })?;
+    let mut resolved = crate::harness::resolve_with(harnesses, &bundle, profile, &scratch)
+        .with_context(|| format!("resolving harness bundle {bundle:?} for agent {selector:?}"))?;
     if let Some(native_agent) = &native_agent {
         crate::harness::apply_native_agent(&mut resolved, native_agent, &scratch)
             .with_context(|| format!("applying native agent {selector:?}"))?;
     }
-    let transport = crate::session_host::transport::select_transport_with(&harnesses, &bundle)?;
+    let transport = crate::session_host::transport::select_transport_with(harnesses, &bundle)?;
     let prepared_launch = transport.prepare_launch(&mut resolved, id)?;
     Ok(ResolvedSource {
         transport,

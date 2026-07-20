@@ -93,7 +93,7 @@ pub(super) async fn handle(
             );
             return match crate::session_host::resume_agent_in_channel(
                 state,
-                &agent_slug,
+                target,
                 &work_root,
                 channel,
                 &locator.locator_value,

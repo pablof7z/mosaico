@@ -1,6 +1,5 @@
 //! The daemon process: sole owner of state.db, NMP acquisition, and provider I/O.
 //!
-//! Started as the hidden daemon subcommand by a thin client's spawn-if-absent
 use super::client::StartupLock;
 use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
@@ -267,6 +266,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "invite" => invite_rpc::rpc_invite(state, &req.params).await,
         "pty_attach" => pty_rpc::rpc_pty_attach(state, &req.params),
         "pty_resume" => pty_rpc::rpc_pty_resume(state, &req.params).await,
+        "pty_resume_native" => pty_rpc::rpc_pty_resume_native(state, &req.params).await,
         "pty_resumable" => pty_rpc::rpc_pty_resumable(state).await,
         other => Err(anyhow::anyhow!("unknown method {other}")),
     };

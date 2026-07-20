@@ -26,6 +26,11 @@ pub(in crate::cli) async fn attach_or_resume(selector: &str) -> Result<bool> {
     if action == "not-resumable" {
         bail!("{handle} has no live terminal and its harness cannot be resumed");
     }
+    if action == "already-running" {
+        bail!(
+            "{handle} is already running without an attachable PTY; use `mosaico sessions` for explicit takeover"
+        );
+    }
     let pty_id = response["pty_id"]
         .as_str()
         .context("pty_launch_existing did not return pty_id")?;

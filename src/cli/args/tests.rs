@@ -4,6 +4,8 @@ use clap::{error::ErrorKind, Parser};
 
 #[path = "tests/agents.rs"]
 mod agents;
+#[path = "tests/operator_resume.rs"]
+mod operator_resume;
 
 fn parse_err(args: &[&str]) -> clap::Error {
     match Cli::try_parse_from(args) {
@@ -278,42 +280,4 @@ fn removed_top_level_tui_stays_unavailable() {
     let err = parse_err(&["mosaico", "tui"]);
 
     assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
-}
-
-#[test]
-fn contextual_help_separates_agent_and_operator_commands() {
-    let help = super::command_for_context(true)
-        .render_long_help()
-        .to_string();
-
-    assert!(!help.contains("  who"), "agent help exposed who:\n{help}");
-    assert!(
-        !help.contains("  sessions"),
-        "agent help exposed sessions:\n{help}"
-    );
-    for command in ["wait", "dispatch", "my"] {
-        assert!(
-            help.contains(&format!("  {command}")),
-            "agent help omitted {command}:\n{help}"
-        );
-    }
-}
-
-#[test]
-fn contextual_help_shows_who_to_humans() {
-    let help = super::command_for_context(false)
-        .render_long_help()
-        .to_string();
-
-    assert!(help.contains("  who"), "human help omitted who:\n{help}");
-    assert!(
-        help.contains("  sessions"),
-        "human help omitted sessions:\n{help}"
-    );
-    for command in ["wait", "dispatch", "my"] {
-        assert!(
-            !help.contains(&format!("  {command}")),
-            "human help exposed agent-only {command}:\n{help}"
-        );
-    }
 }

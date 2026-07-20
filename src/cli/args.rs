@@ -44,7 +44,7 @@ fn command_for_context(in_agent: bool) -> Command {
     let visible: &[&str] = if in_agent {
         &["wait", "dispatch", "my"]
     } else {
-        &["who", "sessions", "agents"]
+        &["who", "sessions", "resume", "agents"]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -83,6 +83,9 @@ pub(super) enum Cmd {
     /// Select, attach to, or immediately kill local agent sessions.
     #[command(hide = true)]
     Sessions,
+    /// Resume a session by its native Claude, Codex, Grok, or OpenCode id.
+    #[command(hide = true)]
+    Resume(ResumeArgs),
     /// Read/send chat and manage channels (read, send, create, edit, list, init, join, leave, archive, switch).
     Channel {
         #[command(subcommand)]
@@ -129,6 +132,15 @@ pub(super) enum Cmd {
     /// Debug: drive a harness over the ACP / app-server transport end-to-end.
     #[command(name = "__acp-smoke", hide = true)]
     AcpSmoke(super::acp_smoke::AcpSmokeArgs),
+}
+
+#[derive(Args)]
+pub(super) struct ResumeArgs {
+    /// Harness-native session identifier.
+    pub(super) harness_id: String,
+    /// Existing workspace path when native metadata has no usable cwd.
+    #[arg(long, value_name = "PATH")]
+    pub(super) workspace: Option<std::path::PathBuf>,
 }
 
 #[derive(Args)]

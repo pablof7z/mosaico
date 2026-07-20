@@ -21,7 +21,7 @@ pub(super) async fn rpc_session_start_inner(
     progress: Option<InitProgress>,
 ) -> Result<serde_json::Value> {
     progress_emit(&progress, "session_start", "parsing hook payload");
-    let p: SessionStartParams =
+    let mut p: SessionStartParams =
         serde_json::from_value(params.clone()).context("parsing session_start params")?;
     if p.agent.trim().is_empty() {
         anyhow::bail!("session_start requires an agent slug");
@@ -42,7 +42,16 @@ pub(super) async fn rpc_session_start_inner(
     runtime::bind_workspace(state, &cwd, &work_root)?;
     let harness_name = harness.as_str();
     let located_pubkey = runtime::resolve_existing_pubkey(state, &p, harness_name)?;
-    let agent = if identity::is_configured(&mosaico_home, &p.agent) {
+    let persisted = runtime::reconcile_agent_from_pubkey(state, &mut p, located_pubkey.as_deref())?;
+    let agent = if let Some(existing) = persisted {
+        if state.with_store(|store| store.is_derived_session_pubkey(&existing.pubkey))? {
+            identity::AgentIdentity::per_session(&existing.agent_slug, harness_name)
+        } else {
+            identity::load(&mosaico_home, &existing.agent_slug).with_context(|| {
+                format!("loading persisted agent identity {:?}", existing.agent_slug)
+            })?
+        }
+    } else if identity::is_configured(&mosaico_home, &p.agent) {
         identity::load(&mosaico_home, &p.agent).with_context(|| {
             located_pubkey.as_ref().map_or_else(
                 || format!("loading agent identity {:?}", p.agent),

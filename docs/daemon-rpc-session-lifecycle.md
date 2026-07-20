@@ -88,6 +88,29 @@ expires. A native resume locator restores the same provider conversation;
 without one, Mosaico launches a fresh provider conversation under the same
 session pubkey.
 
+## `pty_resume_native`
+
+```jsonc
+params: {"native_id": "harness-owned-id", "workspace": "/absolute/path"|null}
+result: {"action": "attached"|"resumed"|"adopted", "pty_id": "…",
+         "pubkey": "hex", "npub": "npub1…", "handle": "quill-codex",
+         "agent": "developer", "harness": "claude-code"}
+```
+
+Operator entry point for `mosaico resume <HARNESS_ID>`. The daemon first looks
+up the native locator across every harness. A mapped locator resumes the exact
+persisted pubkey, signer, agent slug, workspace, and channel; current agent
+profile configuration contributes no identity authority. A live PTY attaches,
+while a running non-PTY runtime refuses to double-spawn and directs explicit
+takeover to `mosaico sessions`.
+
+An unmapped id is adopted only when authoritative local Claude, Codex, Grok, or
+OpenCode storage identifies one harness. Its recorded cwd selects the workspace
+unless `workspace` supplies an existing absolute directory. Mosaico then mints
+the generic per-session identity for that harness and atomically claims the
+native locator before opening the PTY. Missing and cross-harness-ambiguous ids
+fail; UUID shape is never a harness signal.
+
 ## `session_pty_wrap`
 
 ```jsonc

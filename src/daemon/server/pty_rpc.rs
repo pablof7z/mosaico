@@ -3,10 +3,12 @@ use super::*;
 
 #[path = "pty_rpc/existing.rs"]
 mod existing;
+mod native_resume;
 mod spawn;
 mod status;
 
 pub(super) use existing::rpc_pty_launch_existing;
+pub(super) use native_resume::rpc_pty_resume_native;
 pub(super) use spawn::rpc_pty_spawn;
 
 pub(super) async fn rpc_pty_status(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
@@ -210,6 +212,12 @@ pub(super) async fn rpc_pty_resume(
             )
         })?;
 
+    if rec.is_running() {
+        return Ok(serde_json::json!({
+            "error": "session is already running; refusing to start a second harness process"
+        }));
+    }
+
     let resume_id = match resume_token_for(state, &rec) {
         Some(id) => id,
         None => {
@@ -219,8 +227,14 @@ pub(super) async fn rpc_pty_resume(
         }
     };
 
-    let scope = rec.channel_h.clone();
-    match crate::session_host::resume_agent(state, &rec.agent_slug, &scope, &resume_id).await {
+    match crate::session_host::resume_agent(
+        state,
+        &rec,
+        &resume_id,
+        crate::session_host::LaunchIntent::Interactive,
+    )
+    .await
+    {
         Ok(pty_id) => Ok(serde_json::json!({
             "pty_id": pty_id,
             "npub": crate::idref::npub(&rec.pubkey),

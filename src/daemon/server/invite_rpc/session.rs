@@ -72,7 +72,7 @@ async fn resume_local_session(
     .await?;
     let pty_id = crate::session_host::resume_agent_in_channel(
         state,
-        &rec.agent_slug,
+        rec,
         work_root,
         channel_h,
         &resume_id,

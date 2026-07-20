@@ -107,6 +107,62 @@ async fn interactive_generic_creates_pty_bundle_from_live_detection() {
     assert!(!mosaico_home.join("agents/codex.json").exists());
 }
 
+#[test]
+fn harness_resume_policy_ignores_stale_agent_binding() {
+    let home = tempfile::tempdir().unwrap();
+    let mosaico_home = home.path().join("mosaico");
+    let mut env = EnvGuard::set("MOSAICO_HOME", &mosaico_home);
+    env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
+    env.set_var("HOME", home.path());
+    write(
+        &mosaico_home.join("harnesses.json"),
+        r#"{"claude-pty":{"harness":"claude","transport":"pty","args":["--dangerously-skip-permissions"]}}"#,
+    );
+    write(
+        &mosaico_home.join("agents/developer.json"),
+        r#"{"slug":"developer","created_at":1,"perSessionKey":true,"harness":"claude-code"}"#,
+    );
+
+    let source = resolve_harness_source(
+        crate::session::Harness::ClaudeCode,
+        "developer",
+        None,
+        LaunchIntent::Interactive,
+    )
+    .unwrap();
+
+    assert_eq!(source.identity.slug, "developer");
+    assert_eq!(source.bundle, "claude-pty");
+    assert_eq!(source.command, ["claude", "--dangerously-skip-permissions"]);
+}
+
+#[test]
+fn mapped_resume_prefers_its_recorded_pty_bundle() {
+    let home = tempfile::tempdir().unwrap();
+    let mosaico_home = home.path().join("mosaico");
+    let mut env = EnvGuard::set("MOSAICO_HOME", &mosaico_home);
+    env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
+    env.set_var("HOME", home.path());
+    write(
+        &mosaico_home.join("harnesses.json"),
+        r#"{
+          "claude-fast":{"harness":"claude","transport":"pty","args":["--fast"]},
+          "claude-safe":{"harness":"claude","transport":"pty","args":["--safe"]}
+        }"#,
+    );
+
+    let source = resolve_harness_source(
+        crate::session::Harness::ClaudeCode,
+        "agent1",
+        Some("claude-safe"),
+        LaunchIntent::Interactive,
+    )
+    .unwrap();
+
+    assert_eq!(source.bundle, "claude-safe");
+    assert_eq!(source.command, ["claude", "--safe"]);
+}
+
 #[tokio::test]
 async fn invalid_same_named_agent_does_not_shadow_available_harness() {
     let home = tempfile::tempdir().unwrap();

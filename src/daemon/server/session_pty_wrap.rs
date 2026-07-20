@@ -132,8 +132,6 @@ pub(in crate::daemon::server) async fn rpc_session_pty_wrap(
         }
     };
 
-    let slug = rec.agent_slug.clone();
-    let scope = rec.channel_h.clone();
     let pubkey = rec.pubkey.clone();
 
     // Kill the old (non-PTY) process and stop its runtime BEFORE the
@@ -149,7 +147,14 @@ pub(in crate::daemon::server) async fn rpc_session_pty_wrap(
         ));
     }
 
-    match crate::session_host::resume_agent(state, &slug, &scope, &resume_id).await {
+    match crate::session_host::resume_agent(
+        state,
+        &rec,
+        &resume_id,
+        crate::session_host::LaunchIntent::Interactive,
+    )
+    .await
+    {
         Ok(pty_id) => Ok(serde_json::json!({
             "wrapped": true,
             "pty_id": pty_id,

@@ -6,6 +6,8 @@ use std::time::Duration;
 mod launch;
 #[path = "pty_bootstrap/named.rs"]
 mod named;
+#[path = "pty_bootstrap/native_resume.rs"]
+mod native_resume;
 #[path = "pty_bootstrap/startup_failure.rs"]
 mod startup_failure;
 

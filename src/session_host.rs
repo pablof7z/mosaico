@@ -16,16 +16,19 @@ mod admission;
 mod agent_env;
 mod delivery;
 mod launch;
+mod native_discovery;
 mod registry;
 pub mod transport;
 
 pub use delivery::{deliver_spawn_prompt, inject_pending_messages_pty, ring_doorbells};
 pub(crate) use delivery::{session_has_live_delivery_path, session_is_headless};
 pub(crate) use launch::spawn_ephemeral_agent_for_pubkey;
-pub use launch::{
-    resume_agent, spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn,
+pub(crate) use launch::{
+    adopt_native_session, resume_agent, resume_agent_in_channel, resume_session_record,
 };
-pub(crate) use launch::{resume_agent_in_channel, spawn_agent, LaunchIntent, SpawnRequest};
+pub(crate) use launch::{spawn_agent, LaunchIntent, SpawnRequest};
+pub use launch::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn};
+pub(crate) use native_discovery::discover as discover_native_session;
 pub use registry::spawnable_agents;
 
 #[cfg(test)]

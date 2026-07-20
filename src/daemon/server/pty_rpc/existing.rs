@@ -27,6 +27,12 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
             "handle": handle,
         }));
     }
+    if rec.is_running() {
+        return Ok(serde_json::json!({
+            "action": "already-running",
+            "handle": handle,
+        }));
+    }
 
     let Some(resume_id) = super::resume_token_for(state, &rec) else {
         return Ok(serde_json::json!({
@@ -34,12 +40,9 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
             "handle": handle,
         }));
     };
-    let root = state.with_store(|store| super::work_root_for(store, &rec.channel_h))?;
-    let pty_id = crate::session_host::resume_agent_in_channel(
+    let pty_id = crate::session_host::resume_agent(
         state,
-        &rec.agent_slug,
-        &root,
-        &rec.channel_h,
+        &rec,
         &resume_id,
         crate::session_host::LaunchIntent::Interactive,
     )
@@ -51,7 +54,7 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
     }))
 }
 
-async fn live_pty_for_session(
+pub(super) async fn live_pty_for_session(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Option<String> {

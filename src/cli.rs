@@ -1,5 +1,3 @@
-//! The host-neutral CLI surface (M1 §6).
-
 use crate::idref::event_short_id;
 #[cfg(test)]
 use crate::state::Store;
@@ -33,6 +31,7 @@ mod mcp;
 mod messaging;
 mod my;
 mod pty;
+mod resume;
 mod session;
 mod statusline;
 mod turn;
@@ -99,6 +98,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Who(args) => who::who(args),
         Cmd::Sessions => interactive::session_picker::sessions().await,
+        Cmd::Resume(args) => resume::resume(args).await,
         Cmd::Channel { action } => admin::channels(action).await,
         Cmd::Wait(args) => messaging::wait(args).await,
         Cmd::Agents(args) => agents::agents(args).await,

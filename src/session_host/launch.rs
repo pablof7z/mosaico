@@ -1,15 +1,16 @@
 use super::admission;
 use crate::agent_catalog::NativeAgentActivation;
 use crate::daemon::server::DaemonState;
-use crate::harness::ResumeMechanism;
-use crate::session_host::transport::{
-    LaunchSpec, PreparedLaunch, ResumeSpec, SessionEndpoint, TransportImpl,
-};
+use crate::session_host::transport::{LaunchSpec, PreparedLaunch, SessionEndpoint, TransportImpl};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
+mod resume;
 mod source;
 mod spawn;
+pub(crate) use resume::{
+    adopt_native_session, resume_agent, resume_agent_in_channel, resume_session_record,
+};
 use source::resolve_agent_source;
 pub(crate) use spawn::spawn_ephemeral_agent_for_pubkey;
 pub(crate) use spawn::{spawn_agent, SpawnRequest};
@@ -99,125 +100,4 @@ async fn open_agent_session(
         prepared: prepared_launch,
     };
     transport.launch(&spec).await
-}
-
-/// Resume a prior session by replaying its harness with the native resume token.
-pub async fn resume_agent(
-    state: &Arc<DaemonState>,
-    slug: &str,
-    root: &str,
-    resume_id: &str,
-) -> Result<String> {
-    resume_agent_in_channel(
-        state,
-        slug,
-        root,
-        root,
-        resume_id,
-        LaunchIntent::Interactive,
-    )
-    .await
-}
-
-/// Resume a prior session into an explicit channel while using `root` to
-/// resolve the working directory.
-pub(crate) async fn resume_agent_in_channel(
-    state: &Arc<DaemonState>,
-    slug: &str,
-    root: &str,
-    group: &str,
-    resume_id: &str,
-    intent: LaunchIntent,
-) -> Result<String> {
-    if resume_id.is_empty() {
-        anyhow::bail!("session has no resume token (not resumable)");
-    }
-
-    let abs_path = workspace_abs_path(state, root, None)?;
-    let source = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
-    let transport = source.transport;
-    let base = source.command;
-    let harness = source.harness;
-    let bundle = source.bundle;
-    let reservation = admission::reserve_resume(
-        state,
-        &source.identity,
-        harness.as_str(),
-        &bundle,
-        transport.kind().as_str(),
-        root,
-        group,
-        resume_id,
-    )?;
-    let resume_command = build_driver_resume_command(&base, source.resume, resume_id, slug)?;
-    let spec = LaunchSpec {
-        slug: slug.to_string(),
-        native_agent: source.native_agent,
-        root: root.to_string(),
-        abs_path: abs_path.clone(),
-        group: Some(group.to_string()),
-        ephemeral: false,
-        session_name: None,
-        base_command: resume_command,
-        pubkey: reservation.pubkey.clone(),
-        agent_nsec: reservation.agent_nsec.clone(),
-        prepared: source.prepared_launch,
-    };
-    let resume = ResumeSpec {
-        native_id: resume_id.to_string(),
-    };
-    let endpoint = transport.resume(&spec, &resume).await?;
-    if let Err(e) = crate::daemon::server::session_start::bootstrap_hosted_session_start(
-        state,
-        &endpoint,
-        crate::daemon::server::session_start::bootstrap::HostedSessionStart {
-            pubkey: &reservation.pubkey,
-            reclaimed_pubkey: None,
-            channel: Some(group),
-            channels: &[],
-            resume_id: Some(resume_id),
-            dispatch_event: None,
-            session_name: None,
-            observed_harness: harness,
-            admitted_bundle: &bundle,
-            admitted_transport: transport.kind(),
-        },
-    )
-    .await
-    {
-        kill_endpoint(&transport, &endpoint.endpoint_id).await;
-        admission::release(state, &reservation);
-        return Err(e.context("registering resumed hosted session"));
-    }
-    Ok(endpoint.endpoint_id)
-}
-
-fn build_driver_resume_command(
-    base: &[String],
-    mechanism: ResumeMechanism,
-    resume_id: &str,
-    slug: &str,
-) -> Result<Vec<String>> {
-    match mechanism {
-        ResumeMechanism::AppendFlag(flag) => {
-            let mut command = base.to_vec();
-            command.extend([flag.to_string(), resume_id.to_string()]);
-            Ok(command)
-        }
-        ResumeMechanism::Subcommand(subcommand) => {
-            let (program, args) = base
-                .split_first()
-                .with_context(|| format!("agent {slug:?} resolved an empty command"))?;
-            let mut command = vec![
-                program.clone(),
-                subcommand.to_string(),
-                resume_id.to_string(),
-            ];
-            command.extend(args.iter().cloned());
-            Ok(command)
-        }
-        ResumeMechanism::AcpSessionLoad
-        | ResumeMechanism::AppServerThreadResume
-        | ResumeMechanism::None => Ok(base.to_vec()),
-    }
 }

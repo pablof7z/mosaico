@@ -187,7 +187,7 @@ async fn resume_target(
         );
         return false;
     };
-    let work_root = match state.with_store(|s| work_root_for(s, &op.child_h)) {
+    let work_root = match state.with_store(|store| work_root_for(store, &op.child_h)) {
         Ok(root) => root,
         Err(error) => {
             tracing::error!(child = %op.child_h, %error, "orchestration resume workspace lookup failed");
@@ -196,7 +196,7 @@ async fn resume_target(
     };
     match crate::session_host::resume_agent_in_channel(
         state,
-        &rec.agent_slug,
+        &rec,
         &work_root,
         &op.child_h,
         &resume_id,

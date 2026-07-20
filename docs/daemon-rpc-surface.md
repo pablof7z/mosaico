@@ -270,6 +270,15 @@ params: {"session": "npub1…"}
 result: {"pty_id": "…", "npub": "npub1…", "agent": "coder"}
 ```
 
+### `pty_resume_native`
+Resolves a harness-native id across typed local locators, then attaches or
+resumes the exact mapped Mosaico session. When no mapping exists, authoritative
+local harness storage may adopt it under that harness's generic agent identity.
+Mapped rows preserve their persisted agent slug and signer even when current
+agent-profile configuration is stale or absent. Running non-PTY sessions are
+never double-spawned. Full contract: [daemon RPC session
+lifecycle](daemon-rpc-session-lifecycle.md#pty_resume_native).
+
 ### `pty_resumable`
 Returns resumable rows with `pubkey`, `npub`, `runtime_state`, and an optional current `handle`.
 Raw session ids are not exposed.

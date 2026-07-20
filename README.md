@@ -203,6 +203,7 @@ agent-only commands and are intentionally hidden from default human CLI help:
 | `mosaico my session status <TITLE>` | Change the current agent session's broadcast title/status. |
 | `mosaico who [--live] [--all-workspaces]` | Show the operator-oriented fabric view as terminal text. Hidden from default agent help, but available when invoked explicitly. |
 | `mosaico sessions` | Open the operator session picker. Enter attaches to the highlighted terminal; Shift+K immediately kills it and removes its fabric memberships. |
+| `mosaico resume <HARNESS_ID>` | Find a Claude, Codex, Grok, or OpenCode session by its native id, preserve its mapped Mosaico identity when known, and attach through a daemon-owned PTY. |
 | `mosaico channel send --tag quill-codex --message "…" [--wait 600]` | Message a session and optionally block for a correlated reply. |
 | `mosaico channel send --message "see [report]" --attach report=./report.pdf` | Upload a labeled file to the primary relay's Blossom server and put its public URL in the message. `channel reply` accepts the same repeated `--attach` flag. |
 | `mosaico wait 60 [--channel <channel>]… [--from <member>]` | Block for the next visible chat. With no channel flags, watches every channel the session is active on. |
@@ -221,6 +222,8 @@ the same choice non-interactively. A bare
 `mosaico agents <session-handle>` reattaches a live terminal or resumes that session when its
 harness has a native resume token. `mosaico dispatch` accepts the same harness defaults and
 expanded conflict names, preferring ACP or Codex app-server realization when supported.
+Use `mosaico resume <HARNESS_ID>` when the only identifier at hand belongs to the native harness;
+Mosaico discovers the harness from its local session store rather than guessing from id shape.
 
 The session/turn lifecycle has no hand-run commands — every host drives it through the
 single `mosaico harness hook` entry point, which reads the host's hook payload on stdin

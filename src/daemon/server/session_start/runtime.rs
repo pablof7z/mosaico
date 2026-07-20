@@ -52,6 +52,32 @@ pub(super) fn resolve_existing_pubkey(
     lookup(crate::state::LOCATOR_PID, pid.as_ref())
 }
 
+/// Once a hook identifies an existing pubkey, its persisted logical agent is
+/// authoritative over ambient hook environment such as `MOSAICO_AGENT`.
+pub(super) fn reconcile_agent_from_pubkey(
+    state: &Arc<DaemonState>,
+    params: &mut SessionStartParams,
+    pubkey: Option<&str>,
+) -> Result<Option<crate::state::Session>> {
+    let Some(pubkey) = pubkey else {
+        return Ok(None);
+    };
+    let session = state
+        .with_store(|store| store.get_session(pubkey))?
+        .with_context(|| format!("session_start pubkey {pubkey} has no persisted session"))?;
+    if params.agent != session.agent_slug {
+        tracing::warn!(
+            pubkey,
+            claimed_agent = %params.agent,
+            persisted_agent = %session.agent_slug,
+            "persisted session identity overrides hook agent claim"
+        );
+        params.agent = session.agent_slug.clone();
+        params.profile = None;
+    }
+    Ok(Some(session))
+}
+
 pub(super) fn bind_workspace(
     state: &Arc<DaemonState>,
     cwd: &std::path::Path,
