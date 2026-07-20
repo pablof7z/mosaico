@@ -62,7 +62,7 @@ mod tests {
         ])
         .unwrap();
 
-        match cli.cmd {
+        match cli.cmd.expect("expected dispatch command") {
             crate::cli::args::Cmd::Dispatch(args) => {
                 assert_eq!(args.target, "codex@backend2");
                 assert_eq!(args.workspace, "project2");

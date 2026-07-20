@@ -28,7 +28,7 @@ pub(in crate::cli) async fn attach_or_resume(selector: &str) -> Result<bool> {
     }
     if action == "already-running" {
         bail!(
-            "{handle} is already running without an attachable PTY; use `mosaico sessions` for explicit takeover"
+            "{handle} is already running without an attachable PTY; open `mosaico` for explicit takeover"
         );
     }
     let pty_id = response["pty_id"]

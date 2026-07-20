@@ -202,7 +202,7 @@ agent-only commands and are intentionally hidden from default human CLI help:
 | `mosaico agents list` | List agents available to spawn on demand. |
 | `mosaico my session status <TITLE>` | Change the current agent session's broadcast title/status. |
 | `mosaico who [--live] [--all-workspaces]` | Show the operator-oriented fabric view as terminal text. Hidden from default agent help, but available when invoked explicitly. |
-| `mosaico sessions` | Open the operator session picker. Enter attaches to the highlighted terminal; Shift+K immediately kills it and removes its fabric memberships. |
+| `mosaico` | Open the unified operator home. Existing sessions and launchable agents share one searchable view; Enter performs the row's natural action, while session and agent management keys remain contextual. |
 | `mosaico resume <HARNESS_ID>` | Find a Claude, Codex, Grok, or OpenCode session by its native id, preserve its mapped Mosaico identity when known, and attach through a daemon-owned PTY. |
 | `mosaico channel send --tag quill-codex --message "…" [--wait 600]` | Message a session and optionally block for a correlated reply. |
 | `mosaico channel send --message "see [report]" --attach report=./report.pdf` | Upload a labeled file to the primary relay's Blossom server and put its public URL in the message. `channel reply` accepts the same repeated `--attach` flag. |
@@ -212,10 +212,15 @@ agent-only commands and are intentionally hidden from default human CLI help:
 | `mosaico channel add …` | Add a session by npub/hex (or its current handle), or add a `<pubkey\|npub\|nip05>` human (`--admin`). |
 | `mosaico dispatch <agent[@backend]> --workspace <workspace> --message …` | Start a delegated agent session in an explicit workspace, then p-tag the handoff after ACK. |
 
-Bare `mosaico` and `mosaico agents` open the same colored, searchable selector over every local agent:
-configured agents, unique native profiles, expanded profile/harness conflicts, and available
-harness defaults. Catalog membership is bundle-independent; direct launch resolves a PTY bundle
-and creates its canonical zero-argument policy when none is configured. Start one directly with
+Bare `mosaico` opens the unified operator home: live sessions first, then launchable agents,
+with one cursor and search field. Session rows attach, resume, take over, or kill; agent rows
+launch, edit, delete, and support bulk selection. History and project controls narrow sessions
+without hiding available agents. Non-interactively, it prints Sessions and Start a session sections.
+
+`mosaico agents` remains the direct agent inventory and configuration surface over configured
+agents, unique native profiles, expanded profile/harness conflicts, and harness defaults.
+Catalog membership is bundle-independent; direct launch resolves a PTY bundle and creates its
+canonical zero-argument policy when none is configured. Start one directly with
 `mosaico agents <agent> [prompt]`. A conflicted
 native profile opens a harness radio picker; its expanded name such as `writer-codex` selects
 the same choice non-interactively. A bare

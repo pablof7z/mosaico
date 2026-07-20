@@ -81,7 +81,7 @@ fn removed_channels_alias_stays_unavailable() {
 fn daemon_stop_parses() {
     let cli = Cli::try_parse_from(["mosaico", "daemon", "stop"]).unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected daemon command") {
         Cmd::Daemon(args) => assert!(matches!(args.action, Some(DaemonAction::Stop))),
         _ => panic!("expected daemon stop action"),
     }
@@ -91,7 +91,7 @@ fn daemon_stop_parses() {
 fn daemon_restart_parses() {
     let cli = Cli::try_parse_from(["mosaico", "daemon", "restart"]).unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected daemon command") {
         Cmd::Daemon(args) => assert!(matches!(args.action, Some(DaemonAction::Restart))),
         _ => panic!("expected daemon restart action"),
     }
@@ -100,7 +100,7 @@ fn daemon_restart_parses() {
 #[test]
 fn session_end_self_parses() {
     let cli = Cli::try_parse_from(["mosaico", "my", "session", "end", "--self"]).unwrap();
-    match cli.cmd {
+    match cli.cmd.expect("expected my command") {
         Cmd::My {
             action:
                 MyAction::Session {
@@ -117,7 +117,7 @@ fn session_end_self_parses() {
 #[test]
 fn session_kill_self_parses() {
     let cli = Cli::try_parse_from(["mosaico", "my", "session", "kill", "--self"]).unwrap();
-    match cli.cmd {
+    match cli.cmd.expect("expected my command") {
         Cmd::My {
             action:
                 MyAction::Session {
@@ -157,7 +157,7 @@ fn session_kill_rejects_positional_target_without_self() {
 #[test]
 fn session_pty_wrap_me_self_parses() {
     let cli = Cli::try_parse_from(["mosaico", "my", "session", "pty-wrap-me", "--self"]).unwrap();
-    match cli.cmd {
+    match cli.cmd.expect("expected my command") {
         Cmd::My {
             action:
                 MyAction::Session {
@@ -211,7 +211,7 @@ fn my_session_status_parses_positional_title() {
         "Researching MCP improvements around resource allocation",
     ])
     .unwrap();
-    match cli.cmd {
+    match cli.cmd.expect("expected my command") {
         Cmd::My {
             action:
                 MyAction::Session {
@@ -230,9 +230,9 @@ fn my_session_without_action_parses_as_briefing() {
     let cli = Cli::try_parse_from(["mosaico", "my", "session"]).unwrap();
     assert!(matches!(
         cli.cmd,
-        Cmd::My {
+        Some(Cmd::My {
             action: MyAction::Session { action: None }
-        }
+        })
     ));
 }
 
@@ -252,19 +252,27 @@ fn removed_my_status_stays_unavailable() {
 #[test]
 fn mcp_command_parses() {
     let cli = Cli::try_parse_from(["mosaico", "mcp"]).unwrap();
-    assert!(matches!(cli.cmd, Cmd::Mcp(_)));
+    assert!(matches!(cli.cmd, Some(Cmd::Mcp(_))));
 }
 
 #[test]
 fn mcp_http_command_parses() {
     let cli = Cli::try_parse_from(["mosaico", "mcp", "--http", "--port", "9000"]).unwrap();
-    assert!(matches!(cli.cmd, Cmd::Mcp(_)));
+    assert!(matches!(cli.cmd, Some(Cmd::Mcp(_))));
 }
 
 #[test]
-fn sessions_parses() {
-    let cli = Cli::try_parse_from(["mosaico", "sessions"]).unwrap();
-    assert!(matches!(cli.cmd, Cmd::Sessions));
+fn bare_invocation_has_no_subcommand() {
+    let cli = Cli::try_parse_from(["mosaico"]).unwrap();
+    assert!(cli.cmd.is_none());
+}
+
+#[test]
+fn removed_sessions_command_stays_unavailable() {
+    assert_eq!(
+        parse_err(&["mosaico", "sessions"]).kind(),
+        ErrorKind::InvalidSubcommand
+    );
 }
 
 #[test]

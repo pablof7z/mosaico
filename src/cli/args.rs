@@ -36,6 +36,11 @@ fn unhide_subcommands(cmd: &mut Command) {
 pub fn print_help_contextual() {
     let in_agent = super::agent_env_slug().is_some();
     let mut cmd = command_for_context(in_agent);
+    if !in_agent {
+        cmd = cmd.after_help(
+            "Run `mosaico` without a command to browse sessions and launchable agents together.",
+        );
+    }
     let _ = cmd.print_help();
 }
 
@@ -44,7 +49,7 @@ fn command_for_context(in_agent: bool) -> Command {
     let visible: &[&str] = if in_agent {
         &["wait", "dispatch", "my"]
     } else {
-        &["who", "sessions", "resume", "agents"]
+        &["who", "resume", "agents"]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -66,7 +71,7 @@ pub struct Cli {
     pub all: bool,
 
     #[command(subcommand)]
-    pub(super) cmd: Cmd,
+    pub(super) cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand)]
@@ -80,9 +85,6 @@ pub(super) enum Cmd {
     /// Show the human/operator fabric view.
     #[command(hide = true)]
     Who(WhoArgs),
-    /// Select, attach to, or immediately kill local agent sessions.
-    #[command(hide = true)]
-    Sessions,
     /// Resume a session by its native Claude, Codex, Grok, or OpenCode id.
     #[command(hide = true)]
     Resume(ResumeArgs),

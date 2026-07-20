@@ -23,7 +23,7 @@ fn top_level_wait_parses_repeated_channels_and_author() {
     ])
     .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected wait command") {
         crate::cli::args::Cmd::Wait(args) => {
             assert_eq!(args.timeout_secs, 60);
             assert_eq!(args.channels, ["x", "y"]);
@@ -36,7 +36,7 @@ fn top_level_wait_parses_repeated_channels_and_author() {
 #[test]
 fn top_level_wait_without_channels_parses_as_active_channel_union() {
     let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "wait", "10"]).unwrap();
-    match cli.cmd {
+    match cli.cmd.expect("expected wait command") {
         crate::cli::args::Cmd::Wait(args) => assert!(args.channels.is_empty()),
         _ => panic!("expected wait command"),
     }

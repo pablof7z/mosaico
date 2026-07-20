@@ -172,9 +172,9 @@ tail -n 200 .container-state/claude-acp/mosaico/relay.log
 ```
 
 Do not run `containers/mosaico/run --profile <same-profile> ...` concurrently,
-including `sessions`, `channel`, `debug explain`, or `debug hook-tail`. For a
-PTY run, use the terminal already attached by launch. After stopping the launch
-container, the operator may use `mosaico sessions` or other same-profile tools.
+including a bare `mosaico` invocation, `channel`, `debug explain`, or `debug
+hook-tail`. For a PTY run, use the terminal already attached by launch. After
+stopping the launch container, the operator may use `mosaico` or other same-profile tools.
 
 Send a real tagged mention from a safe sender profile or after the target is
 stopped:

@@ -11,7 +11,7 @@ fn native_resume_parses_with_optional_workspace() {
     ])
     .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected resume command") {
         Cmd::Resume(args) => {
             assert_eq!(args.harness_id, "019f7f5c-575d-7640-958d-e7428d4d77b0");
             assert_eq!(
@@ -44,17 +44,21 @@ fn contextual_help_separates_agent_and_operator_commands() {
 }
 
 #[test]
-fn contextual_help_shows_resume_to_humans() {
+fn contextual_help_shows_current_operator_commands_to_humans() {
     let help = super::super::command_for_context(false)
         .render_long_help()
         .to_string();
 
-    for visible in ["who", "sessions", "resume"] {
+    for visible in ["who", "resume", "agents"] {
         assert!(
             help.contains(&format!("  {visible}")),
             "human help omitted {visible}:\n{help}"
         );
     }
+    assert!(
+        !help.contains("  sessions"),
+        "removed command leaked into help:\n{help}"
+    );
     for hidden in ["wait", "dispatch", "my"] {
         assert!(
             !help.contains(&format!("  {hidden}")),

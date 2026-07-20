@@ -19,14 +19,14 @@ impl PickerState {
                 None
             }
             KeyCode::Char('y' | 'Y') => match confirmation {
-                Confirmation::TakeOver(choice) if self.choices[choice].row.turn_open => {
+                Confirmation::TakeOver(choice) if self.session(choice).row.turn_open => {
                     self.confirmation = Some(Confirmation::InterruptWorking(choice));
                     None
                 }
                 Confirmation::TakeOver(choice) => Some(PickerExit::TakeOver(choice, None)),
                 Confirmation::InterruptWorking(choice) => Some(PickerExit::TakeOver(
                     choice,
-                    Some(self.choices[choice].row.turn_count),
+                    Some(self.session(choice).row.turn_count),
                 )),
             },
             _ => None,
@@ -37,11 +37,11 @@ impl PickerState {
         match self.confirmation? {
             Confirmation::TakeOver(choice) => Some(format!(
                 "[y] take over  [n] cancel · Kill @{}, resume it in a managed PTY, and attach; terminal-only scrollback is lost",
-                self.choices[choice].row.handle
+                self.session(choice).row.handle
             )),
             Confirmation::InterruptWorking(choice) => Some(format!(
                 "[y] interrupt  [n] cancel · No end-of-turn hook received from @{}; it may still be working",
-                self.choices[choice].row.handle
+                self.session(choice).row.handle
             )),
         }
     }

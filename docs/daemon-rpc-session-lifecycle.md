@@ -102,7 +102,7 @@ up the native locator across every harness. A mapped locator resumes the exact
 persisted pubkey, signer, agent slug, workspace, and channel; current agent
 profile configuration contributes no identity authority. A live PTY attaches,
 while a running non-PTY runtime refuses to double-spawn and directs explicit
-takeover to `mosaico sessions`.
+takeover to the bare `mosaico` operator home.
 
 An unmapped id is adopted only when authoritative local Claude, Codex, Grok, or
 OpenCode storage identifies one harness. Its recorded cwd selects the workspace

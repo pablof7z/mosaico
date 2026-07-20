@@ -73,17 +73,15 @@ fn bare_invocation_without_installation_shows_install_guide() {
 }
 
 #[test]
-fn bare_invocation_with_installation_is_exactly_agents() {
-    let bare_home = installed_codex_home();
-    let agents_home = installed_codex_home();
-    let bare = isolated_command(bare_home.path(), &[]);
-    let agents = isolated_command(agents_home.path(), &["agents"]);
+fn bare_invocation_with_installation_shows_sessions_and_agents() {
+    let home = installed_codex_home();
+    let bare = isolated_command(home.path(), &[]);
 
     assert!(bare.status.success(), "bare mosaico failed: {bare:?}");
-    assert!(agents.status.success(), "mosaico agents failed: {agents:?}");
-    assert_eq!(bare.stdout, agents.stdout);
-    assert_eq!(bare.stderr, agents.stderr);
-    assert!(String::from_utf8_lossy(&bare.stdout).contains("codex"));
+    let stdout = String::from_utf8_lossy(&bare.stdout);
+    assert!(stdout.contains("Sessions"), "{stdout}");
+    assert!(stdout.contains("Start a session"), "{stdout}");
+    assert!(stdout.contains("codex"), "{stdout}");
 }
 
 #[test]
@@ -99,8 +97,9 @@ fn removed_launch_subcommand_is_rejected() {
 fn explicit_top_level_human_help_remains_contextual() {
     let help = contextual_help(&["--help"], false);
 
-    assert!(help.contains("  sessions"));
+    assert!(!help.contains("  sessions"));
     assert!(help.contains("  agents"));
+    assert!(help.contains("without a command"));
     assert!(!help.contains("  mgmt"));
     assert!(!help.contains("  publish"));
 }

@@ -68,7 +68,7 @@ mod tests {
         ])
         .expect("harness statusline parses");
 
-        match cli.cmd {
+        match cli.cmd.expect("expected harness command") {
             crate::cli::args::Cmd::Harness {
                 action: HarnessAction::Statusline { session },
             } => {

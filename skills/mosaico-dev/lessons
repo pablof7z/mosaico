@@ -40,7 +40,7 @@ down status or hook timeouts. This applies to all daemon-backed commands,
 including:
 
 ```text
-mosaico sessions
+mosaico
 mosaico channel ...
 mosaico debug explain ...
 mosaico debug hook-tail

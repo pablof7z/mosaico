@@ -89,3 +89,24 @@ fn implicit_rows_remain_bundle_independent() {
         assert!(row.transport.is_none());
     }
 }
+
+#[test]
+fn summary_is_single_line_and_bounded() {
+    let row = AgentRow {
+        slug: "reviewer".into(),
+        agent_slug: "reviewer".into(),
+        description: "First line\\n\\n<example>\nA very long native profile prompt follows".into(),
+        harness: Harness::Codex,
+        bundle: None,
+        transport: None,
+        profile: None,
+        per_session_key: None,
+        kind: AgentKind::NativeProfile,
+        native_profile: None,
+    };
+
+    let summary = row.summary(32);
+
+    assert!(summary.chars().count() <= 32);
+    assert_eq!(summary, "First line <example> A very…");
+}

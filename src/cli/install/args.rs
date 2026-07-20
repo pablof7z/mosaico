@@ -55,7 +55,7 @@ mod tests {
         ])
         .expect("install flags parse");
 
-        match cli.cmd {
+        match cli.cmd.expect("expected install command") {
             crate::cli::args::Cmd::Install(args) => {
                 assert_eq!(args.harness.as_deref(), Some("codex,claude-code"));
                 assert!(args.dry_run);

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn agents_command_parses_without_an_action() {
     let cli = Cli::try_parse_from(["mosaico", "agents"]).unwrap();
-    assert!(matches!(cli.cmd, Cmd::Agents(_)));
+    assert!(matches!(cli.cmd, Some(Cmd::Agents(_))));
 }
 
 #[test]

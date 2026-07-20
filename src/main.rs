@@ -3,7 +3,7 @@ use mosaico::cli::{self, Cli};
 use mosaico::command_forensics::CommandCallLog;
 
 fn main() {
-    let mut argv = std::env::args().collect::<Vec<_>>();
+    let argv = std::env::args().collect::<Vec<_>>();
     // Harness callbacks are latency-sensitive and explicitly fail open. When
     // no daemon socket exists, return before Clap, Tokio, TLS, hook forensics,
     // or process discovery page in the full application. Require the complete
@@ -35,12 +35,12 @@ fn main() {
         std::process::exit(0);
     }
 
-    // Bare mosaico is the primary operator flow: route it exactly through the
-    // canonical agents command when a harness integration exists. A binary with
-    // no installed integration gives setup guidance without starting a daemon.
+    // Bare mosaico is the primary operator flow. A binary with no installed
+    // integration gives setup guidance without starting a daemon; an installed
+    // binary falls through to the commandless operator home.
     if argv.len() == 1 {
         match cli::install::route_bare_invocation() {
-            Ok(true) => argv.push("agents".to_string()),
+            Ok(true) => {}
             Ok(false) => return,
             Err(error) => {
                 command_log.finish_result(&Err(anyhow::anyhow!(error.to_string())));

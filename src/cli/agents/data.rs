@@ -3,26 +3,60 @@ use crate::agent_inventory::AgentSource;
 use crate::harness::Transport;
 use crate::session::Harness;
 use anyhow::Result;
+use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AgentKind {
+pub(in crate::cli) enum AgentKind {
     Configured,
     NativeProfile,
     Generic,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct AgentRow {
-    pub(super) slug: String,
-    pub(super) agent_slug: String,
-    pub(super) description: String,
-    pub(super) harness: Harness,
-    pub(super) bundle: Option<String>,
-    pub(super) transport: Option<Transport>,
-    pub(super) profile: Option<String>,
-    pub(super) per_session_key: Option<bool>,
-    pub(super) kind: AgentKind,
-    pub(super) native_profile: Option<NativeAgentProfile>,
+pub(in crate::cli) struct AgentRow {
+    pub(in crate::cli) slug: String,
+    pub(in crate::cli) agent_slug: String,
+    pub(in crate::cli) description: String,
+    pub(in crate::cli) harness: Harness,
+    pub(in crate::cli) bundle: Option<String>,
+    pub(in crate::cli) transport: Option<Transport>,
+    pub(in crate::cli) profile: Option<String>,
+    pub(in crate::cli) per_session_key: Option<bool>,
+    pub(in crate::cli) kind: AgentKind,
+    pub(in crate::cli) native_profile: Option<NativeAgentProfile>,
+}
+
+impl AgentRow {
+    pub(in crate::cli) fn fuzzy_score(&self, input: &str) -> Option<i64> {
+        if input.is_empty() {
+            return Some(0);
+        }
+        let matcher = SkimMatcherV2::default().ignore_case();
+        [
+            (self.slug.as_str(), 4_000),
+            (self.description.as_str(), 2_000),
+            (harness_name(self.harness), 750),
+        ]
+        .into_iter()
+        .filter_map(|(field, priority)| {
+            let score = matcher.fuzzy_match(field, input)?;
+            let exact = i64::from(field.to_lowercase().contains(&input.to_lowercase())) * 10_000;
+            Some(score + exact + priority)
+        })
+        .max()
+    }
+
+    pub(in crate::cli) fn has_configured(&self) -> bool {
+        self.kind == AgentKind::Configured
+    }
+
+    pub(in crate::cli) fn has_native_profile(&self) -> bool {
+        self.native_profile.is_some()
+    }
+
+    pub(in crate::cli) fn summary(&self, max_chars: usize) -> String {
+        crate::agent_about::compact(&self.description, max_chars)
+    }
 }
 
 pub(super) fn load() -> Result<Vec<AgentRow>> {
@@ -84,7 +118,7 @@ fn project(agent: crate::agent_inventory::Agent) -> AgentRow {
     }
 }
 
-pub(super) fn harness_name(harness: Harness) -> &'static str {
+pub(in crate::cli) fn harness_name(harness: Harness) -> &'static str {
     match harness {
         Harness::ClaudeCode => "Claude",
         Harness::Codex => "Codex",

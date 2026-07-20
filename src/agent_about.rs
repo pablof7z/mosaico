@@ -1,4 +1,4 @@
-//! Bounded agent descriptions for agent-facing context.
+//! Bounded agent descriptions for context and operator surfaces.
 
 pub(crate) const AGENT_ABOUT_MAX_CHARS: usize = 200;
 
@@ -8,6 +8,14 @@ pub(crate) const AGENT_ABOUT_MAX_CHARS: usize = 200;
 /// usage examples. Those remain intact in the source profile; agent-facing
 /// roster views need only a concise routing hint.
 pub(crate) fn for_injection(value: &str) -> String {
+    compact(value, AGENT_ABOUT_MAX_CHARS)
+}
+
+/// Normalize an agent description and bound it to a caller-owned display size.
+pub(crate) fn compact(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
     let compact = value
         .replace("\\r\\n", " ")
         .replace("\\n", " ")
@@ -16,17 +24,14 @@ pub(crate) fn for_injection(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    if compact.chars().count() <= AGENT_ABOUT_MAX_CHARS {
+    if compact.chars().count() <= max_chars {
         return compact;
     }
 
-    let prefix = compact
-        .chars()
-        .take(AGENT_ABOUT_MAX_CHARS - 1)
-        .collect::<String>();
+    let prefix = compact.chars().take(max_chars - 1).collect::<String>();
     let boundary = prefix
         .rfind(' ')
-        .filter(|index| prefix[..*index].chars().count() >= AGENT_ABOUT_MAX_CHARS / 2);
+        .filter(|index| prefix[..*index].chars().count() >= max_chars / 2);
     let kept = boundary.map_or(prefix.trim_end(), |index| &prefix[..index]);
     format!("{kept}…")
 }

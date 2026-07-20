@@ -97,7 +97,7 @@ mod tests {
 
     fn agents(args: &[&str]) -> AgentsArgs {
         let cli = crate::cli::args::Cli::try_parse_from(args).unwrap();
-        match cli.cmd {
+        match cli.cmd.expect("expected agents command") {
             crate::cli::args::Cmd::Agents(args) => args,
             _ => panic!("expected agents command"),
         }

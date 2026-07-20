@@ -88,33 +88,33 @@ pub async fn run(cli: Cli) -> Result<()> {
     // restart a daemon the operator explicitly stopped. `daemon stop` re-arms it
     // unconditionally, so clearing first is harmless.
     if !matches!(
-        cli.cmd,
-        Cmd::Harness { ref action } if action.is_hook()
+        cli.cmd.as_ref(),
+        Some(Cmd::Harness { action }) if action.is_hook()
     ) && crate::daemon::is_inhibited()
     {
         crate::daemon::clear_inhibit();
         eprintln!("[mosaico] stop inhibit cleared");
     }
     match cli.cmd {
-        Cmd::Who(args) => who::who(args),
-        Cmd::Sessions => interactive::session_picker::sessions().await,
-        Cmd::Resume(args) => resume::resume(args).await,
-        Cmd::Channel { action } => admin::channels(action).await,
-        Cmd::Wait(args) => messaging::wait(args).await,
-        Cmd::Agents(args) => agents::agents(args).await,
-        Cmd::Dispatch(args) => dispatch::dispatch(args).await,
-        Cmd::Harness { action } => harness::harness(action).await,
-        Cmd::Mcp(args) => mcp::mcp(args).await,
-        Cmd::My { action } => my::my(action),
-        Cmd::Daemon(args) => match args.action {
+        None => interactive::session_picker::home().await,
+        Some(Cmd::Who(args)) => who::who(args),
+        Some(Cmd::Resume(args)) => resume::resume(args).await,
+        Some(Cmd::Channel { action }) => admin::channels(action).await,
+        Some(Cmd::Wait(args)) => messaging::wait(args).await,
+        Some(Cmd::Agents(args)) => agents::agents(args).await,
+        Some(Cmd::Dispatch(args)) => dispatch::dispatch(args).await,
+        Some(Cmd::Harness { action }) => harness::harness(action).await,
+        Some(Cmd::Mcp(args)) => mcp::mcp(args).await,
+        Some(Cmd::My { action }) => my::my(action),
+        Some(Cmd::Daemon(args)) => match args.action {
             Some(DaemonAction::Restart) => restart_daemon().await,
             Some(DaemonAction::Stop) => stop_daemon(),
             None => crate::daemon::server::run().await,
         },
-        Cmd::Debug { action } => debug::debug(action).await,
-        Cmd::PtySupervisor(args) => pty::pty_supervisor(args),
-        Cmd::Install(args) => install::install(args).await,
-        Cmd::AcpSmoke(args) => acp_smoke::acp_smoke(args).await,
+        Some(Cmd::Debug { action }) => debug::debug(action).await,
+        Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),
+        Some(Cmd::Install(args)) => install::install(args).await,
+        Some(Cmd::AcpSmoke(args)) => acp_smoke::acp_smoke(args).await,
     }
 }
 

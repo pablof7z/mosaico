@@ -38,7 +38,7 @@ mod tests {
             crate::cli::args::Cli::try_parse_from(["mosaico", "who", "--all-workspaces", "--live"])
                 .expect("who parses");
 
-        match cli.cmd {
+        match cli.cmd.expect("expected who command") {
             crate::cli::args::Cmd::Who(args) => {
                 assert!(args.all_workspaces);
                 assert!(args.live);
@@ -63,7 +63,7 @@ mod tests {
     fn who_expired_parses() {
         let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "who", "--expired"])
             .expect("who --expired parses");
-        match cli.cmd {
+        match cli.cmd.expect("expected who command") {
             crate::cli::args::Cmd::Who(args) => assert!(args.expired),
             _ => panic!("expected who command"),
         }

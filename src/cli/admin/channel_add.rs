@@ -123,6 +123,7 @@ mod tests {
         match Cli::try_parse_from(split(line))
             .expect("channel add parses")
             .cmd
+            .expect("expected channel command")
         {
             Cmd::Channel {
                 action: ChannelAction::Add(a),

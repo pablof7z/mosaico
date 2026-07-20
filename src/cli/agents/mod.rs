@@ -10,7 +10,7 @@ use std::io::IsTerminal as _;
 
 use args::AgentAction;
 pub(in crate::cli) use args::AgentsArgs;
-use data::{AgentKind, AgentRow};
+pub(in crate::cli) use data::{harness_name, AgentKind, AgentRow};
 
 pub(in crate::cli) async fn agents(args: AgentsArgs) -> Result<()> {
     if args.action.is_none() {
@@ -36,17 +36,11 @@ async fn interactive() -> Result<()> {
     }
     let mut cursor = 0usize;
     loop {
-        let mut rows =
-            usage::ordered_rows(data::load()?, &usage::fetch(crate::util::now_secs()).await?);
+        let rows = ordered_inventory().await?;
         if rows.is_empty() {
             println!("No configured or installed agents.");
             return Ok(());
         }
-        // Native-profile-only agents (no mosaico agent.json yet) sort after
-        // everything else; `render::draw` uses this same grouping to draw a
-        // separating blank line. `sort_by_key` is stable, so ordering within
-        // each group is otherwise untouched.
-        rows.sort_by_key(|row| row.kind == AgentKind::NativeProfile);
         let picker_rows = rows.iter().map(picker_row).collect();
         match crate::cli::interactive::agent_picker::select(picker_rows, cursor)? {
             crate::cli::interactive::agent_picker::PickerAction::Launch(index) => {
@@ -76,6 +70,28 @@ async fn interactive() -> Result<()> {
             crate::cli::interactive::agent_picker::PickerAction::Cancel => return Ok(()),
         }
     }
+}
+
+pub(in crate::cli) async fn ordered_inventory() -> Result<Vec<AgentRow>> {
+    let mut rows =
+        usage::ordered_rows(data::load()?, &usage::fetch(crate::util::now_secs()).await?);
+    // Native-profile-only agents (no Mosaico agent config yet) come after
+    // configured and generic launch targets. The sort is stable within groups.
+    rows.sort_by_key(|row| row.kind == AgentKind::NativeProfile);
+    Ok(rows)
+}
+
+pub(in crate::cli) async fn edit_inventory_row(row: &AgentRow) -> Result<()> {
+    editor::edit(row).await?;
+    schedule_roster_refresh(None).await;
+    Ok(())
+}
+
+pub(in crate::cli) async fn delete_inventory_row(
+    row: &AgentRow,
+    scope: crate::cli::interactive::agent_picker::DeleteScope,
+) -> Result<()> {
+    delete::delete(row, scope).await
 }
 
 fn picker_row(row: &AgentRow) -> crate::cli::interactive::agent_picker::AgentPickerRow {

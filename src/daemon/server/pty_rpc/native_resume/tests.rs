@@ -26,5 +26,5 @@ async fn running_non_pty_session_refuses_a_second_process() {
         .unwrap_err();
 
     assert!(error.to_string().contains("already running"));
-    assert!(error.to_string().contains("mosaico sessions"));
+    assert!(error.to_string().contains("open `mosaico`"));
 }

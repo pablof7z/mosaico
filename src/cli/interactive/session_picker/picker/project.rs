@@ -1,4 +1,4 @@
-use super::super::SessionChoice;
+use super::super::HomeChoice;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,11 +18,15 @@ pub(super) struct ProjectPicker {
 }
 
 impl ProjectPicker {
-    pub(super) fn new(choices: &[SessionChoice], selected: Option<&str>) -> Self {
+    pub(super) fn new(choices: &[HomeChoice], selected: Option<&str>) -> Self {
         let mut projects = BTreeMap::new();
         for workspace in choices
             .iter()
-            .flat_map(|choice| choice.row.workspaces.iter())
+            .filter_map(|choice| match choice {
+                HomeChoice::Session(choice) => Some(&choice.row),
+                HomeChoice::Agent(_) => None,
+            })
+            .flat_map(|row| row.workspaces.iter())
         {
             projects
                 .entry(workspace.id.clone())

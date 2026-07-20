@@ -190,14 +190,14 @@ tail -n 300 "${RELAY_LOG}"
 ```
 
 Do not run another `containers/mosaico/run --profile <live-profile>` command,
-including `sessions`, `channel`, `debug explain`, or `debug hook-tail`. A second
-daemon can replace the socket and destroy the live agent's delivery path. Stop
-the launched container first if same-profile CLI inspection is required.
+including a bare `mosaico` invocation, `channel`, `debug explain`, or `debug
+hook-tail`. A second daemon can replace the socket and destroy the live agent's
+delivery path. Stop the launched container first if same-profile CLI inspection is required.
 
 After stopping it, supported diagnostics include:
 
 ```bash
-bash containers/mosaico/run --profile claude mosaico sessions
+bash containers/mosaico/run --profile claude mosaico
 bash containers/mosaico/run --profile claude mosaico debug explain event:<id>
 bash containers/mosaico/run --profile claude mosaico debug hook-tail
 ```

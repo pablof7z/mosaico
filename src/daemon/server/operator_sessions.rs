@@ -1,4 +1,4 @@
-//! Canonical local-session projection for the operator session picker.
+//! Canonical local-session projection for the unified operator home.
 
 use super::*;
 use std::collections::{BTreeMap, HashMap, HashSet};

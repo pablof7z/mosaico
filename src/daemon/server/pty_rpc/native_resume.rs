@@ -113,7 +113,7 @@ async fn resume_mapped(
     }
     anyhow::ensure!(
         !rec.is_running(),
-        "@{handle} is already running without an attachable PTY; use `mosaico sessions` for explicit takeover"
+        "@{handle} is already running without an attachable PTY; open `mosaico` for explicit takeover"
     );
     let root = state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_session(rec)

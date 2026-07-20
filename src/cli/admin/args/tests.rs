@@ -34,7 +34,7 @@ fn channel_list_workspace_flags_parse() {
         "mosaico",
     ])
     .expect("channel list --workspace parses");
-    match one.cmd {
+    match one.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::List {
@@ -51,7 +51,7 @@ fn channel_list_workspace_flags_parse() {
     let all =
         crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "list", "--all-workspaces"])
             .expect("channel list --all-workspaces parses");
-    match all.cmd {
+    match all.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::List {
@@ -104,7 +104,7 @@ fn channel_create_parses_hierarchical_path() {
     ])
     .expect("channel create parses with positional path");
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Create {
@@ -128,7 +128,7 @@ fn channel_archive_parses_channel_reference() {
     let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "archive", "ops"])
         .expect("channel archive parses");
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Archive {
@@ -152,7 +152,7 @@ fn channel_switch_accepts_explicit_session_anchor() {
     ])
     .expect("channel switch parses with explicit session");
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Switch {
@@ -185,7 +185,7 @@ fn channel_edit_about_parses() {
     ])
     .expect("channel edit parses");
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Edit {
@@ -235,7 +235,7 @@ fn channel_read_channel_still_parses() {
         crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "ops"])
             .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action: ChannelAction::Read { channel, .. },
         } => assert_eq!(channel.as_deref(), Some("ops")),
@@ -266,7 +266,7 @@ fn channel_reply_parses_short_id_and_message_flag() {
     ])
     .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Reply {
@@ -300,7 +300,7 @@ fn channel_react_parses_id_emoji_and_session() {
     ])
     .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action: ChannelAction::React { id, emoji, session },
         } => {

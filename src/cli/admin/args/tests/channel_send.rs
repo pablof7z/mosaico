@@ -26,7 +26,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
     ])
     .unwrap();
 
-    match cli.cmd {
+    match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::Send {
