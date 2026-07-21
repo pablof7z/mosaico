@@ -19,6 +19,7 @@ fn detect_with(home: &Path, path: Option<&std::ffi::OsStr>) -> Vec<Harness> {
         (Harness::Opencode, "opencode"),
         (Harness::Grok, "grok"),
         (Harness::Goose, "goose"),
+        (Harness::Hermes, "hermes"),
     ];
     candidates
         .into_iter()
@@ -39,7 +40,7 @@ mod tests {
         std::fs::create_dir(root.path().join(".codex")).unwrap();
         let bin = root.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
-        for executable in ["codex", "opencode", "goose"] {
+        for executable in ["codex", "opencode", "goose", "hermes"] {
             let path = bin.join(executable);
             std::fs::write(&path, "#!/bin/sh\n").unwrap();
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -47,7 +48,12 @@ mod tests {
 
         assert_eq!(
             detect_with(root.path(), Some(bin.as_os_str())),
-            [Harness::Codex, Harness::Opencode, Harness::Goose]
+            [
+                Harness::Codex,
+                Harness::Opencode,
+                Harness::Goose,
+                Harness::Hermes,
+            ]
         );
     }
 

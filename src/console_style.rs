@@ -11,6 +11,7 @@ pub(crate) fn harness_color_index(harness: Harness) -> u8 {
         Harness::Opencode => 141,
         Harness::Grok => 75,
         Harness::Goose => 204,
+        Harness::Hermes => 214,
         Harness::Unknown => 245,
     }
 }
@@ -76,10 +77,11 @@ mod tests {
     #[test]
     fn harness_colors_are_fixed_semantic_colors() {
         assert_eq!(harness_color_index(Harness::Codex), 45);
-        assert_eq!(harness_color_index(Harness::Codex), 45);
+        assert_eq!(harness_color_index(Harness::Goose), 204);
         assert_ne!(
             harness_color_index(Harness::Codex),
             harness_color_index(Harness::ClaudeCode)
         );
+        assert_eq!(harness_color_index(Harness::Hermes), 214);
     }
 }

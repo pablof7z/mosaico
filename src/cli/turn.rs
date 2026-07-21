@@ -13,6 +13,7 @@ use super::*;
 pub(super) enum EmitFormat {
     PlainText,
     HookSpecificAdditionalContext { hook_event_name: &'static str },
+    ContextObject,
 }
 
 pub(super) struct HookContextResult {
@@ -173,6 +174,7 @@ fn render_context_output(content: &str, emit: EmitFormat) -> String {
             });
             obj.to_string()
         }
+        EmitFormat::ContextObject => serde_json::json!({ "context": content }).to_string(),
     }
 }
 
@@ -225,5 +227,12 @@ mod tests {
             render_context_output("fabric snapshot", EmitFormat::PlainText),
             "fabric snapshot"
         );
+    }
+
+    #[test]
+    fn context_object_is_consumable_by_hermes_plugins() {
+        let rendered = render_context_output("fabric snapshot", EmitFormat::ContextObject);
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed, serde_json::json!({"context": "fabric snapshot"}));
     }
 }

@@ -188,7 +188,7 @@ mod harness_serde {
         let raw = String::deserialize(d)?;
         match Harness::from_str(&raw) {
             Harness::Unknown => Err(serde::de::Error::custom(format!(
-                "unknown harness {raw:?} (expected claude-code|codex|opencode|grok|goose)"
+                "unknown harness {raw:?} (expected claude-code|codex|opencode|grok|goose|hermes)"
             ))),
             h => Ok(h),
         }

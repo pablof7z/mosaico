@@ -43,7 +43,7 @@ pub enum ResumeMechanism {
     /// Codex app-server `thread/resume` (or `thread/fork`) with the thread id.
     AppServerThreadResume,
     /// PTY: append `<flag> <id>` to argv. claude `--resume`,
-    /// opencode `--session`, grok `--resume`.
+    /// opencode `--session`, grok/hermes `--resume`.
     AppendFlag(&'static str),
     /// PTY: insert `<sub> <id>` right after argv[0]. codex `resume`.
     Subcommand(&'static str),
@@ -78,6 +78,9 @@ pub enum TurnModel {
 pub enum ProfileMechanism {
     /// Append the harness-native named-profile selector.
     CliFlag { flag: &'static str },
+    /// Insert a top-level CLI profile selector immediately after argv[0].
+    /// Hermes requires this placement before its `acp` subcommand.
+    CliGlobalFlag { flag: &'static str },
     /// Codex app-server rejects `--profile`; compose the named config into an
     /// isolated CODEX_HOME instead.
     CodexAppServer,
@@ -173,6 +176,27 @@ static DRIVERS: &[HarnessDriver] = &[
         steer: SteerPrimitive::None,
         turn: TurnModel::RpcTurn,
         profile: ProfileMechanism::Unsupported,
+    },
+    // ── Hermes ───────────────────────────────────────────────────────────
+    HarnessDriver {
+        harness: Harness::Hermes,
+        transport: Transport::Acp,
+        base_argv: &["hermes", "acp"],
+        base_env: &[],
+        resume: ResumeMechanism::AcpSessionLoad,
+        steer: SteerPrimitive::None,
+        turn: TurnModel::RpcTurn,
+        profile: ProfileMechanism::CliGlobalFlag { flag: "--profile" },
+    },
+    HarnessDriver {
+        harness: Harness::Hermes,
+        transport: Transport::Pty,
+        base_argv: &["hermes"],
+        base_env: &[],
+        resume: ResumeMechanism::AppendFlag("--resume"),
+        steer: SteerPrimitive::PtyPaste,
+        turn: TurnModel::InteractivePty,
+        profile: ProfileMechanism::CliGlobalFlag { flag: "--profile" },
     },
 ];
 

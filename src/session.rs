@@ -17,6 +17,7 @@ pub enum Harness {
     Opencode,
     Grok,
     Goose,
+    Hermes,
     Unknown,
 }
 
@@ -28,6 +29,7 @@ impl Harness {
             Harness::Opencode => "opencode",
             Harness::Grok => "grok",
             Harness::Goose => "goose",
+            Harness::Hermes => "hermes",
             Harness::Unknown => "unknown",
         }
     }
@@ -40,6 +42,7 @@ impl Harness {
             "opencode" => Harness::Opencode,
             "grok" => Harness::Grok,
             "goose" => Harness::Goose,
+            "hermes" => Harness::Hermes,
             _ => Harness::Unknown,
         }
     }
@@ -52,6 +55,7 @@ impl Harness {
             Harness::Opencode => "opencode",
             Harness::Grok => "grok",
             Harness::Goose => "goose",
+            Harness::Hermes => "hermes",
             Harness::Unknown => "unknown",
         }
     }

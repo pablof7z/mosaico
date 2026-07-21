@@ -22,6 +22,7 @@ fn every_canonical_harness_has_a_driver() {
         Harness::Opencode,
         Harness::Grok,
         Harness::Goose,
+        Harness::Hermes,
     ] {
         assert!(
             driver::all().iter().any(|driver| driver.harness == harness),
@@ -38,6 +39,7 @@ fn invalid_driver_cells_are_absent() {
     assert!(driver::lookup(Harness::Opencode, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Goose, Transport::Pty).is_none());
     assert!(driver::lookup(Harness::Goose, Transport::AppServer).is_none());
+    assert!(driver::lookup(Harness::Hermes, Transport::AppServer).is_none());
 }
 
 #[test]
@@ -61,6 +63,43 @@ fn goose_bundle_round_trips_only_its_canonical_name() {
         "goose"
     );
     assert!(resolve_with(&cfg, "goose-acp", Some("profile"), scratch().path()).is_err());
+}
+
+#[test]
+fn hermes_pty_places_profile_before_bundle_args() {
+    let cfg: HarnessesConfig = serde_json::from_str(
+        r#"{"hermes-fast":{"harness":"hermes","transport":"pty","args":["--model","openrouter/test"]}}"#,
+    )
+    .unwrap();
+    let resolved = resolve_with(&cfg, "hermes-fast", Some("reviewer"), scratch().path()).unwrap();
+    assert_eq!(
+        resolved.base_argv,
+        [
+            "hermes",
+            "--profile",
+            "reviewer",
+            "--model",
+            "openrouter/test"
+        ]
+    );
+    assert_eq!(
+        resolved.driver.resume,
+        ResumeMechanism::AppendFlag("--resume")
+    );
+}
+
+#[test]
+fn hermes_acp_places_profile_before_subcommand() {
+    let cfg: HarnessesConfig = serde_json::from_str(
+        r#"{"hermes-rpc":{"harness":"hermes","transport":"acp","args":["--accept-hooks"]}}"#,
+    )
+    .unwrap();
+    let resolved = resolve_with(&cfg, "hermes-rpc", Some("reviewer"), scratch().path()).unwrap();
+    assert_eq!(
+        resolved.base_argv,
+        ["hermes", "--profile", "reviewer", "acp", "--accept-hooks"]
+    );
+    assert_eq!(resolved.driver.resume, ResumeMechanism::AcpSessionLoad);
 }
 
 #[test]

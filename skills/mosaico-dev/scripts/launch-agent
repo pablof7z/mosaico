@@ -19,6 +19,7 @@ backend_command_for_profile() {
     codex*) echo "codex" ;;
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
+    hermes*) echo "hermes" ;;
     opencode-ollama*) echo "opencode-ollama" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
@@ -31,6 +32,7 @@ agent_slug_for_profile() {
     codex*) echo "codex" ;;
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
+    hermes*) echo "hermes" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
   esac

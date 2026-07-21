@@ -107,111 +107,9 @@ DIRECT_TAIL="$(printf '%s\n' "${DIRECT_OUTPUT}" \
 assert_eq $'<claude>\n<--model>\n<haiku>' "${DIRECT_TAIL}" \
   'direct mode still forwards provider arguments'
 
-mkdir -p "${TMP}/writer-bin" "${TMP}/writer-work/keys"
-printf 'nsec-relay-owner\n' >"${TMP}/writer-work/keys/relay-owner.nsec"
-cat >"${TMP}/writer-bin/nak" <<'EOF'
-#!/bin/sh
-if [ "${1:-} ${2:-}" = 'key generate' ]; then
-  count=0
-  [ ! -f "${NAK_COUNTER_FILE}" ] || count="$(cat "${NAK_COUNTER_FILE}")"
-  count=$((count + 1))
-  printf '%s\n' "${count}" >"${NAK_COUNTER_FILE}"
-  printf 'nsec-backend-%s\n' "${count}"
-elif [ "${1:-} ${2:-}" = 'key public' ]; then
-  case "${3:-}" in
-    nsec-relay-owner) printf 'pub-relay-owner\n' ;;
-    nsec-backend-*) printf 'pub-backend-%s\n' "${3##*-}" ;;
-    *) exit 2 ;;
-  esac
-else
-  exit 2
-fi
-EOF
-chmod +x "${TMP}/writer-bin/nak"
-WRITER_ENV="${TMP}/writer.env"
-{
-  printf 'RUN_ID=%q\n' test-run
-  printf 'WORK_DIR=%q\n' "${TMP}/writer-work"
-  printf 'RELAY_WS=%q\n' 'ws://127.0.0.1:19888'
-  printf 'OWNER_SK_FILE=%q\n' "${TMP}/writer-work/keys/relay-owner.nsec"
-} >"${WRITER_ENV}"
-WRITER_OUTPUT="$(
-  PATH="${TMP}/writer-bin:${PATH}" \
-    NAK_COUNTER_FILE="${TMP}/nak-counter" \
-    MOSAICO_DEV_STATE_ROOT="${TMP}/container-state" \
-    MOSAICO_DEV_CODEX_CONFIG_PROFILE=planner \
-    MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON='["--strict-config"]' \
-    bash "${SKILL}/scripts/write-container-profiles" "${WRITER_ENV}" \
-      claude-acp codex-app-server grok goose-acp codex-ollama opencode-ollama
-)"
-
-for profile in claude-acp codex-app-server grok goose-acp codex-ollama opencode-ollama; do
-  HARNESSES="${TMP}/container-state/${profile}/mosaico/harnesses.json"
-  AGENT="$(find "${TMP}/container-state/${profile}/mosaico/agents" -type f -name '*.json')"
-  CONFIG="${TMP}/container-state/${profile}/mosaico/config.json"
-  assert_json 'all(.[]; ((keys - ["args","harness","transport"]) | length) == 0)' \
-    "${HARNESSES}" "${profile} bundle contains only current fields"
-  assert_json 'has("slug") and has("created_at") and .perSessionKey == true and has("harness") and (has("secret_key") | not) and (has("public_key") | not)' \
-    "${AGENT}" "${profile} agent is keyless"
-  assert_json '.userNsec == "nsec-relay-owner" and .whitelistedPubkeys == ["pub-relay-owner"] and (.mosaicoPrivateKey != .userNsec)' \
-    "${CONFIG}" "${profile} separates human and backend keys"
-done
-
-assert_json '.["claude-acp"] == {"harness":"claude-code","transport":"acp"}' \
-  "${TMP}/container-state/claude-acp/mosaico/harnesses.json" \
-  'structured bundle defaults to no args'
-assert_json '.["codex-app-server"].args == ["--strict-config"]' \
-  "${TMP}/container-state/codex-app-server/mosaico/harnesses.json" \
-  'per-profile args JSON overrides defaults'
-assert_json '.["grok"] == {"harness":"grok","transport":"pty"}' \
-  "${TMP}/container-state/grok/mosaico/harnesses.json" \
-  'Grok profile emits a native PTY bundle'
-assert_json '.["goose-acp"] == {"harness":"goose","transport":"acp"}' "${TMP}/container-state/goose-acp/mosaico/harnesses.json" 'Goose profile emits a native ACP bundle'
-assert_json '.profile == "planner"' \
-  "${TMP}/container-state/codex-app-server/mosaico/agents/codex.json" \
-  'Codex named profile belongs to agent config'
-assert_json '.["codex-ollama"].args == ["--oss","--local-provider","ollama"]' \
-  "${TMP}/container-state/codex-ollama/mosaico/harnesses.json" \
-  'Codex Ollama bundle owns provider args'
-assert_json '.["opencode-ollama"].args == ["-m","ollama/deepseek-r1:8b"]' \
-  "${TMP}/container-state/opencode-ollama/mosaico/harnesses.json" \
-  'OpenCode Ollama bundle owns model args'
-BACKEND_KEY_COUNT="$(
-  for profile in claude-acp codex-app-server grok goose-acp codex-ollama opencode-ollama; do
-    jq -r '.mosaicoPrivateKey' \
-      "${TMP}/container-state/${profile}/mosaico/config.json"
-  done | sort -u | wc -l | tr -d ' '
-)"
-assert_eq 6 "${BACKEND_KEY_COUNT}" 'each profile has a distinct backend key'
-CLAUDE_BACKEND_BEFORE="$(<"${TMP}/writer-work/keys/claude-acp.nsec")"
-PATH="${TMP}/writer-bin:${PATH}" \
-  NAK_COUNTER_FILE="${TMP}/nak-counter" \
-  MOSAICO_DEV_STATE_ROOT="${TMP}/container-state" \
-  bash "${SKILL}/scripts/write-container-profiles" "${WRITER_ENV}" claude-acp \
-  >/dev/null
-assert_eq "${CLAUDE_BACKEND_BEFORE}" \
-  "$(<"${TMP}/writer-work/keys/claude-acp.nsec")" \
-  'profile regeneration preserves backend key material'
-
-if grep -Fq 'nsec-' <<<"${WRITER_OUTPUT}"; then
-  fail 'profile writer leaked secret key material'
-fi
-echo 'ok: profile writer output does not expose secrets'
-
-set +e
-BAD_ARGS_OUTPUT="$(
-  PATH="${TMP}/writer-bin:${PATH}" \
-    NAK_COUNTER_FILE="${TMP}/nak-counter" \
-    MOSAICO_DEV_STATE_ROOT="${TMP}/bad-state" \
-    MOSAICO_DEV_CLAUDE_ACP_ARGS_JSON='{"model":"haiku"}' \
-    bash "${SKILL}/scripts/write-container-profiles" "${WRITER_ENV}" claude-acp 2>&1
-)"
-BAD_ARGS_STATUS=$?
-set -e
-[[ "${BAD_ARGS_STATUS}" -eq 2 ]] || fail 'non-array bundle args unexpectedly passed'
-grep -Fq 'expected an array of strings' <<<"${BAD_ARGS_OUTPUT}" \
-  || fail 'invalid args JSON did not report the current contract'
-echo 'ok: profile writer rejects obsolete object-shaped bundle config'
+# shellcheck source=profile-writer.sh
+source "${SKILL}/tests/profile-writer.sh"
+run_profile_writer_tests
 
 GROK_STATE="${TMP}/grok-state"
 GROK_ENV="${TMP}/grok.env"
@@ -260,6 +158,22 @@ cmp -s "${HOST_HOME}/.grok/config.toml" "${STATE_DIR}/home/.grok/config.toml" \
 [[ "${#HOST_AUTH_MOUNTS[@]}" -eq 0 ]] \
   || fail 'Grok host auth unexpectedly exposed a host bind mount'
 echo 'ok: host auth copies Grok state without sharing the host file'
+
+mkdir -p "${HOST_HOME}/.hermes/profiles/reviewer" "${STATE_DIR}/home/.hermes"
+printf 'model:\n  default: anthropic/test\n' >"${HOST_HOME}/.hermes/config.yaml"
+printf 'ANTHROPIC_API_KEY=test\n' >"${HOST_HOME}/.hermes/.env"
+export AGENT=hermes
+stage_hermes_state
+build_host_auth_mounts
+cmp -s "${HOST_HOME}/.hermes/config.yaml" "${STATE_DIR}/home/.hermes/config.yaml" \
+  || fail 'Hermes config was not copied into isolated state'
+cmp -s "${HOST_HOME}/.hermes/.env" "${STATE_DIR}/home/.hermes/.env" \
+  || fail 'Hermes environment was not copied into isolated state'
+[[ ! -L "${STATE_DIR}/home/.hermes/config.yaml" ]] \
+  || fail 'Hermes config must be writable isolated state, not a host symlink'
+[[ "${#HOST_AUTH_MOUNTS[@]}" -eq 0 ]] \
+  || fail 'Hermes host auth unexpectedly exposed a host bind mount'
+echo 'ok: host auth copies Hermes state without sharing the host files'
 
 mkdir -p "${TMP}/relay-bin" "${TMP}/croissant"
 cat >"${TMP}/relay-bin/curl" <<'EOF'

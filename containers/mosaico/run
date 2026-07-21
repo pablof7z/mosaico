@@ -23,6 +23,7 @@ Commands:
   codex-ollama [args]      Run isolated Codex with --oss --local-provider ollama.
   grok [args]              Run isolated Grok using host auth/config.
   goose [args]             Run isolated Goose using host auth/config.
+  hermes [args]            Run isolated Hermes using host auth/config.
   opencode [args]          Run isolated OpenCode using the opencode profile.
   opencode-auth [args]     Run isolated `opencode providers`.
   opencode-ollama [args]   Run isolated OpenCode with an Ollama model.
@@ -55,6 +56,7 @@ agent_for_profile() {
     codex*) echo "codex" ;;
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
+    hermes*) echo "hermes" ;;
     *) echo "opencode" ;;
   esac
 }
@@ -133,6 +135,7 @@ prepare_state() {
     "${STATE_DIR}/home/.codex" \
     "${STATE_DIR}/home/.claude" \
     "${STATE_DIR}/home/.grok/hooks" \
+    "${STATE_DIR}/home/.hermes/plugins" \
     "${STATE_DIR}/home/.config/opencode" \
     "${STATE_DIR}/home/.config/goose" \
     "${STATE_DIR}/home/.local/share" \
@@ -201,7 +204,10 @@ container_run() {
     ANTHROPIC_BASE_URL \
     CLAUDE_CODE_OAUTH_TOKEN \
     CLAUDE_CODE_ORGANIZATION_UUID \
-    XAI_API_KEY
+    XAI_API_KEY \
+    NOUS_API_KEY \
+    OPENAI_API_KEY \
+    OPENROUTER_API_KEY
   do
     if [[ -n "${!name:-}" ]]; then
       passthrough_env_args+=(--env "${name}=${!name}")
@@ -225,6 +231,7 @@ container_run() {
     --env CLAUDE_CONFIG_DIR=/state/home/.claude \
     --env GROK_HOME=/state/home/.grok \
     --env GOOSE_DISABLE_KEYRING=1 \
+    --env HERMES_HOME=/state/home/.hermes \
     --env OLLAMA_HOST="${OLLAMA_HOST}" \
     --env MOSAICO_CONFIG=/state/mosaico/config.json \
     --env MOSAICO_HOME=/state/mosaico \
@@ -242,7 +249,7 @@ with_mosaico() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico install --harness "$1" >/dev/null
     fi
     shift
@@ -259,7 +266,7 @@ with_mosaico_direct() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico install --harness "$1" >/dev/null
     fi
     shift
@@ -276,7 +283,7 @@ with_mosaico_hosted() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico install --harness "$1" >/dev/null
     fi
     shift
@@ -341,6 +348,10 @@ main() {
     goose)
       select_command_profile goose goose
       with_mosaico_direct goose goose "$@"
+      ;;
+    hermes)
+      select_command_profile hermes hermes
+      with_mosaico_direct hermes hermes "$@"
       ;;
     opencode)
       select_command_profile opencode opencode

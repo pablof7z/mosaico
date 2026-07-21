@@ -1,6 +1,7 @@
 # ACP and app-server backends
 
-Use this reference for Claude ACP, Codex app-server, Goose ACP, and OpenCode ACP labs.
+Use this reference for Claude ACP, Codex app-server, Goose ACP, Hermes ACP, and
+OpenCode ACP labs.
 These transports use structured RPC instead of terminal-byte injection.
 
 ## Configuration contract
@@ -62,6 +63,7 @@ false.
 | `codex-app-server` | `codex` | `app-server` | `MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON` |
 | `goose-acp` | `goose` | `acp` | `MOSAICO_DEV_GOOSE_ACP_ARGS_JSON` |
 | `opencode-acp` | `opencode` | `acp` | `MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON` |
+| `hermes-acp` | `hermes` | `acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |
 
 Default args are `[]`. Use the listed writer override only when the lab needs
 explicit provider arguments. The value must be a JSON array of strings. There
@@ -78,7 +80,9 @@ The writer places `"profile":"planner"` in the Codex agent file. Mosaico then
 composes `$CODEX_HOME/planner.config.toml` over the base config in an isolated
 app-server home. Codex app-server does not accept the native `--profile` flag.
 Claude ACP, Goose ACP, and OpenCode ACP do not support named agent profiles;
-omit `profile` for those combinations.
+omit `profile` for those combinations. Hermes ACP accepts
+`MOSAICO_DEV_HERMES_PROFILE`; its
+`--profile <name>` selector is placed before the `acp` subcommand.
 
 ## Smoke before launch
 

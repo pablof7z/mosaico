@@ -1,0 +1,10 @@
+name: mosaico
+version: "0.1.0"
+description: "Mosaico identity and awareness fabric integration for Hermes Agent."
+author: Mosaico
+hooks:
+  - on_session_start
+  - pre_llm_call
+  - post_tool_call
+  - on_session_end
+  - on_session_finalize

@@ -5,124 +5,20 @@ use std::path::PathBuf;
 mod applicability;
 mod hook_forensics;
 mod observation;
+mod registry;
 
 use observation::{
-    find_ancestor_harness, find_ancestor_pid, find_direct_agent_invocation, harness_for_process,
-    report_observation,
+    find_ancestor_harness, find_direct_agent_invocation, harness_for_process, report_observation,
 };
+use registry::{find_hook_host, HookOutputFormat, HostDef};
 
 // ── hook adapter registry ─────────────────────────────────────────────────────
 //
 // Standard harnesses add one HOOK_HOSTS entry; non-standard needs extend
 // HostDef fields rather than adding branches to hook_run.
 
-/// How context blocks are returned to the model by a given harness.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HookOutputFormat {
-    /// Plain text on stdout — Claude Code UserPromptSubmit and most harnesses.
-    PlainText,
-    /// Codex reads model-visible hook context from event-specific JSON output.
-    HookSpecificAdditionalContext,
-}
-
-pub(super) struct HostDef {
-    /// Canonical harness name used in --host.
-    pub(super) name: &'static str,
-    /// Default agent slug (used when `MOSAICO_AGENT` is not set).
-    agent_slug: &'static str,
-    /// JSON fields tried in order to extract the session id from stdin.
-    session_id_fields: &'static [&'static str],
-    /// Environment variable to check when all session_id_fields are absent or
-    /// empty. Used by harnesses (e.g. Grok) that inject the session id via
-    /// process environment rather than stdin JSON.
-    session_id_env: Option<&'static str>,
-    /// JSON field for the live transcript path (None if the harness omits it).
-    transcript_field: Option<&'static str>,
-    /// Output format for context injection hooks.
-    output_format: HookOutputFormat,
-    /// Walk process tree for an ancestor whose command contains this string.
-    /// None = no watch-pid. Used by harnesses (e.g. Codex) that omit their PID.
-    pid_search: Option<&'static str>,
-    /// Whether this harness must supply its own native session locator. When true,
-    /// an empty locator is a fail-open no-op:
-    /// those harnesses always supply their own id, so a missing one means a
-    /// malformed payload, and reporting an anchorless observation would mint an
-    /// orphan session that later turn-start/stop calls could never match.
-    requires_harness_session: bool,
-}
-
-static HOOK_HOSTS: &[HostDef] = &[
-    HostDef {
-        name: "claude-code",
-        agent_slug: "claude",
-        session_id_fields: &["session_id"],
-        session_id_env: None,
-        transcript_field: Some("transcript_path"),
-        output_format: HookOutputFormat::PlainText,
-        pid_search: Some("claude"),
-        requires_harness_session: true,
-    },
-    HostDef {
-        name: "codex",
-        agent_slug: "codex",
-        session_id_fields: &["session_id"],
-        session_id_env: None,
-        transcript_field: Some("transcript_path"),
-        output_format: HookOutputFormat::HookSpecificAdditionalContext,
-        pid_search: Some("codex"),
-        requires_harness_session: true,
-    },
-    HostDef {
-        // opencode is a programmatic TS plugin, not a stdin-JSON harness in the
-        // usual sense: it pipes a small JSON payload to `hook` and reads stdout.
-        // Its initial startup has no session locator yet, so watch PID is enough.
-        // Subsequent lifecycle hooks carry opencode's own native session id.
-        name: "opencode",
-        agent_slug: "opencode",
-        session_id_fields: &["session_id"],
-        session_id_env: None,
-        transcript_field: Some("transcript_path"),
-        output_format: HookOutputFormat::PlainText,
-        pid_search: None,
-        requires_harness_session: false,
-    },
-    HostDef {
-        // Grok Build (xAI) injects the session id via the GROK_SESSION_ID
-        // environment variable rather than the JSON payload, so we fall back to
-        // that env var when the JSON fields are absent. The workspace root is
-        // available as GROK_WORKSPACE_ROOT but current_dir() already points
-        // there when the hook is invoked, so no special cwd handling is needed.
-        name: "grok",
-        agent_slug: "grok",
-        session_id_fields: &["session_id"],
-        session_id_env: Some("GROK_SESSION_ID"),
-        transcript_field: None,
-        output_format: HookOutputFormat::PlainText,
-        pid_search: Some("grok"),
-        requires_harness_session: true,
-    },
-];
-
-fn find_hook_host(name: &str) -> Option<&'static HostDef> {
-    if name == "help" {
-        eprintln!(
-            "known hosts: {}",
-            HOOK_HOSTS
-                .iter()
-                .map(|h| h.name)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        return None;
-    }
-    HOOK_HOSTS.iter().find(|h| h.name == name)
-}
-
 pub(super) fn caller_watch_pid_anchor() -> Option<(&'static str, i32)> {
-    HOOK_HOSTS
-        .iter()
-        .filter_map(|host| host.pid_search.map(|needle| (host.name, needle)))
-        .find_map(|(name, needle)| find_ancestor_pid(needle).map(|pid| (name, pid)))
+    registry::caller_watch_pid_anchor()
 }
 
 // ── hook_run ──────────────────────────────────────────────────────────────────
@@ -178,6 +74,7 @@ async fn hook_dispatch(
                     hook_event_name: hook_event_name(&hook_type),
                 }
             }
+            HookOutputFormat::ContextObject => EmitFormat::ContextObject,
         },
     };
     // Parse stdin — fail open if JSON is absent or malformed.

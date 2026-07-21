@@ -220,9 +220,9 @@ fn desired_transport(
         },
         LaunchIntent::Managed => match harness {
             crate::session::Harness::Codex => [Some(Transport::AppServer), Some(Transport::Pty)],
-            crate::session::Harness::ClaudeCode | crate::session::Harness::Opencode => {
-                [Some(Transport::Acp), Some(Transport::Pty)]
-            }
+            crate::session::Harness::ClaudeCode
+            | crate::session::Harness::Opencode
+            | crate::session::Harness::Hermes => [Some(Transport::Acp), Some(Transport::Pty)],
             crate::session::Harness::Grok => [Some(Transport::Pty), None],
             crate::session::Harness::Goose => [Some(Transport::Acp), None],
             crate::session::Harness::Unknown => [None, None],

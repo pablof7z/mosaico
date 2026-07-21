@@ -4,6 +4,8 @@ use anyhow::{bail, Result};
 use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/mosaico.ts");
+pub const HERMES_PLUGIN_YAML: &str = include_str!("../../../integrations/hermes/plugin.yaml");
+pub const HERMES_PLUGIN_PY: &str = include_str!("../../../integrations/hermes/__init__.py");
 
 #[derive(Debug)]
 pub struct Harness {
@@ -16,6 +18,7 @@ pub struct Harness {
 pub fn harnesses() -> Result<Vec<Harness>> {
     let home = home_dir()?;
     let grok_home = grok_home_dir(std::env::var("GROK_HOME").ok(), &home);
+    let hermes_home = hermes_home_dir(std::env::var("HERMES_HOME").ok(), &home);
     let available = crate::config::detect_available_harnesses()?;
     Ok(vec![
         Harness {
@@ -42,6 +45,12 @@ pub fn harnesses() -> Result<Vec<Harness>> {
             config_path: grok_home.join("hooks/mosaico.json"),
             detected: available.contains(&crate::session::Harness::Grok),
         },
+        Harness {
+            id: "hermes",
+            display: "Hermes Agent",
+            config_path: hermes_home.join("plugins/mosaico"),
+            detected: available.contains(&crate::session::Harness::Hermes),
+        },
     ])
 }
 
@@ -64,6 +73,13 @@ fn grok_home_dir(grok_home: Option<String>, home: &std::path::Path) -> PathBuf {
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".grok"))
+}
+
+fn hermes_home_dir(hermes_home: Option<String>, home: &std::path::Path) -> PathBuf {
+    hermes_home
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".hermes"))
 }
 
 pub(super) fn claude_detected() -> Result<bool> {
@@ -189,5 +205,15 @@ mod tests {
             grok_home_dir(Some(String::new()), &home),
             home.join(".grok")
         );
+    }
+
+    #[test]
+    fn hermes_home_honors_override_and_defaults_under_home() {
+        let home = PathBuf::from("/Users/alice");
+        assert_eq!(
+            hermes_home_dir(Some("/tmp/hermes".to_string()), &home),
+            PathBuf::from("/tmp/hermes")
+        );
+        assert_eq!(hermes_home_dir(None, &home), home.join(".hermes"));
     }
 }

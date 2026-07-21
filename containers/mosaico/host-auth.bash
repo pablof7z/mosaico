@@ -198,6 +198,23 @@ stage_goose_state() {
   stage_goose_secrets "${STATE_DIR}/home/.config/goose/secrets.yaml"
 }
 
+stage_hermes_state() {
+  if [[ "${HOST_AUTH}" != "1" || "${AGENT}" != "hermes" ]]; then
+    return 0
+  fi
+
+  stage_auth_copy "${HOST_HOME}/.hermes/config.yaml" \
+    "${STATE_DIR}/home/.hermes/config.yaml"
+  if [[ -f "${HOST_HOME}/.hermes/.env" ]]; then
+    stage_auth_copy "${HOST_HOME}/.hermes/.env" \
+      "${STATE_DIR}/home/.hermes/.env"
+  else
+    rm -f "${STATE_DIR}/home/.hermes/.env"
+  fi
+  stage_auth_dir_copy "${HOST_HOME}/.hermes/profiles" \
+    "${STATE_DIR}/home/.hermes/profiles" optional
+}
+
 build_host_auth_mounts() {
   HOST_AUTH_MOUNTS=()
   case "${AGENT}" in
@@ -212,6 +229,9 @@ build_host_auth_mounts() {
       ;;
     goose)
       # Goose config and keychain secrets are copied into isolated state.
+      ;;
+    hermes)
+      # Hermes config/auth is copied before its plugin mutates isolated config.
       ;;
     opencode)
       add_required_auth_dir_mount \
@@ -277,6 +297,7 @@ stage_host_auth() {
     codex) stage_codex_auth ;;
     grok) stage_grok_state ;;
     goose) stage_goose_state ;;
+    hermes) stage_hermes_state ;;
     opencode) stage_opencode_auth ;;
     *)
       echo "unsupported host-auth agent: ${AGENT}" >&2

@@ -229,7 +229,6 @@ fn select_key_mode(current_per_session: bool, theme: &ColorfulTheme) -> Result<O
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn conceptual_acp_maps_to_each_harness_native_rpc_transport() {
         assert_eq!(
@@ -239,6 +238,14 @@ mod tests {
         assert_eq!(
             mode_transport(Harness::Codex, OperationMode::Acp),
             Transport::AppServer
+        );
+        assert_eq!(
+            mode_transport(Harness::Hermes, OperationMode::Acp),
+            Transport::Acp
+        );
+        assert_eq!(
+            operation_modes(Harness::Hermes, false),
+            [OperationMode::Acp, OperationMode::Pty]
         );
     }
 

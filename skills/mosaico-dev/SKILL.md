@@ -1,6 +1,6 @@
 ---
 name: mosaico-dev
-description: "Use for Mosaico development live labs: run a local croissant relay, configure isolated PTY or ACP hosted bundles (including the app-server ACP dialect) with real host AI auth, launch Claude/Codex/Grok/Goose/OpenCode agents, and inspect sessions, logs, relay traffic, and Nostr events."
+description: "Use for Mosaico development live labs: run a local croissant relay, configure isolated PTY or ACP hosted bundles (including the app-server ACP dialect) with real host AI auth, launch Claude/Codex/Grok/Goose/Hermes/OpenCode agents, and inspect sessions, logs, relay traffic, and Nostr events."
 ---
 
 # Mosaico development live lab
@@ -47,8 +47,9 @@ Treat these ownership boundaries as fixed:
   launch-time transport or harness selector.
 - Bundle `args` are operational provider flags. An agent `profile` is a named
   native profile: Claude PTY applies `--agent`, Codex PTY applies `--profile`,
-  and Codex app-server composes the named config into an isolated `CODEX_HOME`.
-  ACP dialects that do not support a named profile reject it.
+  Hermes PTY and ACP apply the top-level `--profile`, and Codex app-server
+  composes the named config into an isolated `CODEX_HOME`. ACP dialects that do
+  not support a named profile reject it.
 
 Never add old launch flags, separator-forwarded provider arguments, duplicate
 config fields, or fallback bundle names. Fix the generated config or caller.
@@ -73,6 +74,8 @@ config fields, or fallback bundle names. Fix the generated config or caller.
   install at `.grok/hooks/mosaico.json`. Imported Claude hooks are not Grok proof.
 - Goose config and keychain secrets are copied into its isolated XDG home. Goose
   is ACP-only and does not install Mosaico hooks or advertise native profiles.
+- Hermes config, environment, and named profiles are copied into isolated
+  `HERMES_HOME`, where Mosaico installs its user plugin.
 - Keep fabric state under `.container-state/<profile>` or the run's temporary
   work directory, never host `~/.mosaico`.
 - Run croissant on the host from `/tmp/croissant-smallmap` when present, else
@@ -105,7 +108,8 @@ Keep the emitted environment path:
 ```bash
 LAB_ENV=/tmp/mosaico-live-lab-YYYYmmdd-HHMMSS/lab.env
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
-  claude claude-acp codex codex-app-server grok goose-acp opencode opencode-acp
+  claude claude-acp codex codex-app-server grok goose-acp hermes hermes-acp \
+  opencode opencode-acp
 ```
 
 The writer resets disposable Mosaico state, including SQLite/WAL state and the

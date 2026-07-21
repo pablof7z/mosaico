@@ -85,7 +85,7 @@ pub(super) enum Cmd {
     /// Show the human/operator fabric view.
     #[command(hide = true)]
     Who(WhoArgs),
-    /// Resume a session by its native Claude, Codex, Grok, or OpenCode id.
+    /// Resume a session by its native Claude, Codex, Grok, Hermes, or OpenCode id.
     #[command(hide = true)]
     Resume(ResumeArgs),
     /// Read/send chat and manage channels (read, send, create, edit, list, init, join, leave, archive, switch).
