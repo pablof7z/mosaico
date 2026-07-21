@@ -105,6 +105,15 @@ bash containers/mosaico/run doctor
 skills/mosaico-dev/scripts/start-croissant-relay
 ```
 
+To provision several human operators in one lab, give each a distinct display
+name. The first identity owns the relay; all identities are generated under the
+run directory and whitelisted in every generated backend profile:
+
+```bash
+MOSAICO_DEV_HUMAN_NAMES_JSON='["Pablo","Alice","Bob"]' \
+  skills/mosaico-dev/scripts/start-croissant-relay
+```
+
 If the runner reaps background descendants, set
 `MOSAICO_DEV_RELAY_FOREGROUND=1` and clean up from another terminal.
 
@@ -196,6 +205,14 @@ stopped:
 ```bash
 mosaico channel send --channel <channel> --tag <session-handle> \
   --message "Run mosaico my session."
+```
+
+For a generated human identity, publish its named kind:0 profile and signed
+kind:9 directly from the host without exposing the signer:
+
+```bash
+skills/mosaico-dev/scripts/send-human-kind9 "${LAB_ENV}" Alice \
+  <channel> <session-pubkey> "Identify this sender and reply to this event."
 ```
 
 Literal `@handle` text is not a tag. Use `--force` only when the literal text is

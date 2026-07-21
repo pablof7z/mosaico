@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+need jq
+need nak
+
+ENV_FILE="${1:-${MOSAICO_DEV_ENV:-}}"
+HUMAN_SELECTOR="${2:-}"
+CHANNEL="${3:-}"
+TARGET_PUBKEY="${4:-}"
+MESSAGE="${5:-}"
+if [[ -z "${ENV_FILE}" || ! -f "${ENV_FILE}" || -z "${HUMAN_SELECTOR}" \
+  || -z "${CHANNEL}" || -z "${TARGET_PUBKEY}" || -z "${MESSAGE}" ]]; then
+  echo "usage: $0 <lab.env> <human-number-or-name> <channel> <target-pubkey> <message>" >&2
+  exit 2
+fi
+# shellcheck source=/dev/null
+source "${ENV_FILE}"
+
+if [[ -z "${HUMAN_IDENTITIES_FILE:-}" || ! -f "${HUMAN_IDENTITIES_FILE}" ]]; then
+  echo "lab environment has no human identity inventory" >&2
+  exit 2
+fi
+
+identity="$(jq -cer --arg selector "${HUMAN_SELECTOR}" '
+  if ($selector | test("^[0-9]+$")) then
+    ($selector | tonumber) as $number |
+      if $number >= 1 and $number <= length then
+        .[$number - 1]
+      else
+        error("human number is out of range")
+      end
+  else
+    map(select(.name == $selector)) |
+      if length == 1 then .[0] else error("human name is missing or ambiguous") end
+  end
+' "${HUMAN_IDENTITIES_FILE}")" || {
+  echo "unknown human selector: ${HUMAN_SELECTOR}" >&2
+  exit 2
+}
+human_name="$(jq -r '.name' <<<"${identity}")"
+human_pubkey="$(jq -r '.pubkey' <<<"${identity}")"
+human_key_file="$(jq -r '.secret_file' <<<"${identity}")"
+if [[ ! -s "${human_key_file}" ]]; then
+  echo "human signer file is missing: ${human_key_file}" >&2
+  exit 2
+fi
+human_secret="$(<"${human_key_file}")"
+if [[ "$(nak key public "${human_secret}")" != "${human_pubkey}" ]]; then
+  echo "human signer does not match its recorded pubkey" >&2
+  exit 2
+fi
+
+profile_content="$(jq -cn --arg name "${human_name}" '{name:$name}')"
+NOSTR_SECRET_KEY="${human_secret}" nak event --auth -k 0 -c "${profile_content}" \
+  "${RELAY_WS}" >/dev/null
+event="$(NOSTR_SECRET_KEY="${human_secret}" nak event --auth -k 9 -h "${CHANNEL}" \
+  -p "${TARGET_PUBKEY}" -c "${MESSAGE}" "${RELAY_WS}")"
+event_id="$(jq -er '.id' <<<"${event}")"
+
+echo "human=${human_name} pubkey=${human_pubkey:0:12} event_id=${event_id}"

@@ -152,15 +152,17 @@ impl SessionTransport for RpcTransport {
                 spawn_acp_prompt(handle, native_id, text, runtime)
             }
             Dialect::AppServer => {
-                let steer = if submit {
-                    SteerState::Idle
-                } else {
-                    runtime
-                        .lock()
-                        .ok()
-                        .map(|runtime| runtime.steer_state())
-                        .unwrap_or(SteerState::Idle)
-                };
+                // App-server has an explicit steer RPC. A submitted mention that
+                // arrives during the opening turn must steer that turn rather
+                // than start a concurrent one and replace its completion waiter.
+                // `submit` controls PTY Enter behavior; it never overrides the
+                // app-server's authoritative turn state.
+                let _ = submit;
+                let steer = runtime
+                    .lock()
+                    .ok()
+                    .map(|runtime| runtime.steer_state())
+                    .unwrap_or(SteerState::Idle);
                 match steer {
                     SteerState::Ready(turn_id) => {
                         spawn_app_server_steer(handle, native_id, turn_id, text);

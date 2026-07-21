@@ -156,6 +156,25 @@ fi
 OWNER_SECRET="$(<"${OWNER_SK_FILE}")"
 OWNER_PUBKEY="$(nak key public "${OWNER_SECRET}")"
 
+if [[ -n "${HUMAN_IDENTITIES_FILE:-}" ]]; then
+  if [[ ! -f "${HUMAN_IDENTITIES_FILE}" ]]; then
+    echo "lab environment HUMAN_IDENTITIES_FILE does not exist: ${HUMAN_IDENTITIES_FILE}" >&2
+    exit 2
+  fi
+  if ! jq -e 'type == "array" and length > 0 and
+    all(.[]; (.name | type == "string" and length > 0) and
+      (.pubkey | type == "string" and length > 0) and
+      (.secret_file | type == "string" and length > 0)) and
+    ([.[].pubkey] | unique | length) == length' \
+    "${HUMAN_IDENTITIES_FILE}" >/dev/null; then
+    echo "invalid HUMAN_IDENTITIES_FILE: expected distinct named human pubkeys" >&2
+    exit 2
+  fi
+  whitelist_json="$(jq -c '[.[].pubkey]' "${HUMAN_IDENTITIES_FILE}")"
+else
+  whitelist_json="$(jq -cn --arg public "${OWNER_PUBKEY}" '[$public]')"
+fi
+
 declare -a BACKEND_PUBKEYS=()
 for profile in "${PROFILES[@]}"; do
   profile_contract "${profile}"
@@ -166,8 +185,6 @@ for profile in "${PROFILES[@]}"; do
   fi
   BACKEND_PUBKEYS+=("$(nak key public "$(<"${backend_key_file}")")")
 done
-
-whitelist_json="$(jq -cn --arg public "${OWNER_PUBKEY}" '[$public]')"
 
 for i in "${!PROFILES[@]}"; do
   profile="${PROFILES[$i]}"
@@ -216,5 +233,5 @@ for i in "${!PROFILES[@]}"; do
 
   jq -e . "${cfg}" "${harnesses_cfg}" "${agent_cfg}" >/dev/null
   chmod 600 "${cfg}" "${agent_cfg}"
-  echo "profile=${profile} agent=${AGENT_SLUG} bundle=${BUNDLE} harness=${HARNESS} transport=${TRANSPORT} config=${cfg} human_pubkey=${OWNER_PUBKEY:0:12} backend_pubkey=${BACKEND_PUBKEYS[$i]:0:12} reset_mosaico_state=${MOSAICO_DEV_RESET_PROFILE_STATE:-1}"
+  echo "profile=${profile} agent=${AGENT_SLUG} bundle=${BUNDLE} harness=${HARNESS} transport=${TRANSPORT} config=${cfg} human_count=$(jq 'length' <<<"${whitelist_json}") owner_pubkey=${OWNER_PUBKEY:0:12} backend_pubkey=${BACKEND_PUBKEYS[$i]:0:12} reset_mosaico_state=${MOSAICO_DEV_RESET_PROFILE_STATE:-1}"
 done

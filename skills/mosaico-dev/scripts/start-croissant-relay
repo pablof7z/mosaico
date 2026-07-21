@@ -111,6 +111,43 @@ if [[ ! -s "${OWNER_SK_FILE}" ]]; then
   chmod 600 "${OWNER_SK_FILE}"
 fi
 OWNER_PK="$(nak key public "$(cat "${OWNER_SK_FILE}")")"
+HUMAN_NAMES_JSON="${MOSAICO_DEV_HUMAN_NAMES_JSON:-[\"operator\"]}"
+if ! jq -e 'type == "array" and length > 0 and
+  all(.[]; type == "string" and length > 0) and
+  (unique | length) == length' <<<"${HUMAN_NAMES_JSON}" >/dev/null; then
+  echo "MOSAICO_DEV_HUMAN_NAMES_JSON must be a non-empty array of unique names" >&2
+  exit 2
+fi
+HUMAN_IDENTITIES_FILE="${WORK_DIR}/humans.json"
+human_identities='[]'
+human_count="$(jq 'length' <<<"${HUMAN_NAMES_JSON}")"
+for ((i = 0; i < human_count; i++)); do
+  human_number=$((i + 1))
+  human_name="$(jq -r ".[${i}]" <<<"${HUMAN_NAMES_JSON}")"
+  if ((i == 0)); then
+    human_key_file="${OWNER_SK_FILE}"
+  else
+    human_key_file="${WORK_DIR}/keys/human-${human_number}.nsec"
+    if [[ ! -s "${human_key_file}" ]]; then
+      nak key generate >"${human_key_file}"
+      chmod 600 "${human_key_file}"
+    fi
+  fi
+  human_pubkey="$(nak key public "$(<"${human_key_file}")")"
+  human_identities="$(jq -cn \
+    --argjson identities "${human_identities}" \
+    --argjson number "${human_number}" \
+    --arg name "${human_name}" \
+    --arg pubkey "${human_pubkey}" \
+    --arg secret_file "${human_key_file}" \
+    '$identities + [{number:$number,name:$name,pubkey:$pubkey,secret_file:$secret_file}]')"
+done
+if [[ "$(jq '[.[].pubkey] | unique | length' <<<"${human_identities}")" != "${human_count}" ]]; then
+  echo "generated human identities do not have distinct pubkeys" >&2
+  exit 1
+fi
+printf '%s\n' "${human_identities}" >"${HUMAN_IDENTITIES_FILE}"
+chmod 600 "${HUMAN_IDENTITIES_FILE}"
 
 (
   cd "${REPO_ROOT}"
@@ -150,6 +187,7 @@ fi
   quote_env RELAY_LOG "${RELAY_LOG}"
   quote_env OWNER_PUBLIC_KEY "${OWNER_PK}"
   quote_env OWNER_SK_FILE "${OWNER_SK_FILE}"
+  quote_env HUMAN_IDENTITIES_FILE "${HUMAN_IDENTITIES_FILE}"
 } >"${ENV_FILE}"
 
 echo "run_id=${RUN_ID}"
@@ -157,6 +195,7 @@ echo "env=${ENV_FILE}"
 echo "relay=${RELAY_WS}"
 echo "relay_pid=$(cat "${RELAY_PID_FILE}")"
 echo "owner_pubkey=${OWNER_PK:0:12}"
+echo "human_count=${human_count}"
 
 if [[ "${MOSAICO_DEV_RELAY_FOREGROUND:-0}" == "1" ]]; then
   echo "relay_foreground=1"

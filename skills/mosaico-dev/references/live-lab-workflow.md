@@ -23,6 +23,13 @@ before opening an agent UI.
 skills/mosaico-dev/scripts/start-croissant-relay
 ```
 
+For a multi-human run, name the isolated human identities up front:
+
+```bash
+MOSAICO_DEV_HUMAN_NAMES_JSON='["Pablo","Alice","Bob"]' \
+  skills/mosaico-dev/scripts/start-croissant-relay
+```
+
 If the runner reaps background descendants, set
 `MOSAICO_DEV_RELAY_FOREGROUND=1` and clean up from another terminal.
 
@@ -76,9 +83,10 @@ The writer resets profile-local Mosaico state by default, including `state.db*`,
 the daemon socket/logs, sessions, and `nmp.redb`. It preserves provider home and
 build caches.
 
-The device config uses the relay owner as the human `userNsec` and a distinct
-per-profile backend key as `mosaicoPrivateKey`. Generated per-session agent files
-are keyless. Inspect the public shape:
+The device config uses the relay owner as `userNsec`, includes every generated
+human pubkey in `whitelistedPubkeys`, and uses a distinct per-profile backend
+key as `mosaicoPrivateKey`. Generated per-session agent files are keyless.
+Inspect the public shape:
 
 ```bash
 jq '{relays,indexerRelay,backendName,whitelistedPubkeys}' \
@@ -217,7 +225,26 @@ in its own profile/container and use relay events or a separate sender profile
 for cross-agent traffic. Keep prompts narrow; prove transport, event, and hook
 behavior rather than task sophistication.
 
-## 10. Report and clean up
+## 10. Multi-human runs
+
+After launching one target, send from each generated human by number or unique
+name. The helper publishes that human's named kind:0 profile before its kind:9:
+
+```bash
+skills/mosaico-dev/scripts/send-human-kind9 "${LAB_ENV}" Pablo \
+  <channel> <session-pubkey> "message from Pablo"
+skills/mosaico-dev/scripts/send-human-kind9 "${LAB_ENV}" Alice \
+  <channel> <session-pubkey> "message from Alice"
+skills/mosaico-dev/scripts/send-human-kind9 "${LAB_ENV}" Bob \
+  <channel> <session-pubkey> "message from Bob"
+```
+
+Prove identity at both boundaries: each relay event must have the selected
+human's exact pubkey, and the agent-facing envelope must label the three
+messages separately. Also verify one reply by event id so the return path uses
+the originating event rather than a display-name guess.
+
+## 11. Report and clean up
 
 Capture:
 

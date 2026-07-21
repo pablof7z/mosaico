@@ -183,9 +183,17 @@ EOF
 cat >"${TMP}/relay-bin/nak" <<'EOF'
 #!/bin/sh
 if [ "${1:-} ${2:-}" = 'key generate' ]; then
-  echo nsec-test
+  count=0
+  [ ! -f "${NAK_RELAY_COUNTER:-}" ] || count="$(cat "${NAK_RELAY_COUNTER}")"
+  count=$((count + 1))
+  printf '%s\n' "${count}" >"${NAK_RELAY_COUNTER}"
+  echo "nsec-test-${count}"
 elif [ "${1:-} ${2:-}" = 'key public' ]; then
-  printf '%064d\n' 0
+  suffix="${3##*-}"
+  printf '%064d\n' "${suffix}"
+elif [ "${1:-}" = event ]; then
+  printf '%s\n' "$*" >>"${NAK_EVENT_LOG}"
+  printf '{"id":"event-%s"}\n' "${NOSTR_SECRET_KEY##*-}"
 else
   exit 2
 fi
@@ -202,6 +210,7 @@ set +e
 RELAY_OUTPUT="$(
   PATH="${TMP}/relay-bin:${PATH}" \
     MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
+    NAK_RELAY_COUNTER="${TMP}/relay-nak-counter" \
     MOSAICO_DEV_RELAY_HOST=127.0.0.1 \
     MOSAICO_DEV_RELAY_PORT=29999 \
     MOSAICO_DEV_RELAY_READY_TIMEOUT=1 \
@@ -227,6 +236,8 @@ EOF
 FOREGROUND_WORK="${TMP}/foreground-relay"
 PATH="${TMP}/relay-bin:${PATH}" \
   MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
+  NAK_RELAY_COUNTER="${TMP}/relay-nak-counter" \
+  MOSAICO_DEV_HUMAN_NAMES_JSON='["Pablo","Alice","Bob"]' \
   MOSAICO_DEV_RELAY_HOST=127.0.0.1 \
   MOSAICO_DEV_RELAY_PORT=29998 \
   MOSAICO_DEV_RELAY_FOREGROUND=1 \
@@ -249,6 +260,36 @@ grep -Fq 'relay_foreground=1' "${TMP}/foreground-relay.out" \
   || fail 'foreground relay did not report its persistent mode'
 echo 'ok: foreground relay mode remains yielded until cleanup stops the relay'
 
+HUMANS_FILE="$(sed -n 's/^HUMAN_IDENTITIES_FILE=//p' "${FOREGROUND_WORK}/lab.env")"
+assert_json 'map(.name) == ["Pablo","Alice","Bob"] and
+  ([.[].pubkey] | unique | length) == 3' \
+  "${HUMANS_FILE}" 'relay provisions three distinct human identities'
+NAK_EVENT_LOG="${TMP}/human-events.log" \
+  PATH="${TMP}/relay-bin:${PATH}" \
+  bash "${SKILL}/scripts/send-human-kind9" "${FOREGROUND_WORK}/lab.env" \
+    Alice test-channel target-pubkey 'hello from Alice' \
+    >"${TMP}/human-send.out"
+grep -Fq 'human=Alice' "${TMP}/human-send.out" \
+  || fail 'human sender did not report the selected public identity'
+if grep -Fq -- '--sec' "${TMP}/human-events.log"; then
+  fail 'human sender exposed signer material in process arguments'
+fi
+assert_eq 2 "$(wc -l <"${TMP}/human-events.log" | tr -d ' ')" \
+  'human sender publishes one kind:0 and one kind:9 event'
+grep -Fq -- '-k 9' "${TMP}/human-events.log" \
+  || fail 'human sender did not publish kind:9'
+grep -Fq -- '-h test-channel' "${TMP}/human-events.log" \
+  || fail 'human sender omitted the channel tag'
+grep -Fq -- '-p target-pubkey' "${TMP}/human-events.log" \
+  || fail 'human sender omitted the target pubkey tag'
+echo 'ok: selected human publishes a named profile and tagged kind:9 without leaking its signer'
+if NAK_EVENT_LOG="${TMP}/human-events.log" \
+  PATH="${TMP}/relay-bin:${PATH}" \
+  bash "${SKILL}/scripts/send-human-kind9" "${FOREGROUND_WORK}/lab.env" \
+    0 test-channel target-pubkey invalid >/dev/null 2>&1; then
+  fail 'human sender accepted out-of-range identity number 0'
+fi
+echo 'ok: human sender rejects out-of-range numeric selectors'
 bash -n "${SKILL}"/scripts/* "${ROOT}/containers/mosaico/doctor" \
   "${ROOT}/containers/mosaico/host-auth.bash"
 echo 'ok: skill and container helper scripts parse as bash'

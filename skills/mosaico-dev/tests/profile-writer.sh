@@ -5,11 +5,19 @@ run_profile_writer_tests() {
   printf 'nsec-relay-owner\n' >"${TMP}/writer-work/keys/relay-owner.nsec"
   write_fake_nak
   local writer_env="${TMP}/writer.env"
+  cat >"${TMP}/writer-work/humans.json" <<EOF
+[
+  {"number":1,"name":"Pablo","pubkey":"pub-relay-owner","secret_file":"${TMP}/writer-work/keys/relay-owner.nsec"},
+  {"number":2,"name":"Alice","pubkey":"pub-human-2","secret_file":"${TMP}/writer-work/keys/human-2.nsec"},
+  {"number":3,"name":"Bob","pubkey":"pub-human-3","secret_file":"${TMP}/writer-work/keys/human-3.nsec"}
+]
+EOF
   {
     printf 'RUN_ID=%q\n' test-run
     printf 'WORK_DIR=%q\n' "${TMP}/writer-work"
     printf 'RELAY_WS=%q\n' 'ws://127.0.0.1:19888'
     printf 'OWNER_SK_FILE=%q\n' "${TMP}/writer-work/keys/relay-owner.nsec"
+    printf 'HUMAN_IDENTITIES_FILE=%q\n' "${TMP}/writer-work/humans.json"
   } >"${writer_env}"
 
   local writer_output
@@ -67,7 +75,7 @@ assert_generated_profiles() {
       "${harnesses}" "${profile} bundle contains only current fields"
     assert_json 'has("slug") and has("created_at") and .perSessionKey == true and has("harness") and (has("secret_key") | not) and (has("public_key") | not)' \
       "${agent}" "${profile} agent is keyless"
-    assert_json '.userNsec == "nsec-relay-owner" and .whitelistedPubkeys == ["pub-relay-owner"] and (.mosaicoPrivateKey != .userNsec)' \
+    assert_json '.userNsec == "nsec-relay-owner" and .whitelistedPubkeys == ["pub-relay-owner","pub-human-2","pub-human-3"] and (.mosaicoPrivateKey != .userNsec)' \
       "${config}" "${profile} separates human and backend keys"
   done
 

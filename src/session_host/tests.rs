@@ -103,3 +103,49 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
          </mosaico>"
     );
 }
+
+#[test]
+fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
+    let store = crate::state::Store::open_memory().unwrap();
+    store
+        .upsert_channel("workspace", "workspace", "", "", 1)
+        .unwrap();
+    let humans = [
+        ("pk-pablo", "Pablo", "PABLO-TOKEN"),
+        ("pk-alice", "Alice", "ALICE-TOKEN"),
+        ("pk-bob", "Bob", "BOB-TOKEN"),
+    ];
+    let rows = humans
+        .iter()
+        .enumerate()
+        .map(|(index, (pubkey, name, token))| {
+            store
+                .upsert_profile(pubkey, name, name, "", false, 100)
+                .unwrap();
+            crate::state::InboxRow {
+                event_id: format!("event-{index}"),
+                target_pubkey: "pk-target".into(),
+                state: "pending".into(),
+                from_pubkey: (*pubkey).into(),
+                channel_h: "workspace".into(),
+                body: (*token).into(),
+                created_at: 100,
+                delivered_at: 0,
+            }
+        })
+        .collect::<Vec<_>>();
+    let whitelist = humans
+        .iter()
+        .map(|(pubkey, _, _)| (*pubkey).to_string())
+        .collect::<Vec<_>>();
+
+    let prompt = crate::injection::render_terminal_mention(&store, &rows, &whitelist, 120)
+        .expect("multi-human prompt");
+    for (_, name, token) in humans {
+        assert!(
+            prompt.contains(&format!("<message from=\"@{name}\"")),
+            "missing distinct sender label for {name}: {prompt}"
+        );
+        assert!(prompt.contains(token), "missing {token}: {prompt}");
+    }
+}

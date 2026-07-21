@@ -196,5 +196,9 @@ pub(crate) async fn shutdown_owned_sessions() -> Vec<(TransportKind, String, std
 }
 
 #[cfg(test)]
+#[path = "acp_delivery_tests.rs"]
+mod acp_delivery_tests;
+
+#[cfg(test)]
 #[path = "acp_reaper_tests.rs"]
 mod acp_reaper_tests;
