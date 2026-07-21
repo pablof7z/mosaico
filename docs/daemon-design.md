@@ -301,24 +301,24 @@ defense-in-depth + a small perf win).
 
 ## 8a. Multi-agent relay ownership
 
-The daemon hosts several agent identities at once (`claude@`, `codex@`,
-`opencode@`, and sequential runtime incarnations of durable agents). Each
-identity is one pubkey, with at most one active runtime. NMP observes the union of
-their live-query demands and registers each local signer capability by pubkey.
-Ordinary group writes carry an explicit per-write identity override, so changing
-one account never retargets another session's accepted write. Neither client is
-owned by an individual session. Two original transport facts remain useful
-protocol evidence:
+The daemon hosts one-pubkey identities, each with at most one active runtime. NMP
+observes their shared demand on a NIP-42 session authenticated as `mosaicoPrivateKey`.
+That identity is admin of every Mosaico-created group, giving private visibility
+one owner. Each author registers a signer plus exact-account AUTH policy. Per-write
+identity overrides authenticate as the frozen author; account changes never
+retarget another session's accepted write. Neither client belongs to a session.
 
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
    *does* receive events p-tagged to a different agent B. The relay does **not**
-   scope ordinary event delivery to the connection's authed identity. NMP's
-   current Mosaico demands are explicitly public and pinned to configured hosts.
+   scope ordinary public event delivery to the connection's authed identity.
+   Mosaico pins its shared authenticated read demand to configured hosts and the
+   backend/admin pubkey; it does not multiply identical reads per hosted agent.
 2. **Multi-key publish.** NMP freezes the draft author at acceptance, selects the
    exact registered capability named by the write override, validates the signed
-   result, and routes it to the NIP-29 host. Paths that immediately seed an exact
-   local read-model row use NMP's serialized sign-only operation first, then hand
-   that same signed event back to NMP as the durable payload.
+   result, authenticates the relay session as that author when challenged, and
+   routes it to the NIP-29 host. Paths that immediately seed an exact local
+   read-model row use NMP's serialized sign-only operation first, then hand that
+   same signed event back to NMP as the durable payload.
 
 ## 8b. Demux + routing for multiple local agents (correctness)
 

@@ -32,7 +32,7 @@ impl NmpHost {
                 .signing
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
-            host.ensure_account(&keys)?;
+            host.ensure_identity(&keys)?;
             let mut unsigned = builder.build(keys.public_key());
             scrub_unsigned(&mut unsigned);
             let previous = host
@@ -76,7 +76,7 @@ impl NmpHost {
         keys: &Keys,
         checked: bool,
     ) -> Result<EventId> {
-        self.ensure_account(keys)?;
+        self.ensure_identity(keys)?;
         let mut unsigned = builder.build(keys.public_key());
         scrub_unsigned(&mut unsigned);
         let author = keys.public_key();
@@ -159,23 +159,6 @@ impl NmpHost {
             .collect::<Result<Vec<_>>>()?;
         require_configured_host(&receivers)?;
         Ok(receivers)
-    }
-
-    fn ensure_account(&self, keys: &Keys) -> Result<()> {
-        let pubkey = keys.public_key();
-        let mut accounts = self
-            .accounts
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if accounts.contains_key(&pubkey) {
-            return Ok(());
-        }
-        let registration = self
-            .engine
-            .add_account(&keys.secret_key().to_secret_hex())
-            .with_context(|| format!("registering NMP account {pubkey}"))?;
-        accounts.insert(pubkey, registration);
-        Ok(())
     }
 
     fn publish_group_unsigned(

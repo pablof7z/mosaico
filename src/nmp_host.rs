@@ -4,7 +4,9 @@
 //! deduplication, and acquisition evidence. Mosaico keeps its product read model:
 //! delivered events are projected into `state.db` by the existing fabric
 //! materializer. NMP also owns every durable write intent, route, receipt, and
-//! bounded retry; the provider supplies product policy and exact host authority.
+//! bounded retry. Shared reads authenticate as the daemon's stable backend/admin
+//! identity; writes authenticate as the exact event author. The provider supplies
+//! product policy and exact host authority.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -12,23 +14,28 @@ use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use nmp::{
-    AccessContext, AccountRegistration, Binding, Demand, Engine, EngineConfig, IndexedTagName,
-    LiveQuery, ObservationCancel, RelayUrl, SourceAuthority,
+    AccessContext, Binding, Demand, Engine, EngineConfig, IndexedTagName, LiveQuery,
+    ObservationCancel, RelayUrl, SourceAuthority,
 };
-use nostr_sdk::prelude::PublicKey;
+use nostr_sdk::prelude::Keys;
 use tokio::sync::mpsc;
 
 use crate::reconcile::{SubEffect, SubscriptionQuery};
+mod auth;
 mod scrub;
 mod write;
 
+use auth::IdentityRegistration;
+
 const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
+const MAX_LOCAL_IDENTITIES: usize = 4096;
 
 pub(crate) struct NmpHost {
     engine: Engine,
     relays: BTreeSet<RelayUrl>,
     profile_relays: BTreeSet<RelayUrl>,
-    accounts: Mutex<BTreeMap<PublicKey, AccountRegistration>>,
+    read_access: AccessContext,
+    identities: Mutex<BTreeMap<nostr_sdk::PublicKey, IdentityRegistration>>,
     signing: Mutex<()>,
     subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
     materialization_tx: Mutex<Option<mpsc::Sender<nostr_sdk::Event>>>,
@@ -40,6 +47,7 @@ impl NmpHost {
         relays: &[String],
         indexer_relay: Option<&str>,
         store_path: Option<&Path>,
+        backend_keys: &Keys,
     ) -> Result<Self> {
         let parsed = relays
             .iter()
@@ -53,7 +61,9 @@ impl NmpHost {
         };
         // A daemon can host many durable agent identities over its lifetime.
         // Keep the registry finite, but do not inherit NMP's small demo default.
-        config.max_auth_capabilities = 4096;
+        // Each identity consumes one signer registration and one AUTH-policy
+        // registration from NMP's shared capability ceiling.
+        config.max_auth_capabilities = MAX_LOCAL_IDENTITIES * 2;
         let mut profile_relays = parsed.clone();
         if let Some(indexer) = indexer_relay.filter(|relay| !relay.is_empty()) {
             let parsed_indexer = RelayUrl::parse(indexer)
@@ -69,16 +79,20 @@ impl NmpHost {
         let engine = Engine::new(config).context("starting NMP engine")?;
         let (materialization_tx, materialization_rx) =
             mpsc::channel(MATERIALIZATION_QUEUE_CAPACITY);
-        Ok(Self {
+        let host = Self {
             engine,
             relays: parsed,
             profile_relays,
-            accounts: Mutex::new(BTreeMap::new()),
+            read_access: AccessContext::Nip42(backend_keys.public_key()),
+            identities: Mutex::new(BTreeMap::new()),
             signing: Mutex::new(()),
             subscriptions: Mutex::new(BTreeMap::new()),
             materialization_tx: Mutex::new(Some(materialization_tx)),
             materialization_rx: Mutex::new(Some(materialization_rx)),
-        })
+        };
+        host.ensure_identity(backend_keys)
+            .context("registering backend NIP-42 identity")?;
+        Ok(host)
     }
 
     /// Take the one lossless stream feeding Mosaico's canonical read-model
@@ -96,7 +110,7 @@ impl NmpHost {
     /// it, making this suitable for precise, short-lived correlation queries.
     pub(crate) fn observe(&self, query: &SubscriptionQuery) -> Result<nmp::Subscription> {
         self.engine
-            .observe(live_query(&self.relays, query)?, None)
+            .observe(live_query(&self.relays, query, self.read_access)?, None)
             .context("opening NMP observation")
     }
 
@@ -181,7 +195,11 @@ impl Drop for NmpHost {
     }
 }
 
-fn live_query(relays: &BTreeSet<RelayUrl>, query: &SubscriptionQuery) -> Result<LiveQuery> {
+fn live_query(
+    relays: &BTreeSet<RelayUrl>,
+    query: &SubscriptionQuery,
+    access: AccessContext,
+) -> Result<LiveQuery> {
     let mut filter = nmp::Filter {
         kinds: Some(query.kinds.clone()),
         ..nmp::Filter::default()
@@ -196,11 +214,7 @@ fn live_query(relays: &BTreeSet<RelayUrl>, query: &SubscriptionQuery) -> Result<
     let demand = if relays.is_empty() {
         Demand::from_filter(filter)
     } else {
-        Demand::new(
-            filter,
-            SourceAuthority::Pinned(relays.clone()),
-            AccessContext::Public,
-        )?
+        Demand::new(filter, SourceAuthority::Pinned(relays.clone()), access)?
     };
     Ok(LiveQuery(demand))
 }
@@ -222,46 +236,4 @@ fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn query_is_public_and_pinned_to_the_configured_host() {
-        let relay = RelayUrl::parse("wss://relay.example.com").unwrap();
-        let relays = BTreeSet::from([relay.clone()]);
-        let query = SubscriptionQuery {
-            kinds: BTreeSet::from([9, 30315]),
-            tag: Some(('h', "room".into())),
-        };
-
-        let live = live_query(&relays, &query).unwrap();
-        assert_eq!(live.0.access, AccessContext::Public);
-        assert_eq!(live.0.source, SourceAuthority::Pinned(relays));
-        assert_eq!(live.0.selection.kinds, Some(query.kinds));
-        let h = IndexedTagName::new('h').unwrap();
-        assert_eq!(
-            live.0.selection.tags.get(&h),
-            Some(&Binding::Literal(BTreeSet::from(["room".to_string()])))
-        );
-    }
-
-    #[test]
-    fn configured_local_hosts_are_explicitly_allowed_but_onion_is_not() {
-        let local = RelayUrl::parse("ws://127.0.0.1:7777").unwrap();
-        let public = RelayUrl::parse("wss://relay.example.com").unwrap();
-        let onion = RelayUrl::parse("ws://examplehiddenservice.onion").unwrap();
-
-        assert_eq!(
-            local_relay_hosts([&local, &public, &onion]),
-            vec!["127.0.0.1"]
-        );
-    }
-
-    #[test]
-    fn canonical_materialization_stream_has_exactly_one_owner() {
-        let host = NmpHost::open(&[], None, None).unwrap();
-        let receiver = host.take_materialization_events().unwrap();
-        assert!(host.take_materialization_events().is_err());
-        drop(receiver);
-    }
-}
+mod tests;

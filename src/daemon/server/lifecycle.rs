@@ -1,5 +1,6 @@
 use super::*;
 use crate::reconcile::StatusReconciler;
+mod auth_restore;
 mod pending_writes;
 mod roster_bootstrap;
 
@@ -28,7 +29,7 @@ pub async fn run() -> Result<()> {
         "daemon storage paths"
     );
     tracing::info!(socket = %socket_path().display(), "daemon listening");
-    let cfg = Config::load().context("loading config")?;
+    let (cfg, backend_keys) = auth_restore::load_backend()?;
     let host = cfg.host.clone();
     let owners = cfg.whitelisted_pubkeys.clone();
     // The narrow direct client handles one-shot reads and doctor probes. Its
@@ -38,15 +39,11 @@ pub async fn run() -> Result<()> {
     // separate identity — a fresh keystore file would land in the same
     // `agents/` directory as real agents and leak into `who`/invite listings
     // as a phantom agent.
-    let auth_keys = cfg
-        .backend_nsec()
-        .and_then(|nsec| Keys::parse(nsec).ok())
-        .unwrap_or_else(Keys::generate);
     // The indexer is a direct-client target for one-shot lookups. Every product
     // write, including kind:0 copies to this indexer, is routed durably by NMP.
     let indexer = (!cfg.relays.contains(&cfg.indexer_relay)).then_some(cfg.indexer_relay.as_str());
     let transport = Arc::new(
-        Transport::connect_with_indexer(&cfg.relays, indexer, auth_keys)
+        Transport::connect_with_indexer(&cfg.relays, indexer, backend_keys.clone())
             .await
             .context("daemon relay connect")?,
     );
@@ -60,8 +57,8 @@ pub async fn run() -> Result<()> {
         &cfg.relays,
         Some(&cfg.indexer_relay),
         Some(&storage.nmp_store_path),
+        &backend_keys,
     )?);
-    pending_writes::spawn(&storage.state_db_path, &nmp);
     let provider = Arc::new(Nip29Provider::new(
         transport.clone(),
         nmp.clone(),
@@ -88,6 +85,8 @@ pub async fn run() -> Result<()> {
         standing_sync: tokio::sync::Mutex::new(()),
         mcp_actor_sync: tokio::sync::Mutex::new(()),
     });
+    auth_restore::restore(&state).context("restoring NIP-42 identities")?;
+    pending_writes::spawn(&storage.state_db_path, &state.nmp);
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());
     spawn_pruner(state.clone());

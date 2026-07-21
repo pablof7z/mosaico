@@ -56,12 +56,11 @@ pub fn group_create_subgroup(child_h: &str, parent_h: &str) -> Result<EventBuild
 }
 
 /// kind:9002 edit-metadata that locks a CHILD group `closed` (only members may
-/// write) while keeping it `public` (anyone may read — required so the
-/// non-member daemon connection still receives group events) AND declares its
-/// NIP-29 subgroup parent via a `["parent", parent_h]` tag (per
+/// write) while keeping it `public` (the current product visibility policy) AND
+/// declares its NIP-29 subgroup parent via a `["parent", parent_h]` tag (per
 /// nostr-protocol/nips#2319). Unlike [`group_lock_closed`], `name` is a
-/// human-readable display name rather than the slug. Must stay `public`, never
-/// `private`, or the non-member daemon connection goes blind to the subgroup.
+/// human-readable display name rather than the slug. Authenticated acquisition
+/// also supports private groups; this builder preserves Mosaico's public policy.
 pub fn group_lock_closed_with_parent(
     child_h: &str,
     name: &str,
@@ -158,7 +157,7 @@ mod tests {
         assert!(has_tag(&ev, "name", "mosaico"));
         assert!(has_tag_name(&ev, "closed"));
         assert!(has_tag_name(&ev, "public"));
-        // Must NOT be private — would blind the non-member daemon connection.
+        // Public is product policy; authenticated reads also support private groups.
         assert!(!has_tag_name(&ev, "private"));
         assert!(has_tag(
             &ev,
@@ -193,7 +192,7 @@ mod tests {
         assert!(has_tag(&ev, "parent", "mosaico"));
         assert!(has_tag_name(&ev, "closed"));
         assert!(has_tag_name(&ev, "public"));
-        // Must NOT be private — would blind the non-member daemon connection.
+        // Public is product policy; authenticated reads also support private groups.
         assert!(!has_tag_name(&ev, "private"));
         assert!(has_tag(
             &ev,

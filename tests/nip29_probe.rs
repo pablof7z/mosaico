@@ -201,62 +201,6 @@ async fn nip29_group_lifecycle() {
         "[probe] Q6 => non-member (daemon-key) CAN read closed+public group: {non_member_can_read}"
     );
 
-    // ── Q7: PRODUCTION TOPOLOGY. The daemon has ONE connection authed as a
-    // non-member key and signs each event with a *different* key (agent or admin).
-    // Load-bearing: does relay29 authorize writes by the event's AUTHOR or by the
-    // connection's AUTH identity? If by AUTH identity, every agent presence write
-    // and every group-management event over the daemon's connection is blocked and
-    // the whole feature is broken. `reader_c` is authed as a non-member (the daemon
-    // stand-in); we publish a member-signed note and an admin-signed 9000 over it.
-    eprintln!("\n[probe] ----- Q7: writes signed by X over a NON-member connection -----");
-    let m3 = format!("mosaico-probe-member3-{slug}");
-    let m3e = EventBuilder::new(Kind::from(KIND_NOTE), &m3)
-        .tags([h_tag(&slug)])
-        .build(member.public_key());
-    let m3e = member.sign_event(m3e).await.unwrap();
-    publish(&reader_c, &m3e, "member-signed note over NON-member conn").await;
-
-    let newmember = Keys::generate();
-    let put2 = EventBuilder::new(Kind::from(KIND_PUT_USER), "")
-        .tags([
-            h_tag(&slug),
-            Tag::custom(
-                TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
-                [newmember.public_key().to_hex(), "member".to_string()],
-            ),
-        ])
-        .build(admin.public_key());
-    let put2 = admin.sign_event(put2).await.unwrap();
-    publish(&reader_c, &put2, "admin-signed 9000 over NON-member conn").await;
-    tokio::time::sleep(Duration::from_millis(900)).await;
-
-    let notes3 = fetch(
-        &reader_c,
-        Filter::new()
-            .kind(Kind::from(KIND_NOTE))
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &slug),
-        "kind:1 in group (topology readback)",
-    )
-    .await;
-    let topo_member_write = notes3.iter().any(|e| e.content == m3);
-    let members3 = fetch(
-        &reader_c,
-        Filter::new()
-            .kind(Kind::from(KIND_GROUP_MEMBERS))
-            .identifier(&slug),
-        "39002 members (topology readback)",
-    )
-    .await;
-    let topo_admin_write = members3.iter().any(|e| {
-        e.tags.iter().any(|t| {
-            t.as_slice().get(1).map(|s| s.as_str()) == Some(&newmember.public_key().to_hex())
-        })
-    });
-    eprintln!(
-        "[probe] Q7 => member-signed write over non-member conn accepted: {topo_member_write}"
-    );
-    eprintln!("[probe] Q7 => admin-signed 9000 over non-member conn accepted: {topo_admin_write}");
-
     admin_c.disconnect().await;
     member_c.disconnect().await;
     outsider_c.disconnect().await;
@@ -272,8 +216,6 @@ async fn nip29_group_lifecycle() {
         !outsider_write_after_lock
     );
     eprintln!("[probe] Q6 non-member can read:        {non_member_can_read}");
-    eprintln!("[probe] Q7 member write over non-member conn: {topo_member_write}");
-    eprintln!("[probe] Q7 admin 9000 over non-member conn:   {topo_admin_write}");
     eprintln!("[probe] Recipe: 9007 create -> 9002 closed+public -> 9000 put-user/agent.\n");
 
     // Load-bearing gates for the daemon-owned-groups design.
@@ -288,12 +230,5 @@ async fn nip29_group_lifecycle() {
     assert!(
         non_member_can_read,
         "closed+public must keep reads open so the non-member daemon connection sees group events."
-    );
-    assert!(
-        topo_member_write && topo_admin_write,
-        "PRODUCTION TOPOLOGY: relay29 must authorize writes by the event AUTHOR, not the \
-         connection's AUTH identity. The daemon signs each event with the agent/admin key but \
-         sends over ONE connection authed as the non-member daemon key; if this fails, agent \
-         presence and group management into managed groups are blocked and the design must change."
     );
 }

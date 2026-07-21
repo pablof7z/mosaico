@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc};
 
 #[tokio::test]
 async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
-    let host = Arc::new(NmpHost::open(&[], None, None).unwrap());
+    let host = Arc::new(NmpHost::open(&[], None, None, &Keys::generate()).unwrap());
     let a = Keys::generate();
     let b = Keys::generate();
 
@@ -47,7 +47,13 @@ fn group_template_keeps_product_tags_and_reserves_routing_tags() {
 
 #[test]
 fn unsigned_multi_group_event_is_rejected_instead_of_losing_scope() {
-    let host = NmpHost::open(&["wss://relay.example.com".into()], None, None).unwrap();
+    let host = NmpHost::open(
+        &["wss://relay.example.com".into()],
+        None,
+        None,
+        &Keys::generate(),
+    )
+    .unwrap();
     let keys = Keys::generate();
     let unsigned = EventBuilder::new(Kind::TextNote, "hello")
         .tags([

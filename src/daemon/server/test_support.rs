@@ -12,7 +12,8 @@ impl DaemonState {
     }
 
     async fn new_for_test_with(whitelisted_pubkeys: Vec<String>) -> Arc<DaemonState> {
-        let backend_key = Keys::generate().secret_key().to_secret_hex();
+        let backend_keys = Keys::generate();
+        let backend_key = backend_keys.secret_key().to_secret_hex();
         let installed_harnesses = crate::harness::HarnessesConfig::load()
             .unwrap_or_default()
             .bundles
@@ -42,7 +43,8 @@ impl DaemonState {
         );
         let store = Arc::new(Mutex::new(Store::open_memory().expect("in-memory store")));
         let nmp = Arc::new(
-            crate::nmp_host::NmpHost::open(&[], None, None).expect("in-memory NMP engine"),
+            crate::nmp_host::NmpHost::open(&[], None, None, &backend_keys)
+                .expect("in-memory NMP engine"),
         );
         let provider = Arc::new(Nip29Provider::new(
             transport.clone(),
