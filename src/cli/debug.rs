@@ -18,6 +18,7 @@ pub(super) fn hook_tail(opts: HookTailOpts) -> anyhow::Result<()> {
 mod tests {
     use super::data::SessionPane;
     use super::util::*;
+    use crate::test_env::EnvGuard;
     use std::collections::BTreeMap;
 
     #[test]
@@ -77,5 +78,45 @@ mod tests {
             },
         );
         assert_eq!(infer_command_session(&panes, "coder", "proj"), None);
+    }
+
+    #[test]
+    fn hook_telemetry_from_unknown_workspace_is_unscoped() {
+        let home = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("MOSAICO_HOME", home.path());
+        let mut pane = SessionPane::default();
+        let hook = serde_json::json!({"cwd": "/definitely/not/a/mosaico-workspace"});
+
+        fill_pane_from_hook(&mut pane, "codex", &hook).unwrap();
+
+        assert_eq!(pane.host, "codex");
+        assert!(pane.root.is_empty());
+    }
+
+    #[test]
+    fn command_telemetry_from_unknown_workspace_is_unscoped() {
+        let home = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("MOSAICO_HOME", home.path());
+        let command = serde_json::json!({
+            "process": {"cwd": "/definitely/not/a/mosaico-workspace"}
+        });
+
+        assert_eq!(command_root(&command).unwrap(), "");
+    }
+
+    #[test]
+    fn corrupt_workspace_map_still_fails_telemetry_loading() {
+        let home = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("MOSAICO_HOME", home.path());
+        std::fs::write(home.path().join("workspaces.json"), "{not json").unwrap();
+        let command = serde_json::json!({
+            "process": {"cwd": "/definitely/not/a/mosaico-workspace"}
+        });
+
+        let error = command_root(&command).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("corrupt workspace map"),
+            "error = {error:#}"
+        );
     }
 }

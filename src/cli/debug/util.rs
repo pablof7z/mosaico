@@ -61,11 +61,25 @@ pub(super) fn fill_pane_from_hook(
     if pane.root.is_empty() {
         pane.root = stdin_json["cwd"]
             .as_str()
-            .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
+            .map(telemetry_root)
             .transpose()?
             .unwrap_or_default();
     }
     Ok(())
+}
+
+fn telemetry_root(cwd: &str) -> anyhow::Result<String> {
+    match crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)) {
+        Ok(root) => Ok(root),
+        Err(error)
+            if error
+                .downcast_ref::<crate::workspace::NoWorkspace>()
+                .is_some() =>
+        {
+            Ok(String::new())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub(super) fn hook_session(v: &Value) -> Option<String> {
@@ -85,7 +99,7 @@ pub(super) fn command_session(v: &Value) -> Option<String> {
 pub(super) fn command_root(v: &Value) -> anyhow::Result<String> {
     Ok(v["process"]["cwd"]
         .as_str()
-        .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
+        .map(telemetry_root)
         .transpose()?
         .unwrap_or_default())
 }
