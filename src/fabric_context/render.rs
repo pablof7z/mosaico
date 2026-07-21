@@ -58,6 +58,11 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
             "\n  Current title: \"{}\"\n  [if your title drifted you can update it]",
             esc_text(&row.title)
         );
+    } else {
+        out.push_str(
+            "\n  No session status set — once your outcome is clear, set a short one with \
+             `mosaico my session status \"<outcome>\"` so peers can see what you own.",
+        );
     }
 }
 

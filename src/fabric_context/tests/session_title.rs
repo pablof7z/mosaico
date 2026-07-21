@@ -21,3 +21,20 @@ fn agent_supplied_title_appears_immediately() {
     let reconciled = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     assert_eq!(reconciled, visible);
 }
+
+#[test]
+fn missing_title_prompts_to_set_a_status() {
+    let store = seed_store();
+    let rec = session(&store); // default: no title set
+
+    let visible = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
+        .expect("explicit context should render");
+    assert!(
+        visible.contains("No session status set"),
+        "an agent with no title should be prompted to set one; got: {visible}"
+    );
+    assert!(
+        !visible.contains("Current title"),
+        "should not claim a title when none is set; got: {visible}"
+    );
+}
