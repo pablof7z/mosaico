@@ -101,6 +101,9 @@ Codex app-server uses `thread/resume`.
 Goose's canonical command is `goose acp`. Do not configure a PTY bundle or a
 native profile for Goose; neither capability is supported.
 
+Hermes named profiles are discovered from `<HERMES_HOME>/profiles/<name>` and
+activate natively as `hermes --profile <name> acp` for managed launch.
+
 ## Launch
 
 Register the workspace and supply an optional positional prompt through the

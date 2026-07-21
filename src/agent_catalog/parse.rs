@@ -4,6 +4,12 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[derive(Default, serde::Deserialize)]
+struct HermesProfileMeta {
+    #[serde(default)]
+    description: String,
+}
+
 pub(super) fn discover_dir(
     dir: &Path,
     harness: Harness,
@@ -11,6 +17,71 @@ pub(super) fn discover_dir(
     out: &mut Vec<NativeAgentProfile>,
 ) -> Result<()> {
     discover_dir_inner(dir, harness, &scope, out)
+}
+
+pub(super) fn discover_hermes_profiles(
+    dir: &Path,
+    scope: AgentScope,
+    out: &mut Vec<NativeAgentProfile>,
+) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", dir.display())),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(slug) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if slug == "default" || !valid_hermes_profile_name(slug) {
+            continue;
+        }
+        let metadata_path = path.join("profile.yaml");
+        let use_criteria = read_hermes_description(&metadata_path);
+        let modified_at = modified_at(&metadata_path)
+            .or_else(|| modified_at(&path))
+            .unwrap_or(0);
+        out.push(NativeAgentProfile {
+            slug: slug.to_string(),
+            use_criteria,
+            harness: Harness::Hermes,
+            path,
+            scope: scope.clone(),
+            modified_at,
+        });
+    }
+    Ok(())
+}
+
+fn read_hermes_description(path: &Path) -> String {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|body| serde_yaml_ng::from_str::<HermesProfileMeta>(&body).ok())
+        .map(|meta| meta.description.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn valid_hermes_profile_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 64 {
+        return false;
+    }
+    name.bytes().enumerate().all(|(index, byte)| {
+        byte.is_ascii_lowercase()
+            || byte.is_ascii_digit()
+            || (index > 0 && matches!(byte, b'-' | b'_'))
+    })
+}
+
+fn modified_at(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
 }
 
 fn discover_dir_inner(

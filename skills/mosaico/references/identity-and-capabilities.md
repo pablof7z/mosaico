@@ -33,8 +33,9 @@ capabilities, or identity-bearing environment variables affect a decision.
   not a guarantee that launch will complete, a live session, channel member,
   lock, or proof that work is already assigned.
 - Mosaico discovers valid Codex, Claude Code, and OpenCode native agent profiles
-  from their global and workspace-local agent directories. These capabilities
-  can appear without a duplicate Mosaico agent JSON.
+  from their global and workspace-local agent directories, plus named Hermes
+  profiles from `<HERMES_HOME>/profiles`. These capabilities can appear without
+  a duplicate Mosaico agent JSON.
 - A workspace-local profile applies only in that workspace and takes precedence
   over the same harness's global profile there.
 - Explicit Mosaico agents remain pinned to their configured harness bundle.

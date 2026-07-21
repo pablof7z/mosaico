@@ -17,10 +17,12 @@ pub struct CodexRootConfig {
 pub(super) fn load(profile: &NativeAgentProfile) -> Result<NativeAgentActivation> {
     match profile.harness {
         Harness::Codex => load_codex(profile),
-        Harness::ClaudeCode | Harness::Opencode => Ok(NativeAgentActivation::NativeSelector {
-            name: native_selector_name(profile),
-        }),
-        Harness::Grok | Harness::Goose | Harness::Hermes | Harness::Unknown => {
+        Harness::ClaudeCode | Harness::Opencode | Harness::Hermes => {
+            Ok(NativeAgentActivation::NativeSelector {
+                name: native_selector_name(profile),
+            })
+        }
+        Harness::Grok | Harness::Goose | Harness::Unknown => {
             anyhow::bail!(
                 "{} has no native agent activation",
                 profile.harness.as_str()

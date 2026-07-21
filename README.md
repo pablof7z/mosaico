@@ -64,9 +64,9 @@ end-to-end demos against a live relay across multiple hosts. If it's here, it ru
   `perSessionKey: false` instead reuse the key persisted in their agent JSON, publish
   under the bare agent slug, allow one live session on the backend, and always start fresh.
 - **Installed harness agents are available automatically.** Mosaico monitors global and
-  workspace-local Codex, Claude Code, and OpenCode agent directories and advertises valid
-  profiles in the backend roster. Cross-harness name conflicts appear as combinations such
-  as `writer-codex` and `writer-claude`; selecting one records the binding in
+  workspace-local Codex, Claude Code, and OpenCode agent directories plus global Hermes
+  named profiles, and advertises them in the backend roster. Cross-harness conflicts appear as
+  `writer-codex` and `writer-claude`; selecting one records the binding in
   `~/.mosaico/agents/writer.json`. Live detection exposes generic agents such as `codex`,
   `claude`, `goose`, `hermes`, and `opencode`. Interactive launch selects a PTY when supported;
   Goose uses native ACP instead. Managed provisioning prefers the harness's RPC transport.

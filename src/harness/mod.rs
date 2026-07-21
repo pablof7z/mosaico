@@ -113,6 +113,7 @@ pub fn supports_native_agent(harness: Harness, transport: Transport) -> bool {
         (Harness::ClaudeCode, Transport::Pty | Transport::Acp)
             | (Harness::Codex, Transport::Pty | Transport::AppServer)
             | (Harness::Opencode, Transport::Pty)
+            | (Harness::Hermes, Transport::Pty | Transport::Acp)
     )
 }
 

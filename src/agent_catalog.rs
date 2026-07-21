@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 
 mod activation;
 mod parse;
+mod removal;
 pub use activation::{CodexRootConfig, NativeAgentActivation};
-use parse::discover_dir;
+use parse::{discover_dir, discover_hermes_profiles};
+pub use removal::remove_native_profile;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentScope {
@@ -42,6 +44,7 @@ pub struct DiscoveryRoots {
     pub codex: PathBuf,
     pub claude: PathBuf,
     pub opencode: PathBuf,
+    pub hermes: PathBuf,
 }
 
 impl DiscoveryRoots {
@@ -50,6 +53,7 @@ impl DiscoveryRoots {
             codex: home.join(".codex/agents"),
             claude: home.join(".claude/agents"),
             opencode: home.join(".config/opencode/agents"),
+            hermes: home.join(".hermes/profiles"),
         }
     }
 
@@ -64,8 +68,22 @@ impl DiscoveryRoots {
         if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
             roots.opencode = PathBuf::from(xdg).join("opencode/agents");
         }
+        if let Some(hermes_home) = std::env::var_os("HERMES_HOME").filter(|v| !v.is_empty()) {
+            roots.hermes = hermes_profiles_root(&home, &PathBuf::from(hermes_home));
+        }
         Ok(roots)
     }
+}
+
+fn hermes_profiles_root(home: &Path, hermes_home: &Path) -> PathBuf {
+    let native_root = home.join(".hermes");
+    if hermes_home.starts_with(&native_root) {
+        return native_root.join("profiles");
+    }
+    if hermes_home.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("profiles")) {
+        return hermes_home.parent().unwrap().to_path_buf();
+    }
+    hermes_home.join("profiles")
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -94,6 +112,7 @@ impl AgentCatalog {
             AgentScope::Global,
             &mut profiles,
         )?;
+        discover_hermes_profiles(&roots.hermes, AgentScope::Global, &mut profiles)?;
         for workspace in workspaces {
             discover_dir(
                 &workspace.join(".codex/agents"),
@@ -215,19 +234,6 @@ impl AgentCatalog {
 impl NativeAgentProfile {
     pub fn activation(&self) -> Result<NativeAgentActivation> {
         activation::load(self)
-    }
-}
-
-/// Permanently delete one exact, already-discovered native profile source file.
-///
-/// Callers resolve the profile through the catalog first, which disambiguates
-/// same-named profiles by harness and scope without accepting an arbitrary path.
-pub fn remove_native_profile(profile: &NativeAgentProfile) -> Result<bool> {
-    match std::fs::remove_file(&profile.path) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error)
-            .with_context(|| format!("deleting native agent profile {}", profile.path.display())),
     }
 }
 

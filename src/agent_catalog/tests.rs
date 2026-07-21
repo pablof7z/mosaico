@@ -1,6 +1,9 @@
 use super::*;
 use tempfile::TempDir;
 
+#[path = "tests/hermes.rs"]
+mod hermes;
+
 fn write(path: &Path, body: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, body).unwrap();

@@ -163,10 +163,10 @@ bash containers/mosaico/run --profile codex mosaico agents
 
 In a non-interactive command this prints available launch targets and exits. In
 a terminal it opens the fuzzy selector. The inventory includes configured
-agents, eligible raw harnesses, and installed global/workspace native profiles.
-Test both a single-harness native profile and, when available, a same-slug
-cross-harness profile. The latter must print/select harness-suffixed targets and
-persist the chosen binding.
+agents, eligible raw harnesses, installed global/workspace native profiles, and
+Hermes named profiles. Test both a single-harness profile and, when available,
+a same-slug cross-harness profile. The latter must print/select
+harness-suffixed targets and persist the chosen binding.
 
 ## 7. Deliver a tagged mention
 
