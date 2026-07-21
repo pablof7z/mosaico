@@ -21,18 +21,14 @@ pub(super) fn push_mode_notice(
         .entry(rec.pubkey.clone())
         .or_default()
         .record_headless_mode(headless, announce_initial);
-    if changed {
-        warnings.push(mode_notice(headless).to_string());
+    if changed && headless {
+        warnings.push(mode_notice().to_string());
     }
 }
 
-fn mode_notice(headless: bool) -> &'static str {
-    if headless {
-        "Headless mode is on. Your ordinary text output is not currently visible. \
-         Publish anything the human or another agent should receive to the relevant channel."
-    } else {
-        "Headless mode is off. Your ordinary text output is visible in this session."
-    }
+fn mode_notice() -> &'static str {
+    "Headless mode is on. Your ordinary text output is not currently visible. \
+     Publish anything the human or another agent should receive to the relevant channel."
 }
 
 #[cfg(test)]
@@ -40,15 +36,11 @@ mod tests {
     use super::mode_notice;
 
     #[test]
-    fn mode_notices_describe_output_without_transport_details() {
-        let on = mode_notice(true);
+    fn headless_notice_describes_output_without_transport_details() {
+        let on = mode_notice();
         assert!(on.contains("Headless mode is on."));
         assert!(on.contains("relevant channel"));
         assert!(!on.contains("PTY"));
         assert!(!on.contains("ACP"));
-        assert_eq!(
-            mode_notice(false),
-            "Headless mode is off. Your ordinary text output is visible in this session."
-        );
     }
 }

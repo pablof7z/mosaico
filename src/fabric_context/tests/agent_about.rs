@@ -22,7 +22,7 @@ fn agent_context_omits_capabilities_while_human_view_keeps_roster() {
     assert!(!text.contains("<available-agents>"));
     assert!(!text.contains("<workspace-agents>"));
     assert!(!text.contains("@helper"));
-    assert!(text.contains("<member ref=\"@coder\""));
+    assert!(!text.contains("<members>"));
 
     let human = render_fabric_context_human(&store, input(Some(&rec), "root", 0, 100, true), false)
         .unwrap()

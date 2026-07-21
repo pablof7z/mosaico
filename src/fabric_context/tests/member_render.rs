@@ -7,6 +7,36 @@ use crate::state::{Status, Store};
 
 use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
 
+#[test]
+fn empty_status_agents_are_omitted_from_snapshots_and_deltas() {
+    let store = seed_store();
+    let rec = session(&store);
+
+    let snapshot = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
+        .expect("snapshot should render");
+    assert!(!snapshot.contains("<members>"), "got: {snapshot}");
+    assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
+    assert!(!snapshot.contains("seen=\"unknown\""), "got: {snapshot}");
+
+    store
+        .upsert_status(&Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "amber-reviewer".into(),
+            title: String::new(),
+            activity: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            last_seen: 150,
+            updated_at: 150,
+            expiration: 300,
+        })
+        .unwrap();
+    let delta = render_fabric_context(&store, input(Some(&rec), "root", 100, 200, true))
+        .expect("forced delta should render");
+    assert!(!delta.contains("<recent-presence>"), "got: {delta}");
+    assert!(!delta.contains("@amber-reviewer"), "got: {delta}");
+}
+
 /// A member with a live status renders under that status's public handle; the
 /// The public session handle wins over the durable profile name.
 #[test]
@@ -40,15 +70,14 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("context should render");
-    // Self keeps its fallback slug ref; the peer session renders under its public handle.
-    assert!(
-        text.contains("<member ref=\"@coder\" state=\"offline\" status=\""),
-        "got: {text}"
-    );
+    // The empty-status self row is absent; the peer renders under its public handle.
+    assert!(!text.contains("<member ref=\"@coder\""), "got: {text}");
     assert!(
         text.contains("<member ref=\"@amber-reviewer\" state=\"idle\" status=\""),
         "got: {text}"
     );
+    assert!(!text.contains("status=\"\""), "got: {text}");
+    assert!(!text.contains("seen=\"unknown\""), "got: {text}");
     assert!(
         !text.contains(" agentSlug=\""),
         "member rows must not render agentSlug attributes: {text}"
@@ -148,6 +177,7 @@ fn heartbeat_without_state_change_produces_no_presence_delta() {
 #[test]
 fn agent_render_uses_workspace_and_never_leaks_project() {
     let store = seed_store();
+    super::publish_idle_status(&store, OTHER_PK, "reviewer", "Reviewing");
     let rec = session(&store);
     // A representative, non-trivial view: workspace-bearing root channel with
     // members and a channel block.

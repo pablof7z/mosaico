@@ -149,13 +149,7 @@ pub(crate) fn assemble_turn_start(
             crate::session_host::session_has_live_delivery_path(&s, rec)
         };
         if !delivery_available {
-            warnings.push(
-                "This session cannot receive automatic steering while idle. \
-                 Messages sent to you wait in your inbox until your next turn. \
-                 Run `mosaico my session pty-wrap-me --self` to make it \
-                 steerable, or keep taking turns."
-                    .to_string(),
-            );
+            warnings.push("This session cannot be steered while idle.".to_string());
         }
     }
 

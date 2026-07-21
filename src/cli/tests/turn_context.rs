@@ -6,10 +6,9 @@ use std::sync::Mutex;
 mod fixtures;
 use fixtures::{pub_status, seed_channel, test_session, BACKEND};
 
-/// A quiet non-first turn still carries the current output-mode notice without
-/// replaying the first-turn awareness snapshot.
+/// A quiet headed turn emits no context merely to announce ordinary visibility.
 #[test]
-fn quiet_non_first_turn_only_renders_output_mode_notice() {
+fn quiet_non_first_headed_turn_emits_no_context() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
     let mut rec = test_session("sess-freeze-2");
@@ -19,9 +18,7 @@ fn quiet_non_first_turn_only_renders_output_mode_notice() {
     let ctx = render_turn_start_text_for_test(
         &m, &rec, BACKEND, "laptop", /* prev_turn_started_at */ 42,
     );
-    let text = ctx.expect("headed-mode notice expected");
-    assert!(text.contains("Headless mode is off"), "got: {text:?}");
-    assert!(!text.contains("<members>"), "got: {text:?}");
+    assert!(ctx.is_none(), "headed mode should be silent; got: {ctx:?}");
 }
 
 #[test]
@@ -153,9 +150,11 @@ fn first_turn_warns_when_session_has_no_live_pty_endpoint() {
     let text = render_turn_start_text_for_test(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("This session cannot receive automatic steering while idle."),
+        text.contains("This session cannot be steered while idle."),
         "expected the not-PTY-wrapped warning; got: {text:?}"
     );
+    assert!(!text.contains("keep taking turns"), "got: {text:?}");
+    assert!(!text.contains("pty-wrap-me"), "got: {text:?}");
 }
 
 /// The same first turn with a live PTY locator omits the warning: the
@@ -184,7 +183,7 @@ fn first_turn_omits_pty_warning_when_session_has_a_live_endpoint() {
     let text = render_turn_start_text_for_test(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        !text.contains("This session cannot receive automatic steering while idle."),
+        !text.contains("This session cannot be steered while idle."),
         "a live PTY locator must suppress the not-PTY-wrapped warning; got: {text:?}"
     );
 }

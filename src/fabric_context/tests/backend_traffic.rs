@@ -3,7 +3,7 @@ use crate::fabric_context::{
 };
 use crate::state::{RelayEvent, Store};
 
-use super::{seed_store, session, OTHER_PK, SELF_PK};
+use super::{publish_idle_status, seed_store, session, OTHER_PK, SELF_PK};
 
 /// The daemon's own management pubkey is excluded from the roster by identity,
 /// even when it has no cached kind:0 profile.
@@ -18,6 +18,9 @@ fn backend_pubkey_excluded_from_roster_without_cached_profile() {
             2,
         )
         .unwrap();
+    publish_idle_status(&store, SELF_PK, "coder", "Coding");
+    publish_idle_status(&store, OTHER_PK, "reviewer", "Reviewing");
+    publish_idle_status(&store, MGMT_PK, "backend", "Managing relay");
     let rec = session(&store);
 
     let excluded = |backend_pubkey: &str| -> String {

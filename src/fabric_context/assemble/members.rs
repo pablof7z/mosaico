@@ -23,19 +23,23 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
         .unwrap_or_default()
         .into_iter()
         .filter(|(pk, _)| !members.backend.contains(pk))
-        .map(|(pk, _role)| {
+        .filter_map(|(pk, _role)| {
             let status = status_map.get(&pk);
             let state = status
                 .map(|s| s.state.observed(s.expiration >= now))
                 .unwrap_or(crate::session_state::SessionState::Offline);
-            MemberRow {
+            let status_text = status.map(|s| status_text(s, state)).unwrap_or_default();
+            if status_text.is_empty() {
+                return None;
+            }
+            Some(MemberRow {
                 reference: reference(inputs, &pk, status),
                 state,
-                status: status.map(|s| status_text(s, state)).unwrap_or_default(),
+                status: status_text,
                 seen: status
                     .map(|s| relative_time(s.last_seen, now))
                     .unwrap_or_else(|| "unknown".to_string()),
-            }
+            })
         })
         .collect()
 }

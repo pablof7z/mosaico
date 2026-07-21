@@ -33,6 +33,22 @@ fn seed_store() -> Store {
     store
 }
 
+fn publish_idle_status(store: &Store, pubkey: &str, slug: &str, title: &str) {
+    store
+        .upsert_status(&Status {
+            pubkey: pubkey.into(),
+            channel_h: "root".into(),
+            slug: slug.into(),
+            title: title.into(),
+            activity: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            last_seen: 90,
+            updated_at: 90,
+            expiration: 2_000,
+        })
+        .unwrap();
+}
+
 fn session(store: &Store) -> Session {
     let rec = session_record(store, "sess", "root");
     store.grant_session_route(&rec.pubkey, "task", 20).unwrap();
@@ -94,6 +110,7 @@ fn input<'a>(
 #[test]
 fn human_who_renderer_is_non_xml_and_terminal_friendly() {
     let store = seed_store();
+    publish_idle_status(&store, SELF_PK, "coder", "Reviewing fabric context");
 
     let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), false)
         .expect("valid channel ancestry")
@@ -103,7 +120,7 @@ fn human_who_renderer_is_non_xml_and_terminal_friendly() {
     assert!(human.contains("#root.task"), "got: {human}");
     assert!(human.contains("Members"), "got: {human}");
     assert!(human.contains("@coder"), "got: {human}");
-    assert!(human.contains("offline"), "got: {human}");
+    assert!(human.contains("idle"), "got: {human}");
     assert!(!human.contains(" member "), "got: {human}");
     assert!(!human.contains(" admin "), "got: {human}");
     assert!(!human.contains("<mosaico>"), "got: {human}");
@@ -113,6 +130,7 @@ fn human_who_renderer_is_non_xml_and_terminal_friendly() {
 #[test]
 fn human_who_renderer_colorizes_when_requested() {
     let store = seed_store();
+    publish_idle_status(&store, SELF_PK, "coder", "Reviewing fabric context");
 
     let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), true)
         .expect("valid channel ancestry")

@@ -6,7 +6,7 @@ use crate::daemon_harness::{
     hook_session_start, pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
 };
 use mosaico::daemon::client::Client;
-use mosaico::state::Store;
+use mosaico::state::{Status, Store};
 use nostr_sdk::prelude::Keys;
 
 #[path = "session_rooms/profile.rs"]
@@ -150,6 +150,21 @@ fn first_turn_resolves_member_profiles_from_kind0() {
         .await
         .expect("channel_add_member profiled member");
         wait_for_channel_member(&home, "tmp", &remote_pk);
+        let now = mosaico::util::now_secs();
+        Store::open(&home.store_path())
+            .unwrap()
+            .upsert_status(&Status {
+                pubkey: remote_pk.clone(),
+                channel_h: "tmp".into(),
+                slug: String::new(),
+                title: "Reviewing".into(),
+                activity: String::new(),
+                state: mosaico::session_state::SessionState::Idle,
+                last_seen: now,
+                updated_at: now,
+                expiration: now + 90,
+            })
+            .unwrap();
         let members = c
             .call("channel_members", serde_json::json!({"channel": "tmp"}))
             .await
@@ -178,7 +193,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
             .to_string()
     });
 
-    let want = format!("ref=\"@{remote_handle}\" state=\"offline\"");
+    let want = format!("ref=\"@{remote_handle}\" state=\"idle\" status=\"Reviewing\"");
     assert!(ctx.contains(&want), "kind:0 profile should resolve: {ctx}");
     assert!(
         !ctx.contains(&format!("@{}", &remote_pk[..8])),

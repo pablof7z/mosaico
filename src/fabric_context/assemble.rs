@@ -174,14 +174,18 @@ fn presence_rows(inputs: &ViewInputs, channel: &str, cursor: u64, now: u64) -> V
         .filter(|s| semantic_change_at(s.state, s.updated_at, s.expiration, now) > cursor)
         .filter(|s| semantic_change_at(s.state, s.updated_at, s.expiration, now) <= now)
         .filter(|s| &s.pubkey != self_pubkey)
-        .map(|s| {
+        .filter_map(|s| {
             let state = s.state.observed(s.expiration >= now);
-            PresenceRow {
+            let status = status_text(s, state);
+            if status.is_empty() {
+                return None;
+            }
+            Some(PresenceRow {
                 reference: presence_reference(inputs, s),
                 state,
-                status: status_text(s, state),
+                status,
                 seen: relative_time(s.last_seen, now),
-            }
+            })
         })
         .collect()
 }
