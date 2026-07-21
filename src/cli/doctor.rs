@@ -201,7 +201,7 @@ fn inspect_installation(checks: &mut Vec<Check>) {
                     );
                 } else if !present {
                     check = check.repair(format!(
-                        "run `mosaico install --harness {}` only if the user opts into this harness",
+                        "run `mosaico setup --harness {}` only if the user opts into this harness",
                         harness.id
                     ));
                 }
@@ -211,7 +211,7 @@ fn inspect_installation(checks: &mut Vec<Check>) {
                 checks.push(Check::new(
                     "harness",
                     CheckStatus::Warning,
-                    "no hook-based harness was detected; Goose and remote MCP do not require hooks",
+                    "no hook-based harness was detected; current Goose and remote MCP setup uses non-hook transports",
                 ));
             }
         }

@@ -11,11 +11,9 @@ fn write_executable(path: &Path) {
 
 fn opts(dry_run: bool, uninstall: bool) -> InstallOpts {
     InstallOpts {
-        all: false,
-        harness: None,
         dry_run,
-        status: false,
         uninstall,
+        ..InstallOpts::default()
     }
 }
 

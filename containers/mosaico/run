@@ -250,7 +250,7 @@ with_mosaico() {
     set -euo pipefail
     cargo build >/dev/null
     if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
-      mosaico install --harness "$1" >/dev/null
+      mosaico setup --harness "$1" >/dev/null
     fi
     shift
     exec "$@"
@@ -267,7 +267,7 @@ with_mosaico_direct() {
     set -euo pipefail
     cargo build >/dev/null
     if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
-      mosaico install --harness "$1" >/dev/null
+      mosaico setup --harness "$1" >/dev/null
     fi
     shift
     exec "$@"
@@ -284,7 +284,7 @@ with_mosaico_hosted() {
     set -euo pipefail
     cargo build >/dev/null
     if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
-      mosaico install --harness "$1" >/dev/null
+      mosaico setup --harness "$1" >/dev/null
     fi
     shift
     "$@"

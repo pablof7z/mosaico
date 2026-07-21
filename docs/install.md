@@ -1,68 +1,75 @@
-# Installing mosaico from source
+# Install and configure Mosaico
 
-The recommended path is agent-driven: tell your agent
-"Go to <https://mosaico.f7z.io/SETUP.md> and follow the instructions." This page
-is the manual alternative — clone the repo, build the binary, and wire things up
-yourself.
+The recommended path is agent-driven: tell your agent, “Go to
+<https://mosaico.f7z.io/SETUP.md> and follow the instructions.” The canonical
+guide inspects the host, installs the matching verified release binary, runs the
+setup wizard, and proves the result.
 
-## Prerequisites
+## Release binary
 
-- A [Rust toolchain](https://rustup.rs) (stable; `cargo` on your `PATH`)
-- Go 1.25 or newer (build-time only; the installed command bundles its relay)
-- [`just`](https://github.com/casey/just) (optional — the recipes below are two
-  commands you can also run by hand)
+Mosaico publishes archives for Apple Silicon and Intel macOS, plus x86-64 and
+ARM64 Linux. Download the matching archive and `SHA256SUMS` from the
+[latest release](https://github.com/pablof7z/mosaico/releases/latest), verify the
+archive, and install `mosaico` on `PATH`. The setup guide contains the exact
+platform-detection and checksum commands.
 
-## Clone and build
+## Configure the device
+
+```console
+$ mosaico setup --dry-run
+$ mosaico setup
+```
+
+`mosaico setup` is both the first-run and reconfiguration command. It manages
+the relay choice, profile indexer, host label, operator allowlist, optional CLI
+operator signing key, per-session-room policy, generated backend identity,
+runtime skill, and selected harness integrations. It can configure and start
+the bundled local relay or use one or more remote relays.
+
+After setup, restart open harness sessions and verify the complete installation:
+
+```console
+$ mosaico setup --status
+$ mosaico doctor
+```
+
+## Source-build fallback
+
+Building requires stable Rust, Go 1.25 or newer, Git, and the Croissant
+submodule. Go is not required after installation because the release binary
+embeds the pinned relay.
 
 ```console
 $ git clone --recurse-submodules https://github.com/pablof7z/mosaico.git
 $ cd mosaico
 $ just install
+$ mosaico setup
 ```
 
-`just install` runs `cargo build --release` and copies the binary to
-`~/.local/bin/mosaico` (on macOS it also clears quarantine attributes and
-ad-hoc signs it). The resulting binary includes the project-compatible
-Croissant relay; Go is not required after the build. Make sure
-`~/.local/bin` is on your `PATH`.
+Without `just`, run `cargo build --release` and copy
+`target/release/mosaico` to a directory on `PATH`.
 
-Without `just`, the equivalent is:
+## Foreground relay operation
 
-```console
-$ git submodule update --init vendor/croissant
-$ cargo build --release
-$ cp target/release/mosaico ~/.local/bin/mosaico
-```
-
-## Verify
-
-```console
-$ mosaico doctor
-```
-
-`mosaico doctor` checks the installation end to end and tells you exactly what,
-if anything, still needs attention.
-
-## Run a relay
-
-To run the bundled Croissant NIP-29 relay locally in the foreground:
+The setup wizard can manage a local relay in the background. Operators who
+instead need a foreground process can run:
 
 ```console
 $ mosaico relay
 ```
 
-It listens on `127.0.0.1:9888`, stores durable relay data under
-`~/.mosaico/relay/data`, and uses the first operator pubkey from
-`whitelistedPubkeys` as the relay owner. `Ctrl-C` stops it. No separate
-Croissant checkout or executable is needed.
+It defaults to `127.0.0.1:9888`, stores relay data below `MOSAICO_HOME`, and
+accepts `--host`, `--port`, `--domain`, `--data-dir`, and `--owner-pubkey`.
 
-The command also accepts `--host`, `--port`, `--domain`, `--data-dir`, and
-`--owner-pubkey`. A public `wss://` relay still needs TLS termination in front
-of the process; pass its public hostname with `--domain`.
+## Uninstall
 
-## Wire in your harnesses
+```console
+$ mosaico uninstall
+```
 
-Each harness (Claude Code, Codex, Goose, Hermes, OpenCode, Grok) joins through
-its own thin integration — hooks, ACP, or both. See
-[`integrations/`](../integrations) for per-harness setup, or let the
-[setup guide](https://mosaico.f7z.io/SETUP.md) walk an agent through it.
+The command removes Mosaico-owned hooks, plugins, and runtime skills from every
+supported harness and stops only the Mosaico daemon and locally managed relay.
+It preserves `MOSAICO_HOME` by default and separately offers to delete its
+device identity, trust, sessions, logs, and relay data after showing the exact
+path and warning that removal is irreversible. The executable remains installed
+until removed with the package manager or file operation that installed it.

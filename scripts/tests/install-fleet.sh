@@ -71,7 +71,7 @@ cat >"${FAKE_BIN}/mosaico-fake" <<'EOF'
 set -euo pipefail
 printf 'mosaico %s\n' "$*" >>"${FLEET_TEST_LOG}"
 case "${1:-}" in
-  install)
+  setup)
     if [[ "${2:-}" == --all ]]; then
       mkdir -p "${HOME}/.agents/skills" "${HOME}/.claude/skills"
       rm -rf "${HOME}/.agents/skills/mosaico" \
@@ -80,7 +80,7 @@ case "${1:-}" in
       ln -s "${HOME}/.agents/skills/mosaico" \
         "${HOME}/.claude/skills/mosaico"
     else
-      echo 'fake install status'
+      echo 'fake setup status'
     fi
     ;;
   daemon)

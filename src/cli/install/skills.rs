@@ -1,5 +1,4 @@
 //! Install the bundled runtime skill without depending on a source checkout.
-
 mod bundle;
 
 use super::config::{claude_detected, home_dir};
@@ -33,12 +32,13 @@ fn skill_targets() -> Result<Vec<SkillTarget>> {
         path: agents_skill_path(&home),
         kind: SkillTargetKind::BundledCopy,
     }];
-    if claude_detected()? {
-        targets.push(SkillTarget {
-            label: "claude",
-            path: home.join(".claude/skills/mosaico"),
-            kind: SkillTargetKind::AgentsSkillLink,
-        });
+    let claude = SkillTarget {
+        label: "claude",
+        path: home.join(".claude/skills/mosaico"),
+        kind: SkillTargetKind::AgentsSkillLink,
+    };
+    if claude_detected()? || claude.path.symlink_metadata().is_ok() {
+        targets.push(claude);
     }
     Ok(targets)
 }

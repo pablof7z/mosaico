@@ -6,12 +6,13 @@ use super::debug::DebugAction;
 use super::dispatch::DispatchArgs;
 use super::doctor::DoctorArgs;
 use super::harness::HarnessAction;
-use super::install::InstallArgs;
+use super::install::SetupArgs;
 use super::mcp::McpArgs;
 use super::messaging::WaitArgs;
 use super::my::MyAction;
 use super::pty::PtySupervisorArgs;
 use super::relay::RelayArgs;
+use super::uninstall::UninstallArgs;
 use super::who::WhoArgs;
 
 /// Print the top-level help with every hidden subcommand unhidden, for
@@ -52,7 +53,7 @@ fn command_for_context(in_agent: bool) -> Command {
     let visible: &[&str] = if in_agent {
         &["wait", "dispatch", "my", "doctor"]
     } else {
-        &["who", "resume", "agents", "doctor"]
+        &["who", "resume", "agents", "setup", "uninstall", "doctor"]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -132,9 +133,12 @@ pub(super) enum Cmd {
     /// Internal portable-pty supervisor process.
     #[command(name = "__pty-supervisor", hide = true)]
     PtySupervisor(PtySupervisorArgs),
-    /// Detect local agent harnesses and wire mosaico's hook entries into each.
+    /// Configure Mosaico and install selected agent-harness integrations.
     #[command(hide = true)]
-    Install(InstallArgs),
+    Setup(SetupArgs),
+    /// Remove Mosaico-owned integrations and optionally delete local state.
+    #[command(hide = true)]
+    Uninstall(UninstallArgs),
     /// Manage the per-machine daemon.
     #[command(name = "daemon")]
     Daemon(DaemonArgs),

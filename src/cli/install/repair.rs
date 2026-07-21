@@ -8,13 +8,7 @@ pub(in crate::cli) fn repair_device_config() -> Result<ConfigRepair> {
 /// Repair one previously selected Mosaico integration without rendering. The
 /// caller is responsible for deriving consent from `is_present`.
 pub(in crate::cli) fn repair_integration(harness: &Harness) -> Result<()> {
-    let opts = InstallOpts {
-        all: false,
-        harness: None,
-        dry_run: false,
-        status: false,
-        uninstall: false,
-    };
+    let opts = InstallOpts::default();
     match harness.id {
         "claude-code" | "codex" | "grok" => super::install_json_harness(harness, &opts, false),
         "opencode" => super::install_opencode(harness, &opts, false),

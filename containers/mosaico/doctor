@@ -140,7 +140,7 @@ cargo build >/dev/null
 if [[ "${AGENT}" == "goose" ]]; then
   echo "goose auth/config: staged"
 else
-  mosaico install --harness "${HARNESS}" >/dev/null
+  mosaico setup --harness "${HARNESS}" >/dev/null
   case "${AGENT}" in
     claude) test -f "${HOME}/.claude/settings.json" ;;
     codex) test -f "${CODEX_HOME}/hooks.json" ;;

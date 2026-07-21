@@ -7,22 +7,22 @@ mod hermes;
 mod hooks;
 mod io;
 mod repair;
+mod selection;
 mod skill_api;
 mod skills;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use config::Harness;
-use dialoguer::MultiSelect;
 use owo_colors::OwoColorize;
-use std::io::{self as stdio, IsTerminal as _};
 
 use args::InstallOpts;
-pub(super) use args::{install, InstallArgs};
+pub(super) use args::{setup, SetupArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
 pub(super) use device_config::ConfigRepair;
 pub(super) use hooks::{is_installed, is_present, merge_hooks, migrate_codex_root_events};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 pub(super) use repair::{repair_device_config, repair_integration};
+use selection::{detected_list, preflight_selection, resolve_selection};
 pub(super) use skill_api::{
     repair_skill, skill_health, SkillHealth, SkillHealthState, SkillTargetHealth,
 };
@@ -31,14 +31,16 @@ fn has_harness_installation() -> Result<bool> {
     Ok(harnesses()?.iter().any(is_installed))
 }
 
-fn print_install_guide() {
+fn print_setup_guide() {
     println!("Mosaico is not installed in any supported agent harness.\n");
-    println!("Install it with:\n\n  mosaico install\n");
+    println!("Set it up with:\n\n  mosaico setup\n");
     println!(
         "This detects Claude Code, Codex, OpenCode, Grok, and Hermes and lets you choose integrations."
     );
-    println!("Use `mosaico install --all` to install every detected harness.");
-    println!("Goose uses native `goose acp` and needs no hook installation.");
+    println!("Use `mosaico setup --all` to install every detected harness.");
+    println!(
+        "Goose may launch through native ACP, but setup does not configure its fabric context."
+    );
 }
 
 /// Route a bare operator invocation to setup unless an integration is installed.
@@ -46,7 +48,7 @@ pub fn route_bare_invocation() -> Result<bool> {
     if has_harness_installation()? {
         Ok(true)
     } else {
-        print_install_guide();
+        print_setup_guide();
         Ok(false)
     }
 }
@@ -55,26 +57,31 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     let all = harnesses()?;
 
     if opts.status {
+        device_config::print_status()?;
         print_status(&all);
         skills::print_status()?;
+        super::local_relay::print_status()?;
         return Ok(());
     }
 
-    device_config::run_if_needed(&opts)?;
-
     let selected = resolve_selection(&all, &opts)?;
+    preflight_selection(&selected)?;
+    let device = if opts.uninstall {
+        None
+    } else {
+        Some(device_config::configure(&opts)?)
+    };
     if selected.skill {
         skills::install(&opts)?;
     } else {
         println!("\n{}", "Skipping mosaico skill".dimmed());
     }
 
-    if selected.harnesses.is_empty() {
+    if selected.harnesses.is_empty() && !opts.uninstall {
         println!(
             "No harness hooks selected. Detected: {}",
             detected_list(&all)
         );
-        return Ok(());
     }
 
     let verb = if opts.uninstall {
@@ -95,17 +102,33 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
         }
     }
 
+    if let Some(device) = device.as_ref() {
+        if device.local_relay && device.start_local_relay {
+            super::local_relay::start(
+                device
+                    .owner_pubkey
+                    .as_deref()
+                    .expect("local relay has owner"),
+                opts.dry_run,
+            )?;
+        } else if !device.local_relay {
+            super::local_relay::stop(opts.dry_run)?;
+        }
+    }
+
     if opts.dry_run {
         println!("\n{}", "(dry run; nothing was written)".dimmed());
     } else if !opts.uninstall {
-        println!("\nDone. Restart any open harness sessions to pick up the hooks.");
+        super::daemon_lifecycle::restart().await?;
+        println!("\nSetup complete. Restart open harness sessions, then run `mosaico doctor`.");
+    } else {
+        println!("\nRemoved Mosaico-owned harness integrations and runtime skills.");
     }
     Ok(())
 }
 
-struct InstallSelection<'a> {
-    skill: bool,
-    harnesses: Vec<&'a Harness>,
+pub(super) async fn uninstall_everywhere(dry_run: bool) -> Result<()> {
+    install_with_opts(InstallOpts::uninstall(dry_run)).await
 }
 
 fn print_status(all: &[Harness]) {
@@ -129,101 +152,6 @@ fn print_status(all: &[Harness]) {
             h.config_path.display().to_string().dimmed()
         );
     }
-}
-
-fn detected_list(all: &[Harness]) -> String {
-    let detected = all
-        .iter()
-        .filter(|h| h.detected)
-        .map(|h| h.id)
-        .collect::<Vec<_>>();
-    if detected.is_empty() {
-        "(none)".to_string()
-    } else {
-        detected.join(", ")
-    }
-}
-
-fn resolve_selection<'a>(all: &'a [Harness], opts: &InstallOpts) -> Result<InstallSelection<'a>> {
-    if let Some(ids) = &opts.harness {
-        let wanted = ids
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>();
-        let unknown = wanted
-            .iter()
-            .copied()
-            .filter(|id| !all.iter().any(|h| h.id == *id))
-            .collect::<Vec<_>>();
-        if !unknown.is_empty() {
-            bail!(
-                "unknown harness id(s): {}. Known: {}",
-                unknown.join(", "),
-                all.iter().map(|h| h.id).collect::<Vec<_>>().join(", ")
-            );
-        }
-        return Ok(InstallSelection {
-            skill: true,
-            harnesses: all.iter().filter(|h| wanted.contains(&h.id)).collect(),
-        });
-    }
-
-    if opts.all {
-        return Ok(InstallSelection {
-            skill: true,
-            harnesses: all.iter().filter(|h| h.detected).collect(),
-        });
-    }
-
-    if stdio::stdin().is_terminal() && stdio::stdout().is_terminal() {
-        return interactive_select(all);
-    }
-
-    Ok(InstallSelection {
-        skill: true,
-        harnesses: all.iter().filter(|h| h.detected).collect(),
-    })
-}
-
-fn interactive_select(all: &[Harness]) -> Result<InstallSelection<'_>> {
-    let mut labels = vec![skills::selection_label()?];
-    labels.extend(all.iter().map(|h| {
-        let status = if h.detected {
-            "detected".green().to_string()
-        } else {
-            "not detected".dimmed().to_string()
-        };
-        let installed = if is_installed(h) {
-            format!("  {}", "installed".green())
-        } else {
-            String::new()
-        };
-        format!(
-            "{:<18} {}{}  {}",
-            h.display.cyan().bold(),
-            status,
-            installed,
-            h.config_path.display().to_string().dimmed()
-        )
-    }));
-
-    let mut defaults = vec![true];
-    defaults.extend(all.iter().map(|h| h.detected));
-
-    let chosen = MultiSelect::new()
-        .with_prompt("Install mosaico components  (space to toggle, enter to apply)")
-        .items(&labels)
-        .defaults(&defaults)
-        .interact()?;
-
-    Ok(InstallSelection {
-        skill: chosen.contains(&0),
-        harnesses: chosen
-            .into_iter()
-            .filter_map(|i| i.checked_sub(1).map(|harness| &all[harness]))
-            .collect(),
-    })
 }
 
 fn install_json_harness(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {

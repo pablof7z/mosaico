@@ -61,13 +61,13 @@ container hooks use `/state/target/debug/mosaico`, not a host binary path.
 
 Goose config is copied into `/state/home/.config/goose`; on macOS its
 `goose`/`secrets` Keychain item is staged as a private profile-local
-`secrets.yaml`. Goose runs through native ACP and needs no Mosaico hook or
-plugin installation. Provider-owned plugins/extensions remain in Goose config;
+`secrets.yaml`. Goose runs through native ACP; the current container setup does
+not stage a Mosaico hook or plugin for it. Provider-owned plugins/extensions remain in Goose config;
 recipes are not advertised as native profiles because Goose ACP 1.43.0 exposes
 no stable recipe/profile selector.
 
 `claude`, `codex`, `codex-ollama`, `opencode`, and `opencode-ollama` build the current
-checkout and run `mosaico install --harness <name>` inside the isolated home
+checkout and run `mosaico setup --harness <name>` inside the isolated home
 before launching the harness. That means Claude hooks, Codex hooks, and the
 OpenCode plugin are installed through the same code path users run on a real
 machine.

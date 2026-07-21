@@ -146,7 +146,7 @@ impl Config {
         let s = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 anyhow::anyhow!(
-                    "{} does not exist yet — run `mosaico install` to set it up",
+                    "{} does not exist yet — run `mosaico setup` to create it",
                     path.display()
                 )
             } else {

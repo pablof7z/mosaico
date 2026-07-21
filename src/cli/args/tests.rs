@@ -219,3 +219,9 @@ fn bare_invocation_has_no_subcommand() {
     let cli = Cli::try_parse_from(["mosaico"]).unwrap();
     assert!(cli.cmd.is_none());
 }
+
+#[test]
+fn removed_install_command_is_not_a_setup_alias() {
+    let cli = Cli::try_parse_from(["mosaico", "install", "--status"]).unwrap();
+    assert!(matches!(cli.cmd, Some(Cmd::Fallback(_))));
+}

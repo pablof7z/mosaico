@@ -71,11 +71,9 @@ fn resolve_owner(explicit: Option<String>) -> Result<String> {
 }
 
 fn select_owner(explicit: Option<String>, configured: Vec<String>) -> Result<String> {
-    let candidate = explicit
-        .or_else(|| configured.into_iter().next())
-        .context(
-            "no whitelisted operator pubkey is configured; pass --owner-pubkey or run `mosaico install`",
-        )?;
+    let candidate = explicit.or_else(|| configured.into_iter().next()).context(
+        "no whitelisted operator pubkey is configured; pass --owner-pubkey or run `mosaico setup`",
+    )?;
     PublicKey::parse(candidate.trim())
         .map(|public_key| public_key.to_hex())
         .with_context(|| format!("invalid relay owner public key {candidate:?}"))

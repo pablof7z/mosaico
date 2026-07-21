@@ -66,8 +66,8 @@ fn bare_invocation_without_installation_shows_install_guide() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success(), "bare mosaico failed: {output:?}");
-    assert!(stdout.contains("mosaico install"));
-    assert!(stdout.contains("mosaico install --all"));
+    assert!(stdout.contains("mosaico setup"));
+    assert!(stdout.contains("mosaico setup --all"));
     assert!(!stdout.contains("Usage: mosaico"));
     assert!(!home.path().join(".mosaico/daemon.sock").exists());
 }
@@ -105,7 +105,10 @@ fn explicit_top_level_human_help_remains_contextual() {
 
     assert!(!help.contains("  sessions"));
     assert!(help.contains("  agents"));
+    assert!(help.contains("  setup"));
+    assert!(help.contains("  uninstall"));
     assert!(help.contains("  doctor"));
+    assert!(!help.contains("  install"));
     assert!(help.contains("without a command"));
     assert!(!help.contains("  mgmt"));
     assert!(!help.contains("  publish"));
@@ -118,6 +121,8 @@ fn agent_help_hides_operator_agent_management() {
     assert!(help.contains("  my"));
     assert!(help.contains("  doctor"));
     assert!(!help.contains("  agents"));
+    assert!(!help.contains("  setup"));
+    assert!(!help.contains("  uninstall"));
     assert!(!help.contains("  mgmt"));
 }
 

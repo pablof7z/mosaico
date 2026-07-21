@@ -29,6 +29,7 @@ mod hooks;
 pub mod install;
 mod interactive;
 mod launch_cli;
+mod local_relay;
 mod mcp;
 mod messaging;
 mod my;
@@ -38,6 +39,7 @@ mod resume;
 mod session;
 mod statusline;
 mod turn;
+mod uninstall;
 mod who;
 
 #[cfg(test)]
@@ -118,7 +120,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Debug { action }) => debug::debug(action).await,
         Some(Cmd::Doctor(args)) => doctor::doctor(args).await,
         Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),
-        Some(Cmd::Install(args)) => install::install(args).await,
+        Some(Cmd::Setup(args)) => install::setup(args).await,
+        Some(Cmd::Uninstall(args)) => uninstall::uninstall(args).await,
         Some(Cmd::AcpSmoke(args)) => acp_smoke::acp_smoke(args).await,
         Some(Cmd::Fallback(args)) => {
             launch_cli::verbs::launch(launch_cli::LaunchRequest::from_external(args)?).await

@@ -116,7 +116,7 @@ install_host() {
   [[ -x "${binary}" ]] || fail "${binary} was not installed"
 
   echo "==> $(hostname -s): installing harnesses and skills"
-  (cd "${repo}" && "${binary}" install --all)
+  (cd "${repo}" && "${binary}" setup --all)
   link_skill "${repo}/skills/mosaico-dev" "${agents_root}/mosaico-dev"
   if [[ -d "${HOME}/.claude" ]]; then
     link_skill "${agents_root}/mosaico-dev" \
@@ -143,7 +143,7 @@ install_host() {
     "${binary}" "$(shasum -a 256 "${binary}" | awk '{print $1}')"
   printf '    skills: %s, %s\n' \
     "${agents_root}/mosaico" "${agents_root}/mosaico-dev"
-  "${binary}" install --status
+  "${binary}" setup --status
 }
 
 run_worker() {
