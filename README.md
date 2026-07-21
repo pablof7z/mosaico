@@ -99,13 +99,6 @@ Every harness joins the fabric the same way — presence, awareness, send/receiv
 wired through the harness's own hooks, ACP, or both. See
 [`integrations/`](integrations).
 
-## Don't take our word for it
-
-`./e2e/run.sh` spins up two isolated backends and proves they coordinate through a
-throwaway local relay — the whole loop, on your machine, in one command.
-
 ## License
 
-mosaico is released under the [MIT License](LICENSE). Product doctrine lives in
-[`docs/product-spec/`](docs/product-spec); contributor rules in
-[`AGENTS.md`](AGENTS.md).
+[MIT](LICENSE)
