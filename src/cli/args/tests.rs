@@ -209,6 +209,12 @@ fn mcp_http_command_parses() {
 }
 
 #[test]
+fn relay_command_parses_before_external_agent_fallback() {
+    let cli = Cli::try_parse_from(["mosaico", "relay", "--port", "19888"]).unwrap();
+    assert!(matches!(cli.cmd, Some(Cmd::Relay(_))));
+}
+
+#[test]
 fn bare_invocation_has_no_subcommand() {
     let cli = Cli::try_parse_from(["mosaico"]).unwrap();
     assert!(cli.cmd.is_none());

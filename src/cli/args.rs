@@ -11,6 +11,7 @@ use super::mcp::McpArgs;
 use super::messaging::WaitArgs;
 use super::my::MyAction;
 use super::pty::PtySupervisorArgs;
+use super::relay::RelayArgs;
 use super::who::WhoArgs;
 
 /// Print the top-level help with every hidden subcommand unhidden, for
@@ -137,6 +138,8 @@ pub(super) enum Cmd {
     /// Manage the per-machine daemon.
     #[command(name = "daemon")]
     Daemon(DaemonArgs),
+    /// Run the bundled Croissant NIP-29 relay in the foreground.
+    Relay(RelayArgs),
     /// Debug: drive a harness over the ACP / app-server transport end-to-end.
     #[command(name = "__acp-smoke", hide = true)]
     AcpSmoke(super::acp_smoke::AcpSmokeArgs),

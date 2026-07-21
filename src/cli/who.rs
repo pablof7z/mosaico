@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Instant;
 
 mod args;
 mod render;

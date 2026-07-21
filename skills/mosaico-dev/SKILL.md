@@ -82,8 +82,9 @@ intentional one-launch override.
   `HERMES_HOME`, where Mosaico installs its user plugin.
 - Keep fabric state under `.container-state/<profile>` or the run's temporary
   work directory, never host `~/.mosaico`.
-- Run croissant on the host from `/tmp/croissant-smallmap` when present, else
-  `${HOME}/Work/croissant`; override with `MOSAICO_DEV_CROISSANT_DIR`.
+- Run the pinned, bundled Croissant on the host through `mosaico relay`.
+  `start-croissant-relay` uses the repository debug binary and builds it when
+  missing; override with `MOSAICO_DEV_MOSAICO_BIN` only to test another build.
 - Use the cheapest provider model sufficient to run one command and report a
   result.
 - Use direct mode only for provider auth/plugin checks. Use launch mode for

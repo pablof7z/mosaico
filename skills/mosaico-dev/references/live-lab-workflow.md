@@ -42,11 +42,11 @@ Keep the printed env path:
 LAB_ENV=/tmp/mosaico-live-lab-.../lab.env
 ```
 
-The helper chooses an unused high port by default, binds croissant to the Apple
-container bridge, waits for NIP-11, and records the relay owner identity without
-printing its secret. A fresh port prevents stale agents from older runs from
-claiming the new workspace first. Pin `MOSAICO_DEV_RELAY_PORT` only when shared
-port behavior is itself under test.
+The helper chooses an unused high port by default, launches the Croissant build
+bundled in `mosaico`, binds it to the Apple container bridge, waits for NIP-11,
+and records the relay owner identity without printing its secret. A fresh port
+prevents stale agents from older runs from claiming the new workspace first.
+Pin `MOSAICO_DEV_RELAY_PORT` only when shared port behavior is itself under test.
 
 ## 3. Generate current profile state
 

@@ -76,14 +76,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 RUN_ID="${MOSAICO_DEV_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
-default_croissant_dir() {
-  if [[ -x /tmp/croissant-smallmap/croissant ]]; then
-    printf '%s\n' /tmp/croissant-smallmap
-  else
-    printf '%s\n' "${HOME}/Work/croissant"
-  fi
-}
-CROISSANT_DIR="${MOSAICO_DEV_CROISSANT_DIR:-$(default_croissant_dir)}"
 RELAY_HOST="${MOSAICO_DEV_RELAY_HOST:-$(relay_host)}"
 RELAY_BIND_HOST="${MOSAICO_DEV_RELAY_BIND_HOST:-${RELAY_HOST}}"
 RELAY_PORT="${MOSAICO_DEV_RELAY_PORT:-$(pick_port)}"
@@ -94,10 +86,11 @@ RELAY_DATA="${WORK_DIR}/relay-data"
 RELAY_PID_FILE="${WORK_DIR}/relay.pid"
 RELAY_LOG="${WORK_DIR}/relay.log"
 ENV_FILE="${WORK_DIR}/lab.env"
+MOSAICO_BIN="${MOSAICO_DEV_MOSAICO_BIN:-${REPO_ROOT}/target/debug/mosaico}"
 
-if [[ ! -d "${CROISSANT_DIR}" ]]; then
-  echo "croissant checkout not found: ${CROISSANT_DIR}" >&2
-  exit 1
+if [[ ! -x "${MOSAICO_BIN}" ]]; then
+  need cargo
+  (cd "${REPO_ROOT}" && cargo build --bin mosaico)
 fi
 
 if [[ -f "${RELAY_PID_FILE}" ]] && kill -0 "$(cat "${RELAY_PID_FILE}")" 2>/dev/null; then
@@ -119,19 +112,14 @@ if [[ ! -s "${OWNER_SK_FILE}" ]]; then
 fi
 OWNER_PK="$(nak key public "$(cat "${OWNER_SK_FILE}")")"
 
-if [[ ! -x "${CROISSANT_DIR}/croissant" || "${MOSAICO_DEV_FORCE_RELAY_BUILD:-0}" == "1" ]]; then
-  need go
-  (cd "${CROISSANT_DIR}" && CGO_ENABLED=1 go build -o ./croissant)
-fi
-
 (
-  cd "${CROISSANT_DIR}"
-  exec nohup env PORT="${RELAY_PORT}" \
-    HOST="${RELAY_BIND_HOST}" \
-    DATAPATH="${RELAY_DATA}" \
-    OWNER_PUBLIC_KEY="${OWNER_PK}" \
-    DOMAIN= \
-    ./croissant
+  cd "${REPO_ROOT}"
+  exec nohup env MOSAICO_HOME="${WORK_DIR}/mosaico-home" \
+    "${MOSAICO_BIN}" relay \
+      --host "${RELAY_BIND_HOST}" \
+      --port "${RELAY_PORT}" \
+      --data-dir "${RELAY_DATA}" \
+      --owner-pubkey "${OWNER_PK}"
 ) >"${RELAY_LOG}" 2>&1 &
 echo "$!" >"${RELAY_PID_FILE}"
 
@@ -150,7 +138,7 @@ fi
 {
   quote_env RUN_ID "${RUN_ID}"
   quote_env REPO_ROOT "${REPO_ROOT}"
-  quote_env CROISSANT_DIR "${CROISSANT_DIR}"
+  quote_env MOSAICO_BIN "${MOSAICO_BIN}"
   quote_env WORK_DIR "${WORK_DIR}"
   quote_env RELAY_BIND_HOST "${RELAY_BIND_HOST}"
   quote_env RELAY_HOST "${RELAY_HOST}"

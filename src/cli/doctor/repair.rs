@@ -16,7 +16,7 @@ async fn apply(actions: &mut Vec<String>) -> Result<()> {
     repair_config(actions)?;
     repair_skill(actions)?;
     repair_selected_integrations(actions)?;
-    super::super::restart_daemon().await?;
+    super::super::daemon_lifecycle::restart().await?;
     actions.push("restarted the daemon without terminating PTY supervisors".to_string());
     Ok(())
 }

@@ -12,13 +12,14 @@ use crossterm::{
 use owo_colors::OwoColorize;
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal as _, Read as _, Write as _};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 mod acp_smoke;
 mod admin;
 mod agents;
 mod args;
 mod context;
+mod daemon_lifecycle;
 mod debug;
 mod dispatch;
 mod doctor;
@@ -32,6 +33,7 @@ mod mcp;
 mod messaging;
 mod my;
 mod pty;
+mod relay;
 mod resume;
 mod session;
 mod statusline;
@@ -108,10 +110,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Mcp(args)) => mcp::mcp(args).await,
         Some(Cmd::My { action }) => my::my(action),
         Some(Cmd::Daemon(args)) => match args.action {
-            Some(DaemonAction::Restart) => restart_daemon().await,
-            Some(DaemonAction::Stop) => stop_daemon(),
+            Some(DaemonAction::Restart) => daemon_lifecycle::restart().await,
+            Some(DaemonAction::Stop) => daemon_lifecycle::stop(),
             None => crate::daemon::server::run().await,
         },
+        Some(Cmd::Relay(args)) => relay::relay(args),
         Some(Cmd::Debug { action }) => debug::debug(action).await,
         Some(Cmd::Doctor(args)) => doctor::doctor(args).await,
         Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),
@@ -124,75 +127,6 @@ pub async fn run(cli: Cli) -> Result<()> {
 }
 
 // Session resolution and storage live in the daemon; CLI verbs are thin UDS clients.
-
-// ── daemon lifecycle ─────────────────────────────────────────────────────────
-
-/// How long `stop` waits for a shut-down daemon to actually exit (release its
-/// startup flock) before giving up and reporting it as still-running.
-const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
-
-fn stop_daemon() -> Result<()> {
-    request_daemon_shutdown();
-    crate::daemon::set_inhibit();
-    eprintln!(
-        "[mosaico] hooks will not restart the daemon; \
-         run `mosaico daemon restart` to resume"
-    );
-    Ok(())
-}
-
-async fn restart_daemon() -> Result<()> {
-    if !request_daemon_shutdown() {
-        bail!("daemon shutdown did not complete; refusing to start a second daemon")
-    }
-
-    crate::daemon::clear_inhibit();
-    let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
-    client.call("ping", serde_json::json!({})).await?;
-    eprintln!("[mosaico] daemon restarted");
-    Ok(())
-}
-
-/// Ask a running daemon to exit without spawning one. Returns whether it is
-/// safe for a caller to start a replacement daemon.
-fn request_daemon_shutdown() -> bool {
-    match crate::daemon::blocking::call_no_spawn("shutdown", serde_json::json!({})) {
-        Ok(_) => wait_for_daemon_exit(),
-        Err(_) => {
-            eprintln!("[mosaico] daemon was not running");
-            true
-        }
-    }
-}
-
-/// The RPC layer acks `shutdown` the instant it wakes the daemon's shutdown
-/// future — before the daemon has actually torn down the relay connection,
-/// removed its socket, and dropped its startup flock. Poll that flock
-/// (non-blocking `try_acquire`) so `stop` doesn't return until the old
-/// process has genuinely exited and released it.
-fn wait_for_daemon_exit() -> bool {
-    let deadline = Instant::now() + DAEMON_SHUTDOWN_TIMEOUT;
-    loop {
-        match crate::daemon::client::StartupLock::try_acquire() {
-            Ok(Some(_lock)) => {
-                eprintln!("[mosaico] daemon stopped");
-                return true;
-            }
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("[mosaico] daemon shutdown requested but could not confirm exit: {e}");
-                return false;
-            }
-        }
-        if Instant::now() >= deadline {
-            eprintln!(
-                "[mosaico] daemon shutdown requested but it did not exit within {DAEMON_SHUTDOWN_TIMEOUT:?}"
-            );
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
 
 // ── session-end ──────────────────────────────────────────────────────────────
 

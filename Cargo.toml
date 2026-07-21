@@ -51,5 +51,10 @@ portable-pty = "0.9"
 toml = "0.9"
 unicode-width = "0.2"
 url = "2"
+zstd = "0.13"
+
+[build-dependencies]
+zstd = "0.13"
+
 [dev-dependencies]
 tempfile = "3"

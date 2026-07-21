@@ -1,4 +1,7 @@
-build:
+relay-source:
+    git submodule update --init vendor/croissant
+
+build: relay-source
     cargo build --release
 
 install: build
@@ -7,7 +10,7 @@ install: build
     xattr -cr ~/.local/bin/mosaico
     codesign --force --sign - ~/.local/bin/mosaico
 
-lint:
+lint: relay-source
     cargo clippy --all-targets -- -D warnings
 
 # Install the repo's git hooks (currently: a pre-commit `cargo fmt --check`,
@@ -29,17 +32,17 @@ test-site:
     node site/test.mjs
 
 # Hermetic unit tests only. This is what CI runs.
-test-unit:
+test-unit: relay-source
     cargo test --lib
 
 # Local plain-Nostr relay tests. Requires `nak` on PATH or at `$HOME/go/bin/nak`.
-test-local-relay:
+test-local-relay: relay-source
     cargo test --test daemon_mechanics
     cargo test --test e2e_transport
 
 # Local NIP-29 relay tests. Requires croissant at `$NIP29_RELAY_BIN`,
 # `/tmp/croissant-smallmap/croissant`, or `$HOME/Work/croissant/croissant`.
-test-local-nip29:
+test-local-nip29: relay-source
     cargo test --test daemon_integration -- --test-threads=1
 
 test-live-relay-probe:

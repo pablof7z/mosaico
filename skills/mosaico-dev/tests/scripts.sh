@@ -171,7 +171,7 @@ cmp -s "${HOST_HOME}/.hermes/.env" "${STATE_DIR}/home/.hermes/.env" \
   || fail 'Hermes host auth unexpectedly exposed a host bind mount'
 echo 'ok: host auth copies Hermes state without sharing the host files'
 
-mkdir -p "${TMP}/relay-bin" "${TMP}/croissant"
+mkdir -p "${TMP}/relay-bin"
 cat >"${TMP}/relay-bin/curl" <<'EOF'
 #!/bin/sh
 exit 1
@@ -190,17 +190,18 @@ else
   exit 2
 fi
 EOF
-cat >"${TMP}/croissant/croissant" <<'EOF'
+cat >"${TMP}/relay-bin/mosaico" <<'EOF'
 #!/bin/sh
+[ "${1:-}" = relay ] || exit 2
 exec /bin/sleep 60
 EOF
 chmod +x "${TMP}/relay-bin/curl" "${TMP}/relay-bin/lsof" \
-  "${TMP}/relay-bin/nak" "${TMP}/croissant/croissant"
+  "${TMP}/relay-bin/nak" "${TMP}/relay-bin/mosaico"
 
 set +e
 RELAY_OUTPUT="$(
   PATH="${TMP}/relay-bin:${PATH}" \
-    MOSAICO_DEV_CROISSANT_DIR="${TMP}/croissant" \
+    MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
     MOSAICO_DEV_RELAY_HOST=127.0.0.1 \
     MOSAICO_DEV_RELAY_PORT=29999 \
     MOSAICO_DEV_RELAY_READY_TIMEOUT=1 \
@@ -225,7 +226,7 @@ exit 0
 EOF
 FOREGROUND_WORK="${TMP}/foreground-relay"
 PATH="${TMP}/relay-bin:${PATH}" \
-  MOSAICO_DEV_CROISSANT_DIR="${TMP}/croissant" \
+  MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
   MOSAICO_DEV_RELAY_HOST=127.0.0.1 \
   MOSAICO_DEV_RELAY_PORT=29998 \
   MOSAICO_DEV_RELAY_FOREGROUND=1 \
