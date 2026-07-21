@@ -1,4 +1,4 @@
-use super::PickerState;
+use super::{PickerState, PickerTab};
 use crate::cli::interactive::session_picker::picker::project::ProjectPicker;
 use crate::cli::interactive::session_picker::{HomeChoice, SessionChoice};
 
@@ -10,14 +10,15 @@ impl PickerState {
             .iter()
             .enumerate()
             .filter(|(_, choice)| match choice {
-                HomeChoice::Session(choice) => {
+                HomeChoice::Session(choice) if self.tab == PickerTab::Sessions => {
                     (!self.query.is_empty() || self.range.includes(&choice.row, now))
                         && self
                             .project_filter
                             .as_deref()
                             .is_none_or(|project| choice.row.belongs_to(project))
                 }
-                HomeChoice::Agent(_) => true,
+                HomeChoice::Agent(_) => self.tab == PickerTab::Agents,
+                _ => false,
             })
             .filter_map(|(index, choice)| {
                 choice.fuzzy_score(&self.query).map(|score| (index, score))

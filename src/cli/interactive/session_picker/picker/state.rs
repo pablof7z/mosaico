@@ -8,6 +8,12 @@ use std::collections::BTreeSet;
 mod filter;
 mod viewport;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PickerTab {
+    Sessions,
+    Agents,
+}
+
 #[derive(Debug)]
 pub(super) struct PickerState {
     pub(super) choices: Vec<HomeChoice>,
@@ -21,12 +27,20 @@ pub(super) struct PickerState {
     pub(super) confirmation: Option<confirmation::Confirmation>,
     pub(super) pending_delete: Option<PendingDelete>,
     pub(super) selected_agents: BTreeSet<String>,
+    pub(super) tab: PickerTab,
     pub(super) cursor: usize,
     pub(super) offset: usize,
 }
 
 impl PickerState {
     pub(super) fn new(choices: Vec<HomeChoice>, initial_focus: Option<&str>) -> Self {
+        let has_sessions = choices.iter().any(HomeChoice::is_session);
+        let tab = if initial_focus.is_some_and(|focus| focus.starts_with("agent:")) || !has_sessions
+        {
+            PickerTab::Agents
+        } else {
+            PickerTab::Sessions
+        };
         let mut state = Self {
             choices,
             visible: Vec::new(),
@@ -39,6 +53,7 @@ impl PickerState {
             confirmation: None,
             pending_delete: None,
             selected_agents: BTreeSet::new(),
+            tab,
             cursor: 0,
             offset: 0,
         };
@@ -78,6 +93,9 @@ impl PickerState {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(PickerExit::Cancel);
             }
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right if !self.filtering => {
+                self.switch_tab()
+            }
             KeyCode::Char('K') | KeyCode::Char('k')
                 if key.modifiers.contains(KeyModifiers::SHIFT) =>
             {
@@ -94,7 +112,11 @@ impl PickerState {
             }
             KeyCode::Char(' ') if !self.filtering => self.toggle_agent_selection(),
             KeyCode::Char('d') if !self.filtering => self.begin_delete(),
-            KeyCode::Char('p') if !self.filtering && key.modifiers.is_empty() => {
+            KeyCode::Char('p')
+                if !self.filtering
+                    && self.tab == PickerTab::Sessions
+                    && key.modifiers.is_empty() =>
+            {
                 self.project_picker = Some(ProjectPicker::new(
                     &self.choices,
                     self.project_filter.as_deref(),
@@ -102,6 +124,7 @@ impl PickerState {
             }
             KeyCode::Char('+')
                 if !self.filtering
+                    && self.tab == PickerTab::Sessions
                     && !key
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
@@ -111,6 +134,7 @@ impl PickerState {
             }
             KeyCode::Char('-')
                 if !self.filtering
+                    && self.tab == PickerTab::Sessions
                     && !key
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
@@ -143,6 +167,14 @@ impl PickerState {
         }
         self.ensure_visible(lines);
         None
+    }
+
+    fn switch_tab(&mut self) {
+        self.tab = match self.tab {
+            PickerTab::Sessions => PickerTab::Agents,
+            PickerTab::Agents => PickerTab::Sessions,
+        };
+        self.refilter();
     }
 
     fn activate_current(&mut self) -> Option<PickerExit> {

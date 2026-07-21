@@ -164,3 +164,35 @@ fn acp_transport_rows_are_not_attachable_or_takeover_candidates() {
     assert!(!rows[0].can_take_over());
     assert!(rows[0].pty_id.is_none());
 }
+
+#[test]
+fn equal_state_sessions_sort_by_identity_not_last_seen() {
+    let sessions = |alpha_seen, zulu_seen| {
+        serde_json::json!({
+            "sessions": [
+                {
+                    "pubkey": "zzzz",
+                    "npub": "npub1zulu",
+                    "handle": "Zulu-codex",
+                    "agent": "codex",
+                    "state": "idle",
+                    "last_seen": zulu_seen
+                },
+                {
+                    "pubkey": "aaaa",
+                    "npub": "npub1alpha",
+                    "handle": "alpha-codex",
+                    "agent": "codex",
+                    "state": "idle",
+                    "last_seen": alpha_seen
+                }
+            ]
+        })
+    };
+
+    let first = rows_from_value(&sessions(1, 99));
+    let refreshed = rows_from_value(&sessions(100, 2));
+
+    assert_eq!(first[0].handle, "alpha-codex");
+    assert_eq!(refreshed[0].handle, "alpha-codex");
+}

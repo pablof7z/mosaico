@@ -4,7 +4,6 @@ use crate::cli::interactive::session_picker::HomeChoice;
 pub(in crate::cli::interactive::session_picker::picker) struct WindowChoice<'a> {
     pub(in crate::cli::interactive::session_picker::picker) position: usize,
     pub(in crate::cli::interactive::session_picker::picker) choice: &'a HomeChoice,
-    pub(in crate::cli::interactive::session_picker::picker) header: Option<&'static str>,
 }
 
 impl PickerState {
@@ -32,9 +31,7 @@ impl PickerState {
     }
 
     fn lines_through(&self, offset: usize, end: usize) -> usize {
-        (offset..=end)
-            .map(|position| 2 + usize::from(self.header_at(position, offset).is_some()))
-            .sum()
+        (end - offset + 1) * 2
     }
 
     pub(in crate::cli::interactive::session_picker::picker) fn window(
@@ -44,8 +41,7 @@ impl PickerState {
         let mut used = 0;
         let mut window = Vec::new();
         for position in self.offset..self.visible.len() {
-            let header = self.header_at(position, self.offset);
-            let height = 2 + usize::from(header.is_some());
+            let height = 2;
             if !window.is_empty() && used + height > max_lines {
                 break;
             }
@@ -53,36 +49,27 @@ impl PickerState {
             window.push(WindowChoice {
                 position,
                 choice: &self.choices[self.visible[position]],
-                header,
             });
         }
         window
     }
 
-    fn header_at(&self, position: usize, offset: usize) -> Option<&'static str> {
-        if !self.query.is_empty() {
-            return None;
-        }
-        let current = &self.choices[self.visible[position]];
-        let changed = position == offset
-            || current.is_session()
-                != self.choices[self.visible[position.saturating_sub(1)]].is_session();
-        changed.then_some(if current.is_session() {
-            "Sessions"
-        } else {
-            "Start a session"
-        })
-    }
-
     pub(in crate::cli::interactive::session_picker::picker) fn counts(&self) -> (usize, usize) {
-        self.visible
+        let now = crate::util::now_secs();
+        self.choices
             .iter()
-            .fold((0, 0), |(sessions, agents), &index| {
-                if self.choices[index].is_session() {
+            .fold((0, 0), |(sessions, agents), choice| match choice {
+                HomeChoice::Session(choice)
+                    if self.range.includes(&choice.row, now)
+                        && self
+                            .project_filter
+                            .as_deref()
+                            .is_none_or(|project| choice.row.belongs_to(project)) =>
+                {
                     (sessions + 1, agents)
-                } else {
-                    (sessions, agents + 1)
                 }
+                HomeChoice::Agent(_) => (sessions, agents + 1),
+                HomeChoice::Session(_) => (sessions, agents),
             })
     }
 }

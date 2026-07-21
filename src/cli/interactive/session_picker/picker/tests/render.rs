@@ -1,5 +1,7 @@
 use super::*;
-use ratatui::{backend::TestBackend, layout::Rect, Terminal, TerminalOptions, Viewport};
+use ratatui::{
+    backend::TestBackend, layout::Rect, style::Color, Terminal, TerminalOptions, Viewport,
+};
 
 fn terminal() -> Terminal<TestBackend> {
     Terminal::with_options(
@@ -12,8 +14,8 @@ fn terminal() -> Terminal<TestBackend> {
 }
 
 #[test]
-fn presents_sessions_and_agents_as_one_home() {
-    let picker = state(vec![
+fn presents_sessions_and_agents_in_separate_tabs_with_a_highlighted_row() {
+    let mut picker = state(vec![
         session("one", "current activity", true),
         agent("codex", AgentKind::Generic),
     ]);
@@ -28,13 +30,43 @@ fn presents_sessions_and_agents_as_one_home() {
         .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>();
 
-    assert!(rows[0].starts_with("Mosaico  1 sessions · 1 agents"));
-    assert!(rows[1].starts_with("Sessions  1"));
-    assert!(rows[2].starts_with("❯ ● @one"));
-    assert!(rows[4].starts_with("Start a session  1"));
-    assert!(rows[5].contains('＋'));
-    assert!(rows[5].contains("codex"));
+    assert!(rows[0].starts_with("Mosaico   Sessions 1   Start a session 1"));
+    assert!(rows[1].starts_with("❯ ● @one"));
+    assert!(!rows.iter().any(|row| row.contains("codex")));
+    assert_eq!(completed.buffer.content()[100].bg, Color::Indexed(236));
     assert!(rows[11].starts_with("enter attach"));
+
+    picker.handle_key(key(KeyCode::Tab), 10);
+    let completed = terminal
+        .draw(|frame| crate::cli::interactive::session_picker::picker::render::draw(frame, &picker))
+        .unwrap();
+    let rows = completed
+        .buffer
+        .content()
+        .chunks(100)
+        .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    assert!(rows[1].contains('＋'));
+    assert!(rows[1].contains("codex"));
+    assert!(!rows.iter().any(|row| row.contains("@one")));
+    assert!(rows[11].starts_with("enter launch"));
+}
+
+#[test]
+fn active_search_label_is_white() {
+    let mut picker = state(vec![session("one", "current activity", true)]);
+    picker.handle_key(key(KeyCode::Char('/')), 10);
+    let mut terminal = terminal();
+    let completed = terminal
+        .draw(|frame| crate::cli::interactive::session_picker::picker::render::draw(frame, &picker))
+        .unwrap();
+    let title = completed.buffer.content()[..100]
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    let search = title.find("Search:").expect("search label");
+
+    assert_eq!(completed.buffer.content()[search].fg, Color::White);
 }
 
 #[test]

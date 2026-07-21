@@ -99,6 +99,8 @@ fn scope_spans(workspaces: &[WorkspaceGroup]) -> Vec<Span<'static>> {
 fn seen(last_seen: u64, now: u64) -> String {
     if last_seen == 0 {
         "unknown".to_string()
+    } else if now.saturating_sub(last_seen) < 60 {
+        "online".to_string()
     } else {
         crate::util::relative_time(last_seen, now)
     }
@@ -107,13 +109,11 @@ fn seen(last_seen: u64, now: u64) -> String {
 impl SessionRow {
     fn work(&self) -> String {
         let title = self.title.trim();
-        let title = if title.is_empty() {
-            "(untitled)"
-        } else {
-            title
-        };
+        if title.is_empty() {
+            return String::new();
+        }
         let activity = self.activity.trim();
-        if activity.is_empty() || activity == title || title == "(untitled)" {
+        if activity.is_empty() || activity == title {
             title.to_string()
         } else {
             format!("{title} — {activity}")
@@ -162,5 +162,30 @@ mod tests {
         assert!(!first.contains("working"));
         assert!(!first.contains("PTY"));
         assert_eq!(second, "Implement session picker — running tests");
+    }
+
+    #[test]
+    fn recent_sessions_are_online_and_empty_titles_stay_empty() {
+        let row = SessionRow {
+            handle: "delta-codex".into(),
+            activity: "running tests".into(),
+            last_seen: 98,
+            ..SessionRow::default()
+        };
+
+        let rendered = lines(&row, 100, 100, false);
+        let first = rendered[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        let second = rendered[1]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(first.ends_with("online"), "{first}");
+        assert_eq!(second, "");
     }
 }

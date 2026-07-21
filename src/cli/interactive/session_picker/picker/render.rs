@@ -1,4 +1,4 @@
-use super::{delete::PendingDelete, PickerState};
+use super::{delete::PendingDelete, state::PickerTab, PickerState};
 use crate::cli::{agents::AgentKind, interactive::session_picker::HomeChoice};
 use ratatui::{
     layout::{Constraint, Layout},
@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 const ACCENT: Color = Color::Indexed(45);
+const SELECTED_BG: Color = Color::Indexed(236);
 const MUTED: Color = Color::Indexed(245);
 const ERROR: Color = Color::Indexed(203);
 const WARNING: Color = Color::Indexed(214);
@@ -39,22 +40,35 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     } else {
         Span::styled("press /", Style::default().fg(MUTED))
     };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("Mosaico", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("  {sessions} sessions · {agents} agents"),
-                Style::default().fg(MUTED),
-            ),
+    let mut title = vec![
+        Span::styled("Mosaico", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        tab("Sessions", sessions, state.tab == PickerTab::Sessions),
+        Span::raw(" "),
+        tab("Start a session", agents, state.tab == PickerTab::Agents),
+    ];
+    title.extend([
+        Span::styled(
+            "  Search: ",
+            if state.filtering {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(MUTED)
+            },
+        ),
+        query,
+    ]);
+    if state.tab == PickerTab::Sessions {
+        title.extend([
             Span::raw("  History: "),
             Span::styled(state.range.label(), Style::default().fg(ACCENT)),
             Span::raw("  Project: "),
             Span::styled(state.project_label(), Style::default().fg(ACCENT)),
-            Span::raw("  Search: "),
-            query,
-        ])),
-        title_area,
-    );
+        ]);
+    }
+    frame.render_widget(Paragraph::new(Line::from(title)), title_area);
 
     let width = usize::from(options_area.width.saturating_sub(4));
     let now = crate::util::now_secs();
@@ -63,21 +77,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
         .into_iter()
         .map(|entry| {
             let focused = entry.position == state.cursor;
-            let mut lines = Vec::with_capacity(3);
-            if let Some(header) = entry.header {
-                let count = if entry.choice.is_session() {
-                    sessions
-                } else {
-                    agents
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        header,
-                        Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(format!("  {count}"), Style::default().fg(MUTED)),
-                ]));
-            }
+            let mut lines = Vec::with_capacity(2);
             match entry.choice {
                 HomeChoice::Session(choice) => {
                     let [mut first, mut second] =
@@ -93,12 +93,20 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
                     state.selected_agents.contains(&row.slug),
                 )),
             }
-            ListItem::new(lines)
+            ListItem::new(lines).style(if focused {
+                Style::default().bg(SELECTED_BG)
+            } else {
+                Style::default()
+            })
         })
         .collect::<Vec<_>>();
     if items.is_empty() {
+        let empty = match state.tab {
+            PickerTab::Sessions => "  No matching sessions",
+            PickerTab::Agents => "  No matching launchable agents",
+        };
         frame.render_widget(
-            Paragraph::new("  No matching sessions or agents").style(Style::default().fg(MUTED)),
+            Paragraph::new(empty).style(Style::default().fg(MUTED)),
             options_area,
         );
     } else {
@@ -122,6 +130,20 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
         Paragraph::new(format!("{} · {position}", footer.0)).style(Style::default().fg(footer.1)),
         help_area,
     );
+}
+
+fn tab(label: &str, count: usize, active: bool) -> Span<'static> {
+    Span::styled(
+        format!(" {label} {count} "),
+        if active {
+            Style::default()
+                .fg(Color::White)
+                .bg(SELECTED_BG)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED)
+        },
+    )
 }
 
 fn agent_lines(
@@ -204,14 +226,14 @@ fn help(state: &PickerState) -> &'static str {
         return "enter open · type search · ↑↓ move · esc clear";
     }
     let Some(index) = state.current_choice() else {
-        return "/ search · -/+ history · p project · ↑↓ · esc";
+        return "tab switch · / search · ↑↓ · esc";
     };
     match state.choices[index] {
         HomeChoice::Session(_) => {
-            "enter attach/restart · ⇧K kill · -/+ history · p project · / search · ↑↓ · esc"
+            "enter attach/restart · ⇧K kill · tab start · -/+ history · p project · / search · ↑↓ · esc"
         }
         HomeChoice::Agent(_) => {
-            "enter launch · e edit · d delete · space select · p project · / search · ↑↓ · esc"
+            "enter launch · e edit · d delete · space select · tab sessions · / search · ↑↓ · esc"
         }
     }
 }

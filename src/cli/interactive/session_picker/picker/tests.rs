@@ -84,7 +84,7 @@ fn enter_dispatches_by_focused_row_kind() {
         picker.handle_key(key(KeyCode::Enter), 10),
         Some(PickerExit::Attach(0))
     );
-    picker.handle_key(key(KeyCode::Down), 10);
+    picker.handle_key(key(KeyCode::Tab), 10);
     assert_eq!(
         picker.handle_key(key(KeyCode::Enter), 10),
         Some(PickerExit::Launch(1))
@@ -132,7 +132,7 @@ fn shift_k_only_kills_session_rows() {
         agent("codex", AgentKind::Generic),
     ]);
     assert_eq!(picker.handle_key(shift_k, 10), Some(PickerExit::Kill(0)));
-    picker.handle_key(key(KeyCode::Down), 10);
+    picker.handle_key(key(KeyCode::Tab), 10);
     assert_eq!(picker.handle_key(shift_k, 10), None);
     assert!(picker.notice.as_deref().unwrap().contains("agent rows"));
 }
@@ -168,8 +168,9 @@ fn generic_bulk_delete_notice_survives_focus_moving_to_a_session() {
         agent("codex", AgentKind::Generic),
         session("opal", "", true),
     ]);
+    picker.handle_key(key(KeyCode::Tab), 10);
     picker.handle_key(key(KeyCode::Char(' ')), 10);
-    picker.handle_key(key(KeyCode::Down), 10);
+    picker.handle_key(key(KeyCode::Tab), 10);
     picker.handle_key(key(KeyCode::Char('d')), 10);
 
     assert!(picker.pending_delete.as_ref().is_some_and(|pending| {
@@ -178,7 +179,7 @@ fn generic_bulk_delete_notice_survives_focus_moving_to_a_session() {
 }
 
 #[test]
-fn search_reaches_history_and_agents_from_one_field() {
+fn search_is_scoped_to_the_active_tab_and_reaches_session_history() {
     let mut exited = session_choice("juno-codex", "finished earlier", false);
     exited.row.running = false;
     exited.row.state = crate::session_state::SessionState::Offline;
@@ -188,7 +189,7 @@ fn search_reaches_history_and_agents_from_one_field() {
         HomeChoice::Session(exited),
         agent("writer", AgentKind::NativeProfile),
     ]);
-    assert_eq!(picker.visible, vec![0, 2]);
+    assert_eq!(picker.visible, vec![0]);
     picker.handle_key(key(KeyCode::Char('/')), 10);
     for character in "juno-codex".chars() {
         picker.handle_key(key(KeyCode::Char(character)), 10);
@@ -203,6 +204,7 @@ fn search_reaches_history_and_agents_from_one_field() {
         session("opal", "", true),
         agent("writer", AgentKind::Generic),
     ]);
+    picker.handle_key(key(KeyCode::Tab), 10);
     picker.handle_key(key(KeyCode::Char('/')), 10);
     for character in "writer".chars() {
         picker.handle_key(key(KeyCode::Char(character)), 10);
@@ -211,7 +213,7 @@ fn search_reaches_history_and_agents_from_one_field() {
 }
 
 #[test]
-fn project_filter_narrows_sessions_but_keeps_launch_agents() {
+fn project_filter_narrows_sessions_without_affecting_the_agent_tab() {
     let mut project_session = session_choice("juno", "mosaico work", false);
     project_session.row.workspaces = vec![
         crate::cli::interactive::session_picker::data::WorkspaceGroup {
@@ -230,7 +232,9 @@ fn project_filter_narrows_sessions_but_keeps_launch_agents() {
     picker.handle_key(key(KeyCode::Down), 10);
     picker.handle_key(key(KeyCode::Enter), 10);
     assert_eq!(picker.project_filter.as_deref(), Some("mosaico-id"));
-    assert_eq!(picker.visible, vec![0, 2]);
+    assert_eq!(picker.visible, vec![0]);
+    picker.handle_key(key(KeyCode::Tab), 10);
+    assert_eq!(picker.visible, vec![2]);
 }
 
 #[test]
@@ -239,7 +243,7 @@ fn refresh_updates_sessions_and_preserves_agent_focus() {
         session("opal", "old", false),
         agent("codex", AgentKind::Generic),
     ]);
-    picker.handle_key(key(KeyCode::Down), 10);
+    picker.handle_key(key(KeyCode::Tab), 10);
     let mut refreshed = session_choice("opal", "new", false);
     refreshed.row.pubkey = "pk-opal".into();
     picker.replace_sessions(vec![refreshed]);

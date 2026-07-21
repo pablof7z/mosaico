@@ -126,8 +126,8 @@ fn rows_from_value(value: &serde_json::Value) -> Vec<SessionRow> {
         state_rank(b.state)
             .cmp(&state_rank(a.state))
             .then_with(|| b.endpoint_live.cmp(&a.endpoint_live))
-            .then_with(|| b.last_seen.cmp(&a.last_seen))
-            .then_with(|| a.handle.cmp(&b.handle))
+            .then_with(|| a.handle.to_lowercase().cmp(&b.handle.to_lowercase()))
+            .then_with(|| a.pubkey.cmp(&b.pubkey))
     });
     rows
 }
