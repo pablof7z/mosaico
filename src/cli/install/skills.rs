@@ -1,25 +1,25 @@
-//! Symlink the repo-local `skills/mosaico` skill into harness skill directories.
+//! Install the bundled runtime skill without depending on a source checkout.
+
+mod bundle;
 
 use super::config::{claude_detected, home_dir};
-use super::InstallOpts;
+use super::{InstallOpts, SkillHealth, SkillHealthState, SkillTargetHealth};
 use anyhow::{Context, Result};
+use bundle::SKILL_FILES;
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
-
-const SKILL_REL: &str = "skills/mosaico";
-const SKILL_MARKER: &str = "name: mosaico";
 
 #[derive(Debug, Clone)]
 struct SkillTarget {
     label: &'static str,
     path: PathBuf,
-    link: SkillLink,
+    kind: SkillTargetKind,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum SkillLink {
-    RepoSource,
-    AgentsSkill,
+enum SkillTargetKind {
+    BundledCopy,
+    AgentsSkillLink,
 }
 
 fn agents_skill_path(home: &Path) -> PathBuf {
@@ -28,91 +28,97 @@ fn agents_skill_path(home: &Path) -> PathBuf {
 
 fn skill_targets() -> Result<Vec<SkillTarget>> {
     let home = home_dir()?;
-    let agents = agents_skill_path(&home);
     let mut targets = vec![SkillTarget {
         label: "agents",
-        path: agents,
-        link: SkillLink::RepoSource,
+        path: agents_skill_path(&home),
+        kind: SkillTargetKind::BundledCopy,
     }];
     if claude_detected()? {
         targets.push(SkillTarget {
             label: "claude",
             path: home.join(".claude/skills/mosaico"),
-            link: SkillLink::AgentsSkill,
+            kind: SkillTargetKind::AgentsSkillLink,
         });
     }
     Ok(targets)
 }
 
-/// Resolve `skills/mosaico` inside the mosaico repo checkout.
-fn skill_source_dir() -> Result<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let candidate = manifest.join(SKILL_REL);
-    if is_skill_tree(&candidate) {
-        return candidate
-            .canonicalize()
-            .with_context(|| format!("canonicalizing {}", candidate.display()));
-    }
-
-    let mut dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf));
-    while let Some(d) = dir {
-        let candidate = d.join(SKILL_REL);
-        if is_skill_tree(&candidate) {
-            return candidate
-                .canonicalize()
-                .with_context(|| format!("canonicalizing {}", candidate.display()));
-        }
-        dir = d.parent().map(Path::to_path_buf);
-    }
-
-    anyhow::bail!(
-        "cannot find {SKILL_REL} in the mosaico repo; run `mosaico install` from a repo checkout"
-    );
+fn is_bundled_skill(path: &Path) -> bool {
+    SKILL_FILES.iter().all(|(relative, expected)| {
+        std::fs::read_to_string(path.join(relative)).is_ok_and(|actual| actual == *expected)
+    })
 }
 
-fn is_skill_tree(path: &Path) -> bool {
-    path.join("SKILL.md").is_file()
-        && std::fs::read_to_string(path.join("SKILL.md"))
-            .map(|content| content.contains(SKILL_MARKER))
-            .unwrap_or(false)
+fn target_health(target: &SkillTarget, agents: &Path) -> SkillTargetHealth {
+    let state = if target.path.symlink_metadata().is_err() {
+        SkillHealthState::Missing
+    } else {
+        let healthy = match target.kind {
+            SkillTargetKind::BundledCopy => {
+                !target.path.is_symlink() && is_bundled_skill(&target.path)
+            }
+            SkillTargetKind::AgentsSkillLink => {
+                target.path.is_symlink()
+                    && target.path.canonicalize().ok() == agents.canonicalize().ok()
+                    && is_bundled_skill(agents)
+            }
+        };
+        if healthy {
+            SkillHealthState::Healthy
+        } else {
+            SkillHealthState::Stale
+        }
+    };
+    SkillTargetHealth {
+        label: target.label,
+        path: target.path.clone(),
+        state,
+    }
+}
+
+pub(in crate::cli) fn health() -> Result<SkillHealth> {
+    let canonical_path = agents_skill_path(&home_dir()?);
+    let targets = skill_targets()?
+        .iter()
+        .map(|target| target_health(target, &canonical_path))
+        .collect();
+    Ok(SkillHealth {
+        canonical_path,
+        targets,
+    })
+}
+
+pub(in crate::cli) fn repair() -> Result<SkillHealth> {
+    let agents = agents_skill_path(&home_dir()?);
+    for target in skill_targets()? {
+        apply_target(&target, &agents)?;
+    }
+    health()
 }
 
 pub(super) fn print_status() -> Result<()> {
     println!("{}", "mosaico skill status".bold());
-    let source = skill_source_dir().ok();
-    if let Some(src) = &source {
-        println!(
-            "  {:<8} {}",
-            "source".dimmed(),
-            src.display().to_string().dimmed()
-        );
-    }
-    for target in skill_targets()? {
-        let installed = if is_installed(&target.path, source.as_deref()) {
+    for target in super::skill_health()?.targets {
+        let installed = if target.state == SkillHealthState::Healthy {
             "installed".green().to_string()
         } else {
             "-".dimmed().to_string()
         };
-        let detail = installed_link_detail(&target.path, source.as_deref())
-            .unwrap_or_else(|| target.path.display().to_string());
         println!(
             "  {:<8} {:<10} {}",
             target.label.cyan(),
             installed,
-            detail.dimmed()
+            installed_detail(&target.path).dimmed()
         );
     }
     Ok(())
 }
 
 pub(super) fn selection_label() -> Result<String> {
-    let source = skill_source_dir().ok();
-    let targets = skill_targets()?;
+    let targets = super::skill_health()?.targets;
     let installed = targets
         .iter()
-        .filter(|target| is_installed(&target.path, source.as_deref()))
+        .filter(|target| target.state == SkillHealthState::Healthy)
         .count();
     let status = match installed {
         0 => "-".dimmed().to_string(),
@@ -133,12 +139,36 @@ pub(super) fn selection_label() -> Result<String> {
 }
 
 pub(super) fn install(opts: &InstallOpts) -> Result<()> {
-    let source = skill_source_dir()?;
+    if !opts.uninstall && !opts.dry_run {
+        let repaired = super::repair_skill()?;
+        for target in repaired.targets {
+            println!(
+                "\n{} {}",
+                "Installing skill into".bold(),
+                target.label.cyan().bold()
+            );
+            if target.path == repaired.canonical_path {
+                println!(
+                    "  wrote {} bundled files to {}",
+                    SKILL_FILES.len(),
+                    target.path.display()
+                );
+            } else {
+                println!(
+                    "  linked {} -> {}",
+                    target.path.display(),
+                    repaired.canonical_path.display()
+                );
+            }
+        }
+        return Ok(());
+    }
+
     let agents = agents_skill_path(&home_dir()?);
     let verb = if opts.uninstall {
         "Uninstalling skill from"
     } else {
-        "Linking skill into"
+        "Installing skill into"
     };
     let flag = if opts.dry_run { " (dry-run)" } else { "" };
 
@@ -147,55 +177,59 @@ pub(super) fn install(opts: &InstallOpts) -> Result<()> {
         if opts.uninstall {
             uninstall_target(&target, opts.dry_run)?;
         } else {
-            let link_source = match target.link {
-                SkillLink::RepoSource => source.as_path(),
-                SkillLink::AgentsSkill => agents.as_path(),
-            };
-            install_target(&target, link_source, opts.dry_run)?;
+            install_target(&target, &agents, opts.dry_run)?;
         }
     }
     Ok(())
 }
 
-fn is_installed(path: &Path, expected_source: Option<&Path>) -> bool {
-    let Ok(resolved) = path.canonicalize() else {
-        return false;
-    };
-    if !is_skill_tree(&resolved) {
-        return false;
-    }
-    match expected_source {
-        Some(src) => resolved == src.canonicalize().unwrap_or_else(|_| src.to_path_buf()),
-        None => true,
-    }
-}
-
-fn installed_link_detail(path: &Path, expected_source: Option<&Path>) -> Option<String> {
-    if !is_installed(path, expected_source) {
-        return None;
-    }
+fn installed_detail(path: &Path) -> String {
     if path.is_symlink() {
-        let target = std::fs::read_link(path).ok()?;
-        Some(format!("{} -> {}", path.display(), target.display()))
-    } else {
-        let resolved = path.canonicalize().ok()?;
-        Some(resolved.display().to_string())
+        if let Ok(target) = std::fs::read_link(path) {
+            return format!("{} -> {}", path.display(), target.display());
+        }
     }
+    path.display().to_string()
 }
 
-fn install_target(target: &SkillTarget, source: &Path, dry_run: bool) -> Result<()> {
+fn install_target(target: &SkillTarget, agents: &Path, dry_run: bool) -> Result<()> {
     if dry_run {
-        println!(
-            "  would symlink {} -> {}",
-            target.path.display(),
-            source.display()
-        );
+        match target.kind {
+            SkillTargetKind::BundledCopy => println!(
+                "  would write {} bundled files to {}",
+                SKILL_FILES.len(),
+                target.path.display()
+            ),
+            SkillTargetKind::AgentsSkillLink => println!(
+                "  would symlink {} -> {}",
+                target.path.display(),
+                agents.display()
+            ),
+        }
         return Ok(());
     }
 
-    link_skill(&target.path, source)?;
-    println!("  linked {} -> {}", target.path.display(), source.display());
+    apply_target(target, agents)?;
+    match target.kind {
+        SkillTargetKind::BundledCopy => {
+            println!(
+                "  wrote {} bundled files to {}",
+                SKILL_FILES.len(),
+                target.path.display()
+            );
+        }
+        SkillTargetKind::AgentsSkillLink => {
+            println!("  linked {} -> {}", target.path.display(), agents.display());
+        }
+    }
     Ok(())
+}
+
+fn apply_target(target: &SkillTarget, agents: &Path) -> Result<()> {
+    match target.kind {
+        SkillTargetKind::BundledCopy => write_bundled_skill(&target.path),
+        SkillTargetKind::AgentsSkillLink => link_skill(&target.path, agents),
+    }
 }
 
 fn uninstall_target(target: &SkillTarget, dry_run: bool) -> Result<()> {
@@ -207,8 +241,33 @@ fn uninstall_target(target: &SkillTarget, dry_run: bool) -> Result<()> {
         println!("  would remove {}", target.path.display());
         return Ok(());
     }
-    remove_skill_link(&target.path)?;
+    remove_skill(&target.path)?;
     println!("  removed {}", target.path.display());
+    Ok(())
+}
+
+fn write_bundled_skill(target: &Path) -> Result<()> {
+    let parent = target
+        .parent()
+        .context("bundled skill target has no parent directory")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let staging = parent.join(format!(".mosaico.install-{}", std::process::id()));
+    if staging.symlink_metadata().is_ok() {
+        remove_skill(&staging)?;
+    }
+    for (relative, contents) in SKILL_FILES {
+        let path = staging.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
+    }
+    if target.symlink_metadata().is_ok() {
+        remove_skill(target)?;
+    }
+    std::fs::rename(&staging, target)
+        .with_context(|| format!("installing bundled skill at {}", target.display()))?;
     Ok(())
 }
 
@@ -218,7 +277,7 @@ fn link_skill(link: &Path, source: &Path) -> Result<()> {
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     if link.symlink_metadata().is_ok() {
-        remove_skill_link(link)?;
+        remove_skill(link)?;
     }
     #[cfg(unix)]
     std::os::unix::fs::symlink(source, link)
@@ -228,124 +287,17 @@ fn link_skill(link: &Path, source: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_skill_link(path: &Path) -> Result<()> {
+fn remove_skill(path: &Path) -> Result<()> {
     let meta = path
         .symlink_metadata()
         .with_context(|| format!("reading {}", path.display()))?;
-    if meta.file_type().is_symlink() {
-        std::fs::remove_file(path)
-            .with_context(|| format!("removing symlink {}", path.display()))?;
-        return Ok(());
-    }
-    if meta.is_dir() {
+    if meta.file_type().is_symlink() || meta.is_file() {
+        std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+    } else {
         std::fs::remove_dir_all(path).with_context(|| format!("removing {}", path.display()))?;
-        return Ok(());
     }
-    std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_env::EnvGuard;
-
-    fn write_executable(path: &Path) {
-        use std::os::unix::fs::PermissionsExt as _;
-
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    fn opts(dry_run: bool, uninstall: bool) -> InstallOpts {
-        InstallOpts {
-            all: false,
-            harness: None,
-            dry_run,
-            status: false,
-            uninstall,
-        }
-    }
-
-    #[test]
-    fn install_symlinks_agents_skill_to_repo_source() {
-        let temp = tempfile::tempdir().unwrap();
-        let _home = EnvGuard::set("HOME", temp.path());
-        let source = skill_source_dir().unwrap();
-
-        install(&opts(false, false)).unwrap();
-
-        let link = temp.path().join(".agents/skills/mosaico");
-        assert!(link.is_symlink());
-        assert_eq!(link.canonicalize().unwrap(), source);
-    }
-
-    #[test]
-    fn install_symlinks_claude_skill_when_claude_dir_exists() {
-        let temp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(temp.path().join(".claude")).unwrap();
-        write_executable(&temp.path().join(".local/bin/claude"));
-        let _home = EnvGuard::set("HOME", temp.path());
-        let source = skill_source_dir().unwrap();
-
-        install(&opts(false, false)).unwrap();
-
-        let link = temp.path().join(".claude/skills/mosaico");
-        assert!(link.is_symlink());
-        assert_eq!(
-            std::fs::read_link(&link).unwrap(),
-            temp.path().join(".agents/skills/mosaico")
-        );
-        assert_eq!(link.canonicalize().unwrap(), source);
-    }
-
-    #[test]
-    fn uninstall_removes_symlink_only() {
-        let temp = tempfile::tempdir().unwrap();
-        let _home = EnvGuard::set("HOME", temp.path());
-        let source = skill_source_dir().unwrap();
-
-        install(&opts(false, false)).unwrap();
-        install(&opts(false, true)).unwrap();
-
-        assert!(!temp.path().join(".agents/skills/mosaico").exists());
-        assert!(source.join("SKILL.md").is_file());
-    }
-
-    #[test]
-    fn install_replaces_stale_symlink_with_repo_source() {
-        let temp = tempfile::tempdir().unwrap();
-        let stale = temp.path().join("stale-skill");
-        std::fs::create_dir_all(&stale).unwrap();
-        std::fs::write(stale.join("SKILL.md"), "name: mosaico\nold").unwrap();
-
-        let link = temp.path().join(".agents/skills/mosaico");
-        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&stale, &link).unwrap();
-
-        let _home = EnvGuard::set("HOME", temp.path());
-        let source = skill_source_dir().unwrap();
-        install(&opts(false, false)).unwrap();
-
-        assert!(link.is_symlink());
-        assert_eq!(link.canonicalize().unwrap(), source);
-        assert!(stale.join("SKILL.md").is_file());
-    }
-
-    #[test]
-    fn install_replaces_copied_tree_with_symlink() {
-        let temp = tempfile::tempdir().unwrap();
-        let link = temp.path().join(".agents/skills/mosaico");
-        std::fs::create_dir_all(&link).unwrap();
-        std::fs::write(link.join("SKILL.md"), "name: mosaico\nold").unwrap();
-
-        let _home = EnvGuard::set("HOME", temp.path());
-        let source = skill_source_dir().unwrap();
-        install(&opts(false, false)).unwrap();
-
-        assert!(link.is_symlink());
-        assert_eq!(link.canonicalize().unwrap(), source);
-    }
-}
+mod tests;

@@ -76,7 +76,7 @@ case "${1:-}" in
       mkdir -p "${HOME}/.agents/skills" "${HOME}/.claude/skills"
       rm -rf "${HOME}/.agents/skills/mosaico" \
         "${HOME}/.claude/skills/mosaico"
-      ln -s "${PWD}/skills/mosaico" "${HOME}/.agents/skills/mosaico"
+      cp -R "${PWD}/skills/mosaico" "${HOME}/.agents/skills/mosaico"
       ln -s "${HOME}/.agents/skills/mosaico" \
         "${HOME}/.claude/skills/mosaico"
     else
@@ -126,6 +126,12 @@ MOSAICO_FLEET_LOCAL_REPO="${LOCAL_REPO}" \
   || fail 'stale copied development skill was not replaced with a symlink'
 [[ -f "${TEST_HOME}/.agents/skills/mosaico-dev/references/grok-pty-lab.md" ]] \
   || fail 'installed development skill is incomplete'
+[[ -d "${TEST_HOME}/.agents/skills/mosaico" \
+  && ! -L "${TEST_HOME}/.agents/skills/mosaico" ]] \
+  || fail 'runtime skill was not installed as an owned directory'
+diff -qr "${REMOTE_REPO}/skills/mosaico" \
+  "${TEST_HOME}/.agents/skills/mosaico" >/dev/null \
+  || fail 'installed runtime skill does not match the built revision'
 assert_contains 'fleet verified: local + 1 remote host(s)' "${OUTPUT}" \
   'fleet success summary'
 assert_contains 'binary:' "${OUTPUT}" 'installed binary hash is reported'

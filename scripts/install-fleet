@@ -72,6 +72,14 @@ assert_skill_link() {
     || fail "${target} does not resolve to ${source}"
 }
 
+assert_skill_copy() {
+  local source="$1" target="$2"
+  [[ -d "${target}" && ! -L "${target}" ]] \
+    || fail "${target} is not an installed skill directory"
+  diff -qr "${source}" "${target}" >/dev/null \
+    || fail "${target} does not match the skill bundled from ${source}"
+}
+
 sync_host() {
   local repo="${1:-${HOME}/Work/mosaico}"
   [[ -d "${repo}/.git" || -f "${repo}/.git" ]] \
@@ -115,7 +123,7 @@ install_host() {
       "${HOME}/.claude/skills/mosaico-dev"
   fi
 
-  assert_skill_link "${repo}/skills/mosaico" "${agents_root}/mosaico"
+  assert_skill_copy "${repo}/skills/mosaico" "${agents_root}/mosaico"
   assert_skill_link "${repo}/skills/mosaico-dev" "${agents_root}/mosaico-dev"
   if [[ -d "${HOME}/.claude" ]]; then
     assert_skill_link "${repo}/skills/mosaico-dev" \

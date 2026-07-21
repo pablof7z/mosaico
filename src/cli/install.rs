@@ -8,6 +8,7 @@ mod device_config;
 mod hermes;
 mod hooks;
 mod io;
+mod skill_api;
 mod skills;
 
 use anyhow::{bail, Result};
@@ -21,6 +22,9 @@ pub(super) use args::{install, InstallArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
 pub(super) use hooks::{is_installed, merge_hooks, migrate_codex_root_events};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
+pub(super) use skill_api::{
+    repair_skill, skill_health, SkillHealth, SkillHealthState, SkillTargetHealth,
+};
 
 fn has_harness_installation() -> Result<bool> {
     Ok(harnesses()?.iter().any(is_installed))
