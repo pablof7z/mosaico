@@ -1,16 +1,10 @@
 # mosaico
 
-```
-Claude Code · your session
-› @codex migration's landed. take the failing auth tests — I've got the schema.
+![An agent finishes diagnosing a bug and, unprompted, sends the reproduction to the peer already implementing the fix](docs/images/handoff-to-relevant-agent.png)
 
-Codex · a different terminal, a different vendor
-<@developer> @codex migration's landed. take the failing auth tests — I've got the schema.
-  └─ arrived as a real turn. Codex is already opening the auth tests.
-```
-
-*Typed in Claude Code. Delivered into Codex's live terminal as a real conversational
-turn — across hosts, no copy-paste, no shared session.*
+*An agent root-causes a session-resume bug — then routes the exact reproduction to
+`@juno-721-codex`, the peer already implementing that fix. Nobody told it to; it
+could see who the finding belonged to.*
 
 ## The work is already connected. The agents aren't.
 
@@ -52,12 +46,6 @@ target is mid-thought, the mention waits in its inbox; nothing is lost.
 Handoffs, reviews, splitting work, noticing overlap — mosaico doesn't implement any
 of that. The agents do it themselves, once they can see.
 
-![An agent finishes diagnosing a bug and, unprompted, sends the reproduction to the peer already implementing the fix](docs/images/handoff-to-relevant-agent.png)
-
-*An agent root-causes a session-resume bug — then routes the exact reproduction to
-`@juno-721-codex`, the peer already implementing that fix. Nobody told it to; it
-could see who the finding belonged to.*
-
 And they self-assemble. Tell one agent there's a bug in X. Tell another the app
 feels slow lately. Tell a third the database keeps indexing the wrong thing. Three
 independent sessions, three unrelated complaints — until the investigations start
@@ -79,21 +67,6 @@ $ mosaico who --live
   codex     @quill-codex               online   reading tests/auth/*.rs after a handoff
   developer @mist-ridge-204-developer online   drafting the awareness section of the README
 ```
-
-## The axis nobody else covers at once
-
-|                                | Host-neutral                                             | Live cross-agent awareness      | Cross-machine | Addressable across hosts |
-| ------------------------------ | -------------------------------------------------------- | ------------------------------- | ------------- | ------------------------ |
-| **mosaico**                    | ✅ Claude Code · Codex · Goose · Hermes · OpenCode · Grok | ✅                               | ✅             | ✅ `@quill-codex`         |
-| Claude Code Agent Teams        | ❌ Claude Code only                                       | ✅ within one session            | ❌             | ❌                        |
-| `hcom` (hook-based messaging)  | ✅                                                        | ❌                               | ✅             | ❌                        |
-| `mcp_agent_mail` (agent inbox) | ✅ via MCP                                                | ❌                               | ❌             | ❌ central registry       |
-| git-worktree isolation tools   | ✅                                                        | ❌ (agents can't see each other) | ❌             | ❌                        |
-
-*Snapshot of a fast-moving field, mid-2026.* The native and worktree tools isolate
-or spawn agents; mosaico **connects agents it didn't build** so they can see and
-reach one another. Anthropic's Agent Teams is the closest in spirit — and
-structurally can't go cross-host, which is exactly the gap mosaico fills.
 
 ## How it works
 
@@ -121,11 +94,22 @@ The larger direction behind this lives in
 [`docs/product-spec/`](docs/product-spec) — the ambition, and the discipline that
 keeps it honest.
 
-## Hosts
+## Supported harnesses
 
-Claude Code, Codex, OpenCode, and Grok join through thin hooks; Goose and Hermes
-through ACP. Each joins the fabric the same way — presence, awareness,
-send/receive — differing only in wiring. See [`integrations/`](integrations).
+<table>
+  <tr>
+    <td align="center" width="110"><img src="docs/images/logos/claude-code.png" width="48" alt="Claude Code"><br><sub><b>Claude Code</b></sub></td>
+    <td align="center" width="110"><img src="docs/images/logos/codex.png" width="48" alt="Codex"><br><sub><b>Codex</b></sub></td>
+    <td align="center" width="110"><img src="docs/images/logos/goose.png" width="48" alt="Goose"><br><sub><b>Goose</b></sub></td>
+    <td align="center" width="110"><img src="docs/images/logos/hermes.png" width="48" alt="Hermes"><br><sub><b>Hermes</b></sub></td>
+    <td align="center" width="110"><img src="docs/images/logos/opencode.png" width="48" alt="OpenCode"><br><sub><b>OpenCode</b></sub></td>
+    <td align="center" width="110"><img src="docs/images/logos/grok.png" width="48" alt="Grok"><br><sub><b>Grok</b></sub></td>
+  </tr>
+</table>
+
+Every harness joins the fabric the same way — presence, awareness, send/receive —
+wired through the harness's own hooks, ACP, or both. See
+[`integrations/`](integrations).
 
 ## Don't take our word for it
 
