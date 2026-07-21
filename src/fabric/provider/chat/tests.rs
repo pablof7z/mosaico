@@ -11,7 +11,7 @@ async fn offline_provider() -> Nip29Provider {
             .await
             .unwrap(),
     );
-    let nmp = Arc::new(crate::nmp_host::NmpHost::open(&[], None, None).unwrap());
+    let nmp = Arc::new(crate::nmp_host::NmpHost::open(&[], None, None, &Keys::generate()).unwrap());
     let store = Arc::new(Mutex::new(Store::open_memory().unwrap()));
     let mgmt = Keys::generate().secret_key().to_secret_hex();
     Nip29Provider::new(transport, nmp, store, Some(mgmt), None, Vec::new())

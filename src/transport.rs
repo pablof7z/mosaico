@@ -104,7 +104,8 @@ impl Transport {
 
     /// Block (bounded) until the direct provider connection is established and
     /// complete any relay-requested AUTH before startup publishes or one-shot
-    /// fetches. NMP's live observations use their own public access context.
+    /// fetches. NMP owns separate identity-scoped authenticated sessions for
+    /// live observations and durable writes.
     pub(crate) async fn warmup(&self) {
         self.client
             .wait_for_connection(Duration::from_secs(8))

@@ -62,12 +62,13 @@ relay built on `khatru` + the `fiatjaf.com/nostr/nip29` library.
   rig uses mosaico-a's pubkey), `DOMAIN` (empty for local → plain `http`/`ws`).
 - **Relay key:** auto-generated on first boot into `<DATAPATH>/settings.json`
   as `relay_secret_key`; it signs the 39000/39001/39002 events.
-- **No NIP-42 AUTH needed for our flow.** Event *publishing* is validated by
-  `event.PubKey` against NIP-29 group admin/membership rules, not by AUTH. AUTH
-  is only required to (a) *read* a **private** group, or (b) access gift-wraps.
-  The rig creates **closed + public** groups, which are readable by anyone — so
-  backend-b can subscribe and read without authenticating. (The HTTP NIP-98
-  cookie in `global/auth.go` is only for the web UI / settings page.)
+- **The rig does not require NIP-42, but Mosaico supports it.** Event
+  *publishing* authorization still comes from `event.PubKey` plus NIP-29
+  admin/membership rules. The rig creates **closed + public** groups, so its
+  assertions do not depend on private visibility. Production Mosaico NMP reads
+  nevertheless authenticate as the stable backend/admin identity when a relay
+  challenges, and writes authenticate as their exact event author. The HTTP
+  NIP-98 cookie in `global/auth.go` is only for the web UI/settings page.
 - **Presence gate is off by default.** `hasPresence()` returns `true` when no
   presence relays are configured (the default), so group creation and joins are
   not gated on a kind:0 living elsewhere.
