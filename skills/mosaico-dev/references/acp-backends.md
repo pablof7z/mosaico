@@ -79,10 +79,11 @@ MOSAICO_DEV_CODEX_CONFIG_PROFILE=planner \
 The writer places `"profile":"planner"` in the Codex agent file. Mosaico then
 composes `$CODEX_HOME/planner.config.toml` over the base config in an isolated
 app-server home. Codex app-server does not accept the native `--profile` flag.
-Claude ACP, Goose ACP, and OpenCode ACP do not support named agent profiles;
-omit `profile` for those combinations. Hermes ACP accepts
-`MOSAICO_DEV_HERMES_PROFILE`; its
-`--profile <name>` selector is placed before the `acp` subcommand.
+Claude ACP and OpenCode ACP do not support named agent profiles. Goose 1.43.0
+supports recipes through other CLI surfaces, but `goose acp` exposes no stable
+recipe/profile selector. Omit `profile` for those combinations. Hermes ACP
+accepts `MOSAICO_DEV_HERMES_PROFILE`; its `--profile <name>` selector is placed
+before the `acp` subcommand.
 
 ## Smoke before launch
 
@@ -98,8 +99,11 @@ A passing smoke proves initialization, session/thread creation, a real turn,
 and a second real turn after cross-process resume. ACP uses `session/load`;
 Codex app-server uses `thread/resume`.
 
-Goose's canonical command is `goose acp`. Do not configure a PTY bundle or a
-native profile for Goose; neither capability is supported.
+Goose's canonical command is `goose acp`. Do not configure a PTY bundle or
+native profile for this transport; it cannot activate either. Goose's own
+plugins/extensions remain provider configuration, and `--with-builtin` can be
+set through bundle `args` when a lab explicitly needs it. Mosaico installs no
+Goose hook or plugin.
 
 Hermes named profiles are discovered from `<HERMES_HOME>/profiles/<name>` and
 activate natively as `hermes --profile <name> acp` for managed launch.

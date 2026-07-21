@@ -117,8 +117,9 @@ find .container-state/<profile>/mosaico/sessions -name hook-calls.jsonl -print
 
 Doctor/install must use the canonical harness name (`claude-code`, `codex`,
 `grok`, `goose`, or `opencode`) even when the public agent slug differs. Goose
-has no installable hook surface; doctor validates its ACP command and staged
-auth/config instead.
+has no installable Mosaico hook/plugin surface; doctor validates its ACP command
+and staged auth/config instead. This does not disable Goose's provider-owned
+plugins or extensions.
 
 ## Same-profile inspection broke a live agent
 

@@ -46,6 +46,8 @@ The ownership boundary is:
 ## Integrate hooks and plugins
 
 - [ ] Determine whether the harness natively supports hooks or plugins.
+- [ ] Distinguish provider-native plugins or extensions from the integration
+  surface Mosaico itself requires.
 - [ ] If supported, add and test only the Mosaico integration the harness
   requires.
 - [ ] If unsupported, document that hooks and plugins must not be added. Do not
@@ -55,6 +57,8 @@ The ownership boundary is:
 
 - [ ] Determine whether the harness supports named profiles, agents, or an
   equivalent native configuration.
+- [ ] Classify profile support per transport. Document profiles exposed only by
+  unsupported transports, but do not advertise them as launchable.
 - [ ] If supported, add discovery for every authoritative global and
   workspace-local profile location and format.
 - [ ] Register discovered profiles in Mosaico's agent catalog so they are picked

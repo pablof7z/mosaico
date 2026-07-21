@@ -5,16 +5,16 @@ use std::time::Duration;
 #[test]
 fn acp_agent_receives_the_signer_matching_its_assigned_pubkey() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    assert_acp_identity("opencode");
+    assert_acp_identity("opencode", None);
 }
 
 #[test]
-fn goose_acp_agent_receives_the_signer_matching_its_assigned_pubkey() {
+fn goose_acp_agent_receives_signer_and_hosted_prompt() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    assert_acp_identity("goose");
+    assert_acp_identity("goose", Some("Goose daemon delivery probe"));
 }
 
-fn assert_acp_identity(harness: &str) {
+fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let home = Home::new();
     write_config(&home, false);
     std::fs::write(
@@ -37,7 +37,9 @@ fn assert_acp_identity(harness: &str) {
     .unwrap();
 
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
-    let out = run_cli_with_env_in_dir(&home, &[&agent], &[("HOME", &isolated_home)], &work_dir);
+    let mut args = vec![agent.as_str()];
+    args.extend(prompt);
+    let out = run_cli_with_env_in_dir(&home, &args, &[("HOME", &isolated_home)], &work_dir);
     assert!(
         out.status.success(),
         "ACP launch failed: {}\ndaemon log:\n{}",
@@ -79,6 +81,17 @@ fn assert_acp_identity(harness: &str) {
             .locator_value,
         "test-native-session"
     );
+    if let Some(prompt) = prompt {
+        let prompt_capture = home.dir.path().join("captured-acp-prompts");
+        assert!(
+            wait_until(Duration::from_secs(10), || std::fs::read_to_string(
+                &prompt_capture
+            )
+            .is_ok_and(|body| body.contains(prompt))),
+            "hosted {harness} launch did not deliver {prompt:?} through session/prompt; daemon log:\n{}",
+            daemon_log(&home)
+        );
+    }
 
     stop_daemon(&home);
 }

@@ -75,7 +75,9 @@ intentional one-launch override.
 - Grok auth is copied into writable isolated `GROK_HOME`; native Mosaico hooks
   install at `.grok/hooks/mosaico.json`. Imported Claude hooks are not Grok proof.
 - Goose config and keychain secrets are copied into its isolated XDG home. Goose
-  is ACP-only and does not install Mosaico hooks or advertise native profiles.
+  supports provider-owned plugins, extensions, and recipes, but Mosaico's
+  supported `goose acp` transport needs no Mosaico hook or plugin and exposes no
+  stable recipe/profile selector. Do not advertise recipes as native profiles.
 - Hermes config, environment, and named profiles are copied into isolated
   `HERMES_HOME`, where Mosaico installs its user plugin.
 - Keep fabric state under `.container-state/<profile>` or the run's temporary
