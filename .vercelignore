@@ -1,0 +1,18 @@
+# Deploy only the static workshop site's build inputs.
+/*
+!site
+!skills
+!vercel.json
+
+# Include only source consumed by site/build.mjs.
+site/*
+!site/build.mjs
+!site/index.html
+!site/site.js
+!site/styles.css
+
+# The site build reads only the canonical setup skill.
+skills/*
+!skills/mosaico-setup
+skills/mosaico-setup/*
+!skills/mosaico-setup/SKILL.md

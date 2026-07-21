@@ -2,15 +2,43 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const [html, css, script, setup, builtSetup] = await Promise.all([
+const expectedVercelIgnore = `# Deploy only the static workshop site's build inputs.
+/*
+!site
+!skills
+!vercel.json
+
+# Include only source consumed by site/build.mjs.
+site/*
+!site/build.mjs
+!site/index.html
+!site/site.js
+!site/styles.css
+
+# The site build reads only the canonical setup skill.
+skills/*
+!skills/mosaico-setup
+skills/mosaico-setup/*
+!skills/mosaico-setup/SKILL.md
+`;
+
+const [html, css, script, setup, builtSetup, vercelIgnore, gitignore] = await Promise.all([
   readFile(new URL('./index.html', import.meta.url), 'utf8'),
   readFile(new URL('./styles.css', import.meta.url), 'utf8'),
   readFile(new URL('./site.js', import.meta.url), 'utf8'),
   readFile(new URL('../skills/mosaico-setup/SKILL.md', import.meta.url), 'utf8'),
   readFile(new URL('./dist/SETUP.md', import.meta.url), 'utf8'),
+  readFile(new URL('../.vercelignore', import.meta.url), 'utf8'),
+  readFile(new URL('../.gitignore', import.meta.url), 'utf8'),
 ]);
 
 assert.equal(builtSetup, setup, 'built SETUP.md must match the canonical skill');
+assert.equal(
+  vercelIgnore,
+  expectedVercelIgnore,
+  'Vercel uploads must stay limited to the static site and canonical setup skill',
+);
+assert.match(gitignore, /^\.vercel\/$/m, 'Vercel project links must remain untracked');
 assert.match(
   html,
   /Tell your agent: "Go to https:\/\/mosaico\.f7z\.io\/SETUP\.md and follow the instructions\."/,

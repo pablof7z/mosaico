@@ -13,3 +13,4 @@ state.db
 state.db-wal
 state.db-shm
 .container-state/
+.vercel/
