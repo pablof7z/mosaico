@@ -12,6 +12,7 @@ pub(in crate::cli) fn repair_integration(harness: &Harness) -> Result<()> {
     match harness.id {
         "claude-code" | "codex" | "grok" => super::install_json_harness(harness, &opts, false),
         "opencode" => super::install_opencode(harness, &opts, false),
+        "goose" => super::goose::install(harness, &opts, false),
         "hermes" => super::hermes::install(harness, &opts, false),
         _ => Ok(()),
     }

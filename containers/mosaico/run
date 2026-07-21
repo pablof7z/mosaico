@@ -237,7 +237,7 @@ container_run() {
     --env MOSAICO_HOME=/state/mosaico \
     --env MOSAICO_BIN=/state/target/debug/mosaico \
     --env MOSAICO_AGENT="${AGENT}" \
-    --env PATH=/state/target/debug:/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin \
+    --env PATH=/state/target/debug:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin \
     "${HOST_AUTH_MOUNTS[@]+"${HOST_AUTH_MOUNTS[@]}"}" \
     "${passthrough_env_args[@]+"${passthrough_env_args[@]}"}" \
     "${IMAGE}" "$@"
@@ -249,7 +249,7 @@ with_mosaico() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -266,7 +266,7 @@ with_mosaico_direct() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -283,7 +283,7 @@ with_mosaico_hosted() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift

@@ -56,6 +56,7 @@ echo "profile: ${PROFILE}"
 echo "agent: ${AGENT}"
 echo "rust: $(rustc --version)"
 echo "cargo: $(cargo --version)"
+echo "go: $(go version)"
 echo "claude: $(claude --version)"
 echo "codex: $(codex --version)"
 echo "grok: $(grok --version)"
@@ -137,24 +138,24 @@ case "${AGENT}" in
 esac
 
 cargo build >/dev/null
-if [[ "${AGENT}" == "goose" ]]; then
-  echo "goose auth/config: staged"
-else
-  mosaico setup --harness "${HARNESS}" >/dev/null
-  case "${AGENT}" in
-    claude) test -f "${HOME}/.claude/settings.json" ;;
-    codex) test -f "${CODEX_HOME}/hooks.json" ;;
-    grok) test -f "${GROK_HOME}/hooks/mosaico.json" ;;
-    hermes)
-      test -f "${HERMES_HOME}/plugins/mosaico/plugin.yaml"
-      test -f "${HERMES_HOME}/plugins/mosaico/__init__.py"
-      hermes plugins list --enabled --json \
-        | jq -e 'any(.[]; .key == "mosaico" or .name == "mosaico")' >/dev/null
-      ;;
-    opencode) test -f "${XDG_CONFIG_HOME}/opencode/plugin/mosaico.ts" ;;
-  esac
-  echo "${AGENT} auth/hooks: mounted"
-fi
+mosaico setup --harness "${HARNESS}" >/dev/null
+case "${AGENT}" in
+  claude) test -f "${HOME}/.claude/settings.json" ;;
+  codex) test -f "${CODEX_HOME}/hooks.json" ;;
+  grok) test -f "${GROK_HOME}/hooks/mosaico.json" ;;
+  goose)
+    test -f "${HOME}/.agents/plugins/mosaico/plugin.json"
+    test -f "${HOME}/.agents/plugins/mosaico/hooks/hooks.json"
+    ;;
+  hermes)
+    test -f "${HERMES_HOME}/plugins/mosaico/plugin.yaml"
+    test -f "${HERMES_HOME}/plugins/mosaico/__init__.py"
+    hermes plugins list --enabled --json \
+      | jq -e 'any(.[]; .key == "mosaico" or .name == "mosaico")' >/dev/null
+    ;;
+  opencode) test -f "${XDG_CONFIG_HOME}/opencode/plugin/mosaico.ts" ;;
+esac
+echo "${AGENT} auth/hooks: mounted"
 
 validate_mosaico_configs
 

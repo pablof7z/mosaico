@@ -102,8 +102,9 @@ Codex app-server uses `thread/resume`.
 Goose's canonical command is `goose acp`. Do not configure a PTY bundle or
 native profile for this transport; it cannot activate either. Goose's own
 plugins/extensions remain provider configuration, and `--with-builtin` can be
-set through bundle `args` when a lab explicitly needs it. Mosaico installs no
-Goose hook or plugin.
+set through bundle `args` when a lab explicitly needs it. Mosaico's Goose Open
+Plugin is still mandatory: its awaited hooks write full fabric context to the
+session-specific Top Of Mind file before Goose calls the provider.
 
 Hermes named profiles are discovered from `<HERMES_HOME>/profiles/<name>` and
 activate natively as `hermes --profile <name> acp` for managed launch.

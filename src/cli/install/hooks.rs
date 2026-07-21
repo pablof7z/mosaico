@@ -147,6 +147,7 @@ pub fn is_present(h: &Harness) -> bool {
     match h.id {
         "opencode" => h.config_path.exists(),
         "claude-code" | "codex" | "grok" => is_json_harness_present(h),
+        "goose" => super::goose::is_present(h),
         "hermes" => super::hermes::is_present(h),
         _ => false,
     }
@@ -161,6 +162,7 @@ pub fn is_installed(h: &Harness) -> bool {
                     .unwrap_or(false)
         }
         "claude-code" | "codex" | "grok" => is_json_harness_installed(h),
+        "goose" => super::goose::is_installed(h),
         "hermes" => super::hermes::is_installed(h),
         _ => false,
     }

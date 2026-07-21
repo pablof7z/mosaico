@@ -4,7 +4,49 @@ use std::os::unix::fs::PermissionsExt as _;
 pub(crate) fn install_test_harness_shim(home: &std::path::Path) {
     let bin = home.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let body = "#!/bin/sh\ncase \"${1:-forever}\" in\n  acp)\n    test -n \"${MOSAICO_PUBKEY:-}\" && test -n \"${AGENT_NSEC:-}\" || exit 3\n    umask 077\n    printf '%s\\n%s\\n' \"$MOSAICO_PUBKEY\" \"$AGENT_NSEC\" > \"$MOSAICO_HOME/captured-acp-identity\"\n    while IFS= read -r line; do\n      id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\\([0-9][0-9]*\\).*/\\1/p')\n      test -n \"$id\" || continue\n      case \"$line\" in\n        *'\"method\":\"session/new\"'*) result='{\"sessionId\":\"test-native-session\"}' ;;\n        *'\"method\":\"session/prompt\"'*)\n          printf '%s\\n' \"$line\" >> \"$MOSAICO_HOME/captured-acp-prompts\"\n          result='{\"stopReason\":\"end_turn\"}'\n          ;;\n        *) result='{}' ;;\n      esac\n      printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}\\n' \"$id\" \"$result\"\n    done\n    ;;\n  capture-identity)\n    test -n \"${MOSAICO_PUBKEY:-}\" && test -n \"${AGENT_NSEC:-}\" || exit 3\n    umask 077\n    printf '%s\\n%s\\n' \"$MOSAICO_PUBKEY\" \"$AGENT_NSEC\" > \"$2\"\n    while :; do sleep 1; done\n    ;;\n  sleep-2) sleep 2 ;;\n  exit-0) exit 0 ;;\n  exit-1) exit 1 ;;\n  forever) while :; do sleep 1; done ;;\n  *) exit 2 ;;\nesac\n";
+    let body = r#"#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  echo 1.43.0
+  exit 0
+fi
+case "${1:-forever}" in
+  acp)
+    test -n "${MOSAICO_PUBKEY:-}" && test -n "${AGENT_NSEC:-}" || exit 3
+    umask 077
+    printf '%s\n%s\n' "$MOSAICO_PUBKEY" "$AGENT_NSEC" > "$MOSAICO_HOME/captured-acp-identity"
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+      test -n "$id" || continue
+      case "$line" in
+        *'"method":"session/new"'*) result='{"sessionId":"test-native-session"}' ;;
+        *'"method":"session/prompt"'*)
+          printf '%s\n' "$line" >> "$MOSAICO_HOME/captured-acp-prompts"
+          if [ -n "${GOOSE_MOIM_MESSAGE_FILE:-}" ]; then
+            printf '{"session_id":"test-native-session","working_dir":"%s","pid":%s}\n' "$PWD" "$$" \
+              | "$MOSAICO_BIN" harness hook goose --type user-prompt-submit \
+              >> "$MOSAICO_HOME/captured-goose-hook" 2>&1
+            cat "$GOOSE_MOIM_MESSAGE_FILE" > "$MOSAICO_HOME/captured-goose-context"
+          fi
+          result='{"stopReason":"end_turn"}'
+          ;;
+        *) result='{}' ;;
+      esac
+      printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$id" "$result"
+    done
+    ;;
+  capture-identity)
+    test -n "${MOSAICO_PUBKEY:-}" && test -n "${AGENT_NSEC:-}" || exit 3
+    umask 077
+    printf '%s\n%s\n' "$MOSAICO_PUBKEY" "$AGENT_NSEC" > "$2"
+    while :; do sleep 1; done
+    ;;
+  sleep-2) sleep 2 ;;
+  exit-0) exit 0 ;;
+  exit-1) exit 1 ;;
+  forever) while :; do sleep 1; done ;;
+  *) exit 2 ;;
+esac
+"#;
     for executable in ["opencode", "goose"] {
         let shim = bin.join(executable);
         std::fs::write(&shim, body).unwrap();

@@ -1,6 +1,6 @@
 ---
 name: mosaico-setup
-description: Install, configure, repair, verify, update, or uninstall Mosaico and its coding-agent integrations. Use when an agent is told to follow https://mosaico.f7z.io/SETUP.md, when preparing Mosaico on a new macOS or Linux machine, or when wiring Claude Code, Codex, OpenCode, Grok Build, or Hermes Agent into a shared Mosaico fabric.
+description: Install, configure, repair, verify, update, or uninstall Mosaico and its coding-agent integrations. Use when an agent is told to follow https://mosaico.f7z.io/SETUP.md, when preparing Mosaico on a new macOS or Linux machine, or when wiring Claude Code, Codex, OpenCode, Grok Build, Goose, or Hermes Agent into a shared Mosaico fabric.
 ---
 
 # Set up Mosaico
@@ -11,7 +11,7 @@ Treat setup as an inspect, explain, install, configure, and verify workflow. Kee
 
 Mosaico gives coding agents a shared awareness fabric. Each session receives an identity, can see relevant peer presence and status, and can send an addressed message that arrives as a real turn in another agent's native session. Mosaico does not replace the harness, run the model, or read every transcript.
 
-One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, and Hermes Agent. The release binary also contains the pinned Croissant NIP-29 relay.
+One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, and Hermes Agent. The release binary also contains the pinned Croissant NIP-29 relay. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
 
 ## Follow the safety contract
 
@@ -105,7 +105,12 @@ For non-interactive use, pass explicit flags such as `--harness`, `--relay`, `--
 
 When local relay mode is selected, setup starts the embedded relay on `127.0.0.1:9888`, records the exact owned PID below `MOSAICO_HOME/relay`, waits for readiness, and then restarts only the daemon. It never signals detached PTY supervisors. Switching to a remote relay stops only the recorded local relay process.
 
-Setup preserves existing `mosaicoPrivateKey`, `userNsec`, and unknown JSON fields unless the user explicitly changes the human signing key. It merges only Mosaico-owned harness entries. Goose may be discovered for native ACP launch, but setup does not yet configure its fabric-context injection; do not report Goose as fully integrated.
+Goose 1.43.0 or newer is required. Interactive Mosaico launches use
+`goose session`; managed launches use `goose acp`. Both receive full fabric
+context through a session-specific Top Of Mind file maintained by the plugin's
+awaited hooks. Existing non-Mosaico hooks and settings must remain intact.
+
+Setup preserves existing `mosaicoPrivateKey`, `userNsec`, and unknown JSON fields unless the user explicitly changes the human signing key. It merges only Mosaico-owned harness entries.
 
 ## Verify and repair
 

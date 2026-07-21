@@ -211,6 +211,8 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
     signed.id.to_hex()
 }
 
+#[path = "launch_mentions/goose_context.rs"]
+mod goose_context;
 #[path = "launch_mentions/offline.rs"]
 mod offline;
 #[path = "launch_mentions/working.rs"]

@@ -46,6 +46,12 @@ pub fn harnesses() -> Result<Vec<Harness>> {
             detected: available.contains(&crate::session::Harness::Grok),
         },
         Harness {
+            id: "goose",
+            display: "Goose",
+            config_path: crate::goose_integration::plugin_root()?,
+            detected: available.contains(&crate::session::Harness::Goose),
+        },
+        Harness {
             id: "hermes",
             display: "Hermes Agent",
             config_path: hermes_home.join("plugins/mosaico"),

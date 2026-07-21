@@ -273,13 +273,20 @@ async fn managed_generic_creates_preferred_rpc_bundle() {
 }
 
 #[test]
-fn goose_uses_acp_for_managed_and_interactive_launches() {
-    for intent in [LaunchIntent::Managed, LaunchIntent::Interactive] {
-        assert_eq!(
-            desired_transport(crate::session::Harness::Goose, intent, false).unwrap(),
-            Transport::Acp
-        );
-    }
+fn goose_uses_pty_for_interactive_and_acp_for_managed_launches() {
+    assert_eq!(
+        desired_transport(
+            crate::session::Harness::Goose,
+            LaunchIntent::Interactive,
+            false
+        )
+        .unwrap(),
+        Transport::Pty
+    );
+    assert_eq!(
+        desired_transport(crate::session::Harness::Goose, LaunchIntent::Managed, false).unwrap(),
+        Transport::Acp
+    );
     assert!(
         desired_transport(crate::session::Harness::Goose, LaunchIntent::Managed, true).is_err()
     );

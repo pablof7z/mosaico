@@ -45,6 +45,8 @@ pub enum ResumeMechanism {
     /// PTY: append `<flag> <id>` to argv. claude `--resume`,
     /// opencode `--session`, grok/hermes `--resume`.
     AppendFlag(&'static str),
+    /// PTY: append fixed flags followed by the native id.
+    AppendFlags(&'static [&'static str]),
     /// PTY: insert `<sub> <id>` right after argv[0]. codex `resume`.
     Subcommand(&'static str),
     /// Not resumable.
@@ -166,7 +168,7 @@ static DRIVERS: &[HarnessDriver] = &[
         turn: TurnModel::InteractivePty,
         profile: ProfileMechanism::Unsupported,
     },
-    // ── Goose (native ACP only) ───────────────────────────────────
+    // ── Goose ─────────────────────────────────────────────────────
     HarnessDriver {
         harness: Harness::Goose,
         transport: Transport::Acp,
@@ -175,6 +177,16 @@ static DRIVERS: &[HarnessDriver] = &[
         resume: ResumeMechanism::AcpSessionLoad,
         steer: SteerPrimitive::None,
         turn: TurnModel::RpcTurn,
+        profile: ProfileMechanism::Unsupported,
+    },
+    HarnessDriver {
+        harness: Harness::Goose,
+        transport: Transport::Pty,
+        base_argv: &["goose", "session"],
+        base_env: &[],
+        resume: ResumeMechanism::AppendFlags(&["--resume", "--session-id"]),
+        steer: SteerPrimitive::PtyPaste,
+        turn: TurnModel::InteractivePty,
         profile: ProfileMechanism::Unsupported,
     },
     // ── Hermes ───────────────────────────────────────────────────────────

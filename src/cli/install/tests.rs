@@ -20,12 +20,17 @@ fn opts(all: bool, harness: Option<&str>) -> InstallOpts {
 fn write_executable(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt as _;
 
-    std::fs::write(path, "#!/bin/sh\n").unwrap();
+    let body = if path.file_name().and_then(|name| name.to_str()) == Some("goose") {
+        "#!/bin/sh\necho 1.43.0\n"
+    } else {
+        "#!/bin/sh\n"
+    };
+    std::fs::write(path, body).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 #[test]
-fn installer_lists_hooked_harnesses_while_goose_remains_native() {
+fn installer_lists_every_supported_harness() {
     let temp = tempfile::tempdir().unwrap();
     let bin = temp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
@@ -38,7 +43,14 @@ fn installer_lists_hooked_harnesses_while_goose_remains_native() {
     let all = harnesses().unwrap();
     assert_eq!(
         all.iter().map(|harness| harness.id).collect::<Vec<_>>(),
-        ["claude-code", "codex", "opencode", "grok", "hermes"]
+        [
+            "claude-code",
+            "codex",
+            "opencode",
+            "grok",
+            "goose",
+            "hermes"
+        ]
     );
     assert!(all.iter().all(|harness| harness.detected));
     assert!(crate::config::detect_available_harnesses()
@@ -46,8 +58,8 @@ fn installer_lists_hooked_harnesses_while_goose_remains_native() {
         .contains(&crate::session::Harness::Goose));
 
     let selection = resolve_selection(&all, &opts(true, None)).unwrap();
-    assert!(selection.skill, "Goose consumes the canonical agents skill");
-    assert_eq!(selection.harnesses.len(), 5);
+    assert!(selection.skill);
+    assert_eq!(selection.harnesses.len(), 6);
 }
 
 #[test]

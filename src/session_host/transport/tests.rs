@@ -188,6 +188,56 @@ fn every_hosted_transport_plan_receives_the_same_executable_path_policy() {
 }
 
 #[test]
+fn goose_pty_and_acp_launches_receive_isolated_top_of_mind_files() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let bin = scratch.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let goose = bin.join("goose");
+    std::fs::write(&goose, "#!/bin/sh\necho 1.43.0\n").unwrap();
+    std::fs::set_permissions(goose, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut env = crate::test_env::EnvGuard::set("HOME", scratch.path());
+    env.set_var("PATH", &bin);
+    env.set_var("MOSAICO_HOME", scratch.path().join("mosaico"));
+    env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
+    for (path, body) in crate::goose_integration::plugin_files().unwrap() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    let cfg: crate::harness::HarnessesConfig = serde_json::from_str(
+        r#"{
+          "goose-pty":{"harness":"goose","transport":"pty"},
+          "goose-acp":{"harness":"goose","transport":"acp"}
+        }"#,
+    )
+    .unwrap();
+    for (bundle, kind) in [
+        ("goose-pty", TransportKind::Pty),
+        ("goose-acp", TransportKind::Acp),
+    ] {
+        let endpoint = format!("{bundle}-endpoint");
+        let mut resolved =
+            crate::harness::resolve_with(&cfg, bundle, None, scratch.path()).unwrap();
+        let prepared = transport_for_kind(kind)
+            .prepare_launch(&mut resolved, endpoint.clone())
+            .unwrap();
+        let launch_env = prepared
+            .rpc
+            .as_ref()
+            .map(|rpc| &rpc.extra_env)
+            .unwrap_or(&prepared.pty.env);
+        let value = launch_env
+            .iter()
+            .find_map(|(key, value)| (key == crate::goose_integration::MOIM_ENV).then_some(value))
+            .expect("Goose launch has Top Of Mind file");
+        assert!(value.ends_with(&format!("harness-context/goose/{endpoint}.md")));
+    }
+}
+
+#[test]
 fn rpc_spawn_uses_the_admitted_plan_after_config_mutation() {
     let mut cfg: crate::harness::HarnessesConfig = serde_json::from_str(
         r#"{"codex-rpc":{"harness":"codex","transport":"app-server","args":["--admitted"]}}"#,

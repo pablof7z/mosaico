@@ -227,6 +227,12 @@ fn build_driver_resume_command(
             command.extend([flag.to_string(), resume_id.to_string()]);
             Ok(command)
         }
+        ResumeMechanism::AppendFlags(flags) => {
+            let mut command = base.to_vec();
+            command.extend(flags.iter().map(|flag| (*flag).to_string()));
+            command.push(resume_id.to_string());
+            Ok(command)
+        }
         ResumeMechanism::Subcommand(subcommand) => {
             let (program, args) = base
                 .split_first()

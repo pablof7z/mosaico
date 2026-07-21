@@ -34,6 +34,9 @@ impl SessionTransport for PtyTransport {
                 }
             }
         }
+        if resolved.harness == crate::session::Harness::Goose {
+            crate::goose_integration::prepare_launch_env(&mut env, &endpoint_id)?;
+        }
         env.push((
             "MOSAICO_OBSERVED_HARNESS".to_string(),
             resolved.harness.as_str().to_string(),

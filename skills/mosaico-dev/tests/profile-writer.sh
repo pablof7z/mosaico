@@ -29,7 +29,7 @@ EOF
       MOSAICO_DEV_HERMES_PROFILE=reviewer \
       MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON='["--strict-config"]' \
       bash "${SKILL}/scripts/write-container-profiles" "${writer_env}" \
-        claude-acp codex-app-server grok goose-acp hermes hermes-acp \
+        claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
         codex-ollama opencode-ollama
   )"
   assert_generated_profiles
@@ -65,7 +65,7 @@ EOF
 
 assert_generated_profiles() {
   local profile harnesses agent config
-  for profile in claude-acp codex-app-server grok goose-acp hermes hermes-acp \
+  for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
     codex-ollama opencode-ollama; do
     harnesses="${TMP}/container-state/${profile}/mosaico/harnesses.json"
     agent="$(find "${TMP}/container-state/${profile}/mosaico/agents" \
@@ -88,6 +88,9 @@ assert_generated_profiles() {
   assert_json '.["grok"] == {"harness":"grok","transport":"pty"}' \
     "${TMP}/container-state/grok/mosaico/harnesses.json" \
     'Grok profile emits a native PTY bundle'
+  assert_json '.["goose"] == {"harness":"goose","transport":"pty"}' \
+    "${TMP}/container-state/goose/mosaico/harnesses.json" \
+    'Goose profile emits its interactive PTY bundle'
   assert_json '.["goose-acp"] == {"harness":"goose","transport":"acp"}' \
     "${TMP}/container-state/goose-acp/mosaico/harnesses.json" \
     'Goose profile emits a native ACP bundle'
@@ -111,13 +114,13 @@ assert_generated_profiles() {
     'OpenCode Ollama bundle owns model args'
   local key_count
   key_count="$(
-    for profile in claude-acp codex-app-server grok goose-acp hermes hermes-acp \
+    for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
       codex-ollama opencode-ollama; do
       jq -r '.mosaicoPrivateKey' \
         "${TMP}/container-state/${profile}/mosaico/config.json"
     done | sort -u | wc -l | tr -d ' '
   )"
-  assert_eq 8 "${key_count}" 'each profile has a distinct backend key'
+  assert_eq 9 "${key_count}" 'each profile has a distinct backend key'
 }
 
 assert_regeneration_preserves_key() {

@@ -60,6 +60,17 @@ async fn hook_dispatch(
         return Ok(());
     };
 
+    // The plugin is user-global, but Mosaico can only provide an isolated
+    // Top Of Mind file to Goose processes it owns. Leave standalone Goose
+    // sessions untouched instead of pretending they have fabric awareness.
+    if host.name == "goose" && std::env::var_os(crate::goose_integration::MOIM_ENV).is_none() {
+        call_log.note(
+            "unhosted-goose",
+            serde_json::json!({ "hook_type": hook_type }),
+        );
+        return Ok(());
+    }
+
     // How context is emitted depends on host AND hook type. Claude Code's
     // PostToolUse and Codex turn hooks read model-visible context from the
     // `hookSpecificOutput.additionalContext` envelope.
@@ -342,6 +353,9 @@ async fn hook_dispatch(
                 }
             }
             let result = turn_start(sid.clone(), transcript, emit, degraded_notice).await?;
+            if host.name == "goose" {
+                crate::goose_integration::sync_hook_context(&hook_type, result.context.as_deref())?;
+            }
             call_log.context_audit(
                 host.name,
                 &hook_type,
@@ -353,6 +367,9 @@ async fn hook_dispatch(
         "post-tool-use" => {
             let explicit = if sid.is_empty() { None } else { Some(sid) };
             let result = turn_check(explicit.clone(), emit).await?;
+            if host.name == "goose" {
+                crate::goose_integration::sync_hook_context(&hook_type, result.context.as_deref())?;
+            }
             call_log.context_audit(
                 host.name,
                 &hook_type,

@@ -24,6 +24,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=nak-builder /go/bin/nak /usr/local/bin/nak
+COPY --from=nak-builder /usr/local/go /usr/local/go
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
 
@@ -95,6 +96,6 @@ ENV HOME=/state/home \
     MOSAICO_CONFIG=/state/mosaico/config.json \
     MOSAICO_HOME=/state/mosaico \
     MOSAICO_BIN=/state/target/debug/mosaico \
-    PATH=/state/target/debug:/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin
+    PATH=/state/target/debug:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 
 CMD ["bash"]

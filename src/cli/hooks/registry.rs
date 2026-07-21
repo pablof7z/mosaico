@@ -64,6 +64,18 @@ static HOOK_HOSTS: &[HostDef] = &[
         requires_harness_session: true,
     },
     HostDef {
+        name: "goose",
+        agent_slug: "goose",
+        session_id_fields: &["session_id"],
+        session_id_env: None,
+        transcript_field: None,
+        // Goose ignores hook stdout. Mosaico also publishes the same context
+        // into the session-specific Top Of Mind file after this call.
+        output_format: HookOutputFormat::PlainText,
+        pid_search: Some("goose"),
+        requires_harness_session: true,
+    },
+    HostDef {
         name: "hermes",
         agent_slug: "hermes",
         session_id_fields: &["session_id"],

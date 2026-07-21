@@ -17,6 +17,20 @@ fn goose_acp_agent_receives_signer_and_hosted_prompt() {
 fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let home = Home::new();
     write_config(&home, false);
+    if harness == "goose" {
+        let plugin = home.dir.path().join(".agents/plugins/mosaico");
+        std::fs::create_dir_all(plugin.join("hooks")).unwrap();
+        std::fs::write(
+            plugin.join("plugin.json"),
+            include_str!("../../../integrations/goose/plugin.json"),
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("hooks/hooks.json"),
+            include_str!("../../../integrations/goose/hooks/hooks.json"),
+        )
+        .unwrap();
+    }
     std::fs::write(
         home.dir.path().join("harnesses.json"),
         serde_json::json!({
@@ -39,7 +53,18 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
     let mut args = vec![agent.as_str()];
     args.extend(prompt);
-    let out = run_cli_with_env_in_dir(&home, &args, &[("HOME", &isolated_home)], &work_dir);
+    let xdg_config = home
+        .dir
+        .path()
+        .join(".config")
+        .to_string_lossy()
+        .into_owned();
+    let out = run_cli_with_env_in_dir(
+        &home,
+        &args,
+        &[("HOME", &isolated_home), ("XDG_CONFIG_HOME", &xdg_config)],
+        &work_dir,
+    );
     assert!(
         out.status.success(),
         "ACP launch failed: {}\ndaemon log:\n{}",
@@ -91,6 +116,18 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
             "hosted {harness} launch did not deliver {prompt:?} through session/prompt; daemon log:\n{}",
             daemon_log(&home)
         );
+        if harness == "goose" {
+            let context_path = home.dir.path().join("captured-goose-context");
+            assert!(
+                wait_until(Duration::from_secs(10), || context_path.exists()),
+                "Goose ACP hook did not publish Top Of Mind; hook={}",
+                std::fs::read_to_string(home.dir.path().join("captured-goose-hook"))
+                    .unwrap_or_default()
+            );
+            let context = std::fs::read_to_string(context_path).unwrap();
+            assert!(context.contains("<mosaico>"), "context={context:?}");
+            assert!(context.contains(&channel), "context={context:?}");
+        }
     }
 
     stop_daemon(&home);

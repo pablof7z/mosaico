@@ -74,10 +74,12 @@ intentional one-launch override.
   selected isolated profile.
 - Grok auth is copied into writable isolated `GROK_HOME`; native Mosaico hooks
   install at `.grok/hooks/mosaico.json`. Imported Claude hooks are not Grok proof.
-- Goose config and keychain secrets are copied into its isolated XDG home. Goose
-  supports provider-owned plugins, extensions, and recipes, but Mosaico's
-  supported `goose acp` transport needs no Mosaico hook or plugin and exposes no
-  stable recipe/profile selector. Do not advertise recipes as native profiles.
+- Goose config and keychain secrets are copied into its isolated XDG home.
+  Mosaico installs its Goose Open Plugin there; awaited lifecycle hooks refresh
+  a session-specific Top Of Mind file before each model turn. Both interactive
+  `goose session` and managed `goose acp` launches require this integration.
+  Goose ACP exposes no stable recipe/profile selector, so do not advertise
+  recipes as native profiles.
 - Hermes config, environment, and named profiles are copied into isolated
   `HERMES_HOME`, where Mosaico installs its user plugin.
 - Keep fabric state under `.container-state/<profile>` or the run's temporary
@@ -122,7 +124,7 @@ Keep the emitted environment path:
 ```bash
 LAB_ENV=/tmp/mosaico-live-lab-YYYYmmdd-HHMMSS/lab.env
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
-  claude claude-acp codex codex-app-server grok goose-acp hermes hermes-acp \
+  claude claude-acp codex codex-app-server grok goose goose-acp hermes hermes-acp \
   opencode opencode-acp
 ```
 
@@ -174,8 +176,9 @@ MOSAICO_DEV_PROMPT="Run mosaico my session." \
   skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 
-For Goose, generate `goose-acp`, run doctor, and run smoke before launch. The
-smoke must pass both ACP turns across a process restart using `session/load`.
+For Goose, install the plugin, generate `goose-acp`, run doctor, and run smoke
+before launch. The smoke must prove fabric context in the model response and
+pass both ACP turns across a process restart using `session/load`.
 
 To audit launch inventory, run `mosaico agents` without an action. In a
 non-interactive command it prints the available configured agents, raw harness

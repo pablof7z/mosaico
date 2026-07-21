@@ -119,7 +119,7 @@ translation are code-owned. Unknown bundle fields fail parsing.
 
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
-  claude claude-acp codex codex-app-server grok goose-acp hermes hermes-acp \
+  claude claude-acp codex codex-app-server grok goose goose-acp hermes hermes-acp \
   opencode opencode-acp \
   codex-ollama opencode-ollama
 ```
@@ -138,6 +138,7 @@ Every profile has an exact JSON-array override:
 | `codex` | `MOSAICO_DEV_CODEX_ARGS_JSON` |
 | `codex-app-server` | `MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON` |
 | `grok` | `MOSAICO_DEV_GROK_ARGS_JSON` |
+| `goose` | `MOSAICO_DEV_GOOSE_ARGS_JSON` |
 | `goose-acp` | `MOSAICO_DEV_GOOSE_ACP_ARGS_JSON` |
 | `hermes` | `MOSAICO_DEV_HERMES_ARGS_JSON` |
 | `hermes-acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |

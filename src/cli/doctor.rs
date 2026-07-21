@@ -211,7 +211,7 @@ fn inspect_installation(checks: &mut Vec<Check>) {
                 checks.push(Check::new(
                     "harness",
                     CheckStatus::Warning,
-                    "no hook-based harness was detected; current Goose and remote MCP setup uses non-hook transports",
+                    "no hook-based harness was detected; remote MCP does not require hooks",
                 ));
             }
         }

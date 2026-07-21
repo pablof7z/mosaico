@@ -22,6 +22,22 @@ fn claude_resume_appends_the_native_id_after_bundle_args() {
 }
 
 #[test]
+fn goose_resume_appends_both_required_flags() {
+    let command = build_driver_resume_command(
+        &["goose".into(), "session".into()],
+        ResumeMechanism::AppendFlags(&["--resume", "--session-id"]),
+        "20260721_9",
+        "goose",
+    )
+    .unwrap();
+
+    assert_eq!(
+        command,
+        ["goose", "session", "--resume", "--session-id", "20260721_9"]
+    );
+}
+
+#[test]
 fn codex_resume_inserts_the_subcommand_before_bundle_args() {
     let command = build_driver_resume_command(
         &["codex".into(), "--yolo".into()],

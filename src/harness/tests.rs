@@ -37,7 +37,6 @@ fn invalid_driver_cells_are_absent() {
     assert!(driver::lookup(Harness::Codex, Transport::Acp).is_none());
     assert!(driver::lookup(Harness::Grok, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Opencode, Transport::AppServer).is_none());
-    assert!(driver::lookup(Harness::Goose, Transport::Pty).is_none());
     assert!(driver::lookup(Harness::Goose, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Hermes, Transport::AppServer).is_none());
 }
@@ -50,6 +49,18 @@ fn goose_uses_native_acp_with_cross_process_resume() {
     assert_eq!(goose.steer, SteerPrimitive::None);
     assert_eq!(goose.turn, TurnModel::RpcTurn);
     assert_eq!(goose.profile, ProfileMechanism::Unsupported);
+}
+
+#[test]
+fn goose_interactive_driver_uses_native_session_ui() {
+    let goose = driver::lookup(Harness::Goose, Transport::Pty).unwrap();
+    assert_eq!(goose.base_argv, ["goose", "session"]);
+    assert_eq!(
+        goose.resume,
+        ResumeMechanism::AppendFlags(&["--resume", "--session-id"])
+    );
+    assert_eq!(goose.steer, SteerPrimitive::PtyPaste);
+    assert_eq!(goose.turn, TurnModel::InteractivePty);
 }
 
 #[test]

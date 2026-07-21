@@ -20,7 +20,7 @@ impl SessionTransport for RpcTransport {
     fn prepare_launch(
         &self,
         resolved: &mut crate::harness::ResolvedHarness,
-        _endpoint_id: String,
+        endpoint_id: String,
     ) -> Result<PreparedLaunch> {
         let configured = match resolved.transport {
             crate::harness::Transport::Acp => TransportKind::Acp,
@@ -39,6 +39,13 @@ impl SessionTransport for RpcTransport {
         resolved.profile.materialize()?;
         let mut extra_env = resolved.profile.extra_env.clone();
         crate::host_env::apply_executable_path(&mut extra_env);
+        extra_env.push((
+            "MOSAICO_OBSERVED_HARNESS".to_string(),
+            resolved.harness.as_str().to_string(),
+        ));
+        if resolved.harness == crate::session::Harness::Goose {
+            crate::goose_integration::prepare_launch_env(&mut extra_env, &endpoint_id)?;
+        }
         Ok(PreparedLaunch {
             pty: Default::default(),
             rpc: Some(RpcLaunchSpec {

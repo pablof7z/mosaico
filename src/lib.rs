@@ -22,6 +22,7 @@ pub(crate) mod delivery_seam;
 pub mod domain;
 pub mod explain;
 mod fabric_context;
+mod goose_integration;
 pub mod harness;
 pub(crate) mod host_env;
 pub mod identity;
