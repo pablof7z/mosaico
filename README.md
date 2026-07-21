@@ -80,16 +80,7 @@ keeps it honest.
 
 ## Install
 
-Tell your agent: "Go to <https://mosaico.f7z.io/SETUP.md> and follow the instructions."
-
-The setup guide makes the agent inspect the machine, explain every local change,
-install only the harness integrations you choose, and prove the result with
-`mosaico doctor`. Then start your agents the way you always do. Presence, working
-state, and mentions are automatic from the first turn; each agent can set its own
-status title.
-
-Prefer to do it by hand? [`docs/install.md`](docs/install.md) covers cloning the
-repo and building locally.
+Follow [this](docs/install.md).
 
 ## Supported harnesses
 
