@@ -132,6 +132,10 @@ pub(super) fn find_ancestor_harness() -> Option<(&'static str, i32)> {
 pub(super) fn harness_for_process(pid: i32) -> Option<&'static str> {
     let command = ps_comm(pid).to_lowercase();
     let args = ps_args(pid).unwrap_or_default().to_lowercase();
+    harness_from_process(&command, &args)
+}
+
+fn harness_from_process(command: &str, args: &str) -> Option<&'static str> {
     if command.contains("claude") || args.contains("claude-agent-acp") {
         Some("claude-code")
     } else if command.contains("codex") {
@@ -140,9 +144,28 @@ pub(super) fn harness_for_process(pid: i32) -> Option<&'static str> {
         Some("opencode")
     } else if command.contains("grok") {
         Some("grok")
+    } else if command.contains("hermes") || python_script_is_hermes(args) {
+        Some("hermes")
     } else {
         None
     }
+}
+
+fn python_script_is_hermes(args: &str) -> bool {
+    fn basename(value: &str) -> &str {
+        std::path::Path::new(value)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+    }
+    let Some(argv) = shlex::split(args) else {
+        return false;
+    };
+    argv.first()
+        .is_some_and(|value| basename(value).contains("python"))
+        && argv
+            .get(1)
+            .is_some_and(|value| matches!(basename(value), "hermes" | "hermes-acp"))
 }
 
 fn ps_ppid(pid: i32) -> Option<i32> {
@@ -214,7 +237,7 @@ pub(super) fn find_direct_agent_invocation() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_agent_flag;
+    use super::{extract_agent_flag, harness_from_process};
 
     fn argv(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -236,6 +259,21 @@ mod tests {
     fn extract_agent_flag_ignores_agents_flag() {
         let a = argv(&["claude", "--agents", r#"{"x":1}"#]);
         assert_eq!(extract_agent_flag(&a), None);
+    }
+
+    #[test]
+    fn detects_hermes_python_entrypoint_without_matching_hook_arguments() {
+        assert_eq!(
+            harness_from_process(
+                "/opt/hermes/bin/python3",
+                "/opt/hermes/bin/python3 /opt/hermes/bin/hermes acp"
+            ),
+            Some("hermes")
+        );
+        assert_eq!(
+            harness_from_process("mosaico", "mosaico harness hook hermes --type stop"),
+            None
+        );
     }
 
     #[test]

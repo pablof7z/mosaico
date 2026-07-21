@@ -14,6 +14,8 @@ pub struct CodexHomePlan {
 /// A materialized plan: extra argv/env plus scratch files to write pre-launch.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProfilePlan {
+    /// Top-level selectors inserted immediately after the executable.
+    pub global_argv: Vec<String>,
     /// Harness-native profile selector appended after driver and bundle args.
     pub extra_argv: Vec<String>,
     /// Extra env for the child (e.g. `OPENCODE_CONFIG=<path>`).
@@ -26,6 +28,7 @@ pub struct ProfilePlan {
 
 impl ProfilePlan {
     pub fn extend(&mut self, other: Self) {
+        self.global_argv.extend(other.global_argv);
         self.extra_argv.extend(other.extra_argv);
         self.extra_env.extend(other.extra_env);
         self.files.extend(other.files);
@@ -64,6 +67,10 @@ pub fn plan_profile(
     match mech {
         ProfileMechanism::CliFlag { flag } => Ok(ProfilePlan {
             extra_argv: vec![flag.to_string(), profile.to_string()],
+            ..Default::default()
+        }),
+        ProfileMechanism::CliGlobalFlag { flag } => Ok(ProfilePlan {
+            global_argv: vec![flag.to_string(), profile.to_string()],
             ..Default::default()
         }),
         ProfileMechanism::CodexAppServer => super::codex_profile::plan(

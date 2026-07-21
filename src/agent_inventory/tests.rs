@@ -27,6 +27,7 @@ fn bundleless_catalog_expands_profiles_and_includes_generic_agents() {
             Harness::Codex,
             Harness::Opencode,
             Harness::Goose,
+            Harness::Hermes,
         ],
         &harnesses,
         &catalog,
@@ -44,6 +45,7 @@ fn bundleless_catalog_expands_profiles_and_includes_generic_agents() {
             "claude",
             "codex",
             "goose",
+            "hermes",
             "opencode",
             "writer-claude",
             "writer-codex"

@@ -54,6 +54,7 @@ mkdir -p \
   "${HOST_HOME}/.codex/agents" \
   "${HOST_HOME}/.claude/agents" \
   "${HOST_HOME}/.config/goose" \
+  "${HOST_HOME}/.hermes/profiles/reviewer" \
   "${HOST_HOME}/.local/share/opencode" \
   "${HOST_HOME}/.config/opencode/agents"
 printf '{}\n' >"${HOST_HOME}/.codex/auth.json"
@@ -62,6 +63,8 @@ printf '{}\n' >"${HOST_HOME}/.claude.json"
 printf '{"claudeAiOauth":{"accessToken":"test","refreshToken":"test"}}\n' \
   >"${HOST_HOME}/.claude/.credentials.json"
 printf '{}\n' >"${HOST_HOME}/.claude/settings.json"
+printf 'model:\n  default: anthropic/test\n' >"${HOST_HOME}/.hermes/config.yaml"
+printf 'ANTHROPIC_API_KEY=test\n' >"${HOST_HOME}/.hermes/.env"
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/auth.json"
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/account.json"
 printf '{}\n' >"${HOST_HOME}/.config/opencode/opencode.jsonc"
@@ -77,6 +80,7 @@ assert_mounts_only claude '/host-auth/claude'
 assert_mounts_only codex '/host-auth/codex'
 assert_mounts_only opencode '/host-auth/opencode-config'
 assert_no_mounts goose
+assert_no_mounts hermes
 echo 'ok: host auth mounts are provider-scoped'
 
 stage_provider() {
@@ -119,10 +123,24 @@ GOOSE_SECRET_MODE="$(stat -f '%Lp' "${STATE_DIR}/home/.config/goose/secrets.yaml
   || fail 'Goose staged secrets are not private'
 echo 'ok: Goose auth and config are copied into isolated writable state'
 
+AGENT=hermes
+STATE_DIR="${TMP}/state-hermes"
+mkdir -p "${STATE_DIR}/home/.hermes"
+stage_hermes_state
+cmp -s "${HOST_HOME}/.hermes/config.yaml" \
+  "${STATE_DIR}/home/.hermes/config.yaml" \
+  || fail 'Hermes config was not copied into isolated state'
+cmp -s "${HOST_HOME}/.hermes/.env" "${STATE_DIR}/home/.hermes/.env" \
+  || fail 'Hermes environment was not copied into isolated state'
+[[ ! -L "${STATE_DIR}/home/.hermes/config.yaml" ]] \
+  || fail 'Hermes config must be writable isolated state, not a host symlink'
+test -d "${STATE_DIR}/home/.hermes/profiles/reviewer"
+echo 'ok: Hermes auth, config, and profiles are staged into writable state'
+
 CONFIG_HOME="${TMP}/mosaico"
 mkdir -p "${CONFIG_HOME}/agents"
 printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"}}' \
+  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"}}' \
   >"${CONFIG_HOME}/harnesses.json"
 printf '%s\n' \
   '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex-app-server"}' \

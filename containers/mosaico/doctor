@@ -16,7 +16,8 @@ validate_mosaico_configs() {
       type == "object" and
       ((keys - ["args", "harness", "transport"]) | length == 0) and
       (.harness == "claude-code" or .harness == "codex" or
-        .harness == "opencode" or .harness == "grok" or .harness == "goose") and
+        .harness == "opencode" or .harness == "grok" or .harness == "goose" or
+        .harness == "hermes") and
       (.transport == "pty" or .transport == "acp" or
         .transport == "app-server") and
       ((.args // []) | type == "array") and
@@ -59,13 +60,15 @@ echo "claude: $(claude --version)"
 echo "codex: $(codex --version)"
 echo "grok: $(grok --version)"
 echo "goose: $(goose --version)"
+echo "hermes: $(hermes --version | head -1)"
 echo "opencode: $(opencode --version)"
 echo "node: $(node --version)"
 echo "claude-acp-adapter: $(command -v claude-agent-acp)"
 codex app-server --help >/dev/null 2>&1
 opencode acp --help >/dev/null 2>&1
 goose acp --help >/dev/null 2>&1
-echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp, goose acp"
+hermes acp --check >/dev/null 2>&1
+echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp, goose acp, hermes acp"
 echo "nak: $(nak --version 2>/dev/null | head -1)"
 echo "ollama_host: ${OLLAMA_HOST}"
 echo "host_auth: ${HOST_AUTH}"
@@ -106,6 +109,10 @@ case "${AGENT}" in
     jq -e 'type == "object"' "${XDG_CONFIG_HOME}/goose/secrets.yaml" >/dev/null
     HARNESS=goose
     ;;
+  hermes)
+    test -s "${HERMES_HOME}/config.yaml"
+    HARNESS=hermes
+    ;;
   opencode)
     test -f "${XDG_DATA_HOME}/opencode/auth.json"
     HARNESS=opencode
@@ -125,6 +132,12 @@ else
     claude) test -f "${HOME}/.claude/settings.json" ;;
     codex) test -f "${CODEX_HOME}/hooks.json" ;;
     grok) test -f "${GROK_HOME}/hooks/mosaico.json" ;;
+    hermes)
+      test -f "${HERMES_HOME}/plugins/mosaico/plugin.yaml"
+      test -f "${HERMES_HOME}/plugins/mosaico/__init__.py"
+      hermes plugins list --enabled --json \
+        | jq -e 'any(.[]; .key == "mosaico" or .name == "mosaico")' >/dev/null
+      ;;
     opencode) test -f "${XDG_CONFIG_HOME}/opencode/plugin/mosaico.ts" ;;
   esac
   echo "${AGENT} auth/hooks: mounted"
@@ -134,4 +147,5 @@ validate_mosaico_configs
 
 echo "codex home: ${CODEX_HOME}"
 echo "grok home: ${GROK_HOME}"
+echo "hermes home: ${HERMES_HOME}"
 echo "mosaico home: ${MOSAICO_HOME}"

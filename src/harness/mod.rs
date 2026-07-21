@@ -99,6 +99,9 @@ pub fn apply_native_agent(
             }
         }
     };
+    resolved
+        .base_argv
+        .splice(1..1, plan.global_argv.iter().cloned());
     resolved.base_argv.extend(plan.extra_argv.iter().cloned());
     resolved.profile.extend(plan);
     Ok(())
@@ -137,6 +140,7 @@ fn resolve_with_codex_home(
     let plan = profile::plan_profile(driver.profile, profile, session_scratch, codex_home)?;
 
     let mut base_argv: Vec<String> = driver.base_argv.iter().map(|s| s.to_string()).collect();
+    base_argv.splice(1..1, plan.global_argv.iter().cloned());
     base_argv.extend(configured.args.iter().cloned());
     base_argv.extend(plan.extra_argv.iter().cloned());
 

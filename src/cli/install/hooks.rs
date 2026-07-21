@@ -129,6 +129,7 @@ pub fn is_installed(h: &Harness) -> bool {
                     .unwrap_or(false)
         }
         "claude-code" | "codex" | "grok" => is_json_harness_installed(h),
+        "hermes" => super::hermes::is_installed(h),
         _ => false,
     }
 }

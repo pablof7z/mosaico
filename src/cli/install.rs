@@ -5,6 +5,7 @@
 mod args;
 mod config;
 mod device_config;
+mod hermes;
 mod hooks;
 mod io;
 mod skills;
@@ -29,7 +30,7 @@ fn print_install_guide() {
     println!("Mosaico is not installed in any supported agent harness.\n");
     println!("Install it with:\n\n  mosaico install\n");
     println!(
-        "This detects Claude Code, Codex, OpenCode, and Grok and lets you choose integrations."
+        "This detects Claude Code, Codex, OpenCode, Grok, and Hermes and lets you choose integrations."
     );
     println!("Use `mosaico install --all` to install every detected harness.");
     println!("Goose uses native `goose acp` and needs no hook installation.");
@@ -84,6 +85,8 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
         match h.id {
             "claude-code" | "codex" | "grok" => install_json_harness(h, &opts)?,
             "opencode" => install_opencode(h, &opts)?,
+            "hermes" if opts.uninstall => hermes::uninstall(h, &opts)?,
+            "hermes" => hermes::install(h, &opts)?,
             _ => {}
         }
     }

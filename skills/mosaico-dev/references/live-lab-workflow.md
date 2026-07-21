@@ -60,7 +60,8 @@ Multi-provider lab:
 
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
-  claude claude-acp codex codex-app-server grok goose-acp opencode opencode-acp
+  claude claude-acp codex codex-app-server grok goose-acp hermes hermes-acp \
+  opencode opencode-acp
 ```
 
 Each profile receives:
@@ -98,6 +99,9 @@ For ACP/app-server:
 bash containers/mosaico/run --profile claude-acp doctor
 skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke claude-acp
 ```
+
+Use `hermes-acp` in the same commands to prove native Hermes ACP initialization,
+turns, persisted `session/load` resume, and the installed Mosaico plugin.
 
 The smoke proves the configured bundle, initialization, a real model turn, and
 resume. For PTY, exact-profile doctor performs the build and integration

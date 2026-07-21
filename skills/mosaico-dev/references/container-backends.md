@@ -23,6 +23,8 @@ uses its staged XDG config/data homes. Grok copies `auth.json` and optional
 Goose copies `config.yaml` and optional permissions into its isolated XDG home,
 then stages the macOS `goose`/`secrets` Keychain item as a private
 `secrets.yaml`; its session database is never imported from the host.
+Hermes copies `config.yaml`, optional `.env`, and named profile directories into
+writable isolated `HERMES_HOME`, where Mosaico installs its user plugin.
 
 ## State boundary
 
@@ -114,7 +116,8 @@ translation are code-owned. Unknown bundle fields fail parsing.
 
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
-  claude claude-acp codex codex-app-server grok goose-acp opencode opencode-acp \
+  claude claude-acp codex codex-app-server grok goose-acp hermes hermes-acp \
+  opencode opencode-acp \
   codex-ollama opencode-ollama
 ```
 
@@ -133,6 +136,8 @@ Every profile has an exact JSON-array override:
 | `codex-app-server` | `MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON` |
 | `grok` | `MOSAICO_DEV_GROK_ARGS_JSON` |
 | `goose-acp` | `MOSAICO_DEV_GOOSE_ACP_ARGS_JSON` |
+| `hermes` | `MOSAICO_DEV_HERMES_ARGS_JSON` |
+| `hermes-acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |
 | `opencode` | `MOSAICO_DEV_OPENCODE_ARGS_JSON` |
 | `opencode-acp` | `MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON` |
 | `codex-ollama` | `MOSAICO_DEV_CODEX_OLLAMA_ARGS_JSON` |
@@ -142,6 +147,8 @@ Each override must be a JSON array of strings and replaces the generated args.
 
 `MOSAICO_DEV_CODEX_CONFIG_PROFILE=<name>` adds the optional `profile` string to
 the Codex app-server agent file. It does not add fields to the bundle.
+`MOSAICO_DEV_HERMES_PROFILE=<name>` does the same for both Hermes profiles;
+Mosaico places Hermes' top-level `--profile` before the optional `acp` subcommand.
 
 ## Direct and launched runs
 
