@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use dialoguer::{Confirm, Input};
+use nostr_sdk::prelude::Keys;
 use owo_colors::OwoColorize;
 use std::io::{self, IsTerminal as _};
 
@@ -105,6 +106,43 @@ fn ensure_device_config() -> Result<()> {
     Ok(())
 }
 
+/// Non-interactive repair used by `mosaico doctor --fix`. Missing config is
+/// created with safe local defaults and no trusted operators. Existing JSON is
+/// preserved byte-for-field except for backfilling a missing backend key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::cli) enum ConfigRepair {
+    Unchanged,
+    Created,
+    GeneratedManagementKey,
+}
+
+pub(super) fn repair_non_interactive() -> Result<ConfigRepair> {
+    let path = crate::config::config_path();
+    if path.exists() {
+        let config = crate::config::Config::load()?;
+        return match config.backend_nsec() {
+            Some(secret) if Keys::parse(secret.trim()).is_ok() => Ok(ConfigRepair::Unchanged),
+            Some(_) => anyhow::bail!(
+                "{} contains an invalid mosaicoPrivateKey; refusing to rotate backend identity automatically",
+                path.display()
+            ),
+            None => {
+                crate::config::ensure_mosaico_private_key()?;
+                Ok(ConfigRepair::GeneratedManagementKey)
+            }
+        };
+    }
+
+    let doc = device_config_doc(
+        Vec::new(),
+        crate::config::DEFAULT_RELAY.to_string(),
+        crate::config::hostname(),
+        crate::config::generate_mosaico_private_key(),
+    );
+    super::write_json(&path, &doc)?;
+    Ok(ConfigRepair::Created)
+}
+
 fn device_config_doc(
     whitelisted_pubkeys: Vec<String>,
     relay: String,
@@ -135,6 +173,7 @@ fn note_if_missing() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_env::EnvGuard;
 
     #[test]
     fn fresh_device_config_includes_mosaico_private_key() {
@@ -149,5 +188,59 @@ mod tests {
             doc.get("mosaicoPrivateKey").and_then(|v| v.as_str()),
             Some("backend-secret")
         );
+    }
+
+    #[test]
+    fn doctor_repair_creates_safe_baseline_without_trusting_an_operator() {
+        let temp = tempfile::tempdir().unwrap();
+        let mosaico_home = temp.path().join(".mosaico");
+        let mut env = EnvGuard::set("HOME", temp.path());
+        env.set_var("MOSAICO_HOME", &mosaico_home);
+
+        assert_eq!(repair_non_interactive().unwrap(), ConfigRepair::Created);
+
+        let config = crate::config::Config::load().unwrap();
+        assert!(config.whitelisted_pubkeys.is_empty());
+        assert!(config
+            .backend_nsec()
+            .is_some_and(|secret| Keys::parse(secret).is_ok()));
+        assert_eq!(config.relays, [crate::config::DEFAULT_RELAY]);
+    }
+
+    #[test]
+    fn doctor_repair_refuses_to_rotate_invalid_backend_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let mosaico_home = temp.path().join(".mosaico");
+        std::fs::create_dir_all(&mosaico_home).unwrap();
+        let config_path = mosaico_home.join("config.json");
+        let original = r#"{"mosaicoPrivateKey":"invalid","unknown":"preserved"}"#;
+        std::fs::write(&config_path, original).unwrap();
+        let mut env = EnvGuard::set("HOME", temp.path());
+        env.set_var("MOSAICO_HOME", &mosaico_home);
+
+        let error = repair_non_interactive().unwrap_err().to_string();
+
+        assert!(error.contains("refusing to rotate backend identity"));
+        assert_eq!(std::fs::read_to_string(config_path).unwrap(), original);
+    }
+
+    #[test]
+    fn doctor_repair_backfills_only_a_missing_backend_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let mosaico_home = temp.path().join(".mosaico");
+        std::fs::create_dir_all(&mosaico_home).unwrap();
+        let config_path = mosaico_home.join("config.json");
+        std::fs::write(&config_path, r#"{"unknown":"preserved"}"#).unwrap();
+        let mut env = EnvGuard::set("HOME", temp.path());
+        env.set_var("MOSAICO_HOME", &mosaico_home);
+
+        assert_eq!(
+            repair_non_interactive().unwrap(),
+            ConfigRepair::GeneratedManagementKey
+        );
+        let repaired: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(config_path).unwrap()).unwrap();
+        assert_eq!(repaired["unknown"], "preserved");
+        assert!(Keys::parse(repaired["mosaicoPrivateKey"].as_str().unwrap()).is_ok());
     }
 }

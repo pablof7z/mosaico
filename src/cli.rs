@@ -21,6 +21,7 @@ mod args;
 mod context;
 mod debug;
 mod dispatch;
+mod doctor;
 mod explain;
 mod harness;
 mod hooks;
@@ -112,6 +113,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             None => crate::daemon::server::run().await,
         },
         Some(Cmd::Debug { action }) => debug::debug(action).await,
+        Some(Cmd::Doctor(args)) => doctor::doctor(args).await,
         Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),
         Some(Cmd::Install(args)) => install::install(args).await,
         Some(Cmd::AcpSmoke(args)) => acp_smoke::acp_smoke(args).await,
@@ -121,9 +123,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 }
 
-// Session resolution, session-id generation, recipient resolution, and the
-// store live INSIDE the daemon now (it is the sole writer). The CLI verbs below
-// are thin clients that forward to it over the UDS.
+// Session resolution and storage live in the daemon; CLI verbs are thin UDS clients.
 
 // ── daemon lifecycle ─────────────────────────────────────────────────────────
 

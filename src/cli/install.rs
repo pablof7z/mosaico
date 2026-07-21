@@ -1,6 +1,4 @@
-//! Detect local agent harnesses and wire mosaico hooks into each.
-//! Mirrors the `pc install` surface: --all, --harness, --dry-run, --status,
-//! and --uninstall.
+//! Detect local agent harnesses and wire Mosaico hooks, plugins, and skills.
 
 mod args;
 mod config;
@@ -8,6 +6,7 @@ mod device_config;
 mod hermes;
 mod hooks;
 mod io;
+mod repair;
 mod skill_api;
 mod skills;
 
@@ -20,8 +19,10 @@ use std::io::{self as stdio, IsTerminal as _};
 use args::InstallOpts;
 pub(super) use args::{install, InstallArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
-pub(super) use hooks::{is_installed, merge_hooks, migrate_codex_root_events};
+pub(super) use device_config::ConfigRepair;
+pub(super) use hooks::{is_installed, is_present, merge_hooks, migrate_codex_root_events};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
+pub(super) use repair::{repair_device_config, repair_integration};
 pub(super) use skill_api::{
     repair_skill, skill_health, SkillHealth, SkillHealthState, SkillTargetHealth,
 };
@@ -40,8 +41,7 @@ fn print_install_guide() {
     println!("Goose uses native `goose acp` and needs no hook installation.");
 }
 
-/// Route a bare operator invocation into the primary launch flow. When no
-/// harness integration has been installed yet, print the setup path and stop.
+/// Route a bare operator invocation to setup unless an integration is installed.
 pub fn route_bare_invocation() -> Result<bool> {
     if has_harness_installation()? {
         Ok(true)
@@ -87,10 +87,10 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     for h in selected.harnesses {
         println!("\n{} {}{flag}", verb.bold(), h.display.cyan().bold());
         match h.id {
-            "claude-code" | "codex" | "grok" => install_json_harness(h, &opts)?,
-            "opencode" => install_opencode(h, &opts)?,
+            "claude-code" | "codex" | "grok" => install_json_harness(h, &opts, true)?,
+            "opencode" => install_opencode(h, &opts, true)?,
             "hermes" if opts.uninstall => hermes::uninstall(h, &opts)?,
-            "hermes" => hermes::install(h, &opts)?,
+            "hermes" => hermes::install(h, &opts, true)?,
             _ => {}
         }
     }
@@ -226,7 +226,7 @@ fn interactive_select(all: &[Harness]) -> Result<InstallSelection<'_>> {
     })
 }
 
-fn install_json_harness(h: &Harness, opts: &InstallOpts) -> Result<()> {
+fn install_json_harness(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     let mut root = read_json_or_default(&h.config_path)?;
     if h.id == "codex" {
         migrate_codex_root_events(&mut root);
@@ -240,44 +240,58 @@ fn install_json_harness(h: &Harness, opts: &InstallOpts) -> Result<()> {
         } else {
             format!("would write {} hook group(s)", entries.len())
         };
-        println!("  {action} in {}", h.config_path.display());
-        print_json_preview(&root)?;
+        if render {
+            println!("  {action} in {}", h.config_path.display());
+            print_json_preview(&root)?;
+        }
         return Ok(());
     }
 
     write_json(&h.config_path, &root)?;
-    if opts.uninstall {
-        println!("  removed {removed} hook group(s)");
-    } else {
-        println!("  wrote {}", h.config_path.display());
+    if render {
+        if opts.uninstall {
+            println!("  removed {removed} hook group(s)");
+        } else {
+            println!("  wrote {}", h.config_path.display());
+        }
     }
     Ok(())
 }
 
-fn install_opencode(h: &Harness, opts: &InstallOpts) -> Result<()> {
+fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     if opts.uninstall {
         if !h.config_path.exists() {
-            println!("  nothing to remove");
+            if render {
+                println!("  nothing to remove");
+            }
             return Ok(());
         }
         if opts.dry_run {
-            println!("  would remove {}", h.config_path.display());
+            if render {
+                println!("  would remove {}", h.config_path.display());
+            }
         } else {
             std::fs::remove_file(&h.config_path)?;
-            println!("  removed {}", h.config_path.display());
+            if render {
+                println!("  removed {}", h.config_path.display());
+            }
         }
         return Ok(());
     }
 
     if opts.dry_run {
-        println!(
-            "  would write {} ({} bytes)",
-            h.config_path.display(),
-            OPENCODE_PLUGIN_TS.len()
-        );
+        if render {
+            println!(
+                "  would write {} ({} bytes)",
+                h.config_path.display(),
+                OPENCODE_PLUGIN_TS.len()
+            );
+        }
     } else {
         write_text(&h.config_path, OPENCODE_PLUGIN_TS)?;
-        println!("  wrote {}", h.config_path.display());
+        if render {
+            println!("  wrote {}", h.config_path.display());
+        }
     }
     Ok(())
 }

@@ -144,10 +144,10 @@ impl Nip29Provider {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let f = Filter::new()
             .kind(Kind::from(1u16))
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &t)
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::T), &t)
             .limit(5);
         let readback = match self.transport.fetch(f, Duration::from_secs(5)).await {
-            Ok(evs) => format!("{} event(s) with #h={t}", evs.len()),
+            Ok(evs) => format!("{} event(s) with #t={t}", evs.len()),
             Err(e) => format!("ERR {e:#}"),
         };
         (publish, readback)

@@ -4,6 +4,7 @@ use super::admin::ChannelAction;
 use super::agents::AgentsArgs;
 use super::debug::DebugAction;
 use super::dispatch::DispatchArgs;
+use super::doctor::DoctorArgs;
 use super::harness::HarnessAction;
 use super::install::InstallArgs;
 use super::mcp::McpArgs;
@@ -48,9 +49,9 @@ pub fn print_help_contextual() {
 fn command_for_context(in_agent: bool) -> Command {
     let mut cmd = Cli::command();
     let visible: &[&str] = if in_agent {
-        &["wait", "dispatch", "my"]
+        &["wait", "dispatch", "my", "doctor"]
     } else {
-        &["who", "resume", "agents"]
+        &["who", "resume", "agents", "doctor"]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -124,6 +125,9 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: DebugAction,
     },
+    /// Diagnose Mosaico and safely repair local configuration and integrations.
+    #[command(hide = true)]
+    Doctor(DoctorArgs),
     /// Internal portable-pty supervisor process.
     #[command(name = "__pty-supervisor", hide = true)]
     PtySupervisor(PtySupervisorArgs),

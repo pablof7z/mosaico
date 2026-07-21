@@ -96,6 +96,12 @@ pub(super) fn is_installed(harness: &Harness) -> bool {
     })
 }
 
+pub(super) fn is_present(harness: &Harness) -> bool {
+    profile_homes(harness)
+        .into_iter()
+        .any(|home| home.join("plugins/mosaico").exists())
+}
+
 fn run_plugin_command(home: &Path, action: &str) -> Result<()> {
     let mut command = command_for_home(home);
     command.args(["plugins", action, "mosaico"]);
@@ -122,22 +128,30 @@ fn run_plugin_command(home: &Path, action: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn install(harness: &Harness, opts: &InstallOpts) -> Result<()> {
+pub(super) fn install(harness: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     for home in profile_homes(harness) {
         let files = plugin_files(&home);
         if opts.dry_run {
             for (path, body) in files {
-                println!("  would write {} ({} bytes)", path.display(), body.len());
+                if render {
+                    println!("  would write {} ({} bytes)", path.display(), body.len());
+                }
             }
-            println!("  would enable Hermes plugin mosaico in {}", home.display());
+            if render {
+                println!("  would enable Hermes plugin mosaico in {}", home.display());
+            }
             continue;
         }
         for (path, body) in files {
             write_text(&path, body)?;
-            println!("  wrote {}", path.display());
+            if render {
+                println!("  wrote {}", path.display());
+            }
         }
         run_plugin_command(&home, "enable")?;
-        println!("  enabled Hermes plugin mosaico in {}", home.display());
+        if render {
+            println!("  enabled Hermes plugin mosaico in {}", home.display());
+        }
     }
     Ok(())
 }

@@ -1,4 +1,3 @@
-use crate::cli::admin::doctor;
 use crate::cli::explain::{explain, ExplainArgs};
 use anyhow::Result;
 use clap::Subcommand;
@@ -6,8 +5,6 @@ use std::time::Duration;
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum DebugAction {
-    /// Diagnose daemon relay and storage-path configuration.
-    Doctor,
     /// Explain a published artifact using its reconciler receipt.
     Explain(ExplainArgs),
     /// Live TUI for hook injections and mosaico command invocations.
@@ -29,7 +26,6 @@ pub(in crate::cli) enum DebugAction {
 
 pub(in crate::cli) async fn debug(action: DebugAction) -> Result<()> {
     match action {
-        DebugAction::Doctor => doctor().await,
         DebugAction::Explain(args) => explain(args),
         DebugAction::HookTail {
             workspaces,

@@ -221,6 +221,37 @@ fn status_detects_installed_codex_hooks() {
     write_json(&h.config_path, &root).unwrap();
 
     assert!(is_installed(&h));
+    assert!(is_present(&h));
+}
+
+#[test]
+fn detected_harness_without_mosaico_trace_is_not_selected_for_repair() {
+    let temp = tempfile::tempdir().unwrap();
+    let h = harness("codex", temp.path().join("hooks.json"));
+    write_json(
+        &h.config_path,
+        &serde_json::json!({"hooks": {"Stop": [{"hooks": [{"command": "foreign"}]}]}}),
+    )
+    .unwrap();
+
+    assert!(!is_present(&h));
+    assert!(!is_installed(&h));
+}
+
+#[test]
+fn partial_mosaico_hooks_are_selected_for_repair() {
+    let temp = tempfile::tempdir().unwrap();
+    let h = harness("codex", temp.path().join("hooks.json"));
+    write_json(
+        &h.config_path,
+        &serde_json::json!({
+            "hooks": {"Stop": [{"hooks": [{"command": "mosaico harness hook codex --type stop"}]}]}
+        }),
+    )
+    .unwrap();
+
+    assert!(is_present(&h));
+    assert!(!is_installed(&h));
 }
 
 #[test]

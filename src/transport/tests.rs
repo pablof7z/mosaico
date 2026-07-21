@@ -44,3 +44,21 @@ fn no_accept_no_reason_reports_timeout() {
     let err = assert_relay_accepted(&out).unwrap_err().to_string();
     assert!(err.contains("no relay accepted"), "got: {err}");
 }
+
+#[test]
+fn doctor_probe_marker_is_not_a_nonexistent_group() {
+    let marker = "mosaico-doctor-test";
+    let event = doctor_probe_builder(marker)
+        .unwrap()
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+    let tags = serde_json::to_value(event.tags).unwrap();
+    let tags = tags.as_array().unwrap();
+
+    assert!(tags
+        .iter()
+        .any(|tag| tag == &serde_json::json!(["t", marker])));
+    assert!(!tags
+        .iter()
+        .any(|tag| tag == &serde_json::json!(["h", marker])));
+}

@@ -180,8 +180,8 @@ mosaico install --all   # wire every detected integration
 Point `mosaico` at a relay and whitelist your human key in
 `~/.mosaico/config.json` (`relays`, `whitelistedPubkeys`). Harness capability is detected
 live from the native configuration directories and executables on `PATH`; it is not copied
-into device config. Override the whole home with `$MOSAICO_HOME`. Then run your agents; run
-`mosaico debug doctor` if anything looks off.
+into device config. Override the whole home with `$MOSAICO_HOME`. Then run your agents. If
+anything looks off, agents use `mosaico doctor --json` or repair with `mosaico doctor --fix --json`.
 
 For a development fleet, `scripts/install-fleet host-a user@host-b` updates the local
 checkout and both SSH hosts to exactly `origin/master`, installs the binary, harness

@@ -76,12 +76,18 @@ fn bare_invocation_without_installation_shows_install_guide() {
 fn bare_invocation_with_installation_shows_sessions_and_agents() {
     let home = installed_codex_home();
     let bare = isolated_command(home.path(), &[]);
+    let stopped = isolated_command(home.path(), &["daemon", "stop"]);
 
     assert!(bare.status.success(), "bare mosaico failed: {bare:?}");
     let stdout = String::from_utf8_lossy(&bare.stdout);
     assert!(stdout.contains("Sessions"), "{stdout}");
     assert!(stdout.contains("Start a session"), "{stdout}");
     assert!(stdout.contains("codex"), "{stdout}");
+
+    assert!(
+        stopped.status.success(),
+        "daemon teardown failed: {stopped:?}"
+    );
 }
 
 #[test]
@@ -99,6 +105,7 @@ fn explicit_top_level_human_help_remains_contextual() {
 
     assert!(!help.contains("  sessions"));
     assert!(help.contains("  agents"));
+    assert!(help.contains("  doctor"));
     assert!(help.contains("without a command"));
     assert!(!help.contains("  mgmt"));
     assert!(!help.contains("  publish"));
@@ -109,6 +116,66 @@ fn agent_help_hides_operator_agent_management() {
     let help = contextual_help(&["--help"], true);
 
     assert!(help.contains("  my"));
+    assert!(help.contains("  doctor"));
     assert!(!help.contains("  agents"));
     assert!(!help.contains("  mgmt"));
+}
+
+#[test]
+fn doctor_json_reports_unconfigured_home_and_exits_unhealthy() {
+    let home = tempfile::tempdir().unwrap();
+    let output = isolated_command(home.path(), &["doctor", "--json"]);
+    assert!(
+        !output.status.success(),
+        "unconfigured home must be unhealthy"
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("doctor stdout is one JSON document");
+    assert_eq!(report["healthy"], false);
+    assert_eq!(report["fix_attempted"], false);
+    assert!(report["repairs"].is_array());
+    assert!(report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["name"] == "config.document" && check["status"] == "error"));
+    let skill = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "skill.agents")
+        .expect("canonical agent skill target is reported");
+    assert_eq!(skill["state"], "missing");
+    assert_eq!(
+        skill["path"],
+        home.path()
+            .join(".agents/skills/mosaico")
+            .display()
+            .to_string()
+    );
+}
+
+#[test]
+fn doctor_fix_json_preserves_invalid_identity_and_emits_only_json() {
+    let home = tempfile::tempdir().unwrap();
+    let mosaico_home = home.path().join(".mosaico");
+    std::fs::create_dir_all(&mosaico_home).unwrap();
+    let config_path = mosaico_home.join("config.json");
+    let original = r#"{"mosaicoPrivateKey":"invalid","unknown":"preserved"}"#;
+    std::fs::write(&config_path, original).unwrap();
+
+    let output = isolated_command(home.path(), &["doctor", "--fix", "--json"]);
+
+    assert!(!output.status.success());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout is one JSON document");
+    assert_eq!(report["healthy"], false);
+    assert_eq!(report["fix_attempted"], true);
+    assert!(report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["name"] == "repair" && check["status"] == "error"));
+    assert_eq!(std::fs::read_to_string(config_path).unwrap(), original);
 }
