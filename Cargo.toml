@@ -1,6 +1,6 @@
 [package]
 name = "mosaico"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Identity and awareness fabric for coding agents: durable, self-owned identity and live @mentions across Claude Code, Codex, Goose, Hermes, OpenCode, and Grok."
 license = "MIT"
