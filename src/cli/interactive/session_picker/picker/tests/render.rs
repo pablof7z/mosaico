@@ -52,6 +52,7 @@ fn presents_sessions_and_agents_in_separate_tabs_with_a_highlighted_row() {
     assert!(!rows[1].contains("generic"));
     assert!(!rows.iter().any(|row| row.contains("@one")));
     assert!(rows[11].starts_with("generic · enter launch"));
+    assert!(rows[11].contains("ctrl-e edit"));
 }
 
 #[test]
@@ -86,7 +87,7 @@ fn focused_agent_kind_moves_through_the_footer_not_the_rows() {
 #[test]
 fn active_search_label_is_white() {
     let mut picker = state(vec![session("one", "current activity", true)]);
-    picker.handle_key(key(KeyCode::Char('/')), 10);
+    picker.handle_key(key(KeyCode::Char('o')), 10);
     let mut terminal = terminal();
     let completed = terminal
         .draw(|frame| crate::cli::interactive::session_picker::picker::render::draw(frame, &picker))

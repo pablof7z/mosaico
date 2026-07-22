@@ -54,16 +54,22 @@ fn plus_expands_history_progressively_and_minus_narrows_it() {
         (HistoryRange::All, 9),
     ];
     for (range, visible) in expected {
-        state.handle_key(KeyEvent::new(KeyCode::Char('+'), KeyModifiers::SHIFT), 10);
+        state.handle_key(
+            KeyEvent::new(
+                KeyCode::Char('+'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            10,
+        );
         assert_eq!(state.range, range);
         assert_eq!(state.visible.len(), visible);
     }
 
     state.handle_key(KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE), 10);
     assert_eq!(state.range, HistoryRange::All);
-    state.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE), 10);
+    assert_eq!(state.query, "+");
+    state.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::CONTROL), 10);
     assert_eq!(state.range, HistoryRange::Days30);
-    assert_eq!(state.visible.len(), 7);
 }
 
 #[test]

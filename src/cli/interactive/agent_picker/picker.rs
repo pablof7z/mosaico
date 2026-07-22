@@ -34,7 +34,6 @@ struct PickerState {
     rows: Vec<AgentPickerRow>,
     visible: Vec<usize>,
     query: String,
-    filtering: bool,
     cursor: usize,
     offset: usize,
     selected: BTreeSet<usize>,
@@ -49,7 +48,6 @@ impl PickerState {
             rows,
             visible,
             query: String::new(),
-            filtering: false,
             cursor,
             offset: 0,
             selected: BTreeSet::new(),
@@ -66,9 +64,8 @@ impl PickerState {
             return self.handle_pending_delete(pending, key);
         }
         match key.code {
-            KeyCode::Esc if self.filtering => {
+            KeyCode::Esc if !self.query.is_empty() => {
                 self.query.clear();
-                self.filtering = false;
                 self.refilter();
             }
             KeyCode::Esc => return Some(PickerAction::Cancel),
@@ -76,21 +73,18 @@ impl PickerState {
                 return Some(PickerAction::Cancel);
             }
             KeyCode::Enter => return self.current().map(PickerAction::Launch),
-            KeyCode::Char('e') if !self.filtering => {
+            KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return self.current().map(PickerAction::Edit);
             }
-            KeyCode::Char(' ') if !self.filtering => {
+            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(index) = self.current() {
                     if !self.selected.remove(&index) {
                         self.selected.insert(index);
                     }
                 }
             }
-            KeyCode::Char('d') if !self.filtering => {
+            KeyCode::Char('d' | 'D') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.begin_delete();
-            }
-            KeyCode::Char('/') if !self.filtering => {
-                self.filtering = true;
             }
             KeyCode::Up => self.move_up(1),
             KeyCode::Down => self.move_down(1),
@@ -98,15 +92,14 @@ impl PickerState {
             KeyCode::PageDown => self.move_down(rows.max(1)),
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.visible.len().saturating_sub(1),
-            KeyCode::Backspace if self.filtering => {
+            KeyCode::Backspace if !self.query.is_empty() => {
                 self.query.pop();
                 self.refilter();
             }
             KeyCode::Char(character)
-                if self.filtering
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.query.push(character);
                 self.refilter();

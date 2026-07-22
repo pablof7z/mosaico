@@ -19,7 +19,6 @@ pub(super) struct PickerState {
     pub(super) choices: Vec<HomeChoice>,
     pub(super) visible: Vec<usize>,
     pub(super) query: String,
-    pub(super) filtering: bool,
     pub(super) range: HistoryRange,
     pub(super) project_filter: Option<String>,
     pub(super) project_picker: Option<ProjectPicker>,
@@ -45,7 +44,6 @@ impl PickerState {
             choices,
             visible: Vec::new(),
             query: String::new(),
-            filtering: false,
             range: HistoryRange::Live,
             project_filter: None,
             project_picker: None,
@@ -84,38 +82,36 @@ impl PickerState {
         }
         self.notice = None;
         match key.code {
-            KeyCode::Esc if self.filtering => {
+            KeyCode::Esc if !self.query.is_empty() => {
                 self.query.clear();
-                self.filtering = false;
                 self.refilter();
             }
             KeyCode::Esc => return Some(PickerExit::Cancel),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(PickerExit::Cancel);
             }
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right if !self.filtering => {
-                self.switch_tab()
-            }
-            KeyCode::Char('K') | KeyCode::Char('k')
-                if key.modifiers.contains(KeyModifiers::SHIFT) =>
-            {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => self.switch_tab(),
+            KeyCode::Char('k' | 'K') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(index) = self.current_session_index() {
                     return Some(PickerExit::Kill(index));
                 }
-                self.notice = Some("Shift+K kills sessions; agent rows are never running".into());
+                self.notice = Some("Ctrl+K kills sessions; agent rows are never running".into());
             }
-            KeyCode::Char('e') if !self.filtering => {
+            KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(index) = self.current_agent_index() {
                     return Some(PickerExit::Edit(index));
                 }
                 self.notice = Some("Edit is available on launchable agent rows".into());
             }
-            KeyCode::Char(' ') if !self.filtering => self.toggle_agent_selection(),
-            KeyCode::Char('d') if !self.filtering => self.begin_delete(),
-            KeyCode::Char('p')
-                if !self.filtering
-                    && self.tab == PickerTab::Sessions
-                    && key.modifiers.is_empty() =>
+            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_agent_selection()
+            }
+            KeyCode::Char('d' | 'D') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.begin_delete()
+            }
+            KeyCode::Char('p' | 'P')
+                if self.tab == PickerTab::Sessions
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 self.project_picker = Some(ProjectPicker::new(
                     &self.choices,
@@ -123,21 +119,15 @@ impl PickerState {
                 ));
             }
             KeyCode::Char('+')
-                if !self.filtering
-                    && self.tab == PickerTab::Sessions
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                if self.tab == PickerTab::Sessions
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 self.range.expand();
                 self.refilter();
             }
             KeyCode::Char('-')
-                if !self.filtering
-                    && self.tab == PickerTab::Sessions
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                if self.tab == PickerTab::Sessions
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 self.range.narrow();
                 self.refilter();
@@ -149,16 +139,14 @@ impl PickerState {
             KeyCode::PageDown => self.move_down((lines / 2).max(1)),
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.visible.len().saturating_sub(1),
-            KeyCode::Char('/') if !self.filtering => self.filtering = true,
-            KeyCode::Backspace if self.filtering => {
+            KeyCode::Backspace if !self.query.is_empty() => {
                 self.query.pop();
                 self.refilter();
             }
             KeyCode::Char(character)
-                if self.filtering
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.query.push(character);
                 self.refilter();

@@ -35,12 +35,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     ])
     .areas(area);
     let (sessions, agents) = state.counts();
-    let query = if state.filtering && state.query.is_empty() {
+    let query = if state.query.is_empty() {
         Span::styled("type to search", Style::default().fg(MUTED))
-    } else if state.filtering {
-        Span::styled(state.query.as_str(), Style::default().fg(ACCENT))
     } else {
-        Span::styled("press /", Style::default().fg(MUTED))
+        Span::styled(state.query.as_str(), Style::default().fg(ACCENT))
     };
     let mut title = vec![
         Span::styled("Mosaico", Style::default().add_modifier(Modifier::BOLD)),
@@ -52,7 +50,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     title.extend([
         Span::styled(
             "  Search: ",
-            if state.filtering {
+            if !state.query.is_empty() {
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
@@ -195,18 +193,18 @@ fn delete_notice(state: &PickerState) -> Option<String> {
 }
 
 fn help(state: &PickerState) -> &'static str {
-    if state.filtering {
+    if !state.query.is_empty() {
         return "enter open · type search · ↑↓ move · esc clear";
     }
     let Some(index) = state.current_choice() else {
-        return "tab switch · / search · ↑↓ · esc";
+        return "type search · tab switch · ↑↓ · esc";
     };
     match state.choices[index] {
         HomeChoice::Session(_) => {
-            "enter attach/restart · ⇧K kill · tab start · -/+ history · p project · / search · ↑↓ · esc"
+            "enter attach/restart · ctrl-k kill · ctrl-+/- history · ctrl-p project · tab start · type search · ↑↓ · esc"
         }
         HomeChoice::Agent(_) => {
-            "enter launch · e edit · d delete · space select · tab sessions · / search · ↑↓ · esc"
+            "enter launch · ctrl-e edit · ctrl-d delete · ctrl-space select · tab sessions · type search · ↑↓ · esc"
         }
     }
 }

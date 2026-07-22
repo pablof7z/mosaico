@@ -25,7 +25,7 @@ impl PickerState {
     pub(super) fn begin_delete(&mut self) {
         if self.selected_agents.is_empty() {
             let Some(index) = self.current_agent_index() else {
-                self.notice = Some("Use Shift+K to kill a session".into());
+                self.notice = Some("Use Ctrl+K to kill a session".into());
                 return;
             };
             let row = self.agent(index);

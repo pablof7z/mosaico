@@ -63,6 +63,10 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
+fn ctrl(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::CONTROL)
+}
+
 fn state(choices: Vec<HomeChoice>) -> PickerState {
     PickerState::new(choices, None)
 }
@@ -125,26 +129,33 @@ fn takeover_keeps_both_confirmation_fences() {
 }
 
 #[test]
-fn shift_k_only_kills_session_rows() {
-    let shift_k = KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT);
+fn ctrl_k_only_kills_session_rows() {
+    let ctrl_k = ctrl(KeyCode::Char('k'));
     let mut picker = state(vec![
         session("one", "", true),
         agent("codex", AgentKind::Generic),
     ]);
-    assert_eq!(picker.handle_key(shift_k, 10), Some(PickerExit::Kill(0)));
+    assert_eq!(picker.handle_key(ctrl_k, 10), Some(PickerExit::Kill(0)));
     picker.handle_key(key(KeyCode::Tab), 10);
-    assert_eq!(picker.handle_key(shift_k, 10), None);
+    assert_eq!(picker.handle_key(ctrl_k, 10), None);
     assert!(picker.notice.as_deref().unwrap().contains("agent rows"));
 }
 
 #[test]
-fn agent_rows_keep_edit_delete_and_multiselect_actions() {
+fn agent_actions_require_control_while_plain_letters_search() {
+    let mut picker = state(vec![
+        agent("writer", AgentKind::Configured),
+        agent("reviewer", AgentKind::Configured),
+    ]);
+    assert_eq!(picker.handle_key(key(KeyCode::Char('e')), 10), None);
+    assert_eq!(picker.query, "e");
+
     let mut picker = state(vec![
         agent("writer", AgentKind::Configured),
         agent("reviewer", AgentKind::Configured),
     ]);
     assert_eq!(
-        picker.handle_key(key(KeyCode::Char('e')), 10),
+        picker.handle_key(ctrl(KeyCode::Char('e')), 10),
         Some(PickerExit::Edit(0))
     );
 
@@ -152,10 +163,10 @@ fn agent_rows_keep_edit_delete_and_multiselect_actions() {
         agent("writer", AgentKind::Configured),
         agent("reviewer", AgentKind::Configured),
     ]);
-    picker.handle_key(key(KeyCode::Char(' ')), 10);
+    picker.handle_key(ctrl(KeyCode::Char(' ')), 10);
     picker.handle_key(key(KeyCode::Down), 10);
-    picker.handle_key(key(KeyCode::Char(' ')), 10);
-    picker.handle_key(key(KeyCode::Char('d')), 10);
+    picker.handle_key(ctrl(KeyCode::Char(' ')), 10);
+    picker.handle_key(ctrl(KeyCode::Char('d')), 10);
     let Some(PickerExit::Delete(plan)) = picker.handle_key(key(KeyCode::Char('y')), 10) else {
         panic!("expected bulk delete");
     };
@@ -169,9 +180,9 @@ fn generic_bulk_delete_notice_survives_focus_moving_to_a_session() {
         session("opal", "", true),
     ]);
     picker.handle_key(key(KeyCode::Tab), 10);
-    picker.handle_key(key(KeyCode::Char(' ')), 10);
+    picker.handle_key(ctrl(KeyCode::Char(' ')), 10);
     picker.handle_key(key(KeyCode::Tab), 10);
-    picker.handle_key(key(KeyCode::Char('d')), 10);
+    picker.handle_key(ctrl(KeyCode::Char('d')), 10);
 
     assert!(picker.pending_delete.as_ref().is_some_and(|pending| {
         matches!(pending, super::delete::PendingDelete::Nothing { slug } if slug == "codex")
@@ -190,7 +201,6 @@ fn search_is_scoped_to_the_active_tab_and_reaches_session_history() {
         agent("writer", AgentKind::NativeProfile),
     ]);
     assert_eq!(picker.visible, vec![0]);
-    picker.handle_key(key(KeyCode::Char('/')), 10);
     for character in "juno-codex".chars() {
         picker.handle_key(key(KeyCode::Char(character)), 10);
     }
@@ -204,12 +214,17 @@ fn search_is_scoped_to_the_active_tab_and_reaches_session_history() {
         session("opal", "", true),
         agent("writer", AgentKind::Generic),
     ]);
-    picker.handle_key(key(KeyCode::Tab), 10);
-    picker.handle_key(key(KeyCode::Char('/')), 10);
     for character in "writer".chars() {
         picker.handle_key(key(KeyCode::Char(character)), 10);
     }
+    assert!(picker.visible.is_empty());
+    picker.handle_key(key(KeyCode::Tab), 10);
     assert_eq!(picker.visible, vec![1]);
+
+    let mut picker = state(vec![session("opal", "", true)]);
+    picker.handle_key(key(KeyCode::Char('/')), 10);
+    assert_eq!(picker.query, "/");
+    assert!(picker.visible.is_empty());
 }
 
 #[test]
@@ -228,7 +243,7 @@ fn project_filter_narrows_sessions_without_affecting_the_agent_tab() {
         session("skills", "skills work", false),
         agent("codex", AgentKind::Generic),
     ]);
-    picker.handle_key(key(KeyCode::Char('p')), 10);
+    picker.handle_key(ctrl(KeyCode::Char('p')), 10);
     picker.handle_key(key(KeyCode::Down), 10);
     picker.handle_key(key(KeyCode::Enter), 10);
     assert_eq!(picker.project_filter.as_deref(), Some("mosaico-id"));

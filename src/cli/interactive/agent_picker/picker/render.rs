@@ -25,12 +25,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, state: &PickerState) {
     ])
     .areas(area);
 
-    let query = if state.filtering && state.query.is_empty() {
+    let query = if state.query.is_empty() {
         Span::styled("type to filter", Style::default().fg(MUTED))
-    } else if state.filtering {
-        Span::styled(state.query.as_str(), Style::default().fg(ACCENT))
     } else {
-        Span::styled("press / to filter", Style::default().fg(MUTED))
+        Span::styled(state.query.as_str(), Style::default().fg(ACCENT))
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -167,10 +165,10 @@ fn is_profile_only(row: &AgentPickerRow) -> bool {
 }
 
 fn help(state: &PickerState) -> &'static str {
-    if state.filtering {
+    if !state.query.is_empty() {
         "enter launch · type filter · ↑↓ move · esc clear"
     } else {
-        "enter launch · e edit · d delete · space select · / filter · ↑↓ move · esc"
+        "enter launch · ctrl-e edit · ctrl-d delete · ctrl-space select · type filter · ↑↓ move · esc"
     }
 }
 

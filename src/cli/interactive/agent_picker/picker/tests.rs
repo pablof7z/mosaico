@@ -19,11 +19,15 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
+fn ctrl(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::CONTROL)
+}
+
 #[test]
-fn edit_delete_and_filter_keys_are_distinct() {
+fn actions_require_control_while_plain_typing_filters() {
     let mut edit = PickerState::new(vec![row("one")], 0);
     assert_eq!(
-        edit.handle_key(key(KeyCode::Char('e')), 10),
+        edit.handle_key(ctrl(KeyCode::Char('e')), 10),
         Some(PickerAction::Edit(0))
     );
 
@@ -34,18 +38,20 @@ fn edit_delete_and_filter_keys_are_distinct() {
         }],
         0,
     );
-    assert_eq!(delete.handle_key(key(KeyCode::Char('d')), 10), None);
+    assert_eq!(delete.handle_key(ctrl(KeyCode::Char('d')), 10), None);
     assert_eq!(
         delete.handle_key(key(KeyCode::Char('y')), 10),
         Some(PickerAction::Delete(vec![(0, DeleteScope::Agent)]))
     );
 
     let mut filter = PickerState::new(vec![row("editor"), row("writer")], 0);
-    filter.handle_key(key(KeyCode::Char('/')), 10);
     filter.handle_key(key(KeyCode::Char('e')), 10);
-    assert!(filter.filtering);
     assert_eq!(filter.query, "e");
     assert_eq!(filter.visible, vec![0, 1]);
+
+    filter.handle_key(key(KeyCode::Char('/')), 10);
+    assert_eq!(filter.query, "e/");
+    assert!(filter.visible.is_empty());
 }
 
 #[test]
@@ -57,7 +63,7 @@ fn pending_delete_confirm_only_accepts_y_or_d_and_esc_cancels() {
         }],
         0,
     );
-    state.handle_key(key(KeyCode::Char('d')), 10);
+    state.handle_key(ctrl(KeyCode::Char('d')), 10);
     assert!(state.pending_delete.is_some());
 
     // An unrelated key neither confirms nor dismisses the prompt.
@@ -67,7 +73,7 @@ fn pending_delete_confirm_only_accepts_y_or_d_and_esc_cancels() {
     assert_eq!(state.handle_key(key(KeyCode::Esc), 10), None);
     assert!(state.pending_delete.is_none());
 
-    state.handle_key(key(KeyCode::Char('d')), 10);
+    state.handle_key(ctrl(KeyCode::Char('d')), 10);
     assert_eq!(
         state.handle_key(key(KeyCode::Char('d')), 10),
         Some(PickerAction::Delete(vec![(0, DeleteScope::Agent)]))
@@ -91,12 +97,12 @@ fn space_toggles_multi_select_and_bulk_deletes_selected_rows() {
         0,
     );
 
-    state.handle_key(key(KeyCode::Char(' ')), 10);
+    state.handle_key(ctrl(KeyCode::Char(' ')), 10);
     state.move_down(1);
-    state.handle_key(key(KeyCode::Char(' ')), 10);
+    state.handle_key(ctrl(KeyCode::Char(' ')), 10);
     assert_eq!(state.selected, BTreeSet::from([0usize, 1]));
 
-    state.handle_key(key(KeyCode::Char('d')), 10);
+    state.handle_key(ctrl(KeyCode::Char('d')), 10);
     assert_eq!(
         state.handle_key(key(KeyCode::Char('y')), 10),
         Some(PickerAction::Delete(vec![
