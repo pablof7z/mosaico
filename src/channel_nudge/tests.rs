@@ -173,7 +173,7 @@ fn rendered_offer_discloses_the_exact_move_effects() {
         offered_at: 100,
         expires_at: 220,
     });
-    assert!(text.contains("mosaico --yes-lets-move <new-channel-name> <topic>"));
+    assert!(text.contains("mosaico --yes-lets-move <new-channel-name> <about>"));
     assert!(text.contains("all 3 participating agents plus human users and admins"));
     assert!(text.len() < 400, "nudge must stay compact: {text}");
 }

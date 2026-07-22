@@ -250,7 +250,7 @@ pub(crate) fn render_nudge(offer: &MoveOffer) -> String {
     format!(
         "<channel-topology-nudge>\n\
 You are communicating with {peers} other {peer_word} in #{}. If this is ongoing work with a natural home, consider a focused child channel.\n\
-Run `mosaico --yes-lets-move <new-channel-name> <topic>` to create or reuse it, adding all {} participating agents plus human users and admins.\n\
+Run `mosaico --yes-lets-move <new-channel-name> <about>` to create or reuse it, adding all {} participating agents plus human users and admins.\n\
 </channel-topology-nudge>",
         evidence.parent,
         evidence.cohort.len(),

@@ -38,7 +38,7 @@ fn yes_lets_move_parses_as_top_level_acceptance() {
 }
 
 #[test]
-fn yes_lets_move_rejects_a_missing_topic() {
+fn yes_lets_move_rejects_a_missing_about() {
     let err = parse_err(&["mosaico", "--yes-lets-move", "harness-support"]);
 
     assert_eq!(err.kind(), ErrorKind::WrongNumberOfValues);

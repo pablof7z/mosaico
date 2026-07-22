@@ -4,7 +4,7 @@ use crate::fabric::nip29::orchestration::{build_admit_running_event, AddTarget};
 #[derive(serde::Deserialize)]
 struct AcceptParams {
     name: String,
-    topic: String,
+    about: String,
 }
 
 pub(in crate::daemon::server) async fn rpc_accept(
@@ -16,12 +16,12 @@ pub(in crate::daemon::server) async fn rpc_accept(
     if name.is_empty() || name.contains('.') || name.contains('/') {
         anyhow::bail!("--yes-lets-move requires one concise child-channel name");
     }
-    let topic = p.topic.trim();
-    if topic.is_empty() {
-        anyhow::bail!("--yes-lets-move requires a non-empty channel topic");
+    let about = p.about.trim();
+    if about.is_empty() {
+        anyhow::bail!("--yes-lets-move requires a non-empty channel about");
     }
-    crate::channel_about::validate_channel_about(topic)
-        .context("--yes-lets-move topic is invalid")?;
+    crate::channel_about::validate_channel_about(about)
+        .context("--yes-lets-move about is invalid")?;
     let caller = resolve_session(state, &CallerAnchor::from_params(params))?;
     let now = now_secs();
     let Some(offer) = current_offer(state, &caller.pubkey, now) else {
@@ -61,7 +61,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
             (child_h, false)
         }
         None => {
-            let create_params = move_create_params(params, &offer.evidence.parent, name, topic);
+            let create_params = move_create_params(params, &offer.evidence.parent, name, about);
             let created = channels_rpc::rpc_channel_create(state, &create_params).await?;
             let child_h = created["child_h"]
                 .as_str()
@@ -178,7 +178,7 @@ fn move_create_params(
     params: &serde_json::Value,
     parent: &str,
     name: &str,
-    topic: &str,
+    about: &str,
 ) -> serde_json::Value {
     let mut create_params = params.clone();
     let obj = create_params
@@ -186,7 +186,7 @@ fn move_create_params(
         .expect("validated channel move params are an object");
     obj.insert("parent".into(), serde_json::json!(parent));
     obj.insert("name".into(), serde_json::json!(name));
-    obj.insert("about".into(), serde_json::json!(topic));
+    obj.insert("about".into(), serde_json::json!(about));
     obj.insert("agents".into(), serde_json::json!([]));
     create_params
 }

@@ -107,8 +107,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         let mut values = values.into_iter();
         let name = values.next().expect("clap requires a channel name");
-        let topic = values.next().expect("clap requires a channel topic");
-        return channel_move::accept(name, topic).await;
+        let about = values.next().expect("clap requires a channel about");
+        return channel_move::accept(name, about).await;
     }
     match cli.cmd {
         None => interactive::session_picker::home().await,

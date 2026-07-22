@@ -1,9 +1,9 @@
 use super::*;
 
-pub(super) async fn accept(name: String, topic: String) -> Result<()> {
+pub(super) async fn accept(name: String, about: String) -> Result<()> {
     let response = daemon_call_async(
         "channel_move_accept",
-        crate::cli::rpc_params(serde_json::json!({ "name": name, "topic": topic })),
+        crate::cli::rpc_params(serde_json::json!({ "name": name, "about": about })),
     )
     .await?;
     let name = response["name"].as_str().unwrap_or("channel");

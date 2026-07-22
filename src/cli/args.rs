@@ -75,11 +75,11 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub all: bool,
 
-    /// Accept the current channel-topology suggestion using this child name and topic.
+    /// Accept the current channel-topology suggestion using this child name and about.
     #[arg(
         long,
         num_args = 2,
-        value_names = ["NEW-CHANNEL-NAME", "TOPIC"]
+        value_names = ["NEW-CHANNEL-NAME", "ABOUT"]
     )]
     pub(super) yes_lets_move: Option<Vec<String>>,
 
