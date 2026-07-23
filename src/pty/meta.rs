@@ -7,12 +7,7 @@ pub struct LaunchMetadata {
     pub id: String,
     pub socket: String,
     pub supervisor_pid: u32,
-    #[serde(default)]
     pub instance_token: String,
-    /// One-time ownership fingerprint for a live supervisor launched before
-    /// instance tokens existed. Empty for token-authenticated supervisors.
-    #[serde(default)]
-    pub adopted_process_fingerprint: String,
     /// The PTY child is a separate session leader. Persisting its pid lets a
     /// daemon prove that fallback teardown stopped the harness, not just its
     /// wrapper.
@@ -101,26 +96,6 @@ pub(super) fn record_child_pid(
     anyhow::bail!("PTY launch metadata did not appear before child binding")
 }
 
-/// Bind a tokenless pre-upgrade supervisor to the exact live process observed
-/// while its socket still answered the old presentation probe. This is a
-/// one-time runtime adoption record, not a legacy public protocol surface.
-pub(super) fn adopt_pre_token_supervisor(id: &str) -> Result<()> {
-    let Some(mut metadata) = read_all_metadata().into_iter().find(|meta| meta.id == id) else {
-        anyhow::bail!("PTY {id:?} has no launch metadata to adopt");
-    };
-    if !metadata.instance_token.is_empty() || !metadata.adopted_process_fingerprint.is_empty() {
-        return Ok(());
-    }
-    let pid = i32::try_from(metadata.supervisor_pid).context("supervisor pid overflow")?;
-    let command = process_command(pid)?.context("pre-upgrade supervisor is not running")?;
-    if !command_owns_pre_token_endpoint(&command, id) {
-        anyhow::bail!("refusing to adopt pid {pid}: command does not own PTY {id:?}");
-    }
-    metadata.adopted_process_fingerprint = command.trim().to_string();
-    metadata.child_pid = discover_owned_child(pid).map(|pid| pid as u32);
-    write_metadata(&metadata)
-}
-
 pub fn remove_metadata(id: &str) -> Result<()> {
     match std::fs::remove_file(metadata_path(id)) {
         Ok(()) => Ok(()),
@@ -143,10 +118,35 @@ pub fn read_all_metadata() -> Vec<LaunchMetadata> {
     out
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnedSupervisorState {
+    Missing,
+    Gone,
+    Running,
+}
+
+/// Observe exact supervisor ownership without changing process or metadata
+/// state. A live PID is reported as running only after its command line proves
+/// it owns this endpoint and instance token.
+pub(crate) fn owned_supervisor_state(endpoint_id: &str) -> Result<OwnedSupervisorState> {
+    let Some(metadata) = read_all_metadata()
+        .into_iter()
+        .find(|metadata| metadata.id == endpoint_id)
+    else {
+        return Ok(OwnedSupervisorState::Missing);
+    };
+    let pid = i32::try_from(metadata.supervisor_pid).context("supervisor pid overflow")?;
+    if pid <= 1 || !process_running(pid) {
+        return Ok(OwnedSupervisorState::Gone);
+    }
+    verify_owned_process(pid, endpoint_id, &metadata)?;
+    Ok(OwnedSupervisorState::Running)
+}
+
 /// Terminate only the supervisor whose persisted metadata and live command line
 /// both identify `endpoint_id`. The identity check prevents a recycled PID from
 /// turning stale metadata into an unrelated process kill.
-pub(crate) fn terminate_owned_supervisor(endpoint_id: &str) -> Result<bool> {
+pub(super) fn terminate_owned_supervisor(endpoint_id: &str) -> Result<bool> {
     let Some(metadata) = read_all_metadata()
         .into_iter()
         .find(|metadata| metadata.id == endpoint_id)
@@ -245,33 +245,10 @@ fn wait_for_stop(pid: i32, attempts: usize) {
 
 fn verify_owned_process(pid: i32, endpoint_id: &str, metadata: &LaunchMetadata) -> Result<()> {
     let command = process_command(pid)?.context("PTY supervisor is not running")?;
-    let token_owned = command_owns_endpoint(&command, endpoint_id, &metadata.instance_token);
-    let adopted_owned = metadata.instance_token.is_empty()
-        && !metadata.adopted_process_fingerprint.is_empty()
-        && command.trim() == metadata.adopted_process_fingerprint
-        && command_owns_pre_token_endpoint(&command, endpoint_id);
-    if !token_owned && !adopted_owned {
+    if !command_owns_endpoint(&command, endpoint_id, &metadata.instance_token) {
         anyhow::bail!("refusing to terminate pid {pid}: command does not own PTY {endpoint_id:?}");
     }
     Ok(())
-}
-
-fn command_owns_pre_token_endpoint(command: &str, endpoint_id: &str) -> bool {
-    if endpoint_id.is_empty() {
-        return false;
-    }
-    let Some(argv) = shlex::split(command.trim()) else {
-        return false;
-    };
-    let supervisor_args = &argv[2..];
-    let option_end = supervisor_args
-        .iter()
-        .position(|arg| arg == "--")
-        .unwrap_or(supervisor_args.len());
-    let supervisor_options = &supervisor_args[..option_end];
-    argv.get(1).map(String::as_str) == Some("__pty-supervisor")
-        && exact_option(supervisor_options, "--id") == Some(endpoint_id)
-        && exact_option(supervisor_options, "--instance-token").is_none()
 }
 
 fn command_owns_endpoint(command: &str, endpoint_id: &str, instance_token: &str) -> bool {

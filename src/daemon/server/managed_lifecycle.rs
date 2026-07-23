@@ -6,6 +6,9 @@ use crate::state::{PresentationState, RuntimeState, Session, StopReason};
 mod eviction;
 mod presentation;
 mod standing;
+#[cfg(test)]
+#[path = "managed_lifecycle/tests.rs"]
+mod tests;
 pub(super) use standing::commit_confirmed_admission;
 
 pub(super) async fn reconcile_stopping(state: &Arc<DaemonState>) {

@@ -4,6 +4,7 @@ mod params;
 mod reconcile_context;
 #[cfg(test)]
 mod tests;
+mod unreachable_pty;
 
 pub(in crate::daemon::server) use params::engine_params_for;
 
@@ -174,11 +175,9 @@ pub(in crate::daemon::server) fn cancel_session(
 /// reaped and left with an orphaned supervisor.** For each ALIVE row we respawn
 /// the engine task iff the session is still live ([`session_still_live`]: PID
 /// running AND, for PTY sessions, the supervisor socket accepts a connect+write).
-/// A genuinely-gone session is stopped (so `who`/presence don't lie after a
-/// restart). The one case where a *running*
-/// session is retired — its agent's identity config changed under it — first
-/// kills the PTY supervisor, so no orphan is left (defect #4). Transient
-/// conditions — a cold relay
+/// An exact owned PTY whose control socket is temporarily unavailable is
+/// retained with unavailable presentation; a genuinely-gone session is stopped
+/// so `who`/presence do not lie after restart. Transient conditions — a cold relay
 /// (`ChannelGate::Degraded`) or a spawn hiccup — no longer reap a running session;
 /// correctness on a not-yet-ready channel is upheld by the send-time gate.
 pub(in crate::daemon::server) async fn reconcile_sessions(
@@ -212,52 +211,33 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
                 agent = %snap.agent_slug,
                 channel = %snap.channel_h,
                 pid = ?snap.child_pid,
-                "session process gone (pid stopped or pty socket unreachable); stopping runtime and retaining standing"
+                "session endpoint is gone or unreachable; reconciling exact ownership"
             );
-            if snap.child_pid.is_some_and(pid_alive)
-                && snap.admitted_transport
-                    == crate::session_host::transport::TransportKind::Pty.as_str()
-            {
-                let Some(pty_id) = runtime_endpoint_id(state, &snap, crate::state::LOCATOR_PTY)
-                else {
-                    tracing::error!(
-                        pubkey,
-                        runtime_generation,
-                        "live PTY supervisor has no endpoint; refusing to lose process ownership"
-                    );
+            match unreachable_pty::reconcile(state, &snap) {
+                unreachable_pty::Decision::ReviveUnavailable => {}
+                unreachable_pty::Decision::RetainUnavailable => continue,
+                unreachable_pty::Decision::NotPty | unreachable_pty::Decision::Gone => {
+                    match super::managed_lifecycle::stop_generation(
+                        state,
+                        &snap,
+                        crate::state::StopReason::Crash,
+                        now_secs(),
+                    )
+                    .await
+                    {
+                        Ok(true) => {}
+                        Ok(false) => tracing::debug!(
+                            pubkey,
+                            runtime_generation,
+                            "reconcile GC ignored stale runtime generation"
+                        ),
+                        Err(e) => {
+                            tracing::error!(pubkey, runtime_generation, error = %e, "reconcile GC: conditional teardown failed; ghost-running row may remain")
+                        }
+                    }
                     continue;
-                };
-                match crate::pty::terminate_owned_supervisor(&pty_id) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        tracing::error!(pubkey, runtime_generation, pty_id, "unreachable PTY has no owned supervisor metadata; refusing to lose process ownership");
-                        continue;
-                    }
-                    Err(error) => {
-                        tracing::error!(pubkey, runtime_generation, pty_id, %error, "unreachable PTY could not be safely terminated; refusing to mark stopped");
-                        continue;
-                    }
                 }
             }
-            match super::managed_lifecycle::stop_generation(
-                state,
-                &snap,
-                crate::state::StopReason::Crash,
-                now_secs(),
-            )
-            .await
-            {
-                Ok(true) => {}
-                Ok(false) => tracing::debug!(
-                    pubkey,
-                    runtime_generation,
-                    "reconcile GC ignored stale runtime generation"
-                ),
-                Err(e) => {
-                    tracing::error!(pubkey, runtime_generation, error = %e, "reconcile GC: conditional teardown failed; ghost-running row may remain")
-                }
-            }
-            continue;
         }
         tracing::info!(
             pubkey,
@@ -390,23 +370,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             );
         }
     }
-}
-
-fn runtime_endpoint_id(
-    state: &Arc<DaemonState>,
-    session: &crate::state::Session,
-    locator_kind: &str,
-) -> Option<String> {
-    state
-        .with_store(|store| {
-            store.runtime_locator_for_session(
-                &session.pubkey,
-                session.runtime_generation,
-                locator_kind,
-            )
-        })
-        .ok()?
-        .map(|locator| locator.locator_value)
 }
 
 // Single source of truth for pid liveness (defect #17). The `pid > 0` guard

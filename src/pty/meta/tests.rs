@@ -7,7 +7,6 @@ fn endpoint_socket_comes_from_launch_metadata() {
         socket: "/tmp/pty-1.sock".into(),
         supervisor_pid: 42,
         instance_token: "token-1".into(),
-        adopted_process_fingerprint: String::new(),
         child_pid: None,
         agent: "agent".into(),
         root: "/tmp".into(),
@@ -52,29 +51,6 @@ fn ownership_requires_exact_endpoint_and_instance_token_arguments() {
         "/opt/mosaico __pty-supervisor --id other --instance-token other -- --id grok-123-456 --instance-token token-2",
         "grok-123-456",
         "token-2"
-    ));
-}
-
-#[test]
-fn old_metadata_without_instance_token_remains_readable_but_untrusted() {
-    let metadata: LaunchMetadata = serde_json::from_value(serde_json::json!({
-        "id": "grok-old",
-        "socket": "/tmp/grok-old.sock",
-        "supervisor_pid": 42,
-        "agent": "grok",
-        "root": "/tmp",
-        "cwd": "/tmp",
-        "command": ["grok"]
-    }))
-    .expect("old metadata should remain readable for live-session adoption");
-
-    assert!(metadata.instance_token.is_empty());
-    assert!(metadata.adopted_process_fingerprint.is_empty());
-    assert!(metadata.child_pid.is_none());
-    assert!(!command_owns_endpoint(
-        "/opt/mosaico __pty-supervisor --id grok-old -- grok",
-        &metadata.id,
-        &metadata.instance_token,
     ));
 }
 

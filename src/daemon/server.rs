@@ -172,6 +172,7 @@ mod session_end;
 mod session_pty_wrap;
 mod session_signing;
 pub(crate) mod session_start;
+mod session_termination;
 mod statusline;
 mod subscriptions;
 #[cfg(test)]

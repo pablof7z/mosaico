@@ -93,7 +93,6 @@ fn spawn_session_with_executable(
         socket: socket.to_string_lossy().to_string(),
         supervisor_pid: supervisor.id(),
         instance_token,
-        adopted_process_fingerprint: String::new(),
         child_pid: None,
         agent: args.agent,
         root: args.root,

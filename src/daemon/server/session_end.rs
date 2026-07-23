@@ -1,9 +1,5 @@
 use super::*;
 
-#[cfg(test)]
-#[path = "session_end/tests.rs"]
-mod tests;
-
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SessionEndCause {
@@ -94,13 +90,13 @@ pub(in crate::daemon::server) async fn rpc_session_kill(
         .transpose()?
         .flatten();
     let Some(session) = public else {
-        return kill_unbound_endpoint(params.pty_id.as_deref(), params.forget);
+        return kill_unbound_endpoint(params.pty_id.as_deref(), params.forget).await;
     };
     if params.forget {
         return forget_session(state, &session).await;
     }
 
-    let stop = match stop_local_process(state, &session).await {
+    let stop = match super::session_termination::terminate_explicit(state, &session).await {
         Ok(note) => note,
         Err(error) => {
             return Ok(serde_json::json!({
@@ -149,7 +145,7 @@ async fn forget_session(
         (current, channels, signing_keys)
     };
 
-    let stop = match stop_local_process(state, &current).await {
+    let stop = match super::session_termination::terminate_explicit(state, &current).await {
         Ok(note) => note,
         Err(error) => {
             return Ok(serde_json::json!({
@@ -218,22 +214,18 @@ fn revoke_current_generation(
     }
 }
 
-fn kill_unbound_endpoint(pty_id: Option<&str>, forget: bool) -> Result<serde_json::Value> {
+async fn kill_unbound_endpoint(pty_id: Option<&str>, forget: bool) -> Result<serde_json::Value> {
     let Some(pty_id) = pty_id else {
         return Ok(serde_json::json!({
             "killed": false, "ended": false, "reason": "no local session matched"
         }));
     };
-    let Some(endpoint) = crate::pty::read_all_metadata()
-        .into_iter()
-        .find(|metadata| metadata.id == pty_id && crate::pty::is_live(&metadata.id))
+    let Some(note) = super::session_termination::terminate_explicit_unbound_pty(pty_id).await?
     else {
         return Ok(serde_json::json!({
             "killed": false, "ended": false, "reason": "no live local endpoint matched"
         }));
     };
-    crate::pty::kill(&endpoint.id)
-        .with_context(|| format!("killing unbound PTY endpoint {}", endpoint.id))?;
     let cleanup_failures = if forget {
         vec!["endpoint has no session identity; recovery cannot be forgotten".to_string()]
     } else {
@@ -242,7 +234,7 @@ fn kill_unbound_endpoint(pty_id: Option<&str>, forget: bool) -> Result<serde_jso
     Ok(serde_json::json!({
         "killed": true,
         "ended": false,
-        "note": format!("pty={}", endpoint.id),
+        "note": note,
         "cleanup_confirmed": cleanup_failures.is_empty(),
         "cleanup_failures": cleanup_failures,
     }))
@@ -279,74 +271,6 @@ async fn revoke_operator_session(
         .await,
     );
     failures
-}
-
-pub(in crate::daemon::server) async fn stop_local_process(
-    state: &Arc<DaemonState>,
-    session: &crate::state::Session,
-) -> Result<String> {
-    if session.runtime_state == crate::state::RuntimeState::Stopped {
-        return Ok("runtime already stopped".into());
-    }
-    match state
-        .with_store(|store| crate::session_host::transport::hosted_endpoint_for(store, session))?
-    {
-        crate::session_host::transport::HostedEndpoint::Resolved {
-            transport,
-            endpoint,
-        } => {
-            if transport.is_live(&endpoint) {
-                transport
-                    .kill(&endpoint)
-                    .await
-                    .with_context(|| format!("killing {} endpoint", endpoint.kind.as_str()))?;
-                wait_for_process_exit(|| !transport.is_live(&endpoint)).await?;
-            }
-            state.with_store(|store| {
-                store.clear_runtime_locator_if_generation(
-                    &session.pubkey,
-                    endpoint.kind.locator_kind(),
-                    session.runtime_generation,
-                )
-            })?;
-            return Ok(format!("endpoint={}", endpoint.endpoint_id));
-        }
-        crate::session_host::transport::HostedEndpoint::Unavailable { kind } => {
-            anyhow::bail!(
-                "session {} was admitted on {} but its endpoint locator is unavailable; refusing PID fallback",
-                session.pubkey,
-                kind.as_str()
-            );
-        }
-        crate::session_host::transport::HostedEndpoint::Unhosted => {}
-    }
-    if let Some(pid) = session.child_pid {
-        if !super::engine_lifecycle::pid_alive(pid) {
-            return Ok(format!("pid={pid} (already exited)"));
-        }
-        nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(pid),
-            Some(nix::sys::signal::Signal::SIGTERM),
-        )
-        .with_context(|| format!("sending SIGTERM to pid {pid}"))?;
-        wait_for_process_exit(|| !super::engine_lifecycle::pid_alive(pid)).await?;
-        return Ok(format!("pid={pid}"));
-    }
-    anyhow::bail!(
-        "runtime generation {} for {} has no tracked process endpoint",
-        session.runtime_generation,
-        session.pubkey
-    )
-}
-
-async fn wait_for_process_exit(mut exited: impl FnMut() -> bool) -> Result<()> {
-    for _ in 0..100 {
-        if exited() {
-            return Ok(());
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    anyhow::bail!("process termination was not confirmed within 5 seconds")
 }
 
 fn endpoint_locator(

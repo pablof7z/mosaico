@@ -50,13 +50,6 @@ fn unavailable_is_not_a_headless_snapshot() {
 }
 
 #[test]
-fn pre_upgrade_probe_decodes_the_retired_supervisor_protocol() {
-    let (_dir, socket, worker) = serve_once("OUTPUT_MODE\n", "headless\n");
-    assert!(pre_upgrade_headless(socket.to_str().unwrap()).unwrap());
-    worker.join().unwrap();
-}
-
-#[test]
 fn conditional_kill_decodes_changed_presentation() {
     let (_dir, socket, worker) = serve_once(
         "KILL_IF_HEADLESS 7\n",

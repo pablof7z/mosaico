@@ -32,7 +32,6 @@ fn supervisor_exit_before_readiness_is_a_launch_error() {
         socket: temp.path().join("missing.sock").to_string_lossy().into(),
         supervisor_pid: child.id(),
         instance_token: "test-token".into(),
-        adopted_process_fingerprint: String::new(),
         child_pid: None,
         agent: "missing-provider".into(),
         root: "test".into(),

@@ -1,5 +1,4 @@
 use super::*;
-use crate::session_host::transport::{HostedEndpoint, TransportKind};
 
 pub(super) async fn evict_due_idle_sessions(state: &Arc<DaemonState>) {
     let candidates = state
@@ -47,93 +46,29 @@ async fn evict_one(state: &Arc<DaemonState>, candidate: Session) -> Result<()> {
 }
 
 async fn finish_idle_eviction(state: &Arc<DaemonState>, stopping: Session) -> Result<()> {
-    let endpoint = state.with_store(|store| {
-        crate::session_host::transport::hosted_endpoint_for(store, &stopping)
-    })?;
-    let locator_kind = match &endpoint {
-        HostedEndpoint::Resolved { endpoint, .. } => Some(endpoint.kind.locator_kind()),
-        HostedEndpoint::Unavailable { kind } => Some(kind.locator_kind()),
-        HostedEndpoint::Unhosted => None,
+    let locator_kind = match super::super::session_termination::terminate_automatic_if_unattached(
+        state, &stopping,
+    )
+    .await
+    {
+        Ok(super::super::session_termination::AutomaticTerminationOutcome::Terminated {
+            locator_kind,
+        }) => locator_kind,
+        Ok(
+            super::super::session_termination::AutomaticTerminationOutcome::PresentationChanged(
+                presentation,
+            ),
+        ) => {
+            if !super::presentation::apply(state, &stopping, presentation)? {
+                ensure_not_stuck_stopping(state, &stopping)?;
+            }
+            return Ok(());
+        }
+        Err(error) => {
+            ensure_not_stuck_stopping(state, &stopping)?;
+            return Err(error);
+        }
     };
-    match &endpoint {
-        HostedEndpoint::Resolved {
-            endpoint,
-            transport: _,
-        } if endpoint.kind == TransportKind::Pty => {
-            let id = endpoint.endpoint_id.as_str();
-            match crate::pty::kill_if_headless_at(id, stopping.attachment_epoch) {
-                Ok(crate::pty::ConditionalKillOutcome::Killed { .. }) => {}
-                Ok(crate::pty::ConditionalKillOutcome::PresentationChanged { presentation }) => {
-                    if !super::presentation::apply(state, &stopping, presentation)? {
-                        ensure_not_stuck_stopping(state, &stopping)?;
-                    }
-                    return Ok(());
-                }
-                Err(error) => {
-                    if crate::pty::is_live(id) {
-                        let cancelled = state.with_store(|store| {
-                            store.cancel_idle_eviction_on_presentation_change(
-                                &stopping.pubkey,
-                                stopping.runtime_generation,
-                                stopping.lifecycle_epoch,
-                                stopping.attachment_epoch,
-                                PresentationState::Unavailable,
-                                now_secs(),
-                            )
-                        })?;
-                        if !cancelled {
-                            ensure_not_stuck_stopping(state, &stopping)?;
-                        }
-                        return Err(error.into());
-                    }
-                    // A closed socket is not proof that the runtime is gone. Use
-                    // the persisted supervisor identity, including its instance
-                    // token, to confirm exit or terminate it before committing
-                    // the durable stopped edge. Missing metadata is safe only
-                    // when the recorded supervisor PID is already absent.
-                    match crate::pty::terminate_owned_supervisor(id) {
-                        Ok(true) => {}
-                        Ok(false)
-                            if stopping
-                                .child_pid
-                                .is_some_and(super::super::engine_lifecycle::pid_alive) =>
-                        {
-                            return Err(error.into());
-                        }
-                        Ok(false) => {}
-                        Err(ownership_error) => return Err(ownership_error),
-                    }
-                }
-            }
-        }
-        HostedEndpoint::Resolved {
-            transport,
-            endpoint,
-        } => {
-            transport.kill(endpoint).await?;
-        }
-        HostedEndpoint::Unavailable { kind } => {
-            if stopping
-                .child_pid
-                .is_some_and(super::super::engine_lifecycle::pid_alive)
-            {
-                anyhow::bail!(
-                    "refusing to stop {} runtime without its owned endpoint",
-                    kind.as_str()
-                );
-            }
-        }
-        HostedEndpoint::Unhosted => {
-            if stopping
-                .child_pid
-                .is_some_and(super::super::engine_lifecycle::pid_alive)
-            {
-                anyhow::bail!(
-                    "refusing to signal an unbound live process without an owned runtime endpoint"
-                );
-            }
-        }
-    }
     let stopped_at = now_secs();
     cancel_session(state, &stopping.pubkey, stopping.runtime_generation);
     let stopped = state.with_store(|store| {

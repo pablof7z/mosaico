@@ -67,7 +67,12 @@ Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying
 the daemon. A daemon restart replays those reports, reconciles a reserved
 `stopping` transition, and resumes deadline processing without treating an
-unavailable supervisor probe as proof that a session is headless.
+unavailable supervisor probe as proof that a session is headless. Probe or
+control loss instead sets presentation to `unavailable`, clears the idle
+deadline, and leaves the runtime running. All admitted-runtime termination
+requests pass through one coordinator: automatic PTY termination requires the
+supervisor to atomically confirm zero attached clients at the expected epoch,
+while explicit operator kill/forget is allowed to stop an attached runtime.
 
 The unavoidable distributed limit is abrupt host or network loss. A remote
 viewer retains the last published state until expiration because, without a new

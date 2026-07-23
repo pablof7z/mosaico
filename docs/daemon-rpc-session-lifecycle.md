@@ -66,12 +66,13 @@ result: {"killed": true|false, "ended": true|false,
          "cleanup_failures": ["…"], "reason": "…"}
 ```
 
-Process-kill, the counterpart to `session_end`. Stops the session's hosted
-endpoint through its transport if one is tracked, else `SIGTERM`s the tracked
-child pid, then marks the exact generation stopped. `killed` reflects whether
-process termination itself was confirmed; `reason`
-is populated on failure (including "no local session matched" when `session`
-doesn't resolve).
+Process-kill, the counterpart to `session_end`. The daemon's single termination
+coordinator stops a resolved hosted endpoint through its transport. A raw
+`SIGTERM` fallback is allowed only for an unhosted native process; a session
+admitted on PTY, ACP, or app-server without its exact endpoint locator fails
+closed. The exact generation is marked stopped only after process termination
+is confirmed. `killed` reflects that confirmation; `reason` is populated on
+failure (including "no local session matched" when `session` doesn't resolve).
 
 `forget: true` is the destructive recovery boundary used by the operator
 session picker. The daemon first persists `recovery_state='revoked'`, then
