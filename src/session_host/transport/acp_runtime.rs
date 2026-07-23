@@ -66,16 +66,13 @@ impl AcpRuntime {
 
 /// True for the notifications that end an app-server turn.
 fn is_turn_end(method: &str) -> bool {
-    matches!(method, "turn/completed" | "turn/failed" | "turn/aborted")
+    method == "turn/completed"
 }
 
-/// Pull the turn id out of a notification's params, tolerating the small set of
-/// spellings the app-server dialect uses (`turnId` / `turn_id` / `turn.id`).
+/// Pull the turn id from the current app-server notification shapes.
 pub(super) fn extract_turn_id(params: &Value) -> Option<String> {
-    for key in ["turnId", "turn_id"] {
-        if let Some(s) = params.get(key).and_then(Value::as_str) {
-            return Some(s.to_string());
-        }
+    if let Some(id) = params.get("turnId").and_then(Value::as_str) {
+        return Some(id.to_string());
     }
     params
         .get("turn")

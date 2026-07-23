@@ -51,7 +51,7 @@ while IFS= read -r line; do
   case "$line" in
     *'"method":"thread/start"'*)
       printf '%s\n' "$line" >> "$MOSAICO_HOME/codex-thread-starts.jsonl"
-      result="{\"thread\":{\"id\":\"fixture-thread-$id\"}}"
+      result="{\"thread\":{\"id\":\"fixture-thread-$id\",\"turns\":[]}}"
       ;;
     *) result='{}' ;;
   esac

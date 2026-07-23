@@ -10,7 +10,6 @@ use std::time::Duration;
 use super::protocol::StopReason;
 use super::transport::{RpcError, RpcHandle};
 
-const PROMPT_TIMEOUT: Duration = Duration::from_secs(300);
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// ACP protocol methods over a live handle.
@@ -79,15 +78,17 @@ impl AcpClient {
         session_id: &str,
         text: &str,
     ) -> Result<StopReason, RpcError> {
+        // Once sent, a wall clock cannot prove whether the native turn is
+        // still running. The correlated response, cancellation/child exit, or
+        // transport failure is authoritative; this request is never replayed.
         let v = self
             .handle
-            .request_timeout(
+            .request(
                 "session/prompt",
                 serde_json::json!({
                     "sessionId": session_id,
                     "prompt": [{ "type": "text", "text": text }]
                 }),
-                PROMPT_TIMEOUT,
             )
             .await?;
         let reason = v
@@ -129,7 +130,7 @@ fn extract_session_id(v: &serde_json::Value) -> Result<String, RpcError> {
         .ok_or_else(|| {
             RpcError::Protocol(super::protocol::RpcErrorObject {
                 code: -1,
-                message: format!("session/new response missing sessionId: {v}"),
+                message: "session/new response omitted required sessionId".to_string(),
                 data: None,
             })
         })

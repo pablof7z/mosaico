@@ -50,12 +50,18 @@ pub(crate) fn spawn_app_server_turn(
         if let Ok(mut rt) = runtime.lock() {
             rt.mark_turn_finished();
         }
-        if let Err(e) = res {
-            tracing::warn!(thread = %native_id, "app-server turn/start failed: {e}");
-            let _ = completion_tx.send(Err(anyhow::anyhow!("app-server turn/start failed: {e}")));
-        } else {
-            let _ = completion_tx.send(Ok(()));
-        }
+        let completion = match res {
+            Ok(crate::rpc_harness::TurnOutcome::Completed { .. }) => Ok(()),
+            Ok(outcome) => {
+                tracing::warn!(thread = %native_id, %outcome, "app-server turn ended unsuccessfully");
+                Err(anyhow::anyhow!("{outcome}"))
+            }
+            Err(error) => {
+                tracing::warn!(thread = %native_id, %error, "app-server turn/start failed");
+                Err(anyhow::anyhow!("app-server turn/start failed: {error}"))
+            }
+        };
+        let _ = completion_tx.send(completion);
     });
     DeliveryCompletion::Managed(completion_rx)
 }

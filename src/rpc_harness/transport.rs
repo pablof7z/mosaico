@@ -21,6 +21,13 @@ use super::callbacks::Callbacks;
 use super::io_tasks::{reader_task, stderr_task, writer_task};
 use super::protocol::{Dialect, RpcErrorObject, SessionUpdate};
 
+#[path = "transport/turn_routing.rs"]
+mod turn_routing;
+pub(super) use turn_routing::{AppServerRouting, TurnObserver, TurnSignal};
+
+#[path = "transport/request.rs"]
+mod request;
+
 #[cfg(unix)]
 #[path = "transport/process_group.rs"]
 mod process_group;
@@ -61,8 +68,7 @@ pub struct SpawnConfig {
 }
 
 pub(super) type PendingMap =
-    Arc<Mutex<HashMap<i64, oneshot::Sender<Result<serde_json::Value, RpcErrorObject>>>>>;
-pub(super) type TurnWaiters = Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>;
+    Arc<Mutex<HashMap<i64, oneshot::Sender<Result<serde_json::Value, RpcError>>>>>;
 
 /// Cheaply-cloneable handle to a live harness child.
 #[derive(Clone)]
@@ -70,7 +76,7 @@ pub struct RpcHandle {
     ids: Arc<AtomicI64>,
     writer: mpsc::Sender<String>,
     pending: PendingMap,
-    turn_waiters: TurnWaiters,
+    app_server_routing: AppServerRouting,
     alive: Arc<AtomicBool>,
     child: Arc<tokio::sync::Mutex<Child>>,
     #[cfg(unix)]
@@ -123,7 +129,7 @@ impl RpcHandle {
         // and we never silently lose a turn id.
         let (update_tx, update_rx) = mpsc::unbounded_channel::<SessionUpdate>();
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
-        let turn_waiters: TurnWaiters = Arc::new(Mutex::new(HashMap::new()));
+        let app_server_routing = AppServerRouting::default();
         let alive = Arc::new(AtomicBool::new(true));
         let (exit_tx, exit_rx) = watch::channel(false);
 
@@ -135,7 +141,7 @@ impl RpcHandle {
         tokio::spawn(reader_task(
             stdout,
             pending.clone(),
-            turn_waiters.clone(),
+            app_server_routing.clone(),
             write_tx.clone(),
             update_tx,
             cfg.callbacks,
@@ -148,7 +154,7 @@ impl RpcHandle {
                 ids: Arc::new(AtomicI64::new(1)),
                 writer: write_tx,
                 pending,
-                turn_waiters,
+                app_server_routing,
                 alive,
                 child: Arc::new(tokio::sync::Mutex::new(child)),
                 #[cfg(unix)]
@@ -159,85 +165,6 @@ impl RpcHandle {
             },
             update_rx,
         ))
-    }
-
-    fn next_id(&self) -> i64 {
-        self.ids.fetch_add(1, Ordering::Relaxed)
-    }
-
-    /// Send a request and await its correlated response.
-    pub async fn request(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, RpcError> {
-        let id = self.next_id();
-        let (tx, rx) = oneshot::channel();
-        // Insert the waiter and observe `alive` under the *same* lock the reader
-        // takes to drain on EOF (it sets `alive=false` before acquiring the
-        // pending lock). This closes the orphaned-pending race: if we see the
-        // child alive here, the drain has not run yet and is guaranteed to fail
-        // this entry; if it already ran, we bail fast with `ChildExited` rather
-        // than awaiting a oneshot nobody will ever resolve.
-        {
-            let mut pending = self.pending.lock().unwrap();
-            if !self.alive.load(Ordering::Relaxed) {
-                return Err(RpcError::ChildExited);
-            }
-            pending.insert(id, tx);
-        }
-        let line = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        })
-        .to_string();
-        if self.writer.send(line).await.is_err() {
-            self.pending.lock().unwrap().remove(&id);
-            return Err(RpcError::ChildExited);
-        }
-        match rx.await {
-            Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => Err(RpcError::Protocol(e)),
-            Err(_) => Err(RpcError::ChildExited),
-        }
-    }
-
-    /// Send a request with a timeout.
-    pub async fn request_timeout(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-        dur: std::time::Duration,
-    ) -> Result<serde_json::Value, RpcError> {
-        match tokio::time::timeout(dur, self.request(method, params)).await {
-            Ok(r) => r,
-            Err(_) => Err(RpcError::Timeout),
-        }
-    }
-
-    /// Fire-and-forget notification (no id, no await).
-    pub async fn notify(&self, method: &str, params: serde_json::Value) {
-        let line = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-        })
-        .to_string();
-        let _ = self.writer.send(line).await;
-    }
-
-    /// Register a turn-completion waiter (app-server: `turn/completed` arrives
-    /// as a notification, not the `turn/start` response). Returns a receiver the
-    /// caller awaits after sending `turn/start`.
-    pub fn register_turn_waiter(&self, key: &str) -> oneshot::Receiver<serde_json::Value> {
-        let (tx, rx) = oneshot::channel();
-        self.turn_waiters
-            .lock()
-            .unwrap()
-            .insert(key.to_string(), tx);
-        rx
     }
 
     pub fn is_alive(&self) -> bool {
