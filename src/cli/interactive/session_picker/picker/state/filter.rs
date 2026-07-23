@@ -3,6 +3,38 @@ use crate::cli::interactive::session_picker::picker::project::ProjectPicker;
 use crate::cli::interactive::session_picker::{HomeChoice, SessionChoice};
 
 impl PickerState {
+    pub(in crate::cli::interactive::session_picker::picker) fn with_project_filter(
+        mut self,
+        project_filter: Option<String>,
+    ) -> Self {
+        self.project_toggle = project_filter.clone();
+        self.project_filter = project_filter;
+        self.refilter();
+        self
+    }
+
+    pub(in crate::cli::interactive::session_picker::picker) fn toggle_project_filter(&mut self) {
+        self.project_filter = match self.project_filter.take() {
+            Some(project) => {
+                self.project_toggle = Some(project);
+                None
+            }
+            None => self.project_toggle.clone(),
+        };
+        self.refilter();
+    }
+
+    pub(in crate::cli::interactive::session_picker::picker) fn set_project_filter(
+        &mut self,
+        project_filter: Option<String>,
+    ) {
+        if let Some(project) = project_filter.as_ref() {
+            self.project_toggle = Some(project.clone());
+        }
+        self.project_filter = project_filter;
+        self.refilter();
+    }
+
     pub(in crate::cli::interactive::session_picker::picker) fn refilter(&mut self) {
         let now = crate::util::now_secs();
         let mut scored = self

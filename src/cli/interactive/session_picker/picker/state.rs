@@ -21,6 +21,7 @@ pub(super) struct PickerState {
     pub(super) query: String,
     pub(super) range: HistoryRange,
     pub(super) project_filter: Option<String>,
+    pub(super) project_toggle: Option<String>,
     pub(super) project_picker: Option<ProjectPicker>,
     pub(super) notice: Option<String>,
     pub(super) confirmation: Option<confirmation::Confirmation>,
@@ -46,6 +47,7 @@ impl PickerState {
             query: String::new(),
             range: HistoryRange::Live,
             project_filter: None,
+            project_toggle: None,
             project_picker: None,
             notice: None,
             confirmation: None,
@@ -90,7 +92,10 @@ impl PickerState {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(PickerExit::Cancel);
             }
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => self.switch_tab(),
+            KeyCode::Tab | KeyCode::BackTab if self.tab == PickerTab::Sessions => {
+                self.toggle_project_filter()
+            }
+            KeyCode::Left | KeyCode::Right => self.switch_tab(),
             KeyCode::Char('k' | 'K') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(index) = self.current_session_index() {
                     return Some(PickerExit::Kill(index));
@@ -198,12 +203,12 @@ impl PickerState {
         match key.code {
             KeyCode::Esc => self.project_picker = None,
             KeyCode::Enter => {
-                self.project_filter = projects
+                let project_filter = projects
                     .visible
                     .get(projects.cursor)
                     .and_then(|&index| projects.options[index].id.clone());
                 self.project_picker = None;
-                self.refilter();
+                self.set_project_filter(project_filter);
             }
             KeyCode::Up => projects.move_up(),
             KeyCode::Down => projects.move_down(),

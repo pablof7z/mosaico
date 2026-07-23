@@ -67,6 +67,7 @@ pub(super) async fn select(
     choices: Vec<HomeChoice>,
     terminal_height: u16,
     initial_focus: Option<&str>,
+    initial_project_filter: Option<&str>,
 ) -> Result<PickerAction> {
     let height = viewport_height(terminal_height);
     let _raw_mode = RawMode::enter()?;
@@ -80,7 +81,8 @@ pub(super) async fn select(
     .context("creating inline operator home")?;
     terminal.hide_cursor()?;
 
-    let mut state = PickerState::new(choices, initial_focus);
+    let mut state = PickerState::new(choices, initial_focus)
+        .with_project_filter(initial_project_filter.map(str::to_owned));
     let mut last_area = Rect::new(0, 0, 0, height);
     let interaction = interaction_loop(&mut terminal, &mut state, &mut last_area).await;
     let cleanup = cleanup_terminal(&mut terminal, last_area);

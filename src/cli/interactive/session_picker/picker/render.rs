@@ -197,14 +197,20 @@ fn help(state: &PickerState) -> &'static str {
         return "enter open · type search · ↑↓ move · esc clear";
     }
     let Some(index) = state.current_choice() else {
-        return "type search · tab switch · ↑↓ · esc";
+        return "type search · ←/→ panes · ↑↓ · esc";
     };
     match state.choices[index] {
         HomeChoice::Session(_) => {
-            "enter attach/restart · ctrl-k kill · ctrl-+/- history · ctrl-p project · tab start · type search · ↑↓ · esc"
+            if state.project_filter.is_some() {
+                "enter attach/restart · ctrl-k kill · ctrl-+/- history · ctrl-p project · tab all projects · ←/→ start · type search · ↑↓ · esc"
+            } else if state.project_toggle.is_some() {
+                "enter attach/restart · ctrl-k kill · ctrl-+/- history · ctrl-p project · tab project · ←/→ start · type search · ↑↓ · esc"
+            } else {
+                "enter attach/restart · ctrl-k kill · ctrl-+/- history · ctrl-p project · ←/→ start · type search · ↑↓ · esc"
+            }
         }
         HomeChoice::Agent(_) => {
-            "enter launch · ctrl-e edit · ctrl-d delete · ctrl-space select · tab sessions · type search · ↑↓ · esc"
+            "enter launch · ctrl-e edit · ctrl-d delete · ctrl-space select · ←/→ sessions · type search · ↑↓ · esc"
         }
     }
 }

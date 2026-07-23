@@ -36,7 +36,7 @@ fn presents_sessions_and_agents_in_separate_tabs_with_a_highlighted_row() {
     assert_eq!(completed.buffer.content()[100].bg, Color::Indexed(236));
     assert!(rows[11].starts_with("enter attach"));
 
-    picker.handle_key(key(KeyCode::Tab), 10);
+    picker.handle_key(key(KeyCode::Right), 10);
     let completed = terminal
         .draw(|frame| crate::cli::interactive::session_picker::picker::render::draw(frame, &picker))
         .unwrap();

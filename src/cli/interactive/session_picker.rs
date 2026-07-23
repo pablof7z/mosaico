@@ -40,6 +40,9 @@ impl HomeChoice {
 
 pub(in crate::cli) async fn home() -> Result<()> {
     let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let project_filter = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| crate::daemon::workspace_path::channel_for_path(&cwd).ok());
     let mut focus = None;
     loop {
         let choices = load_choices().await?;
@@ -48,7 +51,14 @@ pub(in crate::cli) async fn home() -> Result<()> {
             return Ok(());
         }
         let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((100, 28));
-        match picker::select(choices, terminal_rows, focus.as_deref()).await? {
+        match picker::select(
+            choices,
+            terminal_rows,
+            focus.as_deref(),
+            project_filter.as_deref(),
+        )
+        .await?
+        {
             picker::PickerAction::Attach(choice) => {
                 let Some(pty_id) = choice.row.pty_id else {
                     bail!("selected session no longer has an attachable endpoint");
