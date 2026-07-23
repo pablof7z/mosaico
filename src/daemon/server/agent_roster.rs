@@ -29,8 +29,33 @@ pub(in crate::daemon::server) fn rpc_agent_roster_refresh(
     let params: PublishRosterParams =
         serde_json::from_value(params.clone()).context("agent_roster_refresh params")?;
     state.refresh_agent_catalog()?;
+    reconcile_local_agent_roster(state)?;
     state.schedule_agent_roster_refresh(params.remove_slug.into_iter().collect());
     Ok(serde_json::json!({"scheduled": true}))
+}
+
+/// Synchronously prune this backend's own cached 30555 rows down to its live
+/// advertised capability set. `mosaico my session` reads that cache directly
+/// (`Store::list_agent_roster`), so this makes a deleted agent disappear at
+/// once instead of waiting on the detached, best-effort tombstone publish in
+/// `schedule_agent_roster_refresh` — which can fail to reach the relay, target
+/// a stale `(backend_pubkey, agent_slug)` address, or be lost across a restart.
+/// Other backends' advertisements are left untouched.
+fn reconcile_local_agent_roster(state: &Arc<DaemonState>) -> Result<()> {
+    let Some(backend_pubkey) = state.backend_pubkey() else {
+        return Ok(());
+    };
+    let (advertisements, _failed) = capability_advertisements(state)?;
+    let keep = advertisements
+        .into_iter()
+        .map(|advertisement| advertisement.slug)
+        .collect::<Vec<_>>();
+    let removed =
+        state.with_store(|store| store.retain_local_agent_roster(&backend_pubkey, &keep))?;
+    if removed > 0 {
+        tracing::debug!(backend = %backend_pubkey, removed, "pruned stale local agent roster rows");
+    }
+    Ok(())
 }
 
 pub(in crate::daemon::server) async fn publish_local_agent_roster(

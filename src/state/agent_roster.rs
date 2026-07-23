@@ -94,6 +94,42 @@ impl Store {
         Ok(())
     }
 
+    /// Prune this backend's own cached rows down to `keep_slugs`, dropping any
+    /// `(backend_pubkey, agent_slug)` whose slug is no longer advertised. Lets a
+    /// deleted agent leave the local cache immediately instead of waiting on the
+    /// best-effort async 30555 tombstone round-trip (which can fail to publish,
+    /// miss the advertised address, or be lost across a restart). Strictly
+    /// scoped to `backend_pubkey`, so other backends' advertisements are never
+    /// touched. Returns the number of slugs removed.
+    pub fn retain_local_agent_roster(
+        &self,
+        backend_pubkey: &str,
+        keep_slugs: &[String],
+    ) -> Result<usize> {
+        let keep: std::collections::BTreeSet<&str> =
+            keep_slugs.iter().map(String::as_str).collect();
+        let existing = {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT agent_slug FROM relay_agent_roster WHERE backend_pubkey=?1",
+            )?;
+            let rows = stmt
+                .query_map(params![backend_pubkey], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let stale = existing
+            .into_iter()
+            .filter(|slug| !keep.contains(slug.as_str()))
+            .collect::<Vec<_>>();
+        for slug in &stale {
+            self.conn.execute(
+                "DELETE FROM relay_agent_roster WHERE backend_pubkey=?1 AND agent_slug=?2",
+                params![backend_pubkey, slug],
+            )?;
+        }
+        Ok(stale.len())
+    }
+
     /// Agent capabilities advertised for a root channel by every backend whose
     /// 30555 event has materialized locally.
     pub fn list_agent_roster_for_channel(&self, channel_h: &str) -> Result<Vec<AgentAvailability>> {
@@ -150,5 +186,38 @@ mod tests {
             .unwrap()
             .is_empty());
         assert_eq!(s.list_agent_roster_for_channel("root-b").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn retain_local_prunes_unadvertised_slugs_for_own_backend_only() {
+        let s = Store::open_memory().unwrap();
+        for (backend, slug) in [("mine", "kept"), ("mine", "deleted"), ("other", "deleted")] {
+            s.replace_agent_roster(&AgentRoster {
+                backend_pubkey: backend.into(),
+                host: "laptop".into(),
+                slug: slug.into(),
+                use_criteria: "x".into(),
+                channels: vec!["root".into()],
+                updated_at: 1,
+            })
+            .unwrap();
+        }
+
+        let removed = s
+            .retain_local_agent_roster("mine", &["kept".to_string()])
+            .unwrap();
+        assert_eq!(removed, 1);
+
+        let slugs = s
+            .list_agent_roster()
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.backend_pubkey, r.slug))
+            .collect::<std::collections::BTreeSet<_>>();
+        // Own unadvertised slug dropped; own kept slug and the *other* backend's
+        // identically-named row both survive.
+        assert!(!slugs.contains(&("mine".into(), "deleted".into())));
+        assert!(slugs.contains(&("mine".into(), "kept".into())));
+        assert!(slugs.contains(&("other".into(), "deleted".into())));
     }
 }
