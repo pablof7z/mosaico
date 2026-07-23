@@ -1,3 +1,0 @@
-[submodule "vendor/croissant"]
-	path = vendor/croissant
-	url = https://github.com/pablof7z/croissant.git

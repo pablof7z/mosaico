@@ -12,12 +12,9 @@ pub(in crate::cli) struct SetupArgs {
     dry_run: bool,
     #[arg(long)]
     status: bool,
-    /// Use one or more remote relay URLs. Repeat for multiple relays.
-    #[arg(long, value_name = "WS_URL", conflicts_with = "local_relay")]
+    /// Use one or more externally operated relay URLs. Repeat for multiple relays.
+    #[arg(long, value_name = "WS_URL")]
     relay: Vec<String>,
-    /// Configure and start the bundled relay on 127.0.0.1:9888.
-    #[arg(long, conflicts_with = "relay")]
-    local_relay: bool,
     /// Device label published for agents running on this host.
     #[arg(long, value_name = "LABEL")]
     host_label: Option<String>,
@@ -43,9 +40,6 @@ pub(in crate::cli) struct SetupArgs {
     /// Whether human-started sessions receive their own subgroup.
     #[arg(long, value_name = "BOOL")]
     per_session_rooms: Option<bool>,
-    /// Configure a local relay without starting it after setup.
-    #[arg(long, requires = "local_relay")]
-    no_start_local_relay: bool,
 }
 
 #[derive(Default)]
@@ -56,7 +50,6 @@ pub(super) struct InstallOpts {
     pub status: bool,
     pub uninstall: bool,
     pub relay: Vec<String>,
-    pub local_relay: bool,
     pub host_label: Option<String>,
     pub operator_pubkeys: Option<String>,
     pub clear_operators: bool,
@@ -64,7 +57,6 @@ pub(super) struct InstallOpts {
     pub clear_operator_nsec: bool,
     pub indexer_relay: Option<String>,
     pub per_session_rooms: Option<bool>,
-    pub no_start_local_relay: bool,
 }
 
 impl SetupArgs {
@@ -76,7 +68,6 @@ impl SetupArgs {
             status: self.status,
             uninstall: false,
             relay: self.relay,
-            local_relay: self.local_relay,
             host_label: self.host_label,
             operator_pubkeys: self.operator_pubkeys,
             clear_operators: self.clear_operators,
@@ -84,7 +75,6 @@ impl SetupArgs {
             clear_operator_nsec: self.clear_operator_nsec,
             indexer_relay: self.indexer_relay,
             per_session_rooms: self.per_session_rooms,
-            no_start_local_relay: self.no_start_local_relay,
         }
     }
 }
@@ -153,17 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn local_and_remote_relay_modes_conflict() {
-        let error = crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "setup",
-            "--local-relay",
-            "--relay",
-            "wss://relay.example",
-        ])
-        .err()
-        .expect("local and remote relay modes should conflict");
+    fn removed_local_relay_flag_is_rejected() {
+        let error = crate::cli::args::Cli::try_parse_from(["mosaico", "setup", "--local-relay"])
+            .err()
+            .expect("removed local relay flag must be rejected");
 
-        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }

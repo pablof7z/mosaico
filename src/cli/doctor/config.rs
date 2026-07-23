@@ -13,7 +13,7 @@ pub(super) fn inspect(path: &Path, checks: &mut Vec<Check>) -> bool {
                     format!("cannot read {}: {error}", path.display()),
                 )
                 .repair(
-                    "run `mosaico setup` and choose the bundled local relay or supply an existing relay URL",
+                    "run `mosaico setup --relay <ws-url>` with an externally operated NIP-29 relay",
                 ),
             );
             return false;
@@ -51,7 +51,7 @@ pub(super) fn inspect(path: &Path, checks: &mut Vec<Check>) -> bool {
                 "no fabric relay is configured",
             )
             .repair(
-                "run `mosaico setup` and choose the bundled local relay or supply an existing relay URL",
+                "run `mosaico setup --relay <ws-url>` with an externally operated NIP-29 relay",
             ),
         );
         false

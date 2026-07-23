@@ -198,18 +198,17 @@ else
   exit 2
 fi
 EOF
-cat >"${TMP}/relay-bin/mosaico" <<'EOF'
+cat >"${TMP}/relay-bin/croissant" <<'EOF'
 #!/bin/sh
-[ "${1:-}" = relay ] || exit 2
 exec /bin/sleep 60
 EOF
-chmod +x "${TMP}/relay-bin/curl" "${TMP}/relay-bin/lsof" \
-  "${TMP}/relay-bin/nak" "${TMP}/relay-bin/mosaico"
+chmod +x "${TMP}/relay-bin/curl" "${TMP}/relay-bin/lsof" "${TMP}/relay-bin/nak" "${TMP}/relay-bin/croissant"
 
 set +e
 RELAY_OUTPUT="$(
   PATH="${TMP}/relay-bin:${PATH}" \
-    MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
+    MOSAICO_DEV_MOSAICO_BIN=/bin/true \
+    MOSAICO_DEV_CROISSANT_BIN="${TMP}/relay-bin/croissant" \
     NAK_RELAY_COUNTER="${TMP}/relay-nak-counter" \
     MOSAICO_DEV_RELAY_HOST=127.0.0.1 \
     MOSAICO_DEV_RELAY_PORT=29999 \
@@ -235,7 +234,8 @@ exit 0
 EOF
 FOREGROUND_WORK="${TMP}/foreground-relay"
 PATH="${TMP}/relay-bin:${PATH}" \
-  MOSAICO_DEV_MOSAICO_BIN="${TMP}/relay-bin/mosaico" \
+  MOSAICO_DEV_MOSAICO_BIN=/bin/true \
+  MOSAICO_DEV_CROISSANT_BIN="${TMP}/relay-bin/croissant" \
   NAK_RELAY_COUNTER="${TMP}/relay-nak-counter" \
   MOSAICO_DEV_HUMAN_NAMES_JSON='["Pablo","Alice","Bob"]' \
   MOSAICO_DEV_RELAY_HOST=127.0.0.1 \

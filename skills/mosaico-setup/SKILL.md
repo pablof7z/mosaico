@@ -11,7 +11,7 @@ Treat setup as an inspect, explain, install, configure, and verify workflow. Kee
 
 Mosaico gives coding agents a shared awareness fabric. Each session receives an identity, can see relevant peer presence and status, and can send an addressed message that arrives as a real turn in another agent's native session. Mosaico does not replace the harness, run the model, or read every transcript.
 
-One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, and Hermes Agent. The release binary also contains the pinned Croissant NIP-29 relay. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
+One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, and Hermes Agent. Relay infrastructure is deployed and operated separately; the Mosaico binary only connects to configured `ws://` or `wss://` URLs. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
 
 ## Follow the safety contract
 
@@ -74,10 +74,10 @@ mosaico --help
 
 If `~/.local/bin` is not on `PATH`, explain the exact shell-profile change and ask before editing it. Remove only the exact temporary directory after verification.
 
-If release installation is unavailable, offer a source build as an explicit fallback. It requires Git, stable Rust, Go 1.25, and a recursive clone:
+If release installation is unavailable, offer a source build as an explicit fallback. It requires Git and stable Rust:
 
 ```bash
-git clone --recurse-submodules https://github.com/pablof7z/mosaico.git
+git clone https://github.com/pablof7z/mosaico.git
 cd mosaico
 just install
 ```
@@ -92,7 +92,7 @@ mosaico setup --dry-run
 
 Then run `mosaico setup` in an interactive terminal. It is the one first-run and reconfiguration surface. Review these choices with the user:
 
-- the bundled local relay, or one or more existing `ws://`/`wss://` relay URLs supplied by the user;
+- one or more existing `ws://`/`wss://` NIP-29 relay URLs supplied by the user;
 - profile indexer relay;
 - host label;
 - operator public-key allowlist;
@@ -101,9 +101,12 @@ Then run `mosaico setup` in an interactive terminal. It is the one first-run and
 - generated backend management identity, which is never displayed or silently rotated;
 - packaged runtime skill and the explicitly selected harness integrations.
 
-For non-interactive use, pass explicit flags such as `--harness`, `--relay`, `--local-relay`, `--host-label`, `--operator-pubkeys`, `--operator-nsec-file`, `--indexer-relay`, and `--per-session-rooms`. Do not infer harness consent. Use `--no-start-local-relay` only when another supervisor will own the configured local relay.
+For non-interactive use, pass explicit flags such as `--harness`, `--relay`, `--host-label`, `--operator-pubkeys`, `--operator-nsec-file`, `--indexer-relay`, and `--per-session-rooms`. Do not infer harness consent.
 
-When local relay mode is selected, setup starts the embedded relay on `127.0.0.1:9888`, records the exact owned PID below `MOSAICO_HOME/relay`, waits for readiness, and then restarts only the daemon. It never signals detached PTY supervisors. Switching to a remote relay stops only the recorded local relay process.
+Relay provisioning is outside this workflow. Require the user to supply existing
+relay URLs; do not propose or implement deployment machinery from this
+repository. Mosaico setup must never install, start, stop, or remove relay
+infrastructure.
 
 Goose 1.43.0 or newer is required. Interactive Mosaico launches use
 `goose session`; managed launches use `goose acp`. Both receive full fabric
@@ -142,6 +145,6 @@ Explain that the executable and local state are separate from harness integratio
 mosaico uninstall
 ```
 
-The command removes Mosaico-owned hooks, plugins, and runtime skills from every supported harness, even if the harness is no longer detected. It stops the daemon without killing detached PTY supervisors and stops only a local relay whose exact PID is recorded as setup-owned.
+The command removes Mosaico-owned hooks, plugins, and runtime skills from every supported harness, even if the harness is no longer detected. It stops the daemon without killing detached PTY supervisors. It never stops or removes external relay infrastructure.
 
-The command shows the resolved `MOSAICO_HOME`, explains that it contains device identity, operator trust, sessions, logs, and relay data, and defaults to preserving it. Let the user answer the separate cleanup prompt. In a non-interactive shell, state deletion requires both prior explicit user approval and `mosaico uninstall --purge-state --yes`. Never remove the executable or state directory with an inferred or broad path.
+The command shows the resolved `MOSAICO_HOME`, explains that it contains device identity, operator trust, sessions, and logs, and defaults to preserving it. Let the user answer the separate cleanup prompt. In a non-interactive shell, state deletion requires both prior explicit user approval and `mosaico uninstall --purge-state --yes`. Never remove the executable or state directory with an inferred or broad path.

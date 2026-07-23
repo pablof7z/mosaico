@@ -87,10 +87,15 @@ RELAY_PID_FILE="${WORK_DIR}/relay.pid"
 RELAY_LOG="${WORK_DIR}/relay.log"
 ENV_FILE="${WORK_DIR}/lab.env"
 MOSAICO_BIN="${MOSAICO_DEV_MOSAICO_BIN:-${REPO_ROOT}/target/debug/mosaico}"
+CROISSANT_BIN="${MOSAICO_DEV_CROISSANT_BIN:-${NIP29_RELAY_BIN:-$(command -v croissant 2>/dev/null || true)}}"
 
 if [[ ! -x "${MOSAICO_BIN}" ]]; then
   need cargo
   (cd "${REPO_ROOT}" && cargo build --bin mosaico)
+fi
+if [[ -z "${CROISSANT_BIN}" || ! -x "${CROISSANT_BIN}" ]]; then
+  echo "Croissant is external infrastructure; set MOSAICO_DEV_CROISSANT_BIN or NIP29_RELAY_BIN" >&2
+  exit 1
 fi
 
 if [[ -f "${RELAY_PID_FILE}" ]] && kill -0 "$(cat "${RELAY_PID_FILE}")" 2>/dev/null; then
@@ -150,13 +155,14 @@ printf '%s\n' "${human_identities}" >"${HUMAN_IDENTITIES_FILE}"
 chmod 600 "${HUMAN_IDENTITIES_FILE}"
 
 (
-  cd "${REPO_ROOT}"
-  exec nohup env MOSAICO_HOME="${WORK_DIR}/mosaico-home" \
-    "${MOSAICO_BIN}" relay \
-      --host "${RELAY_BIND_HOST}" \
-      --port "${RELAY_PORT}" \
-      --data-dir "${RELAY_DATA}" \
-      --owner-pubkey "${OWNER_PK}"
+  cd "${WORK_DIR}"
+  exec nohup env \
+    HOST="${RELAY_BIND_HOST}" \
+    PORT="${RELAY_PORT}" \
+    DATAPATH="${RELAY_DATA}" \
+    DOMAIN="" \
+    OWNER_PUBLIC_KEY="${OWNER_PK}" \
+    "${CROISSANT_BIN}"
 ) >"${RELAY_LOG}" 2>&1 &
 echo "$!" >"${RELAY_PID_FILE}"
 
@@ -176,6 +182,7 @@ fi
   quote_env RUN_ID "${RUN_ID}"
   quote_env REPO_ROOT "${REPO_ROOT}"
   quote_env MOSAICO_BIN "${MOSAICO_BIN}"
+  quote_env CROISSANT_BIN "${CROISSANT_BIN}"
   quote_env WORK_DIR "${WORK_DIR}"
   quote_env RELAY_BIND_HOST "${RELAY_BIND_HOST}"
   quote_env RELAY_HOST "${RELAY_HOST}"

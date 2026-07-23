@@ -74,44 +74,42 @@ fn nip29_failure_message(
 /// Path to the NIP-29 relay binary — `nak serve` does NOT implement NIP-29
 /// group semantics (9007/9002 creates, 39001 admin reflection), so any test
 /// that owns groups or mints subgroups must run against a real NIP-29 relay.
-/// Override with `$NIP29_RELAY_BIN`. On macOS, the implicit default must be the
-/// local lock-free test build; falling back to the normal croissant binary leaks
-/// POSIX named semaphores when the test harness kills the process.
-const LOCK_FREE_NIP29_RELAY_BIN: &str = "/tmp/croissant-smallmap/croissant";
-
+/// Supply the externally installed executable with `$NIP29_RELAY_BIN`. Linux
+/// can also resolve `croissant` from PATH. macOS requires the explicit variable
+/// because relay builds without `MDB_NOLOCK` leak POSIX named semaphores when
+/// the test harness terminates them.
 #[allow(dead_code)]
 fn nip29_relay_bin() -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("NIP29_RELAY_BIN") {
         return Ok(PathBuf::from(p));
     }
-    let lock_free = PathBuf::from(LOCK_FREE_NIP29_RELAY_BIN);
-    if lock_free.exists() {
-        return Ok(lock_free);
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    default_nip29_relay_bin(&home, false)
-}
-
-fn default_nip29_relay_bin(home: &str, lock_free_exists: bool) -> Result<PathBuf, String> {
-    if lock_free_exists {
-        return Ok(PathBuf::from(LOCK_FREE_NIP29_RELAY_BIN));
-    }
-    let unsafe_default = PathBuf::from(home).join("Work/croissant/croissant");
     #[cfg(target_os = "macos")]
     {
-        Err(format!(
-            "NIP-29 relay binary not found at {LOCK_FREE_NIP29_RELAY_BIN}. \
-             Refusing to fall back to {} because croissant's default LMDB build \
-             leaks POSIX named semaphores under test-harness shutdown. Build an \
-             MDB_NOLOCK croissant there, or set $NIP29_RELAY_BIN explicitly. \
-             See mosaico #329.",
-            unsafe_default.display()
-        ))
+        Err(
+            "set $NIP29_RELAY_BIN to an external MDB_NOLOCK Croissant build; \
+             implicit relay discovery is disabled on macOS because ordinary \
+             LMDB builds leak POSIX named semaphores under test shutdown. \
+             See mosaico #329."
+                .to_string(),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Ok(unsafe_default)
+        find_on_path("croissant").ok_or_else(|| {
+            "Croissant is external infrastructure; set $NIP29_RELAY_BIN or install \
+             `croissant` on PATH."
+                .to_string()
+        })
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
+    })
 }
 
 impl TestRelay {
@@ -232,26 +230,5 @@ impl Drop for TestRelay {
         if let Some(dir) = &self.data_dir {
             let _ = std::fs::remove_dir_all(dir);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_nip29_relay_bin_prefers_lock_free_build() {
-        assert_eq!(
-            default_nip29_relay_bin("/Users/example", true).unwrap(),
-            PathBuf::from(LOCK_FREE_NIP29_RELAY_BIN)
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn default_nip29_relay_bin_refuses_macos_unsafe_fallback() {
-        let err = default_nip29_relay_bin("/Users/example", false).unwrap_err();
-        assert!(err.contains("Refusing to fall back"));
-        assert!(err.contains("MDB_NOLOCK"));
     }
 }

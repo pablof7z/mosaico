@@ -58,17 +58,14 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
         device_config::print_status()?;
         print_status(&all);
         skills::print_status()?;
-        super::local_relay::print_status()?;
         return Ok(());
     }
 
     let selected = resolve_selection(&all, &opts)?;
     preflight_selection(&selected)?;
-    let device = if opts.uninstall {
-        None
-    } else {
-        Some(device_config::configure(&opts)?)
-    };
+    if !opts.uninstall {
+        device_config::configure(&opts)?;
+    }
     if selected.skill {
         skills::install(&opts)?;
     } else {
@@ -99,20 +96,6 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
             "hermes" if opts.uninstall => hermes::uninstall(h, &opts)?,
             "hermes" => hermes::install(h, &opts, true)?,
             _ => {}
-        }
-    }
-
-    if let Some(device) = device.as_ref() {
-        if device.local_relay && device.start_local_relay {
-            super::local_relay::start(
-                device
-                    .owner_pubkey
-                    .as_deref()
-                    .expect("local relay has owner"),
-                opts.dry_run,
-            )?;
-        } else if !device.local_relay {
-            super::local_relay::stop(opts.dry_run)?;
         }
     }
 

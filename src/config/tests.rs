@@ -59,8 +59,8 @@ fn runtime_config_requires_an_explicit_relay() {
     let config = Config::from_json_str(r#"{"whitelistedPubkeys":[]}"#, "host").unwrap();
     let error = require_configured_relay(config).unwrap_err().to_string();
 
-    assert!(error.contains("choose the bundled local relay"));
-    assert!(error.contains("supply an existing relay URL"));
+    assert!(error.contains("externally operated NIP-29 relay"));
+    assert!(error.contains("mosaico setup --relay <ws-url>"));
 }
 
 #[test]

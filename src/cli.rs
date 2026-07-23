@@ -30,12 +30,10 @@ mod hooks;
 pub mod install;
 mod interactive;
 mod launch_cli;
-mod local_relay;
 mod mcp;
 mod messaging;
 mod my;
 mod pty;
-mod relay;
 mod resume;
 mod session;
 mod session_catalog;
@@ -128,7 +126,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             Some(DaemonAction::Stop) => daemon_lifecycle::stop(),
             None => crate::daemon::server::run().await,
         },
-        Some(Cmd::Relay(args)) => relay::relay(args),
         Some(Cmd::Debug { action }) => debug::debug(action).await,
         Some(Cmd::Doctor(args)) => doctor::doctor(args).await,
         Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),

@@ -39,6 +39,7 @@ E2E_WORKSPACE="${E2E_WARM_WORKSPACE:-warm-demo}"
 PEER_NAME="${E2E_WARM_NAME:-alice-peer}"
 
 require_nak
+require_nip29_relay
 command -v jq >/dev/null 2>&1 || die "jq not found on PATH — required to parse relay JSON"
 
 # ── check accounting ─────────────────────────────────────────────────────────
@@ -70,10 +71,6 @@ mkdir -p "${E2E_WORK}" "${KEYS_DIR}"
 
 # ── 1. boot the NIP-29 relay (croissant) ─────────────────────────────────────
 log "step 1: NIP-29 relay"
-if [[ ! -x "${NIP29_RELAY_BIN}" ]]; then
-  log "building NIP-29 relay (CGO; one-time, ~1m)"
-  ( cd "${NIP29_RELAY_DIR}" && CGO_ENABLED=1 go build -o ./croissant ) || die "NIP-29 relay build failed"
-fi
 ok "NIP-29 relay binary: ${NIP29_RELAY_BIN}"
 
 mkdir -p "${RELAY_DATA}"

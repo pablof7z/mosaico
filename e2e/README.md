@@ -36,9 +36,9 @@ Provider-backed PTY, ACP, and app-server tests remain in `skills/mosaico-dev`.
 
 ## The Relay
 
-The default local relay binary is [`croissant`](https://viewsource.win) (at
-`/tmp/croissant-smallmap` when present, else `${HOME}/Work/croissant`), a Go
-relay built on `khatru` + the `fiatjaf.com/nostr/nip29` library.
+The rig requires an external
+[`croissant`](https://github.com/pablof7z/croissant) executable through
+`NIP29_RELAY_BIN`. Mosaico never builds or owns the relay.
 
 **It fully implements NIP-29 relay-based groups.** Evidence:
 
@@ -164,8 +164,7 @@ ok  PTY exec argv is claude --dangerously-skip-permissions --agent reviewer
 | `E2E_WORKSPACE`          | `e2e-demo`                                | workspace slug / group id driven by the test |
 | `E2E_WORK`             | `$TMPDIR/mosaico-e2e`                  | scratch root (relay data, backend homes, logs) |
 | `E2E_MOSAICO_BIN`   | `<repo>/target/debug/mosaico`          | binary under test (override only via THIS var) |
-| `NIP29_RELAY_DIR`      | `/tmp/croissant-smallmap` if present, else `$HOME/Work/croissant` | NIP-29 relay checkout |
-| `NIP29_RELAY_BIN`      | `$NIP29_RELAY_DIR/croissant`              | NIP-29 relay binary |
+| `NIP29_RELAY_BIN`      | `croissant` resolved from PATH             | external NIP-29 relay executable |
 | `MOSAICO_DEBUG`     | `1`                                       | verbose daemon logging |
 
 > **Do not** override the binary with `$MOSAICO_BIN` — mosaico itself reads

@@ -92,7 +92,7 @@ fn missing_relay_is_an_error_with_explicit_setup_choices() {
         .repair
         .as_deref()
         .unwrap()
-        .contains("bundled local relay"));
+        .contains("externally operated NIP-29 relay"));
 }
 
 #[test]

@@ -21,11 +21,13 @@ $ mosaico setup
 ```
 
 `mosaico setup` is both the first-run and reconfiguration command. It requires
-an explicit choice between the bundled local relay and user-supplied existing
-relay URLs, then manages the profile indexer, host label, operator allowlist,
-optional CLI operator signing key, per-session-room policy, generated backend
-identity, runtime skill, and selected harness integrations. It can configure
-and start the bundled local relay or use one or more remote relays.
+one or more existing NIP-29 relay URLs, then manages the profile indexer, host
+label, operator allowlist, optional CLI operator signing key, per-session-room
+policy, generated backend identity, runtime skill, and selected harness
+integrations.
+
+Mosaico does not install or supervise relay infrastructure. Provision a
+compatible relay separately before setup.
 
 After setup, restart open harness sessions and verify the complete installation:
 
@@ -36,31 +38,18 @@ $ mosaico doctor
 
 ## Source-build fallback
 
-Building requires stable Rust, Go 1.25 or newer, Git, and the Croissant
-submodule. Go is not required after installation because the release binary
-embeds the pinned relay.
+Building Mosaico requires stable Rust and Git. Croissant is a separate
+deployment and is not part of the Mosaico build.
 
 ```console
-$ git clone --recurse-submodules https://github.com/pablof7z/mosaico.git
+$ git clone https://github.com/pablof7z/mosaico.git
 $ cd mosaico
 $ just install
-$ mosaico setup
+$ mosaico setup --relay wss://relay.example.com
 ```
 
 Without `just`, run `cargo build --release` and copy
 `target/release/mosaico` to a directory on `PATH`.
-
-## Foreground relay operation
-
-The setup wizard can manage a local relay in the background. Operators who
-instead need a foreground process can run:
-
-```console
-$ mosaico relay
-```
-
-It defaults to `127.0.0.1:9888`, stores relay data below `MOSAICO_HOME`, and
-accepts `--host`, `--port`, `--domain`, `--data-dir`, and `--owner-pubkey`.
 
 ## Uninstall
 
@@ -69,8 +58,8 @@ $ mosaico uninstall
 ```
 
 The command removes Mosaico-owned hooks, plugins, and runtime skills from every
-supported harness and stops only the Mosaico daemon and locally managed relay.
-It preserves `MOSAICO_HOME` by default and separately offers to delete its
-device identity, trust, sessions, logs, and relay data after showing the exact
+supported harness and stops only the Mosaico daemon. It does not stop or delete
+an external relay. It preserves `MOSAICO_HOME` by default and separately offers
+to delete its device identity, trust, sessions, and logs after showing the exact
 path and warning that removal is irreversible. The executable remains installed
 until removed with the package manager or file operation that installed it.

@@ -1,5 +1,4 @@
 use super::*;
-use nostr::ToBech32 as _;
 
 fn opts() -> InstallOpts {
     InstallOpts::default()
@@ -30,30 +29,11 @@ fn overrides_preserve_unknown_fields_and_secrets() {
 }
 
 #[test]
-fn local_relay_requires_and_normalizes_an_owner() {
-    let key = nostr::Keys::generate().public_key().to_bech32().unwrap();
-    let mut doc = baseline_document();
-    let mut options = opts();
-    options.local_relay = true;
-    options.operator_pubkeys = Some(key);
-
-    apply_overrides(&mut doc, &options).unwrap();
-    ensure_complete(&mut doc).unwrap();
-    let setup = summarize(&doc, &options).unwrap();
-
-    assert!(setup.local_relay);
-    assert!(setup.start_local_relay);
-    assert_eq!(doc["relays"], json!([LOCAL_RELAY_URL]));
-    assert_eq!(setup.owner_pubkey.unwrap().len(), 64);
-}
-
-#[test]
 fn fresh_document_requires_an_explicit_relay_choice() {
     let mut doc = baseline_document();
     let error = ensure_complete(&mut doc).unwrap_err().to_string();
 
-    assert!(error.contains("choose the bundled local relay"));
-    assert!(error.contains("existing relay URL"));
+    assert!(error.contains("externally operated relay URL"));
 }
 
 #[test]

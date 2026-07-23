@@ -84,7 +84,7 @@ keeps it honest.
 
 ## Install
 
-Follow [this](docs/install.md).
+Follow [the install guide](docs/install.md).
 
 ## Supported harnesses
 

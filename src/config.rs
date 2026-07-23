@@ -155,7 +155,7 @@ impl Config {
 fn require_configured_relay(config: Config) -> Result<Config> {
     if config.relays.is_empty() {
         anyhow::bail!(
-            "config has no fabric relay; run `mosaico setup` and choose the bundled local relay or supply an existing relay URL"
+            "config has no fabric relay; run `mosaico setup --relay <ws-url>` with an externally operated NIP-29 relay"
         );
     }
     Ok(config)

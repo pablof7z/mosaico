@@ -27,7 +27,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 ## 2. Stages (sequenced, each independently reviewable)
 
 0. **Build/green baseline.** The implementation started from a green unit +
-   local-relay integration baseline. Current test tiers are documented in the
+   relay-backed integration baseline. Current test tiers are documented in the
    README: CI uses `just test-unit`; local relay integrations use `just test`;
    public-relay probes are ignored and run only by explicit command.
 1. `src/state.rs` uses `journal_mode=WAL`, `synchronous=NORMAL`, and

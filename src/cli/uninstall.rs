@@ -11,7 +11,7 @@ pub(super) struct UninstallArgs {
     /// Show every removal without changing files or stopping processes.
     #[arg(long)]
     dry_run: bool,
-    /// Also remove device identity, trust, sessions, logs, and relay data.
+    /// Also remove device identity, trust, sessions, and logs.
     #[arg(long)]
     purge_state: bool,
     /// Confirm state removal in a non-interactive shell.
@@ -21,7 +21,6 @@ pub(super) struct UninstallArgs {
 
 pub(super) async fn uninstall(args: UninstallArgs) -> Result<()> {
     super::install::uninstall_everywhere(args.dry_run).await?;
-    super::local_relay::stop(args.dry_run)?;
     if args.dry_run {
         println!("would stop the Mosaico daemon without signaling detached PTY supervisors");
     } else {
@@ -42,7 +41,7 @@ pub(super) async fn uninstall(args: UninstallArgs) -> Result<()> {
         }
     } else {
         println!("preserved local Mosaico state at {}", home.display());
-        println!("This keeps device identity, operator trust, sessions, logs, and relay data.");
+        println!("This keeps device identity, operator trust, sessions, and logs.");
     }
     Ok(())
 }
@@ -66,7 +65,7 @@ fn choose_state_removal(args: &UninstallArgs, home: &Path) -> Result<bool> {
 
     println!("\nLocal state is separate from harness integrations.");
     println!("Path: {}", home.display());
-    println!("It contains device identity, operator trust, session history, logs, and relay data.");
+    println!("It contains device identity, operator trust, session history, and logs.");
     println!("Removing it is not recoverable.");
     let confirmed = Confirm::new()
         .with_prompt("Also remove this local Mosaico state?")

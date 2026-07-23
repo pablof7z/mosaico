@@ -4,7 +4,7 @@
 #
 # Pipeline:
 #   0. teardown any previous run (idempotent)
-#   1. build the NIP-29 relay if needed; start it on ws://127.0.0.1:$RELAY_PORT
+#   1. start the externally supplied NIP-29 relay on ws://127.0.0.1:$RELAY_PORT
 #   2. mint keypairs for backend-a and backend-b
 #   3. write each backend's isolated config.json + workspace registration
 #   4. SMOKE TEST:
@@ -20,6 +20,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_nak
+require_nip29_relay
 [[ -x "${MOSAICO_BIN}" ]] || die "mosaico binary not found at ${MOSAICO_BIN} (run: cargo build)"
 
 # ── 0. clean slate ───────────────────────────────────────────────────────────
@@ -35,10 +36,6 @@ export PATH="${E2E_DIR}/fixtures:${PATH}"
 
 # ── 1. relay ─────────────────────────────────────────────────────────────────
 log "step 1: NIP-29 relay"
-if [[ ! -x "${NIP29_RELAY_BIN}" ]]; then
-  log "building NIP-29 relay (CGO; one-time, ~1m)"
-  ( cd "${NIP29_RELAY_DIR}" && CGO_ENABLED=1 go build -o ./croissant ) || die "NIP-29 relay build failed"
-fi
 ok "NIP-29 relay binary: ${NIP29_RELAY_BIN}"
 
 mkdir -p "${RELAY_DATA}"

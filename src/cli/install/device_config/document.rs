@@ -1,4 +1,4 @@
-use super::{DeviceSetup, InstallOpts, LOCAL_RELAY_URL};
+use super::InstallOpts;
 use anyhow::{bail, Context, Result};
 use nostr::{Keys, PublicKey};
 use serde_json::{json, Value};
@@ -31,7 +31,6 @@ pub(super) fn read_document(path: &Path) -> Result<Value> {
 
 pub(super) fn has_overrides(opts: &InstallOpts) -> bool {
     !opts.relay.is_empty()
-        || opts.local_relay
         || opts.host_label.is_some()
         || opts.operator_pubkeys.is_some()
         || opts.clear_operators
@@ -43,9 +42,7 @@ pub(super) fn has_overrides(opts: &InstallOpts) -> bool {
 
 pub(super) fn apply_overrides(doc: &mut Value, opts: &InstallOpts) -> Result<()> {
     let object = doc.as_object_mut().expect("configuration is an object");
-    if opts.local_relay {
-        object.insert("relays".into(), json!([LOCAL_RELAY_URL]));
-    } else if !opts.relay.is_empty() {
+    if !opts.relay.is_empty() {
         object.insert("relays".into(), json!(normalize_relays(&opts.relay)?));
     }
     if let Some(label) = &opts.host_label {
@@ -104,28 +101,7 @@ pub(super) fn ensure_complete(doc: &mut Value) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn summarize(doc: &Value, opts: &InstallOpts) -> Result<DeviceSetup> {
-    let mut setup = summarize_document(doc)?;
-    setup.start_local_relay = setup.local_relay && !opts.no_start_local_relay;
-    Ok(setup)
-}
-
-pub(super) fn summarize_document(doc: &Value) -> Result<DeviceSetup> {
-    let config =
-        crate::config::Config::from_json_str(&doc.to_string(), &crate::config::hostname())?;
-    let local_relay = config.relays == [LOCAL_RELAY_URL];
-    let owner_pubkey = config.whitelisted_pubkeys.first().cloned();
-    if local_relay && owner_pubkey.is_none() {
-        bail!("the bundled local relay needs an owner; configure at least one operator pubkey");
-    }
-    Ok(DeviceSetup {
-        local_relay,
-        start_local_relay: false,
-        owner_pubkey,
-    })
-}
-
-pub(super) fn print_summary(doc: &Value, setup: &DeviceSetup) {
+pub(super) fn print_summary(doc: &Value) {
     let config = crate::config::Config::from_json_str(&doc.to_string(), &crate::config::hostname())
         .expect("validated configuration");
     println!("  host label: {}", config.host);
@@ -141,9 +117,6 @@ pub(super) fn print_summary(doc: &Value, setup: &DeviceSetup) {
         }
     );
     println!("  per-session rooms: {}", config.per_session_rooms);
-    if setup.local_relay {
-        println!("  local relay: configured");
-    }
     println!("  backend identity: present (secret not displayed)");
 }
 
@@ -157,7 +130,7 @@ pub(super) fn normalize_label(label: &str) -> Result<String> {
 
 pub(super) fn normalize_relays(relays: &[String]) -> Result<Vec<String>> {
     if relays.is_empty() {
-        bail!("choose the bundled local relay or configure at least one existing relay URL");
+        bail!("configure at least one externally operated relay URL");
     }
     relays.iter().map(|relay| normalize_relay(relay)).collect()
 }
