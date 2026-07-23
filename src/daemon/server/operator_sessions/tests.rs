@@ -167,7 +167,6 @@ fn projection_includes_live_unbound_supervisor() {
         socket: "/tmp/pty-1.sock".into(),
         supervisor_pid: 42,
         instance_token: String::new(),
-        adopted_process_fingerprint: String::new(),
         child_pid: None,
         agent: "codex".into(),
         root: "workspace".into(),

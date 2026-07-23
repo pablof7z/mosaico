@@ -14,12 +14,18 @@ pub(crate) use exit_record::{
 };
 pub(crate) use launch::new_endpoint_id;
 pub use launch::{spawn_session, SpawnSessionArgs};
-pub(crate) use meta::terminate_owned_supervisor;
 pub use meta::{
     endpoint_socket, read_all_metadata, session_dir, session_socket, write_metadata, LaunchMetadata,
 };
+pub(crate) use meta::{owned_supervisor_state, OwnedSupervisorState};
 pub(crate) use presentation::{
-    kill_if_headless_at, presentation_observation, ConditionalKillOutcome, PresentationObservation,
-    PresentationSnapshot, PresentationUnavailable,
+    kill_if_headless_at, presentation_observation, ConditionalKillOutcome, PresentationSnapshot,
+    PresentationUnavailable,
 };
 pub use supervisor::{run_supervisor, SupervisorArgs};
+
+/// Explicit destructive executor used only by the daemon's termination
+/// authority after it has classified the caller's intent.
+pub(crate) fn terminate_explicit_owned_supervisor(endpoint_id: &str) -> anyhow::Result<bool> {
+    meta::terminate_owned_supervisor(endpoint_id)
+}

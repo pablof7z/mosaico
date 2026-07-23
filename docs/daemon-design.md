@@ -92,7 +92,19 @@ aggregate separates four facts that must not be inferred from one another:
 PTY supervisors report attachment edges and child exit status. They also expose
 an atomic conditional stop that succeeds only when the expected attachment
 epoch is still headless, so an attach at the ten-minute boundary wins safely.
-The daemon never treats a failed supervisor probe as headlessness.
+The daemon never treats a failed supervisor probe as headlessness. It persists
+the presentation as `unavailable`, clears idle eligibility, and retains the
+runtime for retry.
+
+Every termination request for an admitted runtime enters one coordinator.
+Automatic PTY termination is authorized only by the supervisor's atomic
+zero-client check at the expected attachment epoch; an unavailable control
+channel fails closed and has no raw-process fallback. Startup reconciliation
+may inspect exact supervisor ownership to retain a runtime, but never uses that
+ownership proof as permission to kill it. Explicit operator kill/forget may
+terminate an attached runtime. Transport-specific PTY, ACP, and app-server
+termination mechanics remain private executors behind that boundary, and the
+durable stopped edge is committed only after process exit is confirmed.
 
 When a headless, idle runtime has no pending delivery for ten minutes, the
 lifecycle coordinator stops that exact incarnation. Its channel standing moves

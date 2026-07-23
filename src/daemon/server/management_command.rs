@@ -240,7 +240,7 @@ async fn stop_local_process(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
 ) -> Result<String> {
-    let note = super::session_end::stop_local_process(state, rec).await?;
+    let note = super::session_termination::terminate_explicit(state, rec).await?;
     Ok(if note.is_empty() {
         String::new()
     } else {

@@ -41,6 +41,26 @@ impl Store {
         )? == 1)
     }
 
+    /// Persist loss of presentation observability without inventing an
+    /// attachment edge. The expected epoch prevents a failed old probe from
+    /// hiding a newer attach/detach transition.
+    pub fn mark_session_presentation_unavailable(
+        &self,
+        pubkey: &str,
+        generation: u64,
+        attachment_epoch: u64,
+        at: u64,
+    ) -> Result<bool> {
+        Ok(self.conn.execute(
+            "UPDATE sessions
+             SET presentation_state='unavailable', idle_since=0, idle_deadline=0,
+                 state_changed_at=?4
+             WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='running'
+               AND attachment_epoch=?3",
+            params![pubkey, generation, attachment_epoch, at],
+        )? == 1)
+    }
+
     pub fn apply_session_turn_started(
         &self,
         pubkey: &str,
@@ -237,6 +257,9 @@ impl Store {
 #[cfg(test)]
 #[path = "session_lifecycle/busy_tests.rs"]
 mod busy_tests;
+#[cfg(test)]
+#[path = "session_lifecycle/presentation_tests.rs"]
+mod presentation_tests;
 #[cfg(test)]
 #[path = "session_lifecycle/tests.rs"]
 mod tests;

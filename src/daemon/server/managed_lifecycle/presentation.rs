@@ -64,8 +64,7 @@ async fn reconcile_pty(state: &Arc<DaemonState>, session: &Session, pty_id: &str
                 .lock()
                 .unwrap()
                 .remove(&(session.pubkey.clone(), session.runtime_generation));
-            let snapshot = snapshot_for_observation(session, observation);
-            if let Err(error) = apply(state, session, snapshot) {
+            if let Err(error) = apply(state, session, observation) {
                 tracing::warn!(pubkey = %session.pubkey, %error, "PTY presentation reconciliation failed");
             }
         }
@@ -83,36 +82,10 @@ async fn reconcile_pty(state: &Arc<DaemonState>, session: &Session, pty_id: &str
     }
 }
 
-fn snapshot_for_observation(
-    session: &Session,
-    observation: crate::pty::PresentationObservation,
-) -> crate::pty::PresentationSnapshot {
-    match observation {
-        crate::pty::PresentationObservation::Managed(snapshot) => snapshot,
-        crate::pty::PresentationObservation::AdoptedPreUpgrade { headless } => {
-            let presentation = if headless {
-                PresentationState::Headless
-            } else {
-                PresentationState::Headed
-            };
-            let attachment_epoch = if session.presentation_state == presentation {
-                session.attachment_epoch
-            } else {
-                session.attachment_epoch.saturating_add(1)
-            };
-            crate::pty::PresentationSnapshot {
-                attached_clients: u64::from(!headless),
-                attachment_epoch,
-                changed_at: now_secs(),
-            }
-        }
-    }
-}
-
 async fn handle_live_probe_failure(
     state: &Arc<DaemonState>,
     session: &Session,
-    pty_id: &str,
+    _pty_id: &str,
     error: crate::pty::PresentationUnavailable,
 ) {
     let failures = {
@@ -123,34 +96,35 @@ async fn handle_live_probe_failure(
         *count = count.saturating_add(1);
         *count
     };
-    if failures < 3 {
-        tracing::warn!(pubkey = %session.pubkey, failures, %error, "PTY presentation probe failed; bounded retry pending");
-        return;
+    if let Err(persist_error) =
+        super::super::session_termination::record_control_unavailable(state, session, now_secs())
+    {
+        tracing::error!(
+            pubkey = %session.pubkey,
+            failures,
+            %persist_error,
+            "PTY presentation loss could not be persisted"
+        );
     }
-    match crate::pty::terminate_owned_supervisor(pty_id) {
-        Ok(true) => {
-            tracing::error!(pubkey = %session.pubkey, failures, "unreachable PTY supervisor terminated after bounded probe failures");
-            let _ = super::stop_generation(state, session, StopReason::Crash, now_secs()).await;
-            let _ = state.with_store(|store| {
-                store.clear_runtime_locator_if_generation(
-                    &session.pubkey,
-                    crate::state::LOCATOR_PTY,
-                    session.runtime_generation,
-                )
-            });
-            state
-                .runtime
-                .pty_probe_failures
-                .lock()
-                .unwrap()
-                .remove(&(session.pubkey.clone(), session.runtime_generation));
-        }
-        Ok(false) => {
-            tracing::error!(pubkey = %session.pubkey, failures, "unreachable PTY has no owned supervisor metadata; runtime remains tracked")
-        }
-        Err(termination_error) => {
-            tracing::error!(pubkey = %session.pubkey, failures, %termination_error, "unreachable PTY supervisor could not be safely terminated; runtime remains tracked")
-        }
+    match failures {
+        1 | 2 => tracing::warn!(
+            pubkey = %session.pubkey,
+            failures,
+            %error,
+            "PTY presentation probe failed; runtime retained unavailable"
+        ),
+        3 => tracing::error!(
+            pubkey = %session.pubkey,
+            failures,
+            %error,
+            "PTY presentation remains unavailable; automatic termination denied"
+        ),
+        _ => tracing::debug!(
+            pubkey = %session.pubkey,
+            failures,
+            %error,
+            "PTY presentation still unavailable"
+        ),
     }
 }
 
