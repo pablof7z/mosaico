@@ -11,9 +11,13 @@ PROFILE_EXPLICIT=0
 
 usage() {
   cat <<'EOF'
-Usage: bash containers/mosaico/run [--profile NAME] <command> [args...]
+Usage: bash containers/mosaico/run [--profile NAME] [command] [args...]
+
+With no command, opens an interactive shell in the container.
 
 Commands:
+  shell                    Open a read-only-source shell (default).
+  shell-rw                 Open a writable-source shell.
   build-image              Build the Apple container image.
   onboard [setup args]     Run first-time setup in a pristine isolated profile.
   doctor                   Verify mounts, tools, hooks/plugins, and isolated state.
@@ -30,8 +34,6 @@ Commands:
   opencode-ollama [args]   Run isolated OpenCode with an Ollama model.
   mosaico [args]        Run the in-container mosaico binary.
   mosaico-hosted [args] Run mosaico, then keep an ACP container alive.
-  shell                    Open a read-only-source shell.
-  shell-rw                 Open a writable-source shell.
   clean-state              Remove .container-state/<profile>.
 
 Env:
@@ -320,8 +322,7 @@ harness_for_agent() {
 }
 
 main() {
-  local cmd="${1:-}"
-  [[ -n "${cmd}" ]] || { usage; exit 2; }
+  local cmd="${1:-shell}"
   shift || true
 
   case "${cmd}" in

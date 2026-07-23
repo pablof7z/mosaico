@@ -203,6 +203,16 @@ printf '%s\n' \
   'if [ "${1:-}" = "run" ]; then exec /bin/sleep "${FAKE_CONTAINER_SLEEP:-0}"; fi' \
   'exit 2' >"${TMP}/fake-bin/container"
 chmod +x "${TMP}/fake-bin/container"
+
+DEFAULT_SHELL_STATE="${TMP}/default-shell-state"
+PATH="${TMP}/fake-bin:${PATH}" \
+  MOSAICO_CONTAINER_HOST_AUTH=0 \
+  MOSAICO_CONTAINER_STATE="${DEFAULT_SHELL_STATE}" \
+  bash "${ROOT}/containers/mosaico/run"
+[[ -d "${DEFAULT_SHELL_STATE}" ]] \
+  || fail 'no-command runner did not open the default shell container'
+echo 'ok: no-command runner opens an interactive shell container'
+
 LOCK_STATE="${TMP}/lock-state"
 PATH="${TMP}/fake-bin:${PATH}" \
   MOSAICO_CONTAINER_HOST_AUTH=0 \

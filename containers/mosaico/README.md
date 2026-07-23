@@ -6,6 +6,23 @@ all generated state lives under `.container-state/<profile>` on the host.
 
 ## Commands
 
+Open an interactive shell and run as many commands as needed in the same
+container:
+
+```bash
+bash containers/mosaico/run
+```
+
+The checkout is read-only by default. Use `shell-rw` when the commands need to
+modify source files:
+
+```bash
+bash containers/mosaico/run shell-rw
+```
+
+The remaining commands are optional shortcuts that select the appropriate
+isolated profile and perform any required harness setup:
+
 ```bash
 bash containers/mosaico/run build-image
 bash containers/mosaico/run onboard
