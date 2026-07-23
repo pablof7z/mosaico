@@ -10,6 +10,7 @@ fn nip40_expired_status_not_live() {
         title: "t".into(),
         activity: "act".into(),
         state: crate::session_state::SessionState::Working,
+        state_since: 100,
         last_seen: 100,
         updated_at: 100,
         expiration: 200,

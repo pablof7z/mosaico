@@ -1,23 +1,66 @@
-//! Host seam for status policy effects.
+//! Ordered, non-blocking publication of reconciled presence effects.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use nostr_sdk::prelude::Keys;
+use tokio::sync::mpsc;
 
 use crate::domain::{DomainEvent, Status};
 use crate::fabric::provider::Nip29Provider;
 use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
 use crate::state::Store;
 
+const PUBLISH_QUEUE_CAPACITY: usize = 256;
+
 pub(crate) struct DriveMeta<'a> {
     pub trigger: &'a str,
 }
 
-pub(crate) async fn drive(
+struct PublishJob {
+    outcome: StatusOutcome,
+    keys: Keys,
+    trigger: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct PresencePublisher {
+    tx: mpsc::Sender<PublishJob>,
+}
+
+impl PresencePublisher {
+    pub(crate) fn spawn(
+        provider: Arc<Nip29Provider>,
+        store: Arc<Mutex<Store>>,
+    ) -> PresencePublisher {
+        let (tx, mut rx) = mpsc::channel::<PublishJob>(PUBLISH_QUEUE_CAPACITY);
+        tokio::spawn(async move {
+            while let Some(job) = rx.recv().await {
+                let event_ids =
+                    apply_status_effects(&job.outcome, &provider, &job.keys, &job.trigger).await;
+                record_status_receipt(&store, &job.outcome, &event_ids);
+            }
+        });
+        PresencePublisher { tx }
+    }
+
+    fn submit(&self, outcome: StatusOutcome, keys: &Keys, trigger: &str) {
+        if outcome.effects.is_empty() {
+            return;
+        }
+        if let Err(error) = self.tx.try_send(PublishJob {
+            outcome,
+            keys: keys.clone(),
+            trigger: trigger.to_string(),
+        }) {
+            tracing::warn!(%error, trigger, "presence publish queue is full or closed");
+        }
+    }
+}
+
+pub(crate) fn drive(
     status: &Mutex<StatusReconciler>,
-    provider: &Nip29Provider,
+    publisher: &PresencePublisher,
     keys: &Keys,
-    store: &Mutex<Store>,
     meta: DriveMeta<'_>,
     f: impl FnOnce(&mut StatusReconciler) -> StatusOutcome,
 ) {
@@ -25,11 +68,7 @@ pub(crate) async fn drive(
         let mut policy = status.lock().expect("status policy poisoned");
         f(&mut policy)
     };
-    if outcome.effects.is_empty() {
-        return;
-    }
-    let event_ids = apply_status_effects(&outcome, provider, keys, meta.trigger).await;
-    record_status_receipt(store, &outcome, &event_ids);
+    publisher.submit(outcome, keys, meta.trigger);
 }
 
 async fn apply_status_effects(

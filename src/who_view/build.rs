@@ -241,13 +241,13 @@ fn member_view(
     } else {
         aggregation.pubkey_ref(pubkey, input.local_host)
     };
-    let (state, text, seen) = match status {
+    let (state, text, since) = match status {
         Some(row) => {
-            let state = aggregation.observed_state(row);
+            let presence = aggregation.public_presence(pubkey, row);
             (
-                state,
-                aggregation.status_text(row),
-                relative_time(row.last_seen, input.now),
+                presence.state,
+                presence.text(),
+                relative_time(presence.state_since, input.now),
             )
         }
         None => (
@@ -265,6 +265,6 @@ fn member_view(
         name,
         state,
         status: text,
-        seen,
+        since,
     }
 }

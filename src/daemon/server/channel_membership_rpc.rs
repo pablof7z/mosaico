@@ -146,6 +146,13 @@ pub(in crate::daemon::server) async fn rpc_channel_join(
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
     ensure_joinable(state, &rec, &channel).await?;
+    super::presence::reconcile_generation(
+        state,
+        &rec.pubkey,
+        rec.runtime_generation,
+        "channel_joined",
+    )
+    .await;
     sync_subscriptions(state).await?;
     Ok(serde_json::json!({
         "channel": channel,
@@ -194,6 +201,13 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
     };
     // Teardown: with no other owner, dropping the channel emits a REAL NIP-01 CLOSE.
     if left {
+        super::presence::reconcile_generation(
+            state,
+            &rec.pubkey,
+            rec.runtime_generation,
+            "channel_left",
+        )
+        .await;
         subscriptions::reconcile_subs_logged(state, "channel_leave").await;
     }
     Ok(serde_json::json!({
@@ -240,6 +254,13 @@ pub(in crate::daemon::server) async fn rpc_channel_switch(
         // Reconcile so the left channel observation closes when no owner remains.
         subscriptions::reconcile_subs_logged(state, "channel_switch").await;
     }
+    super::presence::reconcile_generation(
+        state,
+        &rec.pubkey,
+        rec.runtime_generation,
+        "channel_switched",
+    )
+    .await;
     Ok(serde_json::json!({
         "prev_channel": prev_channel,
         "channel": new_channel,

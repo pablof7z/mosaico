@@ -54,18 +54,12 @@ pub(in crate::daemon::server) async fn rpc_my_session_status(
         serde_json::from_value(params.clone()).context("my session status params")?;
     let title = crate::session_title::normalize(&p.title)?;
     let rec = resolve_caller(state, params, "my session status")?;
-    let set_at = now_secs();
     state.with_store(|s| s.set_session_title(&rec.pubkey, &title))?;
-    let keys = state.session_signing_keys(&rec.pubkey)?;
-    crate::status_seam::drive(
-        &state.reconcilers.status,
-        state.fabric_provider(),
-        &keys,
-        &state.store,
-        crate::status_seam::DriveMeta {
-            trigger: "manual_title",
-        },
-        |r| r.on_title_set(&rec.pubkey, &title, set_at),
+    super::presence::reconcile_generation(
+        state,
+        &rec.pubkey,
+        rec.runtime_generation,
+        "manual_title",
     )
     .await;
     Ok(serde_json::json!({ "title": title }))
@@ -195,15 +189,21 @@ mod tests {
         });
         {
             let mut status = state.reconcilers.status.lock().unwrap();
-            let out = status.on_session_started(
+            let out = status.open(
                 &pubkey,
-                "test-host",
-                "codex",
-                ".",
-                BTreeSet::from(["root".to_string()]),
-                true,
-                true,
-                "",
+                1,
+                crate::reconcile::PresenceSnapshot {
+                    host: "test-host".into(),
+                    slug: "codex".into(),
+                    rel_cwd: ".".into(),
+                    dispatch_event: None,
+                    projection: crate::reconcile::PresenceProjection {
+                        channels: BTreeSet::from(["root".to_string()]),
+                        state: crate::session_state::SessionState::Working,
+                        state_since: 1,
+                        title: String::new(),
+                    },
+                },
                 1,
             );
             assert_eq!(out.effects.len(), 1);

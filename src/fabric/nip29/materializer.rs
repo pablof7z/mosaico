@@ -141,6 +141,7 @@ impl Nip29Materializer {
                 title: st.title.clone(),
                 activity: st.activity.clone(),
                 state: st.state,
+                state_since: st.state_since,
                 last_seen: updated_at,
                 updated_at,
                 expiration: st.expires_at.unwrap_or(0),

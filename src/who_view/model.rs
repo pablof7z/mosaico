@@ -49,5 +49,5 @@ pub(super) struct MemberView {
     pub(super) name: String,
     pub(super) state: crate::session_state::SessionState,
     pub(super) status: String,
-    pub(super) seen: String,
+    pub(super) since: String,
 }

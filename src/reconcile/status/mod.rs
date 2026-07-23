@@ -1,7 +1,7 @@
-//! Per-session status publication policy.
+//! Generation-fenced presence-lease publication policy.
 //!
-//! Mosaico owns product state and change detection. The host submits emitted
-//! effects through NMP's durable write plane.
+//! Managed lifecycle owns session truth. This reconciler only projects a
+//! lifecycle snapshot into an expiring signed status lease.
 
 mod command;
 mod status_build;
@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use crate::domain::Status;
+use crate::session_state::SessionState;
 
 pub use command::{StatusCommand, StatusOutcome};
 
@@ -19,7 +20,7 @@ pub use command::{StatusCommand, StatusOutcome};
 pub enum PublishReason {
     Opened,
     Changed,
-    Refreshed,
+    Renewed,
 }
 
 impl PublishReason {
@@ -27,7 +28,7 @@ impl PublishReason {
         match self {
             Self::Opened => "opened",
             Self::Changed => "changed",
-            Self::Refreshed => "refreshed",
+            Self::Renewed => "renewed",
         }
     }
 }
@@ -43,246 +44,225 @@ pub enum StatusEffect {
     },
 }
 
+/// Complete lifecycle-owned input to public presence.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct StaticInfo {
-    host: String,
-    slug: String,
-    rel_cwd: String,
-    dispatch_event: Option<String>,
+pub struct PresenceSnapshot {
+    pub host: String,
+    pub slug: String,
+    pub rel_cwd: String,
+    pub dispatch_event: Option<String>,
+    pub projection: PresenceProjection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SessionStatus {
-    info: StaticInfo,
-    channels: BTreeSet<String>,
+pub struct PresenceProjection {
+    pub channels: BTreeSet<String>,
+    pub state: SessionState,
+    pub state_since: u64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PublishedPresence {
+    generation: u64,
+    snapshot: PresenceSnapshot,
     live: bool,
-    working: bool,
-    automatic_delivery: bool,
-    title: String,
-    arm: u64,
+    renewal_arm: u64,
 }
 
 #[derive(Clone)]
 pub struct StatusReconciler {
     ttl_secs: u64,
-    refresh_secs: u64,
-    sessions: BTreeMap<String, SessionStatus>,
+    renewal_secs: u64,
+    sessions: BTreeMap<String, PublishedPresence>,
     revision: u64,
 }
 
 impl StatusReconciler {
-    pub fn new(ttl_secs: u64, refresh_secs: u64) -> Self {
+    pub fn new(ttl_secs: u64, renewal_secs: u64) -> Self {
         Self {
             ttl_secs: ttl_secs.max(1),
-            refresh_secs: refresh_secs.max(1),
+            renewal_secs: renewal_secs.max(1),
             sessions: BTreeMap::new(),
             revision: 0,
         }
     }
 
     pub fn for_ttl(ttl: Duration) -> Self {
-        Self::new(ttl.as_secs(), crate::domain::HEARTBEAT_SECS)
+        Self::new(ttl.as_secs(), crate::domain::PRESENCE_LEASE_RENEWAL_SECS)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn on_session_started(
+    /// Acquire publication ownership for one runtime generation.
+    ///
+    /// A higher generation replaces prior ownership. Equal and older starts are
+    /// idempotent because lifecycle reconciliation has a separate explicit path.
+    pub fn open(
         &mut self,
         pubkey: &str,
-        host: &str,
-        slug: &str,
-        rel_cwd: &str,
-        channels: BTreeSet<String>,
-        working: bool,
-        automatic_delivery: bool,
-        title: &str,
+        generation: u64,
+        snapshot: PresenceSnapshot,
         now: u64,
     ) -> StatusOutcome {
-        self.on_session_started_with_dispatch(
+        if self
+            .sessions
+            .get(pubkey)
+            .is_some_and(|current| current.generation >= generation)
+        {
+            return self.empty_outcome(pubkey);
+        }
+        let state = PublishedPresence {
+            generation,
+            snapshot,
+            live: true,
+            renewal_arm: self.renewal_arm(now),
+        };
+        let status = self.status_of(pubkey, &state, now, false);
+        self.sessions.insert(pubkey.to_string(), state);
+        self.outcome(
             pubkey,
-            host,
-            slug,
-            rel_cwd,
-            channels,
-            working,
-            automatic_delivery,
-            title,
-            None,
-            now,
+            vec![StatusEffect::Publish {
+                status,
+                reason: PublishReason::Opened,
+            }],
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn on_session_started_with_dispatch(
+    /// Publish a semantic lifecycle change for the owning generation.
+    pub fn reconcile(
         &mut self,
         pubkey: &str,
-        host: &str,
-        slug: &str,
-        rel_cwd: &str,
-        channels: BTreeSet<String>,
-        working: bool,
-        automatic_delivery: bool,
-        title: &str,
-        dispatch_event: Option<String>,
+        generation: u64,
+        projection: PresenceProjection,
         now: u64,
     ) -> StatusOutcome {
-        if self.sessions.contains_key(pubkey) {
-            return self.empty_outcome(Some(pubkey));
-        }
-        let state = SessionStatus {
-            info: StaticInfo {
-                host: host.to_string(),
-                slug: slug.to_string(),
-                rel_cwd: rel_cwd.to_string(),
-                dispatch_event,
-            },
-            channels,
-            live: true,
-            working,
-            automatic_delivery,
-            title: title.to_string(),
-            arm: now / self.refresh_secs,
+        let Some(state) = self.owned_mut(pubkey, generation) else {
+            return self.empty_outcome(pubkey);
         };
-        let command = command_of(pubkey, &state);
-        self.sessions.insert(pubkey.to_string(), state);
-        let revision = self.bump_revision();
-        StatusOutcome {
-            effects: vec![StatusEffect::Publish {
-                status: status_build::to_status(&command, self.ttl_secs, now, false),
-                reason: PublishReason::Opened,
+        let before = command_of(pubkey, state);
+        state.snapshot.projection = projection;
+        state.live = true;
+        let after = command_of(pubkey, state);
+        let effects = (after != before)
+            .then(|| StatusEffect::Publish {
+                status: status_build::to_status(&after, self.ttl_secs, now, false),
+                reason: PublishReason::Changed,
+            })
+            .into_iter()
+            .collect();
+        self.outcome(pubkey, effects)
+    }
+
+    /// Extend freshness only. Renewal never changes semantic content.
+    pub fn renew(&mut self, pubkey: &str, generation: u64, now: u64) -> StatusOutcome {
+        let arm = self.renewal_arm(now);
+        let Some(state) = self.owned_mut(pubkey, generation) else {
+            return self.empty_outcome(pubkey);
+        };
+        if state.renewal_arm == arm {
+            return self.empty_outcome(pubkey);
+        }
+        state.renewal_arm = arm;
+        let status = status_build::to_status(&command_of(pubkey, state), self.ttl_secs, now, false);
+        self.outcome(
+            pubkey,
+            vec![StatusEffect::Publish {
+                status,
+                reason: PublishReason::Renewed,
             }],
-            revision,
+        )
+    }
+
+    /// Publish immediate offline state for exactly one runtime generation.
+    pub fn close(&mut self, pubkey: &str, generation: u64, now: u64) -> StatusOutcome {
+        let Some(state) = self.owned_mut(pubkey, generation) else {
+            return self.empty_outcome(pubkey);
+        };
+        if !state.live {
+            return self.empty_outcome(pubkey);
+        }
+        state.live = false;
+        let status = status_build::to_status(&command_of(pubkey, state), self.ttl_secs, now, false);
+        self.outcome(
+            pubkey,
+            vec![StatusEffect::Publish {
+                status,
+                reason: PublishReason::Changed,
+            }],
+        )
+    }
+
+    /// Remove all presence for exactly one revoked runtime generation.
+    pub fn revoke(&mut self, pubkey: &str, generation: u64, now: u64) -> StatusOutcome {
+        let Some(state) = self
+            .sessions
+            .get(pubkey)
+            .filter(|state| state.generation == generation)
+            .cloned()
+        else {
+            return self.empty_outcome(pubkey);
+        };
+        self.sessions.remove(pubkey);
+        self.outcome(
+            pubkey,
+            vec![StatusEffect::Expire {
+                status: self.status_of(pubkey, &state, now, true),
+            }],
+        )
+    }
+
+    fn owned_mut(&mut self, pubkey: &str, generation: u64) -> Option<&mut PublishedPresence> {
+        self.sessions
+            .get_mut(pubkey)
+            .filter(|state| state.generation == generation)
+    }
+
+    fn renewal_arm(&self, now: u64) -> u64 {
+        now / self.renewal_secs
+    }
+
+    fn status_of(
+        &self,
+        pubkey: &str,
+        state: &PublishedPresence,
+        now: u64,
+        expiring: bool,
+    ) -> Status {
+        status_build::to_status(&command_of(pubkey, state), self.ttl_secs, now, expiring)
+    }
+
+    fn empty_outcome(&self, pubkey: &str) -> StatusOutcome {
+        StatusOutcome {
+            effects: Vec::new(),
+            revision: self.revision,
             pubkey: Some(pubkey.to_string()),
         }
     }
 
-    pub fn on_turn_start(&mut self, id: &str, now: u64) -> StatusOutcome {
-        self.mutate(id, now, |state| state.working = true)
-    }
-
-    pub fn on_turn_end(&mut self, id: &str, now: u64) -> StatusOutcome {
-        self.mutate(id, now, |state| state.working = false)
-    }
-
-    pub fn on_title_set(&mut self, id: &str, title: &str, now: u64) -> StatusOutcome {
-        self.mutate(id, now, |state| state.title = title.to_string())
-    }
-
-    pub fn on_channels_changed(
-        &mut self,
-        id: &str,
-        channels: BTreeSet<String>,
-        now: u64,
-    ) -> StatusOutcome {
-        self.mutate(id, now, move |state| state.channels = channels)
-    }
-
-    pub fn on_tick(&mut self, id: &str, automatic_delivery: bool, now: u64) -> StatusOutcome {
-        self.mutate(id, now, |state| {
-            state.automatic_delivery = automatic_delivery
-        })
-    }
-
-    pub fn on_session_ended(&mut self, id: &str, now: u64) -> StatusOutcome {
-        let final_arm = now / self.refresh_secs + 1;
-        self.mutate_with_arm(id, now, final_arm, |state| {
-            state.live = false;
-            state.working = false;
-        })
-    }
-
-    pub fn on_session_revoked(&mut self, id: &str, now: u64) -> StatusOutcome {
-        let Some(state) = self.sessions.remove(id) else {
-            return self.empty_outcome(Some(id));
-        };
-        let command = command_of(id, &state);
-        let revision = self.bump_revision();
-        StatusOutcome {
-            effects: vec![StatusEffect::Expire {
-                status: status_build::to_status(&command, self.ttl_secs, now, true),
-            }],
-            revision,
-            pubkey: Some(id.to_string()),
-        }
-    }
-
-    pub fn forget_session(&mut self, id: &str) {
-        self.sessions.remove(id);
-    }
-
-    fn mutate(
-        &mut self,
-        id: &str,
-        now: u64,
-        update: impl FnOnce(&mut SessionStatus),
-    ) -> StatusOutcome {
-        self.mutate_with_arm(id, now, now / self.refresh_secs, update)
-    }
-
-    fn mutate_with_arm(
-        &mut self,
-        id: &str,
-        now: u64,
-        arm: u64,
-        update: impl FnOnce(&mut SessionStatus),
-    ) -> StatusOutcome {
-        let Some(state) = self.sessions.get_mut(id) else {
-            return self.empty_outcome(Some(id));
-        };
-        let previous = command_of(id, state);
-        let previous_arm = state.arm;
-        state.arm = arm;
-        update(state);
-        let current = command_of(id, state);
-        let reason = if current != previous {
-            Some(PublishReason::Changed)
-        } else if state.arm != previous_arm {
-            Some(PublishReason::Refreshed)
-        } else {
-            None
-        };
-        let effects = reason
-            .map(|reason| StatusEffect::Publish {
-                status: status_build::to_status(&current, self.ttl_secs, now, false),
-                reason,
-            })
-            .into_iter()
-            .collect();
-        let revision = self.bump_revision();
+    fn outcome(&mut self, pubkey: &str, effects: Vec<StatusEffect>) -> StatusOutcome {
+        self.revision = self.revision.saturating_add(1);
         StatusOutcome {
             effects,
-            revision,
-            pubkey: Some(id.to_string()),
-        }
-    }
-
-    fn empty_outcome(&self, pubkey: Option<&str>) -> StatusOutcome {
-        StatusOutcome {
-            effects: Vec::new(),
             revision: self.revision,
-            pubkey: pubkey.map(str::to_string),
+            pubkey: Some(pubkey.to_string()),
         }
-    }
-
-    fn bump_revision(&mut self) -> u64 {
-        self.revision = self.revision.saturating_add(1);
-        self.revision
     }
 }
 
-fn command_of(pubkey: &str, state: &SessionStatus) -> StatusCommand {
-    let product_state = crate::session_state::SessionState::classify(
-        state.live,
-        state.working,
-        state.automatic_delivery,
-    );
+fn command_of(pubkey: &str, state: &PublishedPresence) -> StatusCommand {
+    let snapshot = &state.snapshot;
     StatusCommand {
         pubkey: pubkey.to_string(),
-        channels: state.channels.iter().cloned().collect(),
-        title: state.title.clone(),
-        state: product_state,
-        host: state.info.host.clone(),
-        slug: state.info.slug.clone(),
-        rel_cwd: state.info.rel_cwd.clone(),
-        dispatch_event: state.info.dispatch_event.clone(),
+        channels: snapshot.projection.channels.iter().cloned().collect(),
+        title: snapshot.projection.title.clone(),
+        state: if state.live {
+            snapshot.projection.state
+        } else {
+            SessionState::Offline
+        },
+        state_since: snapshot.projection.state_since,
+        host: snapshot.host.clone(),
+        slug: snapshot.slug.clone(),
+        rel_cwd: snapshot.rel_cwd.clone(),
+        dispatch_event: snapshot.dispatch_event.clone(),
     }
 }

@@ -153,6 +153,14 @@ async fn finish_idle_eviction(state: &Arc<DaemonState>, stopping: Session) -> Re
                 stopped.runtime_generation,
             )
         })?;
+        super::super::presence::close_generation(
+            state,
+            &stopped.pubkey,
+            stopped.runtime_generation,
+            stopped_at,
+            "idle_eviction_stopped",
+        )
+        .await;
         super::emit_stopped(state, &stopped, stopped_at);
     }
     Ok(())

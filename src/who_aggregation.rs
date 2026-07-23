@@ -28,7 +28,7 @@ pub(crate) struct WhoAggregation {
     profiles: BTreeMap<String, Profile>,
     identities: BTreeMap<String, SessionIdentity>,
     sessions_by_pubkey: BTreeMap<String, Session>,
-    local_states: BTreeMap<String, crate::session_state::SessionState>,
+    local_presence: BTreeMap<String, crate::session_presence::PublicPresence>,
     workspace_paths: BTreeMap<String, String>,
 }
 
@@ -130,17 +130,16 @@ impl WhoAggregation {
                 sessions_by_pubkey.insert(pubkey, session);
             }
         }
-        let local_states = local_sessions
+        let local_presence = local_sessions
             .iter()
             .map(|session| {
-                let fresh =
-                    now.saturating_sub(session.last_seen) <= crate::session::STATUS_TTL_SECS;
-                let state = crate::session_state::SessionState::classify(
-                    fresh,
-                    session.is_working(),
-                    crate::session_host::session_has_live_delivery_path(store, session),
-                );
-                (session.pubkey.clone(), state)
+                let published = statuses
+                    .get(&session.channel_h)
+                    .and_then(|rows| rows.iter().find(|row| row.pubkey == session.pubkey));
+                (
+                    session.pubkey.clone(),
+                    crate::session_presence::local(store, session, published),
+                )
             })
             .collect();
         let workspace_paths = store
@@ -163,7 +162,7 @@ impl WhoAggregation {
             profiles,
             identities,
             sessions_by_pubkey,
-            local_states,
+            local_presence,
             workspace_paths,
         })
     }
@@ -192,26 +191,30 @@ impl WhoAggregation {
             .unwrap_or_default()
     }
 
-    pub(crate) fn observed_state(&self, status: &Status) -> crate::session_state::SessionState {
-        status.state.observed(status.expiration >= self.now)
+    pub(crate) fn public_presence(
+        &self,
+        pubkey: &str,
+        status: &Status,
+    ) -> crate::session_presence::PublicPresence {
+        self.local_presence
+            .get(pubkey)
+            .cloned()
+            .unwrap_or_else(|| crate::session_presence::remote(status, self.now))
     }
 
-    pub(crate) fn status_text(&self, status: &Status) -> String {
-        if self.observed_state(status).is_working() && !status.activity.trim().is_empty() {
-            status.activity.trim().to_string()
-        } else {
-            status.title.trim().to_string()
-        }
-    }
-
-    pub(crate) fn local_session_state(
+    pub(crate) fn local_session_presence(
         &self,
         session: &Session,
-    ) -> crate::session_state::SessionState {
-        self.local_states
-            .get(&session.pubkey)
-            .copied()
-            .unwrap_or(crate::session_state::SessionState::Offline)
+    ) -> crate::session_presence::PublicPresence {
+        self.local_presence.get(&session.pubkey).cloned().unwrap_or(
+            crate::session_presence::PublicPresence {
+                state: crate::session_state::SessionState::Offline,
+                state_since: session.stopped_at,
+                title: session.title.clone(),
+                activity: String::new(),
+                observed_at: session.last_seen,
+            },
+        )
     }
 
     pub(crate) fn agents_for_root(&self, root: Option<&str>) -> Vec<AgentAvailability> {

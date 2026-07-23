@@ -37,6 +37,7 @@ mod membership_cleanup;
 mod my_session;
 mod operator_sessions;
 mod orchestration_handler;
+pub(crate) mod presence;
 mod pty_rpc;
 mod rpc;
 mod session_dispatch;
@@ -356,9 +357,9 @@ fn env_u64(key: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-fn status_ttl_duration() -> Duration {
+fn presence_lease_ttl() -> Duration {
     Duration::from_secs(env_u64(
-        "MOSAICO_STATUS_TTL_S",
-        crate::domain::STATUS_TTL_SECS,
+        "MOSAICO_PRESENCE_LEASE_TTL_S",
+        crate::domain::PRESENCE_LEASE_TTL_SECS,
     ))
 }

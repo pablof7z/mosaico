@@ -1,6 +1,6 @@
 use super::TaggedRecipient;
 use crate::session_state::SessionState;
-use crate::state::{Message, Session, Store};
+use crate::state::{Message, Store};
 use anyhow::Result;
 
 #[cfg(test)]
@@ -73,7 +73,8 @@ fn recipient_presence(
 ) -> Result<(SessionState, Option<String>)> {
     let local = store.get_session(pubkey)?;
     if let Some(session) = local {
-        let state = local_state(store, &session);
+        let published = store.get_status(pubkey, channel)?;
+        let state = crate::session_presence::local(store, &session, published.as_ref()).state;
         let label = store
             .session_identity(&session.pubkey)?
             .map(|identity| identity.display_slug())
@@ -84,22 +85,11 @@ fn recipient_presence(
     let status = store.get_status(pubkey, channel)?;
     Ok(match status {
         Some(status) => (
-            status.state.observed(status.expiration >= now),
+            crate::session_presence::remote(&status, now).state,
             Some(status.slug),
         ),
         None => (SessionState::Offline, None),
     })
-}
-
-fn local_state(store: &Store, session: &Session) -> SessionState {
-    let automatic_delivery = session.is_running()
-        && !session.is_working()
-        && crate::session_host::session_has_live_delivery_path(store, session);
-    SessionState::classify(
-        session.is_running(),
-        session.is_working(),
-        automatic_delivery,
-    )
 }
 
 fn normalize_label(label: &str) -> Option<&str> {

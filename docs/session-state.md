@@ -10,16 +10,22 @@ below this boundary and must not appear in agent-facing output.
 | `suspended` | The session is online and between turns, but has no live automatic-delivery path. Mentions remain queued until manual resume. |
 | `offline` | The session is not live. |
 
-The owning host is authoritative because it alone can classify liveness,
-mid-turn activity, and automatic delivery together. It publishes the normalized
-value in kind:30315's `state` tag; listings and injected presence render that
-value rather than reconstructing state from lower-level details.
+The owning host is authoritative because it alone can classify runtime,
+mid-turn activity, and automatic delivery together. Every local surface uses
+the same lifecycle projection. The presence publisher signs that projection as
+a kind:30315 lease for remote observers; it does not own a second state machine.
 
 Fresh peer status is authoritative. A clean session end publishes `offline`
 immediately, while NIP-40 expiration makes an unrefreshed state `offline` for
-every viewer. Heartbeats refresh liveness without advancing the semantic
+every viewer. Lease renewals refresh liveness without advancing the semantic
 `updated_at` clock; only a title, activity, slug, or normalized-state change
 produces a presence delta.
+
+Local and remote observation intentionally differ during a partition: the
+owning daemon can still know its runtime is live while remote viewers must mark
+the expired lease offline. The signed lease carries `state-since`; rendered
+`since` age is that semantic transition age, never the lease-renewal observation
+time.
 
 ## Managed runtime lifecycle
 

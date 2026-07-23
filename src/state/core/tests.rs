@@ -79,6 +79,7 @@ fn table_samples_prefer_fresh_status_rows() {
                 title: String::new(),
                 activity: String::new(),
                 state: crate::session_state::SessionState::Idle,
+                state_since: updated_at,
                 last_seen: updated_at,
                 updated_at,
                 expiration,

@@ -107,7 +107,7 @@ fn render_members(out: &mut String, members: &[MemberView], indent: usize) {
         if !member.status.is_empty() {
             let _ = write!(out, " status=\"{}\"", attr(&member.status));
         }
-        let _ = write!(out, " seen=\"{}\" />", attr(&member.seen));
+        let _ = write!(out, " since=\"{}\" />", attr(&member.since));
     }
     let _ = write!(out, "\n{pad}</members>");
 }

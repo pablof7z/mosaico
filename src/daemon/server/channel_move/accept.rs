@@ -143,6 +143,17 @@ pub(in crate::daemon::server) async fn rpc_accept(
         }
     }
     subscriptions::reconcile_subs_logged(state, "channel_move_accept").await;
+    for pubkey in &added {
+        if let Some(session) = state.with_store(|store| store.get_session(pubkey))? {
+            super::super::presence::reconcile_generation(
+                state,
+                &session.pubkey,
+                session.runtime_generation,
+                "channel_move_accepted",
+            )
+            .await;
+        }
+    }
 
     let pointer = format!("Moving this to #{name}");
     let pointer_posted =

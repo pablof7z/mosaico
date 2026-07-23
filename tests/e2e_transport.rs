@@ -46,6 +46,7 @@ async fn publishes_and_decodes_all_event_types() {
             title: "fixing the auth bug".into(),
             activity: "reading the diff".into(),
             state: mosaico::session_state::SessionState::Working,
+            state_since: 1_800_000_000,
             rel_cwd: String::new(),
             expires_at: Some(1_900_000_000),
             dispatch_event: None,

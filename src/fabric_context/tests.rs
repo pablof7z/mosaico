@@ -42,6 +42,7 @@ fn publish_idle_status(store: &Store, pubkey: &str, slug: &str, title: &str) {
             title: title.into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 90,
             last_seen: 90,
             updated_at: 90,
             expiration: 2_000,

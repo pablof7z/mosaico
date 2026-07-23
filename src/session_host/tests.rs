@@ -30,6 +30,7 @@ fn sample_session() -> crate::state::Session {
         seen_cursor: 0,
         title: String::new(),
         explicit_chat_published_at: 0,
+        state_changed_at: 0,
     }
 }
 

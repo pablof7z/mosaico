@@ -239,6 +239,7 @@ fn freeze_peer_status_materializes_to_unified_presence_state() {
             title: "reviewing relay state".into(),
             activity: "checking 39002".into(),
             state: mosaico::session_state::SessionState::Working,
+            state_since: 105,
             last_seen: 105,
             updated_at: 105,
             expiration: 1_000_000,

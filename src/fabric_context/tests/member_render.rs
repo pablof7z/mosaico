@@ -3,7 +3,7 @@
 use crate::fabric_context::{
     assemble, capture_inputs, render_fabric_context, render_fabric_context_human, render_view_text,
 };
-use crate::state::{Status, Store};
+use crate::state::{RegisterSession, Status, Store};
 
 use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
 
@@ -16,7 +16,7 @@ fn empty_status_agents_are_omitted_from_snapshots_and_deltas() {
         .expect("snapshot should render");
     assert!(!snapshot.contains("<members>"), "got: {snapshot}");
     assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
-    assert!(!snapshot.contains("seen=\"unknown\""), "got: {snapshot}");
+    assert!(!snapshot.contains("since=\"unknown\""), "got: {snapshot}");
 
     store
         .upsert_status(&Status {
@@ -26,6 +26,7 @@ fn empty_status_agents_are_omitted_from_snapshots_and_deltas() {
             title: String::new(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 150,
             last_seen: 150,
             updated_at: 150,
             expiration: 300,
@@ -62,6 +63,7 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
             title: "Reviewing".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 90,
             last_seen: 90,
             updated_at: 90,
             expiration: 500,
@@ -77,7 +79,7 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
         "got: {text}"
     );
     assert!(!text.contains("status=\"\""), "got: {text}");
-    assert!(!text.contains("seen=\"unknown\""), "got: {text}");
+    assert!(!text.contains("since=\"unknown\""), "got: {text}");
     assert!(
         !text.contains(" agentSlug=\""),
         "member rows must not render agentSlug attributes: {text}"
@@ -94,6 +96,50 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
 }
 
 #[test]
+fn local_lifecycle_overrides_an_expired_offline_relay_echo() {
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .reserve_hook_session_for_test(&RegisterSession {
+            pubkey: OTHER_PK.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "reviewer".into(),
+            channel_h: "root".into(),
+            child_pid: None,
+            transcript_path: None,
+            now: 95,
+        })
+        .unwrap();
+    store
+        .upsert_status(&Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Recovered session".into(),
+            activity: String::new(),
+            state: crate::session_state::SessionState::Offline,
+            state_since: 100,
+            last_seen: 100,
+            updated_at: 100,
+            expiration: 100,
+        })
+        .unwrap();
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 101, true))
+        .expect("context should render");
+    assert!(
+        text.contains(
+            "<member ref=\"@reviewer\" state=\"suspended\" status=\"Recovered session\" since=\"just now\""
+        ),
+        "got: {text}"
+    );
+    assert!(
+        !text.contains("<member ref=\"@reviewer\" state=\"offline\""),
+        "local lifecycle must win over its relay echo: {text}"
+    );
+}
+
+#[test]
 fn suspended_and_offline_deltas_match_both_render_paths() {
     let store = seed_store();
     let rec = session(&store);
@@ -104,6 +150,7 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
         title: "Reviewing".into(),
         activity: String::new(),
         state: crate::session_state::SessionState::Suspended,
+        state_since: 90,
         last_seen: 90,
         updated_at: 90,
         expiration: 120,
@@ -139,7 +186,7 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
 }
 
 #[test]
-fn heartbeat_without_state_change_produces_no_presence_delta() {
+fn lease_renewal_without_state_change_produces_no_presence_delta() {
     let store = seed_store();
     let rec = session(&store);
     let mut peer = Status {
@@ -149,6 +196,7 @@ fn heartbeat_without_state_change_produces_no_presence_delta() {
         title: "Reviewing".into(),
         activity: String::new(),
         state: crate::session_state::SessionState::Suspended,
+        state_since: 90,
         last_seen: 90,
         updated_at: 90,
         expiration: 180,
@@ -162,6 +210,41 @@ fn heartbeat_without_state_change_produces_no_presence_delta() {
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("forced quiet delta should render");
     assert!(!text.contains("<recent-presence>"), "got: {text}");
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 160, true)).unwrap();
+    assert_eq!(
+        render_view_text(&assemble::assemble_view(&captured, 100, 160)),
+        text
+    );
+}
+
+#[test]
+fn semantic_status_change_is_a_delta_without_resetting_state_age() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut peer = Status {
+        pubkey: OTHER_PK.into(),
+        channel_h: "root".into(),
+        slug: "amber-reviewer".into(),
+        title: "Reviewing".into(),
+        activity: String::new(),
+        state: crate::session_state::SessionState::Suspended,
+        state_since: 90,
+        last_seen: 90,
+        updated_at: 90,
+        expiration: 240,
+    };
+    store.upsert_status(&peer).unwrap();
+    peer.title = "Updated title".into();
+    peer.last_seen = 150;
+    peer.updated_at = 150;
+    peer.expiration = 300;
+    store.upsert_status(&peer).unwrap();
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
+        .expect("status-change delta should render");
+    assert!(text.contains("<recent-presence>"), "got: {text}");
+    assert!(text.contains("text=\"Updated title\""), "got: {text}");
+    assert!(text.contains("since=\"1 min ago\""), "got: {text}");
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 160, true)).unwrap();
     assert_eq!(
         render_view_text(&assemble::assemble_view(&captured, 100, 160)),
@@ -252,6 +335,7 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
                 title: String::new(),
                 activity: activity.into(),
                 state: crate::session_state::SessionState::Working,
+                state_since: 250,
                 last_seen: 250,
                 updated_at: 250,
                 expiration: 500,

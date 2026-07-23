@@ -294,6 +294,13 @@ Switch into it instead: mosaico channel switch {}",
     // channel so the creator can still see and receive mentions from it.
     let switched = if let Some(rec) = &creator_rec {
         set_active_session_channel(state, &rec.pubkey, &child_h)?;
+        super::presence::reconcile_generation(
+            state,
+            &rec.pubkey,
+            rec.runtime_generation,
+            "channel_created",
+        )
+        .await;
         true
     } else {
         false

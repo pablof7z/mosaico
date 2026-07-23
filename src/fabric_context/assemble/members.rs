@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::status_text;
+use super::projected_presence;
 use crate::fabric_context::capture::{MembersInput, StatusCap, ViewInputs};
 use crate::fabric_context::model::MemberRow;
 use crate::util::relative_time;
@@ -25,10 +25,15 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
         .filter(|(pk, _)| !members.backend.contains(pk))
         .filter_map(|(pk, _role)| {
             let status = status_map.get(&pk);
-            let state = status
-                .map(|s| s.state.observed(s.expiration >= now))
+            let presence = status.map(|status| projected_presence(status, now));
+            let state = presence
+                .as_ref()
+                .map(|row| row.state)
                 .unwrap_or(crate::session_state::SessionState::Offline);
-            let status_text = status.map(|s| status_text(s, state)).unwrap_or_default();
+            let status_text = presence
+                .as_ref()
+                .map(crate::session_presence::PublicPresence::text)
+                .unwrap_or_default();
             if status_text.is_empty() {
                 return None;
             }
@@ -36,8 +41,8 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
                 reference: reference(inputs, &pk, status),
                 state,
                 status: status_text,
-                seen: status
-                    .map(|s| relative_time(s.last_seen, now))
+                since: presence
+                    .map(|row| relative_time(row.state_since, now))
                     .unwrap_or_else(|| "unknown".to_string()),
             })
         })
@@ -48,7 +53,7 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
 fn live_status_map(statuses: &[StatusCap], now: u64) -> BTreeMap<String, &StatusCap> {
     statuses
         .iter()
-        .filter(|s| s.expiration >= now)
+        .filter(|s| s.expiration.is_none_or(|expiration| expiration >= now))
         .map(|s| (s.pubkey.clone(), s))
         .collect()
 }

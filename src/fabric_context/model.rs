@@ -176,7 +176,7 @@ pub(in crate::fabric_context) struct MemberRow {
     pub(in crate::fabric_context) reference: String,
     pub(in crate::fabric_context) state: crate::session_state::SessionState,
     pub(in crate::fabric_context) status: String,
-    pub(in crate::fabric_context) seen: String,
+    pub(in crate::fabric_context) since: String,
 }
 
 #[derive(Clone, PartialEq)]
@@ -184,7 +184,7 @@ pub(in crate::fabric_context) struct PresenceRow {
     pub(in crate::fabric_context) reference: String,
     pub(in crate::fabric_context) state: crate::session_state::SessionState,
     pub(in crate::fabric_context) status: String,
-    pub(in crate::fabric_context) seen: String,
+    pub(in crate::fabric_context) since: String,
 }
 
 #[derive(Clone, PartialEq)]

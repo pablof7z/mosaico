@@ -78,6 +78,7 @@ fn record_peer(
             } else {
                 crate::session_state::SessionState::Idle
             },
+            state_since: ts,
             last_seen: ts,
             updated_at: ts,
             expiration: ts + 90,
@@ -194,6 +195,7 @@ fn who_snapshot_hides_archived_channel_presence() {
             title: "done".to_string(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 1_000,
             last_seen: 1_000,
             updated_at: 1_000,
             expiration: 1_090,

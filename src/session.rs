@@ -5,7 +5,7 @@
 //! locators. This module only owns the harness vocabulary and the deterministic
 //! decision for placing a newly launched runtime in a channel.
 
-pub use crate::domain::STATUS_TTL_SECS;
+pub use crate::domain::PRESENCE_LEASE_TTL_SECS;
 
 /// Which agent harness produced an observation. The string form is persisted
 /// with typed runtime locators.

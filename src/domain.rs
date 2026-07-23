@@ -4,15 +4,11 @@
 //! The litmus test for the provider seam: everything here is what mosaico
 //! *means*, never how it travels.
 
-/// Liveness TTL: a status is "live" while its heartbeat is fresher than this.
-/// The daemon refreshes the provider-native expiry to `now + STATUS_TTL_SECS` on
-/// every heartbeat, so a stopped session disappears from live views roughly this
-/// long after its last beat. 90s matches the `who` peer-freshness window so
-/// local and peer liveness use one number.
-pub const STATUS_TTL_SECS: u64 = 90;
+/// A remote observer treats a presence lease as live through this TTL.
+pub const PRESENCE_LEASE_TTL_SECS: u64 = 90;
 
-/// Heartbeat cadence. 3x re-arm margin under `STATUS_TTL_SECS` (no flicker).
-pub const HEARTBEAT_SECS: u64 = 30;
+/// Lease-renewal cadence. Three renewals fit inside the expiry window.
+pub const PRESENCE_LEASE_RENEWAL_SECS: u64 = 30;
 
 /// A reference to an agent: its sovereign pubkey and the slug it goes by.
 /// Identity is `(agent, machine)` — the same tool on another machine is a
@@ -127,10 +123,9 @@ pub struct Activity {
 /// now* (the live `activity`), and its canonical user-facing state. It is scoped
 /// per authoritative agent pubkey, so each agent keeps its title even while idle.
 ///
-/// Liveness = freshness of this state. The daemon refreshes `expires_at` on
-/// every heartbeat. Beats stop, the provider-native expiry passes, and readers
-/// treat the session as dead. `expires_at == None` publishes without an expiry
-/// (used only in tests / non-heartbeat contexts).
+/// Remote liveness = freshness of this lease. The daemon renews `expires_at`;
+/// when renewal stops, provider-native expiry makes remote readers treat the
+/// session as dead. `expires_at == None` is reserved for tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub agent: AgentRef,
@@ -148,13 +143,14 @@ pub struct Status {
     pub activity: String,
     /// Canonical user-facing state, normalized from host/runtime facts.
     pub state: crate::session_state::SessionState,
+    /// Unix timestamp of the last canonical state transition. Lease renewal,
+    /// title edits, and channel changes do not advance it.
+    pub state_since: u64,
     /// Channel-relative working directory (e.g. `worktree1`, `sub/dir`, `.`).
     /// Public status value: never the absolute `$HOME/...` path (privacy). Lets
     /// awareness projections reflect where the agent is working.
     pub rel_cwd: String,
-    /// Expiration timestamp (unix secs). `Some(now + STATUS_TTL_SECS)` on every
-    /// heartbeat re-arm; `None` publishes without an expiry. Liveness IS the
-    /// freshness of this state.
+    /// Expiration timestamp (unix secs), re-armed by lease renewal.
     pub expires_at: Option<u64>,
     /// Dispatch kind:9 event id that caused this session to start, when any.
     /// Encoded as a status `e` tag so requesters can correlate the ACK.
@@ -258,6 +254,7 @@ mod tests {
             title: "fixing auth".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 1,
             rel_cwd: String::new(),
             expires_at: None,
             dispatch_event: None,
@@ -269,6 +266,7 @@ mod tests {
             title: "fixing auth".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Working,
+            state_since: 1,
             rel_cwd: String::new(),
             expires_at: None,
             dispatch_event: None,

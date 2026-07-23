@@ -80,12 +80,17 @@ impl SubscriptionState {
 /// Stateful reconcilers whose policy outlives any one RPC.
 pub(super) struct ReconcilerState {
     pub(super) status: Arc<Mutex<StatusReconciler>>,
+    pub(super) presence_publisher: crate::presence_publisher::PresencePublisher,
 }
 
 impl ReconcilerState {
-    pub(super) fn new(status: StatusReconciler) -> Self {
+    pub(super) fn new(
+        status: StatusReconciler,
+        presence_publisher: crate::presence_publisher::PresencePublisher,
+    ) -> Self {
         Self {
             status: Arc::new(Mutex::new(status)),
+            presence_publisher,
         }
     }
 }

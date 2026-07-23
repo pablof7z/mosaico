@@ -44,6 +44,7 @@ fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
         } else {
             crate::session_state::SessionState::Idle
         },
+        state_since: 42,
         rel_cwd: rel_cwd.into(),
         expires_at: None,
         dispatch_event: None,
@@ -104,6 +105,7 @@ fn status_is_per_group_self_contained_signal() {
     assert!(!has_tag_name(&signed, "session-id"));
     assert!(has_tag(&signed, "title", "fixing the auth bug"));
     assert!(has_tag(&signed, "state", "working"));
+    assert!(has_tag(&signed, "state-since", "42"));
     assert!(has_tag(&signed, "host", "laptop"));
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
     // A None `expires_at` publishes no NIP-40 expiration tag.
@@ -112,7 +114,7 @@ fn status_is_per_group_self_contained_signal() {
     assert_eq!(signed.content, "reading the diff");
     assert!(!has_tag_name(&signed, "activity"));
     assert!(has_tag(&signed, "slug", "coder"));
-    // No legacy presence-heartbeat artifacts, no self-asserted agent tag.
+    // No second liveness artifacts and no self-asserted agent tag.
     assert!(!has_tag_name(&signed, "agent"));
 }
 #[test]
@@ -125,6 +127,7 @@ fn status_slug_is_canonical_hint_not_agent_tag() {
         title: "fixing the auth bug".into(),
         activity: "reading the diff".into(),
         state: crate::session_state::SessionState::Working,
+        state_since: 42,
         rel_cwd: String::new(),
         expires_at: None,
         dispatch_event: None,
@@ -191,6 +194,7 @@ fn status_uses_constant_address_independent_from_channel_h() {
             tag(&["h", "mosaico"]).unwrap(),
             tag(&["d", "status"]).unwrap(),
             tag(&["state", "idle"]).unwrap(),
+            tag(&["state-since", "42"]).unwrap(),
             tag(&["title", ""]).unwrap(),
             tag(&["host", "laptop"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),

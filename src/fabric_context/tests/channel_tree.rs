@@ -54,6 +54,7 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
             title: "Reviewing".into(),
             activity: "checking tests".into(),
             state: crate::session_state::SessionState::Working,
+            state_since: 250,
             last_seen: 250,
             updated_at: 250,
             expiration: 500,

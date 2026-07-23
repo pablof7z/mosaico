@@ -180,6 +180,7 @@ async fn seed_session_with_thread_root_link() {
             title: title.into(),
             activity: String::new(),
             state: mosaico::session_state::SessionState::Idle,
+            state_since: base + 1,
             rel_cwd: "tenex-off".into(),
             expires_at: Some(base + 365 * 24 * 3600),
             dispatch_event: None,

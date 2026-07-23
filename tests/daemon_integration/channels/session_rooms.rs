@@ -160,6 +160,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
                 title: "Reviewing".into(),
                 activity: String::new(),
                 state: mosaico::session_state::SessionState::Idle,
+                state_since: now,
                 last_seen: now,
                 updated_at: now,
                 expiration: now + 90,

@@ -4,7 +4,7 @@
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]`, live agent `["workspace", root_h]`; backend profiles additionally carry `["backend"]` + one `["agent", slug, desc]` per managed agent |
 //! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
-//! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
+//! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["state-since", ts]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | AgentRoster | kind:30555, backend management-key signed, `["d", capability_slug]`, `["hostname", host]`, `["use-criteria", text]`, one or more root-channel `["h", channel]` |
 //! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]` |
 //!
@@ -13,11 +13,10 @@
 //! live activity in the content, the persistent title, host, rel-cwd). It targets
 //! every channel the session is in with repeated `h` tags. The optional `slug`
 //! tag is a render hint only; the event signer remains the identity authority.
-//! Liveness IS the freshness of this event: the daemon re-arms a NIP-40 `["expiration", now +
-//! STATUS_TTL_SECS]` tag on every heartbeat, so a stopped session's event ages
-//! off the relay shortly after its last beat. A `Status` with `expires_at ==
-//! None` publishes no expiration (tests / non-heartbeat contexts). There is no
-//! separate presence heartbeat.
+//! Remote liveness is the freshness of this lease: the daemon re-arms a NIP-40
+//! `["expiration", now + PRESENCE_LEASE_TTL_SECS]` tag on renewal, so a stopped
+//! session ages off the relay. A `Status` with no expiry is reserved for tests.
+//! There is no second liveness signal.
 //!
 //! Chat (kind:9) is the sole agent-to-agent messaging mechanism. Direct messaging
 //! uses an inline `@<agent-instance-label>` in the chat body, which adds a `p`
@@ -129,6 +128,7 @@ impl Nip29WireCodec {
                 title,
                 activity,
                 state,
+                state_since,
                 rel_cwd,
                 expires_at,
                 dispatch_event,
@@ -140,6 +140,7 @@ impl Nip29WireCodec {
                     tag(&["d", "status"])?,
                     tag(&["title", title])?,
                     tag(&["state", state.as_str()])?,
+                    tag(&["state-since", &state_since.to_string()])?,
                     tag(&["host", host])?,
                     tag(&["slug", &agent.slug])?,
                 ];
@@ -210,6 +211,7 @@ impl Nip29WireCodec {
                     // The live activity is the event content (empty when idle).
                     activity: event.content.clone(),
                     state: crate::session_state::SessionState::parse(first_tag(event, "state")?)?,
+                    state_since: first_tag(event, "state-since")?.parse().ok()?,
                     rel_cwd: first_tag(event, "rel-cwd").unwrap_or_default().to_string(),
                     // NIP-40 expiration → liveness clock. Absent → None.
                     expires_at: first_tag(event, "expiration").and_then(|s| s.parse().ok()),

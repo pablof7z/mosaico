@@ -13,6 +13,11 @@ pub(super) fn to_status(cmd: &StatusCommand, ttl_secs: u64, now: u64, expiring: 
         } else {
             cmd.state
         },
+        state_since: if expiring || cmd.state == crate::session_state::SessionState::Offline {
+            now
+        } else {
+            cmd.state_since
+        },
         rel_cwd: cmd.rel_cwd.clone(),
         expires_at: Some(
             if expiring || cmd.state == crate::session_state::SessionState::Offline {

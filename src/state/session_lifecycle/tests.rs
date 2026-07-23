@@ -219,6 +219,7 @@ fn rejected_old_end_does_not_clobber_a_superseding_turn_start() {
     assert!(superseding.is_running());
     assert_eq!(superseding.work_state, WorkState::Working);
     assert_eq!(superseding.turn_started_at, 22);
+    assert_eq!(superseding.state_changed_at, 22);
 }
 
 #[test]

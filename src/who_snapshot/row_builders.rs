@@ -10,27 +10,18 @@ pub(super) fn local_row(
     now: u64,
 ) -> Result<WhoRow> {
     let instance = local_instance(aggregation, s);
-    let live = aggregation.status_for(&instance.pubkey, &s.channel_h);
-    let state = aggregation.local_session_state(s);
-    let (title, activity) = live
-        .map(|st| {
-            (
-                st.title.clone(),
-                live_activity(state.is_working(), st.activity.clone()),
-            )
-        })
-        .unwrap_or_else(|| (s.title.clone(), String::new()));
+    let presence = aggregation.local_session_presence(s);
     let work_root = work_root_for(aggregation, &s.channel_h)?;
     Ok(WhoRow {
         source: WhoSource::Local,
-        state,
+        state: presence.state,
         slug: instance.display_slug(),
         channel: s.channel_h.clone(),
-        status: title,
-        activity,
+        status: presence.title,
+        activity: presence.activity,
         dormant: false,
         host: local_host.to_string(),
-        age_secs: Some(now.saturating_sub(s.last_seen)),
+        age_secs: Some(now.saturating_sub(presence.observed_at)),
         rel_cwd: String::new(),
         remote: false,
         work_root_display: work_root.clone(),
@@ -62,18 +53,18 @@ pub(super) fn peer_row(
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| local_host.to_string());
     let work_root = work_root_for(aggregation, &st.channel_h)?;
-    let state = aggregation.observed_state(st);
+    let presence = crate::session_presence::remote(st, now);
     Ok(WhoRow {
         source: WhoSource::Peer,
-        state,
+        state: presence.state,
         slug: peer_slug(aggregation, st),
         channel: st.channel_h.clone(),
-        status: st.title.clone(),
-        activity: live_activity(state.is_working(), st.activity.clone()),
+        status: presence.title,
+        activity: presence.activity,
         dormant: false,
         remote: host.trim() != local_host,
         host,
-        age_secs: Some(now.saturating_sub(st.last_seen)),
+        age_secs: Some(now.saturating_sub(presence.observed_at)),
         rel_cwd: String::new(),
         work_root_display: work_root.clone(),
         work_root,
@@ -93,14 +84,6 @@ pub(super) fn peer_slug(
         .unwrap_or_else(|| crate::util::pubkey_short(&st.pubkey))
 }
 
-fn live_activity(active: bool, activity: String) -> String {
-    if active {
-        activity
-    } else {
-        String::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +99,7 @@ mod tests {
             title: "Reviewing".into(),
             activity: "stale live activity".into(),
             state: crate::session_state::SessionState::Working,
+            state_since: 90,
             last_seen: 90,
             updated_at: 90,
             expiration: 100,

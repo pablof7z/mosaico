@@ -165,6 +165,7 @@ fn status_materializes_and_reads_live() {
             make_tag(&["h", "proj"]),
             make_tag(&["title", "build"]),
             make_tag(&["state", "working"]),
+            make_tag(&["state-since", "42"]),
             make_tag(&["host", "laptop"]),
             make_tag(&["slug", "smith"]),
             make_tag(&["expiration", &exp.to_string()]),

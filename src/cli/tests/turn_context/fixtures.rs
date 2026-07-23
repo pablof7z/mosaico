@@ -27,6 +27,7 @@ pub(super) fn pub_status(
             } else {
                 crate::session_state::SessionState::Idle
             },
+            state_since: updated_at,
             last_seen: updated_at,
             updated_at,
             expiration: now + 90,
@@ -89,5 +90,6 @@ pub(super) fn test_session(_id: &str) -> Session {
         seen_cursor: 0,
         title: String::new(),
         explicit_chat_published_at: 0,
+        state_changed_at: 1,
     }
 }

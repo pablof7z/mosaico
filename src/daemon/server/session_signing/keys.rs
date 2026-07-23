@@ -6,6 +6,19 @@ impl DaemonState {
     /// Resolve the signer identified by `pubkey`. Durable agents use their
     /// configured key; ordinary sessions reconstruct from pubkey-bound salt.
     pub(in crate::daemon) fn session_signing_keys(&self, pubkey: &str) -> Result<Keys> {
+        if let Some(keys) = self
+            .runtime
+            .hosted
+            .lock()
+            .expect("hosted-agent map poisoned")
+            .get(pubkey)
+            .map(|hosted| hosted.keys.clone())
+        {
+            if keys.public_key().to_hex() != pubkey {
+                anyhow::bail!("live hosted signer does not reproduce session pubkey");
+            }
+            return Ok(keys);
+        }
         if let Some(signer_salt) = self.with_store(|store| store.session_signer_salt(pubkey))? {
             let mgmt = self.management_keys()?;
             let keys = crate::identity::derive_session_keys(mgmt.secret_key(), &signer_salt)?;

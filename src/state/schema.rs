@@ -93,7 +93,13 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     )?;
     ensure_absent_table(conn, "session_claims", path)?;
     ensure_columns(conn, "relay_profiles", &["agent_slug"], &[], path)?;
-    ensure_columns(conn, "relay_status", &["state"], &["busy"], path)?;
+    ensure_columns(
+        conn,
+        "relay_status",
+        &["state", "state_since"],
+        &["busy"],
+        path,
+    )?;
     ensure_table(conn, "event_claims", path)?;
     ensure_columns(
         conn,
@@ -177,6 +183,7 @@ fn validate_canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "stop_reason",
             "turn_count",
             "explicit_chat_published_at",
+            "state_changed_at",
         ],
         &[
             "session_id",

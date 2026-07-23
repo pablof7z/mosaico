@@ -66,8 +66,17 @@ pub(in crate::daemon::server) async fn spawn_session(
     let provider = state.provider.clone();
     let store = state.store.clone();
     let status = state.reconcilers.status.clone();
+    let presence_publisher = state.reconcilers.presence_publisher.clone();
     tokio::spawn(async move {
-        let res = runtime::run_session_in_daemon(params, provider, store, cancel, status).await;
+        let res = runtime::run_session_in_daemon(
+            params,
+            provider,
+            store,
+            cancel,
+            status,
+            presence_publisher,
+        )
+        .await;
         if let Err(e) = res {
             tracing::warn!(pubkey = %task_pubkey, runtime_generation, error = %e, "session task exited with error");
         }
@@ -339,7 +348,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
                 pubkey,
                 agent = %snap.agent_slug,
                 channel = %snap.channel_h,
-                "channel not verified ready on reconcile; reviving live session anyway (send-time gate still enforced), will re-verify on next heartbeat"
+                "channel not verified ready on reconcile; reviving live session anyway (send-time gate still enforced), will re-verify during readiness reconciliation"
             );
         }
         if let Err(e) = sync_subscriptions(state).await {

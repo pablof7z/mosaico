@@ -73,14 +73,15 @@ fn session_summaries_from_store(
         let label = channel_label_from_map(&channels, &status.channel_h);
         let profile = store.get_profile(&status.pubkey).ok().flatten();
         let agent = session_handle(&status, profile.as_ref());
+        let presence = projected_presence(store, &status, now);
         let key = status.pubkey.clone();
         rows.entry(key)
             .and_modify(|row| {
                 row.channels.insert(label.clone());
                 if status.updated_at >= row.updated_at {
-                    row.title = status.title.clone();
-                    row.activity = status.activity.clone();
-                    row.state = status.state.observed(status.expiration >= now);
+                    row.title = presence.title.clone();
+                    row.activity = presence.activity.clone();
+                    row.state = presence.state;
                     row.updated_at = status.updated_at;
                 }
                 row.last_seen = row.last_seen.max(status.last_seen);
@@ -92,10 +93,10 @@ fn session_summaries_from_store(
                         .unwrap_or_else(|| status.pubkey.clone()),
                     agent,
                     channels: BTreeSet::new(),
-                    title: status.title.clone(),
-                    activity: status.activity.clone(),
-                    state: status.state.observed(status.expiration >= now),
-                    last_seen: status.last_seen,
+                    title: presence.title,
+                    activity: presence.activity,
+                    state: presence.state,
+                    last_seen: presence.observed_at,
                     updated_at: status.updated_at,
                 };
                 row.channels.insert(label);
@@ -110,6 +111,20 @@ fn session_summaries_from_store(
             .then_with(|| a.pubkey.cmp(&b.pubkey))
     });
     Ok(out)
+}
+
+fn projected_presence(
+    store: &Store,
+    status: &Status,
+    now: u64,
+) -> crate::session_presence::PublicPresence {
+    store
+        .get_session(&status.pubkey)
+        .ok()
+        .flatten()
+        .filter(|session| session.is_running())
+        .map(|session| crate::session_presence::local(store, &session, Some(status)))
+        .unwrap_or_else(|| crate::session_presence::remote(status, now))
 }
 
 fn channel_subtree(
@@ -229,6 +244,7 @@ mod tests {
             title: "fixing parser".to_string(),
             activity: "running tests".to_string(),
             state: SessionState::Working,
+            state_since: seen,
             last_seen: seen,
             updated_at: seen,
             expiration: seen + 90,

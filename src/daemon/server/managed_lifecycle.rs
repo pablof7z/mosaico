@@ -100,6 +100,14 @@ pub(super) async fn supervisor_exited(
             )
         })?;
         if let Some(stopped) = stopped {
+            super::presence::close_generation(
+                state,
+                &stopped.pubkey,
+                stopped.runtime_generation,
+                exited_at,
+                "supervisor_stopped",
+            )
+            .await;
             emit_stopped(state, &stopped, exited_at);
             return Ok(true);
         }
@@ -140,10 +148,10 @@ pub(super) async fn stop_generation(
     reason: StopReason,
     stopped_at: u64,
 ) -> Result<bool> {
-    stop_generation_locked(state, session, reason, stopped_at)
+    stop_generation_locked(state, session, reason, stopped_at).await
 }
 
-fn stop_generation_locked(
+async fn stop_generation_locked(
     state: &Arc<DaemonState>,
     session: &Session,
     reason: StopReason,
@@ -164,6 +172,14 @@ fn stop_generation_locked(
     let stopped = state
         .with_store(|store| store.get_session(&session.pubkey))?
         .context("stopped session disappeared")?;
+    super::presence::close_generation(
+        state,
+        &stopped.pubkey,
+        stopped.runtime_generation,
+        stopped_at,
+        "lifecycle_stopped",
+    )
+    .await;
     emit_stopped(state, &stopped, stopped_at);
     Ok(true)
 }

@@ -7,5 +7,8 @@ pub mod subscriptions;
 
 pub use delivery::{DeliveryEffect, DeliveryScanFact};
 pub use hook_context::{HookContextOutcome, HookContextReceipt, HookContextState};
-pub use status::{PublishReason, StatusEffect, StatusOutcome, StatusReconciler};
+pub use status::{
+    PresenceProjection, PresenceSnapshot, PublishReason, StatusEffect, StatusOutcome,
+    StatusReconciler,
+};
 pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionQuery, SubscriptionReconciler};

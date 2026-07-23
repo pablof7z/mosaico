@@ -59,6 +59,7 @@ fn seed() -> Store {
             title: "Implement awareness".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
+            state_since: 99,
             last_seen: 99,
             updated_at: 99,
             expiration: 200,

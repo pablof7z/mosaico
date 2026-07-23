@@ -9,7 +9,7 @@ pub(super) const COLS: &str =
      endpoint_provenance, child_pid, transcript_path, runtime_state, presentation_state, \
      work_state, recovery_state, lifecycle_epoch, attachment_epoch, idle_since, idle_deadline, \
      stopped_at, stop_reason, turn_count, created_at, last_seen, turn_started_at, seen_cursor, \
-     title, explicit_chat_published_at";
+     title, explicit_chat_published_at, state_changed_at";
 
 fn conversion<T>(index: usize, result: Result<T>) -> rusqlite::Result<T> {
     result.map_err(|error| {
@@ -61,6 +61,7 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         seen_cursor: row.get(27)?,
         title: row.get(28)?,
         explicit_chat_published_at: row.get(29)?,
+        state_changed_at: row.get(30)?,
     })
 }
 
@@ -126,9 +127,9 @@ impl Store {
                  (pubkey, runtime_generation, agent_slug, channel_h, observed_harness,
                   claimed_harness, admitted_bundle, admitted_transport, endpoint_provenance,
                   child_pid, transcript_path, runtime_state, presentation_state, work_state,
-                  recovery_state, lifecycle_epoch, created_at, last_seen)
+                  recovery_state, lifecycle_epoch, created_at, last_seen, state_changed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                     'running', 'unavailable', 'idle', 'pending', 1, ?12, ?12)
+                     'running', 'unavailable', 'idle', 'pending', 1, ?12, ?12, ?12)
              ON CONFLICT(pubkey) DO UPDATE SET
                  runtime_generation=excluded.runtime_generation,
                  agent_slug=excluded.agent_slug, channel_h=excluded.channel_h,
@@ -154,7 +155,8 @@ impl Store {
                  runtime_state='running', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=sessions.lifecycle_epoch+1, attachment_epoch=0,
                  idle_since=0, idle_deadline=0, stopped_at=0, stop_reason=NULL,
-                 created_at=excluded.created_at, last_seen=excluded.last_seen, turn_started_at=0",
+                 created_at=excluded.created_at, last_seen=excluded.last_seen, turn_started_at=0,
+                 state_changed_at=excluded.state_changed_at",
             params![
                 r.pubkey,
                 generation,
@@ -269,7 +271,7 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='stopped', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+1, idle_since=0, idle_deadline=0,
-                 stopped_at=?4, stop_reason=?3, turn_started_at=0
+                 stopped_at=?4, stop_reason=?3, turn_started_at=0, state_changed_at=?4
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='running'",
             params![pubkey, generation, reason.as_str(), stopped_at],
         )?;

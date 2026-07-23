@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::daemon::server) fn drive_turn_started(
+pub(in crate::daemon::server) async fn drive_turn_started(
     state: &Arc<DaemonState>,
     session: &crate::state::Session,
     at: u64,
@@ -18,10 +18,17 @@ pub(in crate::daemon::server) fn drive_turn_started(
     if !applied {
         anyhow::bail!("turn_start lost runtime generation for {}", session.pubkey);
     }
+    super::presence::reconcile_generation(
+        state,
+        &session.pubkey,
+        session.runtime_generation,
+        "turn_started",
+    )
+    .await;
     Ok(())
 }
 
-pub(in crate::daemon::server) fn drive_turn_ended(
+pub(in crate::daemon::server) async fn drive_turn_ended(
     state: &Arc<DaemonState>,
     session: &crate::state::Session,
     at: u64,
@@ -43,5 +50,12 @@ pub(in crate::daemon::server) fn drive_turn_ended(
             anyhow::bail!("turn_end lost runtime generation for {}", session.pubkey);
         }
     }
+    super::presence::reconcile_generation(
+        state,
+        &session.pubkey,
+        session.runtime_generation,
+        "turn_ended",
+    )
+    .await;
     Ok(())
 }

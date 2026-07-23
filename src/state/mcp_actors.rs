@@ -88,7 +88,7 @@ impl Store {
                  runtime_state='running', presentation_state='headless', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+CASE WHEN runtime_state='stopped' THEN 1 ELSE 0 END,
                  idle_since=?2, idle_deadline=?3, stopped_at=0, stop_reason=NULL,
-                 last_seen=?2
+                 last_seen=?2, state_changed_at=?2
              WHERE pubkey=?1",
             params![pubkey, now, idle_deadline],
         )?;

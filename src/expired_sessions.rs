@@ -19,7 +19,7 @@ pub(crate) struct ExpiredSessionRow {
     pub(crate) host: String,
     /// Human channel name (falls back to the raw channel id when unnamed).
     pub(crate) channel: String,
-    /// Last heartbeat, unix seconds (0 when never seen).
+    /// Last lease observation, unix seconds (0 when never seen).
     pub(crate) last_seen: u64,
     /// Whether exact recovery authority remains (native resume or fresh launch).
     pub(crate) resumable: bool,

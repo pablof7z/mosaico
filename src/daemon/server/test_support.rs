@@ -54,6 +54,8 @@ impl DaemonState {
             None,
             Vec::new(),
         ));
+        let presence_publisher =
+            crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
         let catalog = CatalogState::new();
         *catalog.harnesses.lock().unwrap() = installed_harnesses;
         Arc::new(DaemonState {
@@ -68,9 +70,10 @@ impl DaemonState {
             catalog,
             runtime: SessionRuntimeState::new(),
             subscriptions: SubscriptionState::new(),
-            reconcilers: ReconcilerState::new(crate::reconcile::StatusReconciler::for_ttl(
-                status_ttl_duration(),
-            )),
+            reconcilers: ReconcilerState::new(
+                crate::reconcile::StatusReconciler::for_ttl(presence_lease_ttl()),
+                presence_publisher,
+            ),
             connections: ConnectionState::new(),
             dedup: DedupState::new(),
             standing_sync: tokio::sync::Mutex::new(()),

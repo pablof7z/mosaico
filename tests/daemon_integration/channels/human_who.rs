@@ -23,6 +23,7 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
             title: "Reviewing".to_string(),
             activity: String::new(),
             state: mosaico::session_state::SessionState::Idle,
+            state_since: 1,
             last_seen: 1,
             updated_at: 1,
             expiration: 9_999_999_999,

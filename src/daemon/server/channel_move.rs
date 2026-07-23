@@ -139,7 +139,7 @@ pub(super) fn current_evidence(
             if profile.is_backend || profile.agent_slug.trim().is_empty() {
                 continue;
             }
-            let observed = status.state.observed(status.expiration >= now);
+            let observed = crate::session_presence::remote(&status, now).state;
             if !observed.is_live() {
                 continue;
             }

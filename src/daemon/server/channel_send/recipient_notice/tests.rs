@@ -24,6 +24,7 @@ fn remote_status(store: &Store, state: SessionState, expiration: u64) {
             title: String::new(),
             activity: String::new(),
             state,
+            state_since: 10,
             last_seen: 10,
             updated_at: 10,
             expiration,

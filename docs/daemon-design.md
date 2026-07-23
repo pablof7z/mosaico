@@ -263,9 +263,13 @@ The `session_start` RPC makes the daemon spawn a tokio task running
   are demuxed once, daemon-side, and routed to the right session chat queue(s).
   Mentions route via the `compute_targets` / `route_mention` logic over all running
   sessions.
-- Presence/status publishing, heartbeats, and `watch_pid` death detection all
-  run in the per-session task. Every runtime and kind:0 profile write is signed
-  and accepted through the shared NMP host's durable `submit_intents` queue.
+- Profile publication, presence-lease renewal, and `watch_pid` death detection
+  run in the per-session task. Managed lifecycle edges directly reconcile the
+  generation-owned presence projection; there is no periodic semantic-state
+  poll. Reconciled presence effects enter one bounded, ordered background queue,
+  so a stalled relay cannot delay lifecycle RPCs or hooks. Every runtime and
+  kind:0 profile write is signed and accepted through the shared NMP host's
+  durable `submit_intents` queue.
 - Peer-staleness pruning is a single daemon-level periodic task.
 
 `EngineParams` is reused largely as-is, minus `store_path` (the task gets the

@@ -118,8 +118,8 @@ fn render_members(out: &mut String, members: &[MemberRow], color: bool) {
             style(&reference, color, Style::Agent),
             state_text(m.state, color),
             m.status,
-            dim("seen", color),
-            dim(&m.seen, color)
+            dim("since", color),
+            dim(&m.since, color)
         );
     }
 }
@@ -143,8 +143,8 @@ fn render_presence(out: &mut String, presence: &[PresenceRow], color: bool) {
             style(&reference, color, Style::Agent),
             state_text(p.state, color),
             p.status,
-            dim("seen", color),
-            dim(&p.seen, color)
+            dim("since", color),
+            dim(&p.since, color)
         );
     }
 }

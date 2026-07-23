@@ -101,6 +101,7 @@ mod tests {
                 title: String::new(),
                 activity: String::new(),
                 state: crate::session_state::SessionState::Idle,
+                state_since: 1,
                 last_seen: 1,
                 updated_at: 1,
                 expiration: 1,

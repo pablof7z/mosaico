@@ -34,7 +34,7 @@ impl Store {
              SET runtime_state='stopped', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+1,
                  idle_since=0, idle_deadline=0, stopped_at=?3,
-                 stop_reason='revoked', turn_started_at=0
+                 stop_reason='revoked', turn_started_at=0, state_changed_at=?3
              WHERE pubkey=?1 AND runtime_generation=?2 AND recovery_state='revoked'",
             params![pubkey, runtime_generation, now],
         )?;

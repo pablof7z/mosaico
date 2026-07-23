@@ -93,7 +93,7 @@ pub(super) async fn inject_planned_messages(
         }
     };
     finalize_injection(state, rec, &prompt)?;
-    track_managed_turn(state, rec, &prompt.chat_ids, completion)?;
+    track_managed_turn(state, rec, &prompt.chat_ids, completion).await?;
     Ok(true)
 }
 
@@ -102,7 +102,7 @@ pub(super) async fn inject_planned_messages(
 /// committed as injected, then close it from the exact RPC completion signal.
 /// This makes the resulting idle deadline mean "ten minutes since real work
 /// finished" and atomically releases the injected-message eviction fence.
-fn track_managed_turn(
+async fn track_managed_turn(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     event_ids: &[String],
@@ -147,6 +147,13 @@ fn track_managed_turn(
             rec.runtime_generation
         );
     }
+    crate::daemon::server::presence::reconcile_generation(
+        state,
+        &rec.pubkey,
+        rec.runtime_generation,
+        "managed_turn_started",
+    )
+    .await;
     crate::daemon::server::turns::work_start_reaction::publish_for_started_events(
         state, rec, event_ids,
     );
@@ -170,7 +177,16 @@ fn track_managed_turn(
         match state
             .with_store(|store| store.apply_session_turn_ended(&pubkey, generation, now_secs()))
         {
-            Ok(true) => crate::session_host::ring_doorbells(state),
+            Ok(true) => {
+                crate::daemon::server::presence::reconcile_generation(
+                    &state,
+                    &pubkey,
+                    generation,
+                    "managed_turn_ended",
+                )
+                .await;
+                crate::session_host::ring_doorbells(state)
+            }
             Ok(false) => tracing::debug!(
                 session = %pubkey,
                 generation,

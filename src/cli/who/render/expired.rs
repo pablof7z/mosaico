@@ -19,7 +19,7 @@ pub(in crate::cli::who) fn render_expired(rows: &[ExpiredSessionRow]) -> String 
             Some(handle) => format!("@{handle}  {}", row.npub),
             None => row.npub.clone(),
         };
-        let seen = crate::util::relative_time(row.last_seen, now);
+        let observed = crate::util::relative_time(row.last_seen, now);
         let resumable = if row.resumable {
             "resumable".green().to_string()
         } else {
@@ -27,10 +27,10 @@ pub(in crate::cli::who) fn render_expired(rows: &[ExpiredSessionRow]) -> String 
         };
         let _ = writeln!(
             out,
-            "{}  #{}  seen {}  {}",
+            "{}  #{}  observed {}  {}",
             identity.cyan(),
             row.channel,
-            seen.dimmed(),
+            observed.dimmed(),
             resumable,
         );
     }

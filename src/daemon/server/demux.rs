@@ -150,9 +150,9 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     if let Some(de) = outcome.tail {
         let kind = event.kind.as_u16();
         if state.first_sight(&event.id.to_hex()) {
-            // Status heartbeats (kind:30315) fire every 30 s — too noisy for info.
-            let is_heartbeat = kind == 30315;
-            if is_heartbeat {
+            // Presence-lease renewals (kind:30315) are too noisy for info.
+            let is_lease_renewal = kind == 30315;
+            if is_lease_renewal {
                 tracing::debug!(kind, id = %&event.id.to_hex()[..8], "first-sight");
             } else {
                 tracing::info!(kind, id = %&event.id.to_hex()[..8], "first-sight");
@@ -199,7 +199,7 @@ fn derive_and_emit_tail_events(
                 return;
             }
             for channel in &s.channels {
-                // The unified Status replaces the old presence heartbeat, so
+                // The unified Status is the sole presence lease, so
                 // first-sight of a (pubkey, channel) here is the peer
                 // "joined" signal for that channel.
                 let key = (s.agent.pubkey.clone(), channel.clone());

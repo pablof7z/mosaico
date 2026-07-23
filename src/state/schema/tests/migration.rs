@@ -14,7 +14,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     drop(Store::open(&path).expect("schema four upgrades to current"));
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 12);
+    assert_eq!(version(&conn), 13);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -49,6 +49,15 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
         )
         .unwrap(),
         "running:ready:1"
+    );
+    assert!(
+        conn.query_row(
+            "SELECT state_changed_at FROM sessions WHERE pubkey='pk1'",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap()
+            > 0
     );
     assert_eq!(
         conn.query_row(
@@ -122,7 +131,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
     drop(Store::open(&migrated_path).expect("schema eight upgrades to current"));
 
     let migrated = Connection::open(&migrated_path).unwrap();
-    assert_eq!(version(&migrated), 12);
+    assert_eq!(version(&migrated), 13);
     assert_eq!(
         session_runtime_facts(&migrated, "pk-pty"),
         ("pty".to_string(), "migration".to_string())
@@ -163,7 +172,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
 fn migration_chain_covers_every_version_before_current() {
     assert_eq!(
         super::super::migration::supported_versions(),
-        [4, 5, 6, 7, 8, 9, 10, 11]
+        [4, 5, 6, 7, 8, 9, 10, 11, 12]
     );
 }
 
@@ -174,6 +183,10 @@ fn schema_ten_consumes_only_idle_injected_rows() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
+        .unwrap();
+    conn.execute("ALTER TABLE relay_status DROP COLUMN state_since", [])
+        .unwrap();
     conn.pragma_update(None, "user_version", 10).unwrap();
     conn.execute_batch(
         r#"
@@ -191,7 +204,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     drop(Store::open(&path).expect("schema ten upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 12);
+    assert_eq!(version(&conn), 13);
     let states = conn
         .prepare("SELECT event_id, state FROM inbox ORDER BY event_id")
         .unwrap()
@@ -208,6 +221,57 @@ fn schema_ten_consumes_only_idle_injected_rows() {
             ("idle-pending".into(), "pending".into()),
             ("working-injected".into(), "injected".into()),
         ]
+    );
+}
+
+#[test]
+fn schema_twelve_backfills_semantic_state_time() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("state.db");
+    drop(Store::open(&path).expect("fresh schema opens"));
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
+        .unwrap();
+    conn.execute("ALTER TABLE relay_status DROP COLUMN state_since", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO relay_status
+            (pubkey, channel_h, state, updated_at)
+         VALUES ('peer', 'root', 'idle', 17)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO sessions
+            (pubkey, runtime_generation, agent_slug, work_state, created_at, turn_started_at)
+         VALUES ('working', 1, 'codex', 'working', 10, 22)",
+        [],
+    )
+    .unwrap();
+    conn.pragma_update(None, "user_version", 12).unwrap();
+    drop(conn);
+
+    drop(Store::open(&path).expect("schema twelve upgrades to current"));
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(version(&conn), 13);
+    assert_eq!(
+        conn.query_row(
+            "SELECT state_since FROM relay_status WHERE pubkey='peer'",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap(),
+        17
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT state_changed_at FROM sessions WHERE pubkey='working'",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap(),
+        22
     );
 }
 

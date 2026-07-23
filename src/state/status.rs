@@ -12,24 +12,27 @@ fn row_to_status(row: &rusqlite::Row) -> rusqlite::Result<Status> {
         state: crate::session_state::SessionState::parse(&row.get::<_, String>(5)?).ok_or_else(
             || rusqlite::Error::InvalidColumnType(5, "state".into(), rusqlite::types::Type::Text),
         )?,
-        last_seen: row.get(6)?,
-        updated_at: row.get(7)?,
-        expiration: row.get(8)?,
+        state_since: row.get(6)?,
+        last_seen: row.get(7)?,
+        updated_at: row.get(8)?,
+        expiration: row.get(9)?,
     })
 }
 
 const COLS: &str =
-    "pubkey, channel_h, slug, title, activity, state, last_seen, updated_at, expiration";
+    "pubkey, channel_h, slug, title, activity, state, state_since, last_seen, updated_at, expiration";
 
 impl Store {
     pub fn upsert_status(&self, status: &Status) -> Result<()> {
         self.conn.execute(
             "INSERT INTO relay_status
-                 (pubkey, channel_h, slug, title, activity, state, last_seen, updated_at, expiration)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 (pubkey, channel_h, slug, title, activity, state, state_since,
+                  last_seen, updated_at, expiration)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(pubkey, channel_h) DO UPDATE SET
                  slug=excluded.slug, title=excluded.title, activity=excluded.activity,
-                 state=excluded.state, last_seen=excluded.last_seen,
+                 state=excluded.state, state_since=excluded.state_since,
+                 last_seen=excluded.last_seen,
                  updated_at=CASE
                      WHEN relay_status.slug <> excluded.slug
                        OR relay_status.title <> excluded.title
@@ -45,6 +48,7 @@ impl Store {
                 status.title,
                 status.activity,
                 status.state.as_str(),
+                status.state_since,
                 status.last_seen,
                 status.updated_at,
                 status.expiration,
@@ -120,6 +124,7 @@ mod tests {
             title: "Task title".into(),
             activity: activity.into(),
             state,
+            state_since: 100,
             last_seen: updated_at,
             updated_at,
             expiration: updated_at + 100,
@@ -127,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_refreshes_liveness_without_advancing_delta_clock() {
+    fn lease_renewal_refreshes_liveness_without_advancing_delta_clock() {
         let store = Store::open_memory().unwrap();
         store
             .upsert_status(&status(
@@ -145,8 +150,13 @@ mod tests {
             .unwrap();
         let row = store.get_status("pk", "h1").unwrap().unwrap();
         assert_eq!(
-            (row.last_seen, row.expiration, row.updated_at),
-            (150, 250, 100)
+            (
+                row.state_since,
+                row.last_seen,
+                row.expiration,
+                row.updated_at
+            ),
+            (100, 150, 250, 100)
         );
     }
 
@@ -169,5 +179,6 @@ mod tests {
             .unwrap();
         let row = store.get_status("pk", "h1").unwrap().unwrap();
         assert_eq!((row.activity.as_str(), row.updated_at), ("writing", 150));
+        assert_eq!(row.state_since, 100);
     }
 }

@@ -51,7 +51,7 @@ pub enum TailEvent {
         text: String,
         state: SessionState,
     },
-    /// Peer session came online (first-seen heartbeat).
+    /// Peer session came online (first-seen lease).
     Join {
         ts: u64,
         channel: String,
@@ -133,7 +133,7 @@ impl TailEvent {
     /// Tiers (high to low):
     ///   2 = signal  (msg, turn, join, leave, sync failed)
     ///   1 = ambient (status, sync delivered/accepted, sess, proj)
-    ///   0 = noise   (profile, heartbeats — never emitted)
+    ///   0 = noise   (profile and lease renewals — never emitted)
     pub fn tier(&self) -> u8 {
         match self {
             TailEvent::Msg { .. } => 2,

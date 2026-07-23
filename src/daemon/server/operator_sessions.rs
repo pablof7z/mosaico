@@ -95,38 +95,17 @@ fn project_sessions(
             && store
                 .native_resume_locator(&rec.pubkey, &rec.observed_harness)?
                 .is_some();
-        let session_state = if rec.is_running() {
-            crate::session_state::SessionState::classify(
-                true,
-                rec.is_working(),
-                crate::session_host::session_has_live_delivery_path(store, &rec),
-            )
-        } else {
-            crate::session_state::SessionState::Offline
-        };
         let latest_status = statuses.get(&rec.pubkey);
-        let activity = latest_status
-            .map(|status| status.activity.as_str())
-            .unwrap_or_default();
-        let fallback_state_since = match session_state {
-            crate::session_state::SessionState::Working => rec.turn_started_at,
-            crate::session_state::SessionState::Idle => rec.idle_since,
-            crate::session_state::SessionState::Suspended => 0,
-            crate::session_state::SessionState::Offline => rec.stopped_at,
-        };
-        let state_since = latest_status
-            .filter(|status| status.state == session_state)
-            .map(|status| status.updated_at)
-            .unwrap_or(fallback_state_since);
+        let presence = crate::session_presence::local(store, &rec, latest_status);
         rows.push(serde_json::json!({
             "pubkey": rec.pubkey.clone(),
             "npub": npub,
             "handle": handle,
             "agent": rec.agent_slug,
-            "title": rec.title,
-            "activity": activity,
-            "state": session_state,
-            "state_since": state_since,
+            "title": presence.title,
+            "activity": presence.activity,
+            "state": presence.state,
+            "state_since": presence.state_since,
             "running": rec.is_running(),
             "resumable": resumable,
             "last_seen": rec.last_seen,

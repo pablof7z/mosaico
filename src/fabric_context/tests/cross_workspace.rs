@@ -26,6 +26,7 @@ fn put_status(
             title: "Reviewing".into(),
             activity: activity.into(),
             state: crate::session_state::SessionState::Working,
+            state_since: updated_at,
             last_seen: updated_at,
             updated_at,
             expiration,

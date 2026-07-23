@@ -105,11 +105,11 @@ fn render_members(out: &mut String, members: &[MemberRow], indent: usize) {
     for member in members {
         let _ = write!(
             out,
-            "\n{child_pad}<member ref=\"@{}\" state=\"{}\" status=\"{}\" seen=\"{}\" />",
+            "\n{child_pad}<member ref=\"@{}\" state=\"{}\" status=\"{}\" since=\"{}\" />",
             esc_attr(&member.reference),
             member.state.as_str(),
             esc_attr(&member.status),
-            esc_attr(&member.seen)
+            esc_attr(&member.since)
         );
     }
     let _ = write!(out, "\n{pad}</members>");
@@ -125,11 +125,11 @@ fn render_presence(out: &mut String, presence: &[PresenceRow], indent: usize) {
     for status in presence {
         let _ = write!(
             out,
-            "\n{child_pad}<status ref=\"@{}\" state=\"{}\" text=\"{}\" seen=\"{}\" />",
+            "\n{child_pad}<status ref=\"@{}\" state=\"{}\" text=\"{}\" since=\"{}\" />",
             esc_attr(&status.reference),
             status.state.as_str(),
             esc_attr(&status.status),
-            esc_attr(&status.seen)
+            esc_attr(&status.since)
         );
     }
     let _ = write!(out, "\n{pad}</recent-presence>");

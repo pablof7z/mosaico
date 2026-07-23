@@ -147,7 +147,7 @@ fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
 }
 
 #[test]
-fn projection_uses_semantic_status_time_instead_of_heartbeat_time() {
+fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
     let store = Store::open_memory().unwrap();
     store.upsert_channel("root", "root", "", "", 1).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
@@ -169,6 +169,7 @@ fn projection_uses_semantic_status_time_instead_of_heartbeat_time() {
         title: "Picker status".into(),
         activity: String::new(),
         state: crate::session_state::SessionState::Suspended,
+        state_since: 10,
         last_seen: 20,
         updated_at: 20,
         expiration: 200,
@@ -179,7 +180,7 @@ fn projection_uses_semantic_status_time_instead_of_heartbeat_time() {
     store.upsert_status(&status).unwrap();
     let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
     assert_eq!(rows[0]["state"], "suspended");
-    assert_eq!(rows[0]["state_since"], 20);
+    assert_eq!(rows[0]["state_since"], 10);
 }
 
 #[test]

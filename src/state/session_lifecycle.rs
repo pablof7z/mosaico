@@ -53,6 +53,7 @@ impl Store {
              SET turn_started_at=CASE WHEN work_state='idle' THEN ?3 ELSE turn_started_at END,
                  work_state='working',
                  turn_count=turn_count + CASE WHEN work_state='idle' THEN 1 ELSE 0 END,
+                 state_changed_at=CASE WHEN work_state='idle' THEN ?3 ELSE state_changed_at END,
                  idle_since=0, idle_deadline=0,
                  transcript_path=COALESCE(?4, transcript_path)
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='running'
@@ -66,6 +67,7 @@ impl Store {
         let changed = transaction.execute(
             "UPDATE sessions
              SET work_state='idle', turn_started_at=0,
+                 state_changed_at=?3,
                  idle_since=CASE WHEN presentation_state='headless' THEN ?3 ELSE 0 END,
                  idle_deadline=CASE WHEN presentation_state='headless' THEN ?4 ELSE 0 END
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='running'
@@ -128,7 +130,7 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='stopping', lifecycle_epoch=lifecycle_epoch+1,
                  idle_since=0, idle_deadline=0, stopped_at=?5,
-                 stop_reason='idle_evicted'
+                 stop_reason='idle_evicted', state_changed_at=?5
              WHERE pubkey=?1 AND runtime_generation=?2 AND lifecycle_epoch=?3
                AND attachment_epoch=?4 AND runtime_state='running'
                AND presentation_state='headless' AND work_state='idle'
@@ -158,7 +160,7 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='running', presentation_state=?5, stop_reason=NULL,
                  attachment_epoch=?4, lifecycle_epoch=lifecycle_epoch+1,
-                 stopped_at=0,
+                 stopped_at=0, state_changed_at=?6,
                  idle_since=CASE WHEN ?5='headless' THEN ?6 ELSE 0 END,
                  idle_deadline=CASE WHEN ?5='headless' THEN ?7 ELSE 0 END
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='stopping'
@@ -190,7 +192,7 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='stopped', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+1, stopped_at=?5, stop_reason=?4,
-                 idle_since=0, idle_deadline=0, turn_started_at=0
+                 idle_since=0, idle_deadline=0, turn_started_at=0, state_changed_at=?5
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='stopping'
                AND lifecycle_epoch=?3",
             params![

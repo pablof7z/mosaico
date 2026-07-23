@@ -230,7 +230,7 @@ flowchart LR
     subgraph I["INTENTS — route to the active provider"]
         i0["open_project(project)"]
         i1["send(to, project, body)"]
-        i2["set_status / heartbeat"]
+        i2["publish / renew presence lease"]
     end
     STORE[("unified read model")]
     PROV["active Provider"]
@@ -242,7 +242,7 @@ flowchart LR
 - **Reads** are exactly the user-facing list — *which projects exist, who's in
   them, who's online, and what they're doing.
   recipient of each.* All are `SELECT`s. None know the fabric.
-- **Intents** are writes: open a project, send a message, beat a heartbeat, or
+- **Intents** are writes: open a project, send a message, renew a presence lease, or
   publish a kind:0 profile. The provider encodes the intent to its wire shape
   and submits it through NMP's durable `submit_intents` queue. NMP registers the
   exact account, freezes the per-write author, signs, routes, retries, and

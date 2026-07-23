@@ -25,7 +25,10 @@ pub(in crate::daemon::server) fn engine_params_for(
         relays: cfg.relays.clone(),
         watch_pid,
         store_path: store_path(),
-        heartbeat: env_duration("MOSAICO_HEARTBEAT_MS", Duration::from_secs(30)),
-        obs_interval: env_duration("MOSAICO_OBS_MS", Duration::from_secs(5)),
+        presence_lease_interval: env_duration(
+            "MOSAICO_PRESENCE_LEASE_MS",
+            Duration::from_secs(crate::domain::PRESENCE_LEASE_RENEWAL_SECS),
+        ),
+        process_probe_interval: env_duration("MOSAICO_PROCESS_PROBE_MS", Duration::from_secs(5)),
     }
 }

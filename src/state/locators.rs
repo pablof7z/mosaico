@@ -42,6 +42,17 @@ impl Store {
             )
             .optional()?
             .context("session locator has no session")?;
+        let adds_delivery_path =
+            matches!(locator_kind, LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER)
+                && !tx.query_row(
+                    "SELECT EXISTS(
+                SELECT 1 FROM session_locators
+                 WHERE pubkey=?1 AND harness=?2 AND locator_kind=?3
+                   AND runtime_generation=?4
+            )",
+                    params![pubkey, harness, locator_kind, generation],
+                    |row| row.get::<_, bool>(0),
+                )?;
         if locator_kind == LOCATOR_NATIVE_RESUME {
             if recovery == RecoveryState::Revoked.as_str() {
                 anyhow::bail!("pubkey {pubkey} recovery authority is revoked");
@@ -55,6 +66,14 @@ impl Store {
                 "DELETE FROM session_locators
                  WHERE pubkey=?1 AND harness=?2 AND locator_kind=?3",
                 params![pubkey, harness, locator_kind],
+            )?;
+        }
+        if adds_delivery_path {
+            tx.execute(
+                "UPDATE sessions SET state_changed_at=?3
+                 WHERE pubkey=?1 AND runtime_generation=?2
+                   AND runtime_state='running' AND work_state='idle'",
+                params![pubkey, generation, created_at],
             )?;
         }
         let locator_generation = if locator_kind == LOCATOR_NATIVE_RESUME {
@@ -306,12 +325,23 @@ impl Store {
         runtime_generation: u64,
     ) -> Result<bool> {
         validate_locator_kind(locator_kind)?;
-        Ok(self.conn.execute(
+        let transaction = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let removed = transaction.execute(
             "DELETE FROM session_locators
              WHERE pubkey=?1 AND locator_kind=?2 AND runtime_generation=?3
                AND harness=(SELECT observed_harness FROM sessions WHERE pubkey=?1)",
             params![pubkey, locator_kind, runtime_generation],
-        )? > 0)
+        )? > 0;
+        if removed && matches!(locator_kind, LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER) {
+            transaction.execute(
+                "UPDATE sessions SET state_changed_at=?3
+                 WHERE pubkey=?1 AND runtime_generation=?2
+                   AND runtime_state='running' AND work_state='idle'",
+                params![pubkey, runtime_generation, crate::util::now_secs()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(removed)
     }
 
     pub fn clear_session_locator_kind(
@@ -340,122 +370,5 @@ fn validate_locator_kind(locator_kind: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn registration(pubkey: &str, at: u64) -> RegisterSession {
-        RegisterSession {
-            pubkey: pubkey.into(),
-            observed_harness: "codex".into(),
-            agent_slug: "codex".into(),
-            channel_h: "root".into(),
-            child_pid: None,
-            transcript_path: None,
-            now: at,
-        }
-    }
-
-    #[test]
-    fn native_resume_is_stored_once_per_pubkey() {
-        let store = Store::open_memory().unwrap();
-        store
-            .reserve_hook_session_for_test(&registration("pk", 1))
-            .unwrap();
-        store
-            .put_session_locator("codex", LOCATOR_NATIVE_RESUME, "old", "pk", 2)
-            .unwrap();
-        store
-            .put_session_locator("codex", LOCATOR_NATIVE_RESUME, "new", "pk", 3)
-            .unwrap();
-
-        let locator = store.native_resume_locator("pk", "codex").unwrap().unwrap();
-        assert_eq!(locator.locator_value, "new");
-        assert!(store
-            .native_resume_locator("pk", "claude-code")
-            .unwrap()
-            .is_none());
-        assert!(store
-            .resolve_pubkey_by_locator("codex", LOCATOR_NATIVE_RESUME, "old")
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
-    fn locator_vocabulary_is_closed() {
-        let store = Store::open_memory().unwrap();
-        store
-            .reserve_hook_session_for_test(&registration("pk", 1))
-            .unwrap();
-        let error = store
-            .put_session_locator("codex", "harness_session", "old", "pk", 2)
-            .unwrap_err();
-        assert!(error.to_string().contains("unknown session locator kind"));
-    }
-
-    #[test]
-    fn runtime_endpoint_replacement_fences_stale_generation_callbacks() {
-        let store = Store::open_memory().unwrap();
-        let first = store
-            .reserve_hook_session_for_test(&registration("pk", 1))
-            .unwrap();
-        store
-            .put_session_locator("codex", LOCATOR_PTY, "pty-old", "pk", 2)
-            .unwrap();
-        store
-            .mark_runtime_stopped_if_generation("pk", first, StopReason::Crash, 3)
-            .unwrap();
-        let second = store
-            .reserve_hook_session_for_test(&registration("pk", 4))
-            .unwrap();
-        store
-            .put_session_locator("codex", LOCATOR_PTY, "pty-new", "pk", 5)
-            .unwrap();
-
-        assert!(store
-            .session_for_runtime_locator(LOCATOR_PTY, "pty-old")
-            .unwrap()
-            .is_none());
-        assert!(!store
-            .clear_runtime_locator_if_generation("pk", LOCATOR_PTY, first)
-            .unwrap());
-        assert_eq!(
-            store
-                .session_for_runtime_locator(LOCATOR_PTY, "pty-new")
-                .unwrap()
-                .unwrap()
-                .runtime_generation,
-            second
-        );
-    }
-
-    #[test]
-    fn session_locator_lookup_requires_the_observed_harness_dimension() {
-        let store = Store::open_memory().unwrap();
-        store
-            .reserve_hook_session_for_test(&registration("pk", 1))
-            .unwrap();
-        store
-            .put_session_locator("claude-code", LOCATOR_PTY, "foreign", "pk", 3)
-            .unwrap();
-        store
-            .put_session_locator("codex", LOCATOR_PTY, "owned", "pk", 2)
-            .unwrap();
-
-        assert_eq!(
-            store
-                .locator_for_session("pk", "codex", LOCATOR_PTY)
-                .unwrap()
-                .unwrap()
-                .locator_value,
-            "owned"
-        );
-        assert_eq!(
-            store
-                .locator_for_session("pk", "claude-code", LOCATOR_PTY)
-                .unwrap()
-                .unwrap()
-                .locator_value,
-            "foreign"
-        );
-    }
-}
+#[path = "locators/tests.rs"]
+mod tests;

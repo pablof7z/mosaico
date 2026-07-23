@@ -63,6 +63,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         .filter(|x| !x.is_empty())
         .map(str::to_string);
     turn_lifecycle::drive_turn_started(state, &before, now, transcript_ref)
+        .await
         .context("applying turn_start lifecycle projection")?;
 
     let rec = state
@@ -183,6 +184,7 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
     let now = now_secs();
     if let Some(rec) = pre.as_ref() {
         turn_lifecycle::drive_turn_ended(state, rec, now)
+            .await
             .context("applying turn_end lifecycle projection")?;
     }
 

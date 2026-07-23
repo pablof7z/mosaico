@@ -39,16 +39,8 @@ pub(in crate::daemon::server) fn rpc_statusline(
             .unwrap_or(true);
         // State and title come straight off the local session row. Pure read: no
         // drains, no touches.
-        let automatic_delivery = crate::session_host::session_has_live_delivery_path(s, &rec);
-        let live = rec.is_running()
-            && now.saturating_sub(rec.last_seen) <= crate::session::STATUS_TTL_SECS;
-        let session_state = crate::session_state::SessionState::classify(
-            live,
-            rec.is_working(),
-            automatic_delivery,
-        );
-        let title = rec.title.clone();
-        let activity = String::new();
+        let published = s.get_status(&rec.pubkey, &scope).ok().flatten();
+        let presence = crate::session_presence::local(s, &rec, published.as_ref());
         // `channel_title` is the channel's human handle from the relay-authored
         // kind:39000 metadata cache (relay_channels `name`). The channel name is
         // set only at create/edit, so it is the durable display label for this
@@ -80,9 +72,10 @@ pub(in crate::daemon::server) fn rpc_statusline(
             "channel_title": channel_title,
             "member_count": member_count,
             "is_member": is_member,
-            "state": session_state,
-            "title": title,
-            "activity": activity,
+            "state": presence.state,
+            "state_since": presence.state_since,
+            "title": presence.title,
+            "activity": presence.activity,
             "pending": pending_json,
             "recent": recent_json,
         }))

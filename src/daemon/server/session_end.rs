@@ -258,17 +258,15 @@ async fn revoke_operator_session(
     let mut failures = Vec::new();
     match signing_keys {
         Ok(keys) => {
-            crate::status_seam::drive(
+            crate::presence_publisher::drive(
                 &state.reconcilers.status,
-                state.fabric_provider(),
+                &state.reconcilers.presence_publisher,
                 &keys,
-                &state.store,
-                crate::status_seam::DriveMeta {
+                crate::presence_publisher::DriveMeta {
                     trigger: "operator_session_revoke",
                 },
-                |status| status.on_session_revoked(&session.pubkey, now),
-            )
-            .await;
+                |status| status.revoke(&session.pubkey, session.runtime_generation, now),
+            );
         }
         Err(error) => failures.push(format!("status expiration: {error:#}")),
     }

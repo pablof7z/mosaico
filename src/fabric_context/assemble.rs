@@ -10,7 +10,6 @@ use std::collections::HashSet;
 
 use super::capture::{EvCap, MsgBundle, StatusCap, ViewInputs};
 use super::model::*;
-use crate::session_state::semantic_change_at;
 use crate::util::relative_time;
 
 mod members;
@@ -171,20 +170,28 @@ fn presence_rows(inputs: &ViewInputs, channel: &str, cursor: u64, now: u64) -> V
         .map(Vec::as_slice)
         .unwrap_or_default()
         .iter()
-        .filter(|s| semantic_change_at(s.state, s.updated_at, s.expiration, now) > cursor)
-        .filter(|s| semantic_change_at(s.state, s.updated_at, s.expiration, now) <= now)
-        .filter(|s| &s.pubkey != self_pubkey)
         .filter_map(|s| {
-            let state = s.state.observed(s.expiration >= now);
-            let status = status_text(s, state);
+            let presence = projected_presence(s, now);
+            let changed_at = if presence.state == s.state {
+                s.changed_at
+            } else {
+                s.changed_at.max(presence.state_since)
+            };
+            if changed_at <= cursor || changed_at > now {
+                return None;
+            }
+            if &s.pubkey == self_pubkey {
+                return None;
+            }
+            let status = presence.text();
             if status.is_empty() {
                 return None;
             }
             Some(PresenceRow {
                 reference: presence_reference(inputs, s),
-                state,
+                state: presence.state,
                 status,
-                seen: relative_time(s.last_seen, now),
+                since: relative_time(presence.state_since, now),
             })
         })
         .collect()
@@ -202,18 +209,16 @@ fn presence_reference(inputs: &ViewInputs, status: &StatusCap) -> String {
         .unwrap_or_default()
 }
 
-fn status_text(status: &StatusCap, state: crate::session_state::SessionState) -> String {
-    if state.is_working() {
-        return non_empty(&status.activity)
-            .or_else(|| non_empty(&status.title))
-            .unwrap_or_default();
-    }
-    non_empty(&status.title).unwrap_or_default()
-}
-
-fn non_empty(s: &str) -> Option<String> {
-    let s = s.trim();
-    (!s.is_empty()).then(|| s.to_string())
+fn projected_presence(status: &StatusCap, now: u64) -> crate::session_presence::PublicPresence {
+    crate::session_presence::observed(
+        status.state,
+        status.state_since,
+        &status.title,
+        &status.activity,
+        status.observed_at,
+        status.expiration,
+        now,
+    )
 }
 
 fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<MessageRow>, usize) {

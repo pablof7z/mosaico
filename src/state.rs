@@ -80,6 +80,7 @@ pub struct Status {
     pub title: String,
     pub activity: String,
     pub state: crate::session_state::SessionState,
+    pub state_since: u64,
     pub last_seen: u64,
     pub updated_at: u64,
     pub expiration: u64,

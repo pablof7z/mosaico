@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 
-/// How long a channel stays verified without a re-check (5 min). Heartbeats
+/// How long a channel stays verified without a re-check (5 min). Lease renewals
 /// fire every 30 s; only the first one per window hits the relay.
 pub(crate) const READY_TTL_SECS: u64 = 300;
 

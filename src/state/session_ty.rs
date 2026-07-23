@@ -100,6 +100,8 @@ pub struct Session {
     pub seen_cursor: u64,
     pub title: String,
     pub explicit_chat_published_at: u64,
+    /// Semantic transition time for the canonical public-state projection.
+    pub state_changed_at: u64,
 }
 
 impl Session {

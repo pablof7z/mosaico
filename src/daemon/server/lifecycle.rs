@@ -67,6 +67,8 @@ pub async fn run() -> Result<()> {
         cfg.user_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
     ));
+    let presence_publisher =
+        crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
     let state = Arc::new(DaemonState {
         store,
         transport,
@@ -79,7 +81,10 @@ pub async fn run() -> Result<()> {
         catalog: CatalogState::new(),
         runtime: SessionRuntimeState::new(),
         subscriptions: SubscriptionState::new(),
-        reconcilers: ReconcilerState::new(StatusReconciler::for_ttl(status_ttl_duration())),
+        reconcilers: ReconcilerState::new(
+            StatusReconciler::for_ttl(presence_lease_ttl()),
+            presence_publisher,
+        ),
         connections: ConnectionState::new(),
         dedup: DedupState::new(),
         standing_sync: tokio::sync::Mutex::new(()),
