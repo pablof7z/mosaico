@@ -3,68 +3,71 @@ use anyhow::Result;
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct WorkspaceGroup {
-    pub(super) id: String,
-    pub(super) name: String,
-    pub(super) path: Option<String>,
-    pub(super) channels: Vec<ChannelRef>,
+pub(in crate::cli) struct WorkspaceGroup {
+    pub(in crate::cli) id: String,
+    pub(in crate::cli) name: String,
+    pub(in crate::cli) path: Option<String>,
+    pub(in crate::cli) channels: Vec<ChannelRef>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct ChannelRef {
-    pub(super) id: String,
-    pub(super) name: String,
+pub(in crate::cli) struct ChannelRef {
+    pub(in crate::cli) id: String,
+    pub(in crate::cli) name: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct SessionRow {
-    pub(super) pubkey: String,
-    pub(super) npub: String,
-    pub(super) handle: String,
-    pub(super) agent: String,
-    pub(super) workspaces: Vec<WorkspaceGroup>,
-    pub(super) title: String,
-    pub(super) activity: String,
-    pub(super) state: SessionState,
-    pub(super) state_since: u64,
-    pub(super) running: bool,
-    pub(super) resumable: bool,
-    pub(super) last_seen: u64,
-    pub(super) host: String,
-    pub(super) harness: String,
-    pub(super) pty_id: Option<String>,
-    pub(super) endpoint_live: bool,
-    pub(super) endpoint_attachable: bool,
-    pub(super) cwd: Option<String>,
-    pub(super) transport: String,
-    pub(super) takeover_available: bool,
-    pub(super) turn_open: bool,
-    pub(super) turn_count: u64,
-    pub(super) native_outcome: Option<NativeOutcomeRow>,
+pub(in crate::cli) struct SessionRow {
+    pub(in crate::cli) pubkey: String,
+    pub(in crate::cli) npub: String,
+    pub(in crate::cli) handle: String,
+    pub(in crate::cli) agent: String,
+    pub(in crate::cli) workspaces: Vec<WorkspaceGroup>,
+    pub(in crate::cli) title: String,
+    pub(in crate::cli) activity: String,
+    pub(in crate::cli) state: SessionState,
+    pub(in crate::cli) state_since: u64,
+    pub(in crate::cli) running: bool,
+    pub(in crate::cli) resumable: bool,
+    pub(in crate::cli) created_at: u64,
+    pub(in crate::cli) last_seen: u64,
+    pub(in crate::cli) busy_seconds: u64,
+    pub(in crate::cli) turn_started_at: u64,
+    pub(in crate::cli) host: String,
+    pub(in crate::cli) harness: String,
+    pub(in crate::cli) pty_id: Option<String>,
+    pub(in crate::cli) endpoint_live: bool,
+    pub(in crate::cli) endpoint_attachable: bool,
+    pub(in crate::cli) cwd: Option<String>,
+    pub(in crate::cli) transport: String,
+    pub(in crate::cli) takeover_available: bool,
+    pub(in crate::cli) turn_open: bool,
+    pub(in crate::cli) turn_count: u64,
+    pub(in crate::cli) native_outcome: Option<NativeOutcomeRow>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct NativeOutcomeRow {
-    pub(super) outcome: String,
-    pub(super) error_message: String,
+pub(in crate::cli) struct NativeOutcomeRow {
+    pub(in crate::cli) outcome: String,
+    pub(in crate::cli) error_message: String,
 }
 
 impl NativeOutcomeRow {
-    pub(super) fn is_failure(&self) -> bool {
+    pub(in crate::cli) fn is_failure(&self) -> bool {
         !matches!(self.outcome.as_str(), "completed" | "started")
     }
 }
 
 impl SessionRow {
-    pub(super) fn attachable(&self) -> bool {
+    pub(in crate::cli) fn attachable(&self) -> bool {
         self.pty_id.is_some() && self.endpoint_live && self.endpoint_attachable
     }
 
-    pub(super) fn can_take_over(&self) -> bool {
+    pub(in crate::cli) fn can_take_over(&self) -> bool {
         self.takeover_available && !self.attachable()
     }
 
-    pub(super) fn stable_id(&self) -> String {
+    pub(in crate::cli) fn stable_id(&self) -> String {
         if self.pubkey.is_empty() {
             format!("pty:{}", self.pty_id.as_deref().unwrap_or(&self.handle))
         } else {
@@ -72,13 +75,37 @@ impl SessionRow {
         }
     }
 
-    pub(super) fn belongs_to(&self, workspace_id: &str) -> bool {
+    pub(in crate::cli) fn belongs_to(&self, workspace_id: &str) -> bool {
         self.workspaces
             .iter()
             .any(|workspace| workspace.id == workspace_id)
     }
 
-    pub(super) fn fuzzy_score(&self, input: &str) -> Option<i64> {
+    pub(in crate::cli) fn matches_workspace(&self, query: &str) -> bool {
+        self.workspaces.iter().any(|workspace| {
+            workspace.id.eq_ignore_ascii_case(query)
+                || workspace.name.eq_ignore_ascii_case(query)
+                || workspace
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.eq_ignore_ascii_case(query))
+        })
+    }
+
+    pub(in crate::cli) fn last_activity(&self) -> u64 {
+        self.created_at.max(self.last_seen).max(self.state_since)
+    }
+
+    pub(in crate::cli) fn approximate_busy_seconds(&self, now: u64) -> u64 {
+        let open = if self.state == SessionState::Working && self.turn_started_at > 0 {
+            now.saturating_sub(self.turn_started_at)
+        } else {
+            0
+        };
+        self.busy_seconds.saturating_add(open)
+    }
+
+    pub(in crate::cli) fn fuzzy_score(&self, input: &str) -> Option<i64> {
         if input.is_empty() {
             return Some(0);
         }
@@ -123,12 +150,12 @@ fn score_field(input: &str, field: &str, priority: i64) -> Option<i64> {
     Some(score + exact_bonus + priority)
 }
 
-pub(super) async fn fetch_sessions() -> Result<Vec<SessionRow>> {
+pub(in crate::cli) async fn fetch_sessions() -> Result<Vec<SessionRow>> {
     let value = crate::cli::daemon_call_async("operator_sessions", serde_json::json!({})).await?;
     Ok(rows_from_value(&value))
 }
 
-fn rows_from_value(value: &serde_json::Value) -> Vec<SessionRow> {
+pub(in crate::cli) fn rows_from_value(value: &serde_json::Value) -> Vec<SessionRow> {
     let mut rows = value["sessions"]
         .as_array()
         .map(Vec::as_slice)
@@ -151,7 +178,7 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
     let npub = value["npub"].as_str()?.to_string();
     let endpoint = value.get("endpoint").filter(|value| !value.is_null());
     let takeover = value.get("takeover").filter(|value| !value.is_null());
-    let (takeover_available, turn_open, turn_count) = match takeover {
+    let (takeover_available, turn_open, takeover_turn_count) = match takeover {
         Some(takeover) => (
             true,
             takeover["turn_open"].as_bool()?,
@@ -192,7 +219,10 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
             .as_bool()
             .unwrap_or(state != SessionState::Offline),
         resumable: value["resumable"].as_bool().unwrap_or(false),
+        created_at: value["created_at"].as_u64().unwrap_or(0),
         last_seen: value["last_seen"].as_u64().unwrap_or(0),
+        busy_seconds: value["busy_seconds"].as_u64().unwrap_or(0),
+        turn_started_at: value["turn_started_at"].as_u64().unwrap_or(0),
         host: value["host"].as_str().unwrap_or("").to_string(),
         harness: value["harness"].as_str().unwrap_or("").to_string(),
         pty_id: endpoint
@@ -209,7 +239,7 @@ fn parse_row(value: &serde_json::Value) -> Option<SessionRow> {
         transport: value["transport"].as_str().unwrap_or("").to_string(),
         takeover_available,
         turn_open,
-        turn_count,
+        turn_count: value["turn_count"].as_u64().unwrap_or(takeover_turn_count),
         native_outcome: parse_native_outcome(value.get("native_outcome")),
     })
 }

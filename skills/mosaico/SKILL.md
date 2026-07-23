@@ -81,12 +81,20 @@ coordination overhead.
 
 ## Use The Command Surface Deliberately
 
-The agent-facing CLI is `my session`, `channel`, `wait`, `dispatch`, `doctor`,
-and the read-only `agents list` discovery command.
+The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
+`doctor`, and the read-only `agents list` discovery command.
 
 - Use `mosaico my session` for a full briefing; use `my session status` and
   the self-lifecycle commands only as described in [Public Work
   Status](references/public-work-status.md).
+- Use `mosaico session find <query>` to recover a past or current local
+  session from its handle, work title, workspace, or runtime facts. It searches
+  all local workspaces unless `--workspace` restricts it. When you do not know
+  what to search for, use bounded `mosaico session list`; add
+  `--all-workspaces`, `--limit`, and `--offset` as needed. Both commands accept
+  `--json`, `--state`, `--resumable`, and `--since`. Treat the displayed
+  `busy ~...` duration as a broad triage hint only: old sessions begin at zero,
+  and the counter approximates net time spent in the working state.
 - Use `channel read`, `send`, `reply`, `react`, and `wait` for conversation and
   attention; read [Coordination Guide](references/coordination-guide.md) before
   directing another participant or attaching a file.

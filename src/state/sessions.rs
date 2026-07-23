@@ -8,8 +8,8 @@ pub(super) const COLS: &str =
      observed_harness, claimed_harness, admitted_bundle, admitted_transport, \
      endpoint_provenance, child_pid, transcript_path, runtime_state, presentation_state, \
      work_state, recovery_state, lifecycle_epoch, attachment_epoch, idle_since, idle_deadline, \
-     stopped_at, stop_reason, turn_count, created_at, last_seen, turn_started_at, seen_cursor, \
-     title, explicit_chat_published_at, state_changed_at";
+     stopped_at, stop_reason, turn_count, busy_seconds, created_at, last_seen, turn_started_at, \
+     seen_cursor, title, explicit_chat_published_at, state_changed_at";
 
 fn conversion<T>(index: usize, result: Result<T>) -> rusqlite::Result<T> {
     result.map_err(|error| {
@@ -55,13 +55,14 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         stopped_at: row.get(21)?,
         stop_reason,
         turn_count: row.get(23)?,
-        created_at: row.get(24)?,
-        last_seen: row.get(25)?,
-        turn_started_at: row.get(26)?,
-        seen_cursor: row.get(27)?,
-        title: row.get(28)?,
-        explicit_chat_published_at: row.get(29)?,
-        state_changed_at: row.get(30)?,
+        busy_seconds: row.get(24)?,
+        created_at: row.get(25)?,
+        last_seen: row.get(26)?,
+        turn_started_at: row.get(27)?,
+        seen_cursor: row.get(28)?,
+        title: row.get(29)?,
+        explicit_chat_published_at: row.get(30)?,
+        state_changed_at: row.get(31)?,
     })
 }
 
@@ -231,7 +232,6 @@ impl Store {
             .get_session(pubkey)?
             .is_some_and(|session| session.can_fresh_relaunch_exact()))
     }
-
     pub fn touch_session(&self, pubkey: &str, last_seen: u64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET last_seen=?2 WHERE pubkey=?1",
@@ -239,7 +239,6 @@ impl Store {
         )?;
         self.touch_handle_for_pubkey(pubkey, last_seen)
     }
-
     pub fn bind_runtime_process(
         &self,
         pubkey: &str,
@@ -271,6 +270,8 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='stopped', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+1, idle_since=0, idle_deadline=0,
+                 busy_seconds=busy_seconds + CASE WHEN work_state='working'
+                     AND turn_started_at>0 THEN MAX(0, ?4-turn_started_at) ELSE 0 END,
                  stopped_at=?4, stop_reason=?3, turn_started_at=0, state_changed_at=?4
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='running'",
             params![pubkey, generation, reason.as_str(), stopped_at],
@@ -299,7 +300,6 @@ impl Store {
         tx.commit()?;
         Ok(changed == 1)
     }
-
     pub fn mark_runtime_stopped(
         &self,
         pubkey: &str,

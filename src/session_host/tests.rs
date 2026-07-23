@@ -24,6 +24,7 @@ fn sample_session() -> crate::state::Session {
         stopped_at: 0,
         stop_reason: None,
         turn_count: 0,
+        busy_seconds: 0,
         created_at: 1000,
         last_seen: 0,
         turn_started_at: 0,

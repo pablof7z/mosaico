@@ -12,6 +12,7 @@ use super::messaging::WaitArgs;
 use super::my::MyAction;
 use super::pty::PtySupervisorArgs;
 use super::relay::RelayArgs;
+use super::session_catalog::SessionCatalogAction;
 use super::uninstall::UninstallArgs;
 use super::who::WhoArgs;
 
@@ -51,9 +52,17 @@ pub fn print_help_contextual() {
 fn command_for_context(in_agent: bool) -> Command {
     let mut cmd = Cli::command();
     let visible: &[&str] = if in_agent {
-        &["wait", "dispatch", "my", "doctor"]
+        &["wait", "dispatch", "session", "my", "doctor"]
     } else {
-        &["who", "resume", "agents", "setup", "uninstall", "doctor"]
+        &[
+            "who",
+            "resume",
+            "session",
+            "agents",
+            "setup",
+            "uninstall",
+            "doctor",
+        ]
     };
     for sub in cmd.get_subcommands_mut() {
         if visible.contains(&sub.get_name()) {
@@ -101,6 +110,12 @@ pub(super) enum Cmd {
     /// Resume a session by its native Claude, Codex, Grok, Hermes, or OpenCode id.
     #[command(hide = true)]
     Resume(ResumeArgs),
+    /// Find and list local agent sessions.
+    #[command(hide = true)]
+    Session {
+        #[command(subcommand)]
+        action: SessionCatalogAction,
+    },
     /// Read/send chat and manage channels (read, send, create, edit, list, init, join, leave, archive, switch).
     Channel {
         #[command(subcommand)]

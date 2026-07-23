@@ -65,6 +65,10 @@ const MIGRATIONS: [Migration; (version::SCHEMA_VERSION - OLDEST_SUPPORTED_VERSIO
         from: 13,
         apply: steps::v13_to_v14,
     },
+    Migration {
+        from: 14,
+        apply: steps::v14_to_v15,
+    },
 ];
 
 pub(super) fn upgrade(conn: &mut Connection, path: &Path) -> Result<u32> {

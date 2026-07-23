@@ -158,6 +158,7 @@ mod tests {
             stopped_at: 0,
             stop_reason: None,
             turn_count: 0,
+            busy_seconds: 0,
             created_at: 1,
             last_seen: 1,
             turn_started_at: 0,

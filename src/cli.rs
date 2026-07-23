@@ -38,6 +38,7 @@ mod pty;
 mod relay;
 mod resume;
 mod session;
+mod session_catalog;
 mod statusline;
 mod turn;
 mod uninstall;
@@ -114,6 +115,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         None => interactive::session_picker::home().await,
         Some(Cmd::Who(args)) => who::who(args),
         Some(Cmd::Resume(args)) => resume::resume(args).await,
+        Some(Cmd::Session { action }) => session_catalog::run(action).await,
         Some(Cmd::Channel { action }) => admin::channels(action).await,
         Some(Cmd::Wait(args)) => messaging::wait(args).await,
         Some(Cmd::Agents(args)) => agents::agents(args).await,

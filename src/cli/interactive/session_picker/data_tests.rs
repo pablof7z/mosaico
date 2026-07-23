@@ -20,7 +20,11 @@ fn parses_grouped_workspace_and_attach_endpoint() {
             "activity": "running tests",
             "state": "working",
             "state_since": 11,
+            "created_at": 1,
             "last_seen": 12,
+            "turn_count": 3,
+            "busy_seconds": 60,
+            "turn_started_at": 10,
             "host": "laptop",
             "harness": "codex",
             "endpoint": {"id": "pty-1", "kind": "pty", "live": true, "attachable": true, "cwd": "/repo"}
@@ -38,6 +42,10 @@ fn parses_grouped_workspace_and_attach_endpoint() {
     assert_eq!(rows[0].title, "shipping the picker");
     assert_eq!(rows[0].state, SessionState::Working);
     assert_eq!(rows[0].state_since, 11);
+    assert_eq!(rows[0].created_at, 1);
+    assert_eq!(rows[0].turn_count, 3);
+    assert_eq!(rows[0].approximate_busy_seconds(20), 70);
+    assert_eq!(rows[0].last_activity(), 12);
     assert!(rows[0].fuzzy_score("npub1public").is_some());
     assert!(rows[0].fuzzy_score("repo").is_some());
     assert_eq!(rows[0].workspaces[0].name, "mosaico");

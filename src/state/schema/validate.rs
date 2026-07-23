@@ -192,6 +192,7 @@ fn validate_session(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "stopped_at",
             "stop_reason",
             "turn_count",
+            "busy_seconds",
             "explicit_chat_published_at",
             "state_changed_at",
         ],
@@ -269,7 +270,6 @@ fn ensure_columns(
     }
     Ok(())
 }
-
 fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",

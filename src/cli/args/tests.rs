@@ -6,6 +6,8 @@ use clap::{error::ErrorKind, Parser};
 mod agents;
 #[path = "tests/operator_resume.rs"]
 mod operator_resume;
+#[path = "tests/session_catalog.rs"]
+mod session_catalog;
 
 fn parse_err(args: &[&str]) -> clap::Error {
     match Cli::try_parse_from(args) {

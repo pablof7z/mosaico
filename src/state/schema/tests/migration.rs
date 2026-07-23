@@ -1,21 +1,19 @@
-use rusqlite::Connection;
-
 use crate::state::Store;
-
+use rusqlite::Connection;
 #[path = "migration_fixture.rs"]
 mod fixture;
 #[path = "migration/v13_v14.rs"]
 mod v13_v14;
+#[path = "migration/v14_v15.rs"]
+mod v14_v15;
 #[test]
 fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.db");
     fixture::create_schema_four(&path);
-
     drop(Store::open(&path).expect("schema four upgrades to current"));
-
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 14);
+    assert_eq!(version(&conn), 15);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -132,7 +130,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
     drop(Store::open(&migrated_path).expect("schema eight upgrades to current"));
 
     let migrated = Connection::open(&migrated_path).unwrap();
-    assert_eq!(version(&migrated), 14);
+    assert_eq!(version(&migrated), 15);
     assert_eq!(
         session_runtime_facts(&migrated, "pk-pty"),
         ("pty".to_string(), "migration".to_string())
@@ -168,15 +166,13 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
         Some("''")
     );
 }
-
 #[test]
 fn migration_chain_covers_every_version_before_current() {
     assert_eq!(
         super::super::migration::supported_versions(),
-        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     );
 }
-
 #[test]
 fn schema_ten_consumes_only_idle_injected_rows() {
     let directory = tempfile::tempdir().unwrap();
@@ -185,6 +181,8 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     let conn = Connection::open(&path).unwrap();
     conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
+        .unwrap();
+    conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
         .unwrap();
     conn.execute("ALTER TABLE relay_status DROP COLUMN state_since", [])
         .unwrap();
@@ -205,7 +203,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     drop(Store::open(&path).expect("schema ten upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 14);
+    assert_eq!(version(&conn), 15);
     let states = conn
         .prepare("SELECT event_id, state FROM inbox ORDER BY event_id")
         .unwrap()
@@ -234,6 +232,8 @@ fn schema_twelve_backfills_semantic_state_time() {
     let conn = Connection::open(&path).unwrap();
     conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
         .unwrap();
+    conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
+        .unwrap();
     conn.execute("ALTER TABLE relay_status DROP COLUMN state_since", [])
         .unwrap();
     conn.execute(
@@ -255,7 +255,7 @@ fn schema_twelve_backfills_semantic_state_time() {
 
     drop(Store::open(&path).expect("schema twelve upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 14);
+    assert_eq!(version(&conn), 15);
     assert_eq!(
         conn.query_row(
             "SELECT state_since FROM relay_status WHERE pubkey='peer'",

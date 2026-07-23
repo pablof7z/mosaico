@@ -66,7 +66,9 @@ impl Store {
         let transaction = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let changed = transaction.execute(
             "UPDATE sessions
-             SET work_state='idle', turn_started_at=0,
+             SET busy_seconds=busy_seconds + CASE
+                     WHEN turn_started_at>0 THEN MAX(0, ?3-turn_started_at) ELSE 0 END,
+                 work_state='idle', turn_started_at=0,
                  state_changed_at=?3,
                  idle_since=CASE WHEN presentation_state='headless' THEN ?3 ELSE 0 END,
                  idle_deadline=CASE WHEN presentation_state='headless' THEN ?4 ELSE 0 END
@@ -192,6 +194,9 @@ impl Store {
             "UPDATE sessions
              SET runtime_state='stopped', presentation_state='unavailable', work_state='idle',
                  lifecycle_epoch=lifecycle_epoch+1, stopped_at=?5, stop_reason=?4,
+                 busy_seconds=busy_seconds + CASE
+                     WHEN work_state='working' AND turn_started_at>0
+                     THEN MAX(0, ?5-turn_started_at) ELSE 0 END,
                  idle_since=0, idle_deadline=0, turn_started_at=0, state_changed_at=?5
              WHERE pubkey=?1 AND runtime_generation=?2 AND runtime_state='stopping'
                AND lifecycle_epoch=?3",
@@ -229,6 +234,9 @@ impl Store {
     }
 }
 
+#[cfg(test)]
+#[path = "session_lifecycle/busy_tests.rs"]
+mod busy_tests;
 #[cfg(test)]
 #[path = "session_lifecycle/tests.rs"]
 mod tests;

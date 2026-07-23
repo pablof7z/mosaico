@@ -94,6 +94,8 @@ pub struct Session {
     pub stopped_at: u64,
     pub stop_reason: Option<StopReason>,
     pub turn_count: u64,
+    /// Approximate cumulative time spent in the working state.
+    pub busy_seconds: u64,
     pub created_at: u64,
     pub last_seen: u64,
     pub turn_started_at: u64,

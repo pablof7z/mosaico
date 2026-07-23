@@ -47,6 +47,10 @@ fn projection_exposes_public_identity_without_private_runtime_id() {
     assert_eq!(rows[0]["workspaces"][1]["path"], "/repo");
     assert_eq!(rows[0]["workspaces"][1]["channels"][0]["name"], "review");
     assert_eq!(rows[0]["transport"], "process");
+    assert_eq!(rows[0]["created_at"], 10);
+    assert_eq!(rows[0]["turn_count"], 0);
+    assert_eq!(rows[0]["busy_seconds"], 0);
+    assert_eq!(rows[0]["turn_started_at"], 0);
     assert!(rows[0]["endpoint"].is_null());
     assert!(rows[0]["takeover"].is_null());
 
@@ -146,6 +150,9 @@ fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
     assert_eq!(rows[0]["transport"], "process");
     assert_eq!(rows[0]["takeover"]["turn_open"], true);
     assert_eq!(rows[0]["takeover"]["turn_count"], 1);
+    assert_eq!(rows[0]["turn_count"], 1);
+    assert_eq!(rows[0]["busy_seconds"], 0);
+    assert_eq!(rows[0]["turn_started_at"], 12);
 }
 
 #[test]
@@ -184,6 +191,10 @@ fn projection_includes_live_unbound_supervisor() {
     assert_eq!(rows[0]["endpoint"]["kind"], "pty");
     assert_eq!(rows[0]["workspaces"][0]["name"], "mosaico");
     assert_eq!(rows[0]["title"], "codex --yolo");
+    assert_eq!(rows[0]["created_at"], 0);
+    assert_eq!(rows[0]["turn_count"], 0);
+    assert_eq!(rows[0]["busy_seconds"], 0);
+    assert_eq!(rows[0]["turn_started_at"], 0);
 }
 
 #[test]

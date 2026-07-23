@@ -1,4 +1,4 @@
-mod data;
+pub(in crate::cli) mod data;
 mod layout;
 mod picker;
 

@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS sessions (
         'crash', 'operator_kill', 'revoked', 'superseded'
     )),
     turn_count        INTEGER NOT NULL DEFAULT 0,
+    busy_seconds      INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL,
     last_seen         INTEGER NOT NULL DEFAULT 0,
     turn_started_at   INTEGER NOT NULL DEFAULT 0,
@@ -296,7 +297,6 @@ CREATE TABLE IF NOT EXISTS workspace_roots (
     abs_path    TEXT NOT NULL,
     updated_at  INTEGER NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS channel_resolution_intents (
     parent      TEXT NOT NULL,
     name        TEXT NOT NULL,
