@@ -8,6 +8,8 @@ mod launch;
 mod named;
 #[path = "pty_bootstrap/native_resume.rs"]
 mod native_resume;
+#[path = "pty_bootstrap/stale_daemon_cwd.rs"]
+mod stale_daemon_cwd;
 #[path = "pty_bootstrap/startup_failure.rs"]
 mod startup_failure;
 #[path = "pty_bootstrap/unscoped.rs"]

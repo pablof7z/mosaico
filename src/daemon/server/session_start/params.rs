@@ -1,3 +1,5 @@
+use anyhow::Context as _;
+
 #[derive(serde::Deserialize, Default)]
 pub(super) struct SessionStartParams {
     pub(super) agent: String,
@@ -46,6 +48,16 @@ pub(super) struct SessionStartParams {
 }
 
 impl SessionStartParams {
+    pub(super) fn resolve_cwd(&self) -> anyhow::Result<std::path::PathBuf> {
+        if let Some(cwd) = self.cwd.as_deref() {
+            return Ok(std::path::PathBuf::from(cwd));
+        }
+        std::env::current_dir().context(
+            "the mosaico daemon can no longer access its working directory; \
+             restart it with `mosaico daemon restart` and try again",
+        )
+    }
+
     pub(super) fn hosted_endpoint(
         &self,
     ) -> anyhow::Result<Option<(&str, crate::session_host::transport::TransportKind)>> {
