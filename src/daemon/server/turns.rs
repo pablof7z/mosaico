@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "work_start_reaction.rs"]
+pub(crate) mod work_start_reaction;
+
 const CONTEXT_PROFILE_WARM_WINDOW_SECS: u64 = 4 * 60 * 60;
 
 #[derive(serde::Deserialize, Default)]
@@ -100,6 +103,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)
         .context("applying cursor turn_start projection")?;
+    work_start_reaction::publish_for_started_turn(state, &rec);
     let context = turn
         .text
         .map(serde_json::Value::String)
@@ -149,6 +153,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
     }
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
+    work_start_reaction::publish_for_started_turn(state, &rec);
     let context = turn
         .text
         .map(serde_json::Value::String)

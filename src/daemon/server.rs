@@ -176,7 +176,7 @@ mod subscriptions;
 #[cfg(test)]
 mod test_support;
 mod turn_lifecycle;
-mod turns;
+pub(crate) mod turns;
 mod who;
 use agent_roster::{publish_local_agent_roster, rpc_agent_roster_refresh};
 use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave, rpc_channel_switch};

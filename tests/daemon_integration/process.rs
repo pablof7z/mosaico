@@ -402,7 +402,7 @@ fn turn_lifecycle_drives_pubkey_row_resolved_from_harness_locator() {
         .claim_pending_for_pubkey(&pubkey, started.turn_started_at)
         .unwrap();
     store
-        .mark_injected_for_echo(&["native-turn-injected-event".into()], &pubkey)
+        .mark_injected_for_echo(&["native-turn-injected-event".into()], &pubkey, 0)
         .unwrap();
 
     // turn_end via the harness alias must close the CANONICAL turn.

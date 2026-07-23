@@ -11,7 +11,8 @@ pub(super) fn recording_cfg(capture: &std::path::Path, dialect: Dialect) -> Spaw
         args: vec![
             "-c".into(),
             r#"IFS= read -r line || exit 1
-printf '%s\n' "$line" > "$1"
+printf '%s\n' "$line" > "$1.tmp"
+mv "$1.tmp" "$1"
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'
 printf '%s\n' '{"jsonrpc":"2.0","method":"turn/completed","params":{}}'
 while IFS= read -r line; do :; done"#
@@ -137,13 +138,10 @@ async fn submitted_app_server_delivery_steers_an_active_turn() {
         kind: TransportKind::AppServer,
         endpoint_id: endpoint_id.clone(),
     };
-    assert!(matches!(
-        transport
-            .deliver(&endpoint, "mid-turn human message", true)
-            .await
-            .unwrap(),
-        DeliveryCompletion::ExternallyObserved
-    ));
+    let completion = transport
+        .deliver(&endpoint, "mid-turn human message", true)
+        .await
+        .unwrap();
     let request = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             if let Ok(bytes) = std::fs::read(&capture) {
@@ -157,6 +155,13 @@ async fn submitted_app_server_delivery_steers_an_active_turn() {
     let request: serde_json::Value = serde_json::from_slice(&request).unwrap();
     assert_eq!(request["method"], "turn/steer");
     assert_eq!(request["params"]["expectedTurnId"], "turn-active");
+    let DeliveryCompletion::ManagedSteer(accepted) = completion else {
+        panic!("active app-server steer must report its acknowledgement");
+    };
+    accepted
+        .await
+        .expect("app-server steer confirmation sender dropped")
+        .expect("app-server steer was not accepted");
 
     transport.kill(&endpoint).await.unwrap();
 }

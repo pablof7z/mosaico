@@ -6,8 +6,14 @@ use super::{TransportImpl, TransportKind};
 /// so delivery returns the exact request-completion signal that must close the
 /// durable Working -> Idle lifecycle edge.
 pub enum DeliveryCompletion {
+    /// The harness owns its own hook boundary (PTY).
     ExternallyObserved,
+    /// The transport started a fresh daemon-owned turn.
     Managed(tokio::sync::oneshot::Receiver<anyhow::Result<()>>),
+    /// An already-working app-server turn accepted a steer. This is not a new
+    /// lifecycle edge, but it is the transport's exact work-start equivalent
+    /// for a newly delivered message.
+    ManagedSteer(tokio::sync::oneshot::Receiver<anyhow::Result<()>>),
 }
 
 /// Fully-resolved, transport-agnostic launch intent.

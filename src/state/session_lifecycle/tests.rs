@@ -150,7 +150,7 @@ fn completed_turn_consumes_injected_fence_and_rearms_true_idle() {
         .unwrap();
     store.claim_pending_for_pubkey("pk", 21).unwrap();
     store
-        .mark_injected_for_echo(&["event".into()], "pk")
+        .mark_injected_for_echo(&["event".into()], "pk", 21)
         .unwrap();
     store
         .apply_session_turn_started("pk", session.runtime_generation, 22, None)

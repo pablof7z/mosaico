@@ -68,6 +68,31 @@ fn pending_event_survives_runtime_replacement() {
 }
 
 #[test]
+fn hook_claim_stages_one_work_start_reaction() {
+    let s = Store::open_memory().unwrap();
+    s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
+        .unwrap();
+
+    assert_eq!(s.claim_pending_for_pubkey("pk", 11).unwrap().len(), 1);
+    assert_eq!(s.take_work_start_claims("pk", 12).unwrap().len(), 1);
+    assert!(s.take_work_start_claims("pk", 13).unwrap().is_empty());
+}
+
+#[test]
+fn injected_delivery_stages_work_start_for_a_later_hook() {
+    let s = Store::open_memory().unwrap();
+    s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
+        .unwrap();
+    s.claim_pending_event_ids_for_pubkey(&["evt".into()], "pk", 11)
+        .unwrap();
+    s.mark_injected_for_echo(&["evt".into()], "pk", 12).unwrap();
+
+    let handoffs = s.take_work_start_claims("pk", 13).unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].event_id, "evt");
+}
+
+#[test]
 fn same_event_is_independent_per_pubkey() {
     let s = Store::open_memory().unwrap();
     assert!(s

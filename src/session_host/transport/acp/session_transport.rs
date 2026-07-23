@@ -172,12 +172,10 @@ impl SessionTransport for RpcTransport {
                     .unwrap_or(SteerState::Idle);
                 match steer {
                     SteerState::Ready(turn_id) => {
-                        spawn_app_server_steer(handle, native_id, turn_id, text);
-                        DeliveryCompletion::ExternallyObserved
+                        spawn_app_server_steer(handle, native_id, turn_id, text)
                     }
                     SteerState::AwaitingId => {
-                        spawn_app_server_steer_pending(handle, native_id, text, runtime);
-                        DeliveryCompletion::ExternallyObserved
+                        spawn_app_server_steer_pending(handle, native_id, text, runtime)
                     }
                     SteerState::Idle => {
                         if let Ok(mut runtime) = runtime.lock() {

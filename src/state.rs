@@ -241,6 +241,7 @@ mod profiles;
 mod workspace_roots;
 pub use workspace_roots::WorkspaceBinding;
 mod quarantine;
+pub(crate) mod work_start;
 pub use quarantine::QuarantinedEvent;
 mod reactions;
 mod reader;

@@ -93,7 +93,7 @@ pub(super) async fn inject_planned_messages(
         }
     };
     finalize_injection(state, rec, &prompt)?;
-    track_managed_turn(state, rec, completion)?;
+    track_managed_turn(state, rec, &prompt.chat_ids, completion)?;
     Ok(true)
 }
 
@@ -105,10 +105,36 @@ pub(super) async fn inject_planned_messages(
 fn track_managed_turn(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
+    event_ids: &[String],
     completion: DeliveryCompletion,
 ) -> Result<()> {
-    let DeliveryCompletion::Managed(completion) = completion else {
-        return Ok(());
+    let completion = match completion {
+        DeliveryCompletion::ExternallyObserved => return Ok(()),
+        DeliveryCompletion::Managed(completion) => completion,
+        DeliveryCompletion::ManagedSteer(accepted) => {
+            let state = state.clone();
+            let rec = rec.clone();
+            let event_ids = event_ids.to_vec();
+            tokio::spawn(async move {
+                match accepted.await {
+                    Ok(Ok(())) => {
+                        crate::daemon::server::turns::work_start_reaction::publish_for_started_events(
+                            &state, &rec, &event_ids,
+                        );
+                    }
+                    Ok(Err(error)) => tracing::warn!(
+                        session = %rec.pubkey,
+                        %error,
+                        "app-server steer was not accepted; work-start reaction skipped"
+                    ),
+                    Err(_) => tracing::warn!(
+                        session = %rec.pubkey,
+                        "app-server steer confirmation was dropped; work-start reaction skipped"
+                    ),
+                }
+            });
+            return Ok(());
+        }
     };
     let started_at = now_secs();
     let started = state.with_store(|store| {
@@ -121,6 +147,9 @@ fn track_managed_turn(
             rec.runtime_generation
         );
     }
+    crate::daemon::server::turns::work_start_reaction::publish_for_started_events(
+        state, rec, event_ids,
+    );
 
     let state = state.clone();
     let pubkey = rec.pubkey.clone();
@@ -191,7 +220,9 @@ fn finalize_injection(
     rec: &crate::state::Session,
     prompt: &PendingPrompt,
 ) -> Result<()> {
-    if let Err(e) = state.with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey)) {
+    if let Err(e) =
+        state.with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey, now_secs()))
+    {
         tracing::error!(
             pubkey = %rec.pubkey,
             error = %e,

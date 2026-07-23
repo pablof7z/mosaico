@@ -65,15 +65,19 @@ pub(crate) fn spawn_app_server_steer(
     native_id: String,
     turn_id: String,
     text: String,
-) {
+) -> DeliveryCompletion {
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        if let Err(e) = AppServerClient::new(handle)
+        let result = AppServerClient::new(handle)
             .turn_steer(&native_id, &turn_id, &text)
             .await
-        {
+            .map_err(|e| anyhow::anyhow!("app-server turn/steer failed: {e}"));
+        if let Err(e) = &result {
             tracing::warn!(thread = %native_id, turn = %turn_id, "app-server turn/steer failed: {e}");
         }
+        let _ = accepted_tx.send(result);
     });
+    DeliveryCompletion::ManagedSteer(accepted_rx)
 }
 
 /// How long to wait for a running turn's id to arrive before giving up on a
@@ -93,7 +97,8 @@ pub(crate) fn spawn_app_server_steer_pending(
     native_id: String,
     text: String,
     runtime: Arc<Mutex<AcpRuntime>>,
-) {
+) -> DeliveryCompletion {
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_millis(STEER_GATE_TIMEOUT_MS);
@@ -101,21 +106,29 @@ pub(crate) fn spawn_app_server_steer_pending(
             let state = runtime.lock().ok().map(|rt| rt.steer_state());
             match state {
                 Some(SteerState::Ready(turn_id)) => {
-                    if let Err(e) = AppServerClient::new(handle)
+                    let result = AppServerClient::new(handle)
                         .turn_steer(&native_id, &turn_id, &text)
                         .await
-                    {
+                        .map_err(|e| anyhow::anyhow!("app-server turn/steer failed: {e}"));
+                    if let Err(e) = &result {
                         tracing::warn!(thread = %native_id, turn = %turn_id, "app-server gated turn/steer failed: {e}");
                     }
+                    let _ = accepted_tx.send(result);
                     return;
                 }
                 Some(SteerState::Idle) | None => {
                     tracing::warn!(thread = %native_id, "steer target ended before its turn id was known; dropping steer");
+                    let _ = accepted_tx.send(Err(anyhow::anyhow!(
+                        "app-server steer target ended before delivery"
+                    )));
                     return;
                 }
                 Some(SteerState::AwaitingId) => {
                     if std::time::Instant::now() >= deadline {
                         tracing::warn!(thread = %native_id, "timed out waiting for turn id; dropping steer to avoid a second concurrent turn");
+                        let _ = accepted_tx.send(Err(anyhow::anyhow!(
+                            "timed out waiting for app-server steer target"
+                        )));
                         return;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(STEER_GATE_POLL_MS)).await;
@@ -123,4 +136,5 @@ pub(crate) fn spawn_app_server_steer_pending(
             }
         }
     });
+    DeliveryCompletion::ManagedSteer(accepted_rx)
 }

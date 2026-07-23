@@ -9,7 +9,11 @@ impl Store {
     /// once, with no separate "notified" flag or external gate. Rows come back
     /// oldest-first (RETURNING order is unspecified, so we sort).
     pub fn claim_pending_for_pubkey(&self, target_pubkey: &str, now: u64) -> Result<Vec<InboxRow>> {
-        let mut stmt = self.conn.prepare(&format!(
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let mut stmt = transaction.prepare(&format!(
             "UPDATE inbox SET state='delivered', delivered_at=?2
              WHERE target_pubkey=?1 AND state='pending'
              RETURNING {COLS}"
@@ -17,6 +21,9 @@ impl Store {
         let rows = stmt.query_map(params![target_pubkey, now], row_to_inbox)?;
         let mut out = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         out.sort_by_key(|r| r.created_at);
+        drop(stmt);
+        crate::state::work_start::stage_from_inbox_tx(&transaction, &out, now)?;
+        transaction.commit()?;
         Ok(out)
     }
 
@@ -76,14 +83,34 @@ impl Store {
 
     /// Mark successfully injected rows as awaiting user-prompt echo
     /// suppression. These rows are no longer pending for turn context delivery.
-    pub fn mark_injected_for_echo(&self, event_ids: &[String], target_pubkey: &str) -> Result<()> {
+    pub fn mark_injected_for_echo(
+        &self,
+        event_ids: &[String],
+        target_pubkey: &str,
+        now: u64,
+    ) -> Result<()> {
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         for id in event_ids {
-            self.conn.execute(
+            transaction.execute(
                 "UPDATE inbox SET state='injected'
                  WHERE event_id=?1 AND target_pubkey=?2 AND state='delivered'",
                 params![id, target_pubkey],
             )?;
         }
+        let mut rows = Vec::new();
+        for id in event_ids {
+            let mut stmt = transaction.prepare(&format!(
+                "SELECT {COLS} FROM inbox
+                 WHERE event_id=?1 AND target_pubkey=?2 AND state='injected'"
+            ))?;
+            let claimed = stmt.query_map(params![id, target_pubkey], row_to_inbox)?;
+            rows.extend(claimed.collect::<rusqlite::Result<Vec<_>>>()?);
+        }
+        crate::state::work_start::stage_from_inbox_tx(&transaction, &rows, now)?;
+        transaction.commit()?;
         Ok(())
     }
 

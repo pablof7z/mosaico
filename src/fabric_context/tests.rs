@@ -220,7 +220,7 @@ fn injected_mention_row_is_hidden_from_chatter() {
         .unwrap();
     store.claim_pending_for_pubkey(&rec.pubkey, 210).unwrap();
     store
-        .mark_injected_for_echo(&["mention-inj".to_string()], &rec.pubkey)
+        .mark_injected_for_echo(&["mention-inj".to_string()], &rec.pubkey, 210)
         .unwrap();
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
