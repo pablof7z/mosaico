@@ -31,11 +31,7 @@ pub(super) async fn rpc_session_start_inner(
     config::ensure_dir(&mosaico_home)?;
     let facts = params::runtime_facts(&p)?;
     let harness = facts.observed_harness;
-    let cwd = p
-        .cwd
-        .as_deref()
-        .map(std::path::PathBuf::from)
-        .unwrap_or(std::env::current_dir()?);
+    let cwd = p.resolve_cwd()?;
     state.refresh_agent_catalog()?;
     let work_root = crate::daemon::workspace_path::channel_for_path_or_unscoped(&cwd)?;
     let rel_cwd = crate::workspace::rel_cwd(&cwd)?;
