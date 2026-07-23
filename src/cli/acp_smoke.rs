@@ -215,7 +215,7 @@ async fn run_app_server(
         .turn_start(&thread_id, prompt)
         .await
         .map_err(|e| anyhow::anyhow!("turn/start: {e}"))?;
-    println!("[acp-smoke] turn/completed -> {}", outcome.raw);
+    println!("[acp-smoke] turn/completed -> {outcome}");
     handle.kill().await?;
 
     let (handle2, _updates2) = RpcHandle::spawn(mk_cfg()?)
@@ -235,7 +235,7 @@ async fn run_app_server(
         .turn_start(&thread_id, "Reply with exactly one word: RESUMED")
         .await
         .map_err(|e| anyhow::anyhow!("turn/start after resume: {e}"))?;
-    println!("[acp-smoke] resumed turn/completed -> {}", resumed.raw);
+    println!("[acp-smoke] resumed turn/completed -> {resumed}");
     handle2.kill().await?;
     println!("[acp-smoke] PASS");
     Ok(())

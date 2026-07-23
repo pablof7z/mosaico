@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::callbacks::Callbacks;
 use super::protocol::{classify, Inbound, RpcErrorObject, SessionUpdate};
-use super::transport::{PendingMap, TurnWaiters};
+use super::transport::{AppServerRouting, PendingMap, TurnSignal};
 
 pub(super) async fn writer_task(
     mut stdin: tokio::process::ChildStdin,
@@ -37,7 +37,7 @@ pub(super) async fn stderr_task(stderr: tokio::process::ChildStderr, program: St
 pub(super) async fn reader_task(
     stdout: tokio::process::ChildStdout,
     pending: PendingMap,
-    turn_waiters: TurnWaiters,
+    app_server_routing: AppServerRouting,
     write_tx: mpsc::Sender<String>,
     update_tx: mpsc::UnboundedSender<SessionUpdate>,
     callbacks: Callbacks,
@@ -58,7 +58,7 @@ pub(super) async fn reader_task(
         dispatch_inbound(
             classify(value),
             &pending,
-            &turn_waiters,
+            &app_server_routing,
             &write_tx,
             &update_tx,
             &callbacks,
@@ -72,19 +72,15 @@ pub(super) async fn reader_task(
     let _ = exit_tx.send(true);
     let drained: Vec<_> = pending.lock().unwrap().drain().collect();
     for (_, tx) in drained {
-        let _ = tx.send(Err(RpcErrorObject {
-            code: -1,
-            message: "child harness exited".into(),
-            data: None,
-        }));
+        let _ = tx.send(Err(super::transport::RpcError::ChildExited));
     }
-    turn_waiters.lock().unwrap().clear();
+    app_server_routing.clear_waiters();
 }
 
 async fn dispatch_inbound(
     inbound: Inbound,
     pending: &PendingMap,
-    turn_waiters: &TurnWaiters,
+    app_server_routing: &AppServerRouting,
     write_tx: &mpsc::Sender<String>,
     update_tx: &mpsc::UnboundedSender<SessionUpdate>,
     callbacks: &Callbacks,
@@ -92,34 +88,21 @@ async fn dispatch_inbound(
     match inbound {
         Inbound::Response { id, result } => {
             if let Some(tx) = pending.lock().unwrap().remove(&id) {
-                let _ = tx.send(result);
+                let _ = tx.send(result.map_err(super::transport::RpcError::Protocol));
             }
         }
         Inbound::Request { id, method, params } => {
             handle_agent_request(id, method, params, write_tx.clone(), callbacks.clone());
         }
         Inbound::Notification { method, params } => {
-            // app-server turn completion resolves a registered waiter.
-            if method == "turn/completed" || method == "turn/failed" || method == "turn/aborted" {
-                let key = params
-                    .get("threadId")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                if let Some(key) = key {
-                    if let Some(tx) = turn_waiters.lock().unwrap().remove(&key) {
-                        let _ = tx.send(params.clone());
-                    }
-                } else {
-                    // No thread key: resolve any single outstanding waiter.
-                    let only = {
-                        let mut w = turn_waiters.lock().unwrap();
-                        let k = w.keys().next().cloned();
-                        k.and_then(|k| w.remove(&k))
-                    };
-                    if let Some(tx) = only {
-                        let _ = tx.send(params.clone());
-                    }
-                }
+            if method == "turn/completed" {
+                signal_turn(
+                    app_server_routing,
+                    &params,
+                    TurnSignal::Completed(params.clone()),
+                );
+            } else if method == "thread/status/changed" {
+                signal_turn(app_server_routing, &params, TurnSignal::Reconcile);
             }
             // Unbounded, non-blocking send: never drops an update (defect #15), and
             // cannot deadlock the reader (no backpressure). A closed receiver (drain
@@ -128,6 +111,18 @@ async fn dispatch_inbound(
         }
         Inbound::Other => {}
     }
+}
+
+fn signal_turn(
+    app_server_routing: &AppServerRouting,
+    params: &serde_json::Value,
+    signal: TurnSignal,
+) {
+    let Some(thread_id) = params.get("threadId").and_then(serde_json::Value::as_str) else {
+        tracing::warn!("app-server lifecycle notification omitted required threadId");
+        return;
+    };
+    app_server_routing.signal(thread_id, signal);
 }
 
 /// Handle an agent->client request in a spawned task so slow fs IO never stalls

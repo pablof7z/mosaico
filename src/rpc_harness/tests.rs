@@ -138,6 +138,50 @@ async fn rpc_kill_terminates_the_owned_process_group() {
     assert!(!crate::liveness::pid_alive(descendant));
 }
 
+async fn silent_app_server_handle() -> RpcHandle {
+    let cwd = std::env::temp_dir();
+    let cfg = SpawnConfig {
+        program: "/bin/sh".into(),
+        args: vec![
+            "-c".into(),
+            "IFS= read -r line; while IFS= read -r line; do :; done".into(),
+        ],
+        cwd: cwd.clone(),
+        env: vec![],
+        env_remove: vec![],
+        dialect: Dialect::AppServer,
+        callbacks: Callbacks::allow_all(cwd),
+    };
+    RpcHandle::spawn(cfg).await.unwrap().0
+}
+
+#[tokio::test]
+async fn turn_observer_is_unique_and_drop_releases_its_route() {
+    let handle = silent_app_server_handle().await;
+    let observer = handle.register_turn_waiter("thread-1").unwrap();
+    assert!(handle.register_turn_waiter("thread-1").is_err());
+    drop(observer);
+    let replacement = handle.register_turn_waiter("thread-1").unwrap();
+    drop(replacement);
+    handle.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn request_timeout_removes_its_correlation_entry() {
+    let handle = silent_app_server_handle().await;
+    let error = handle
+        .request_timeout(
+            "thread/read",
+            serde_json::json!({"threadId":"thread-1","includeTurns":true}),
+            std::time::Duration::from_millis(10),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, RpcError::Timeout));
+    assert_eq!(handle.pending_request_count(), 0);
+    handle.kill().await.unwrap();
+}
+
 /// LIVE smoke against real `opencode acp` on this machine. Gated so CI without
 /// auth skips it. Run with:
 ///   MOSAICO_RPC_LIVE=1 cargo test --lib -- --ignored rpc_harness::tests::live_opencode

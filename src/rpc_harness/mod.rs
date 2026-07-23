@@ -13,7 +13,7 @@ pub mod protocol;
 pub mod transport;
 
 pub use acp::AcpClient;
-pub use app_server::{AppServerClient, TurnOutcome};
+pub use app_server::{AppServerClient, TurnFailure, TurnOutcome};
 pub use callbacks::{Callbacks, FsBridge, PermissionPolicy};
 pub use protocol::{Dialect, SessionUpdate, StopReason};
 pub use transport::{RpcError, RpcHandle, SpawnConfig};

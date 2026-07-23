@@ -132,3 +132,22 @@ the hop; terminal scrollback from the killed process is lost. CLI: `mosaico my
 session pty-wrap-me --self`, which resolves the caller from the PTY/session
 environment and refuses a positional target — an agent may only re-home its own
 session. The CLI exits non-zero unless the refusal is `already_wrapped`.
+
+## Managed RPC turn authority
+
+Managed RPC transports keep lifecycle `working` until their native protocol
+proves the turn terminal or the owned child exits. ACP uses the terminal
+`session/prompt` response. Codex app-server uses only the current generated
+contract: the `turn/start` response identifies the exact turn, and
+`turn/completed.params.turn.status` classifies it as `completed`, `failed`, or
+`interrupted`. An `inProgress`, malformed, mismatched, or missing notification
+is never completion.
+
+The exact turn history returned by `thread/start` or `thread/resume` is the
+baseline for identifying the one newly delivered turn. App-server waiters then
+periodically call `thread/read` with `includeTurns: true` and reconcile exact
+thread and turn IDs. `thread/status/changed` triggers the same read
+immediately. Time initiates an authoritative read; it never changes lifecycle
+state itself. This recovers a lost start response or terminal notification
+without turn replay, while explicit process cancellation or child exit closes
+the waiter deterministically.

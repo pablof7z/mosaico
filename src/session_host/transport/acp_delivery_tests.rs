@@ -11,10 +11,25 @@ pub(super) fn recording_cfg(capture: &std::path::Path, dialect: Dialect) -> Spaw
         args: vec![
             "-c".into(),
             r#"IFS= read -r line || exit 1
+case "$line" in
+  *'"method":"thread/read"'*)
+    id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"thread":{"id":"native-delivery-test","turns":[]}}}\n' "$id"
+    IFS= read -r line || exit 1
+    ;;
+esac
 printf '%s\n' "$line" > "$1.tmp"
 mv "$1.tmp" "$1"
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'
-printf '%s\n' '{"jsonrpc":"2.0","method":"turn/completed","params":{}}'
+id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+case "$line" in
+  *'"method":"turn/start"'*)
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"turn":{"id":"turn-fixture","items":[],"status":"inProgress"}}}\n' "$id"
+    printf '%s\n' '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"native-delivery-test","turn":{"id":"turn-fixture","items":[],"status":"completed"}}}'
+    ;;
+  *)
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"
+    ;;
+esac
 while IFS= read -r line; do :; done"#
                 .into(),
             "mosaico-acp-fixture".into(),
