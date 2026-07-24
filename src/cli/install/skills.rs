@@ -114,30 +114,6 @@ pub(super) fn print_status() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn selection_label() -> Result<String> {
-    let targets = super::skill_health()?.targets;
-    let installed = targets
-        .iter()
-        .filter(|target| target.state == SkillHealthState::Healthy)
-        .count();
-    let status = match installed {
-        0 => "-".dimmed().to_string(),
-        n if n == targets.len() => "installed".green().to_string(),
-        _ => "partial".yellow().to_string(),
-    };
-    let detail = targets
-        .iter()
-        .map(|target| target.path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Ok(format!(
-        "{:<18} {:<14} {}",
-        "mosaico skill".cyan().bold(),
-        status,
-        detail.dimmed()
-    ))
-}
-
 pub(super) fn install(opts: &InstallOpts) -> Result<()> {
     if !opts.uninstall && !opts.dry_run {
         let repaired = super::repair_skill()?;

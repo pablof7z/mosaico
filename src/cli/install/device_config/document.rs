@@ -9,10 +9,18 @@ pub(super) fn baseline_document() -> Value {
         "whitelistedPubkeys": [],
         "relays": [],
         "indexerRelay": crate::config::DEFAULT_INDEXER_RELAY,
-        "backendName": crate::config::hostname(),
+        "backendName": default_host_label(),
         "mosaicoPrivateKey": crate::config::generate_mosaico_private_key(),
         "perSessionRooms": false,
     })
+}
+
+fn default_host_label() -> String {
+    let hostname = crate::config::hostname();
+    hostname
+        .strip_suffix(".local")
+        .unwrap_or(&hostname)
+        .to_string()
 }
 
 pub(super) fn read_document(path: &Path) -> Result<Value> {

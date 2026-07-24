@@ -1,12 +1,25 @@
-use super::{is_installed, read_json_or_default, skills, Harness, InstallOpts};
+use super::{is_installed, read_json_or_default, Harness, InstallOpts};
 use anyhow::{bail, Result};
-use dialoguer::MultiSelect;
+use dialoguer::{Confirm, MultiSelect};
 use owo_colors::OwoColorize;
 use std::io::{self, IsTerminal as _};
 
 pub(super) struct InstallSelection<'a> {
     pub skill: bool,
     pub harnesses: Vec<&'a Harness>,
+}
+
+impl InstallSelection<'_> {
+    pub(super) fn display_names(&self) -> String {
+        if self.harnesses.is_empty() {
+            return "No agent apps".to_string();
+        }
+        self.harnesses
+            .iter()
+            .map(|harness| harness.display)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 pub(super) fn preflight_selection(selected: &InstallSelection<'_>) -> Result<()> {
@@ -110,8 +123,38 @@ pub(super) fn detected_list(all: &[Harness]) -> String {
 }
 
 fn interactive_select(all: &[Harness]) -> Result<InstallSelection<'_>> {
-    let mut labels = vec![skills::selection_label()?];
-    labels.extend(all.iter().map(|harness| {
+    let detected = all
+        .iter()
+        .filter(|harness| harness.detected)
+        .collect::<Vec<_>>();
+    if detected.is_empty() {
+        println!(
+            "\nNo supported agent apps were detected. Mosaico will configure the fabric and skill."
+        );
+        return Ok(InstallSelection {
+            skill: true,
+            harnesses: Vec::new(),
+        });
+    }
+
+    let detected_names = detected
+        .iter()
+        .map(|harness| harness.display)
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("\nAgent apps found: {detected_names}");
+    if Confirm::new()
+        .with_prompt("Connect all detected agent apps?")
+        .default(true)
+        .interact()?
+    {
+        return Ok(InstallSelection {
+            skill: true,
+            harnesses: detected,
+        });
+    }
+
+    let labels = all.iter().map(|harness| {
         let status = if harness.detected {
             "detected".green().to_string()
         } else {
@@ -122,27 +165,20 @@ fn interactive_select(all: &[Harness]) -> Result<InstallSelection<'_>> {
         } else {
             String::new()
         };
-        format!(
-            "{:<18} {}{}  {}",
-            harness.display.cyan().bold(),
-            status,
-            installed,
-            harness.config_path.display().to_string().dimmed()
-        )
-    }));
-    let mut defaults = vec![true];
-    defaults.extend(all.iter().map(|harness| harness.detected));
+        format!("{:<18} {status}{installed}", harness.display.cyan().bold())
+    });
+    let defaults = all
+        .iter()
+        .map(|harness| harness.detected)
+        .collect::<Vec<_>>();
     let chosen = MultiSelect::new()
-        .with_prompt("Install mosaico components  (space to toggle, enter to apply)")
-        .items(&labels)
+        .with_prompt("Choose agent apps  (space to toggle, enter to continue)")
+        .items(&labels.collect::<Vec<_>>())
         .defaults(&defaults)
         .interact()?;
     Ok(InstallSelection {
-        skill: chosen.contains(&0),
-        harnesses: chosen
-            .into_iter()
-            .filter_map(|index| index.checked_sub(1).map(|harness| &all[harness]))
-            .collect(),
+        skill: true,
+        harnesses: chosen.into_iter().map(|index| &all[index]).collect(),
     })
 }
 

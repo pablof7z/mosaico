@@ -14,7 +14,9 @@ mod skills;
 
 use anyhow::Result;
 use config::Harness;
+use dialoguer::Confirm;
 use owo_colors::OwoColorize;
+use std::io::{self, IsTerminal as _};
 
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
@@ -62,13 +64,35 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
         return Ok(());
     }
 
-    let selected = resolve_selection(&all, &opts)?;
-    preflight_selection(&selected)?;
     let device = if opts.uninstall {
         None
     } else {
-        Some(device_config::configure(&opts)?)
+        Some(device_config::prepare(&opts)?)
     };
+    let selected = resolve_selection(&all, &opts)?;
+    preflight_selection(&selected)?;
+    let connected_apps = selected.display_names();
+    let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
+
+    if let Some(device) = device.as_ref() {
+        if interactive {
+            println!("\n{}", "Ready to connect Mosaico".bold());
+            device.print_review();
+            println!("  {:<14} {connected_apps}", "Agent apps");
+            println!("  {:<14} Installed for connected agents", "Mosaico skill");
+            if !opts.dry_run
+                && !Confirm::new()
+                    .with_prompt("Apply this setup?")
+                    .default(true)
+                    .interact()?
+            {
+                println!("\nSetup cancelled. Nothing was changed.");
+                return Ok(());
+            }
+        }
+        device.apply(&opts)?;
+    }
+
     if selected.skill {
         skills::install(&opts)?;
     } else {
@@ -89,7 +113,7 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     };
     let flag = if opts.dry_run { " (dry-run)" } else { "" };
 
-    for h in selected.harnesses {
+    for h in &selected.harnesses {
         println!("\n{} {}{flag}", verb.bold(), h.display.cyan().bold());
         match h.id {
             "claude-code" | "codex" | "grok" => install_json_harness(h, &opts, true)?,
@@ -103,15 +127,16 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     }
 
     if let Some(device) = device.as_ref() {
-        if device.local_relay && device.start_local_relay {
+        if device.setup().local_relay && device.setup().start_local_relay {
             super::local_relay::start(
                 device
+                    .setup()
                     .owner_pubkey
                     .as_deref()
                     .expect("local relay has owner"),
                 opts.dry_run,
             )?;
-        } else if !device.local_relay {
+        } else if !device.setup().local_relay {
             super::local_relay::stop(opts.dry_run)?;
         }
     }
@@ -120,9 +145,42 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
         println!("\n{}", "(dry run; nothing was written)".dimmed());
     } else if !opts.uninstall {
         super::daemon_lifecycle::restart().await?;
-        println!("\nSetup complete. Restart open harness sessions, then run `mosaico doctor`.");
+        verify_installation(&selected)?;
+        println!("\n{}", "✓ Mosaico is ready".green().bold());
+        println!("  Connected: {connected_apps}");
+        println!("  Verified: device config, runtime skill, and selected integrations");
+        println!("\nRestart any open agent sessions. New sessions will join automatically.");
     } else {
         println!("\nRemoved Mosaico-owned harness integrations and runtime skills.");
+    }
+    Ok(())
+}
+
+fn verify_installation(selected: &selection::InstallSelection<'_>) -> Result<()> {
+    let missing = selected
+        .harnesses
+        .iter()
+        .filter(|harness| !is_installed(harness))
+        .map(|harness| harness.display)
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "setup completed but integration verification failed for {}; run `mosaico doctor`",
+            missing.join(", ")
+        );
+    }
+    let skill = skill_health()?;
+    let unhealthy = skill
+        .targets
+        .iter()
+        .filter(|target| target.state != SkillHealthState::Healthy)
+        .map(|target| target.label)
+        .collect::<Vec<_>>();
+    if !unhealthy.is_empty() {
+        anyhow::bail!(
+            "setup completed but runtime skill verification failed for {}; run `mosaico doctor`",
+            unhealthy.join(", ")
+        );
     }
     Ok(())
 }
