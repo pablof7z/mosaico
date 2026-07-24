@@ -91,7 +91,12 @@ impl InstallOpts {
 }
 
 pub(in crate::cli) async fn setup(args: SetupArgs) -> Result<()> {
-    super::install_with_opts(args.into_opts()).await
+    let opts = args.into_opts();
+    if super::onboarding::should_run(&opts) {
+        super::onboarding::run(opts).await
+    } else {
+        super::install_with_opts(opts).await
+    }
 }
 
 #[cfg(test)]
