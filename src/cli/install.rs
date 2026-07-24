@@ -7,6 +7,7 @@ mod goose;
 mod hermes;
 mod hooks;
 mod io;
+mod onboarding;
 mod repair;
 mod selection;
 mod skill_api;
@@ -66,8 +67,20 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     if !opts.uninstall {
         device_config::configure(&opts)?;
     }
+    apply_install(&all, &selected, &opts).await
+}
+
+/// Apply the install mechanics for an already-resolved selection: the mosaico
+/// skill, per-harness hooks/plugins, and the daemon restart. Shared by the
+/// scriptable text flow and the onboarding TUI so both write identical state.
+/// Device configuration is written by the caller before this runs.
+async fn apply_install(
+    all: &[Harness],
+    selected: &selection::InstallSelection<'_>,
+    opts: &InstallOpts,
+) -> Result<()> {
     if selected.skill {
-        skills::install(&opts)?;
+        skills::install(opts)?;
     } else {
         println!("\n{}", "Skipping mosaico skill".dimmed());
     }
@@ -75,7 +88,7 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     if selected.harnesses.is_empty() && !opts.uninstall {
         println!(
             "No harness hooks selected. Detected: {}",
-            detected_list(&all)
+            detected_list(all)
         );
     }
 
@@ -86,15 +99,15 @@ async fn install_with_opts(opts: InstallOpts) -> Result<()> {
     };
     let flag = if opts.dry_run { " (dry-run)" } else { "" };
 
-    for h in selected.harnesses {
+    for &h in &selected.harnesses {
         println!("\n{} {}{flag}", verb.bold(), h.display.cyan().bold());
         match h.id {
-            "claude-code" | "codex" | "grok" => install_json_harness(h, &opts, true)?,
-            "opencode" => install_opencode(h, &opts, true)?,
-            "goose" if opts.uninstall => goose::uninstall(h, &opts)?,
-            "goose" => goose::install(h, &opts, true)?,
-            "hermes" if opts.uninstall => hermes::uninstall(h, &opts)?,
-            "hermes" => hermes::install(h, &opts, true)?,
+            "claude-code" | "codex" | "grok" => install_json_harness(h, opts, true)?,
+            "opencode" => install_opencode(h, opts, true)?,
+            "goose" if opts.uninstall => goose::uninstall(h, opts)?,
+            "goose" => goose::install(h, opts, true)?,
+            "hermes" if opts.uninstall => hermes::uninstall(h, opts)?,
+            "hermes" => hermes::install(h, opts, true)?,
             _ => {}
         }
     }

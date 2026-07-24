@@ -103,7 +103,7 @@ fn tui_loop(state: &mut Onboarding, handle: &tokio::runtime::Handle) -> Result<O
         // Drive the assist modal: pump the driver, poll the relay, resolve.
         if let Some(session) = deploy.as_mut() {
             session.pump();
-            if state.frame % DEPLOY_PROBE_TICKS == 0 {
+            if state.frame.is_multiple_of(DEPLOY_PROBE_TICKS) {
                 let dtx = dtx.clone();
                 let url = session.relay_url().to_string();
                 handle.spawn(async move {

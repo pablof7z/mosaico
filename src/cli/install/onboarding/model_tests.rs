@@ -67,7 +67,7 @@ fn harness_toggle_and_navigation() {
     state.step = Step::Harnesses;
     // toggle off the pre-selected claude-code
     state.handle_key(press(KeyCode::Char(' ')));
-    assert_eq!(state.selected[0], false);
+    assert!(!state.selected[0]);
     // move down and toggle on codex
     state.handle_key(press(KeyCode::Down));
     state.handle_key(press(KeyCode::Char(' ')));

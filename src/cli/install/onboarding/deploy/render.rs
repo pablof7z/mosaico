@@ -108,7 +108,7 @@ fn render_permission(frame: &mut Frame, area: Rect, session: &DeploySession) {
     let Some(ask) = session.pending() else {
         return;
     };
-    let width = area.width.saturating_sub(8).min(70).max(20);
+    let width = area.width.saturating_sub(8).clamp(20, 70);
     let height = (ask.options.len() as u16 + 6).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
