@@ -4,7 +4,7 @@ use super::*;
 use crate::domain::{AgentRef, ChatMessage};
 use crate::fabric::provider::chat::OutboundChatRecord;
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::Event;
+use nostr::Event;
 
 mod list_agents;
 mod parse;

@@ -29,7 +29,7 @@
 use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
-use nostr_sdk::prelude::*;
+use nostr::*;
 
 pub const KIND_PROFILE: u16 = 0;
 pub const KIND_CHAT: u16 = 9;
@@ -116,7 +116,7 @@ impl Nip29WireCodec {
                 // Activity is a social narrative note (kind:1 without inbox routing).
                 // We still encode it for broadcast purposes but it's not part of
                 // the inbox system. For now, encode as a plain kind:1 note.
-                use nostr_sdk::prelude::EventBuilder as EB;
+                use nostr::EventBuilder as EB;
                 EB::new(Kind::from(1u16), text.clone()).tags([h_tag(channel)?])
             }
             DomainEvent::Status(Status {

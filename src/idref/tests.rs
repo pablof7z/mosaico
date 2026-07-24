@@ -63,7 +63,7 @@ fn event_short_id_truncates_to_eight() {
 
 #[test]
 fn npub_and_hex_normalize_to_the_same_permanent_identity() {
-    let keys = nostr_sdk::prelude::Keys::generate();
+    let keys = nostr::Keys::generate();
     let hex = keys.public_key().to_hex();
     let bech32 = npub(&hex).expect("npub");
     assert_eq!(normalize_pubkey(&hex).as_deref(), Some(hex.as_str()));
@@ -73,7 +73,7 @@ fn npub_and_hex_normalize_to_the_same_permanent_identity() {
 
 #[test]
 fn permanent_pubkey_profile_name_is_not_turned_into_a_handle() {
-    let keys = nostr_sdk::prelude::Keys::generate();
+    let keys = nostr::Keys::generate();
     let hex = keys.public_key().to_hex();
     let npub = npub(&hex).unwrap();
     assert_eq!(session_handle_from_profile_name(&npub, "codex"), npub);

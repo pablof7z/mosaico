@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use nostr_sdk::prelude::{Event, EventId, Filter, PublicKey, RelayUrl};
+use nostr::{Event, EventId, Filter, PublicKey, RelayUrl};
 
 mod protocol;
 mod server;

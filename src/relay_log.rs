@@ -1,4 +1,4 @@
-//! Persistent log of every outgoing relay event and every rejection.
+//! Persistent log of every outgoing relay event.
 //!
 //! Appends timestamped one-liners to `~/.mosaico/relay.log` (always) and
 //! echoes them to stderr. Fail-open: if the file cannot be opened the calls
@@ -7,10 +7,9 @@
 //! ```text
 //! 2026-06-25 14:32:05.123  [→relay] kind:9000  put-user  h=my-channel  p=abc12345  role=admin
 //! 2026-06-25 14:32:05.456  [→relay] kind:9007  create-group  h=session-xyz  parent=my-channel
-//! 2026-06-25 14:32:05.789  [relay✗] rejected: blocked: unknown group member
 //! ```
 
-use nostr_sdk::prelude::Event;
+use nostr::Event;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::{Mutex, OnceLock};
@@ -43,8 +42,6 @@ fn log_entry(line: &str) {
         }
     }
 }
-
-// ── public API ────────────────────────────────────────────────────────────────
 
 /// Log a one-line summary of `event` before it hits the wire.
 pub(crate) fn log_outgoing_event(event: &Event) {
@@ -125,29 +122,4 @@ pub(crate) fn log_outgoing_event(event: &Event) {
     };
 
     log_entry(&line);
-}
-
-/// Log a rejection before [`Transport`] returns the error to its caller.
-/// If `event` is provided, the kind, id prefix, and h-tag are included.
-pub(crate) fn log_relay_rejection(reason: &str, event: Option<&Event>) {
-    let event_info = event
-        .map(|e| {
-            let h = e
-                .tags
-                .iter()
-                .find_map(|t| {
-                    let s = t.as_slice();
-                    (s.first().map(String::as_str) == Some("h"))
-                        .then(|| s.get(1).cloned())
-                        .flatten()
-                })
-                .unwrap_or_default();
-            format!(
-                "kind:{}  id={}  h={h}  ",
-                e.kind.as_u16(),
-                &e.id.to_hex()[..12]
-            )
-        })
-        .unwrap_or_default();
-    log_entry(&format!("[relay✗] rejected: {event_info}{reason}"));
 }

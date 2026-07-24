@@ -1,20 +1,18 @@
 # mosaico — Fabric Architecture
 
-> High-level architecture for the swap-seam. The load-bearing idea: **all data is
-> read from one unified local store; *how* it was hydrated is irrelevant to its
-> use.** NMP owns Nostr acquisition and emits canonical wire events. A **Fabric
-> Provider** owns wire shape, membership/admission, lifecycle side-effects, and
-> projects those events into canonical store rows. Readers query the store;
-> nothing in a read path ever names a kind, a tag, a group, or a relay. NMP also
-> owns Nostr signing and the durable `submit_intents` queue for every runtime and
-> profile write, including routing, receipts, and retries.
+> High-level architecture for the swap-seam: **all data is read from one unified
+> local store; *how* it was hydrated is irrelevant to its use.** A **Fabric
+> Provider** owns wire shape, admission, lifecycle effects, and canonical store
+> projections. NMP is the sole relay I/O substrate and owns acquisition, signing,
+> routing, receipts, retries, and the durable `submit_intents` queue. The direct
+> `nostr` dependency supplies protocol values and builders only.
 
 ---
 
 ## 1. The core problem
 
 The former `Codec` seam swapped *NIP layouts*, not *fabrics*. It trafficked in
-`nostr_sdk` types and fuses three unrelated concerns into one trait:
+Nostr wire types and fused three unrelated concerns into one trait:
 
 - **wire mapping** (domain event ↔ envelope),
 - **subscription model** (`filters → Vec<Filter>`, relay-REQ-shaped),
@@ -271,13 +269,14 @@ per fabric:
 | nip29  | groups the agent belongs to (reverse of `39002`) / relay group enumeration | relay-authored `kind:39000` group metadata | **canonical & shared** — one source, every machine agrees |
 | mls    | MLS groups in local state | group-context extension / metadata message | **member-authored**, cryptographically scoped to the group |
 
-**Hydration mode is the acquisition boundary's business too** — *pull vs. live*.
-nip29 can one-shot **fetch** the `39000` metadata or ask NMP to **observe** it (it's
-replaceable) and re-upsert on every change, so a description edited on another
-machine propagates by simply updating the store row — and the reader's next
-`SELECT` reflects it with zero changes anywhere above the seam. The reader sees only the current row; "a new project appeared on the fabric"
-is just an `INSERT` it will observe on its next query (or via a store-level
-change-notify, never a fabric subscription).
+**Hydration mode is the acquisition boundary's business too** — *bounded vs.
+standing*. nip29 asks the same NMP engine for a bounded `39000` projection or a
+standing observation (the event is replaceable) and re-upserts on every change,
+so a description edited on another machine propagates by simply updating the
+store row — and the reader's next `SELECT` reflects it with zero changes
+anywhere above the seam. The reader sees only the current row; "a new project
+appeared on the fabric" is just an `INSERT` it will observe on its next query
+(or via a store-level change-notify, never a second fabric subscription).
 
 ---
 

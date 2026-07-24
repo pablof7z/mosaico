@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Context;
-use nostr_sdk::prelude::{PublicKey, ToBech32};
+use nostr::{PublicKey, ToBech32};
 use std::collections::HashSet;
 use std::time::Duration;
 

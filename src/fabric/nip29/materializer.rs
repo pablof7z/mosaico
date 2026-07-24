@@ -12,7 +12,7 @@
 
 use crate::domain::{ChatMessage, Profile};
 use crate::state::{RelayEvent, Store};
-use nostr_sdk::Event;
+use nostr::Event;
 
 mod messages;
 mod reactions;

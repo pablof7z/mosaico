@@ -3,7 +3,7 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::put;
 use axum::Router;
-use nostr_sdk::prelude::Event;
+use nostr::Event;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Default)]

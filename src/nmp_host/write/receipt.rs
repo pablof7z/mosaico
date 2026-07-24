@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use nmp::WriteStatus;
-use nostr_sdk::EventId;
+use nostr::EventId;
 
 const WRITE_RECEIPT_TIMEOUT: Duration = Duration::from_secs(12);
 

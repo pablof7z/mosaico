@@ -10,7 +10,7 @@
 
 use crate::fabric::nip29::wire::{kind, KIND_CHAT};
 use anyhow::Result;
-use nostr_sdk::prelude::*;
+use nostr::*;
 use std::collections::HashMap;
 
 /// Marker `mosaico-op` value identifying the add-agents orchestration event.

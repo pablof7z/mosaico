@@ -3,7 +3,7 @@ use super::super::{
     validate_config_name, validate_slug, AgentIdentity, StoredKey,
 };
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use std::path::Path;
 
 /// A complete operator-owned launch update plus optional identity/byline changes.

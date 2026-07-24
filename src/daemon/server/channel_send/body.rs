@@ -1,6 +1,6 @@
 use super::TaggedRecipient;
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::{PublicKey, ToBech32};
+use nostr::{PublicKey, ToBech32};
 
 pub(super) fn format_tagged_body(message: &str, tagged: &[TaggedRecipient]) -> Result<String> {
     if tagged.is_empty() {

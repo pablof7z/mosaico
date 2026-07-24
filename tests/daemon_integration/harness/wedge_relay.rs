@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Accepts TCP connections but never completes a WebSocket handshake or sends
-/// a relay frame, deterministically wedging both nostr-sdk and NMP.
+/// a relay frame, deterministically wedging the NMP relay session.
 pub(crate) struct WedgeRelay {
     pub(crate) url: String,
     stop: Arc<AtomicBool>,

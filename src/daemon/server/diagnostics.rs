@@ -37,14 +37,20 @@ pub(in crate::daemon::server) async fn refresh_channel_members_cache(
     channel: &str,
 ) -> bool {
     use crate::fabric::nip29::materializer::Nip29Materializer;
-    use crate::fabric::nip29::wire::{kind, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS};
-    use nostr_sdk::prelude::Filter;
+    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS};
 
-    let filter = Filter::new()
-        .kinds([kind(KIND_GROUP_ADMINS), kind(KIND_GROUP_MEMBERS)])
-        .identifier(channel)
-        .limit(10);
-    let Ok(events) = state.transport.fetch(filter, Duration::from_secs(5)).await else {
+    let Ok(filter) = crate::nmp_host::read::filter(
+        &[KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS],
+        &[],
+        &[('d', channel.to_string())],
+    ) else {
+        return false;
+    };
+    let Ok(events) = state
+        .nmp
+        .fetch_group(filter, 10, Duration::from_secs(5))
+        .await
+    else {
         return false;
     };
     let newest_admins = events

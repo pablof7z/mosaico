@@ -7,7 +7,7 @@ use nmp::{
     AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration, AuthPolicyRequest,
     RelayUrl,
 };
-use nostr_sdk::prelude::{Keys, PublicKey};
+use nostr::{Keys, PublicKey};
 
 use super::NmpHost;
 

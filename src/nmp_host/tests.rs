@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::prelude::{EventBuilder, Kind, Tag};
+use nostr::{EventBuilder, Kind, Tag};
 use std::sync::Arc;
 use std::time::Duration;
 

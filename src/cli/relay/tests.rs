@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::prelude::{Keys, ToBech32};
+use nostr::{Keys, ToBech32};
 use std::io::Cursor;
 
 #[test]

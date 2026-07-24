@@ -60,7 +60,7 @@ pub(in crate::daemon::server) async fn reconcile_subs_logged(
 
 pub(in crate::daemon::server) fn reconcile_after_admin_event(
     state: &Arc<DaemonState>,
-    event: &nostr_sdk::Event,
+    event: &nostr::Event,
     first_sight: bool,
 ) {
     if !first_sight || event.kind.as_u16() != crate::fabric::nip29::wire::KIND_GROUP_ADMINS {

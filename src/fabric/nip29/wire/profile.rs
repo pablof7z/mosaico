@@ -1,6 +1,6 @@
 use crate::domain::{AgentRef, DomainEvent, Profile};
 use anyhow::Result;
-use nostr_sdk::prelude::{Event, EventBuilder};
+use nostr::{Event, EventBuilder};
 
 use super::{all_tag_values, first_tag, has_bare_tag, kind, tag, KIND_PROFILE};
 

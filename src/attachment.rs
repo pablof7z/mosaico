@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use nostr_sdk::prelude::{EventBuilder, JsonUtil, Keys, Kind, Tag, TagKind, Timestamp};
+use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, TagKind, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;

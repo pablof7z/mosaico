@@ -164,7 +164,7 @@ pub fn is_harness_envelope(text: &str) -> bool {
 /// take its first 4 bytes. This avoids a direct `rand` dependency while staying
 /// cryptographically random.
 pub fn opaque_group_id() -> String {
-    let pk = nostr_sdk::prelude::Keys::generate().public_key().to_hex();
+    let pk = nostr::Keys::generate().public_key().to_hex();
     // First 8 hex chars == first 4 bytes; already lowercase from `to_hex`.
     pk.chars().take(8).collect()
 }

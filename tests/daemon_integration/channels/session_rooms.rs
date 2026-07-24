@@ -7,7 +7,7 @@ use crate::daemon_harness::{
 };
 use mosaico::daemon::client::Client;
 use mosaico::state::{Status, Store};
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 
 #[path = "session_rooms/profile.rs"]
 mod profile;

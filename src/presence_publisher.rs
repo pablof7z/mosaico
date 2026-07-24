@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use tokio::sync::mpsc;
 
 use crate::domain::{DomainEvent, Status};

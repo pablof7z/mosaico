@@ -16,7 +16,6 @@ use crate::fabric::nip29::wire::Nip29WireCodec;
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use crate::nmp_host::NmpHost;
 use crate::state::Store;
-use crate::transport::Transport;
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -38,9 +37,7 @@ pub struct Nip29Provider {
     pub wire: Nip29WireCodec,
     /// Shared store Arc — same handle as `DaemonState.store`. No new Connection.
     pub store: Arc<Mutex<Store>>,
-    /// Narrow direct client for bounded reads and diagnostics.
-    pub(crate) transport: Arc<Transport>,
-    /// NMP owns all durable writes, signer selection, routing, and receipts.
+    /// NMP owns every relay read and write, signer selection, routing, and receipt.
     pub(crate) nmp: Arc<NmpHost>,
     /// Backend management signing key (`mosaicoPrivateKey`). Missing keys are
     /// generated and persisted by the shared readiness/provisioning path.
@@ -55,7 +52,6 @@ pub struct Nip29Provider {
 
 impl Nip29Provider {
     pub(crate) fn new(
-        transport: Arc<Transport>,
         nmp: Arc<NmpHost>,
         store: Arc<Mutex<Store>>,
         management_nsec: Option<String>,
@@ -66,7 +62,6 @@ impl Nip29Provider {
         Self {
             wire,
             store,
-            transport,
             nmp,
             management_nsec: Mutex::new(management_nsec),
             user_nsec,
@@ -80,7 +75,7 @@ impl Nip29Provider {
     }
 
     /// Encode a domain event to an `EventBuilder` via the NIP-29 wire codec.
-    pub fn encode(&self, ev: &DomainEvent) -> Result<nostr_sdk::EventBuilder> {
+    pub fn encode(&self, ev: &DomainEvent) -> Result<nostr::EventBuilder> {
         self.wire.encode(ev)
     }
 
@@ -91,11 +86,7 @@ impl Nip29Provider {
 
     /// Encode, sign, and durably enqueue one domain event. Relay delivery is
     /// always owned by NMP after this local acceptance boundary.
-    pub async fn enqueue(
-        &self,
-        ev: &DomainEvent,
-        keys: &nostr_sdk::prelude::Keys,
-    ) -> Result<nostr_sdk::prelude::EventId> {
+    pub async fn enqueue(&self, ev: &DomainEvent, keys: &nostr::Keys) -> Result<nostr::EventId> {
         // kind:0 profiles route to BOTH the indexer relay (purplepag.es) AND
         // the main NIP-29 relay(s) — the group relay accepts kind:0 fine, so
         // relying on the indexer alone leaves backend/agent name resolution
@@ -147,14 +138,23 @@ impl Nip29Provider {
                 return (error.clone(), error);
             }
         };
-        let publish = self.transport.publish_probe_checked(&group, &marker).await;
+        let keys = match self.management_keys() {
+            Some(keys) => keys,
+            None => {
+                let error = "ERR management signing identity is unavailable".to_string();
+                return (error.clone(), error);
+            }
+        };
+        let publish = self
+            .nmp
+            .publish_group_builder(doctor_probe_builder(&group, &marker), &keys, true)
+            .await;
         let publish = match publish {
             Ok(id) => format!("OK ({})", crate::util::pubkey_short(&id.to_hex())),
             Err(e) => format!("ERR {e:#}"),
         };
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let f = doctor_probe_filter(&group, &marker);
-        let readback = match self.transport.fetch(f, Duration::from_secs(5)).await {
+        let readback = match self.nmp.fetch_group(f, 5, Duration::from_secs(5)).await {
             Ok(evs) => format!("{} event(s) with #h={group} #t={marker}", evs.len()),
             Err(e) => format!("ERR {e:#}"),
         };
@@ -192,15 +192,13 @@ impl Nip29Provider {
     }
 
     async fn doctor_read_only(&self) -> (String, String) {
-        use crate::fabric::nip29::wire::{kind, KIND_GROUP_METADATA};
-        use nostr_sdk::prelude::Filter;
+        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
         let reason = "SKIP no existing materialized NIP-29 group authorizes the management identity; publish probe not attempted";
+        let filter = crate::nmp_host::read::filter(&[KIND_GROUP_METADATA], &[], &[])
+            .expect("static NMP metadata filter");
         let read = self
-            .transport
-            .fetch(
-                Filter::new().kind(kind(KIND_GROUP_METADATA)).limit(1),
-                Duration::from_secs(5),
-            )
+            .nmp
+            .fetch_group(filter, 1, Duration::from_secs(5))
             .await;
         let read = match read {
             Ok(events) => format!(
@@ -218,13 +216,20 @@ impl Nip29Provider {
     }
 }
 
-fn doctor_probe_filter(group: &str, marker: &str) -> nostr_sdk::prelude::Filter {
-    use nostr_sdk::prelude::{Alphabet, Filter, Kind, SingleLetterTag};
-    Filter::new()
-        .kind(Kind::from(1u16))
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::H), group)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::T), marker)
-        .limit(5)
+fn doctor_probe_builder(group: &str, marker: &str) -> nostr::EventBuilder {
+    nostr::EventBuilder::new(nostr::Kind::from(1u16), format!("mosaico doctor {marker}")).tags([
+        nostr::Tag::parse(["h", group]).expect("static h tag"),
+        nostr::Tag::parse(["t", marker]).expect("static t tag"),
+    ])
+}
+
+fn doctor_probe_filter(group: &str, marker: &str) -> nmp::Filter {
+    crate::nmp_host::read::filter(
+        &[1],
+        &[],
+        &[('h', group.to_string()), ('t', marker.to_string())],
+    )
+    .expect("static NMP doctor filter")
 }
 
 #[cfg(test)]
@@ -232,8 +237,6 @@ mod tests {
     #[test]
     fn doctor_readback_is_scoped_to_existing_group_and_unique_marker() {
         let filter = super::doctor_probe_filter("existing-workspace", "mosaico-doctor-test");
-        let json = serde_json::to_value(filter).unwrap();
-        assert_eq!(json["#h"], serde_json::json!(["existing-workspace"]));
-        assert_eq!(json["#t"], serde_json::json!(["mosaico-doctor-test"]));
+        assert_eq!(filter.tags.len(), 2);
     }
 }

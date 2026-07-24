@@ -3,7 +3,7 @@ use crate::domain::{DomainEvent, Reaction};
 use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 
 impl Nip29Provider {
     /// Sign and publish a NIP-25 kind:7 reaction, gating the channel exactly like

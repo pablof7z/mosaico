@@ -1,4 +1,5 @@
-use nostr_sdk::prelude::*;
+use crate::nmp_client::NmpRelayClient;
+use nostr::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub(crate) const KIND_CREATE_GROUP: u16 = 9007;
@@ -28,25 +29,15 @@ pub(crate) fn h_tag(slug: &str) -> Tag {
     )
 }
 
-pub(crate) async fn connect(keys: Keys, relay: &str) -> Client {
-    let opts = ClientOptions::default().automatic_authentication(true);
-    let client = Client::builder().signer(keys).opts(opts).build();
-    client.add_relay(relay).await.expect("add relay");
-    client.connect().await;
-    client.wait_for_connection(Duration::from_secs(8)).await;
-    // NIP-42 warm-up: force AUTH before any REQ/EVENT (relay29 is auth-gated).
-    let _ = client
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            Duration::from_secs(5),
-        )
-        .await;
-    client
+pub(crate) async fn connect(keys: Keys, relay: &str) -> NmpRelayClient {
+    NmpRelayClient::connect(keys, relay)
+        .await
+        .expect("connect NMP relay client")
 }
 
 /// Publish a pre-signed event over `client`; report and return whether the relay
 /// accepted it (best-effort: inspect Output, fall back to readback by caller).
-pub(crate) async fn publish(client: &Client, signed: &Event, label: &str) -> bool {
+pub(crate) async fn publish(client: &NmpRelayClient, signed: &Event, label: &str) -> bool {
     match client.send_event(signed).await {
         Ok(out) => {
             let ok = !out.success.is_empty();
@@ -63,7 +54,7 @@ pub(crate) async fn publish(client: &Client, signed: &Event, label: &str) -> boo
     }
 }
 
-pub(crate) async fn fetch(client: &Client, filter: Filter, label: &str) -> Vec<Event> {
+pub(crate) async fn fetch(client: &NmpRelayClient, filter: Filter, label: &str) -> Vec<Event> {
     let evs = client
         .fetch_events(filter, Duration::from_secs(5))
         .await
@@ -87,12 +78,16 @@ pub(crate) async fn fetch(client: &Client, filter: Filter, label: &str) -> Vec<E
 
 /// Create a NIP-29 group with a client-chosen h-tag id. Retries rate limits;
 /// returns false when the relay stays throttled so the probe can skip.
-pub(crate) async fn create_group_with_retry(admin: &Keys, admin_c: &Client, slug: &str) -> bool {
+pub(crate) async fn create_group_with_retry(
+    admin: &Keys,
+    admin_c: &NmpRelayClient,
+    slug: &str,
+) -> bool {
     for (attempt, backoff_s) in [2u64, 5, 12].into_iter().enumerate() {
         let create = EventBuilder::new(Kind::from(KIND_CREATE_GROUP), "")
             .tags([h_tag(slug)])
-            .build(admin.public_key());
-        let create = admin.sign_event(create).await.expect("sign create");
+            .sign_with_keys(admin)
+            .expect("sign create");
         match admin_c.send_event(&create).await {
             Ok(out) if !out.success.is_empty() => {
                 eprintln!("[probe] 9007 create-group: success={:?}", out.success);
@@ -118,7 +113,11 @@ pub(crate) async fn create_group_with_retry(admin: &Keys, admin_c: &Client, slug
     false
 }
 
-pub(crate) async fn group_id_honored(admin_c: &Client, slug: &str, created_ok: bool) -> bool {
+pub(crate) async fn group_id_honored(
+    admin_c: &NmpRelayClient,
+    slug: &str,
+    created_ok: bool,
+) -> bool {
     let meta = fetch(
         admin_c,
         Filter::new()

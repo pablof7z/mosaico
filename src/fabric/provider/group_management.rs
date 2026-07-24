@@ -2,7 +2,7 @@ use super::Nip29Provider;
 use crate::fabric::group_management::{
     classify_group_publish_error, GroupMutationOutcome, GroupPublishOutcome,
 };
-use nostr_sdk::{prelude::Keys, EventBuilder};
+use nostr::{prelude::Keys, EventBuilder};
 
 impl Nip29Provider {
     pub(in crate::fabric::provider) async fn try_grant_mgmt_admin_via_user_nsec(
@@ -83,7 +83,7 @@ impl Nip29Provider {
     pub(in crate::fabric::provider) async fn publish_group_management(
         &self,
         builder: EventBuilder,
-        keys: &nostr_sdk::prelude::Keys,
+        keys: &nostr::Keys,
         label: &str,
     ) -> bool {
         self.publish_group_management_outcome(builder, keys, label)
@@ -94,7 +94,7 @@ impl Nip29Provider {
     async fn publish_group_management_outcome(
         &self,
         builder: EventBuilder,
-        keys: &nostr_sdk::prelude::Keys,
+        keys: &nostr::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
         match self.nmp.publish_group_builder(builder, keys, true).await {

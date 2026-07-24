@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 #[path = "tests/presence.rs"]
 mod presence;
 

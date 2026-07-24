@@ -5,7 +5,7 @@
 //! hosts integrate from the outside via the CLI, hooks, and a skill.
 //!
 //! Layering, each knowing only what is below it:
-//!   cli -> runtime -> { domain, codec, transport, state }
+//!   cli -> runtime -> { domain, codec, NMP, state }
 //!   config / identity / channel are leaf utilities.
 
 mod agent_about;
@@ -47,15 +47,13 @@ pub mod daemon;
 pub mod fabric;
 mod presence_publisher;
 pub mod pty;
+pub mod reconcile;
 pub mod relay_log;
 pub mod rpc_harness;
 pub mod runtime;
 pub mod session_host;
 pub(crate) mod session_title;
 pub mod state;
-pub(crate) mod transport;
-
-pub mod reconcile;
 
 mod expired_sessions;
 mod turn_context;

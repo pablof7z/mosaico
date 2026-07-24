@@ -36,18 +36,12 @@ impl DaemonState {
         };
         let host = cfg.host.clone();
         let owners = cfg.whitelisted_pubkeys.clone();
-        let transport = Arc::new(
-            Transport::connect_with_indexer(&[], None, Keys::generate())
-                .await
-                .expect("offline transport connect"),
-        );
         let store = Arc::new(Mutex::new(Store::open_memory().expect("in-memory store")));
         let nmp = Arc::new(
             crate::nmp_host::NmpHost::open(&[], None, None, &backend_keys)
                 .expect("in-memory NMP engine"),
         );
         let provider = Arc::new(Nip29Provider::new(
-            transport.clone(),
             nmp.clone(),
             store.clone(),
             Some(backend_key),
@@ -60,7 +54,6 @@ impl DaemonState {
         *catalog.harnesses.lock().unwrap() = installed_harnesses;
         Arc::new(DaemonState {
             store,
-            transport,
             provider,
             nmp,
             cfg,

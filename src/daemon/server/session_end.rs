@@ -243,7 +243,7 @@ async fn kill_unbound_endpoint(pty_id: Option<&str>, forget: bool) -> Result<ser
 async fn revoke_operator_session(
     state: &Arc<DaemonState>,
     session: &crate::state::Session,
-    signing_keys: Result<nostr_sdk::Keys>,
+    signing_keys: Result<nostr::Keys>,
     channels: Vec<String>,
 ) -> Vec<String> {
     let now = now_secs();

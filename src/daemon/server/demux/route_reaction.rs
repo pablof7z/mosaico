@@ -10,7 +10,7 @@
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use anyhow::Result;
-use nostr_sdk::prelude::{EventBuilder, Kind, Tag};
+use nostr::{EventBuilder, Kind, Tag};
 
 /// Publish a 👁 kind:7 reaction acknowledging `event` (a routed kind:9), signed
 /// by the backend management key. The reaction's `e` tag is the routed event id
@@ -77,7 +77,7 @@ fn tag(parts: &[&str]) -> Result<Tag> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::{Keys, UnsignedEvent};
+    use nostr::{Keys, UnsignedEvent};
 
     fn tag_val(event: &UnsignedEvent, name: &str) -> Option<String> {
         event.tags.iter().find_map(|t| {

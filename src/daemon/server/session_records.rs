@@ -1,4 +1,4 @@
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use std::sync::Arc;
 use tokio::sync::Notify;
 

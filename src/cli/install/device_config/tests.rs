@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::ToBech32 as _;
+use nostr::ToBech32 as _;
 
 fn opts() -> InstallOpts {
     InstallOpts::default()
@@ -31,10 +31,7 @@ fn overrides_preserve_unknown_fields_and_secrets() {
 
 #[test]
 fn local_relay_requires_and_normalizes_an_owner() {
-    let key = nostr_sdk::Keys::generate()
-        .public_key()
-        .to_bech32()
-        .unwrap();
+    let key = nostr::Keys::generate().public_key().to_bech32().unwrap();
     let mut doc = baseline_document();
     let mut options = opts();
     options.local_relay = true;

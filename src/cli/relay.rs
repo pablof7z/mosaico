@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Args;
-use nostr_sdk::PublicKey;
+use nostr::PublicKey;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Cursor, Write};
 use std::path::{Path, PathBuf};

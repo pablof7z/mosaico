@@ -1,7 +1,7 @@
 //! Persistence for the daemon-owned management key (`mosaicoPrivateKey`).
 
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use serde_json::Value;
 use std::path::Path;
 

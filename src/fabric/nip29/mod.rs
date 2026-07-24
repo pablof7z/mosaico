@@ -11,7 +11,7 @@ pub mod wire;
 ///
 /// This is a small helper local to the fabric crate; it does NOT disturb the
 /// `event_tag` helper in `daemon/server.rs`.
-pub(crate) fn nostr_tag<'a>(event: &'a nostr_sdk::Event, name: &str) -> Option<&'a str> {
+pub(crate) fn nostr_tag<'a>(event: &'a nostr::Event, name: &str) -> Option<&'a str> {
     event.tags.iter().find_map(|t| {
         let s = t.as_slice();
         if s.first().map(String::as_str) == Some(name) {

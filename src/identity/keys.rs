@@ -1,7 +1,7 @@
 //! Persisted-salt session key derivation and the read-side session identity.
 
 use hmac::{Hmac, Mac};
-use nostr_sdk::prelude::*;
+use nostr::*;
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;

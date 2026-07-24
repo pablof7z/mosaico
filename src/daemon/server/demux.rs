@@ -141,8 +141,8 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     let first_sight = state.first_sight(&event.id.to_hex());
     super::subscriptions::reconcile_after_admin_event(state, event, first_sight);
 
-    // The relay pool notifies once PER MATCHING SUBSCRIPTION (scope filters ×
-    // live sessions), so the same event reaches here many times. The tail
+    // NMP can deliver once per matching observation (scope filters × live
+    // sessions), so the same event reaches here many times. The tail
     // broadcast is NOT idempotent — emit only on first sight of the event id.
     // first_sight avoids redundant claims within one process; the durable
     // event+recipient claim covers daemon-restart idempotency.

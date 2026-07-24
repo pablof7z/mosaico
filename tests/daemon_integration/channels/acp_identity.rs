@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use std::time::Duration;
 
 #[test]

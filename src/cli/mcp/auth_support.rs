@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::Json;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
-use nostr_sdk::prelude::PublicKey;
+use nostr::PublicKey;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::File;

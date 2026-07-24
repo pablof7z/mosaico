@@ -68,7 +68,7 @@ fn one_remote_session(selector: &str, matches: Vec<RemoteSession>) -> Result<Rem
 mod tests {
     use super::*;
     use crate::state::{Status, Store};
-    use nostr_sdk::prelude::{Keys, ToBech32};
+    use nostr::{Keys, ToBech32};
 
     fn profile(store: &Store, pubkey: &str, handle: &str) {
         store

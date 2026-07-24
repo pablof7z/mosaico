@@ -2,9 +2,9 @@
 //!
 //! Layering intent:
 //!   Acquisition + all durable writes ← NMP
+//!   Profile indexer + bounded reads  ← NMP
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
 //!   Materializer (store writes)       ← materialize()
-//!   Profile indexer + one-shot reads   ← Transport
 
 mod admission;
 pub(crate) mod group_management;
@@ -17,15 +17,15 @@ pub mod provider;
 /// is NIP-29-over-Nostr-specific. Future providers should own their native
 /// envelope type instead of making this enum a cross-fabric dumping ground.
 pub enum RawEnvelope {
-    Nostr(nostr_sdk::Event),
+    Nostr(nostr::Event),
 }
 
 /// Encode/decode between `DomainEvent` and Nostr event envelopes.
 ///
-/// The return type is `nostr_sdk::EventBuilder`, so this boundary is explicitly
+/// The return type is `nostr::EventBuilder`, so this boundary is explicitly
 /// Nostr-specific even when a concrete codec maps NIP-29 group semantics.
 pub trait NostrEventCodec {
-    fn encode(&self, ev: &crate::domain::DomainEvent) -> anyhow::Result<nostr_sdk::EventBuilder>;
+    fn encode(&self, ev: &crate::domain::DomainEvent) -> anyhow::Result<nostr::EventBuilder>;
     fn decode(&self, env: &RawEnvelope) -> Option<crate::domain::DomainEvent>;
 }
 
@@ -147,13 +147,13 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
 mod tests {
     use super::*;
     use crate::state::{RegisterSession, Store};
-    use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     fn make_tag(parts: &[&str]) -> Tag {
         Tag::parse(parts.iter().copied()).unwrap()
     }
 
-    fn build_event(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>) -> nostr_sdk::Event {
+    fn build_event(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>) -> nostr::Event {
         EventBuilder::new(Kind::from(kind_n), content)
             .tags(tags)
             .sign_with_keys(keys)

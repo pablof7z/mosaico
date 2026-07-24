@@ -1,5 +1,5 @@
 use super::*;
-use nostr_sdk::prelude::{EventBuilder, Kind, Tag};
+use nostr::{EventBuilder, Kind, Tag};
 use std::sync::{mpsc, Arc};
 
 #[tokio::test]
@@ -33,7 +33,7 @@ fn group_template_keeps_product_tags_and_reserves_routing_tags() {
     ];
     let template = group_template(
         keys.public_key(),
-        nostr_sdk::Timestamp::from(7),
+        nostr::Timestamp::from(7),
         Kind::TextNote.as_u16(),
         "hello".into(),
         tags.iter().collect(),

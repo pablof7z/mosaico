@@ -1,7 +1,7 @@
 use super::Nip29Materializer;
 use crate::domain::Reaction;
 use crate::state::Store;
-use nostr_sdk::Event;
+use nostr::Event;
 
 impl Nip29Materializer {
     /// Materialise a decoded kind:7 reaction into `relay_reactions` ONLY. A

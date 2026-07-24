@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use nostr_sdk::prelude::{Event, JsonUtil, Kind, PublicKey, RelayMessage, RelayUrl, Timestamp};
+use nostr::{Event, JsonUtil, Kind, PublicKey, RelayMessage, RelayUrl, Timestamp};
 use tungstenite::{Message, WebSocket};
 
 pub(super) fn send(ws: &mut WebSocket<std::net::TcpStream>, message: RelayMessage<'_>) {

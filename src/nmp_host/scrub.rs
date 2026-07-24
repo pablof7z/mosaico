@@ -1,10 +1,10 @@
 //! Product credential scrubbing applied before NMP freezes a write.
 
-use nostr_sdk::prelude::*;
+use nostr::*;
 
 /// Scrub content in-place on an `UnsignedEvent`. Resets `id` to `None` when
 /// content changed so the signing step recomputes the event ID over the
-/// scrubbed content (required — nostr-sdk validates id vs content on sign).
+/// scrubbed content (required — nostr validates id vs content on sign).
 pub(crate) fn scrub_unsigned(unsigned: &mut UnsignedEvent) {
     if unsigned.content.is_empty() {
         return;
@@ -104,7 +104,7 @@ mod tests {
         assert!(unsigned.content.contains("[REDACTED]"), "content scrubbed");
         assert!(!unsigned.content.contains(token), "token absent");
 
-        // Sign and verify: nostr-sdk recomputes the id from scrubbed content
+        // Sign and verify: nostr recomputes the id from scrubbed content
         // on sign, so verify() must succeed (proves id reset was applied).
         let signed = keys.sign_event(unsigned).await.expect("signing");
         assert!(

@@ -4,7 +4,7 @@ use crate::fabric::nip29::wire::Nip29WireCodec;
 use crate::fabric::{MaterializationOutcome, NostrEventCodec, RawEnvelope};
 use crate::state::Store;
 use crate::util::now_secs;
-use nostr_sdk::Event;
+use nostr::Event;
 
 enum ChatAdmission {
     Accepted,
@@ -170,7 +170,7 @@ fn quarantine_chat(store: &Store, event: &Event, reason: &str) {
 mod tests {
     use super::*;
     use crate::state::{RegisterSession, Store};
-    use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     fn make_tag(parts: &[&str]) -> Tag {
         Tag::parse(parts.iter().copied()).unwrap()

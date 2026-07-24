@@ -48,7 +48,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
  (one-shot)   │   │ (CLI verb)  │ ◀─────── │                                  │  │
               │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
               │                            │  • owns NMP reads + writes ──────┼──┼──▶ relays
-              │                            │  • doctor diagnostic Transport  │  │
+              │                            │  • doctor probe through NMP     │  │
               │                            │  • per-session async tasks       │  │
               │                            │  • chat / presence / pruning     │  │
               │                            │  • NIP-29 membership cache       │  │
@@ -61,9 +61,9 @@ Claude channel adapter shell out to these verbs and parse their stdout).
   it). It holds exactly one `Store` (single SQLite connection → one writer by
   construction) and one NMP engine for acquisition, account signing, and every
   runtime/profile write. Those writes enter NMP through the durable
-  `submit_intents` queue, which owns routing, receipts, and retries. The direct
-  `Transport` has no product-write authority; its only direct publish is the
-  doctor diagnostic probe and matching readback.
+  `submit_intents` queue, which owns routing, receipts, and retries. Bounded
+  resolution reads and the doctor publish/readback use that same engine; the
+  daemon has no second relay client.
 - Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
   by a private run key.
 
@@ -307,9 +307,9 @@ construction — that is the whole point. Concurrency model inside the daemon:
 
 - The NMP engine owns live queries, relay acquisition, local account
   capabilities, and the durable `submit_intents` queue for all runtime and
-  profile writes, including pinned-host indexer delivery. The direct
-  `Transport` is not a second write plane: direct publication exists only for
-  the explicit doctor diagnostic probe and its readback.
+  profile writes, including pinned-host indexer delivery. It also owns bounded
+  group/profile projections and the explicit doctor probe. No other component
+  opens a relay connection.
 
 Because there is exactly one writer process, the
 multi-writer corruption class is eliminated regardless of WAL (WAL stays as
@@ -322,7 +322,7 @@ observes their shared demand publicly because Mosaico-created groups are public
 and closed: anyone may read them, while only admitted members may write. Each author
 registers a signer plus exact-account AUTH policy. Per-write identity overrides
 authenticate as the frozen author; account changes never retarget another session's
-accepted write. Neither client belongs to a session.
+accepted write. Relay sessions belong to NMP, never to an agent runtime.
 
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
    *does* receive events p-tagged to a different agent B. The relay does **not**
@@ -398,11 +398,10 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
 - **Identical standard-Nostr wire output** — the codec seam
   (`fabric::nip29::wire`) remains the event-shape authority; group writes route
   through NMP.
-- **Narrow direct-client diagnostics** remain for the doctor probe and bounded
-  diagnostic/resolution reads. The direct client never publishes runtime or
-  profile state; every product write is durably accepted by NMP through
-  `submit_intents`. NMP authorization policy is not required by the current
-  public group-query/write configuration.
+- **One NMP relay plane** serves standing observations, bounded
+  diagnostic/resolution projections, the doctor probe, and every runtime or
+  profile write. Writes are durably accepted through `submit_intents`; no
+  direct client or parallel relay pool may be reintroduced.
 - **NIP-29 membership semantics** — group creation, owner admin backfill, and
   agent member admission remain provider-owned and relay-authoritative. Local
   allow/block files are not part of the active NIP-29 path.

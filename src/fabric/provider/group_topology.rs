@@ -1,29 +1,19 @@
 use super::Nip29Provider;
-use anyhow::{bail, Context, Result};
-use nostr_sdk::prelude::{Event, Filter};
+use anyhow::{Context, Result};
+use nostr::Event;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-const RELATIONSHIP_READBACK_ATTEMPTS: u32 = 6;
+const RELATIONSHIP_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl Nip29Provider {
-    async fn try_fetch_group_children(&self, parent_h: &str) -> Result<Option<BTreeSet<String>>> {
-        use crate::fabric::nip29::wire::{kind, KIND_GROUP_METADATA};
-
-        let filter = Filter::new()
-            .kind(kind(KIND_GROUP_METADATA))
-            .identifier(parent_h);
-        let events = self
-            .transport
-            .fetch(filter, Duration::from_secs(5))
-            .await
-            .with_context(|| {
-                format!("fetching parent {parent_h:?} kind:39000 child relationships")
-            })?;
-        Ok(events
-            .iter()
-            .max_by_key(|event| event.created_at.as_secs())
-            .map(children_from_metadata))
+    fn observe_group_metadata(&self, parent_h: &str) -> Result<nmp::Subscription> {
+        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
+        self.nmp.observe(&crate::reconcile::SubscriptionQuery {
+            kinds: BTreeSet::from([KIND_GROUP_METADATA]),
+            authors: BTreeSet::new(),
+            tag: Some(('d', parent_h.to_string())),
+        })
     }
 
     /// Wait until the relay's parent metadata reciprocally confirms `child_h`.
@@ -36,30 +26,32 @@ impl Nip29Provider {
         parent_h: &str,
         child_h: &str,
     ) -> Result<()> {
-        let mut last_observation = "parent metadata was absent".to_string();
-        for attempt in 0..RELATIONSHIP_READBACK_ATTEMPTS {
-            match self.try_fetch_group_children(parent_h).await {
-                Ok(Some(observed)) if observed.contains(child_h) => return Ok(()),
-                Ok(Some(observed)) => {
-                    last_observation = format!(
-                        "parent metadata listed {} child relationship(s), but not {child_h:?}",
-                        observed.len()
-                    );
+        let subscription = self
+            .observe_group_metadata(parent_h)
+            .with_context(|| format!("observing parent {parent_h:?} metadata"))?;
+        let child_h = child_h.to_string();
+        tokio::task::spawn_blocking(move || {
+            let deadline = std::time::Instant::now() + RELATIONSHIP_READBACK_TIMEOUT;
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    anyhow::bail!("relay did not confirm child {child_h:?} in parent metadata");
                 }
-                Ok(None) => {
-                    last_observation = "parent metadata was absent".to_string();
-                }
-                Err(error) => {
-                    last_observation = format!("parent metadata readback failed: {error:#}");
+                let frame = subscription
+                    .recv_timeout(remaining)
+                    .context("parent metadata observation disconnected")?;
+                if frame
+                    .deltas
+                    .iter()
+                    .filter_map(|delta| delta.event())
+                    .any(|event| children_from_metadata(event).contains(&child_h))
+                {
+                    return Ok(());
                 }
             }
-            if attempt + 1 < RELATIONSHIP_READBACK_ATTEMPTS {
-                tokio::time::sleep(Duration::from_millis(250 * (u64::from(attempt) + 1).min(3)))
-                    .await;
-            }
-        }
-
-        bail!("relay did not confirm parent {parent_h:?} child {child_h:?}: {last_observation}")
+        })
+        .await
+        .context("joining parent metadata observation")?
     }
 }
 
@@ -80,7 +72,7 @@ fn children_from_metadata(event: &Event) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     #[test]
     fn child_parser_preserves_every_existing_relationship() {

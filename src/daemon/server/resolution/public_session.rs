@@ -22,7 +22,7 @@ pub(in crate::daemon::server) fn resolve(store: &Store, selector: &str) -> Resul
 mod tests {
     use super::*;
     use crate::state::{RegisterSession, LOCATOR_NATIVE_RESUME};
-    use nostr_sdk::prelude::Keys;
+    use nostr::Keys;
 
     #[test]
     fn resolves_npub_hex_and_handle_but_not_private_runtime_id() {

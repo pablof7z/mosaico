@@ -7,7 +7,7 @@
 
 use crate::fabric::nip29::wire::{kind, KIND_CHAT, KIND_STATUS};
 use anyhow::Result;
-use nostr_sdk::prelude::*;
+use nostr::*;
 
 pub const MOSAICO_OP_SESSION_DISPATCH: &str = "session.dispatch.v1";
 

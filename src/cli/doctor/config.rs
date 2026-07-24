@@ -1,5 +1,5 @@
 use super::{Check, CheckStatus};
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use std::path::Path;
 
 pub(super) fn inspect(path: &Path, checks: &mut Vec<Check>) -> bool {

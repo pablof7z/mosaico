@@ -1,11 +1,11 @@
 use super::*;
+use crate::nmp_client::NmpRelayClient;
 use mosaico::daemon::client::Client as DaemonClient;
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
 use mosaico::identity;
 use mosaico::state::{Session, Store};
-use nostr_sdk::prelude::{Client as NostrClient, ClientOptions, Filter, Keys, Kind};
-use nostr_sdk::NostrSigner;
+use nostr::Keys;
 use std::path::Path;
 use std::time::Duration;
 
@@ -171,22 +171,10 @@ fn wait_for_injected_log(log: &Path, body: &str) {
     );
 }
 
-async fn nostr_user_client(keys: Keys) -> NostrClient {
-    let opts = ClientOptions::default().automatic_authentication(true);
-    let client = NostrClient::builder().signer(keys).opts(opts).build();
-    client
-        .add_relay(shared_nip29_relay_url())
+async fn nostr_user_client(keys: Keys) -> NmpRelayClient {
+    NmpRelayClient::connect(keys, &shared_nip29_relay_url())
         .await
-        .expect("add relay");
-    client.connect().await;
-    client.wait_for_connection(Duration::from_secs(8)).await;
-    let _ = client
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            Duration::from_secs(5),
-        )
-        .await;
-    client
+        .expect("connect NMP relay client")
 }
 
 async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -> String {
@@ -201,8 +189,7 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .expect("encode kind:9");
-    let unsigned = builder.build(keys.public_key());
-    let signed = keys.sign_event(unsigned).await.expect("sign kind:9");
+    let signed = builder.sign_with_keys(&keys).expect("sign kind:9");
     let out = client.send_event(&signed).await.expect("publish kind:9");
     assert!(
         !out.success.is_empty(),

@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::RegisterSession;
-use nostr_sdk::prelude::ToBech32;
+use nostr::ToBech32;
 
 const WRITER_PUBKEY: &str = "31d4c4950a12b978cee21f84f4f5703e700b2d77a18648773239096675a7ab2d";
 

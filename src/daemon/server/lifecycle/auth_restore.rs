@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 
 use crate::{
     config::{self, Config},

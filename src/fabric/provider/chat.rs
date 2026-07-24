@@ -4,7 +4,7 @@ use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate};
 use crate::fabric::NostrEventCodec;
 use crate::state::{RecordMessage, RelayEvent, Store};
 use anyhow::Result;
-use nostr_sdk::prelude::{Event, EventId, Keys, Tag};
+use nostr::{Event, EventId, Keys, Tag};
 
 #[cfg(test)]
 mod tests;

@@ -17,11 +17,12 @@ use nmp::{
     AccessContext, Binding, Demand, Engine, EngineConfig, IndexedTagName, LiveQuery,
     ObservationCancel, RelayUrl, SourceAuthority,
 };
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use tokio::sync::mpsc;
 
 use crate::reconcile::{SubEffect, SubscriptionQuery};
 mod auth;
+pub(crate) mod read;
 mod scrub;
 mod write;
 
@@ -34,11 +35,11 @@ pub(crate) struct NmpHost {
     engine: Engine,
     relays: BTreeSet<RelayUrl>,
     profile_relays: BTreeSet<RelayUrl>,
-    identities: Mutex<BTreeMap<nostr_sdk::PublicKey, IdentityRegistration>>,
+    identities: Mutex<BTreeMap<nostr::PublicKey, IdentityRegistration>>,
     signing: Mutex<()>,
     subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
-    materialization_tx: Mutex<Option<mpsc::Sender<nostr_sdk::Event>>>,
-    materialization_rx: Mutex<Option<mpsc::Receiver<nostr_sdk::Event>>>,
+    materialization_tx: Mutex<Option<mpsc::Sender<nostr::Event>>>,
+    materialization_rx: Mutex<Option<mpsc::Receiver<nostr::Event>>>,
 }
 
 impl NmpHost {
@@ -96,7 +97,7 @@ impl NmpHost {
     /// Take the one lossless stream feeding Mosaico's canonical read-model
     /// materializer. A bounded channel deliberately backpressures observation
     /// drains instead of dropping canonical additions under a relay burst.
-    pub(crate) fn take_materialization_events(&self) -> Result<mpsc::Receiver<nostr_sdk::Event>> {
+    pub(crate) fn take_materialization_events(&self) -> Result<mpsc::Receiver<nostr::Event>> {
         self.materialization_rx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
@@ -220,6 +221,14 @@ fn live_query(
             .tags
             .insert(tag, Binding::Literal(BTreeSet::from([value.to_string()])));
     }
+    pinned_query(relays, filter, access)
+}
+
+fn pinned_query(
+    relays: &BTreeSet<RelayUrl>,
+    filter: nmp::Filter,
+    access: AccessContext,
+) -> Result<LiveQuery> {
     let demand = if relays.is_empty() {
         Demand::from_filter(filter)
     } else {

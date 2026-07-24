@@ -18,6 +18,8 @@ mod freeze;
 mod messaging;
 #[path = "daemon_integration/my_session.rs"]
 mod my_session;
+#[path = "common/nmp_client.rs"]
+mod nmp_client;
 #[path = "daemon_integration/process.rs"]
 mod process;
 #[path = "daemon_integration/signers.rs"]

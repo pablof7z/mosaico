@@ -2,6 +2,8 @@
 
 #[path = "common/mod.rs"]
 mod common;
+#[path = "common/nmp_client.rs"]
+mod nmp_client;
 
 use common::TestRelay;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
@@ -10,7 +12,8 @@ use nmp::{
     AccessContext, Binding, Demand, Engine, EngineConfig, Filter as NmpFilter, LiveQuery, RelayUrl,
     SourceAuthority,
 };
-use nostr_sdk::prelude::{Client, EventBuilder, Filter, Keys, Kind};
+use nmp_client::NmpRelayClient;
+use nostr::{EventBuilder, Filter, Keys, Kind};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -130,10 +133,22 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
     engine.shutdown();
 }
 
-async fn relay_client(relay: &str, keys: Keys) -> Client {
-    let client = Client::new(keys);
-    client.add_relay(relay).await.expect("add relay");
-    client.connect().await;
-    client.wait_for_connection(Duration::from_secs(8)).await;
-    client
+#[tokio::test]
+async fn bounded_nmp_read_accepts_an_active_empty_acquisition() {
+    let relay = TestRelay::start();
+    let client = relay_client(&relay.url, Keys::generate()).await;
+    let events = client
+        .fetch_events(
+            Filter::new().kind(Kind::from(65_535u16)),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("empty NMP read should complete with acquisition evidence");
+    assert!(events.is_empty());
+}
+
+async fn relay_client(relay: &str, keys: Keys) -> NmpRelayClient {
+    NmpRelayClient::connect(keys, relay)
+        .await
+        .expect("connect NMP relay client")
 }

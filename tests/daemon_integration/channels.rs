@@ -1,4 +1,5 @@
 use crate::daemon_harness::*;
+use crate::nmp_client::NmpRelayClient;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 
@@ -46,7 +47,7 @@ const EXAMPLE_BACKEND_SEC_HEX: &str =
 
 /// Derive the hex pubkey from an nsec/hex seckey at runtime.
 fn pubkey_of(sec: &str) -> String {
-    use nostr_sdk::prelude::Keys;
+    use nostr::Keys;
     Keys::parse(sec).unwrap().public_key().to_hex()
 }
 
@@ -102,25 +103,13 @@ fn materialize_member_snapshot(home: &Home, channel: &str, pubkey: &str) {
 }
 
 async fn precreate_channel_group_as_user(channel: &str) {
-    use nostr_sdk::prelude::*;
+    use nostr::Keys;
 
     let relay = shared_nip29_relay_url();
     let user_keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = Client::builder()
-        .signer(user_keys.clone())
-        .opts(ClientOptions::default().automatic_authentication(true))
-        .build();
-    client.add_relay(&relay).await.unwrap();
-    client.connect().await;
-    client
-        .wait_for_connection(std::time::Duration::from_secs(8))
-        .await;
-    let _ = client
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            std::time::Duration::from_secs(5),
-        )
-        .await;
+    let client = NmpRelayClient::connect(user_keys.clone(), &relay)
+        .await
+        .expect("connect NMP relay client");
 
     for (label, builder) in [
         (

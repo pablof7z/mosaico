@@ -25,7 +25,7 @@ fn roster_snapshot_channel(env: &RawEnvelope) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     fn event(kind: u16, tags: Vec<Tag>) -> RawEnvelope {
         RawEnvelope::Nostr(

@@ -22,7 +22,7 @@
 
 use mosaico::domain::{AgentRef, DomainEvent, Profile as MosaicoProfile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nostr_sdk::prelude::*;
+use nostr::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn relay_url() -> String {
@@ -37,20 +37,10 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-async fn connect(keys: Keys, relay: &str) -> Client {
-    let opts = ClientOptions::default().automatic_authentication(true);
-    let client = Client::builder().signer(keys).opts(opts).build();
-    client.add_relay(relay).await.expect("add relay");
-    client.connect().await;
-    client.wait_for_connection(Duration::from_secs(8)).await;
-    // NIP-42 warm-up: force AUTH before any REQ/EVENT (relay29 is auth-gated).
-    let _ = client
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            Duration::from_secs(5),
-        )
-        .await;
-    client
+async fn connect(keys: Keys, relay: &str) -> NmpRelayClient {
+    NmpRelayClient::connect(keys, relay)
+        .await
+        .expect("connect NMP relay client")
 }
 
 /// Build a signed event from a domain event through the real codec, stamping an
@@ -60,11 +50,10 @@ async fn sign_domain(keys: &Keys, ev: &DomainEvent, created_at: u64) -> Event {
         .encode_event(ev)
         .expect("encode")
         .custom_created_at(Timestamp::from_secs(created_at));
-    let unsigned = builder.build(keys.public_key());
-    keys.sign_event(unsigned).await.expect("sign")
+    builder.sign_with_keys(keys).expect("sign")
 }
 
-async fn publish(client: &Client, signed: &Event, label: &str) {
+async fn publish(client: &NmpRelayClient, signed: &Event, label: &str) {
     match client.send_event(signed).await {
         Ok(out) => eprintln!(
             "[seed] {label}: id={} success={:?} failed={:?}",
@@ -118,8 +107,8 @@ async fn seed_session_with_thread_root_link() {
                 TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
                 [channel.clone()],
             )])
-            .build(admin.public_key());
-        let create = admin.sign_event(create).await.expect("sign create");
+            .sign_with_keys(&admin)
+            .expect("sign create");
         match admin_c.send_event(&create).await {
             Ok(out) if !out.success.is_empty() => {
                 eprintln!("[seed] 9007 create-group: ok");
@@ -215,3 +204,7 @@ async fn seed_session_with_thread_root_link() {
     agent_c.disconnect().await;
     user_c.disconnect().await;
 }
+#[path = "common/nmp_client.rs"]
+mod nmp_client;
+
+use nmp_client::NmpRelayClient;

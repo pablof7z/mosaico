@@ -8,7 +8,7 @@ use crate::presence_publisher::{drive, DriveMeta};
 use crate::state::{Session, Store};
 use crate::util::now_secs;
 use anyhow::Result;
-use nostr_sdk::prelude::Keys;
+use nostr::Keys;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;

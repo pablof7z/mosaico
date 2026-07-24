@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
-use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag, Timestamp, ToBech32};
+use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp, ToBech32};
 
 mod backend_profile;
 mod membership;

@@ -9,7 +9,7 @@ use crate::fabric::nip29::wire::{
     kind, KIND_GROUP_CREATE, KIND_GROUP_EDIT_METADATA, KIND_GROUP_PUT_USER, KIND_GROUP_REMOVE_USER,
 };
 use anyhow::Result;
-use nostr_sdk::prelude::*;
+use nostr::*;
 
 fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)

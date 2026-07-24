@@ -8,8 +8,8 @@
 //!      by the live demux when a `kind:0` arrives on a subscription). A fresh
 //!      entry is returned without touching the network.
 //!   2. **Relay fetch on miss/TTL.** A cache miss — or an entry older than
-//!      [`PROFILE_TTL_SECS`] — triggers a one-shot `kind:0` fetch from the
-//!      relays, which is parsed and written back to the cache.
+//!      [`PROFILE_TTL_SECS`] — triggers a bounded NMP `kind:0` observation,
+//!      which is parsed and written back to the cache.
 //!   3. **Stale fallback.** If the relay fetch fails (offline, timeout) but a
 //!      stale cached name exists, that is returned rather than nothing.
 //!
@@ -20,7 +20,8 @@
 use crate::daemon::server::DaemonState;
 use crate::state::Store;
 use crate::util::{now_secs, pubkey_short};
-use nostr_sdk::prelude::{FromBech32, Nip19Profile, PublicKey};
+use nostr::nips::nip19::Nip19Profile;
+use nostr::{FromBech32, PublicKey};
 use std::sync::Arc;
 
 /// How long a cached `kind:0` entry is trusted before a re-fetch. Profiles

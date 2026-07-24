@@ -33,26 +33,6 @@ pub async fn run() -> Result<()> {
     let (cfg, backend_keys) = auth_restore::load_backend()?;
     let host = cfg.host.clone();
     let owners = cfg.whitelisted_pubkeys.clone();
-    // The narrow direct client handles one-shot reads and doctor probes. Its
-    // AUTH identity is irrelevant to delivery (verified:
-    // an A-authed connection receives events p-tagged to B), so authenticate
-    // with the backend's own key (`mosaicoPrivateKey`) rather than minting a
-    // separate identity — a fresh keystore file would land in the same
-    // `agents/` directory as real agents and leak into `who`/invite listings
-    // as a phantom agent.
-    // The indexer is a direct-client target for one-shot lookups. Every product
-    // write, including kind:0 copies to this indexer, is routed durably by NMP.
-    let indexer = (!cfg.relays.contains(&cfg.indexer_relay)).then_some(cfg.indexer_relay.as_str());
-    let transport = Arc::new(
-        Transport::connect_with_indexer(&cfg.relays, indexer, backend_keys.clone())
-            .await
-            .context("daemon relay connect")?,
-    );
-    tracing::info!(
-        relays = ?cfg.relays,
-        indexer = ?cfg.indexer_relay,
-        "relay pool connected"
-    );
     let store = Store::open(&store_path())?;
     let reconciled_attempts = store.reconcile_open_native_turn_attempts(now_secs())?;
     if reconciled_attempts > 0 {
@@ -69,7 +49,6 @@ pub async fn run() -> Result<()> {
         &backend_keys,
     )?);
     let provider = Arc::new(Nip29Provider::new(
-        transport.clone(),
         nmp.clone(),
         store.clone(),
         cfg.management_nsec().cloned(),
@@ -80,7 +59,6 @@ pub async fn run() -> Result<()> {
         crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
     let state = Arc::new(DaemonState {
         store,
-        transport,
         provider,
         nmp,
         cfg,
@@ -133,11 +111,9 @@ pub async fn run() -> Result<()> {
     });
 
     // Relay startup runs off the accept path, so store-only RPCs respond immediately.
-    // Warm the narrow direct connection before fetches.
     let relay_state = state.clone();
     tokio::spawn(async move {
-        relay_state.transport.warmup().await;
-        tracing::info!("relay warmup complete; opening subscriptions");
+        tracing::info!("opening NMP subscriptions");
         super::agent_discovery::start_monitor(relay_state.clone());
 
         // Proactively warm the profiles we already know we care about — the human
@@ -182,7 +158,6 @@ pub async fn run() -> Result<()> {
     shutdown::rpc_sessions(&state).await;
     cleanup();
     state.nmp.shutdown();
-    state.transport.shutdown().await;
     drop(lock);
     Ok(())
 }

@@ -15,7 +15,7 @@ const EXAMPLE_BACKEND_SEC_HEX: &str =
 fn rewrite_config_with_user_nsec(home: &Home) {
     // The user's pubkey is whitelisted (granted admin in every group); the
     // backend key signs group management. Distinct keys per doctrine.
-    use nostr_sdk::prelude::Keys;
+    use nostr::Keys;
     let user_pk = Keys::parse(EXAMPLE_USER_NSEC)
         .unwrap()
         .public_key()

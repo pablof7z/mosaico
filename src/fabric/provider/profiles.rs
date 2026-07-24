@@ -1,6 +1,5 @@
 use super::Nip29Provider;
 use crate::fabric::RawEnvelope;
-use nostr_sdk::prelude::{Filter, Kind, PublicKey};
 use std::time::Duration;
 
 const PROFILE_FETCH_TIMEOUT: Duration = Duration::from_secs(4);
@@ -11,11 +10,11 @@ impl Nip29Provider {
         pubkey: &str,
         _now: u64,
     ) -> Option<String> {
-        let author = PublicKey::from_hex(pubkey).ok()?;
-        let filter = Filter::new().author(author).kind(Kind::from(0u16)).limit(1);
+        nostr::PublicKey::from_hex(pubkey).ok()?;
+        let filter = crate::nmp_host::read::filter(&[0], &[pubkey.to_string()], &[]).ok()?;
         let event = self
-            .transport
-            .fetch(filter, PROFILE_FETCH_TIMEOUT)
+            .nmp
+            .fetch_profiles(filter, 1, PROFILE_FETCH_TIMEOUT)
             .await
             .ok()?
             .into_iter()

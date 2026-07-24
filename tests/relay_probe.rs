@@ -13,7 +13,12 @@
 //! and publishes disposable kind:1 probe events. It is not part of default CI or
 //! routine local regression tests.
 
-use nostr_sdk::prelude::*;
+#[path = "common/nmp_client.rs"]
+mod nmp_client;
+
+use nmp::AccessContext;
+use nmp_client::NmpRelayClient;
+use nostr::*;
 use std::time::Duration;
 
 fn relay_url() -> String {
@@ -35,27 +40,21 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     eprintln!("[probe] daemon authed as A={}", key_a.public_key().to_hex());
     eprintln!("[probe] subscribing for mentions to B={}", pk_b.to_hex());
 
-    let opts = ClientOptions::default().automatic_authentication(true);
-    let daemon = Client::builder().signer(key_a.clone()).opts(opts).build();
-    daemon.add_relay(&relay).await.expect("add relay");
-    daemon.connect().await;
-    daemon.wait_for_connection(Duration::from_secs(8)).await;
-    // NIP-42 warm-up (forces AUTH before subscribe), as Transport::connect does.
-    let warmup = Filter::new().kind(Kind::from(0u16)).limit(1);
-    let _ = daemon.fetch_events(warmup, Duration::from_secs(5)).await;
+    let daemon = NmpRelayClient::connect(key_a.clone(), &relay)
+        .await
+        .expect("connect daemon NMP client");
 
     // Subscribe (on the A-authed connection) to kind:1 events p-tagging B.
-    let sub = Filter::new().kind(Kind::from(1u16)).pubkey(pk_b).limit(0);
-    daemon.subscribe(sub, None).await.expect("subscribe");
-    let mut notifications = daemon.notifications();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let sub = Filter::new().kind(Kind::from(1u16)).pubkey(pk_b);
+    let subscription = daemon
+        .observe(sub, AccessContext::Nip42(key_a.public_key()))
+        .expect("subscribe through NMP");
 
     // A separate sender (key C) publishes a kind:1 p-tagging B.
     let key_c = Keys::generate();
-    let sender = Client::builder().signer(key_c.clone()).build();
-    sender.add_relay(&relay).await.expect("add relay (sender)");
-    sender.connect().await;
-    sender.wait_for_connection(Duration::from_secs(8)).await;
+    let sender = NmpRelayClient::connect(key_c.clone(), &relay)
+        .await
+        .expect("connect sender NMP client");
     let marker = format!("mosaico-probe-{}", key_c.public_key().to_hex());
     let builder = EventBuilder::new(Kind::from(1u16), &marker).tags([Tag::public_key(pk_b)]);
     sender
@@ -64,25 +63,30 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
         .expect("send mention to B");
     eprintln!("[probe] sent mention to B with marker {marker}");
 
-    // Did the A-authed connection receive it?
-    let mut got = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
-    while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(500), notifications.recv()).await {
-            Ok(Ok(RelayPoolNotification::Event { event, .. })) if event.content == marker => {
-                got = true;
-                break;
+    // Did the A-authed NMP observation receive it?
+    let expected = marker.clone();
+    let got = tokio::task::spawn_blocking(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
             }
-            Ok(Ok(RelayPoolNotification::Message {
-                message: RelayMessage::Event { event, .. },
-                ..
-            })) if event.content == marker => {
-                got = true;
-                break;
+            let Ok(frame) = subscription.recv_timeout(remaining) else {
+                return false;
+            };
+            if frame
+                .deltas
+                .iter()
+                .filter_map(|delta| delta.event())
+                .any(|event| event.content == expected)
+            {
+                return true;
             }
-            _ => {}
         }
-    }
+    })
+    .await
+    .expect("join NMP observation");
 
     daemon.disconnect().await;
     sender.disconnect().await;
@@ -109,31 +113,25 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
     // Daemon connection authed as A.
     let key_a = Keys::generate();
     let key_b = Keys::generate(); // a second hosted agent
-    let opts = ClientOptions::default().automatic_authentication(true);
-    let daemon = Client::builder().signer(key_a.clone()).opts(opts).build();
-    daemon.add_relay(&relay).await.unwrap();
-    daemon.connect().await;
-    daemon.wait_for_connection(Duration::from_secs(8)).await;
-    let _ = daemon
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            Duration::from_secs(5),
-        )
-        .await;
+    let mut daemon = NmpRelayClient::connect(key_a.clone(), &relay)
+        .await
+        .expect("connect daemon NMP client");
+    daemon
+        .register_identity(&key_b)
+        .expect("register second hosted identity");
 
     // Publish an event SIGNED BY B over the A-authed connection via send_event.
     let marker = format!("mosaico-probe-multisign-{}", key_b.public_key().to_hex());
-    let unsigned = EventBuilder::new(Kind::from(1u16), &marker).build(key_b.public_key());
-    let signed = key_b.sign_event(unsigned).await.expect("sign with B");
+    let signed = EventBuilder::new(Kind::from(1u16), &marker)
+        .sign_with_keys(&key_b)
+        .expect("sign with B");
     let res = daemon.send_event(&signed).await;
     eprintln!("[probe] publish B-signed over A-conn: {res:?}");
 
     // Read it back as a fresh reader to confirm it landed under B's pubkey.
-    let reader = Client::builder().signer(Keys::generate()).build();
-    reader.add_relay(&relay).await.unwrap();
-    reader.connect().await;
-    reader.wait_for_connection(Duration::from_secs(8)).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let reader = NmpRelayClient::connect(Keys::generate(), &relay)
+        .await
+        .expect("connect reader NMP client");
     let f = Filter::new()
         .kind(Kind::from(1u16))
         .author(key_b.public_key())

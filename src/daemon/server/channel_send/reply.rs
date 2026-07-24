@@ -4,7 +4,7 @@ use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::state::{Message, Session};
 use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::{bail, Context, Result};
-use nostr_sdk::prelude::{PublicKey, ToBech32};
+use nostr::{PublicKey, ToBech32};
 
 #[derive(serde::Deserialize, Default)]
 struct ChannelReplyParams {

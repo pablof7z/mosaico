@@ -1,6 +1,6 @@
 use super::{DeviceSetup, InstallOpts, LOCAL_RELAY_URL};
 use anyhow::{bail, Context, Result};
-use nostr_sdk::{Keys, PublicKey};
+use nostr::{Keys, PublicKey};
 use serde_json::{json, Value};
 use std::path::Path;
 

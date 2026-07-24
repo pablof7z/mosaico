@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::{Event, JsonUtil};
+use nostr::{Event, JsonUtil};
 
 use crate::nmp_host::NmpHost;
 pub(super) fn spawn(state_db: &Path, nmp: &Arc<NmpHost>) {
@@ -115,7 +115,7 @@ fn has_group_tag(event: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::{EventBuilder, Keys, Kind, Tag};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     #[test]
     fn signed_single_and_multi_group_events_are_migration_writes() {

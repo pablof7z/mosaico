@@ -3,7 +3,7 @@
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use anyhow::Result;
-use nostr_sdk::prelude::{EventBuilder, Kind, Tag};
+use nostr::{EventBuilder, Kind, Tag};
 
 /// Publish a 👍 kind:7 reaction for a management command that has already been
 /// parsed, authorized, and durably claimed. This is best-effort: acknowledgement
@@ -53,7 +53,7 @@ fn build_thumbs_up(event_id: &str, channel_h: &str) -> Result<EventBuilder> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::{Keys, UnsignedEvent};
+    use nostr::{Keys, UnsignedEvent};
 
     fn tag_value(event: &UnsignedEvent, name: &str) -> Option<String> {
         event.tags.iter().find_map(|tag| {

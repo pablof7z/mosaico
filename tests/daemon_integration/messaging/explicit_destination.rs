@@ -1,7 +1,7 @@
 use crate::daemon_harness::*;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
-use nostr_sdk::prelude::{Keys, PublicKey, ToBech32};
+use nostr::{Keys, PublicKey, ToBech32};
 use std::time::Duration;
 
 #[test]

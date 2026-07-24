@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::{Event, JsonUtil, Kind, TagKind};
+use nostr::{Event, JsonUtil, Kind, TagKind};
 
 use super::auth_types::AuthorizeForm;
 
@@ -85,7 +85,7 @@ fn verify_tag(event: &Event, kind: TagKind<'_>, expected: &str, name: &str) -> R
 
 #[cfg(test)]
 mod tests {
-    use nostr_sdk::prelude::{EventBuilder, Keys, Tag, TagKind};
+    use nostr::{EventBuilder, Keys, Tag, TagKind};
 
     use super::*;
 

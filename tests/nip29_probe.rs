@@ -29,10 +29,12 @@
 //! Hard asserts: id honored, lock enforces membership (non-member write blocked),
 //! and non-member read stays open. Other answers are reported via eprintln.
 
+#[path = "common/nmp_client.rs"]
+mod nmp_client;
 #[path = "nip29_probe/support.rs"]
 mod support;
 
-use nostr_sdk::prelude::*;
+use nostr::*;
 use std::time::Duration;
 use support::*;
 

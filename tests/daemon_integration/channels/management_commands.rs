@@ -1,8 +1,8 @@
 use super::*;
+use crate::nmp_client::NmpRelayClient;
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nostr_sdk::prelude::{Client as NostrClient, ClientOptions, Filter, Keys, Kind};
-use nostr_sdk::NostrSigner;
+use nostr::Keys;
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -142,19 +142,9 @@ fn start_channel(home: &Home, channel: &str, work_dir: &Path) {
 
 async fn publish_management_command(channel: &str, body: &str) {
     let keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = NostrClient::builder()
-        .signer(keys.clone())
-        .opts(ClientOptions::default().automatic_authentication(true))
-        .build();
-    client.add_relay(shared_nip29_relay_url()).await.unwrap();
-    client.connect().await;
-    client.wait_for_connection(Duration::from_secs(8)).await;
-    let _ = client
-        .fetch_events(
-            Filter::new().kind(Kind::from(0u16)).limit(1),
-            Duration::from_secs(5),
-        )
-        .await;
+    let client = NmpRelayClient::connect(keys.clone(), &shared_nip29_relay_url())
+        .await
+        .expect("connect NMP relay client");
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), ""),
         channel: channel.to_string(),
@@ -164,10 +154,7 @@ async fn publish_management_command(channel: &str, body: &str) {
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .unwrap();
-    let event = keys
-        .sign_event(builder.build(keys.public_key()))
-        .await
-        .unwrap();
+    let event = builder.sign_with_keys(&keys).unwrap();
     let output = client.send_event(&event).await.unwrap();
     assert!(!output.success.is_empty(), "management kind:9 rejected");
 }

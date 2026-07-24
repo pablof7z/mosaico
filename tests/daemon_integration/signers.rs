@@ -13,7 +13,7 @@ const EXAMPLE_BACKEND_SEC_HEX: &str =
     "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422";
 
 fn pubkey_of(sec: &str) -> String {
-    use nostr_sdk::prelude::Keys;
+    use nostr::Keys;
     Keys::parse(sec).unwrap().public_key().to_hex()
 }
 

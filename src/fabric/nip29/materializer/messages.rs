@@ -1,7 +1,7 @@
 use super::{collect_p_pubkeys, Nip29Materializer};
 use crate::domain::ChatMessage;
 use crate::state::{RecordMessage, Store};
-use nostr_sdk::Event;
+use nostr::Event;
 
 impl Nip29Materializer {
     /// Materialise a chat line into the canonical `messages` read model. The

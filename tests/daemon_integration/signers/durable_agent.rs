@@ -125,7 +125,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         );
         write_agent_config(&home, slug, &original);
 
-        let replacement = nostr_sdk::prelude::Keys::generate();
+        let replacement = nostr::Keys::generate();
         let mut rekeyed = original.clone();
         rekeyed["secret_key"] = serde_json::json!(replacement.secret_key().to_secret_hex());
         rekeyed["public_key"] = serde_json::json!(replacement.public_key().to_hex());
@@ -162,7 +162,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         )
         .await;
         let mut normal_config = read_agent_config(&home, normal_slug);
-        let normal_keys = nostr_sdk::prelude::Keys::generate();
+        let normal_keys = nostr::Keys::generate();
         normal_config["perSessionKey"] = serde_json::json!(false);
         normal_config["secret_key"] = serde_json::json!(normal_keys.secret_key().to_secret_hex());
         normal_config["public_key"] = serde_json::json!(normal_keys.public_key().to_hex());

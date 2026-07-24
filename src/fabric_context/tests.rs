@@ -232,7 +232,7 @@ fn injected_mention_row_is_hidden_from_chatter() {
 
 #[test]
 fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
-    use nostr_sdk::prelude::{PublicKey, ToBech32};
+    use nostr::{PublicKey, ToBech32};
 
     const TARGET_PK: &str = "379e863e8357163b5bce5d2688dc4f1dcc2d505222fb8d74db600f30535dfdfe";
     const REMOTE_PK: &str = "9aa6883eee2f1ce43053a1eec2c1c8b1c712cbb3c77ec346d9f091982a50b461";

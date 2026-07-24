@@ -13,10 +13,9 @@ use crate::identity;
 use crate::runtime::{self, EngineParams};
 use crate::session::Harness;
 use crate::state::{InboxRow, Store};
-use crate::transport::Transport;
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::{Event, Keys};
+use nostr::{Event, Keys};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -56,7 +55,6 @@ use state::{
 /// Shared daemon state. Store guards span synchronous rusqlite calls, never `.await`.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
-    transport: Arc<Transport>,
     provider: Arc<Nip29Provider>,
     nmp: Arc<crate::nmp_host::NmpHost>,
     cfg: Config,
@@ -291,7 +289,7 @@ const SEEN_EVENTS_CAP: usize = 4096;
 
 impl DaemonState {
     /// True exactly once per native event id (bounded memory). Subsequent
-    /// sightings — the relay pool notifying for every matching subscription —
+    /// sightings — NMP notifying for every matching observation —
     /// return false and must be ignored.
     fn first_sight(&self, event_id: &str) -> bool {
         let mut g = self.dedup.events.lock().unwrap();

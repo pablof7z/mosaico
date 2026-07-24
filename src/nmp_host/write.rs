@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 use anyhow::{Context, Result};
 use nmp::{RelayUrl, SignEventRequest, WriteStatus};
 use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
-use nostr_sdk::prelude::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
+use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
 
 use super::scrub::scrub_unsigned;
 use super::NmpHost;
@@ -103,8 +103,7 @@ impl NmpHost {
     }
 
     /// Persist a kind:0 copy for every configured app/indexer relay. Profile
-    /// delivery used to bypass NMP and wait up to eight seconds for the direct
-    /// relay pool; it now has the same durable, independently-drained contract
+    /// Profile delivery has the same durable, independently-drained contract
     /// as every group write.
     pub(crate) fn enqueue_profile_event(&self, event: &Event) -> Result<EventId> {
         if event.kind.as_u16() != 0 {
@@ -187,7 +186,7 @@ impl NmpHost {
 struct GroupTemplate {
     group: String,
     author: PublicKey,
-    created_at: nostr_sdk::Timestamp,
+    created_at: nostr::Timestamp,
     kind: u16,
     content: String,
     extra_tags: Vec<Vec<String>>,
@@ -215,7 +214,7 @@ fn event_template(event: &Event) -> Result<GroupTemplate> {
 
 fn group_template(
     author: PublicKey,
-    created_at: nostr_sdk::Timestamp,
+    created_at: nostr::Timestamp,
     kind: u16,
     content: String,
     tags: Vec<&Tag>,

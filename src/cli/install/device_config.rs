@@ -3,7 +3,7 @@
 use super::args::InstallOpts;
 use anyhow::{bail, Result};
 use dialoguer::Confirm;
-use nostr_sdk::Keys;
+use nostr::Keys;
 use owo_colors::OwoColorize;
 use serde_json::{json, Value};
 use std::io::{self, IsTerminal as _};
