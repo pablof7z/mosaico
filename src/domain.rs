@@ -119,15 +119,6 @@ impl Profile {
     }
 }
 
-/// A durable, append-only line of narrative: what the agent is doing / did.
-/// Used for social activity notes that are not inbox-routed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Activity {
-    pub agent: AgentRef,
-    pub channel: String,
-    pub text: String,
-}
-
 /// The agent's complete live state. From this one value a reader knows
 /// everything: who/where (agent, channels, host, rel_cwd),
 /// what the session is about (the persistent `title`), what it is doing *right
@@ -230,7 +221,6 @@ impl Reaction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainEvent {
     Profile(Profile),
-    Activity(Activity),
     Status(Status),
     ChatMessage(ChatMessage),
     Reaction(Reaction),
@@ -242,7 +232,6 @@ impl DomainEvent {
     pub fn channel(&self) -> Option<&str> {
         match self {
             DomainEvent::Profile(_) => None,
-            DomainEvent::Activity(a) => Some(&a.channel),
             DomainEvent::Status(s) => s.primary_channel(),
             DomainEvent::ChatMessage(m) => Some(&m.channel),
             DomainEvent::Reaction(r) => Some(&r.channel),
