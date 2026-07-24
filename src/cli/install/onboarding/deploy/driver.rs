@@ -58,8 +58,15 @@ pub(in crate::cli::install::onboarding) fn start(
     let cancel_task = cancel.clone();
 
     handle.spawn(async move {
-        if let Err(e) = run(target, relay_url, owner_pubkey, event_tx.clone(), ask_tx, cancel_task)
-            .await
+        if let Err(e) = run(
+            target,
+            relay_url,
+            owner_pubkey,
+            event_tx.clone(),
+            ask_tx,
+            cancel_task,
+        )
+        .await
         {
             let _ = event_tx.send(DeployEvent::Error(e.to_string()));
         }

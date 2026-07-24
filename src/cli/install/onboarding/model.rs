@@ -37,8 +37,11 @@ pub(super) enum RelayChoice {
 }
 
 impl RelayChoice {
-    pub(super) const ALL: [RelayChoice; 3] =
-        [RelayChoice::Existing, RelayChoice::Assist, RelayChoice::Manual];
+    pub(super) const ALL: [RelayChoice; 3] = [
+        RelayChoice::Existing,
+        RelayChoice::Assist,
+        RelayChoice::Manual,
+    ];
 
     pub(super) fn title(self) -> &'static str {
         match self {
@@ -90,7 +93,10 @@ fn generate_identity() -> Result<Identity> {
             .secret_key()
             .to_bech32()
             .context("encoding operator nsec")?,
-        npub: keys.public_key().to_bech32().context("encoding operator npub")?,
+        npub: keys
+            .public_key()
+            .to_bech32()
+            .context("encoding operator npub")?,
         pubkey_hex: keys.public_key().to_hex(),
     })
 }
@@ -209,7 +215,9 @@ impl Onboarding {
                 self.device_name.pop();
                 Action::None
             }
-            KeyCode::Char(c) if !c.is_control() && self.device_name.chars().count() < DEVICE_NAME_CAP => {
+            KeyCode::Char(c)
+                if !c.is_control() && self.device_name.chars().count() < DEVICE_NAME_CAP =>
+            {
                 self.device_name.push(c);
                 Action::None
             }

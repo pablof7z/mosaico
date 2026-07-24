@@ -60,7 +60,10 @@ fn app_server_item_prefers_meaningful_text() {
 #[test]
 fn app_server_item_without_text_falls_back_to_method() {
     let u = update("item/completed", json!({"item": {"id": "x"}}));
-    assert_eq!(decode(&u), Some(DeployEvent::Activity("item/completed".into())));
+    assert_eq!(
+        decode(&u),
+        Some(DeployEvent::Activity("item/completed".into()))
+    );
 }
 
 #[test]

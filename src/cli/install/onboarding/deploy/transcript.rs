@@ -84,7 +84,10 @@ impl Transcript {
                 self.status = DeployStatus::Failed(text);
             }
             DeployEvent::TurnEnded => {
-                if !matches!(self.status, DeployStatus::Failed(_) | DeployStatus::RelayOnline) {
+                if !matches!(
+                    self.status,
+                    DeployStatus::Failed(_) | DeployStatus::RelayOnline
+                ) {
                     self.status = DeployStatus::Idle;
                 }
             }

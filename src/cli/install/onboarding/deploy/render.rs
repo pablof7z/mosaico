@@ -5,9 +5,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
+use super::super::theme::{self, ACCENT, ACCENT_ALT, ERR, FAINT, MUTED, OK, WARN};
 use super::session::DeploySession;
 use super::transcript::{DeployStatus, Entry};
-use super::super::theme::{self, ACCENT, ACCENT_ALT, ERR, FAINT, MUTED, OK, WARN};
 
 pub(in crate::cli::install::onboarding) fn draw(frame: &mut Frame, session: &DeploySession) {
     let area = frame.area();
@@ -58,7 +58,10 @@ fn render_transcript(frame: &mut Frame, area: Rect, session: &DeploySession) {
 
 fn entry_line(entry: &Entry) -> Line<'static> {
     match entry {
-        Entry::Agent(t) => Line::from(Span::styled(t.clone(), theme::fg(ratatui::style::Color::Reset))),
+        Entry::Agent(t) => Line::from(Span::styled(
+            t.clone(),
+            theme::fg(ratatui::style::Color::Reset),
+        )),
         Entry::Thought(t) => Line::from(Span::styled(format!("  {t}"), theme::fg(FAINT))),
         Entry::Activity(t) => Line::from(vec![
             Span::styled("⚙ ", theme::fg(ACCENT)),
@@ -164,7 +167,9 @@ mod preview {
         t.apply(DeployEvent::Agent(
             "I'll run a Croissant relay for you on 127.0.0.1:9888.".into(),
         ));
-        t.apply(DeployEvent::Activity("bash: which croissant [in_progress]".into()));
+        t.apply(DeployEvent::Activity(
+            "bash: which croissant [in_progress]".into(),
+        ));
         t
     }
 

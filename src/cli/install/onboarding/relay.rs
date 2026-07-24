@@ -31,7 +31,11 @@ fn nip11_http_url(relay: &str) -> Result<String, String> {
     let scheme = match parsed.scheme() {
         "ws" | "http" => "http",
         "wss" | "https" => "https",
-        other => return Err(format!("relay URL must be ws:// or wss:// (got {other}://)")),
+        other => {
+            return Err(format!(
+                "relay URL must be ws:// or wss:// (got {other}://)"
+            ))
+        }
     };
     let host = parsed
         .host_str()
@@ -80,9 +84,8 @@ pub(super) async fn probe(relay: &str) -> Probe {
 
 /// NIP-29 may appear as the number `29` or a string like `"29"`.
 fn announces_nip29(nips: &[serde_json::Value]) -> bool {
-    nips.iter().any(|n| {
-        n.as_i64() == Some(29) || n.as_str().is_some_and(|s| s.trim() == "29")
-    })
+    nips.iter()
+        .any(|n| n.as_i64() == Some(29) || n.as_str().is_some_and(|s| s.trim() == "29"))
 }
 
 fn short_error(msg: &str) -> String {
@@ -121,8 +124,14 @@ mod tests {
 
     #[test]
     fn detects_nip29_as_number_or_string() {
-        assert!(announces_nip29(&[serde_json::json!(1), serde_json::json!(29)]));
+        assert!(announces_nip29(&[
+            serde_json::json!(1),
+            serde_json::json!(29)
+        ]));
         assert!(announces_nip29(&[serde_json::json!("29")]));
-        assert!(!announces_nip29(&[serde_json::json!(1), serde_json::json!(11)]));
+        assert!(!announces_nip29(&[
+            serde_json::json!(1),
+            serde_json::json!(11)
+        ]));
     }
 }

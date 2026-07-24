@@ -10,7 +10,9 @@ use crate::session::Harness as SessionHarness;
 
 /// The RPC transport an onboarding harness id can be driven over, or `None` for
 /// terminal-only harnesses that cannot join the structured modal.
-pub(in crate::cli::install::onboarding) fn rpc_transport(id: &str) -> Option<(SessionHarness, Transport)> {
+pub(in crate::cli::install::onboarding) fn rpc_transport(
+    id: &str,
+) -> Option<(SessionHarness, Transport)> {
     match id {
         "claude-code" => Some((SessionHarness::ClaudeCode, Transport::Acp)),
         "codex" => Some((SessionHarness::Codex, Transport::AppServer)),

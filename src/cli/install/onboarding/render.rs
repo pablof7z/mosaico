@@ -67,11 +67,10 @@ fn render_header(frame: &mut Frame, area: Rect, state: &Onboarding) {
     let tag = Span::styled("first-run setup", theme::fg(MUTED));
     let title = Line::from(vec![brand, dot, tag]);
     let breadcrumb = breadcrumb_line(state);
-    let block = Block::default().borders(Borders::BOTTOM).border_style(theme::fg(FAINT));
-    frame.render_widget(
-        Paragraph::new(vec![title, breadcrumb]).block(block),
-        area,
-    );
+    let block = Block::default()
+        .borders(Borders::BOTTOM)
+        .border_style(theme::fg(FAINT));
+    frame.render_widget(Paragraph::new(vec![title, breadcrumb]).block(block), area);
 }
 
 const STEPS: [(Step, &str); 5] = [
@@ -125,10 +124,7 @@ fn render_body(frame: &mut Frame, area: Rect, state: &Onboarding) {
         Step::Deploy => vec![muted("Launching the agent…")],
         Step::Review => review(state),
     };
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn heading(text: &str) -> Line<'static> {
@@ -223,7 +219,10 @@ fn harnesses(state: &Onboarding) -> Vec<Line<'static>> {
         };
         lines.push(Line::from(vec![
             Span::styled(pointer, theme::fg(ACCENT_ALT)),
-            Span::styled(format!("{mark} "), theme::fg(if on { ACCENT } else { FAINT })),
+            Span::styled(
+                format!("{mark} "),
+                theme::fg(if on { ACCENT } else { FAINT }),
+            ),
             Span::styled(format!("{:<14}", h.display), name_style),
             Span::styled(status.to_string(), theme::fg(status_color)),
         ]));
@@ -241,7 +240,11 @@ fn relay(state: &Onboarding) -> Vec<Line<'static>> {
     for (i, choice) in RelayChoice::ALL.iter().enumerate() {
         let here = i == state.relay_cursor;
         let pointer = if here { "❯ " } else { "  " };
-        let title_style = if here { theme::bold(ACCENT_ALT) } else { theme::fg(ACCENT) };
+        let title_style = if here {
+            theme::bold(ACCENT_ALT)
+        } else {
+            theme::fg(ACCENT)
+        };
         lines.push(Line::from(vec![
             Span::styled(pointer, theme::fg(ACCENT_ALT)),
             Span::styled(choice.title().to_string(), title_style),
@@ -253,7 +256,10 @@ fn relay(state: &Onboarding) -> Vec<Line<'static>> {
     }
     if let RelayStatus::Failed(msg) = &state.relay_status {
         lines.push(blank());
-        lines.push(Line::from(Span::styled(format!("  ! {msg}"), theme::fg(WARN))));
+        lines.push(Line::from(Span::styled(
+            format!("  ! {msg}"),
+            theme::fg(WARN),
+        )));
     }
     lines
 }
@@ -293,7 +299,9 @@ fn status_line(status: &RelayStatus) -> Line<'static> {
     match status {
         RelayStatus::Idle => blank(),
         RelayStatus::Verifying => Line::from(Span::styled("  ⟳ verifying…", theme::fg(ACCENT))),
-        RelayStatus::Usable => Line::from(Span::styled("  ✓ reachable, NIP-29 ready", theme::fg(OK))),
+        RelayStatus::Usable => {
+            Line::from(Span::styled("  ✓ reachable, NIP-29 ready", theme::fg(OK)))
+        }
         RelayStatus::Warn(m) => Line::from(Span::styled(format!("  ! {m}"), theme::fg(WARN))),
         RelayStatus::Failed(m) => Line::from(Span::styled(format!("  ✗ {m}"), theme::fg(ERR))),
     }
@@ -341,7 +349,9 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &Onboarding) {
         Step::Deploy => "watching the agent · Esc cancel",
         Step::Review => "Enter apply · Esc back",
     };
-    let block = Block::default().borders(Borders::TOP).border_style(theme::fg(FAINT));
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(theme::fg(FAINT));
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(hint, theme::fg(MUTED))))
             .block(block)

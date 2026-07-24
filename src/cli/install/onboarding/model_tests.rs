@@ -2,7 +2,11 @@ use super::super::relay;
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-fn harness(id: &'static str, display: &'static str, detected: bool) -> crate::cli::install::config::Harness {
+fn harness(
+    id: &'static str,
+    display: &'static str,
+    detected: bool,
+) -> crate::cli::install::config::Harness {
     crate::cli::install::config::Harness {
         id,
         display,
