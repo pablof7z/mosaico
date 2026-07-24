@@ -226,34 +226,6 @@ fn status_private_runtime_id_d_is_rejected() {
 }
 
 #[test]
-fn activity_roundtrip() {
-    // Slug is NOT on the wire; decoded activity always has empty slug.
-    let keys = Keys::generate();
-    let ev = DomainEvent::Activity(Activity {
-        agent: AgentRef::new(keys.public_key().to_hex(), String::new()),
-        channel: "mosaico".into(),
-        text: "fixing the auth bug".into(),
-    });
-    assert_eq!(roundtrip(ev.clone(), &keys), ev);
-}
-#[test]
-fn activity_uses_nip29_h_tag_not_hashtag() {
-    let keys = Keys::generate();
-    let ev = DomainEvent::Activity(Activity {
-        agent: agent(&keys, "coder"),
-        channel: "mosaico".into(),
-        text: "fixing the auth bug".into(),
-    });
-    let signed = Nip29WireCodec
-        .encode_event(&ev)
-        .unwrap()
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert!(has_tag(&signed, "h", "mosaico"));
-    assert!(!has_tag_name(&signed, "t"));
-}
-
-#[test]
 fn bare_reaction_without_e_tag_decodes_to_none() {
     // A kind:7 with no `e` tag is not a domain reaction: it has no target, so it
     // falls through to the verbatim relay_events cache (decode → None).

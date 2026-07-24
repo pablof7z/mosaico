@@ -130,12 +130,6 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
             Nip29Materializer::materialize_reaction(store, event, rx);
             outcome.tail = None;
         }
-
-        // Activity (kind:1) carries no inbox routing; it is cached verbatim in
-        // relay_events alongside every other unprojected kind.
-        DomainEvent::Activity(_) => {
-            Nip29Materializer::materialize_event(store, event);
-        }
     }
 
     outcome

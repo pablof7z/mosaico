@@ -3,7 +3,6 @@
 //! | Domain      | Wire |
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]` and scoped live-agent `["workspace", root_h]`; backend profiles additionally carry `["backend"]`, repeated `["agent", slug, desc]`, and repeated `["workspace", root_h]` tags |
-//! | Activity    | kind:1,     `["h", channel]` — social narrative (no inbox routing) |
 //! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["state-since", ts]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]` |
 //!
@@ -26,7 +25,7 @@
 //! authority and are never written; only the **backend** management-key-signed kind:0 advertises
 //! `["agent", slug, desc]` tags (the host inventory for client add-agent pickers).
 
-use crate::domain::{Activity, AgentRef, ChatMessage, DomainEvent, Reaction, Status};
+use crate::domain::{AgentRef, ChatMessage, DomainEvent, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
 use nostr::*;
@@ -108,17 +107,6 @@ impl Nip29WireCodec {
     pub fn encode_event(&self, ev: &DomainEvent) -> Result<EventBuilder> {
         let b = match ev {
             DomainEvent::Profile(pf) => profile::encode(pf)?,
-            DomainEvent::Activity(Activity {
-                agent: _agent,
-                channel,
-                text,
-            }) => {
-                // Activity is a social narrative note (kind:1 without inbox routing).
-                // We still encode it for broadcast purposes but it's not part of
-                // the inbox system. For now, encode as a plain kind:1 note.
-                use nostr::EventBuilder as EB;
-                EB::new(Kind::from(1u16), text.clone()).tags([h_tag(channel)?])
-            }
             DomainEvent::Status(Status {
                 agent,
                 channels,
@@ -223,15 +211,6 @@ impl Nip29WireCodec {
                 body: event.content.clone(),
                 mentioned_pubkeys: all_tag_values(event, "p"),
             })),
-            1 => {
-                // kind:1 notes: decode as Activity for social narrative (no routing).
-                let channel = channel_from_tags(event)?;
-                Some(DomainEvent::Activity(Activity {
-                    agent: AgentRef::new(pubkey, String::new()),
-                    channel,
-                    text: event.content.clone(),
-                }))
-            }
             KIND_REACTION => {
                 // A reaction MUST reference a target message via an `e` tag. A
                 // bare kind:7 (no `e`) is not a domain reaction — returning None
