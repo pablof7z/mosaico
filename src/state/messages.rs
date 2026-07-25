@@ -246,6 +246,43 @@ impl Store {
         Ok(exists != 0)
     }
 
+    pub fn pubkey_has_outbound_message_after_in_channel(
+        &self,
+        pubkey: &str,
+        channel_h: &str,
+        since: u64,
+    ) -> Result<bool> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM messages
+                 WHERE author_pubkey=?1
+                   AND channel_h=?2
+                   AND direction='outbound'
+                   AND sync_state='accepted'
+                   AND created_at > ?3
+             )",
+            params![pubkey, channel_h, since],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
+    }
+
+    pub fn should_render_reply_nudge(
+        &self,
+        channel_h: &str,
+        message_id: &str,
+        author_pubkey: &str,
+        since: u64,
+    ) -> Result<bool> {
+        if self.has_reaction_from_pubkey_on_message(message_id, author_pubkey)? {
+            return Ok(false);
+        }
+        if self.pubkey_has_outbound_message_after_in_channel(author_pubkey, channel_h, since)? {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     pub fn message_recipients(&self, message_id: &str) -> Result<Vec<MessageRecipient>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {RECIPIENT_COLS} FROM message_recipients

@@ -52,6 +52,16 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     // the name falls back to the short sender pubkey ("pk-sende"), and with no
     // channel metadata the source room is still the workspace's general channel.
     let store = crate::state::Store::open_memory().unwrap();
+    store
+        .upsert_reaction(
+            "rx-1",
+            "abcdef123456",
+            "proj",
+            "pk-target",
+            "👍",
+            110,
+        )
+        .unwrap();
     let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
 
     assert_eq!(
@@ -60,9 +70,6 @@ fn pending_message_prompt_contains_the_actual_message_body() {
          \u{20}\u{20}<channel ref=\"/proj\">\n\
          \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\">please review the PTY delivery path</message>\n\
          \u{20}\u{20}</channel>\n\
-         \n\
-         \u{20}\u{20}Reply via: `mosaico channel reply abcdef --message \"hello world\"`\n\
-         \u{20}\u{20}Attachments: add `--attach label=/path/to/file` and reference `[label]` in the message.\n\
          </mosaico>"
     );
 }
@@ -87,6 +94,9 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
     store
         .upsert_channel("channel-writer-test", "writer-test", "", "mosaico", 100)
         .unwrap();
+    store
+        .upsert_reaction("rx-2", "ev-human", "channel-writer-test", rec.pubkey.as_str(), "👍", 110)
+        .unwrap();
     // Sender is whitelisted, but the injected line still carries the source room.
     let prompt =
         crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120)
@@ -97,10 +107,32 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
          \u{20}\u{20}<channel ref=\"/mosaico/writer-test\">\n\
          \u{20}\u{20}\u{20}\u{20}<message from=\"@human-pk\" id=\"ev-hum\">@developer hey there</message>\n\
          \u{20}\u{20}</channel>\n\
-         \n\
-         \u{20}\u{20}Reply via: `mosaico channel reply ev-hum --message \"hello world\"`\n\
-         \u{20}\u{20}Attachments: add `--attach label=/path/to/file` and reference `[label]` in the message.\n\
          </mosaico>"
+    );
+}
+
+#[test]
+fn pending_mention_prompt_shows_coordination_guide_nudge() {
+    let rec = sample_session();
+    let row = crate::state::InboxRow {
+        event_id: "abcdef123456".into(),
+        target_pubkey: rec.pubkey.clone(),
+        state: "pending".into(),
+        from_pubkey: "pk-sender".into(),
+        channel_h: "proj".into(),
+        body: "please review the PTY delivery path".into(),
+        created_at: 100,
+        delivered_at: 0,
+    };
+
+    let store = crate::state::Store::open_memory().unwrap();
+    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
+
+    assert!(
+        prompt.contains(
+            "Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
+        ),
+        "{prompt}"
     );
 }
 

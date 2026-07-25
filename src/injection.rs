@@ -7,15 +7,12 @@
 //!   <channel ref="/workspace/channel/qa">
 //!     <message from="@mist-ridge-204-developer" id="abc123">hello</message>
 //!   </channel>
-//!
-//!   Reply via: `mosaico channel reply abc123 --message "hello world"`
-//!   Attachments: add `--attach label=/path/to/file` and reference `[label]` in the message.
 //! </mosaico>
 //! ```
 //!
-//! Publishing no longer happens automatically on the agent's behalf — the
-//! envelope carries an explicit reminder to respond via `mosaico channel
-//! send`, since nothing mirrors the reply for it.
+//! Publishing no longer happens automatically on the agent's behalf — when the
+//! target has not already been answered or acknowledged, the envelope carries a
+//! brief reminder to consult `skills/mosaico/references/coordination-guide.md`.
 //!
 //! Hook-delivered mentions and ambient channel activity are rendered by the
 //! unified fabric context view, not by this envelope module.
@@ -60,8 +57,10 @@ pub(crate) fn render_terminal_mention(
         );
     }
     if let Some(row) = rows.last() {
-        lines.push(String::new());
-        push_reply_hint(&mut lines, &row.event_id);
+        if should_render_reply_nudge(store, row) {
+            lines.push(String::new());
+            push_reply_hint(&mut lines);
+        }
     }
     lines.push("</mosaico>".to_string());
     Some(lines.join("\n"))
@@ -78,8 +77,6 @@ pub(crate) fn render_agent_message(
 ) -> String {
     let mut lines = vec!["<mosaico>".to_string()];
     push_agent_message(&mut lines, channel_ref, from, event_id, body);
-    lines.push(String::new());
-    push_reply_hint(&mut lines, event_id);
     lines.push("</mosaico>".to_string());
     lines.join("\n")
 }
@@ -118,13 +115,22 @@ fn push_agent_message(
     lines.push("  </channel>".to_string());
 }
 
-fn push_reply_hint(lines: &mut Vec<String>, event_id: &str) {
-    let id = crate::util::short_id(event_id);
-    lines.push(format!(
-        "  Reply via: `mosaico channel reply {} --message \"hello world\"`",
-        esc_text(&id)
-    ));
-    lines.push(format!("  {}", crate::attachment::AGENT_HINT));
+fn push_reply_hint(lines: &mut Vec<String>) {
+    lines.push(
+        "  Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
+            .to_string(),
+    );
+}
+
+fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
+    store
+        .should_render_reply_nudge(
+            &row.channel_h,
+            &row.event_id,
+            &row.target_pubkey,
+            row.created_at,
+        )
+        .unwrap_or(true)
 }
 
 /// The human display label for a channel: its kind:39000 `name` when set, else

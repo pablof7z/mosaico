@@ -9,8 +9,6 @@ use std::time::Duration;
 use url::Url;
 
 const AUTH_LIFETIME_SECS: u64 = 5 * 60;
-pub(crate) const AGENT_HINT: &str =
-    "Attachments: add `--attach label=/path/to/file` and reference `[label]` in the message.";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct Attachment {
