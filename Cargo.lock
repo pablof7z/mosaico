@@ -556,6 +556,16 @@ dependencies = [
 
 [[package]]
 name = "core-foundation"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e195e091a93c46f7102ec7818a2aa394e1e1771c3ab4825963fa03e45afb8f"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
+name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
@@ -810,18 +820,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
-name = "enum-as-inner"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -834,7 +832,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -921,6 +919,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718"
 
 [[package]]
+name = "futures-macro"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -939,6 +948,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
 dependencies = [
  "futures-core",
+ "futures-macro",
  "futures-task",
  "pin-project-lite",
  "slab",
@@ -1079,23 +1089,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "hickory-proto"
-version = "0.25.2"
+name = "hickory-net"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
+checksum = "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183"
 dependencies = [
  "async-trait",
  "cfg-if",
  "data-encoding",
- "enum-as-inner",
  "futures-channel",
  "futures-io",
  "futures-util",
+ "hickory-proto",
  "idna",
  "ipnet",
- "once_cell",
- "rand 0.9.5",
- "ring",
+ "jni",
+ "rand 0.10.2",
  "thiserror 2.0.18",
  "tinyvec",
  "tokio",
@@ -1104,21 +1113,46 @@ dependencies = [
 ]
 
 [[package]]
-name = "hickory-resolver"
-version = "0.25.2"
+name = "hickory-proto"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a"
+checksum = "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643"
+dependencies = [
+ "data-encoding",
+ "idna",
+ "ipnet",
+ "jni",
+ "once_cell",
+ "prefix-trie",
+ "rand 0.10.2",
+ "ring",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "hickory-resolver"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d58d28879ceecde6607729660c2667a081ccdc082e082675042793960f178c"
 dependencies = [
  "cfg-if",
  "futures-util",
+ "hickory-net",
  "hickory-proto",
  "ipconfig",
+ "ipnet",
+ "jni",
  "moka",
+ "ndk-context",
  "once_cell",
  "parking_lot",
- "rand 0.9.5",
+ "rand 0.10.2",
  "resolv-conf",
  "smallvec",
+ "system-configuration",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -1419,6 +1453,9 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "is-terminal"
@@ -1428,7 +1465,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1743,6 +1780,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndk-context"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
+
+[[package]]
 name = "negentropy"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1775,10 +1818,9 @@ dependencies = [
 [[package]]
 name = "nmp"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "nmp-engine",
- "nmp-executor",
  "nmp-grammar",
  "nmp-resolver",
  "nmp-router",
@@ -1786,12 +1828,13 @@ dependencies = [
  "nmp-store",
  "nmp-transport",
  "nostr",
+ "tokio",
 ]
 
 [[package]]
 name = "nmp-engine"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -1817,12 +1860,12 @@ dependencies = [
 [[package]]
 name = "nmp-executor"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 
 [[package]]
 name = "nmp-grammar"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "blake3",
  "nostr",
@@ -1832,7 +1875,7 @@ dependencies = [
 [[package]]
 name = "nmp-nip29"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "nmp-grammar",
  "nmp-nip51",
@@ -1843,7 +1886,7 @@ dependencies = [
 [[package]]
 name = "nmp-nip51"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "nmp-grammar",
  "nmp-ownership",
@@ -1853,12 +1896,12 @@ dependencies = [
 [[package]]
 name = "nmp-ownership"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 
 [[package]]
 name = "nmp-resolver"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "nmp-grammar",
  "nmp-store",
@@ -1868,7 +1911,7 @@ dependencies = [
 [[package]]
 name = "nmp-router"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "nmp-grammar",
  "nmp-store",
@@ -1878,7 +1921,7 @@ dependencies = [
 [[package]]
 name = "nmp-signer"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
  "crossbeam-channel",
  "nmp-executor",
@@ -1886,6 +1929,7 @@ dependencies = [
  "nostr",
  "serde",
  "serde_json",
+ "tokio",
  "url",
  "zeroize",
 ]
@@ -1893,8 +1937,9 @@ dependencies = [
 [[package]]
 name = "nmp-store"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
+ "blake3",
  "nmp-grammar",
  "nostr",
  "redb",
@@ -1905,9 +1950,11 @@ dependencies = [
 [[package]]
 name = "nmp-transport"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=9a8ad1fd1a2999b067c19d842467a76a257f7f25#9a8ad1fd1a2999b067c19d842467a76a257f7f25"
+source = "git+https://github.com/pablof7z/nmp.git?branch=master#2b471610824460aadc8a734f0f8d061ebea6d94a"
 dependencies = [
+ "blake3",
  "mio",
+ "nmp-executor",
  "nmp-grammar",
  "nostr",
  "rustls",
@@ -1945,7 +1992,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2159,6 +2206,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "prefix-trie"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cf6e3177f0684016a5c209b00882e15f8bdd3f3bb48f0491df10cd102d0c6e7"
+dependencies = [
+ "either",
+ "ipnet",
+ "num-traits",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2221,7 +2279,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2464,7 +2522,6 @@ dependencies = [
  "base64",
  "bytes",
  "futures-core",
- "hickory-resolver",
  "http",
  "http-body",
  "http-body-util",
@@ -2473,7 +2530,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "once_cell",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -2604,7 +2660,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2651,7 +2707,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26d1e2536ce4f35f4846aa13bff16bd0ff40157cdb14cc056c7b14ba41233ba0"
 dependencies = [
- "core-foundation",
+ "core-foundation 0.10.1",
  "core-foundation-sys",
  "jni",
  "log",
@@ -2663,7 +2719,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2768,7 +2824,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
 dependencies = [
  "bitflags 2.13.1",
- "core-foundation",
+ "core-foundation 0.10.1",
  "core-foundation-sys",
  "libc",
  "security-framework-sys",
@@ -3113,6 +3169,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "system-configuration"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a13f3d0daba03132c0aa9767f98351b3488edc2c100cda2d2ec2b04f3d8d3c8b"
+dependencies = [
+ "bitflags 2.13.1",
+ "core-foundation 0.9.4",
+ "system-configuration-sys",
+]
+
+[[package]]
+name = "system-configuration-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
 name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3128,7 +3205,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3750,7 +3827,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
