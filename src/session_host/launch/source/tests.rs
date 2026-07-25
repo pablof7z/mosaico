@@ -27,6 +27,7 @@ async fn installed_codex_agent_resolves_without_agent_json() {
     env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
     env.set_var("HOME", home.path());
     env.set_var("CODEX_HOME", &codex_home);
+    env.set_var("HERMES_HOME", home.path().join(".hermes"));
     write(
         &mosaico_home.join("harnesses.json"),
         r#"{"codex-rpc":{"harness":"codex","transport":"app-server"}}"#,
