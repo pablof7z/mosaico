@@ -40,6 +40,7 @@ pub(super) fn status_caps(
     refs: &mut BTreeMap<String, String>,
     agent_slugs: &mut BTreeMap<String, String>,
     backend: &mut BTreeSet<String>,
+    has_handle: &mut BTreeSet<String>,
 ) -> Vec<StatusCap> {
     let mut rows = store
         .live_status_for_channel(channel, 0)
@@ -53,6 +54,7 @@ pub(super) fn status_caps(
                 refs,
                 agent_slugs,
                 backend,
+                has_handle,
             );
             let local_session = store
                 .get_session(&status.pubkey)
@@ -103,6 +105,7 @@ pub(super) fn status_caps(
             refs,
             agent_slugs,
             backend,
+            has_handle,
         );
         let presence = crate::session_presence::local(store, &session, None);
         let native_failure = native_failure(store, &session);

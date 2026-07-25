@@ -10,17 +10,17 @@ use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
 mod native_outcome;
 
 #[test]
-fn full_snapshot_keeps_offline_members_while_empty_presence_deltas_stay_quiet() {
+fn full_snapshot_drops_inert_members_while_empty_presence_deltas_stay_quiet() {
     let store = seed_store();
     let rec = session(&store);
 
     let snapshot = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("snapshot should render");
     assert!(snapshot.contains("<members>"), "got: {snapshot}");
-    assert!(
-        snapshot.contains("<agent name=\"@reviewer\" state=\"offline\" since=\"unknown\" />"),
-        "got: {snapshot}"
-    );
+    // @reviewer is rostered and nameable, but has never sent a heartbeat and has
+    // never spoken here, so awareness has nothing to report about it.
+    assert!(!snapshot.contains("@reviewer"), "got: {snapshot}");
+    assert!(!snapshot.contains("since=\"unknown\""), "got: {snapshot}");
     assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
 
     store

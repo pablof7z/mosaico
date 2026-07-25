@@ -32,3 +32,30 @@ fn chat_for_channel_after_preserves_same_second_id_cursor() {
         vec!["c"]
     );
 }
+
+#[test]
+fn latest_message_at_by_pubkey_groups_by_author_max() {
+    let store = Store::open_memory().unwrap();
+    let mut pk_a1 = event("a1", 10);
+    pk_a1.pubkey = "pk-a".into();
+    let mut pk_a2 = event("a2", 30);
+    pk_a2.pubkey = "pk-a".into();
+    let mut pk_b1 = event("b1", 20);
+    pk_b1.pubkey = "pk-b".into();
+    // A non-chat kind must not count towards activity presence.
+    let mut other_kind = event("k", 99);
+    other_kind.pubkey = "pk-a".into();
+    other_kind.kind = 7;
+    for ev in [&pk_a1, &pk_a2, &pk_b1, &other_kind] {
+        assert!(store.insert_event(ev).unwrap());
+    }
+
+    let latest = store.latest_message_at_by_pubkey("h1").unwrap();
+    assert_eq!(latest.get("pk-a").copied(), Some(30));
+    assert_eq!(latest.get("pk-b").copied(), Some(20));
+    assert_eq!(latest.len(), 2);
+    assert!(store
+        .latest_message_at_by_pubkey("other")
+        .unwrap()
+        .is_empty());
+}

@@ -109,7 +109,10 @@ pub(in crate::fabric_context) enum MemberKind {
 pub(in crate::fabric_context) struct MemberRow {
     pub(in crate::fabric_context) kind: MemberKind,
     pub(in crate::fabric_context) name: String,
-    pub(in crate::fabric_context) state: crate::session_state::SessionState,
+    /// `Some` only for a member with a live heartbeat. A member surfaced purely
+    /// from message activity has no lifecycle we can vouch for, so it carries no
+    /// state label — just `since`.
+    pub(in crate::fabric_context) state: Option<crate::session_state::SessionState>,
     pub(in crate::fabric_context) status: String,
     pub(in crate::fabric_context) since: String,
 }

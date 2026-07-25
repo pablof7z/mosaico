@@ -76,7 +76,7 @@ fn full_and_delta_channels_use_identical_tags_and_nesting() {
 fn my_session_full_state_is_byte_identical_to_a_cursor_zero_hook() {
     let store = seed_store();
     let rec = session(&store);
-    let full =
+    let (full, _missing) =
         render_full_session_state(&store, &rec, "coder", "", "laptop", 100).expect("full state");
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let mut hook = HookContextState::default();
@@ -97,14 +97,31 @@ fn full_rosters_distinguish_humans_from_agents() {
     store
         .upsert_channel_member("root", "human", "member", 1)
         .unwrap();
+    // Humans never publish heartbeats, so their only trace is what they said.
+    human_chat(&store, "human-msg", "root", 40);
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
-        xml.contains("<human name=\"@Pablo\" state=\"offline\" since=\"unknown\" />"),
+        xml.contains("<human name=\"@Pablo\" since=\"1 min ago\" />"),
         "{xml}"
     );
     assert!(xml.contains("<agent name=\"@coder\""), "{xml}");
+}
+
+fn human_chat(store: &crate::state::Store, id: &str, channel: &str, at: u64) {
+    store
+        .insert_event(&crate::state::RelayEvent {
+            id: id.into(),
+            kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
+            pubkey: "human".into(),
+            created_at: at,
+            channel_h: channel.into(),
+            d_tag: String::new(),
+            content: "shipping notes".into(),
+            tags_json: "[]".into(),
+        })
+        .unwrap();
 }
 
 fn normalized_opening_tag(xml: &str, id: &str) -> String {

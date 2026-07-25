@@ -118,11 +118,10 @@ fn render_members(out: &mut String, members: &[MemberRow], indent: usize) {
             MemberKind::Human => "human",
         };
         let name = attr(member.name.trim_start_matches('@'));
-        let state = member.state.as_str();
-        let _ = write!(
-            out,
-            "\n{child_pad}<{tag} name=\"@{name}\" state=\"{state}\""
-        );
+        let _ = write!(out, "\n{child_pad}<{tag} name=\"@{name}\"");
+        if let Some(state) = member.state {
+            let _ = write!(out, " state=\"{}\"", state.as_str());
+        }
         if !member.status.is_empty() {
             let _ = write!(out, " status=\"{}\"", attr(&member.status));
         }

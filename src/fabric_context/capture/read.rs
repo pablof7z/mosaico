@@ -204,12 +204,16 @@ pub(super) fn resolve_pubkey(
     refs: &mut BTreeMap<String, String>,
     agent_slugs: &mut BTreeMap<String, String>,
     backend: &mut BTreeSet<String>,
+    has_handle: &mut BTreeSet<String>,
 ) {
     if refs.contains_key(pubkey) {
         return;
     }
     refs.insert(pubkey.to_string(), pubkey_ref(store, pubkey, local_host));
     if let Some(profile) = store.get_profile(pubkey).ok().flatten() {
+        if !profile.slug.trim().is_empty() {
+            has_handle.insert(pubkey.to_string());
+        }
         if !profile.agent_slug.is_empty() {
             agent_slugs.insert(pubkey.to_string(), profile.agent_slug);
         }

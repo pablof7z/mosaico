@@ -5,8 +5,10 @@ mod backend_traffic;
 mod channel_tree;
 mod cross_workspace;
 mod host_profiles;
+mod human_render;
 mod member_render;
 mod reactions;
+mod roster_awareness;
 mod session_title;
 mod topology;
 
@@ -107,41 +109,6 @@ fn input<'a>(
         warnings: &[],
         force,
     }
-}
-
-#[test]
-fn human_who_renderer_is_non_xml_and_terminal_friendly() {
-    let store = seed_store();
-    publish_idle_status(&store, SELF_PK, "coder", "Reviewing fabric context");
-
-    let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), false)
-        .expect("valid channel ancestry")
-        .expect("human who should render");
-
-    assert!(human.starts_with("root\nRoot room\n\n"), "got: {human}");
-    assert!(human.contains("#/root/task"), "got: {human}");
-    assert!(human.contains("Members"), "got: {human}");
-    assert!(human.contains("@coder"), "got: {human}");
-    assert!(human.contains("idle"), "got: {human}");
-    assert!(!human.contains(" member "), "got: {human}");
-    assert!(!human.contains("<mosaico>"), "got: {human}");
-    assert!(!human.contains("<member"), "got: {human}");
-}
-
-#[test]
-fn human_who_renderer_colorizes_when_requested() {
-    let store = seed_store();
-    publish_idle_status(&store, SELF_PK, "coder", "Reviewing fabric context");
-
-    let human = render_fabric_context_human(&store, input(None, "root", 0, 1_000, true), true)
-        .expect("valid channel ancestry")
-        .expect("human who should render");
-
-    assert!(
-        human.contains("\u{1b}["),
-        "expected ansi styling: {human:?}"
-    );
-    assert!(human.contains("@coder"), "got: {human}");
 }
 
 #[test]

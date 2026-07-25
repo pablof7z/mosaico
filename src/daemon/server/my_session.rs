@@ -14,7 +14,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
     let instance = state.session_instance(&rec);
     let host = state.host.clone();
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
-    let fabric = state.with_store(|store| {
+    let (fabric, missing_profiles) = state.with_store(|store| {
         crate::fabric_context::render_full_session_state(
             store,
             &rec,
@@ -24,6 +24,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
             now_secs(),
         )
     })?;
+    demux::refetch_missing_profiles(state, missing_profiles);
     Ok(serde_json::json!({ "fabric": fabric }))
 }
 

@@ -114,7 +114,7 @@ fn render_members(out: &mut String, members: &[MemberRow], color: bool) {
             out,
             "    {}  {:<12} {} {} {}",
             style(&reference, color, Style::Agent),
-            state_text(m.state, color),
+            m.state.map(|s| state_text(s, color)).unwrap_or_default(),
             m.status,
             dim("since", color),
             dim(&m.since, color)
