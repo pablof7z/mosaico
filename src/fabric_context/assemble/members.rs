@@ -1,11 +1,23 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::projected_presence;
 use crate::fabric_context::capture::{MembersInput, StatusCap, ViewInputs};
 use crate::fabric_context::model::{MemberKind, MemberRow};
 use crate::util::relative_time;
 
+/// The `since` label for a member the fabric knows nothing live about.
+const UNKNOWN: &str = "unknown";
+
 /// Full-snapshot member rows from the frozen roster, profile, and status inputs.
+///
+/// A member earns a row from either a live heartbeat OR observed kind:9 activity
+/// in the channel. Only a live heartbeat carries a `state` label — presence is a
+/// lifecycle fact, and a peer we have merely seen talking has no lifecycle we can
+/// vouch for. Two kinds of non-self member are dropped instead of rendered: one
+/// that is unaddressable (see [`addressable`]) and one that is inert — no
+/// heartbeat and no activity at all, so there is nothing to say about it beyond
+/// its bare existence. Self always survives, so an agent never loses sight of
+/// itself.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
     let members = &inputs.members;
     let statuses = inputs
@@ -23,21 +35,30 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
         .unwrap_or_default()
         .into_iter()
         .filter(|(pk, _)| !members.backend.contains(pk))
-        .map(|(pk, _role)| {
+        .filter_map(|(pk, _role)| {
+            let is_self = pk == inputs.meta.self_pubkey;
             let status = status_map.get(&pk);
             let presence = status.map(|status| projected_presence(status, now));
-            let state = presence
-                .as_ref()
-                .map(|row| row.state)
-                .unwrap_or(crate::session_state::SessionState::Offline);
+            // A live heartbeat owns both the state label and its `since`; without
+            // one, the most recent thing the member said stands in for liveness so
+            // a talkative peer with no presence lease still reads as recently here.
+            let (state, since) = match presence.as_ref() {
+                Some(row) => (Some(row.state), relative_time(row.state_since, now)),
+                None => match members.activity_at(channel, &pk) {
+                    Some(at) => (None, relative_time(at, now)),
+                    None => (None, UNKNOWN.to_string()),
+                },
+            };
+            if !is_self && (!addressable(members, &pk, status) || since == UNKNOWN) {
+                return None;
+            }
             let status_text = presence
                 .as_ref()
                 .map(crate::session_presence::PublicPresence::text)
                 .unwrap_or_default();
-            let kind = if pk == inputs.meta.self_pubkey
+            let kind = if is_self
                 || status.is_some()
-                || inputs
-                    .members
+                || members
                     .agent_slugs
                     .get(&pk)
                     .is_some_and(|slug| !slug.trim().is_empty())
@@ -46,16 +67,43 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
             } else {
                 MemberKind::Human
             };
-            MemberRow {
+            Some(MemberRow {
                 kind,
                 name: reference(inputs, &pk, status),
                 state,
                 status: status_text,
-                since: presence
-                    .map(|row| relative_time(row.state_since, now))
-                    .unwrap_or_else(|| "unknown".to_string()),
-            }
+                since,
+            })
         })
+        .collect()
+}
+
+/// Whether the member has a name an agent could actually address. A kind:0
+/// handle is the durable answer; a live status carries its own public slug and
+/// stands in when the profile has not been fetched yet. With neither, the only
+/// thing [`reference`] can produce is a truncated pubkey — a row that costs the
+/// agent attention and gives it nothing to act on.
+fn addressable(members: &MembersInput, pk: &str, status: Option<&&StatusCap>) -> bool {
+    members.has_handle(pk) || status.is_some_and(|s| !s.slug.trim().is_empty())
+}
+
+/// Roster pubkeys with no resolvable kind:0 handle, across every captured
+/// channel. The daemon turns this into a debounced profile refetch, so a roster
+/// that had to withhold or improvise a name repairs itself on a later turn
+/// instead of staying degraded. Self and this daemon's own backend key are never
+/// included.
+pub(crate) fn missing_profile_pubkeys(inputs: &ViewInputs) -> Vec<String> {
+    let members = &inputs.members;
+    let self_pubkey = &inputs.meta.self_pubkey;
+    members
+        .roster
+        .values()
+        .flat_map(BTreeMap::keys)
+        .filter(|pk| *pk != self_pubkey && !members.backend.contains(*pk))
+        .filter(|pk| !members.has_handle(pk))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
 }
 

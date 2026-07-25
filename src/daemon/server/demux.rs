@@ -15,66 +15,13 @@ use super::*;
 
 mod chat_ops;
 mod offline_mention;
+mod profile_cache;
 mod route_reaction;
+
+pub(in crate::daemon::server) use profile_cache::{refetch_missing_profiles, warm_profiles};
 
 pub(in crate::daemon::server) fn drive_offline_mention_retries(state: &Arc<DaemonState>) {
     offline_mention::drive_retries(state);
-}
-
-/// Proactively fetch + cache the `kind:0` for any of `pubkeys` we do not already
-/// have a name for. Called on every inbound event (a peer newly seen in a
-/// 3900x/chat/status) and once at startup for the identities we already know
-/// (owners, hosted agents). Known identities are filtered out cheaply and
-/// synchronously — they never spawn a task or touch the network — and concurrent
-/// duplicate deliveries of the same event collapse to ONE in-flight fetch per
-/// pubkey via the `warming` guard. `who` therefore never has to warm: the cache
-/// is populated as pubkeys are observed, and it renders names from the cache.
-pub(in crate::daemon::server) fn warm_profiles(state: &Arc<DaemonState>, pubkeys: Vec<String>) {
-    let to_fetch = claim_pubkeys_to_warm(state, pubkeys);
-    if to_fetch.is_empty() {
-        return;
-    }
-    let st = state.clone();
-    tokio::spawn(async move {
-        for pk in &to_fetch {
-            let _ = crate::profile::resolve_name(&st, pk).await;
-        }
-        // Release the in-flight claims; a fetch that failed (offline relay) is thus
-        // retried the next time the pubkey is observed rather than being wedged.
-        let mut guard = st.dedup.warming_profiles.lock().unwrap();
-        for pk in &to_fetch {
-            guard.remove(pk);
-        }
-    });
-}
-
-/// The synchronous half of [`warm_profiles`]: reduce `pubkeys` to the ones worth a
-/// relay fetch and claim them in the in-flight `warming` set. A pubkey is dropped
-/// when it is empty, already has a cached name, or is already being fetched — so a
-/// known identity never hits the network and duplicate deliveries never stack up.
-fn claim_pubkeys_to_warm(state: &Arc<DaemonState>, pubkeys: Vec<String>) -> Vec<String> {
-    // A cache miss (no row, or a row with no resolved name) is the only reason to
-    // hit the relay; everything already named is skipped.
-    let missing = state.with_store(|s| {
-        pubkeys
-            .into_iter()
-            .filter(|pk| !pk.is_empty())
-            .filter(|pk| {
-                s.get_profile(pk)
-                    .ok()
-                    .flatten()
-                    .map(|p| p.name.is_empty())
-                    .unwrap_or(true)
-            })
-            .collect::<Vec<_>>()
-    });
-    // Collapse concurrent duplicates: claim each pubkey; a fetch already in flight
-    // for it keeps ownership until it completes.
-    let mut guard = state.dedup.warming_profiles.lock().unwrap();
-    missing
-        .into_iter()
-        .filter(|pk| guard.insert(pk.clone()))
-        .collect()
 }
 
 /// Every identity a raw event references: its author plus all `p`-tagged pubkeys

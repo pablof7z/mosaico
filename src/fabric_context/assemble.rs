@@ -12,6 +12,8 @@ use crate::util::relative_time;
 mod members;
 mod topology;
 
+pub(crate) use members::missing_profile_pubkeys;
+
 const WINDOW_SECS: u64 = 4 * 60 * 60;
 const MAX_CLUSTER_GAP_SECS: u64 = 20 * 60;
 const MAX_CLUSTER_ROWS: usize = 30;

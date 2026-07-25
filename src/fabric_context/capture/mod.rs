@@ -3,10 +3,12 @@
 //! and cursor selection remain pure assembly decisions.
 
 mod activity;
+mod members;
 mod read;
 mod topology;
 
 pub(super) use activity::StatusCap;
+pub(crate) use members::MembersInput;
 pub(super) use topology::WorkspaceCap;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -49,20 +51,6 @@ pub(crate) struct MetaInput {
     #[serde(default)]
     pub(super) local_host: String,
     pub(super) force: bool,
-}
-
-/// The member roster union source: per-channel roster pubkeys, the resolved
-/// display ref for every pubkey that can appear, and the backend-pubkey set.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MembersInput {
-    /// Per-channel roster as `pubkey -> role` (`admin`/`member`). The role is
-    /// retained as relay state; rendered awareness exposes the member identity,
-    /// status, and liveness only.
-    pub(super) roster: BTreeMap<String, BTreeMap<String, String>>,
-    pub(super) refs: BTreeMap<String, String>,
-    #[serde(default)]
-    pub(super) agent_slugs: BTreeMap<String, String>,
-    pub(super) backend: BTreeSet<String>,
 }
 
 /// Presence/status rows (superset, updated_at DESC) with the fields the render
@@ -181,7 +169,9 @@ pub(crate) fn capture_inputs(
     let mut refs: BTreeMap<String, String> = BTreeMap::new();
     let mut agent_slugs: BTreeMap<String, String> = BTreeMap::new();
     let mut backend: BTreeSet<String> = BTreeSet::new();
+    let mut has_handle: BTreeSet<String> = BTreeSet::new();
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let mut activity: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut statuses: BTreeMap<String, Vec<StatusCap>> = BTreeMap::new();
     let mut messages: BTreeMap<String, MsgBundle> = BTreeMap::new();
     let forced_by_channel = read::group_forced(input.forced_messages, input.scope);
@@ -205,6 +195,7 @@ pub(crate) fn capture_inputs(
             &mut refs,
             &mut agent_slugs,
             &mut backend,
+            &mut has_handle,
         );
         for pk in members.keys() {
             read::resolve_pubkey(
@@ -214,8 +205,17 @@ pub(crate) fn capture_inputs(
                 &mut refs,
                 &mut agent_slugs,
                 &mut backend,
+                &mut has_handle,
             );
         }
+        activity.insert(
+            h.clone(),
+            store
+                .latest_message_at_by_pubkey(h)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        );
         roster.insert(h.clone(), members);
         statuses.insert(h.clone(), chan_statuses);
 
@@ -232,6 +232,7 @@ pub(crate) fn capture_inputs(
             &mut refs,
             &mut agent_slugs,
             &mut backend,
+            &mut has_handle,
         );
         if let Some(session) = input.session {
             agent_slugs.insert(input.self_pubkey.to_string(), session.agent_slug.clone());
@@ -279,6 +280,8 @@ pub(crate) fn capture_inputs(
             refs,
             agent_slugs,
             backend,
+            activity,
+            has_handle,
         },
         presence: PresenceInput { statuses },
         messages: MessagesInput { channels: messages },

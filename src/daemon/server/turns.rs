@@ -87,6 +87,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     if let Some(nudge) = super::channel_move::maybe_nudge(state, &rec, now) {
         turn.append_advisory(&nudge, "channel-topology-nudge");
     }
+    demux::refetch_missing_profiles(state, std::mem::take(&mut turn.missing_profiles));
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)

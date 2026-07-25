@@ -1,6 +1,7 @@
 use crate::state::{RegisterSession, RelayEvent, Store};
 use std::sync::Mutex;
 
+mod advisory;
 mod unscoped;
 
 // Two distinct (fake) pubkeys used throughout — long enough for SQLite but
@@ -48,32 +49,6 @@ fn insert_chat(store: &Store, channel: &str, pubkey: &str, created_at: u64, body
             tags_json: "[]".to_string(),
         })
         .unwrap();
-}
-
-#[test]
-fn advisory_updates_the_exact_emitted_text_and_receipt() {
-    use crate::reconcile::hook_context::{FrameKind, HookContextReceipt};
-
-    let mut turn = super::TurnContext {
-        text: Some("fabric".into()),
-        receipt: HookContextReceipt::new(
-            "turn_check",
-            SELF_PK,
-            1,
-            2,
-            FrameKind::Unchanged,
-            Some("fabric"),
-            Vec::new(),
-        ),
-        transaction_id: 1,
-        revision: 1,
-    };
-    turn.append_advisory("<channel-topology-nudge />", "channel-topology-nudge");
-
-    let text = turn.text.unwrap();
-    assert_eq!(text, "fabric\n\n<channel-topology-nudge />");
-    assert_eq!(turn.receipt.bytes, text.len());
-    assert_eq!(turn.receipt.input_causes, ["channel-topology-nudge"]);
 }
 
 /// Pre-join history (messages before session.created_at) is announced as a

@@ -180,6 +180,22 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Latest kind:9 message time per author in a channel, for activity-derived
+    /// presence. Folds observed chat activity into member liveness so a peer with
+    /// no live heartbeat but recent messages still reads as recently seen.
+    pub fn latest_message_at_by_pubkey(
+        &self,
+        channel_h: &str,
+    ) -> Result<std::collections::HashMap<String, u64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pubkey, MAX(created_at) FROM relay_events WHERE channel_h=?1 AND kind=9 GROUP BY pubkey",
+        )?;
+        let rows = stmt.query_map(params![channel_h], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()?)
+    }
+
     /// Count kind:9 chat events in a channel with `created_at < before`. Used on
     /// first turn to tell a newly-joined session how much history it can't see.
     pub fn count_channel_events_before(&self, channel_h: &str, before: u64) -> Result<u32> {
