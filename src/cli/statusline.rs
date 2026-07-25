@@ -103,7 +103,7 @@ pub struct StatuslineView {
     #[serde(default)]
     work_root: String,
     /// The NIP-29 channel the session is currently routing under — its
-    /// `channel` when set (via `mosaico channel switch`), else its
+    /// `channel` when set (the active channel was repointed), else its
     /// per-session room `root`. The `#session-…` segment renders this id.
     #[serde(default)]
     channel: String,
@@ -168,7 +168,7 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
     // Session: the channel the session is currently on (its `channel` when set,
     // else its per-session room). Rendered by its human NAME (kind:39000 `name`),
     // falling back to the raw id only when no name is cached — the opaque id is
-    // never shown when a name exists. Reflects a `channel switch` immediately.
+    // never shown when a name exists. Reflects an active-channel repoint immediately.
     let channel_disp = if v.channel_title.trim().is_empty() {
         v.channel.clone()
     } else {

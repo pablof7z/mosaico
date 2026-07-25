@@ -54,9 +54,9 @@ pub(crate) fn assemble_turn_start(
 ) -> Result<TurnContext> {
     let first_turn = rec.seen_cursor == 0;
     // Routing scope is the session's `channel_h` — a root channel, or the
-    // session/task channel a `channel switch` moved it into. All fabric
-    // presence/deltas key on this so a switched session's turn context reflects
-    // the channel it actually publishes into.
+    // session/task channel the active channel was repointed to. All fabric
+    // presence/deltas key on this so a repointed session's turn context
+    // reflects the channel it actually publishes into.
     let scope = rec.channel_h.clone();
     let self_instance = context_instance(store, rec);
     let self_slug = self_instance.display_slug();

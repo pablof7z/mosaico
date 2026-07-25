@@ -142,7 +142,7 @@ from the MCP catalog.
 - Never expose, log, attach, or paste `AGENT_NSEC`, the management key, an OAuth
   bearer token, or the nsec fallback value.
 - Limit enabled tools on the client. Read access includes fabric awareness;
-  write access can send, react, create, join, leave, or switch channels as the
+  write access can send, react, create, join, or leave channels as the
   resolved MCP actor session.
 - Treat the HTTPS proxy, tunnel, MCP server, and its logs as part of the trust
   boundary. Keep access logs redacted and retain them only as needed.

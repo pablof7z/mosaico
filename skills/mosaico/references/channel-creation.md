@@ -1,7 +1,7 @@
 # Channel Creation
 
 Read this reference when deciding where shared coordination belongs or when
-creating, joining, switching, seeding, or reorganizing channels.
+creating, joining, seeding, or reorganizing channels.
 
 ## Choose The Right Channel
 
@@ -12,7 +12,6 @@ Use the narrowest channel that owns the active conversation.
 - Reuse an existing channel when its topic already owns the work.
 - Join a channel when its ongoing context and directed messages should remain in
   your awareness.
-- Switch to a channel when it becomes the main focus of your coordination.
 - Create a channel as a distinct subtopic or workstream begins to need sustained
   back-and-forth, its own decisions, or continuity across participants and
   sessions.
@@ -89,11 +88,10 @@ mosaico channel list
 mosaico channel list --workspace <workspace>
 ```
 
-Join for passive context or switch the active coordination focus:
+Join for passive context:
 
 ```bash
 mosaico channel join <channel>
-mosaico channel switch <channel>
 ```
 
 Add a human or bring an existing session into a channel when its participation

@@ -178,7 +178,7 @@ mod turn_lifecycle;
 pub(crate) mod turns;
 mod who;
 use backend_profile::{publish_backend_profile, rpc_backend_profile_refresh};
-use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave, rpc_channel_switch};
+use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave};
 use channel_read_tail::{handle_channel_read, handle_tail};
 use channel_resolve::{
     resolve_channel_path, resolve_channel_ref, root_channel, rpc_channel_resolve, ChannelResolution,
@@ -256,7 +256,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_archive" => rpc_channel_archive(state, &req.params).await,
         "channel_join" => rpc_channel_join(state, &req.params).await,
         "channel_leave" => rpc_channel_leave(state, &req.params).await,
-        "channel_switch" => rpc_channel_switch(state, &req.params).await,
         "channel_move_accept" => channel_move::rpc_accept(state, &req.params).await,
         "dispatch" => session_dispatch::rpc_dispatch(state, &req.params).await,
         "statusline" => rpc_statusline(state, &req.params),

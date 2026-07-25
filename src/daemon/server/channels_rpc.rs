@@ -136,9 +136,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // Names are unique per parent. A duplicate is an error, not a silent no-op.
     if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &p.name))? {
         anyhow::bail!(
-            "channel {:?} already exists under this parent (id {existing}). \
-Switch into it instead: mosaico channel switch {}",
-            p.name,
+            "channel {:?} already exists under this parent (id {existing})",
             p.name
         );
     }
@@ -290,8 +288,8 @@ Switch into it instead: mosaico channel switch {}",
     };
 
     // Auto-focus: join the new room and make it the active publishing channel.
-    // Unlike `channel switch`, this preserves the parent as a passive joined
-    // channel so the creator can still see and receive mentions from it.
+    // The parent stays a passive joined channel so the creator can still see
+    // and receive mentions from it.
     let switched = if let Some(rec) = &creator_rec {
         set_active_session_channel(state, &rec.pubkey, &child_h)?;
         super::presence::reconcile_generation(

@@ -1,9 +1,8 @@
 use super::super::*;
 
-/// Set the active publishing channel. When `leave_previous` is true this is the
-/// user-facing `channel switch` semantics: leave the previous active channel
-/// and join the new one. `channel create` uses `false` so creating a room can
-/// move focus into it without dropping the parent from passive context.
+/// Repoint the session's active publishing channel, leaving the previous one
+/// joined as passive context. The caller must already hold a route to
+/// `new_channel`; this only moves focus, it never joins or leaves.
 pub(in crate::daemon::server) fn set_active_session_channel(
     state: &Arc<DaemonState>,
     pubkey: &str,
