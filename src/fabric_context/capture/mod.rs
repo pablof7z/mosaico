@@ -158,12 +158,17 @@ pub(crate) fn capture_inputs(
 ) -> anyhow::Result<ViewInputs> {
     // Missing relay metadata is an explicit outer-view degraded case: retain the
     // requested scope only to label the warning, never as an alternate binding.
-    let current_workspace = if store.get_channel(input.scope)?.is_some() {
-        crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .root_for_channel(input.scope)?
-    } else {
-        input.scope.to_string()
-    };
+    // An ancestry that does not resolve is the same degraded case as absent
+    // metadata: the parent's kind:39000 has not arrived, so the scope is the
+    // best root we can honestly name yet.
+    let current_workspace = store
+        .get_channel(input.scope)?
+        .and_then(|_| {
+            crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+                .root_for_channel(input.scope)
+                .ok()
+        })
+        .unwrap_or_else(|| input.scope.to_string());
     let active_channels = read::active_channels(store, input.session)
         .into_iter()
         .collect::<BTreeSet<_>>();
