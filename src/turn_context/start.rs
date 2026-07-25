@@ -63,6 +63,10 @@ pub(crate) fn assemble_turn_start(
     let self_pubkey = self_instance.pubkey.clone();
     let now = now_secs();
     let mut warnings: Vec<String> = Vec::new();
+    if first_turn {
+        warnings
+            .push("You must load the `mosaico` skill right away, before continuing.".to_string());
+    }
     super::headless::push_mode_notice(store, hook_contexts, rec, true, &mut warnings);
 
     let (joined, joined_read_failed) = {

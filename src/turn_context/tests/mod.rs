@@ -107,10 +107,9 @@ fn first_turn_post_join_chat_shown_as_ambient() {
     );
 }
 
-/// Channel is completely empty when the session starts and stays empty —
-/// first turn returns no context.
+/// Even an otherwise empty first turn carries the one-shot skill reminder.
 #[test]
-fn first_turn_empty_channel_no_context() {
+fn first_turn_empty_channel_still_loads_mosaico_skill() {
     let m = Mutex::new(Store::open_memory().unwrap());
     let ch = "ch-empty";
     let rec = {
@@ -118,15 +117,15 @@ fn first_turn_empty_channel_no_context() {
         let id = register(&s, SELF_PK, ch, 100);
         s.get_session(&id).unwrap().unwrap()
     };
-    // No events at all — should return None (no context blocks).
-    let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0);
+    let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0)
+        .expect("first hook must inject the skill reminder");
     assert!(
-        ctx.is_none()
-            || ctx
-                .as_deref()
-                .map(|s| !s.contains("message") || s.contains("not a member"))
-                .unwrap_or(true),
-        "empty channel should produce no message context; got:\n{ctx:?}"
+        ctx.contains("You must load the `mosaico` skill right away, before continuing."),
+        "first hook should require immediate Mosaico skill loading; got:\n{ctx}"
+    );
+    assert!(
+        !ctx.contains("<message "),
+        "empty channel should produce no message context; got:\n{ctx}"
     );
 }
 
@@ -199,6 +198,10 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     assert!(
         !ctx2.contains("before you joined"),
         "pre-join notice must not appear on second turn; got:\n{ctx2}"
+    );
+    assert!(
+        !ctx2.contains("load the `mosaico` skill"),
+        "skill reminder must not repeat after the first hook; got:\n{ctx2}"
     );
 }
 
