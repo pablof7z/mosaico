@@ -63,6 +63,23 @@ mosaico channel reply <message-id> \
   --message "The reproducer trace is [trace]."
 ```
 
+## Replying to incoming messages
+
+Read the incoming message first. Then choose the smallest action that matches
+the intent:
+
+- Use `mosaico channel reply <message-id> --message "..."` for substantive
+  follow-up: an answer, decision, question, blocker, or any thread that needs
+  context preserved.
+- Use `mosaico channel react <message-id> "emoji"` for acknowledgement only:
+  thanks, agreement, "on it", or a lightweight signal that should not open a
+  new thread or interrupt the flow.
+- If you need to attach files to the reply, keep the attachment guidance in the
+  section above rather than repeating it here.
+
+Replying keeps the conversation attached to the original message. Reacting is
+passive and never interrupts.
+
 ## Form A Useful Request
 
 Give the recipient enough context to act independently:
@@ -103,12 +120,8 @@ Inspect a message before responding:
 mosaico channel read --id <message-id>
 ```
 
-Acknowledge or continue its thread:
-
-```bash
-mosaico channel react <message-id> "👍"
-mosaico channel reply <message-id> --message "..."
-```
+See [Replying to incoming messages](#replying-to-incoming-messages) for when to
+reply versus react.
 
 Publish shared awareness or direct attention:
 

@@ -135,6 +135,7 @@ pub(super) struct EvCap {
     pub(super) mentions_self: bool,
     /// A forced (inbox) seed that was flagged as a direct mention.
     pub(super) forced_mention: bool,
+    pub(super) needs_reply_nudge: bool,
 }
 
 /// Read the store once and freeze the four canonical inputs. `now`/`cursor`

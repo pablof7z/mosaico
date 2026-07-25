@@ -147,6 +147,16 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
         .join(" ");
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
     chat(&store, "mention-long", "root", 210, &body, &tags);
+    store
+        .upsert_reaction(
+            "rx-mention-long",
+            "mention-long",
+            "root",
+            SELF_PK,
+            "👍",
+            211,
+        )
+        .unwrap();
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
@@ -154,13 +164,37 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     assert!(!text.contains("<workspace name=\"root\" channel="));
     assert!(text.contains("<channel name=\"root\" id=\"/root\""));
     assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\">"));
-    assert!(text.contains("Reply via: `mosaico channel reply mentio --message \"hello world\"`"));
-    assert!(text.contains("Attachments: add `--attach label=/path/to/file`"));
+    assert!(
+        !text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
+    );
     assert!(!text.contains("mention=\"true\""));
     assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("<important>"));
     assert!(text.contains("<mention channel=\"/root\""));
     assert!(text.contains("message_id=\"mentio\""));
+}
+
+#[test]
+fn mention_rows_without_followup_show_coordination_guide_nudge() {
+    let store = seed_store();
+    let rec = session(&store);
+    let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
+    chat(
+        &store,
+        "mention-guide",
+        "root",
+        210,
+        "please review this",
+        &tags,
+    );
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
+        .expect("mention should render");
+
+    assert!(
+        text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
+        "got: {text}"
+    );
 }
 
 #[test]

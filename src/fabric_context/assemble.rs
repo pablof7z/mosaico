@@ -254,6 +254,7 @@ pub(super) fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<Me
             recipients: event.recipient_refs,
             body: event.body,
             truncated: event.truncated,
+            needs_reply_nudge: event.needs_reply_nudge,
         })
         .collect();
     (rows, omitted)

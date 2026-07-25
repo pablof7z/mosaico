@@ -156,6 +156,14 @@ pub(super) fn capture_messages(
                 truncated,
                 mentions_self: mentions_pubkey(&ev.tags_json, input.self_pubkey),
                 forced_mention: false,
+                needs_reply_nudge: reply_nudge_for_message(
+                    store,
+                    input.self_pubkey,
+                    &ev.channel_h,
+                    &ev.id,
+                    ev.created_at,
+                    mentions_pubkey(&ev.tags_json, input.self_pubkey),
+                ),
             }
         })
         .collect();
@@ -173,6 +181,14 @@ pub(super) fn capture_messages(
                 truncated,
                 mentions_self: false,
                 forced_mention: row.mention,
+                needs_reply_nudge: reply_nudge_for_message(
+                    store,
+                    input.self_pubkey,
+                    &row.channel,
+                    &row.id,
+                    row.created_at,
+                    row.mention,
+                ),
             }
         })
         .collect();
@@ -229,4 +245,20 @@ fn channel_readiness(store: &Store, channel: &str) -> ChannelReadiness {
         Ok(Some(_)) => ChannelReadiness::Archived,
         _ => ChannelReadiness::Missing,
     }
+}
+
+fn reply_nudge_for_message(
+    store: &Store,
+    self_pubkey: &str,
+    channel_h: &str,
+    message_id: &str,
+    created_at: u64,
+    mention: bool,
+) -> bool {
+    if !mention || self_pubkey.is_empty() {
+        return false;
+    }
+    store
+        .should_render_reply_nudge(channel_h, message_id, self_pubkey, created_at)
+        .unwrap_or(true)
 }

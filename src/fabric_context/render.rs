@@ -217,18 +217,12 @@ fn render_mention_message(out: &mut String, message: &MessageRow, pad: &str) {
         out,
         "\n{pad}<message from=\"@{from}\" id=\"{id}\">{body}</message>"
     );
-    let _ = write!(
-        out,
-        "\n{pad}Reply via: `mosaico channel reply {} --message \"hello world\"`",
-        text(&short)
-    );
-    let _ = write!(out, "\n{pad}{}", crate::attachment::AGENT_HINT);
-    let _ = write!(
-        out,
-        "\n{pad}Ack-only? `mosaico channel react {} 👍` — never interrupts. \
-         Reply only with substantive content; never send a bare \"ok\"/\"noted\".",
-        text(&short)
-    );
+    if message.needs_reply_nudge {
+        let _ = write!(
+            out,
+            "\n{pad}Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
+        );
+    }
 }
 fn render_important(out: &mut String, rows: &[ImportantRow]) {
     if rows.is_empty() {

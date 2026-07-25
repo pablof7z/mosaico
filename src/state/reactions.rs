@@ -99,6 +99,22 @@ impl Store {
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+
+    pub fn has_reaction_from_pubkey_on_message(
+        &self,
+        target_message_id: &str,
+        reactor_pubkey: &str,
+    ) -> Result<bool> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM relay_reactions
+                 WHERE target_message_id=?1 AND reactor_pubkey=?2
+             )",
+            params![target_message_id, reactor_pubkey],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
+    }
 }
 
 #[cfg(test)]
