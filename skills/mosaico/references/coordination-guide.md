@@ -89,6 +89,14 @@ recommendation, consequences, and work that can continue meanwhile.
 
 ## Commands
 
+Every `--channel`/`channel` argument below is a full absolute path
+(`/workspace/child`, e.g. `/nmp` or `/workspace/epic5/dev`) or `@<id-prefix>` —
+never a bare relative name. Resolution is global: any session can address any
+workspace's channel by full path. `channel send`/`channel read` additionally
+require that this session has already `channel join`ed the target; an
+unresolved path is rejected with the channels that actually exist, never
+silently created.
+
 Inspect a message before responding:
 
 ```bash

@@ -56,7 +56,7 @@ launch helper. Stop the container before same-profile CLI inspection.
 Use:
 
 ```bash
-mosaico channel send --channel <channel> --tag <session-handle> \
+mosaico channel send --channel /<workspace>/<child> --tag <session-handle> \
   --message "Run mosaico my session."
 ```
 

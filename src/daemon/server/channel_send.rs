@@ -1,4 +1,4 @@
-use super::chat_target::resolve_chat_target_provisioning;
+use super::chat_target::resolve_chat_target;
 use super::resolution::work_root_for;
 use super::*;
 use crate::fabric::provider::chat::OutboundChatRecord;
@@ -64,8 +64,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     mention_guard::check(&p.message, &p.tags, p.force)?;
     let anchor = CallerAnchor::from_params(params);
     let rec = resolve_session(state, &anchor)?;
-    let target =
-        resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel send").await?;
+    let target = resolve_chat_target(state, &rec, p.channel.as_deref(), "channel send")?;
     // `--channel` is destination selection only. When present it pins the event
     // to that channel; it never changes caller identity or message content.
     let destination = target.channel_h;

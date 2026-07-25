@@ -229,7 +229,7 @@ Send a real tagged mention from a safe sender profile or after the target is
 stopped:
 
 ```bash
-mosaico channel send --channel <channel> --tag <session-handle> \
+mosaico channel send --channel /<workspace>/<child> --tag <session-handle> \
   --message "Run mosaico my session."
 ```
 

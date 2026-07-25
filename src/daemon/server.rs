@@ -181,7 +181,7 @@ use backend_profile::{publish_backend_profile, rpc_backend_profile_refresh};
 use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave};
 use channel_read_tail::{handle_channel_read, handle_tail};
 use channel_resolve::{
-    resolve_channel_path, resolve_channel_ref, root_channel, rpc_channel_resolve, ChannelResolution,
+    absolute, resolve_channel_path, root_channel, rpc_channel_resolve, ChannelResolution,
 };
 use channel_send::rpc_channel_send;
 use channels_rpc::{

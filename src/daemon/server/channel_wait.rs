@@ -176,7 +176,6 @@ fn resolve_active_reference(
     reference: &str,
 ) -> Result<String> {
     let reference = reference.trim();
-    let reference_lower = reference.to_lowercase();
     let active_refs = state.with_store(|store| {
         active
             .iter()
@@ -188,16 +187,18 @@ fn resolve_active_reference(
             })
             .collect::<Vec<_>>()
     });
-    let suffix = format!("/{reference_lower}");
+    // An exact full path or @id match against an ALREADY-joined channel —
+    // no fuzzy suffix matching now that a full path is required everywhere.
     let matches = active_refs
         .iter()
         .filter(|(channel, full)| {
             if let Some(prefix) = reference.strip_prefix('@') {
                 return !prefix.is_empty() && channel.starts_with(prefix);
             }
-            channel == reference
-                || full.eq_ignore_ascii_case(reference)
-                || full.to_lowercase().ends_with(&suffix)
+            // Deliberately NOT `channel == reference`: a bare opaque id is not
+            // an accepted reference form anywhere else, and accepting it here
+            // would leave one lenient corner of the surface.
+            full.eq_ignore_ascii_case(reference)
         })
         .collect::<Vec<_>>();
     match matches.as_slice() {

@@ -9,8 +9,8 @@ pub(in crate::daemon::server) async fn rpc_channel_archive(
         channel: String,
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_archive params")?;
-    let rec = resolve_caller(state, params, "channel archive")?;
-    let channel = match resolve_target_channel(state, &rec, &p.channel)? {
+    let _rec = resolve_caller(state, params, "channel archive")?;
+    let channel = match resolve_target_channel(state, &p.channel)? {
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };

@@ -80,7 +80,11 @@ const SPECS: &[ToolSpec] = &[
         name: "mosaico.channel_read",
         description: "Read recent messages from a channel.",
         props: &[
-            Prop::new("channel", "string", "Optional channel destination."),
+            Prop::new(
+                "channel",
+                "string",
+                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+            ),
             SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
             Prop::new("since", "string", "Unix timestamp or duration like 2h."),
@@ -101,7 +105,11 @@ const SPECS: &[ToolSpec] = &[
                 "boolean",
                 "Allow literal mention-like text without tags.",
             ),
-            Prop::new("channel", "string", "Optional destination channel."),
+            Prop::new(
+                "channel",
+                "string",
+                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+            ),
             SESSION_PROP,
             Prop::new("long_message", "boolean", "Allow long messages."),
             Prop::new(
@@ -196,7 +204,11 @@ const SESSION_PROP: Prop = Prop::new(
 );
 
 const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new("channel", "string", "Channel name, path, or opaque id."),
+    Prop::new(
+        "channel",
+        "string",
+        "Full channel path (/workspace/child) or @id-prefix.",
+    ),
     SESSION_PROP,
 ];
 

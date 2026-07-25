@@ -28,6 +28,30 @@ pub(super) fn canonical_segments(root: &str, reference: &str) -> Option<Vec<Stri
     Some(segments)
 }
 
+/// Absolute path segments, e.g. `/workspace/a/b` -> `["workspace","a","b"]`.
+/// Unlike [`canonical_segments`], this never scopes to a known root: segment 0
+/// IS the workspace slug the caller looks up. `None` for anything that isn't a
+/// well-formed absolute path (no leading `/`, `.`, trailing `/`, `//`, or empty
+/// segments).
+pub(super) fn absolute_path_segments(reference: &str) -> Option<Vec<String>> {
+    let reference = reference.trim();
+    if !reference.starts_with('/')
+        || reference.contains('.')
+        || reference.ends_with('/')
+        || reference.contains("//")
+    {
+        return None;
+    }
+    let segments: Vec<String> = reference[1..]
+        .split('/')
+        .map(|s| s.trim().to_string())
+        .collect();
+    if segments.is_empty() || segments.iter().any(String::is_empty) {
+        return None;
+    }
+    Some(segments)
+}
+
 /// A copy-pasteable canonical channel path for diagnostics and ambiguity reruns.
 pub(in crate::daemon::server) fn channel_reference_for(
     store: &crate::state::Store,
@@ -85,42 +109,4 @@ pub(super) fn subtree_paths(store: &crate::state::Store, root: &str) -> Vec<(Str
         }
     }
     out
-}
-
-/// Every channel id in `root`'s subtree, including channels below unnamed
-/// session rooms. Explicit `@<prefix>` selectors must not inherit the
-/// human-name path filter.
-pub(super) fn subtree_ids(store: &crate::state::Store, root: &str) -> Vec<String> {
-    let channels = store.list_channels().unwrap_or_default();
-    let mut by_parent: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for channel in channels {
-        by_parent
-            .entry(channel.parent)
-            .or_default()
-            .push(channel.channel_h);
-    }
-
-    let mut out = vec![root.to_string()];
-    let mut stack = vec![root.to_string()];
-    let mut guard = 0usize;
-    while let Some(id) = stack.pop() {
-        guard += 1;
-        if guard > 10_000 {
-            break;
-        }
-        let Some(children) = by_parent.get(&id) else {
-            continue;
-        };
-        for child in children {
-            out.push(child.clone());
-            stack.push(child.clone());
-        }
-    }
-    out
-}
-
-/// True when `segs` ends with `want` (both already lowercased), i.e. `want` is a
-/// path suffix of `segs`. `["epic999","planning"]` ends with `["planning"]`.
-pub(super) fn path_ends_with(segs: &[String], want: &[String]) -> bool {
-    segs.len() >= want.len() && segs[segs.len() - want.len()..] == *want
 }

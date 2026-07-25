@@ -96,21 +96,19 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        // Prefer the session's channel root; fall back to cwd-resolved channel.
-        let root = if let Some(rec) = &creator_rec {
-            state.with_store(|s| super::root_channel(s, &rec.channel_h))?
-        } else {
-            cwd_channel.clone().context(
-                "--parent-channel requires running inside an agent session or a channel directory",
-            )?
-        };
-        match state.with_store(|s| super::resolve_channel_ref(s, &root, r)) {
+        absolute::require_full_path("--parent-channel", r)?;
+        // The parent must already exist — `channel create` mints only the one
+        // leaf you named, never the ancestor chain too.
+        match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, r)) {
             super::ChannelResolution::Unique(h) => h,
             super::ChannelResolution::Ambiguous(refs) => {
                 return Ok(serde_json::json!({ "ambiguous": refs, "reference": r }));
             }
             super::ChannelResolution::NotFound => {
-                anyhow::bail!("no channel matching {r:?} in this channel")
+                anyhow::bail!(
+                    "{}",
+                    state.with_store(|s| absolute::describe_missing_channel(s, r))
+                )
             }
         }
     } else if let Some(rec) = &creator_rec {
@@ -326,13 +324,13 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     let p: P = serde_json::from_value(params.clone()).context("channel_edit params")?;
     crate::channel_about::validate_channel_about(&p.about)?;
 
-    let rec = resolve_session_inner(
+    let _rec = resolve_session_inner(
         state,
         &CallerAnchor::from_params(params),
         ResolveScope::Strict,
     )
     .context("channel edit must be run from within a mosaico agent session")?;
-    let channel_h = match resolve_target_channel(state, &rec, &p.channel)? {
+    let channel_h = match resolve_target_channel(state, &p.channel)? {
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };

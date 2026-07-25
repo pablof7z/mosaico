@@ -39,6 +39,7 @@ async fn human_add(
     let (Some(id), Some(channel)) = (id, channel) else {
         anyhow::bail!("channel add <pubkey|npub|nip05> <channel> [--admin]");
     };
+    super::args::parse_channel_path(&channel).map_err(anyhow::Error::msg)?;
     let v = daemon_call_async(
         "channel_add_member",
         crate::cli::rpc_params(serde_json::json!({
@@ -62,6 +63,7 @@ async fn session_add(channel: Option<String>, handle: &str, message: Option<Stri
     let Some(channel) = channel else {
         anyhow::bail!("channel add --session <npub|hex|current-handle> <channel>");
     };
+    super::args::parse_channel_path(&channel).map_err(anyhow::Error::msg)?;
     // Strip the mention sigil before sending the canonical handle to the daemon.
     let selector = handle.strip_prefix('@').unwrap_or(handle);
     let v = invite_call(

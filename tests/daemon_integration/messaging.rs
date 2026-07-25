@@ -179,7 +179,7 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .get_session(&receiver_pubkey)
         .unwrap()
         .expect("receiver session row");
-    let receiver_scope = receiver_row.channel_h.clone();
+    let receiver_scope = format!("/{}", receiver_row.channel_h);
     let receiver_pubkey = receiver_row.pubkey.clone();
     let receiver_handle = Store::open(&home.store_path())
         .unwrap()

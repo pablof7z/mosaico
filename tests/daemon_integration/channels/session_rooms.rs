@@ -145,7 +145,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
         wait_for_channel_metadata(&home, "tmp");
         c.call(
             "channel_add_member",
-            serde_json::json!({"channel": "tmp", "pubkey": remote_pk, "session": &pubkey}),
+            serde_json::json!({"channel": "/tmp", "pubkey": remote_pk, "session": &pubkey}),
         )
         .await
         .expect("channel_add_member profiled member");

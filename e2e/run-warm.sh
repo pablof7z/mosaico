@@ -145,7 +145,9 @@ fi
 # Keep the daemon alive after the root channel exists: a long-lived channel
 # reader holds the socket open between CLI calls while the demux loop receives
 # the 39002 update and warms the peer's kind:0 profile.
-mosaico mosaico-a channel read --live --channel "${E2E_WORKSPACE}" >/dev/null 2>&1 &
+# Every channel argument is a full absolute path: segment 0 is the workspace
+# slug, so the workspace root channel is `/<slug>`.
+mosaico mosaico-a channel read --live --channel "/${E2E_WORKSPACE}" >/dev/null 2>&1 &
 KEEPALIVE_PID=$!
 sleep 1
 

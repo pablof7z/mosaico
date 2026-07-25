@@ -9,10 +9,8 @@
 use super::*;
 
 mod paths;
+use paths::canonical_segments;
 pub(in crate::daemon::server) use paths::channel_reference_for;
-use paths::{
-    canonical_channel_reference, canonical_segments, path_ends_with, subtree_ids, subtree_paths,
-};
 
 /// Resolve `name` to a `channel_h` using ONLY locally-known state — no minting,
 /// no relay calls. Returns `Some(h)` when the value resolves without provisioning:
@@ -114,7 +112,7 @@ pub(in crate::daemon::server) async fn resolve_channel_path(
     create_if_absent: bool,
 ) -> Result<String> {
     let segments = canonical_segments(root, reference).with_context(|| {
-        format!("invalid channel path {reference:?}; use a relative slash path or /{root}/child")
+        format!("invalid channel path {reference:?}; use a full path such as /{root}/child")
     })?;
     if segments.is_empty() {
         return Ok(root.to_string());
@@ -157,106 +155,8 @@ pub(in crate::daemon::server) async fn rpc_channel_resolve(
     Ok(serde_json::json!({ "channel_h": channel_h }))
 }
 
-// ── channel-relative resolution ───────────────────────────────────────────────
-//
-// Channel membership/mutation gestures (join, leave, archive, create, invite,
-// and repointing the active channel) resolve a channel-RELATIVE reference to
-// one opaque `channel_h`. There is no cross-channel lookup — references are
-// scoped to the current channel's subtree. On ambiguity the daemon returns the
-// candidate paths so the agent re-runs with an exact one (a structured error,
-// never an interactive prompt a hooks-only agent cannot answer).
-
-/// Outcome of resolving a channel-relative channel reference.
-pub(in crate::daemon::server) enum ChannelResolution {
-    /// Exactly one channel matched → its opaque `channel_h`.
-    Unique(String),
-    /// Several suffix matches → their canonical full paths, sorted.
-    Ambiguous(Vec<String>),
-    /// Nothing in the channel subtree matched.
-    NotFound,
-}
-
-/// Walk `parent` links up from `channel` to the top-level channel root.
-pub(in crate::daemon::server) fn root_channel(
-    store: &crate::state::Store,
-    channel: &str,
-) -> Result<String> {
-    crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
-}
-
-/// Resolve a channel-relative `reference` within `root`'s subtree. Forms:
-///   - `@<id-prefix>` → the channel whose opaque id starts with the prefix;
-///   - `name` / `parent/child` → suffix-matched against descendant NAME paths
-///     (the shortest unique suffix resolves; a full path disambiguates deeper).
-pub(in crate::daemon::server) fn resolve_channel_ref(
-    store: &crate::state::Store,
-    root: &str,
-    reference: &str,
-) -> ChannelResolution {
-    let reference = reference.trim();
-    if reference.is_empty() {
-        return ChannelResolution::NotFound;
-    }
-    let Some(segments) = canonical_segments(root, reference) else {
-        return ChannelResolution::NotFound;
-    };
-    let want = segments
-        .into_iter()
-        .map(|segment| segment.to_lowercase())
-        .collect::<Vec<_>>();
-    if want.is_empty() {
-        return ChannelResolution::Unique(root.to_string());
-    }
-    let paths = subtree_paths(store, root);
-
-    // Canonical explicit id reference — match by opaque id prefix across the subtree.
-    if let Some(prefix) = reference.strip_prefix('@') {
-        if prefix.is_empty() {
-            return ChannelResolution::NotFound;
-        }
-        let mut hits = subtree_ids(store, root)
-            .into_iter()
-            .filter(|id| id.starts_with(prefix))
-            .collect::<Vec<_>>();
-        hits.sort();
-        hits.dedup();
-        return match hits.len() {
-            0 => ChannelResolution::NotFound,
-            1 => ChannelResolution::Unique(hits.remove(0)),
-            _ => {
-                ChannelResolution::Ambiguous(hits.into_iter().map(|id| format!("@{id}")).collect())
-            }
-        };
-    }
-
-    // Name path: suffix-match slash-separated requested segments against each
-    // descendant's relative NAME path (case-insensitive).
-    let hits: Vec<(String, Vec<String>)> = paths
-        .into_iter()
-        .filter(|(_, segs)| path_ends_with(segs, &want))
-        .collect();
-    finish_resolution(hits, root)
-}
-
-/// Reduce raw `(channel_h, name_path)` hits to a [`ChannelResolution`]: dedup by
-/// id, then unique / ambiguous / none. The schema guarantees sibling names are
-/// unique, so ambiguous suffix matches always render as distinct canonical paths.
-fn finish_resolution(mut hits: Vec<(String, Vec<String>)>, root: &str) -> ChannelResolution {
-    hits.sort();
-    hits.dedup_by(|a, b| a.0 == b.0);
-    match hits.len() {
-        0 => ChannelResolution::NotFound,
-        1 => ChannelResolution::Unique(hits.remove(0).0),
-        _ => {
-            let mut refs: Vec<String> = hits
-                .iter()
-                .map(|(_, segs)| canonical_channel_reference(root, segs))
-                .collect();
-            refs.sort();
-            ChannelResolution::Ambiguous(refs)
-        }
-    }
-}
+pub(in crate::daemon::server) mod absolute;
+pub(in crate::daemon::server) use absolute::{root_channel, ChannelResolution};
 
 #[cfg(test)]
 mod tests;

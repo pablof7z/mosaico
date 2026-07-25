@@ -1,5 +1,7 @@
 use super::{
-    channel_reference_for, resolve_channel_ref, resolve_locally, root_channel, ChannelResolution,
+    absolute::describe_missing_channel, absolute::resolve_absolute_channel_ref,
+    absolute::root_channel, absolute::root_channel_by_slug, channel_reference_for, resolve_locally,
+    ChannelResolution,
 };
 use crate::state::Store;
 
@@ -49,84 +51,97 @@ fn known_name_resolves_locally_but_unknown_name_does_not() {
 }
 
 #[test]
-fn unique_relative_name_resolves() {
+fn absolute_path_resolves_within_its_workspace() {
     let store = Store::open_memory().unwrap();
-    chan(&store, "h-root", "proj", "");
-    chan(&store, "h-plan", "planning", "h-root");
-    match resolve_channel_ref(&store, "h-root", "planning") {
+    chan(&store, "workspace", "general", "");
+    chan(&store, "h-plan", "planning", "workspace");
+    match resolve_absolute_channel_ref(&store, "/workspace/planning") {
         ChannelResolution::Unique(id) => assert_eq!(id, "h-plan"),
         _ => panic!("expected unique match"),
     }
 }
 
 #[test]
-fn ambiguous_name_lists_relative_paths() {
+fn bare_relative_names_no_longer_resolve() {
     let store = Store::open_memory().unwrap();
-    chan(&store, "h-root", "proj", "");
-    chan(&store, "h-plan", "planning", "h-root");
-    chan(&store, "h-epic", "epic999", "h-root");
-    chan(&store, "h-epic-plan", "planning", "h-epic");
-    match resolve_channel_ref(&store, "h-root", "planning") {
-        ChannelResolution::Ambiguous(refs) => {
-            assert_eq!(
-                refs,
-                vec![
-                    "/h-root/epic999/planning".to_string(),
-                    "/h-root/planning".to_string()
-                ]
-            );
-        }
-        _ => panic!("expected ambiguous"),
-    }
-    // A fuller path disambiguates.
+    chan(&store, "workspace", "general", "");
+    chan(&store, "h-plan", "planning", "workspace");
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "epic999/planning"),
+        resolve_absolute_channel_ref(&store, "planning"),
+        ChannelResolution::NotFound
+    ));
+    assert!(matches!(
+        resolve_absolute_channel_ref(&store, "workspace/planning"),
+        ChannelResolution::NotFound
+    ));
+}
+
+#[test]
+fn a_full_path_is_exact_not_a_fuzzy_suffix_match() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "workspace", "general", "");
+    chan(&store, "h-plan", "planning", "workspace");
+    chan(&store, "h-epic", "epic999", "workspace");
+    chan(&store, "h-epic-plan", "planning", "h-epic");
+
+    // A full path names exactly one channel: no ambiguity, no suffix-matching
+    // a deeper "planning" elsewhere in the tree.
+    assert!(matches!(
+        resolve_absolute_channel_ref(&store, "/workspace/planning"),
+        ChannelResolution::Unique(ref id) if id == "h-plan"
+    ));
+    assert!(matches!(
+        resolve_absolute_channel_ref(&store, "/workspace/epic999/planning"),
         ChannelResolution::Unique(ref id) if id == "h-epic-plan"
     ));
 }
 
 #[test]
-fn slash_paths_are_canonical_and_dots_are_not_aliases() {
+fn dots_are_not_aliases() {
     let store = Store::open_memory().unwrap();
-    chan(&store, "h-root", "proj", "");
-    chan(&store, "h-epic", "epic", "h-root");
+    chan(&store, "workspace", "general", "");
+    chan(&store, "h-epic", "epic", "workspace");
     chan(&store, "h-plan", "planning", "h-epic");
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "epic/planning"),
-        ChannelResolution::Unique(ref id) if id == "h-plan"
-    ));
-    assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "/h-root/epic/planning"),
-        ChannelResolution::Unique(ref id) if id == "h-plan"
-    ));
-    assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "epic.planning"),
+        resolve_absolute_channel_ref(&store, "/workspace/epic.planning"),
         ChannelResolution::NotFound
     ));
 }
 
 #[test]
-fn canonical_workspace_references_resolve_from_workspace_root() {
+fn workspace_itself_resolves_by_slug() {
     let store = Store::open_memory().unwrap();
-    chan(&store, "workspace", "workspace", "");
+    chan(&store, "workspace", "general", "");
     chan(&store, "h-plan", "planning", "workspace");
 
     assert!(matches!(
-        resolve_channel_ref(&store, "workspace", "/workspace"),
+        resolve_absolute_channel_ref(&store, "/workspace"),
         ChannelResolution::Unique(ref id) if id == "workspace"
     ));
     assert!(matches!(
-        resolve_channel_ref(&store, "workspace", "/workspace/planning"),
-        ChannelResolution::Unique(ref id) if id == "h-plan"
-    ));
-    assert!(matches!(
-        resolve_channel_ref(&store, "workspace", "planning"),
-        ChannelResolution::Unique(ref id) if id == "h-plan"
-    ));
-    assert!(matches!(
-        resolve_channel_ref(&store, "workspace", "/workspace/general"),
+        resolve_absolute_channel_ref(&store, "/workspace/general"),
         ChannelResolution::NotFound
     ));
+}
+
+#[test]
+fn resolution_is_global_across_workspaces() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "nmp", "nmp", "");
+    chan(&store, "other", "other", "");
+    chan(&store, "h-child", "qa", "other");
+
+    // A session "belonging" to /nmp can still resolve a path into /other
+    // directly — there is no caller-scoped workspace restriction.
+    assert!(matches!(
+        resolve_absolute_channel_ref(&store, "/other/qa"),
+        ChannelResolution::Unique(ref id) if id == "h-child"
+    ));
+    assert_eq!(
+        root_channel_by_slug(&store, "other").as_deref(),
+        Some("other")
+    );
+    assert_eq!(root_channel_by_slug(&store, "nonexistent"), None);
 }
 
 #[test]
@@ -148,32 +163,32 @@ fn literal_id_requires_the_canonical_at_prefix() {
     chan(&store, "h-root", "proj", "");
     chan(&store, "h-plan", "planning", "h-root");
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "h-plan"),
+        resolve_absolute_channel_ref(&store, "h-plan"),
         ChannelResolution::NotFound
     ));
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "@h-plan"),
+        resolve_absolute_channel_ref(&store, "@h-plan"),
         ChannelResolution::Unique(ref id) if id == "h-plan"
     ));
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "nonexistent"),
+        resolve_absolute_channel_ref(&store, "@nonexistent"),
         ChannelResolution::NotFound
     ));
 }
 
 #[test]
-fn id_selector_reaches_named_channel_below_unnamed_session_room() {
+fn id_selector_is_global_and_reaches_below_unnamed_session_rooms() {
     let store = Store::open_memory().unwrap();
     chan(&store, "h-root", "workspace", "");
     chan(&store, "session-room", "session-room", "h-root");
     chan(&store, "abcd1234", "editable", "session-room");
 
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "editable"),
+        resolve_absolute_channel_ref(&store, "/h-root/editable"),
         ChannelResolution::NotFound
     ));
     assert!(matches!(
-        resolve_channel_ref(&store, "h-root", "@abcd"),
+        resolve_absolute_channel_ref(&store, "@abcd"),
         ChannelResolution::Unique(ref id) if id == "abcd1234"
     ));
 }
@@ -190,7 +205,34 @@ fn nested_sender_explicit_channel_refs_resolve_from_root_channel() {
     let root = root_channel(&store, "h-leaf").unwrap();
     assert_eq!(root, "h-root");
     assert!(matches!(
-        resolve_channel_ref(&store, &root, "epic/review"),
+        resolve_absolute_channel_ref(&store, "/h-root/epic/review"),
         ChannelResolution::Unique(ref id) if id == "h-review"
     ));
+}
+
+#[test]
+fn describe_missing_channel_lists_the_workspace_and_sibling_workspaces() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "workspace", "workspace", "");
+    chan(&store, "h-alpha", "alpha", "workspace");
+    chan(&store, "test", "test", "");
+    chan(&store, "h-foo", "foo", "test");
+    chan(&store, "hello", "hello", "");
+
+    let message = describe_missing_channel(&store, "/workspace/test/hello");
+    assert!(message.contains("no channel matching"));
+    assert!(message.contains("Channels in /workspace:"));
+    assert!(message.contains("/workspace/alpha"));
+    assert!(message.contains("/test is also a separate workspace"));
+    assert!(message.contains("/test/foo"));
+    assert!(message.contains("/hello is also a separate workspace"));
+}
+
+#[test]
+fn describe_missing_channel_lists_known_workspaces_when_root_missing() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "nmp", "general", "");
+    let message = describe_missing_channel(&store, "/nonexistent/child");
+    assert!(message.contains("No workspace named \"nonexistent\""));
+    assert!(message.contains("/nmp"));
 }

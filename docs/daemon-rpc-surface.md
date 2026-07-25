@@ -161,70 +161,20 @@ stream: {"item": {"line": "<rendered fabric line>"}}   // repeated
 The daemon ensures NMP observation coverage for the requested channel, then
 forwards structured events emitted by the materializer and daemon lifecycle.
 Backfill comes from the canonical store; live events come from the daemon's
-bounded tail broadcast. The client renders each streamed item.
+bounded tail broadcast. The client renders each streamed item. `channel` here is
+a raw opaque `channel_h`, not a channel reference.
+
+### Channels
+The channel addressing contract (every `"channel"` argument is a full absolute
+path `/workspace/child` or an `@<id-prefix>`, resolved globally and exactly)
+and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
+`channel_members`, `channel_add_member`, `channel_remove_member`,
+`channel_create`, `channel_list`, `channel_join`, `channel_leave`,
+`channel_archive` — live in [daemon-rpc-channels.md](daemon-rpc-channels.md).
 
 ### Channel messaging
 The streaming read, send, reply, and blocking wait contracts live in
 [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
-
-### `root_channels`
-```jsonc
-params: {}
-result: {"channels": [ {slug, about}, … ]}
-```
-Returns all known workspace root channels from the daemon's cache.
-
-### `channel_edit`
-```jsonc
-params: {"channel": "…", "about": "…"}
-result: {"event_id": "hex", "channel": "channel-h", "about": "…", "confirmed": true}
-```
-Publishes an updated NIP-29 kind:39000 group metadata event for a channel.
-
-### `channel_members`
-```jsonc
-params: {"channel": "…"}
-result: {"members": [ {pubkey, slug, role}, … ]}
-```
-Returns the current membership list for the given NIP-29 group.
-
-### `channel_add_member`
-```jsonc
-params: {"channel": "…", "pubkey": "hex"|null, "agent": "slug"|null}
-result: {"ok": true}
-```
-Adds a pubkey or agent to a NIP-29 group.
-
-### `channel_remove_member`
-```jsonc
-params: {"channel": "…", "pubkey": "hex"}
-result: {"ok": true}
-```
-Removes a pubkey from a NIP-29 group.
-
-### `channel_create`
-```jsonc
-params: {"name": "…", "about": "…", "parent": "…"|null,
-         "parent_channel": "…"|null, "agents": [...], ...}
-result: {"child_h": "…", "display_path": "…", "switched": bool,
-         "orchestration_event_id": "hex"|""}
-```
-Creates a child channel under the caller's current channel, an explicit parent,
-or the `<workspace>` root resolved from cwd.
-
-### `channel_list`
-```jsonc
-params: {"channel": "…"}
-result: {"channel": "…", "rooms": [ {child_h, name, about, depth}, … ]}
-```
-Lists the materialized child-channel tree under a channel.
-
-### `channel_join` / `channel_leave` / `channel_archive`
-```jsonc
-params: {"channel": "…", "session": "npub1…"|"hex"|"handle"|null, ...}
-result: {"channel": "channel-h", ...}
-```
-Mutates the caller session's channel membership or archives a channel.
 
 ### `statusline`
 ```jsonc

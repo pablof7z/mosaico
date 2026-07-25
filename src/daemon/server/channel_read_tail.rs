@@ -1,4 +1,4 @@
-use super::chat_target::resolve_chat_target_provisioning;
+use super::chat_target::resolve_chat_target;
 use super::*;
 use crate::state::Message;
 use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
@@ -59,8 +59,7 @@ pub(in crate::daemon::server) async fn handle_channel_read<W: AsyncWriteExt + Un
         &CallerAnchor::from_params(params),
         ResolveScope::Channel,
     )?;
-    let target =
-        resolve_chat_target_provisioning(state, &rec, p.channel.as_deref(), "channel read").await?;
+    let target = resolve_chat_target(state, &rec, p.channel.as_deref(), "channel read")?;
     let scope = target.channel_h;
     let since = p.since.unwrap_or(0);
     let offset = p.offset.unwrap_or(0);
