@@ -9,10 +9,13 @@
 
 mod commit;
 mod deploy;
+mod identity;
 mod model;
 mod relay;
 mod render;
+mod terminal;
 mod theme;
+mod wrappers;
 
 use std::io::stdout;
 use std::time::{Duration, Instant};
@@ -25,7 +28,7 @@ use ratatui::Terminal;
 use super::args::InstallOpts;
 use deploy::{DeployOutcome, DeploySession};
 use model::{Action, Onboarding, RelayStatus, Step};
-use render::TuiTerminal;
+use terminal::TuiTerminal;
 
 const SPLASH_HOLD: Duration = Duration::from_millis(900);
 const POLL: Duration = Duration::from_millis(80);

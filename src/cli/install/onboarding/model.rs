@@ -3,13 +3,13 @@
 //! The model is pure: `handle_key` mutates state and returns an [`Action`] the
 //! runner performs (network probe, commit, quit). No I/O happens here.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use nostr::{Keys, ToBech32};
 
 use super::super::config::Harness;
+use super::identity::{default_device_name, generate_identity, DEVICE_NAME_CAP};
 
-const DEVICE_NAME_CAP: usize = 18;
+pub(super) use super::identity::Identity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -79,46 +79,16 @@ pub(super) enum Action {
     Quit,
 }
 
-/// The generated operator identity, shown once and persisted to `config.json`.
-pub(super) struct Identity {
-    pub nsec: String,
-    pub npub: String,
-    pub pubkey_hex: String,
-}
-
-fn generate_identity() -> Result<Identity> {
-    let keys = Keys::generate();
-    Ok(Identity {
-        nsec: keys
-            .secret_key()
-            .to_bech32()
-            .context("encoding operator nsec")?,
-        npub: keys
-            .public_key()
-            .to_bech32()
-            .context("encoding operator npub")?,
-        pubkey_hex: keys.public_key().to_hex(),
-    })
-}
-
-/// Default device name: the slugified hostname, capped and hyphen-trimmed.
-fn default_device_name() -> String {
-    let slug = crate::slug::slugify_host(&crate::config::hostname());
-    let capped: String = slug.chars().take(DEVICE_NAME_CAP).collect();
-    let trimmed = capped.trim_end_matches('-');
-    if trimmed.is_empty() {
-        "mosaico".to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
 pub(super) struct Onboarding {
     pub step: Step,
     pub frame: u64,
     pub reduced: bool,
     pub all: Vec<Harness>,
     pub selected: Vec<bool>,
+    /// Per-harness opt-in to a Mosaico-owned shell alias. Only meaningful for
+    /// selected harnesses, and only offered when a profile can be owned.
+    pub wrapped: Vec<bool>,
+    pub wrappers_supported: bool,
     pub cursor: usize,
     pub identity: Identity,
     pub device_name: String,
@@ -131,11 +101,14 @@ pub(super) struct Onboarding {
 impl Onboarding {
     pub(super) fn new(all: Vec<Harness>) -> Result<Self> {
         let selected = all.iter().map(|h| h.detected).collect();
+        let (wrappers_supported, wrapped) = super::wrappers::initial_state(&all);
         Ok(Self {
             step: Step::Splash,
             frame: 0,
             reduced: super::theme::reduced_motion(),
             selected,
+            wrapped,
+            wrappers_supported,
             cursor: 0,
             identity: generate_identity()?,
             device_name: default_device_name(),
@@ -243,10 +216,19 @@ impl Onboarding {
                 }
                 Action::None
             }
+            KeyCode::Char('w') if self.wrappers_supported => {
+                super::wrappers::toggle(&mut self.selected, &mut self.wrapped, self.cursor);
+                Action::None
+            }
             KeyCode::Enter => self.advance(Step::Relay),
             KeyCode::Esc => self.advance(Step::DeviceName),
             _ => Action::None,
         }
+    }
+
+    /// Harnesses that end up with a Mosaico-owned alias: wrapped and installed.
+    pub(super) fn wrapped_ids(&self) -> Vec<&'static str> {
+        super::wrappers::ids(&self.all, &self.selected, &self.wrapped)
     }
 
     fn key_relay(&mut self, key: KeyEvent) -> Action {

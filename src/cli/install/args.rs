@@ -8,6 +8,9 @@ pub(in crate::cli) struct SetupArgs {
     all: bool,
     #[arg(long, value_name = "HARNESSES")]
     harness: Option<String>,
+    /// Wrap these harness commands through Mosaico. Comma-separated.
+    #[arg(long, value_name = "HARNESSES")]
+    wrap: Option<String>,
     #[arg(long)]
     dry_run: bool,
     #[arg(long)]
@@ -46,6 +49,7 @@ pub(in crate::cli) struct SetupArgs {
 pub(super) struct InstallOpts {
     pub all: bool,
     pub harness: Option<String>,
+    pub wrap: Option<String>,
     pub dry_run: bool,
     pub status: bool,
     pub uninstall: bool,
@@ -64,6 +68,7 @@ impl SetupArgs {
         InstallOpts {
             all: self.all,
             harness: self.harness,
+            wrap: self.wrap,
             dry_run: self.dry_run,
             status: self.status,
             uninstall: false,
@@ -80,9 +85,10 @@ impl SetupArgs {
 }
 
 impl InstallOpts {
-    pub(super) fn uninstall(dry_run: bool) -> Self {
+    pub(super) fn uninstall(harness: Option<String>, dry_run: bool) -> Self {
         Self {
-            all: true,
+            all: harness.is_none(),
+            harness,
             dry_run,
             uninstall: true,
             ..Self::default()
@@ -110,6 +116,8 @@ mod tests {
             "setup",
             "--harness",
             "codex,claude-code",
+            "--wrap",
+            "codex",
             "--dry-run",
             "--status",
             "--relay",
@@ -130,6 +138,7 @@ mod tests {
         match cli.cmd.expect("expected install command") {
             crate::cli::args::Cmd::Setup(args) => {
                 assert_eq!(args.harness.as_deref(), Some("codex,claude-code"));
+                assert_eq!(args.wrap.as_deref(), Some("codex"));
                 assert!(args.dry_run);
                 assert!(args.status);
                 assert!(!args.all);

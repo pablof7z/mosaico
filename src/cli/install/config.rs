@@ -15,6 +15,21 @@ pub struct Harness {
     pub detected: bool,
 }
 
+impl Harness {
+    /// Native executable and default Mosaico launch target for this harness.
+    pub fn command(&self) -> &'static str {
+        match self.id {
+            "claude-code" => "claude",
+            "codex" => "codex",
+            "opencode" => "opencode",
+            "grok" => "grok",
+            "goose" => "goose",
+            "hermes" => "hermes",
+            _ => unreachable!("unknown installer harness {}", self.id),
+        }
+    }
+}
+
 pub fn harnesses() -> Result<Vec<Harness>> {
     let home = home_dir()?;
     let grok_home = grok_home_dir(std::env::var("GROK_HOME").ok(), &home);

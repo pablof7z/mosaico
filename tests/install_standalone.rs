@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// Setup requires an externally operated relay; the tests never contact it.
+const RELAY: &str = "wss://relay.example.invalid";
+
 fn run(binary: &Path, home: &Path, mosaico_home: &Path, args: &[&str]) -> Output {
     Command::new(binary)
         .args(args)
@@ -9,6 +12,7 @@ fn run(binary: &Path, home: &Path, mosaico_home: &Path, args: &[&str]) -> Output
         .env("HOME", home)
         .env("MOSAICO_HOME", mosaico_home)
         .env("PATH", "/usr/bin:/bin")
+        .env("SHELL", "/bin/zsh")
         .output()
         .expect("run standalone mosaico binary")
 }
@@ -37,7 +41,7 @@ fn binary_outside_checkout_installs_statuses_and_uninstalls_skill_and_hooks() {
         &binary,
         &home,
         &mosaico_home,
-        &["setup", "--harness", "codex"],
+        &["setup", "--harness", "codex", "--relay", RELAY],
     );
     assert!(install.status.success(), "{}", output_text(&install));
 
@@ -143,7 +147,7 @@ fn explicit_confirmed_purge_removes_only_mosaico_state() {
         &binary,
         &home,
         &mosaico_home,
-        &["setup", "--harness", "codex"],
+        &["setup", "--harness", "codex", "--relay", RELAY],
     );
     assert!(setup.status.success(), "{}", output_text(&setup));
     let uninstall = run(
@@ -159,4 +163,91 @@ fn explicit_confirmed_purge_removes_only_mosaico_state() {
         std::fs::read_to_string(home.join("keep.txt")).unwrap(),
         "keep"
     );
+}
+
+/// Scoped uninstall is the promise that removing one harness costs nothing
+/// else: the other harness, its wrapper, the shared skill, and MOSAICO_HOME all
+/// survive, and so does foreign content in the shell profile.
+#[test]
+fn scoped_uninstall_removes_one_harness_and_its_wrapper_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("empty-home");
+    let mosaico_home = home.join(".mosaico");
+    let binary = temp.path().join("mosaico");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_mosaico"), &binary).unwrap();
+
+    let zshrc = home.join(".zshrc");
+    std::fs::write(&zshrc, "export EDITOR=vim\n").unwrap();
+
+    let dry = run(
+        &binary,
+        &home,
+        &mosaico_home,
+        &[
+            "setup",
+            "--harness",
+            "codex,claude-code",
+            "--relay",
+            RELAY,
+            "--wrap",
+            "codex,claude-code",
+            "--dry-run",
+        ],
+    );
+    assert!(dry.status.success(), "{}", output_text(&dry));
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("would update shell wrappers"));
+    assert_eq!(
+        std::fs::read_to_string(&zshrc).unwrap(),
+        "export EDITOR=vim\n",
+        "dry run must not touch the profile"
+    );
+
+    let setup = run(
+        &binary,
+        &home,
+        &mosaico_home,
+        &[
+            "setup",
+            "--harness",
+            "codex,claude-code",
+            "--relay",
+            RELAY,
+            "--wrap",
+            "codex,claude-code",
+        ],
+    );
+    assert!(setup.status.success(), "{}", output_text(&setup));
+    let profile = std::fs::read_to_string(&zshrc).unwrap();
+    assert!(profile.starts_with("export EDITOR=vim\n"));
+    assert!(profile.contains(r#"alias codex="mosaico codex --""#));
+    assert!(profile.contains(r#"alias claude="mosaico claude --""#));
+
+    let unknown = run(&binary, &home, &mosaico_home, &["uninstall", "nope"]);
+    assert!(!unknown.status.success(), "{}", output_text(&unknown));
+    assert_eq!(
+        std::fs::read_to_string(&zshrc).unwrap(),
+        profile,
+        "an unknown harness must fail before any write"
+    );
+
+    let scoped = run(&binary, &home, &mosaico_home, &["uninstall", "codex"]);
+    assert!(scoped.status.success(), "{}", output_text(&scoped));
+
+    let profile = std::fs::read_to_string(&zshrc).unwrap();
+    assert!(profile.starts_with("export EDITOR=vim\n"));
+    assert!(!profile.contains("alias codex="));
+    assert!(profile.contains(r#"alias claude="mosaico claude --""#));
+
+    let codex: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(".codex/hooks.json")).unwrap())
+            .unwrap();
+    assert!(codex.pointer("/hooks/SessionStart").is_none());
+    let claude: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(".claude/settings.json")).unwrap())
+            .unwrap();
+    assert!(claude.pointer("/hooks/SessionStart/0").is_some());
+
+    assert!(home.join(".agents/skills/mosaico/SKILL.md").is_file());
+    assert!(mosaico_home.join("config.json").exists());
 }

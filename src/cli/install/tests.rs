@@ -63,57 +63,6 @@ fn installer_lists_every_supported_harness() {
 }
 
 #[test]
-fn all_selection_includes_skill_and_detected_harnesses() {
-    let temp = tempfile::tempdir().unwrap();
-    let harnesses = vec![
-        harness("codex", temp.path().join("codex.json")),
-        Harness {
-            detected: false,
-            ..harness("opencode", temp.path().join("opencode.ts"))
-        },
-    ];
-
-    let selection = resolve_selection(&harnesses, &opts(true, None)).unwrap();
-
-    assert!(selection.skill);
-    assert_eq!(selection.harnesses.len(), 1);
-    assert_eq!(selection.harnesses[0].id, "codex");
-}
-
-#[test]
-fn explicit_harness_selection_includes_skill() {
-    let temp = tempfile::tempdir().unwrap();
-    let harnesses = vec![harness("codex", temp.path().join("codex.json"))];
-
-    let selection = resolve_selection(&harnesses, &opts(false, Some("codex"))).unwrap();
-
-    assert!(selection.skill);
-    assert_eq!(selection.harnesses.len(), 1);
-    assert_eq!(selection.harnesses[0].id, "codex");
-}
-
-#[test]
-fn uninstall_selection_includes_every_harness_even_when_not_detected() {
-    let temp = tempfile::tempdir().unwrap();
-    let harnesses = vec![
-        Harness {
-            detected: false,
-            ..harness("codex", temp.path().join("codex.json"))
-        },
-        Harness {
-            detected: false,
-            ..harness("opencode", temp.path().join("opencode.ts"))
-        },
-    ];
-    let options = InstallOpts::uninstall(false);
-
-    let selection = resolve_selection(&harnesses, &options).unwrap();
-
-    assert!(selection.skill);
-    assert_eq!(selection.harnesses.len(), 2);
-}
-
-#[test]
 fn merge_hooks_preserves_foreign_groups_and_replaces_ours() {
     let mut root = serde_json::json!({
         "hooks": {

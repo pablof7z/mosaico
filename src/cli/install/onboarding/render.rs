@@ -1,4 +1,4 @@
-//! Ratatui rendering for the onboarding TUI and the terminal-state guard.
+//! Ratatui rendering for the onboarding TUI.
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -14,33 +14,6 @@ const MIN_H: u16 = 16;
 #[cfg(test)]
 #[path = "render_preview.rs"]
 mod preview;
-
-/// RAII guard: enters the alternate screen + raw mode, and always restores the
-/// terminal on drop (including during panic unwind).
-pub(super) struct TuiTerminal;
-
-impl TuiTerminal {
-    pub(super) fn enter() -> std::io::Result<Self> {
-        crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::cursor::Hide
-        )?;
-        Ok(Self)
-    }
-}
-
-impl Drop for TuiTerminal {
-    fn drop(&mut self) {
-        let _ = crossterm::terminal::disable_raw_mode();
-        let _ = crossterm::execute!(
-            std::io::stdout(),
-            crossterm::cursor::Show,
-            crossterm::terminal::LeaveAlternateScreen
-        );
-    }
-}
 
 pub(super) fn draw(frame: &mut Frame, state: &Onboarding) {
     let area = frame.area();
@@ -194,8 +167,11 @@ fn harnesses(state: &Onboarding) -> Vec<Line<'static>> {
         heading("Choose harness integrations"),
         blank(),
         muted("Detected on your PATH are pre-selected. Space toggles, Enter continues."),
-        blank(),
     ];
+    if state.wrappers_supported {
+        lines.push(muted("Press w to launch that command through Mosaico."));
+    }
+    lines.push(blank());
     for (i, h) in state.all.iter().enumerate() {
         let on = state.selected.get(i).copied().unwrap_or(false);
         let here = i == state.cursor;
@@ -224,10 +200,23 @@ fn harnesses(state: &Onboarding) -> Vec<Line<'static>> {
                 theme::fg(if on { ACCENT } else { FAINT }),
             ),
             Span::styled(format!("{:<14}", h.display), name_style),
-            Span::styled(status.to_string(), theme::fg(status_color)),
+            Span::styled(format!("{:<14}", status), theme::fg(status_color)),
+            wrapper_span(state, i),
         ]));
     }
     lines
+}
+
+/// The wrapper column: a second checkbox per row, toggled with `w`.
+fn wrapper_span(state: &Onboarding, index: usize) -> Span<'static> {
+    if !state.wrappers_supported {
+        return Span::raw("");
+    }
+    if state.wrapped.get(index).copied().unwrap_or(false) {
+        Span::styled("[w] wrapped", theme::fg(ACCENT))
+    } else {
+        Span::styled("[ ] wrap", theme::fg(FAINT))
+    }
 }
 
 fn relay(state: &Onboarding) -> Vec<Line<'static>> {
@@ -325,6 +314,12 @@ fn review(state: &Onboarding) -> Vec<Line<'static>> {
         RelayChoice::Assist => format!("{}  (set up with an agent)", state.relay_url.trim()),
         RelayChoice::Manual => format!("{}  (you'll run Croissant)", state.relay_url.trim()),
     };
+    let wrapped = state.wrapped_ids();
+    let wrapper_summary = if wrapped.is_empty() {
+        "none".to_string()
+    } else {
+        wrapped.join(", ")
+    };
     vec![
         heading("Ready to set up Mosaico"),
         blank(),
@@ -332,6 +327,7 @@ fn review(state: &Onboarding) -> Vec<Line<'static>> {
         kv("npub", &state.identity.npub, MUTED),
         kv("relay", &relay_summary, ACCENT),
         kv("agents", &harness_summary, ACCENT),
+        kv("wrapped", &wrapper_summary, ACCENT),
         blank(),
         muted("Press Enter to apply. Mosaico will write config.json, wire the"),
         muted("selected harnesses, install the skill, and bring the relay online."),
@@ -343,6 +339,9 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &Onboarding) {
         Step::Splash => "any key to begin",
         Step::Identity => "Enter continue · Esc quit",
         Step::DeviceName => "type to edit · Enter continue · Esc back",
+        Step::Harnesses if state.wrappers_supported => {
+            "↑↓ move · Space toggle · w wrap command · Enter continue · Esc back"
+        }
         Step::Harnesses => "↑↓ move · Space toggle · Enter continue · Esc back",
         Step::Relay => "↑↓ move · Enter select · Esc back",
         Step::RelayUrl => "type URL · Enter continue · Esc back",

@@ -8,11 +8,14 @@ use std::path::{Path, PathBuf};
 
 #[derive(Args)]
 pub(super) struct UninstallArgs {
+    /// Remove only this harness integration (for example: codex).
+    #[arg(value_name = "HARNESS")]
+    harness: Option<String>,
     /// Show every removal without changing files or stopping processes.
     #[arg(long)]
     dry_run: bool,
     /// Also remove device identity, trust, sessions, and logs.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "harness")]
     purge_state: bool,
     /// Confirm state removal in a non-interactive shell.
     #[arg(long, requires = "purge_state")]
@@ -20,7 +23,13 @@ pub(super) struct UninstallArgs {
 }
 
 pub(super) async fn uninstall(args: UninstallArgs) -> Result<()> {
-    super::install::uninstall_everywhere(args.dry_run).await?;
+    if args.harness.as_deref().is_some_and(|id| id.contains(',')) {
+        bail!("uninstall accepts exactly one harness id");
+    }
+    super::install::uninstall_integrations(args.harness.clone(), args.dry_run).await?;
+    if args.harness.is_some() {
+        return Ok(());
+    }
     if args.dry_run {
         println!("would stop the Mosaico daemon without signaling detached PTY supervisors");
     } else {
