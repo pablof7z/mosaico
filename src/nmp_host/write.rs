@@ -1,10 +1,9 @@
 //! Durable NIP-29 write and account lifecycle behind the NMP facade.
 
 use std::collections::BTreeSet;
-use std::sync::mpsc::Receiver;
 
 use anyhow::{Context, Result};
-use nmp::{RelayUrl, SignEventRequest, WriteStatus};
+use nmp::{FifoReceiver, RelayUrl, SignEventRequest, WriteStatus};
 use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
 
@@ -121,13 +120,14 @@ impl NmpHost {
                 durability: Durability::Durable,
                 routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(relay)),
                 identity_override: Some(event.pubkey),
+                correlation: None,
             })
             .collect::<Vec<_>>();
         drop(self.submit_intents(intents, "submitting profile NMP write")?);
         Ok(event.id)
     }
 
-    fn submit_signed_group(&self, event: &Event) -> Result<Vec<Receiver<WriteStatus>>> {
+    fn submit_signed_group(&self, event: &Event) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         crate::relay_log::log_outgoing_event(event);
         let template = event_template(event)?;
         let intents = self
@@ -151,7 +151,7 @@ impl NmpHost {
         &self,
         intents: Vec<WriteIntent>,
         context: &'static str,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let receivers = intents
             .into_iter()
             .map(|intent| self.engine.publish(intent).context(context))
@@ -164,7 +164,7 @@ impl NmpHost {
         &self,
         unsigned: UnsignedEvent,
         identity_override: Option<PublicKey>,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let groups = group_values(unsigned.tags.iter());
         if groups.len() != 1 {
             anyhow::bail!(
@@ -269,7 +269,7 @@ fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIn
     .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
 }
 
-fn require_configured_host(receivers: &[Receiver<WriteStatus>]) -> Result<()> {
+fn require_configured_host(receivers: &[FifoReceiver<WriteStatus>]) -> Result<()> {
     if receivers.is_empty() {
         anyhow::bail!("cannot publish a NIP-29 event without a configured group host");
     }
