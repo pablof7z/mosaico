@@ -1,7 +1,6 @@
 use super::*;
-use nmp::fifo_channel;
 use nostr::{EventBuilder, Kind, Tag};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 #[tokio::test]
 async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
@@ -63,34 +62,34 @@ fn unsigned_multi_group_event_is_rejected_instead_of_losing_scope() {
         ])
         .build(keys.public_key());
 
-    // `FifoReceiver` is not `Debug`, so destructure instead of `unwrap_err`.
-    let Err(error) = host.publish_group_unsigned(unsigned, Some(keys.public_key())) else {
-        panic!("a multi-group unsigned write must be rejected");
-    };
+    let error = host
+        .publish_group_unsigned(unsigned, Some(keys.public_key()))
+        .unwrap_err();
     assert!(error.to_string().contains("exactly one h tag"));
 }
 
 #[test]
 fn accepted_and_signed_is_enough_for_a_durable_enqueue() {
-    let (tx, rx) = fifo_channel();
+    let (tx, rx) = mpsc::channel();
     let id = EventId::from_slice(&[7; 32]).unwrap();
-    assert!(tx.send(WriteStatus::Accepted));
-    assert!(tx.send(WriteStatus::Signed(id)));
+    tx.send(WriteStatus::Accepted).unwrap();
+    tx.send(WriteStatus::Signed(id)).unwrap();
 
     assert_eq!(wait_for_write_blocking(vec![rx], None, false).unwrap(), id);
 }
 
 #[test]
 fn duplicate_rejection_counts_as_already_converged() {
-    let (tx, rx) = fifo_channel();
+    let (tx, rx) = mpsc::channel();
     let id = EventId::from_slice(&[8; 32]).unwrap();
     let relay = RelayUrl::parse("wss://relay.example.com").unwrap();
-    assert!(tx.send(WriteStatus::Accepted));
-    assert!(tx.send(WriteStatus::Signed(id)));
-    assert!(tx.send(WriteStatus::Rejected(
+    tx.send(WriteStatus::Accepted).unwrap();
+    tx.send(WriteStatus::Signed(id)).unwrap();
+    tx.send(WriteStatus::Rejected(
         relay,
         "duplicate: already have event".into(),
-    )));
+    ))
+    .unwrap();
 
     assert_eq!(wait_for_write_blocking(vec![rx], None, true).unwrap(), id);
 }

@@ -17,7 +17,6 @@ use nmp::{
     AccessContext, Binding, Demand, Engine, EngineConfig, IndexedTagName, LiveQuery,
     ObservationCancel, RelayUrl, SourceAuthority,
 };
-use nmp_grammar::relay::{classify_relay_host, RelayHostClass};
 use nostr::Keys;
 use tokio::sync::mpsc;
 
@@ -241,9 +240,7 @@ fn pinned_query(
 fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {
     relays
         .into_iter()
-        // NMP dropped its `admits_network_relay_hint` facade predicate; the
-        // same verdict is the pure host classifier it wrapped.
-        .filter(|relay| classify_relay_host(relay) == RelayHostClass::Local)
+        .filter(|relay| !nmp::admits_network_relay_hint(relay))
         .filter_map(|relay| {
             url::Url::parse(relay.as_str())
                 .ok()?

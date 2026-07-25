@@ -1,15 +1,16 @@
 //! Interpretation of NMP's durable write receipt stream.
 
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use nmp::{FifoReceiver, FifoRecvTimeoutError, WriteStatus};
+use nmp::WriteStatus;
 use nostr::EventId;
 
 const WRITE_RECEIPT_TIMEOUT: Duration = Duration::from_secs(12);
 
 pub(super) async fn wait_for_write(
-    receivers: Vec<FifoReceiver<WriteStatus>>,
+    receivers: Vec<Receiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -19,7 +20,7 @@ pub(super) async fn wait_for_write(
 }
 
 pub(super) fn wait_for_write_blocking(
-    receivers: Vec<FifoReceiver<WriteStatus>>,
+    receivers: Vec<Receiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -55,15 +56,8 @@ pub(super) fn wait_for_write_blocking(
                     closed[index] = true;
                 }
                 Ok(status) => last_status = format!("{status:?}"),
-                Err(FifoRecvTimeoutError::Closed) => closed[index] = true,
-                // The engine's finite live receipt queue overflowed, so this
-                // lane can no longer be observed truthfully. The durable write
-                // is unaffected; treat it as a settled-unknown lane.
-                Err(FifoRecvTimeoutError::Lagged) => {
-                    last_status = "receipt stream lagged".to_string();
-                    closed[index] = true;
-                }
-                Err(FifoRecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => closed[index] = true,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             }
         }
         let settled = accepted
