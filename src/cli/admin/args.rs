@@ -224,15 +224,6 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Switch the active channel for the current session to a different subgroup.
-    Switch {
-        /// Channel name, channel-relative path, or opaque channel `h` value.
-        channel: String,
-        /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
-        /// the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
-    },
 }
 
 #[cfg(test)]

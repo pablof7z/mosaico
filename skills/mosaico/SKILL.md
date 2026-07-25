@@ -99,7 +99,7 @@ The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
 - Use `channel read`, `send`, `reply`, `react`, and `wait` for conversation and
   attention; read [Coordination Guide](references/coordination-guide.md) before
   directing another participant or attaching a file.
-- Use `channel list`, `join`, `switch`, `create`, `add`, `edit`, `leave`,
+- Use `channel list`, `join`, `create`, `add`, `edit`, `leave`,
   `archive`, and `init` only as described in [Channel
   Creation](references/channel-creation.md).
 - Use `dispatch` to start a new fabric session. Read [Coordination

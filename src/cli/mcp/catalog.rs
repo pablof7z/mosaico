@@ -187,11 +187,6 @@ const SPECS: &[ToolSpec] = &[
         "Leave a passively joined channel.",
         true,
     ),
-    channel_tool(
-        "mosaico.channel_switch",
-        "Switch the active session channel.",
-        true,
-    ),
 ];
 
 const SESSION_PROP: Prop = Prop::new(

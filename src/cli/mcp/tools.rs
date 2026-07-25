@@ -37,7 +37,6 @@ pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Valu
         "mosaico.channel_create" => channel_create(&args, caller).await,
         "mosaico.channel_join" => channel_mutation("channel_join", &args, caller).await,
         "mosaico.channel_leave" => channel_mutation("channel_leave", &args, caller).await,
-        "mosaico.channel_switch" => channel_mutation("channel_switch", &args, caller).await,
         other => anyhow::bail!("unknown tool: {other}"),
     };
     Ok(match result {

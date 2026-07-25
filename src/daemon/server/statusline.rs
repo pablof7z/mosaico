@@ -24,8 +24,8 @@ pub(in crate::daemon::server) fn rpc_statusline(
     let now = now_secs();
     let host = state.host.clone();
     // Routing scope is the session's channel — the member count and is_member
-    // check key on it so a `channel switch` (which repoints channel_h) is
-    // reflected in the statusline without restarting.
+    // check key on it so repointing the active channel (which updates
+    // channel_h) is reflected in the statusline without restarting.
     let scope = rec.channel_h.clone();
     // Issue #98: one authoritative agent-instance identity for label + membership.
     let instance = state.session_instance(&rec);

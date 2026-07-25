@@ -210,29 +210,17 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         created["child_h"].as_str().unwrap().to_string()
     });
 
+    // The active channel is now the child; the parent is a non-active channel
+    // this session can still join/leave passively, which is what these two
+    // membership commands exercise via the exact watch_pid anchor.
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
 
-        let switched = c
-            .call(
-                "channel_switch",
-                serde_json::json!({
-                    "channel": &parent_h,
-                    "harness": "claude-code",
-                    "watch_pid": watch_pid,
-                    "agent": "coder",
-                    "cwd": "/tmp"
-                }),
-            )
-            .await
-            .expect("switch should resolve by watched process");
-        assert_eq!(switched["channel"].as_str(), Some(parent_h.as_str()));
-        assert_eq!(switched["prev_channel"].as_str(), Some(child_h.as_str()));
         let joined = c
             .call(
                 "channel_join",
                 serde_json::json!({
-                    "channel": format!("@{child_h}"),
+                    "channel": format!("@{parent_h}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -241,14 +229,14 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             )
             .await
             .expect("join should resolve by watched process");
-        assert_eq!(joined["channel"].as_str(), Some(child_h.as_str()));
-        assert_eq!(joined["active_channel"].as_str(), Some(parent_h.as_str()));
+        assert_eq!(joined["channel"].as_str(), Some(parent_h.as_str()));
+        assert_eq!(joined["active_channel"].as_str(), Some(child_h.as_str()));
 
         let left = c
             .call(
                 "channel_leave",
                 serde_json::json!({
-                    "channel": format!("@{child_h}"),
+                    "channel": format!("@{parent_h}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -257,18 +245,18 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             )
             .await
             .expect("leave should resolve by watched process");
-        assert_eq!(left["channel"].as_str(), Some(child_h.as_str()));
+        assert_eq!(left["channel"].as_str(), Some(parent_h.as_str()));
         assert_eq!(left["left"].as_bool(), Some(true));
     });
 
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store.get_session(&pubkey).unwrap().expect("session row");
-    assert_eq!(rec.channel_h, parent_h);
+    assert_eq!(rec.channel_h, child_h);
     assert!(
         !store
-            .has_session_route(&pubkey, &child_h)
+            .has_session_route(&pubkey, &parent_h)
             .expect("joined-channel check"),
-        "leave should remove the passive child-channel join"
+        "leave should remove the passive parent-channel join"
     );
 
     stop_daemon(&home);

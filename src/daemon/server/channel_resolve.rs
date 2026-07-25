@@ -157,10 +157,11 @@ pub(in crate::daemon::server) async fn rpc_channel_resolve(
     Ok(serde_json::json!({ "channel_h": channel_h }))
 }
 
-// ── channel-relative `channel switch` resolution ─────────────────────────────
+// ── channel-relative resolution ───────────────────────────────────────────────
 //
-// `channel switch` (an AGENT-only gesture) resolves a channel-RELATIVE reference
-// to one opaque `channel_h`. There is no cross-channel switch — references are
+// Channel membership/mutation gestures (join, leave, archive, create, invite,
+// and repointing the active channel) resolve a channel-RELATIVE reference to
+// one opaque `channel_h`. There is no cross-channel lookup — references are
 // scoped to the current channel's subtree. On ambiguity the daemon returns the
 // candidate paths so the agent re-runs with an exact one (a structured error,
 // never an interactive prompt a hooks-only agent cannot answer).

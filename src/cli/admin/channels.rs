@@ -273,23 +273,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 removed
             );
         }
-        ChannelAction::Switch { channel, session } => {
-            let v = daemon_call_async(
-                "channel_switch",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({ "channel": channel.clone() }),
-                    session.as_deref(),
-                )),
-            )
-            .await?;
-            // Ambiguous reference: the daemon returns the candidate paths instead
-            // of switching. Print them as copy-paste-ready re-runs and exit 2 so a
-            // calling agent can branch on the code without parsing prose.
-            if v["ambiguous"].is_array() {
-                print_ambiguous("switch", &channel, &v);
-            }
-            println!("switched to channel {}", channel);
-        }
     }
     Ok(())
 }

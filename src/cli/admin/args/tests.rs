@@ -127,33 +127,6 @@ fn channel_archive_parses_channel_reference() {
 }
 
 #[test]
-fn channel_switch_accepts_explicit_session_anchor() {
-    let cli = crate::cli::args::Cli::try_parse_from([
-        "mosaico",
-        "channel",
-        "switch",
-        "ops",
-        "--session",
-        "session-1",
-    ])
-    .expect("channel switch parses with explicit session");
-
-    match cli.cmd.expect("expected channel command") {
-        crate::cli::args::Cmd::Channel {
-            action:
-                ChannelAction::Switch {
-                    channel,
-                    session: Some(session),
-                },
-        } => {
-            assert_eq!(channel, "ops");
-            assert_eq!(session, "session-1");
-        }
-        _ => panic!("expected channel switch command"),
-    }
-}
-
-#[test]
 fn channel_edit_about_parses() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "mosaico",

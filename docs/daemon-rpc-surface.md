@@ -219,7 +219,7 @@ result: {"channel": "…", "rooms": [ {child_h, name, about, depth}, … ]}
 ```
 Lists the materialized child-channel tree under a channel.
 
-### `channel_join` / `channel_leave` / `channel_switch` / `channel_archive`
+### `channel_join` / `channel_leave` / `channel_archive`
 ```jsonc
 params: {"channel": "…", "session": "npub1…"|"hex"|"handle"|null, ...}
 result: {"channel": "channel-h", ...}
