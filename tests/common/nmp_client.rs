@@ -7,6 +7,7 @@ use nmp::{
     AccessContext, AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration,
     AuthPolicyRequest, Engine, EngineConfig, RelayUrl, Window, WriteStatus,
 };
+use nmp_grammar::relay::{classify_relay_host, RelayHostClass};
 use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Filter, Keys};
 use std::{
@@ -59,7 +60,7 @@ impl NmpRelayClient {
         };
         if let Ok(url) = url::Url::parse(relay.as_str()) {
             if let Some(host) = url.host_str() {
-                if !nmp::admits_network_relay_hint(&relay) {
+                if classify_relay_host(&relay) == RelayHostClass::Local {
                     config.allowed_local_relay_hosts.push(host.to_string());
                 }
             }
@@ -123,6 +124,7 @@ impl NmpRelayClient {
                     self.relay.clone(),
                 )),
                 identity_override: Some(event.pubkey),
+                correlation: None,
             })
             .context("submit NMP test write")?;
         let relay = self.relay.clone();
@@ -166,7 +168,7 @@ impl NmpRelayClient {
 }
 
 fn wait_for_write(
-    receiver: std::sync::mpsc::Receiver<WriteStatus>,
+    receiver: nmp::FifoReceiver<WriteStatus>,
     relay: RelayUrl,
     event_id: EventId,
 ) -> Result<WriteOutcome> {
@@ -203,10 +205,13 @@ fn wait_for_write(
             }
             Ok(WriteStatus::Failed(reason)) => anyhow::bail!("NMP test write failed: {reason}"),
             Ok(_) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err(nmp::FifoRecvTimeoutError::Timeout) => {
                 anyhow::bail!("timed out waiting for NMP test write receipt")
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(nmp::FifoRecvTimeoutError::Lagged) => {
+                anyhow::bail!("NMP test write receipt lagged for {relay}")
+            }
+            Err(nmp::FifoRecvTimeoutError::Closed) => {
                 anyhow::bail!("NMP test write receipt disconnected for {relay}")
             }
         }
