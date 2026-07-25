@@ -4,6 +4,44 @@ use mosaico::state::Store;
 use nostr::{Keys, PublicKey, ToBech32};
 use std::time::Duration;
 
+/// Start one `/tmp`-rooted session and return its pubkey.
+async fn start_session(client: &mut Client, agent: &str) -> String {
+    client
+        .call(
+            "session_start",
+            hook_session_start(
+                serde_json::json!({
+                    "agent": agent,
+                    "harness_session": format!("explicit-destination-{agent}"),
+                    "cwd": "/tmp"
+                }),
+                "claude-code",
+            ),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("start {agent}: {e:#}"))["pubkey"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Block until an accepted chat event materializes in the `/tmp` read model.
+fn await_chat_event(home: &Home, event_id: &str) -> mosaico::state::RelayEvent {
+    let mut found = None;
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            found = Store::open(&home.store_path()).ok().and_then(|store| {
+                chat_in_channel(&store, "tmp")
+                    .into_iter()
+                    .find(|event| event.id == event_id)
+            });
+            found.is_some()
+        }),
+        "chat event {event_id} did not materialize"
+    );
+    found.unwrap()
+}
+
 #[test]
 fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -11,52 +49,10 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
 
     let (sender, receiver, second_receiver) = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
-        let sender = client
-            .call(
-                "session_start",
-                hook_session_start(
-                    serde_json::json!({
-                        "agent": "sender",
-                        "harness_session": "explicit-destination-sender",
-                        "cwd": "/tmp"
-                    }),
-                    "claude-code",
-                ),
-            )
-            .await
-            .expect("start sender");
-        let receiver = client
-            .call(
-                "session_start",
-                hook_session_start(
-                    serde_json::json!({
-                        "agent": "receiver",
-                        "harness_session": "explicit-destination-receiver",
-                        "cwd": "/tmp"
-                    }),
-                    "claude-code",
-                ),
-            )
-            .await
-            .expect("start receiver");
-        let second_receiver = client
-            .call(
-                "session_start",
-                hook_session_start(
-                    serde_json::json!({
-                        "agent": "second-receiver",
-                        "harness_session": "explicit-destination-second-receiver",
-                        "cwd": "/tmp"
-                    }),
-                    "claude-code",
-                ),
-            )
-            .await
-            .expect("start second receiver");
         (
-            sender["pubkey"].as_str().unwrap().to_string(),
-            receiver["pubkey"].as_str().unwrap().to_string(),
-            second_receiver["pubkey"].as_str().unwrap().to_string(),
+            start_session(&mut client, "sender").await,
+            start_session(&mut client, "receiver").await,
+            start_session(&mut client, "second-receiver").await,
         )
     });
 
@@ -125,7 +121,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "tmp",
+                    "channel": "/tmp",
                     "message": original_body,
                     "tags": [&receiver_handle, &second_receiver_handle]
                 }),
@@ -133,6 +129,19 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             .await
             .expect("send to explicitly selected root channel")
     });
+    // The bare workspace name is NOT a channel reference any more.
+    let bare = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        let params = serde_json::json!({
+            "session": &sender, "channel": "tmp", "message": original_body
+        });
+        client
+            .call("channel_send", params)
+            .await
+            .expect_err("a bare channel name must be rejected")
+            .to_string()
+    });
+    assert!(bare.contains("must be a full path"), "{bare}");
     assert_eq!(
         sent["mentioned_pubkeys"],
         serde_json::json!([&receiver_identity.pubkey, &second_receiver_identity.pubkey])
@@ -143,19 +152,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     );
     let event_id = sent["event_id"].as_str().unwrap().to_string();
 
-    let mut published = None;
-    assert!(
-        wait_until(Duration::from_secs(10), || {
-            published = Store::open(&home.store_path()).ok().and_then(|store| {
-                chat_in_channel(&store, "tmp")
-                    .into_iter()
-                    .find(|event| event.id == event_id)
-            });
-            published.is_some()
-        }),
-        "explicit-destination event did not materialize"
-    );
-    let published = published.unwrap();
+    let published = await_chat_event(&home, &event_id);
     assert_eq!(published.pubkey, sender_identity.pubkey);
     assert_eq!(published.channel_h, "tmp");
     assert_eq!(published.content, expected_wire_body);
@@ -179,7 +176,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "tmp",
+                    "channel": "/tmp",
                     "message": &inline_body
                 }),
             )
@@ -197,7 +194,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "tmp",
+                    "channel": "/tmp",
                     "message": &inline_body,
                     "force": true
                 }),
@@ -207,19 +204,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     });
     assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
     let ambient_id = ambient["event_id"].as_str().unwrap().to_string();
-    let mut ambient_event = None;
-    assert!(
-        wait_until(Duration::from_secs(10), || {
-            ambient_event = Store::open(&home.store_path()).ok().and_then(|store| {
-                chat_in_channel(&store, "tmp")
-                    .into_iter()
-                    .find(|event| event.id == ambient_id)
-            });
-            ambient_event.is_some()
-        }),
-        "ambient inline-address event did not materialize"
-    );
-    let ambient_event = ambient_event.unwrap();
+    let ambient_event = await_chat_event(&home, &ambient_id);
     assert_eq!(ambient_event.content, inline_body);
     let ambient_tags: Vec<Vec<String>> = serde_json::from_str(&ambient_event.tags_json).unwrap();
     assert!(!ambient_tags

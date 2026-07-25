@@ -179,7 +179,10 @@ Reuse the `mosaico()` helper from `lib.sh` for any backend command:
 source e2e/lib.sh
 mosaico mosaico-b channel list --all-workspaces
 mosaico mosaico-b who --all-workspaces
-mosaico mosaico-a channel send --message 'hello from a' --channel e2e-demo
+# Every channel argument is a full absolute path (`/<workspace>/<child>`) or an
+# `@<id-prefix>`; a bare name is rejected. `channel send`/`channel read` also
+# require that the calling session has already joined the target.
+mosaico mosaico-a channel send --message 'hello from a' --channel /e2e-demo
 nak req -k 39000 "$RELAY_WS"          # all group metadata on the relay
 nak req -k 9      -h e2e-demo "$RELAY_WS"   # chat messages in the group
 ```

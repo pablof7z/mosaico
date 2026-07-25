@@ -89,25 +89,28 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
         harness: p.harness.as_deref(),
         ..Default::default()
     };
-    let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
-        Err(_) => {
-            let cwd = p
-                .cwd
-                .as_deref()
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::daemon::workspace_path::channel_for_path(&cwd)
-                .context("invite must run inside an agent session or channel directory")?
-        }
-    };
-    match state.with_store(|s| resolve_channel_ref(s, &root, &p.channel)) {
+    // Resolution below is global (not scoped to a caller workspace), but
+    // invite still requires a resolvable caller context.
+    if resolve_session_inner(state, &anchor, ResolveScope::Strict).is_err() {
+        let cwd = p
+            .cwd
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        crate::daemon::workspace_path::channel_for_path(&cwd)
+            .context("invite must run inside an agent session or channel directory")?;
+    }
+    absolute::require_full_path("channel", &p.channel)?;
+    match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &p.channel)) {
         ChannelResolution::Unique(h) => Ok(TargetChannel::Unique(h)),
         ChannelResolution::Ambiguous(refs) => Ok(TargetChannel::Ambiguous(
             serde_json::json!({ "ambiguous": refs, "reference": p.channel }),
         )),
         ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {:?} in this channel", p.channel)
+            anyhow::bail!(
+                "{}",
+                state.with_store(|s| absolute::describe_missing_channel(s, &p.channel))
+            )
         }
     }
 }

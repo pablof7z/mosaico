@@ -47,7 +47,7 @@ the session id with daemon delivery/completion lines and relay events.
 Tag recipients structurally:
 
 ```bash
-mosaico channel send --channel <channel> --tag <session-handle> \
+mosaico channel send --channel /<workspace>/<child> --tag <session-handle> \
   --message "Run mosaico my session."
 ```
 

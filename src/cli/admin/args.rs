@@ -1,5 +1,21 @@
 use clap::{Args, Subcommand};
 
+/// Every channel-taking argument requires a full absolute path
+/// (`/workspace/child`) or an `@<id-prefix>` — never a bare relative name.
+/// Fast, same-process rejection instead of a daemon round trip.
+pub(in crate::cli::admin) fn parse_channel_path(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("channel must not be empty".to_string());
+    }
+    if !trimmed.starts_with('/') && !trimmed.starts_with('@') {
+        return Err(format!(
+            "channel must be a full path starting with \"/\", e.g. /workspace/child (got {raw:?})"
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
 /// `channel add` targets. Exactly one of two shapes: a human member by id
 /// (two positionals `<id> <channel>`) or an existing session pulled in
 /// (`--session <npub|hex|current-handle> <channel>`). Session mode takes ONE positional
@@ -9,10 +25,10 @@ use clap::{Args, Subcommand};
 #[derive(Args)]
 pub(in crate::cli) struct AddArgs {
     /// Human mode: the member id (hex pubkey, npub, or nip05). Session mode: the
-    /// channel-relative channel to add into.
+    /// full channel path (e.g. /workspace/child) to add into.
     #[arg(value_name = "ID_OR_CHANNEL")]
     pub(in crate::cli::admin) first: Option<String>,
-    /// Human mode only: the channel-relative channel (second positional).
+    /// Human mode only: the full channel path (second positional).
     #[arg(value_name = "CHANNEL")]
     pub(in crate::cli::admin) second: Option<String>,
     /// Pull an exact existing session by npub/hex or its current handle.
@@ -53,10 +69,12 @@ pub(in crate::cli) enum ChannelAction {
         /// Keep the channel reader open and print new messages as they arrive.
         #[arg(long)]
         live: bool,
-        /// Channel-relative channel name/path/id to read. Required when this
-        /// session is joined to more than one channel; inferred only when exactly
-        /// one joined channel exists.
-        #[arg(long)]
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        /// Required when this session is joined to more than one channel;
+        /// inferred only when exactly one joined channel exists (or when
+        /// this session isn't joined to any channel yet, its own current
+        /// channel). Must already be joined when given explicitly.
+        #[arg(long, value_parser = parse_channel_path)]
         channel: Option<String>,
         /// Public reader identity (npub, hex pubkey, or handle) instead of resolving from the current
         /// PTY/harness process or root scan.
@@ -86,10 +104,12 @@ pub(in crate::cli) enum ChannelAction {
         /// Publish mention-like `@agent` text literally when no --tag is used.
         #[arg(long)]
         force: bool,
-        /// Channel-relative channel name/path/id to write to. Required when
-        /// this session is joined to more than one channel; inferred only when
-        /// exactly one joined channel exists.
-        #[arg(long)]
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        /// Required when this session is joined to more than one channel;
+        /// inferred only when exactly one joined channel exists (or when
+        /// this session isn't joined to any channel yet, its own current
+        /// channel). Must already be joined when given explicitly.
+        #[arg(long, value_parser = parse_channel_path)]
         channel: Option<String>,
         /// Public sender identity (npub, hex pubkey, or handle) instead of resolving from the current
         /// PTY/harness process or root scan.
@@ -148,9 +168,10 @@ pub(in crate::cli) enum ChannelAction {
     /// are named, one kind:9 orchestration event asks those backends to add
     /// their agents.
     Create {
-        /// Channel-relative path to create, e.g. "support" or "epic/planning".
-        /// Parent segments address the parent channel; the final segment is the
-        /// new channel's durable human name.
+        /// Full absolute path of the channel to create, e.g.
+        /// "/workspace/epic/planning". The parent chain (everything but the
+        /// last segment) must already exist; only the final segment is
+        /// minted.
         #[arg(value_name = "PATH")]
         path: String,
         /// Short, stable channel description (max 80 chars), not status text.
@@ -168,12 +189,13 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Edit metadata on an existing subgroup task channel.
     Edit {
-        /// Channel name, channel-relative path, or opaque channel `h` value.
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        #[arg(value_parser = parse_channel_path)]
         channel: String,
         /// New durable channel description.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
-        /// Public session identity (npub, hex pubkey, or handle) used as the channel-relative resolution anchor.
+        /// Public session identity (npub, hex pubkey, or handle) to act as instead of resolving the caller from the current PTY/harness process.
         #[arg(long)]
         session: Option<String>,
     },
@@ -200,7 +222,8 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Join a channel for passive context and direct-mention delivery.
     Join {
-        /// Channel name, channel-relative path, or opaque channel `h` value.
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        #[arg(value_parser = parse_channel_path)]
         channel: String,
         /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -209,7 +232,8 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Stop listening to a passively joined channel.
     Leave {
-        /// Channel name, channel-relative path, or opaque channel `h` value.
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        #[arg(value_parser = parse_channel_path)]
         channel: String,
         /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
         /// the current PTY/harness process.
@@ -218,9 +242,10 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Mark a channel archived and remove all non-admin members.
     Archive {
-        /// Channel name, channel-relative path, or opaque channel `h` value.
+        /// Full channel path (e.g. /workspace/child) or @<id-prefix>.
+        #[arg(value_parser = parse_channel_path)]
         channel: String,
-        /// Public session identity (npub, hex pubkey, or handle) used as the channel-relative resolution anchor.
+        /// Public session identity (npub, hex pubkey, or handle) to act as instead of resolving the caller from the current PTY/harness process.
         #[arg(long)]
         session: Option<String>,
     },

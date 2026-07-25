@@ -46,7 +46,7 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
 }
 
 /// Reconcile subscriptions and log (never propagate) a failure. Used by the
-/// membership-mutation RPCs (leave/switch/session-end) where the teardown is
+/// membership-mutation RPCs (leave/session-end) where the teardown is
 /// best-effort: the store already reflects the change, so a transient relay
 /// hiccup must not fail the RPC.
 pub(in crate::daemon::server) async fn reconcile_subs_logged(

@@ -111,7 +111,7 @@ fn channel_create_parses_hierarchical_path() {
 
 #[test]
 fn channel_archive_parses_channel_reference() {
-    let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "archive", "ops"])
+    let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "archive", "/ops"])
         .expect("channel archive parses");
 
     match cli.cmd.expect("expected channel command") {
@@ -121,7 +121,7 @@ fn channel_archive_parses_channel_reference() {
                     channel,
                     session: None,
                 },
-        } => assert_eq!(channel, "ops"),
+        } => assert_eq!(channel, "/ops"),
         _ => panic!("expected channel archive command"),
     }
 }
@@ -132,7 +132,7 @@ fn channel_edit_about_parses() {
         "mosaico",
         "channel",
         "edit",
-        "epic/planning",
+        "/workspace/epic/planning",
         "--about",
         "new description",
     ])
@@ -147,7 +147,7 @@ fn channel_edit_about_parses() {
                     session: None,
                 },
         } => {
-            assert_eq!(channel, "epic/planning");
+            assert_eq!(channel, "/workspace/epic/planning");
             assert_eq!(about, "new description");
         }
         _ => panic!("expected channel edit command"),
@@ -157,7 +157,7 @@ fn channel_edit_about_parses() {
 #[test]
 fn channel_edit_about_rejects_more_than_80_chars() {
     let too_long = "a".repeat(crate::channel_about::CHANNEL_ABOUT_MAX_CHARS + 1);
-    let err = parse_err(&["mosaico", "channel", "edit", "ops", "--about", &too_long]);
+    let err = parse_err(&["mosaico", "channel", "edit", "/ops", "--about", &too_long]);
 
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
     assert!(
@@ -185,13 +185,13 @@ fn channel_read_rejects_removed_alias() {
 #[test]
 fn channel_read_channel_still_parses() {
     let cli =
-        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "ops"])
+        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "/ops"])
             .unwrap();
 
     match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action: ChannelAction::Read { channel, .. },
-        } => assert_eq!(channel.as_deref(), Some("ops")),
+        } => assert_eq!(channel.as_deref(), Some("/ops")),
         _ => panic!("expected channel read command"),
     }
 }

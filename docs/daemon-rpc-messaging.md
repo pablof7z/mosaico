@@ -3,11 +3,20 @@
 Companion to the [daemon RPC catalog](daemon-rpc-surface.md). This file owns the
 channel messaging wire contracts.
 
+`channel` on `channel_read` and `channel_send` is a channel reference: a full
+absolute path (`/workspace/child`) or an `@<id-prefix>`, resolved globally and
+exactly — see [Channel references](daemon-rpc-channels.md#channel-references).
+Both RPCs additionally require that the calling session has ALREADY joined the
+resolved channel; neither ever creates one. Omitting `channel` targets the
+session's own channel (or its single joined channel), which is also the only
+way to address an own channel whose relay metadata has not materialized yet.
+
 ## `channel_read` (streaming)
 
 ```jsonc
-params: {"id": "event-id"|null, "channel": "…"|null, "since": u64|null,
-         "limit": u64|null, "offset": u64, "tail": bool, "live": bool, ...}
+params: {"id": "event-id"|null, "channel": "/workspace/child"|"@id-prefix"|null,
+         "since": u64|null, "limit": u64|null, "offset": u64,
+         "tail": bool, "live": bool, ...}
 stream: {"item": {event_id, from_pubkey, from_slug, channel, body,
                   truncated, created_at, ...}}
 ```
@@ -15,13 +24,13 @@ stream: {"item": {event_id, from_pubkey, from_slug, channel, body,
 Streams channel chat from the relay-event cache. Normal history reads truncate
 bodies past the fabric render limit and include `truncated=true`; exact
 `--id`/`id` reads fetch one event by id and return the full body without channel
-inference.
+inference (and without any channel resolution).
 
 ## `channel_send`
 
 ```jsonc
 params: {"message": "see [report]", "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "channel": "…"|null, "long_message": bool, ...}
+         "channel": "/workspace/child"|"@id-prefix"|null, "long_message": bool, ...}
 result: {"event_id": "hex", "channel": "channel-h", "mentioned_pubkeys": ["hex", ...],
          "mentioned_labels": ["agent", ...],
           "recipient_reminders": ["Reminder: @agent is suspended and will receive this message after manual resumption."]}
@@ -56,7 +65,9 @@ One blocking, agent-only read primitive backs both top-level `mosaico wait`
 and `channel send --wait`. Ambient waits capture the exact caller session's
 daemon-local message-arrival cursor and active-channel set before subscribing,
 then return the first new visible kind:9 row. Repeated explicit channels narrow
-that active set; `from` narrows the author.
+that active set; `from` narrows the author. Each entry of `channels` matches
+only within that already-joined set, by full path, `@<id-prefix>`, or raw
+`channel_h` — never by suffix.
 
 Correlated send waits start at the outbound message cursor and require the
 reply's native `e` tag to reference that event. Backend-management traffic and

@@ -1,10 +1,27 @@
 use super::*;
 
+#[derive(Debug)]
 pub(in crate::daemon::server) struct ChatTarget {
     pub channel_h: String,
     pub explicit: bool,
 }
 
+/// Resolve `--channel`/inferred destination for `channel send`/`channel read`.
+///
+/// An explicit reference must be a full absolute path (`/workspace/child`) or
+/// an `@<id-prefix>` — no bare relative names, no bare raw ids, and no
+/// exception for the caller's own channel. Resolution is GLOBAL (not scoped to
+/// the caller's own workspace). A reference that doesn't resolve is rejected
+/// with a list of what actually exists — nothing is ever created here. A
+/// reference that DOES resolve but the calling session hasn't joined is also
+/// rejected: sending/reading requires having joined first. (A session that
+/// wants to target its own current channel, including one whose relay
+/// metadata hasn't materialized yet and so isn't otherwise addressable, should
+/// simply omit `--channel` — see below.)
+///
+/// With no explicit reference, the destination is inferred from the
+/// session's already-joined channels (none -> its own channel; exactly one ->
+/// that one; several -> ambiguous, re-run explicitly).
 pub(in crate::daemon::server) fn resolve_chat_target(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
@@ -12,14 +29,18 @@ pub(in crate::daemon::server) fn resolve_chat_target(
     command: &str,
 ) -> Result<ChatTarget> {
     if let Some(reference) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(channel_h) = exact_current_channel(rec, reference) {
-            return Ok(ChatTarget {
-                channel_h,
-                explicit: true,
-            });
+        absolute::require_full_path("--channel", reference)?;
+        let channel_h = state.with_store(|s| resolve_chat_channel_ref(s, reference))?;
+        let joined = state.with_store(|s| {
+            s.has_session_route(&rec.pubkey, &channel_h)
+                .unwrap_or(false)
+        });
+        if !joined {
+            anyhow::bail!(
+                "this session hasn't joined channel {reference:?}; run \
+                 `mosaico channel join {reference}` first"
+            );
         }
-        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
-        let channel_h = state.with_store(|s| resolve_chat_channel_ref(s, &root, reference))?;
         return Ok(ChatTarget {
             channel_h,
             explicit: true,
@@ -57,61 +78,8 @@ Pass one explicitly:\n{}",
     }
 }
 
-/// Like [`resolve_chat_target`] but with `mkdir -p` semantics for an explicit
-/// `--channel` reference: when the channel-relative path does not exist yet,
-/// create the whole missing ancestor chain (not just the leaf) and target the
-/// leaf. The non-explicit (joined-channel inference) path is unchanged.
-pub(in crate::daemon::server) async fn resolve_chat_target_provisioning(
-    state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
-    explicit: Option<&str>,
-    command: &str,
-) -> Result<ChatTarget> {
-    if let Some(reference) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(channel_h) = exact_current_channel(rec, reference) {
-            return Ok(ChatTarget {
-                channel_h,
-                explicit: true,
-            });
-        }
-        let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
-        match state.with_store(|s| super::resolve_channel_ref(s, &root, reference)) {
-            super::ChannelResolution::Unique(channel_h) => {
-                return Ok(ChatTarget {
-                    channel_h,
-                    explicit: true,
-                });
-            }
-            super::ChannelResolution::Ambiguous(refs) => anyhow::bail!(
-                "channel reference {reference:?} is ambiguous; re-run with one of: {}",
-                refs.into_iter()
-                    .map(|r| format!("--channel {r}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            super::ChannelResolution::NotFound => {
-                // mkdir -p: provision the missing chain and target the leaf.
-                let channel_h = super::resolve_channel_path(state, &root, reference, true).await?;
-                return Ok(ChatTarget {
-                    channel_h,
-                    explicit: true,
-                });
-            }
-        }
-    }
-    resolve_chat_target(state, rec, None, command)
-}
-
-fn exact_current_channel(rec: &crate::state::Session, reference: &str) -> Option<String> {
-    (reference == rec.channel_h).then(|| rec.channel_h.clone())
-}
-
-fn resolve_chat_channel_ref(
-    store: &crate::state::Store,
-    root: &str,
-    reference: &str,
-) -> Result<String> {
-    match super::resolve_channel_ref(store, root, reference) {
+fn resolve_chat_channel_ref(store: &crate::state::Store, reference: &str) -> Result<String> {
+    match absolute::resolve_absolute_channel_ref(store, reference) {
         super::ChannelResolution::Unique(h) => Ok(h),
         super::ChannelResolution::Ambiguous(refs) => anyhow::bail!(
             "channel reference {reference:?} is ambiguous; re-run with one of: {}",
@@ -121,7 +89,7 @@ fn resolve_chat_channel_ref(
                 .join(", ")
         ),
         super::ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {reference:?} in this channel")
+            anyhow::bail!("{}", absolute::describe_missing_channel(store, reference))
         }
     }
 }
@@ -168,54 +136,106 @@ mod tests {
     }
 
     #[test]
-    fn explicit_chat_target_resolves_channel_relative_path() {
+    fn explicit_chat_target_resolves_absolute_path_and_id_selector_when_joined() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store
-            .upsert_channel("a1111111", "epic", "", "root", 1)
-            .unwrap();
-        store
-            .upsert_channel("b2222222", "planning", "", "a1111111", 1)
-            .unwrap();
-
-        let resolved = resolve_chat_channel_ref(&store, "root", "epic/planning").unwrap();
-        assert_eq!(resolved, "b2222222");
-    }
-
-    #[test]
-    fn explicit_chat_target_resolves_name_and_id_selector() {
-        let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
+        store.upsert_channel("root", "general", "", "", 1).unwrap();
         store
             .upsert_channel("abcd1234", "planning", "", "root", 1)
             .unwrap();
+        store.grant_session_route("pk", "abcd1234", 1).unwrap();
 
         assert_eq!(
-            resolve_chat_channel_ref(&store, "root", "planning").unwrap(),
+            resolve_chat_channel_ref(&store, "/root/planning").unwrap(),
             "abcd1234"
         );
         assert_eq!(
-            resolve_chat_channel_ref(&store, "root", "@abcd").unwrap(),
+            resolve_chat_channel_ref(&store, "@abcd").unwrap(),
             "abcd1234"
         );
     }
 
     #[tokio::test]
-    async fn exact_active_channel_id_resolves_before_relay_metadata_materializes() {
+    async fn explicit_chat_target_rejects_a_relative_reference() {
+        let state = DaemonState::new_for_test().await;
+        let rec = session("root");
+        let err = resolve_chat_target(&state, &rec, Some("planning"), "channel send")
+            .expect_err("a relative reference must be rejected");
+        assert!(
+            err.to_string().contains("must be a full path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_chat_target_rejects_an_unjoined_but_existing_channel() {
+        let state = DaemonState::new_for_test().await;
+        let rec = session("root");
+        state
+            .with_store(|s| s.upsert_channel("root", "root", "", "", 1))
+            .unwrap();
+        state
+            .with_store(|s| s.upsert_channel("other", "other", "", "", 1))
+            .unwrap();
+
+        let err = resolve_chat_target(&state, &rec, Some("/other"), "channel send")
+            .expect_err("an existing but un-joined channel must be rejected");
+        assert!(
+            err.to_string().contains("hasn't joined"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_chat_target_rejects_a_missing_path_with_suggestions() {
+        let state = DaemonState::new_for_test().await;
+        let rec = session("root");
+        state
+            .with_store(|s| s.upsert_channel("workspace", "general", "", "", 1))
+            .unwrap();
+        state
+            .with_store(|s| s.upsert_channel("h-alpha", "alpha", "", "workspace", 1))
+            .unwrap();
+
+        let err = resolve_chat_target(&state, &rec, Some("/workspace/test/hello"), "channel send")
+            .expect_err("a missing path must be rejected, not auto-created");
+        let message = err.to_string();
+        assert!(message.contains("no channel matching"), "{message}");
+        assert!(message.contains("/workspace/alpha"), "{message}");
+        assert!(
+            state
+                .with_store(|s| s.get_channel("test"))
+                .unwrap()
+                .is_none(),
+            "a rejected path must never be silently created"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bare_raw_id_is_rejected_even_when_it_is_the_callers_own_channel() {
+        // No exception for "it's my own channel": --channel is always a full
+        // path or @id, with zero leniency. Targeting one's own current
+        // (possibly not-yet-materialized) channel is done by omitting
+        // --channel entirely (see below), not by passing its raw id.
         let state = DaemonState::new_for_test().await;
         let rec = session("pending-channel-id");
 
-        let target = resolve_chat_target_provisioning(
-            &state,
-            &rec,
-            Some("pending-channel-id"),
-            "channel send",
-        )
-        .await
-        .unwrap();
+        let err = resolve_chat_target(&state, &rec, Some("pending-channel-id"), "channel send")
+            .expect_err("a bare raw id must be rejected");
+        assert!(
+            err.to_string().contains("must be a full path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn omitting_channel_still_targets_a_not_yet_materialized_own_channel() {
+        let state = DaemonState::new_for_test().await;
+        let rec = session("pending-channel-id");
+
+        let target = resolve_chat_target(&state, &rec, None, "channel send").unwrap();
 
         assert_eq!(target.channel_h, "pending-channel-id");
-        assert!(target.explicit);
+        assert!(!target.explicit);
         assert!(state
             .with_store(|store| store.get_channel("pending-channel-id"))
             .unwrap()

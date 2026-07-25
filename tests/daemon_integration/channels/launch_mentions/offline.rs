@@ -291,7 +291,7 @@ fn operator_kind9_to_stable_agent_starts_the_same_pubkey() {
             .call(
                 "channel_add_member",
                 serde_json::json!({
-                    "channel": channel,
+                    "channel": format!("/{channel}"),
                     "pubkey": stable_pubkey,
                     "cwd": work_dir,
                 }),

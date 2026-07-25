@@ -29,12 +29,16 @@ mosaico channel list --all-workspaces
 mosaico channel list --workspace <workspace>
 ```
 
-Join an existing cross-workspace channel using the channel ID returned by the
-workspace listing, then use that joined channel for focused coordination:
+Join an existing cross-workspace channel directly by its full path — any
+session can join any channel in any workspace, with no restriction based on
+which workspace it is currently running in — then use that joined channel for
+focused coordination. `channel send`/`channel read` require having joined
+first; an unresolved path is rejected with the channels that actually exist,
+never silently created:
 
 ```bash
-mosaico channel join <channel-id>
-mosaico channel send --channel <channel-id> --message "..."
+mosaico channel join /other-workspace/channel
+mosaico channel send --channel /other-workspace/channel --message "..."
 ```
 
 Prefer an existing agent whose context and ownership match the request. For a

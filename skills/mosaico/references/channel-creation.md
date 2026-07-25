@@ -33,7 +33,9 @@ closely while adjacent work stays legible.
 ## Place It In The Hierarchy
 
 Create the channel beneath the closest parent that owns its broader outcome.
-`mosaico channel create` uses the current active channel as that parent.
+`mosaico channel create <full-path>` takes the new channel's complete absolute
+path — the parent chain (every segment but the last) must already exist;
+`create` mints only the final segment.
 
 Use parent channels for broad awareness, integration, cross-cutting questions,
 and updates that affect adjacent work. Use child channels for the detailed
@@ -43,9 +45,12 @@ Choose a durable topic name and a short stable `--about` description. Treat the
 name and description as shared orientation for future participants.
 
 Canonical channel IDs are absolute slash paths: `/<workspace>` is the root and
-`/<workspace>/<child>` addresses a descendant. Commands also accept a
-slash-separated path relative to the current workspace, such as
-`research/synthesis`. Dotted paths are not aliases.
+`/<workspace>/<child>` addresses a descendant. Dotted paths are not aliases.
+Every channel argument across the CLI (`send`, `read`, `join`, `switch`,
+`leave`, `archive`, `edit`, `add`, `create`) requires this full path — there is
+no bare relative name and no fuzzy matching. Resolution is global: any session
+can address any workspace's channel this way, regardless of which workspace it
+is currently running in.
 
 ## Seed The Channel
 
@@ -81,6 +86,12 @@ useful synthesis to the channel that owns the outcome.
 
 ## Commands
 
+Every channel argument below is a full absolute path (`/workspace/child`) or
+`@<id-prefix>` — never a bare relative name. A path that doesn't resolve is
+rejected with the channels that actually exist, never silently created; join
+is unrestricted (any session may join any channel in any workspace), but
+`channel send`/`channel read` additionally require having joined first.
+
 Inspect the available hierarchy:
 
 ```bash
@@ -88,10 +99,12 @@ mosaico channel list
 mosaico channel list --workspace <workspace>
 ```
 
-Join for passive context:
+Join for passive context. Joining still mints missing descendants under an
+EXISTING workspace ("intent to be there"); an unknown workspace is always
+rejected, never auto-created:
 
 ```bash
-mosaico channel join <channel>
+mosaico channel join /workspace/child
 ```
 
 Add a human or bring an existing session into a channel when its participation
@@ -99,14 +112,15 @@ is needed. Do not use `channel add` to start a new agent; use `dispatch` for
 that.
 
 ```bash
-mosaico channel add <pubkey-or-npub-or-nip05> <channel>
-mosaico channel add --session <session-handle> <channel>
+mosaico channel add <pubkey-or-npub-or-nip05> /workspace/child
+mosaico channel add --session <session-handle> /workspace/child
 ```
 
-Create and focus a child beneath the current channel:
+Create and focus a child; the parent (everything but the last segment) must
+already exist:
 
 ```bash
-mosaico channel create <relative/slash-path> --about "short stable description"
+mosaico channel create /workspace/epic/child --about "short stable description"
 ```
 
 When Mosaico injects a channel-topology nudge for an ongoing conversation, an
@@ -129,13 +143,13 @@ automatic message in the child.
 Maintain a channel's durable metadata only when you own that decision:
 
 ```bash
-mosaico channel edit <channel> --about "revised stable description"
-mosaico channel leave <channel>
+mosaico channel edit /workspace/child --about "revised stable description"
+mosaico channel leave /workspace/child
 ```
 
-`channel archive <channel>` marks the channel archived and removes every
-non-admin member. Treat it as destructive: require explicit authority and post
-or preserve any necessary handoff before using it.
+`channel archive /workspace/child` marks the channel archived and removes
+every non-admin member. Treat it as destructive: require explicit authority
+and post or preserve any necessary handoff before using it.
 
 `channel init` registers the current non-git directory as a workspace. Use it
 only when the directory genuinely needs a durable workspace binding; do not use
@@ -146,7 +160,7 @@ and filesystem access.
 Send an update to a specific joined channel:
 
 ```bash
-mosaico channel send --channel <channel> --message "..."
+mosaico channel send --channel /workspace/child --message "..."
 ```
 
 For channels in another workspace, read

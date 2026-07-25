@@ -43,8 +43,11 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
 
         // Session readiness is asynchronous. An immediate send to the exact
         // current channel must join that readiness work, never reinterpret the
-        // channel id as a human name and mint a second subgroup.
-        let sent = client
+        // channel id as a human name and mint a second subgroup. The channel is
+        // targeted by OMITTING `--channel`: a raw `h` is no longer an accepted
+        // reference, and the not-yet-materialized own channel is exactly the
+        // case the implicit destination exists for.
+        let bare_id = client
             .call(
                 "channel_send",
                 serde_json::json!({
@@ -54,7 +57,22 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 }),
             )
             .await
+            .expect_err("a bare raw channel id must be rejected");
+        assert!(
+            bare_id.to_string().contains("must be a full path"),
+            "{bare_id:#}"
+        );
+        let sent = client
+            .call(
+                "channel_send",
+                serde_json::json!({
+                    "session": &first,
+                    "message": "durable signer check",
+                }),
+            )
+            .await
             .expect("send as durable agent");
+        assert_eq!(sent["channel"].as_str(), Some(channel.as_str()));
         let chat_event_id = sent["event_id"].as_str().unwrap().to_string();
 
         let isolated_home = home.dir.path().to_string_lossy().into_owned();

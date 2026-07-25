@@ -1,4 +1,4 @@
-use super::channel_resolve::{resolve_channel_ref, root_channel, ChannelResolution};
+use super::channel_resolve::{absolute, ChannelResolution};
 use super::resolution::work_root_for;
 use super::*;
 use crate::domain::{AgentRef, ChatMessage};
@@ -172,21 +172,22 @@ async fn kill_session(state: &Arc<DaemonState>, selector: &str) -> Result<String
 
 async fn archive_named_channel(
     state: &Arc<DaemonState>,
-    command_channel: &str,
+    _command_channel: &str,
     channel_ref: &str,
 ) -> Result<String> {
-    let target = state.with_store(|s| {
-        let root = root_channel(s, command_channel)?;
-        match resolve_channel_ref(s, &root, channel_ref) {
-            ChannelResolution::Unique(h) => Ok(h),
-            ChannelResolution::Ambiguous(refs) => {
-                anyhow::bail!("channel {channel_ref:?} is ambiguous: {}", refs.join(", "))
-            }
-            ChannelResolution::NotFound => {
-                anyhow::bail!("no channel matching {channel_ref:?}")
-            }
-        }
-    })?;
+    absolute::require_full_path("channel", channel_ref)?;
+    let target =
+        state.with_store(
+            |s| match absolute::resolve_absolute_channel_ref(s, channel_ref) {
+                ChannelResolution::Unique(h) => Ok(h),
+                ChannelResolution::Ambiguous(refs) => {
+                    anyhow::bail!("channel {channel_ref:?} is ambiguous: {}", refs.join(", "))
+                }
+                ChannelResolution::NotFound => {
+                    anyhow::bail!("{}", absolute::describe_missing_channel(s, channel_ref))
+                }
+            },
+        )?;
     let label = channel_label(state, &target);
     let out = super::channels_rpc::archive_channel(state, &target).await?;
     let removed = out

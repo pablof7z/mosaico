@@ -28,19 +28,16 @@ pub(in crate::daemon::server) fn resolve_caller(
     .with_context(|| format!("{verb} must be run from within a mosaico agent session"))
 }
 
-/// Resolve `reference` in the caller's channel subtree, returning the channel
-/// root alongside the resolution so callers can decide what to do with a miss.
-fn resolve_ref_in_channel(
-    state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
-    reference: &str,
-) -> Result<(String, super::ChannelResolution)> {
-    if reference.trim().is_empty() {
-        anyhow::bail!("channel h must not be empty");
+/// A channel argument must be a full absolute path (`/workspace/child`) or an
+/// `@<id-prefix>` — never a bare relative name. Checked before resolving so
+/// the error names the actual problem instead of falling through to NotFound.
+fn require_full_path(reference: &str) -> Result<&str> {
+    let reference = reference.trim();
+    if reference.is_empty() {
+        anyhow::bail!("channel must not be empty");
     }
-    let root = state.with_store(|s| super::root_channel(s, &rec.channel_h))?;
-    let resolution = state.with_store(|s| super::resolve_channel_ref(s, &root, reference));
-    Ok((root, resolution))
+    absolute::require_full_path("channel", reference)?;
+    Ok(reference)
 }
 
 fn ambiguous(refs: Vec<String>, reference: &str) -> TargetChannel {
@@ -49,34 +46,59 @@ fn ambiguous(refs: Vec<String>, reference: &str) -> TargetChannel {
 
 pub(in crate::daemon::server) fn resolve_target_channel(
     state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
     reference: &str,
 ) -> Result<TargetChannel> {
-    match resolve_ref_in_channel(state, rec, reference)? {
-        (_, super::ChannelResolution::Unique(h)) => Ok(TargetChannel::Unique(h)),
-        (_, super::ChannelResolution::Ambiguous(refs)) => Ok(ambiguous(refs, reference)),
-        (_, super::ChannelResolution::NotFound) => {
-            anyhow::bail!("no channel matching {reference:?} in this channel")
+    let reference = require_full_path(reference)?;
+    match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, reference)) {
+        super::ChannelResolution::Unique(h) => Ok(TargetChannel::Unique(h)),
+        super::ChannelResolution::Ambiguous(refs) => Ok(ambiguous(refs, reference)),
+        super::ChannelResolution::NotFound => {
+            anyhow::bail!(
+                "{}",
+                state.with_store(|s| absolute::describe_missing_channel(s, reference))
+            )
         }
     }
 }
 
-/// Like [`resolve_target_channel`] but with `mkdir -p` semantics: when the
-/// reference names a channel-relative path that does not exist yet, create the
-/// whole missing ancestor chain (not just the leaf) and target the leaf. Used by
-/// `join`/`switch`, which are intent-to-be-there gestures; `leave`/`archive` keep
-/// the non-creating [`resolve_target_channel`].
+/// Like [`resolve_target_channel`] but with `mkdir -p` semantics for the
+/// segments AFTER the workspace: when the reference names a channel under an
+/// EXISTING workspace that doesn't exist yet, create the whole missing
+/// descendant chain (not just the leaf) and target the leaf. Used by
+/// `join`/`switch`, which are intent-to-be-there gestures; `leave`/`archive`
+/// keep the non-creating [`resolve_target_channel`]. The workspace itself is
+/// never auto-created — an unknown workspace is always a hard rejection with
+/// suggestions (workspaces come only from `channel init`/directory binding).
 pub(in crate::daemon::server) async fn resolve_or_create_target_channel(
     state: &Arc<DaemonState>,
-    rec: &crate::state::Session,
     reference: &str,
 ) -> Result<TargetChannel> {
-    match resolve_ref_in_channel(state, rec, reference)? {
-        (_, super::ChannelResolution::Unique(h)) => Ok(TargetChannel::Unique(h)),
-        (_, super::ChannelResolution::Ambiguous(refs)) => Ok(ambiguous(refs, reference)),
-        (root, super::ChannelResolution::NotFound) => Ok(TargetChannel::Unique(
-            super::resolve_channel_path(state, &root, reference, true).await?,
-        )),
+    let reference = require_full_path(reference)?;
+    match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, reference)) {
+        super::ChannelResolution::Unique(h) => Ok(TargetChannel::Unique(h)),
+        super::ChannelResolution::Ambiguous(refs) => Ok(ambiguous(refs, reference)),
+        super::ChannelResolution::NotFound => {
+            let Some((workspace_slug, rest)) = absolute::split_workspace_and_rest(reference) else {
+                anyhow::bail!(
+                    "{}",
+                    state.with_store(|s| absolute::describe_missing_channel(s, reference))
+                );
+            };
+            let Some(workspace_h) =
+                state.with_store(|s| absolute::root_channel_by_slug(s, &workspace_slug))
+            else {
+                anyhow::bail!(
+                    "{}",
+                    state.with_store(|s| absolute::describe_missing_channel(s, reference))
+                );
+            };
+            if rest.is_empty() {
+                return Ok(TargetChannel::Unique(workspace_h));
+            }
+            let channel_h =
+                super::resolve_channel_path(state, &workspace_h, &rest.join("/"), true).await?;
+            Ok(TargetChannel::Unique(channel_h))
+        }
     }
 }
 
@@ -100,7 +122,7 @@ pub(in crate::daemon::server) async fn ensure_joinable(
         }
     });
     if !is_member {
-        // Auto-add the agent via the management key — join/switch should be
+        // Auto-add the agent via the management key — joining should be
         // transparent; an agent targeting a channel it isn't yet a member of
         // simply gets added silently rather than hitting an access error.
         let added = state
@@ -142,7 +164,7 @@ pub(in crate::daemon::server) async fn rpc_channel_join(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_join params")?;
     let rec = resolve_caller(state, params, "channel join")?;
-    let channel = match resolve_or_create_target_channel(state, &rec, &p.channel).await? {
+    let channel = match resolve_or_create_target_channel(state, &p.channel).await? {
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };
@@ -171,7 +193,7 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_leave params")?;
     let rec = resolve_caller(state, params, "channel leave")?;
-    let channel = match resolve_target_channel(state, &rec, &p.channel)? {
+    let channel = match resolve_target_channel(state, &p.channel)? {
         TargetChannel::Unique(h) => h,
         TargetChannel::Ambiguous(v) => return Ok(v),
     };

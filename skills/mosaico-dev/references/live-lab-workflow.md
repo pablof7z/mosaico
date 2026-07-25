@@ -186,7 +186,7 @@ harness-suffixed targets and persist the chosen binding.
 The supported mention surface uses structured tags:
 
 ```bash
-mosaico channel send --channel <channel> --tag <session-handle> \
+mosaico channel send --channel /<workspace>/<child> --tag <session-handle> \
   --message "Run mosaico my session."
 ```
 

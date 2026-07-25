@@ -73,8 +73,11 @@ fn channel_edit_updates_about_from_relay_truth() {
     stop_daemon(&home);
 }
 
+/// Under full-path addressing a bare name is not a reference at all, and a
+/// well-formed absolute path names exactly one channel. Only an `@<id-prefix>`
+/// can still be ambiguous — and its reruns are exact opaque-id selectors.
 #[test]
-fn channel_edit_ambiguous_reference_returns_exact_reruns() {
+fn channel_edit_rejects_bare_names_and_disambiguates_id_prefixes() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
@@ -114,7 +117,7 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         .unwrap();
     Store::open(&home.store_path())
         .unwrap()
-        .upsert_channel("h-direct", "planning", "", &actual_root, 1)
+        .upsert_channel("h-plan-direct", "planning", "", &actual_root, 1)
         .unwrap();
     Store::open(&home.store_path())
         .unwrap()
@@ -122,32 +125,53 @@ fn channel_edit_ambiguous_reference_returns_exact_reruns() {
         .unwrap();
     Store::open(&home.store_path())
         .unwrap()
-        .upsert_channel("h-nested", "planning", "", "h-epic", 1)
+        .upsert_channel("h-plan-nested", "planning", "", "h-epic", 1)
         .unwrap();
 
-    let v = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "channel_edit",
-            serde_json::json!({
-                "channel": "planning",
-                "about": "new about",
-                "harness": "claude-code",
-                "watch_pid": watch_pid,
-                "agent": "coder",
-                "cwd": "/tmp"
-            }),
-        )
-        .await
-        .expect("ambiguous edit returns structured reruns")
-    });
+    let edit = |reference: String| {
+        rt().block_on(async move {
+            let mut c = Client::connect_or_spawn().await.expect("connect");
+            c.call(
+                "channel_edit",
+                serde_json::json!({
+                    "channel": reference,
+                    "about": "new about",
+                    "harness": "claude-code",
+                    "watch_pid": watch_pid,
+                    "agent": "coder",
+                    "cwd": "/tmp"
+                }),
+            )
+            .await
+        })
+    };
 
+    // A bare name resolves nothing now — it is rejected before any lookup.
+    let bare = edit("planning".to_string()).expect_err("a bare name must be rejected");
+    assert!(bare.to_string().contains("must be a full path"), "{bare:#}");
+
+    // An `@<id-prefix>` matching several channels returns exact `@id` reruns.
+    let v = edit("@h-plan-".to_string()).expect("ambiguous edit returns structured reruns");
     let refs = v["ambiguous"].as_array().expect("ambiguous refs");
-    assert_eq!(refs.len(), 2);
-    let direct = format!("/{actual_root}/planning");
-    let nested = format!("/{actual_root}/epic/planning");
-    assert!(refs.iter().any(|v| v.as_str() == Some(direct.as_str())));
-    assert!(refs.iter().any(|v| v.as_str() == Some(nested.as_str())));
+    assert_eq!(refs.len(), 2, "{v}");
+    assert!(refs.iter().any(|v| v.as_str() == Some("@h-plan-direct")));
+    assert!(refs.iter().any(|v| v.as_str() == Some("@h-plan-nested")));
+
+    // Both same-named channels stay individually addressable by full path, and
+    // neither path is ever ambiguous.
+    for path in [
+        format!("/{actual_root}/planning"),
+        format!("/{actual_root}/epic/planning"),
+    ] {
+        let rendered = match edit(path.clone()) {
+            Ok(v) => v.to_string(),
+            Err(e) => format!("{e:#}"),
+        };
+        assert!(
+            !rendered.contains("ambiguous"),
+            "{path} must name exactly one channel: {rendered}"
+        );
+    }
 
     stop_daemon(&home);
 }

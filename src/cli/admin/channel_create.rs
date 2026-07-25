@@ -45,32 +45,24 @@ struct CreateTarget {
 
 fn create_target(path: &str) -> Result<CreateTarget> {
     let path = path.trim();
-    if path.is_empty() || path.contains('.') || path.ends_with('/') || path.contains("//") {
-        anyhow::bail!("channel create <path> requires a relative slash path or /workspace/child");
+    if !path.starts_with('/') || path.contains('.') || path.ends_with('/') || path.contains("//") {
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
     }
-    let absolute = path.starts_with('/');
-    let segments: Vec<&str> = path
-        .strip_prefix('/')
-        .unwrap_or(path)
-        .split('/')
-        .map(str::trim)
-        .collect();
+    let segments: Vec<&str> = path[1..].split('/').map(str::trim).collect();
     if segments.iter().any(|segment| segment.is_empty()) {
-        anyhow::bail!("channel create <path> requires a relative slash path or /workspace/child");
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
     }
     let Some(name) = segments.last() else {
         anyhow::bail!("channel create <path> requires a non-empty path");
     };
-    let parent_channel = (segments.len() > 1).then(|| {
-        let parent = segments[..segments.len() - 1].join("/");
-        if absolute {
-            format!("/{parent}")
-        } else {
-            parent
-        }
-    });
+    let Some(parent_segments) = segments.get(..segments.len() - 1).filter(|s| !s.is_empty()) else {
+        anyhow::bail!(
+            "channel create <path> needs a parent, e.g. /workspace/{name}; the workspace itself \
+             comes from `channel init`, not `channel create`"
+        );
+    };
     Ok(CreateTarget {
-        parent_channel,
+        parent_channel: Some(format!("/{}", parent_segments.join("/"))),
         name: (*name).to_string(),
     })
 }
@@ -140,32 +132,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn create_target_splits_leaf_from_parent_path() {
-        let target = create_target("epic/planning").unwrap();
-        assert_eq!(target.parent_channel.as_deref(), Some("epic"));
+    fn create_target_splits_leaf_from_absolute_parent_path() {
+        let target = create_target("/workspace/epic/planning").unwrap();
+        assert_eq!(target.parent_channel.as_deref(), Some("/workspace/epic"));
         assert_eq!(target.name, "planning");
     }
 
     #[test]
-    fn create_target_accepts_slash_paths() {
-        let target = create_target("epic/planning/research").unwrap();
-        assert_eq!(target.parent_channel.as_deref(), Some("epic/planning"));
+    fn create_target_accepts_deeper_absolute_paths() {
+        let target = create_target("/workspace/epic/planning/research").unwrap();
+        assert_eq!(
+            target.parent_channel.as_deref(),
+            Some("/workspace/epic/planning")
+        );
         assert_eq!(target.name, "research");
     }
 
     #[test]
-    fn create_target_preserves_absolute_parent_path() {
-        let target = create_target("/workspace/epic/research").unwrap();
-        assert_eq!(target.parent_channel.as_deref(), Some("/workspace/epic"));
-        assert_eq!(target.name, "research");
+    fn create_target_rejects_relative_paths() {
+        let error = match create_target("epic/planning") {
+            Ok(_) => panic!("a relative path must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("full absolute path"));
+    }
+
+    #[test]
+    fn create_target_rejects_a_bare_workspace_with_no_parent() {
+        let error = match create_target("/workspace") {
+            Ok(_) => panic!("a bare workspace path has no parent to create under"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("channel init"));
     }
 
     #[test]
     fn create_target_rejects_dotted_paths() {
-        let error = match create_target("epic.planning") {
+        let error = match create_target("/workspace/epic.planning") {
             Ok(_) => panic!("dotted path must be rejected"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("slash path"));
+        assert!(error.to_string().contains("full absolute path"));
     }
 }

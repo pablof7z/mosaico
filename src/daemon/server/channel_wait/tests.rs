@@ -75,11 +75,15 @@ async fn no_channel_uses_all_active_channels_and_explicit_channels_narrow() {
         ["x", "y"]
     );
     assert_eq!(
-        resolve_active_scopes(&state, &rec, &["y".into()]).unwrap(),
+        resolve_active_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
         ["y"]
     );
-    let error = resolve_active_scopes(&state, &rec, &["z".into()]).unwrap_err();
+    let error = resolve_active_scopes(&state, &rec, &["/root/z".into()]).unwrap_err();
     assert!(error.to_string().contains("not active on channel"));
+    // A bare opaque id is not an accepted reference form, even though "y" is
+    // the literal channel_h of /root/y in this fixture.
+    let bare = resolve_active_scopes(&state, &rec, &["y".into()]).unwrap_err();
+    assert!(bare.to_string().contains("not active on channel"));
 }
 
 #[tokio::test]
@@ -99,10 +103,15 @@ async fn explicit_channel_filters_resolve_across_every_active_workspace() {
         resolve_active_scopes(&state, &rec, &["/other/y".into()]).unwrap(),
         ["other-y"]
     );
-    let error = resolve_active_scopes(&state, &rec, &["y".into()]).unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("ambiguous among active channels"));
+    assert_eq!(
+        resolve_active_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
+        ["y"]
+    );
+    // Two active channels are named "y" (/root/y and /other/y), and "y" is
+    // also the literal channel_h of the first. A bare id disambiguates
+    // neither, so it is rejected outright rather than silently picking one.
+    let bare = resolve_active_scopes(&state, &rec, &["y".into()]).unwrap_err();
+    assert!(bare.to_string().contains("not active on channel"));
 }
 
 #[tokio::test]
@@ -239,7 +248,7 @@ async fn timeout_is_a_normal_structured_outcome() {
         &serde_json::json!({
             "session": SELF_PUBKEY,
             "timeout_secs": 1,
-            "channels": ["x"],
+            "channels": ["/root/x"],
         }),
     )
     .await

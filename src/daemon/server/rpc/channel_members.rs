@@ -65,8 +65,8 @@ pub async fn rpc_channel_members(
 }
 
 /// `channel add <pubkey|npub|nip05> <channel> [--admin]` — add a human member to
-/// a channel. Resolves the channel-relative reference to its opaque `h`,
-/// ensures the channel is ready (management is admin), then publishes an explicit
+/// a channel. Resolves the full-path (or `@id`) reference globally to its
+/// opaque `h`, ensures the channel is ready (management is admin), then publishes an explicit
 /// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), read
 /// back for confirmation.
 pub async fn rpc_channel_add_member(
@@ -88,7 +88,10 @@ pub async fn rpc_channel_add_member(
             return Ok(serde_json::json!({ "ambiguous": refs, "reference": p.channel }));
         }
         ChannelResolution::NotFound => {
-            anyhow::bail!("no channel matching {:?} in this channel tree", p.channel)
+            anyhow::bail!(
+                "{}",
+                state.with_store(|s| absolute::describe_missing_channel(s, &p.channel))
+            )
         }
     };
 
@@ -154,29 +157,29 @@ pub async fn rpc_channel_add_member(
     }))
 }
 
-/// Resolve a channel-relative reference for `channel add`, from the caller's
-/// session anchor when present, else from the invoking directory (a human
-/// running the verb from a workspace checkout). An exact `h` passes through.
+/// Resolve a full-path (or `@id`) reference for `channel add`, globally —
+/// not scoped to the caller's workspace. Still requires a resolvable caller
+/// context (session anchor, else the invoking directory) as a precondition.
 fn resolve_add_channel(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
     reference: &str,
 ) -> Result<ChannelResolution> {
     let anchor = CallerAnchor::from_params(params);
-    let root = match resolve_session_inner(state, &anchor, ResolveScope::Strict) {
-        Ok(rec) => state.with_store(|s| root_channel(s, &rec.channel_h))?,
-        Err(_) => {
-            let cwd = params
-                .get("cwd")
-                .and_then(serde_json::Value::as_str)
-                .filter(|cwd| !cwd.is_empty())
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            crate::daemon::workspace_path::channel_for_path(&cwd)
-                .context("channel add must run inside an agent session or workspace directory")?
-        }
-    };
-    Ok(state.with_store(|s| resolve_channel_ref(s, &root, reference)))
+    // Resolution below is global (not scoped to a caller workspace), but
+    // channel add still requires a resolvable caller context.
+    if resolve_session_inner(state, &anchor, ResolveScope::Strict).is_err() {
+        let cwd = params
+            .get("cwd")
+            .and_then(serde_json::Value::as_str)
+            .filter(|cwd| !cwd.is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        crate::daemon::workspace_path::channel_for_path(&cwd)
+            .context("channel add must run inside an agent session or workspace directory")?;
+    }
+    absolute::require_full_path("channel", reference)?;
+    Ok(state.with_store(|s| absolute::resolve_absolute_channel_ref(s, reference)))
 }
 
 // ── channel_remove_member ─────────────────────────────────────────────────────
