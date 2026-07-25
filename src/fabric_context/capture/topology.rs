@@ -34,8 +34,25 @@ pub(super) fn capture(store: &Store) -> anyhow::Result<(Vec<HostCap>, Vec<Worksp
 
     let mut channels_by_root = BTreeMap::<String, Vec<ChannelCap>>::new();
     for channel in &channels {
-        let root = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .root_for_channel(&channel.channel_h)?;
+        // A channel whose parent metadata has not arrived yet cannot be placed
+        // under a root. That is an ordinary transient — you are a member of a
+        // child but not of its parent, so the parent's kind:39000 never lands —
+        // and it must not take the whole topology down with it. Skip the one
+        // channel; it appears once its ancestry resolves.
+        let root = match crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .root_for_channel(&channel.channel_h)
+        {
+            Ok(root) => root,
+            Err(error) => {
+                tracing::debug!(
+                    channel = %channel.channel_h,
+                    parent = %channel.parent,
+                    error = %error,
+                    "topology: skipping channel with unresolved ancestry"
+                );
+                continue;
+            }
+        };
         channels_by_root.entry(root).or_default().push(ChannelCap {
             h: channel.channel_h.clone(),
             name: if channel.parent.is_empty() {

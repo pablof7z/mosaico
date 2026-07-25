@@ -118,3 +118,37 @@ fn opening_tag<'a>(xml: &'a str, id: &str) -> &'a str {
     let end = xml[id_at..].find('>').expect("channel end") + id_at + 1;
     &xml[start..end]
 }
+
+/// A channel whose parent's kind:39000 has not arrived yet is an ordinary
+/// transient: you are a member of the child but not of the parent, so the
+/// parent row never lands locally. It must not take the whole fabric context
+/// down with it — the awareness surface is supposed to degrade, never block.
+#[test]
+fn a_channel_with_an_unarrived_parent_does_not_sink_the_whole_topology() {
+    let store = seed_store();
+    store
+        .upsert_channel("orphan", "backlog", "", "never-arrived", 1)
+        .unwrap();
+    store
+        .replace_channel_members("orphan", &[SELF_PK.into()], 1)
+        .unwrap();
+
+    let rec = session(&store);
+    let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true))
+        .expect("an unplaceable channel must not fail the capture");
+
+    // The healthy topology still renders in full...
+    assert!(
+        xml.contains("<channel name=\"root\" id=\"/root\""),
+        "root channel missing: {xml}"
+    );
+    assert!(
+        xml.contains("<channel name=\"task\" id=\"/root/task\""),
+        "task channel missing: {xml}"
+    );
+    // ...and the unplaceable channel is simply absent, not fatal.
+    assert!(
+        !xml.contains("backlog"),
+        "orphan should be withheld until its ancestry resolves: {xml}"
+    );
+}
