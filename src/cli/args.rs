@@ -161,7 +161,7 @@ pub(super) enum Cmd {
     /// Configure Mosaico and install selected agent-harness integrations.
     #[command(hide = true)]
     Setup(SetupArgs),
-    /// Remove Mosaico-owned integrations and optionally delete local state.
+    /// Remove all integrations, or only one named harness integration.
     #[command(hide = true)]
     Uninstall(UninstallArgs),
     /// Manage the per-machine daemon.

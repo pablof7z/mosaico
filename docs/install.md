@@ -36,6 +36,31 @@ $ mosaico setup --status
 $ mosaico doctor
 ```
 
+## Shell wrappers
+
+Setup can optionally route a native harness command through Mosaico, so typing
+`codex` starts a Mosaico-tracked Codex session instead of a bare one. Interactive
+setup offers this per selected harness; press `w` in the harness step of the
+first-run wizard. Non-interactively, name the harnesses to wrap:
+
+```console
+$ mosaico setup --harness codex,claude-code --wrap codex --dry-run
+```
+
+A wrapper is a single alias inside one delimited block Mosaico owns in your shell
+profile (`~/.zshrc`, `~/.bashrc`, `~/.profile`, or `~/.config/fish/config.fish`):
+
+```sh
+# >>> mosaico harness wrappers >>>
+# Managed by `mosaico setup`; rerun setup to change this list.
+alias codex="mosaico codex --"
+# <<< mosaico harness wrappers <<<
+```
+
+The trailing `--` forwards native arguments, so `codex --model o3` still reaches
+Codex. Rerunning setup rewrites only the block: everything else in the profile is
+preserved, and a hand-edited or duplicated marker pair aborts before any write.
+
 ## Source-build fallback
 
 Building Mosaico requires stable Rust and Git. Croissant is a separate
@@ -54,11 +79,22 @@ Without `just`, run `cargo build --release` and copy
 ## Uninstall
 
 ```console
+$ mosaico uninstall codex --dry-run
+$ mosaico uninstall codex
+```
+
+Naming one harness removes only that integration and its shell wrapper. The
+runtime skill, the daemon, other harnesses' hooks and wrappers, and
+`MOSAICO_HOME` are all left in place. An unknown harness name fails before
+anything is written, and `--purge-state` is rejected for a scoped uninstall.
+
+```console
 $ mosaico uninstall
 ```
 
-The command removes Mosaico-owned hooks, plugins, and runtime skills from every
-supported harness and stops only the Mosaico daemon. It does not stop or delete
+The bare command removes Mosaico-owned hooks, plugins, wrappers, and runtime
+skills from every supported harness and stops only the Mosaico daemon. It does
+not stop or delete
 an external relay. It preserves `MOSAICO_HOME` by default and separately offers
 to delete its device identity, trust, sessions, and logs after showing the exact
 path and warning that removal is irreversible. The executable remains installed

@@ -23,6 +23,31 @@ fn purge_requires_a_separate_yes_flag_non_interactively() {
 }
 
 #[test]
+fn one_harness_is_a_positional_scoped_uninstall_target() {
+    let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "uninstall", "codex", "--dry-run"])
+        .unwrap();
+    let Some(crate::cli::args::Cmd::Uninstall(args)) = cli.cmd else {
+        panic!("expected uninstall command");
+    };
+    assert_eq!(args.harness.as_deref(), Some("codex"));
+    assert!(args.dry_run);
+}
+
+#[test]
+fn scoped_uninstall_cannot_purge_shared_state() {
+    let error = crate::cli::args::Cli::try_parse_from([
+        "mosaico",
+        "uninstall",
+        "codex",
+        "--purge-state",
+        "--yes",
+    ])
+    .err()
+    .expect("scoped purge must conflict");
+    assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
+#[test]
 fn refuses_broad_or_relative_state_paths() {
     assert!(validate_state_home(Path::new("/")).is_err());
     assert!(validate_state_home(&std::env::temp_dir()).is_err());

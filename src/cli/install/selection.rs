@@ -7,6 +7,9 @@ use std::io::{self, IsTerminal as _};
 pub(super) struct InstallSelection<'a> {
     pub skill: bool,
     pub harnesses: Vec<&'a Harness>,
+    /// `Some` means synchronize the managed shell block to this exact set.
+    /// `None` leaves shell profiles untouched.
+    pub wrappers: Option<Vec<&'a Harness>>,
 }
 
 pub(super) fn preflight_selection(selected: &InstallSelection<'_>) -> Result<()> {
@@ -38,6 +41,9 @@ pub(super) fn preflight_selection(selected: &InstallSelection<'_>) -> Result<()>
             }
         }
     }
+    if selected.wrappers.is_some() {
+        super::shell::preflight_current_profile()?;
+    }
     Ok(())
 }
 
@@ -46,44 +52,48 @@ pub(super) fn resolve_selection<'a>(
     opts: &InstallOpts,
 ) -> Result<InstallSelection<'a>> {
     if opts.uninstall {
+        let harnesses = match opts.harness.as_deref() {
+            Some(id) => select_ids(all, id)?,
+            None => all.iter().collect(),
+        };
         return Ok(InstallSelection {
-            skill: true,
-            harnesses: all.iter().collect(),
+            skill: opts.harness.is_none(),
+            harnesses,
+            wrappers: None,
         });
     }
-    if let Some(ids) = &opts.harness {
-        let wanted = ids
-            .split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        let unknown = wanted
-            .iter()
-            .copied()
-            .filter(|id| !all.iter().any(|harness| harness.id == *id))
-            .collect::<Vec<_>>();
-        if !unknown.is_empty() {
-            bail!(
-                "unknown harness id(s): {}. Known: {}",
-                unknown.join(", "),
-                all.iter()
-                    .map(|harness| harness.id)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+    if opts.harness.is_some() || opts.wrap.is_some() {
+        let selected_ids = opts.harness.as_deref().or(opts.wrap.as_deref()).unwrap();
+        let harnesses = select_ids(all, selected_ids)?;
+        let wrappers = opts
+            .wrap
+            .as_deref()
+            .map(|ids| select_ids(all, ids))
+            .transpose()?;
+        if let Some(wrappers) = wrappers.as_ref() {
+            let outside = wrappers
+                .iter()
+                .filter(|wrapper| !harnesses.iter().any(|harness| harness.id == wrapper.id))
+                .map(|wrapper| wrapper.id)
+                .collect::<Vec<_>>();
+            if !outside.is_empty() {
+                bail!(
+                    "wrapped harnesses must also be selected for setup: {}",
+                    outside.join(", ")
+                );
+            }
         }
         return Ok(InstallSelection {
             skill: true,
-            harnesses: all
-                .iter()
-                .filter(|harness| wanted.contains(&harness.id))
-                .collect(),
+            harnesses,
+            wrappers,
         });
     }
     if opts.all {
         return Ok(InstallSelection {
             skill: true,
             harnesses: all.iter().filter(|harness| harness.detected).collect(),
+            wrappers: None,
         });
     }
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
@@ -93,7 +103,35 @@ pub(super) fn resolve_selection<'a>(
     Ok(InstallSelection {
         skill: true,
         harnesses: Vec::new(),
+        wrappers: None,
     })
+}
+
+fn select_ids<'a>(all: &'a [Harness], ids: &str) -> Result<Vec<&'a Harness>> {
+    let wanted = ids
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    let unknown = wanted
+        .iter()
+        .copied()
+        .filter(|id| !all.iter().any(|harness| harness.id == *id))
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        bail!(
+            "unknown harness id(s): {}. Known: {}",
+            unknown.join(", "),
+            all.iter()
+                .map(|harness| harness.id)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    Ok(all
+        .iter()
+        .filter(|harness| wanted.contains(&harness.id))
+        .collect())
 }
 
 pub(super) fn detected_list(all: &[Harness]) -> String {
@@ -137,13 +175,54 @@ fn interactive_select(all: &[Harness]) -> Result<InstallSelection<'_>> {
         .items(&labels)
         .defaults(&defaults)
         .interact()?;
+    let skill = chosen.contains(&0);
+    let harnesses = chosen
+        .into_iter()
+        .filter_map(|index| index.checked_sub(1).map(|harness| &all[harness]))
+        .collect::<Vec<_>>();
+    let wrappers = interactive_wrappers(all, &harnesses)?;
     Ok(InstallSelection {
-        skill: chosen.contains(&0),
-        harnesses: chosen
-            .into_iter()
-            .filter_map(|index| index.checked_sub(1).map(|harness| &all[harness]))
-            .collect(),
+        skill,
+        harnesses,
+        wrappers,
     })
+}
+
+/// Offer a wrapper for each harness the operator just chose. `None` means this
+/// machine has no profile Mosaico can own, so shell files stay untouched.
+fn interactive_wrappers<'a>(
+    all: &'a [Harness],
+    selected: &[&'a Harness],
+) -> Result<Option<Vec<&'a Harness>>> {
+    if !super::shell::supported() {
+        return Ok(None);
+    }
+    if selected.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    let configured = super::shell::configured_wrappers(all)?;
+    let labels = selected
+        .iter()
+        .map(|harness| {
+            format!(
+                "{:<18} {}",
+                harness.display.cyan().bold(),
+                super::shell::wrapper_preview(harness)
+            )
+        })
+        .collect::<Vec<_>>();
+    let defaults = selected
+        .iter()
+        .map(|harness| configured.contains(harness.id))
+        .collect::<Vec<_>>();
+    let chosen = MultiSelect::new()
+        .with_prompt("Wrap harness commands through mosaico  (space to toggle, enter to apply)")
+        .items(&labels)
+        .defaults(&defaults)
+        .interact()?;
+    Ok(Some(
+        chosen.into_iter().map(|index| selected[index]).collect(),
+    ))
 }
 
 #[cfg(test)]

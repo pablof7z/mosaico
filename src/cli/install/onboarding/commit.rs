@@ -37,6 +37,7 @@ pub(super) async fn commit(state: Onboarding) -> Result<()> {
         .filter(|(_, on)| **on)
         .map(|(h, _)| h.id)
         .collect();
+    let wrapped_ids = state.wrapped_ids();
     let selection = InstallSelection {
         skill: true,
         harnesses: state
@@ -44,6 +45,15 @@ pub(super) async fn commit(state: Onboarding) -> Result<()> {
             .iter()
             .filter(|h| selected_ids.contains(&h.id))
             .collect(),
+        // `Some` even when empty: an operator who unticked every wrapper wants
+        // the previously owned block cleared, not left behind.
+        wrappers: state.wrappers_supported.then(|| {
+            state
+                .all
+                .iter()
+                .filter(|h| wrapped_ids.contains(&h.id))
+                .collect()
+        }),
     };
 
     let opts = InstallOpts::default();

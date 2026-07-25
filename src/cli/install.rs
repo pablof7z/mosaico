@@ -10,6 +10,7 @@ mod io;
 mod onboarding;
 mod repair;
 mod selection;
+mod shell;
 mod skill_api;
 mod skills;
 
@@ -81,6 +82,8 @@ async fn apply_install(
 ) -> Result<()> {
     if selected.skill {
         skills::install(opts)?;
+    } else if opts.uninstall {
+        println!("\n{}", "Preserving shared mosaico skill".dimmed());
     } else {
         println!("\n{}", "Skipping mosaico skill".dimmed());
     }
@@ -112,19 +115,32 @@ async fn apply_install(
         }
     }
 
+    if opts.uninstall {
+        let removed = selected
+            .harnesses
+            .iter()
+            .map(|harness| harness.id)
+            .collect::<Vec<_>>();
+        shell::remove_wrappers(all, &removed, opts.dry_run)?;
+    } else if let Some(wrappers) = selected.wrappers.as_ref() {
+        shell::sync_wrappers(all, wrappers, opts.dry_run)?;
+    }
+
     if opts.dry_run {
         println!("\n{}", "(dry run; nothing was written)".dimmed());
     } else if !opts.uninstall {
         super::daemon_lifecycle::restart().await?;
         println!("\nSetup complete. Restart open harness sessions, then run `mosaico doctor`.");
+    } else if let Some(harness) = opts.harness.as_deref() {
+        println!("\nRemoved Mosaico-owned {harness} integration and shell wrapper.");
     } else {
         println!("\nRemoved Mosaico-owned harness integrations and runtime skills.");
     }
     Ok(())
 }
 
-pub(super) async fn uninstall_everywhere(dry_run: bool) -> Result<()> {
-    install_with_opts(InstallOpts::uninstall(dry_run)).await
+pub(super) async fn uninstall_integrations(harness: Option<String>, dry_run: bool) -> Result<()> {
+    install_with_opts(InstallOpts::uninstall(harness, dry_run)).await
 }
 
 fn print_status(all: &[Harness]) {

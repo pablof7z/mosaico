@@ -168,3 +168,32 @@ fn probe_failure_stays_on_url_step() {
     assert_eq!(state.step, Step::RelayUrl);
     assert!(matches!(state.relay_status, RelayStatus::Failed(_)));
 }
+
+#[test]
+fn wrapping_a_command_opts_its_harness_in_and_out() {
+    let mut state = fixture();
+    state.wrappers_supported = true;
+    state.step = Step::Harnesses;
+    state.cursor = 1;
+    assert!(!state.selected[1], "codex is undetected here");
+
+    state.handle_key(press(KeyCode::Char('w')));
+
+    assert_eq!(state.wrapped_ids(), ["codex"]);
+    assert!(state.selected[1], "wrapping implies installing");
+
+    state.handle_key(press(KeyCode::Char('w')));
+
+    assert!(state.wrapped_ids().is_empty());
+}
+
+#[test]
+fn an_unownable_shell_hides_the_wrapper_choice() {
+    let mut state = fixture();
+    state.wrappers_supported = false;
+    state.step = Step::Harnesses;
+
+    state.handle_key(press(KeyCode::Char('w')));
+
+    assert!(state.wrapped_ids().is_empty());
+}
