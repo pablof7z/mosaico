@@ -194,7 +194,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
             .to_string()
     });
 
-    let want = format!("ref=\"@{remote_handle}\" state=\"idle\" status=\"Reviewing\"");
+    let want = format!("name=\"@{remote_handle}\" state=\"idle\" status=\"Reviewing\"");
     assert!(ctx.contains(&want), "kind:0 profile should resolve: {ctx}");
     assert!(
         !ctx.contains(&format!("@{}", &remote_pk[..8])),
