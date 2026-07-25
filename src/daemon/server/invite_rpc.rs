@@ -5,10 +5,12 @@ mod message;
 mod resolve;
 mod session;
 mod wait;
+use channel_membership_rpc::durable_agent;
 use resolve::RemoteSession;
 use session::invite_session;
 use wait::{
-    channel_member_pubkeys, live_session_ids, wait_local_agent_online, wait_remote_agent_online,
+    channel_member_pubkeys, live_session_ids, wait_local_agent_online, wait_local_session_online,
+    wait_remote_agent_online,
 };
 
 #[derive(serde::Deserialize)]
@@ -146,6 +148,21 @@ pub(super) async fn invite_agent(
             "channel": channel_h,
             "pty_id": "",
             "orchestration_event_id": event_id,
+        }));
+    }
+
+    // A durable (`perSessionKey: false`) agent has one fixed pubkey; if it's
+    // already running (in this channel or another), admit that live session
+    // into `channel_h` instead of racing it with a second launch attempt.
+    if let Some(rec) = durable_agent::running_durable_session(state, &target.slug) {
+        durable_agent::admit_running_agent(state, &rec, channel_h).await?;
+        let online = wait_local_session_online(state, channel_h, &rec.pubkey).await?;
+        return Ok(serde_json::json!({
+            "pty_id": "",
+            "agent": target.slug,
+            "online_agent": online,
+            "channel": channel_h,
+            "host": state.host,
         }));
     }
 

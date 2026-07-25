@@ -2,6 +2,7 @@ use super::resolution::work_root_for;
 use super::*;
 
 mod running;
+use channel_membership_rpc::durable_agent;
 use running::admit_running_target;
 
 /// React to a subgroup add-agents orchestration event: authorize the signer,
@@ -125,6 +126,8 @@ pub(super) async fn handle_orchestration(
             .is_some_and(|s| !s.is_empty())
         {
             resume_target(state, &op, target).await
+        } else if let Some(rec) = durable_agent::running_durable_session(state, &target.slug) {
+            durable_agent::admit_for_orchestration(state, &rec, &op.child_h).await
         } else {
             spawn_target(state, &op, target).await
         };

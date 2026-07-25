@@ -1,6 +1,7 @@
 use super::*;
 
 mod active_channel;
+pub(in crate::daemon::server) mod durable_agent;
 
 pub(in crate::daemon::server) use active_channel::set_active_session_channel;
 
