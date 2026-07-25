@@ -120,7 +120,9 @@ fn agent_help_hides_operator_agent_management() {
 
     assert!(help.contains("  my"));
     assert!(help.contains("  doctor"));
-    assert!(help.contains("--yes-lets-move <NEW-CHANNEL-NAME> <ABOUT>"));
+    // `--yes-lets-move` is handed to an agent by the topology nudge at the
+    // moment it applies, never discovered from help — hidden in both contexts.
+    assert!(!help.contains("--yes-lets-move"));
     assert!(!help.contains("  agents"));
     assert!(!help.contains("  setup"));
     assert!(!help.contains("  uninstall"));

@@ -83,9 +83,12 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub all: bool,
 
-    /// Accept the current channel-topology suggestion using this child name and about.
+    /// Accept the current channel-topology suggestion using this child name and
+    /// about. Hidden: agents are told about it in the topology nudge at the
+    /// moment it applies, so it is never something to discover from `--help`.
     #[arg(
         long,
+        hide = true,
         num_args = 2,
         value_names = ["NEW-CHANNEL-NAME", "ABOUT"]
     )]
