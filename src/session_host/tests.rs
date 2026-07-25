@@ -52,16 +52,7 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     // the name falls back to the short sender pubkey ("pk-sende"), and with no
     // channel metadata the source room is still the workspace's general channel.
     let store = crate::state::Store::open_memory().unwrap();
-    store
-        .upsert_reaction(
-            "rx-1",
-            "abcdef123456",
-            "proj",
-            "pk-target",
-            "👍",
-            110,
-        )
-        .unwrap();
+    store.upsert_reaction("rx-1", "abcdef123456", "proj", "pk-target", "👍", 110).unwrap();
     let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
 
     assert_eq!(
@@ -94,9 +85,7 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
     store
         .upsert_channel("channel-writer-test", "writer-test", "", "mosaico", 100)
         .unwrap();
-    store
-        .upsert_reaction("rx-2", "ev-human", "channel-writer-test", rec.pubkey.as_str(), "👍", 110)
-        .unwrap();
+    store.upsert_reaction("rx-2", "ev-human", "channel-writer-test", rec.pubkey.as_str(), "👍", 110).unwrap();
     // Sender is whitelisted, but the injected line still carries the source room.
     let prompt =
         crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120)
@@ -128,12 +117,7 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
     let store = crate::state::Store::open_memory().unwrap();
     let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
 
-    assert!(
-        prompt.contains(
-            "Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
-        ),
-        "{prompt}"
-    );
+    assert!(prompt.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."), "{prompt}");
 }
 
 #[test]

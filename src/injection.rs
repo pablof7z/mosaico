@@ -116,10 +116,7 @@ fn push_agent_message(
 }
 
 fn push_reply_hint(lines: &mut Vec<String>) {
-    lines.push(
-        "  Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
-            .to_string(),
-    );
+    lines.push("  Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`.".to_string());
 }
 
 fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
