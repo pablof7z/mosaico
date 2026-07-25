@@ -44,6 +44,11 @@ Rules — enforced strictly:
 
 > **Migration note.** The `Plans/` directory is empty and `M1.md` has been drained into `docs/daemon-design.md`, `docs/fabric-architecture.md`, and `docs/product-spec/`. Do not add new files under `Plans/` or new top-level plan docs; the canonical surfaces are GitHub Issues plus the durable docs.
 
+## Handoff convention
+
+Before ending a session or handing off in-progress work, tag `@chief-of-staff` in the `mosaico` channel with a short status.
+Do this especially when leaving a worktree behind, punting a blocker, or stopping with a PR still unmerged.
+
 ## Daemon restart & deploy
 
 A daemon restart (or binary swap) must **not** kill live agent/PTY sessions. The daemon and every detached PTY supervisor are the **same binary** (`mosaico`, re-invoked as `__pty-supervisor`), so killing by process name reaps the whole fleet.
