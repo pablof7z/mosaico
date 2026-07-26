@@ -5,7 +5,7 @@ use anyhow::Result;
 use super::{ChannelList, ChannelListEntry, ChannelListSection};
 use crate::state::{Channel, Store};
 
-mod agents;
+mod member_facts;
 
 pub(super) enum ListMode {
     Caller {
@@ -89,7 +89,7 @@ fn capture<'a>(
         .filter(|channel| !channel.is_archived())
         .collect::<Vec<_>>();
     let activity = store.latest_accepted_message_at_by_channel()?;
-    let facts = agents::capture(store, local_backend)?;
+    let member_index = crate::agent_count::MemberFactIndex::capture(store, local_backend)?;
     let mut roots = channels
         .iter()
         .filter(|channel| channel.parent.is_empty())
@@ -129,7 +129,7 @@ fn capture<'a>(
                 path,
                 activity.get(&channel.channel_h),
                 now,
-                &facts,
+                &member_index,
             )?,
         );
     }
@@ -138,12 +138,13 @@ fn capture<'a>(
     }
     for root in &roots {
         if !nodes.contains_key(root) {
+            let (hydrated, members) = member_facts::capture(store, root, &member_index)?;
             nodes.insert(
                 root.clone(),
                 Node {
                     path: crate::channel_ref::format_channel_ref(root, &[]),
                     about: String::new(),
-                    agents: agents::count(store, root, &facts)?,
+                    agents: crate::agent_count::count_agents(hydrated, members),
                     last_activity: activity
                         .get(root)
                         .map(|at| crate::util::relative_time(*at, now)),
@@ -164,12 +165,13 @@ fn node(
     path: String,
     activity: Option<&u64>,
     now: u64,
-    facts: &agents::Facts,
+    member_index: &crate::agent_count::MemberFactIndex,
 ) -> Result<Node> {
+    let (hydrated, members) = member_facts::capture(store, &channel.channel_h, member_index)?;
     Ok(Node {
         path,
         about: channel.about.clone(),
-        agents: agents::count(store, &channel.channel_h, facts)?,
+        agents: crate::agent_count::count_agents(hydrated, members),
         last_activity: activity.map(|at| crate::util::relative_time(*at, now)),
     })
 }

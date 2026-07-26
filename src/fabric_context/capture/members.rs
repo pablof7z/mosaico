@@ -18,6 +18,10 @@ pub(crate) struct MembersInput {
     /// retained as relay state; rendered awareness exposes the member identity,
     /// status, and liveness only.
     pub(in crate::fabric_context) roster: BTreeMap<String, BTreeMap<String, String>>,
+    /// Canonically normalized count facts for the same roster rows.
+    #[serde(default)]
+    pub(in crate::fabric_context) count_facts:
+        BTreeMap<String, Vec<crate::agent_count::MemberFacts>>,
     /// Channels for which both relay-authored admin and member snapshots have
     /// arrived. An absent marker means the member count is unknown, not zero.
     #[serde(default)]

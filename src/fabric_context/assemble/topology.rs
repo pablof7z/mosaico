@@ -247,44 +247,16 @@ fn is_member(inputs: &ViewInputs, channel: &str) -> bool {
 }
 
 fn named_agent_count(inputs: &ViewInputs, channel: &str) -> Option<usize> {
-    if !inputs.members.hydrated.contains(channel) {
-        return None;
-    }
-    let statuses = inputs
-        .presence
-        .statuses
-        .get(channel)
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let mut count = 0;
-    for (pubkey, role) in inputs
-        .members
-        .roster
-        .get(channel)
-        .into_iter()
-        .flat_map(|members| members.iter())
-    {
-        let is_named_agent = pubkey.as_str() == inputs.meta.self_pubkey
-            || inputs
-                .members
-                .agent_slugs
-                .get(pubkey.as_str())
-                .is_some_and(|slug| !slug.trim().is_empty())
-            || statuses
-                .iter()
-                .any(|status| status.pubkey == pubkey.as_str() && !status.slug.trim().is_empty());
-        match crate::agent_count::classify(
-            role,
-            inputs.members.backend.contains(pubkey.as_str()),
-            inputs.members.known_profiles.contains(pubkey.as_str()),
-            is_named_agent,
-        ) {
-            crate::agent_count::MemberClass::Agent => count += 1,
-            crate::agent_count::MemberClass::Unknown => return None,
-            crate::agent_count::MemberClass::Ignore | crate::agent_count::MemberClass::Human => {}
-        }
-    }
-    Some(count)
+    crate::agent_count::count_agents(
+        inputs.members.hydrated.contains(channel),
+        inputs
+            .members
+            .count_facts
+            .get(channel)
+            .into_iter()
+            .flatten()
+            .copied(),
+    )
 }
 
 fn parent_id(id: &str) -> Option<&str> {

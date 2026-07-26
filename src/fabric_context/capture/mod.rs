@@ -56,12 +56,14 @@ pub(crate) fn capture_inputs(
 
     let mut identities = read::IdentityCaps::default();
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let mut count_facts = BTreeMap::new();
     let mut hydrated: BTreeSet<String> = BTreeSet::new();
     let mut hosts_by_pubkey: BTreeMap<String, String> = BTreeMap::new();
     let mut activity: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut statuses: BTreeMap<String, Vec<StatusCap>> = BTreeMap::new();
     let mut messages: BTreeMap<String, MsgBundle> = BTreeMap::new();
     let forced_by_channel = read::group_forced(input.forced_messages, input.scope);
+    let member_index = crate::agent_count::MemberFactIndex::capture(store, input.backend_pubkey)?;
 
     for h in workspaces
         .iter()
@@ -80,6 +82,12 @@ pub(crate) fn capture_inputs(
                         tracing::debug!(channel = %h, %error, "membership hydration unavailable");
                     }
                 }
+                count_facts.insert(
+                    h.clone(),
+                    rows.iter()
+                        .map(|member| member_index.normalize(store, member))
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                );
                 rows.into_iter()
                     .map(|member| (member.pubkey, member.role))
                     .collect()
@@ -159,6 +167,7 @@ pub(crate) fn capture_inputs(
         meta,
         members: MembersInput {
             roster,
+            count_facts,
             hydrated,
             refs: identities.refs,
             agent_slugs: identities.agent_slugs,
