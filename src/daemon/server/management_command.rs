@@ -268,7 +268,6 @@ fn channel_label(state: &Arc<DaemonState>, channel_h: &str) -> String {
     );
     "a channel with unavailable public path".to_string()
 }
-
 fn first_tag<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
     event.tags.iter().find_map(|tag| {
         let s = tag.as_slice();
@@ -279,7 +278,6 @@ fn first_tag<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
         }
     })
 }
-
 fn p_tags(event: &Event) -> Vec<String> {
     event
         .tags
@@ -294,29 +292,9 @@ fn p_tags(event: &Event) -> Vec<String> {
         })
         .collect()
 }
-
 fn short(s: &str) -> String {
     s.chars().take(12).collect()
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn management_channel_labels_are_public_paths_or_generic() {
-        let state = DaemonState::new_for_test().await;
-        state
-            .with_store(|store| {
-                store.upsert_channel("root", "general", "", "", 1)?;
-                store.upsert_channel("opaque-child", "review", "", "root", 2)
-            })
-            .unwrap();
-
-        assert_eq!(channel_label(&state, "opaque-child"), "/root/review");
-        assert_eq!(
-            channel_label(&state, "unknown-internal-id"),
-            "a channel with unavailable public path"
-        );
-    }
-}
+#[path = "management_command/tests.rs"]
+mod tests;

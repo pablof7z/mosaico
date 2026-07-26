@@ -142,6 +142,7 @@ fn resolution_is_global_across_workspaces() {
         Some("other")
     );
     assert_eq!(root_channel_by_slug(&store, "nonexistent"), None);
+    assert_eq!(root_channel_by_slug(&store, "OTHER"), None);
 }
 
 #[test]

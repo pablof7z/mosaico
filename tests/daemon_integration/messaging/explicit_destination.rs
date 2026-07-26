@@ -67,8 +67,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_create",
                 serde_json::json!({
                     "session": &sender,
-                    "parent_channel": "/tmp",
-                    "name": "nip29",
+                    "channel": "/tmp/nip29",
                     "about": "explicit destination regression"
                 }),
             )

@@ -214,7 +214,7 @@ async fn launch_resume(
             pubkey: &reservation.pubkey,
             reclaimed_pubkey: None,
             channel: Some(group),
-            channels: &channels,
+            channels,
             resume_id: Some(resume_id),
             dispatch_event: None,
             session_name: None,

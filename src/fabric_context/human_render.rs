@@ -245,7 +245,6 @@ pub(super) fn render_channel_body(out: &mut String, channel: &ChannelBlock, colo
     render_presence(out, &channel.presence, color);
     render_messages(out, channel, color);
 }
-
 fn render_warnings(out: &mut String, warnings: &[WarningRow], color: bool) {
     if warnings.is_empty() {
         return;
@@ -256,11 +255,9 @@ fn render_warnings(out: &mut String, warnings: &[WarningRow], color: bool) {
     }
     out.push('\n');
 }
-
 fn pad_ref(reference: &str, width: usize) -> String {
     format!("{:<width$}", format!("@{reference}"), width = width)
 }
-
 fn state_text(state: crate::session_state::SessionState, color: bool) -> String {
     let label = state.as_str();
     match label {
@@ -270,7 +267,6 @@ fn state_text(state: crate::session_state::SessionState, color: bool) -> String 
         _ => style(label, color, Style::Good),
     }
 }
-
 #[derive(Clone, Copy)]
 enum Style {
     Agent,
@@ -281,7 +277,6 @@ enum Style {
     Title,
     Warning,
 }
-
 fn style(text: &str, color: bool, style: Style) -> String {
     if !color {
         return text.to_string();
@@ -296,7 +291,6 @@ fn style(text: &str, color: bool, style: Style) -> String {
         Style::Warning => text.red().bold().to_string(),
     }
 }
-
 fn dim(text: &str, color: bool) -> String {
     if color {
         text.dimmed().to_string()

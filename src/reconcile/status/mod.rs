@@ -49,7 +49,6 @@ pub enum StatusEffect {
 pub struct PresenceSnapshot {
     pub host: String,
     pub workspace: String,
-    pub branch: String,
     pub slug: String,
     pub rel_cwd: String,
     pub dispatch_event: Option<String>,
@@ -59,6 +58,7 @@ pub struct PresenceSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresenceProjection {
     pub channels: BTreeSet<String>,
+    pub branch: String,
     pub state: SessionState,
     pub state_since: u64,
     pub title: String,
@@ -120,13 +120,14 @@ impl StatusReconciler {
         };
         let status = self.status_of(pubkey, &state, now, false);
         self.sessions.insert(pubkey.to_string(), state);
-        self.outcome(
-            pubkey,
-            vec![StatusEffect::Publish {
+        let effects = (!status.channels.is_empty())
+            .then_some(StatusEffect::Publish {
                 status,
                 reason: PublishReason::Opened,
-            }],
-        )
+            })
+            .into_iter()
+            .collect();
+        self.outcome(pubkey, effects)
     }
 
     /// Publish a semantic lifecycle change for the owning generation.
@@ -144,13 +145,20 @@ impl StatusReconciler {
         state.snapshot.projection = projection;
         state.live = true;
         let after = command_of(pubkey, state);
-        let effects = (after != before)
-            .then(|| StatusEffect::Publish {
+        let effects = if before.channels.is_empty() && after.channels.is_empty() {
+            Vec::new()
+        } else if !before.channels.is_empty() && after.channels.is_empty() {
+            vec![StatusEffect::Expire {
+                status: status_build::to_status(&before, self.ttl_secs, now, true),
+            }]
+        } else if after != before {
+            vec![StatusEffect::Publish {
                 status: status_build::to_status(&after, self.ttl_secs, now, false),
                 reason: PublishReason::Changed,
-            })
-            .into_iter()
-            .collect();
+            }]
+        } else {
+            Vec::new()
+        };
         self.outcome(pubkey, effects)
     }
 
@@ -164,6 +172,9 @@ impl StatusReconciler {
             return self.empty_outcome(pubkey);
         }
         state.renewal_arm = arm;
+        if state.snapshot.projection.channels.is_empty() {
+            return self.empty_outcome(pubkey);
+        }
         let status = status_build::to_status(&command_of(pubkey, state), self.ttl_secs, now, false);
         self.outcome(
             pubkey,
@@ -183,6 +194,9 @@ impl StatusReconciler {
             return self.empty_outcome(pubkey);
         }
         state.live = false;
+        if state.snapshot.projection.channels.is_empty() {
+            return self.empty_outcome(pubkey);
+        }
         let status = status_build::to_status(&command_of(pubkey, state), self.ttl_secs, now, false);
         self.outcome(
             pubkey,
@@ -204,6 +218,9 @@ impl StatusReconciler {
             return self.empty_outcome(pubkey);
         };
         self.sessions.remove(pubkey);
+        if state.snapshot.projection.channels.is_empty() {
+            return self.empty_outcome(pubkey);
+        }
         self.outcome(
             pubkey,
             vec![StatusEffect::Expire {
@@ -264,7 +281,7 @@ fn command_of(pubkey: &str, state: &PublishedPresence) -> StatusCommand {
         state_since: snapshot.projection.state_since,
         host: snapshot.host.clone(),
         workspace: snapshot.workspace.clone(),
-        branch: snapshot.branch.clone(),
+        branch: snapshot.projection.branch.clone(),
         slug: snapshot.slug.clone(),
         rel_cwd: snapshot.rel_cwd.clone(),
         dispatch_event: snapshot.dispatch_event.clone(),

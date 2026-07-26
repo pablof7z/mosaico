@@ -23,7 +23,10 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
         )
     });
     match primary {
-        Ok(ConfirmedAdmissionCommit::Committed) => Ok(true),
+        Ok(ConfirmedAdmissionCommit::Committed) => {
+            reconcile_admission(state, pubkey, runtime_generation).await;
+            Ok(true)
+        }
         Ok(ConfirmedAdmissionCommit::Superseded) => {
             tracing::warn!(pubkey = %pubkey_short(pubkey), %channel, lifecycle_epoch, "stale admission was superseded by newer member standing");
             Ok(false)
@@ -45,6 +48,7 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
             match fallback {
                 Ok(ConfirmedAdmissionCommit::Committed) => {
                     tracing::warn!(pubkey = %pubkey_short(pubkey), %channel, %primary_error, "admission commit reported an error but its exact durable state is present");
+                    reconcile_admission(state, pubkey, runtime_generation).await;
                     Ok(true)
                 }
                 Ok(ConfirmedAdmissionCommit::Superseded) => {
@@ -61,6 +65,11 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
             }
         }
     }
+}
+
+async fn reconcile_admission(state: &Arc<DaemonState>, pubkey: &str, generation: u64) {
+    super::super::presence::reconcile_generation(state, pubkey, generation, "channel_admitted")
+        .await;
 }
 
 async fn compensate_due_admission(state: &Arc<DaemonState>, due: &crate::state::SessionStanding) {

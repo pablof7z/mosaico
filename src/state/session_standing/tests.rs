@@ -41,7 +41,7 @@ fn stopped_session_standing_does_not_expire_before_explicit_leave() {
     assert_eq!(store.list_cleanup_due_member_standing().unwrap(), []);
     assert_eq!(
         store.list_stopped_member_standing().unwrap(),
-        [standing.clone()]
+        std::slice::from_ref(&standing)
     );
 
     store

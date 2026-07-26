@@ -8,9 +8,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::capture::{StatusCap, ViewInputs};
-use super::model::{FabricView, MemberRow, PresenceRow};
+use super::model::FabricView;
+use semantics::{member_semantics, presence_semantics};
 use tree::{add_member, add_presence, channel_mut};
 
+mod semantics;
 mod tree;
 
 pub(crate) fn inject_member_deltas(
@@ -246,41 +248,4 @@ fn statuses_by_pubkey<'a>(
         .filter(|status| roster.is_some_and(|members| members.contains_key(status.pubkey.as_str())))
         .map(|status| (status.pubkey.as_str(), status))
         .collect()
-}
-
-fn member_semantics(
-    row: Option<&MemberRow>,
-) -> Option<(&str, &str, &str, &str, u8, Option<&str>, &str)> {
-    row.map(|row| {
-        (
-            row.name.as_str(),
-            row.host.as_str(),
-            row.workspace.as_str(),
-            row.branch.as_str(),
-            match row.kind {
-                super::model::MemberKind::Agent => 1,
-                super::model::MemberKind::Human => 2,
-            },
-            row.state.map(|state| state.as_str()),
-            row.status.as_str(),
-        )
-    })
-}
-
-fn presence_semantics(
-    row: Option<&PresenceRow>,
-) -> Option<(&str, &str, &str, &str, &str, &str, Option<(&str, &str)>)> {
-    row.map(|row| {
-        (
-            row.name.as_str(),
-            row.host.as_str(),
-            row.workspace.as_str(),
-            row.branch.as_str(),
-            row.state.as_str(),
-            row.status.as_str(),
-            row.native_failure
-                .as_ref()
-                .map(|failure| (failure.outcome.as_str(), failure.message.as_str())),
-        )
-    })
 }

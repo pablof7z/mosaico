@@ -408,7 +408,6 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
   allow/block files are not part of the active NIP-29 path.
 
 ## 10. Tests
-
 - **Daemon spawn race**: N threads call `connect_or_spawn()` simultaneously;
   assert exactly one daemon binds and all clients connect.
 - **Stale-socket reclaim**: create a `daemon.sock` file with no listener; assert

@@ -156,7 +156,7 @@ fn latest_statuses(store: &Store) -> Result<HashMap<String, crate::state::Status
         let entry = latest
             .entry(status.pubkey.clone())
             .or_insert_with(|| status.clone());
-        if status.updated_at > entry.updated_at {
+        if status.last_seen > entry.last_seen {
             *entry = status;
         }
     }

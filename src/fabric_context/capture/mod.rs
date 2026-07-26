@@ -4,11 +4,13 @@
 
 mod activity;
 mod members;
+mod model;
 mod read;
 mod topology;
 
 pub(super) use activity::StatusCap;
 pub(crate) use members::MembersInput;
+pub(crate) use model::*;
 pub(super) use topology::WorkspaceCap;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,133 +19,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{missing_channel_warning, FabricContextInput};
 use crate::state::Store;
-
-/// The canonical, replayable inputs the fabric view derives from.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ViewInputs {
-    pub(crate) meta: MetaInput,
-    pub(crate) members: MembersInput,
-    pub(crate) presence: PresenceInput,
-    pub(crate) messages: MessagesInput,
-    #[serde(default)]
-    pub(crate) reactions: ReactionsInput,
-}
-
-impl ViewInputs {
-    /// Whether the caller forced a render (suppresses the empty-snapshot gate).
-    pub(crate) fn force(&self) -> bool {
-        self.meta.force
-    }
-}
-
-/// Channel/subchannel metadata + per-render identity (all now/cursor-free).
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MetaInput {
-    pub(super) self_row: Option<SelfCap>,
-    pub(super) hosts: Vec<HostCap>,
-    pub(super) workspaces: Vec<WorkspaceCap>,
-    pub(super) joined_channels: BTreeSet<String>,
-    pub(super) current_workspace: String,
-    pub(super) warnings: Vec<String>,
-    pub(super) self_pubkey: String,
-    pub(super) self_ref: String,
-    /// This daemon's host label for non-session fallback refs.
-    #[serde(default)]
-    pub(super) local_host: String,
-    pub(super) force: bool,
-}
-
-/// Presence/status rows (superset, updated_at DESC) with the fields the render
-/// keys on: state/activity/title plus last_seen/updated_at/expiration.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct PresenceInput {
-    pub(super) statuses: BTreeMap<String, Vec<StatusCap>>,
-}
-
-/// Chat/mentions: per-channel captured events + forced (inbox) seeds.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MessagesInput {
-    pub(super) channels: BTreeMap<String, MsgBundle>,
-}
-
-/// Reactions on the caller's own recent messages (a cursor-independent superset;
-/// the cursor delta is applied at assemble time).
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ReactionsInput {
-    pub(super) rows: Vec<super::reactions::ReactionCap>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct SelfCap {
-    pub(super) name: String,
-    #[serde(default)]
-    pub(super) host: String,
-    #[serde(default)]
-    pub(super) headless: bool,
-    #[serde(default)]
-    pub(super) title: String,
-    #[serde(default)]
-    pub(super) workspace: String,
-    #[serde(default)]
-    pub(super) branch: String,
-    #[serde(default)]
-    pub(super) turn_count: u64,
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct SummaryCap {
-    pub(super) name: String,
-    pub(super) channel: String,
-    pub(super) about: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct AgentCap {
-    pub(super) reference: String,
-    pub(super) about: String,
-    pub(super) created_at: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct HostCap {
-    pub(super) name: String,
-    #[serde(default)]
-    pub(super) roots: Vec<String>,
-    pub(super) agents: Vec<AgentCap>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct ChannelCap {
-    pub(super) h: String,
-    #[serde(default)]
-    pub(super) reference: String,
-    pub(super) about: String,
-    pub(super) updated_at: u64,
-    pub(super) latest_message_at: Option<u64>,
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct MsgBundle {
-    pub(super) events: Vec<EvCap>,
-    pub(super) forced: Vec<EvCap>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct EvCap {
-    pub(super) id: String,
-    pub(super) channel_ref: String,
-    pub(super) from_ref: String,
-    pub(super) recipient_refs: Vec<String>,
-    pub(super) created_at: u64,
-    pub(super) body: String,
-    pub(super) truncated: bool,
-    /// Self-mention derived from the event's OWN `p` tags (always false for a
-    /// forced seed, whose mention intent is carried by `forced_mention`).
-    pub(super) mentions_self: bool,
-    /// A forced (inbox) seed that was flagged as a direct mention.
-    pub(super) forced_mention: bool,
-    pub(super) needs_reply_nudge: bool,
-}
 
 /// Read the store once and freeze the four canonical inputs. `now`/`cursor`
 /// filtering stays out of the superset captures so the reconciler owns that
@@ -179,10 +54,7 @@ pub(crate) fn capture_inputs(
             .map(|channel| missing_channel_warning(&channel)),
     );
 
-    let mut refs: BTreeMap<String, String> = BTreeMap::new();
-    let mut agent_slugs: BTreeMap<String, String> = BTreeMap::new();
-    let mut backend: BTreeSet<String> = BTreeSet::new();
-    let mut has_handle: BTreeSet<String> = BTreeSet::new();
+    let mut identities = read::IdentityCaps::default();
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let mut hydrated: BTreeSet<String> = BTreeSet::new();
     let mut hosts_by_pubkey: BTreeMap<String, String> = BTreeMap::new();
@@ -199,8 +71,14 @@ pub(crate) fn capture_inputs(
         // Keep relay roles in the frozen input; rendered rows do not expose them.
         let members: BTreeMap<String, String> = match store.list_channel_members(h) {
             Ok(rows) => {
-                if store.has_channel_membership_snapshot(h)? {
-                    hydrated.insert(h.clone());
+                match store.has_channel_membership_snapshot(h) {
+                    Ok(true) => {
+                        hydrated.insert(h.clone());
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        tracing::debug!(channel = %h, %error, "membership hydration unavailable");
+                    }
                 }
                 rows.into_iter()
                     .map(|member| (member.pubkey, member.role))
@@ -211,25 +89,9 @@ pub(crate) fn capture_inputs(
                 BTreeMap::new()
             }
         };
-        let chan_statuses = activity::status_caps(
-            store,
-            h,
-            input.local_host,
-            &mut refs,
-            &mut agent_slugs,
-            &mut backend,
-            &mut has_handle,
-        );
+        let chan_statuses = activity::status_caps(store, h, input.local_host, &mut identities);
         for pk in members.keys() {
-            read::resolve_pubkey(
-                store,
-                pk,
-                input.local_host,
-                &mut refs,
-                &mut agent_slugs,
-                &mut backend,
-                &mut has_handle,
-            );
+            read::resolve_pubkey(store, pk, input.local_host, &mut identities);
             hosts_by_pubkey
                 .entry(pk.clone())
                 .or_insert_with(|| read::profile_host(store, pk));
@@ -251,17 +113,11 @@ pub(crate) fn capture_inputs(
         }
     }
     if !input.self_pubkey.is_empty() {
-        read::resolve_pubkey(
-            store,
-            input.self_pubkey,
-            input.local_host,
-            &mut refs,
-            &mut agent_slugs,
-            &mut backend,
-            &mut has_handle,
-        );
+        read::resolve_pubkey(store, input.self_pubkey, input.local_host, &mut identities);
         if let Some(session) = input.session {
-            agent_slugs.insert(input.self_pubkey.to_string(), session.agent_slug.clone());
+            identities
+                .agent_slugs
+                .insert(input.self_pubkey.to_string(), session.agent_slug.clone());
         }
     }
     // Exclude this daemon's own management key by identity, independent of whether
@@ -269,7 +125,7 @@ pub(crate) fn capture_inputs(
     // the profile is absent, so `resolve_pubkey`'s is_backend flag alone would let
     // the mgmt key leak into the roster. Assemble filters against this `backend` set.
     if !input.backend_pubkey.is_empty() {
-        backend.insert(input.backend_pubkey.to_string());
+        identities.backend.insert(input.backend_pubkey.to_string());
     }
 
     let self_ref =
@@ -304,12 +160,13 @@ pub(crate) fn capture_inputs(
         members: MembersInput {
             roster,
             hydrated,
-            refs,
-            agent_slugs,
+            refs: identities.refs,
+            agent_slugs: identities.agent_slugs,
             hosts: hosts_by_pubkey,
-            backend,
+            backend: identities.backend,
             activity,
-            has_handle,
+            has_handle: identities.has_handle,
+            known_profiles: identities.known_profiles,
         },
         presence: PresenceInput { statuses },
         messages: MessagesInput { channels: messages },

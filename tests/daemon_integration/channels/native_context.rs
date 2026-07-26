@@ -45,8 +45,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "parent_channel": format!("/{parent}"),
-                "name": "native-subtask",
+                "channel": format!("/{parent}/native-subtask"),
                 "agents": [],
                 "harness": "claude-code",
                 "watch_pid": watch_pid,
@@ -202,8 +201,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "parent_channel": format!("/{parent}"),
-                "name": "membership-child",
+                "channel": format!("/{parent}/membership-child"),
                 "agents": [],
                 "harness": "claude-code",
                 "watch_pid": watch_pid,

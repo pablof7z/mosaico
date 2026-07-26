@@ -24,6 +24,27 @@ pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
     String::new()
 }
 
+pub(crate) fn split_create_path(path: &str) -> anyhow::Result<(String, String)> {
+    let path = path.trim();
+    if !path.starts_with('/') || path.ends_with('/') || path.contains("//") {
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
+    }
+    let segments = path[1..].split('/').map(str::trim).collect::<Vec<_>>();
+    if segments.iter().any(|segment| segment.is_empty()) {
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
+    }
+    let Some((name, parents)) = segments.split_last() else {
+        anyhow::bail!("channel create <path> requires a non-empty path");
+    };
+    if parents.is_empty() {
+        anyhow::bail!(
+            "channel create <path> needs a parent, e.g. /workspace/{name}; the workspace itself \
+             comes from `channel init`, not `channel create`"
+        );
+    }
+    Ok((format!("/{}", parents.join("/")), (*name).to_string()))
+}
+
 pub(crate) fn format_channel_ref(workspace: &str, descendants: &[String]) -> String {
     let mut reference = format!("/{workspace}");
     for descendant in descendants {
@@ -68,5 +89,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(full_channel_ref(&store, "workspace"), "/workspace");
+    }
+
+    #[test]
+    fn split_create_path_requires_an_absolute_child_path() {
+        assert_eq!(
+            split_create_path("/workspace/epic/planning").unwrap(),
+            ("/workspace/epic".into(), "planning".into())
+        );
+        assert!(split_create_path("workspace/child").is_err());
+        assert!(split_create_path("/workspace").is_err());
+        assert_eq!(
+            split_create_path("/f7z.io/child").unwrap(),
+            ("/f7z.io".into(), "child".into())
+        );
     }
 }

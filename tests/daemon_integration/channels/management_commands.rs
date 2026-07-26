@@ -243,7 +243,6 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
     for slug in ["codex", "native-codex-role", "mosaico-configured-role"] {
         assert_management_add(&home, &channel, slug);
     }
-
     let captured_path = std::fs::read_to_string(home.dir.path().join("captured-codex-path"))
         .expect("fake codex captured PATH");
     assert!(
@@ -271,7 +270,6 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
     .unwrap();
     assert!(migrated.get("secret_key").is_none());
     assert!(migrated.get("public_key").is_none());
-
     let interactive_pty = interactive_pty.unwrap();
     let supervisor_pid = interactive_pty.supervisor_pid;
     let child_pid = interactive_pty.child_pid;
@@ -282,7 +280,6 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
             "orderly daemon shutdown left RPC session {slug} running"
         );
     }
-
     rt().block_on(async {
         Client::connect_or_spawn()
             .await

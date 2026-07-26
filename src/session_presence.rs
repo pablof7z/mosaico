@@ -75,6 +75,7 @@ pub(crate) fn publication(
         .collect::<BTreeSet<_>>();
     crate::reconcile::PresenceProjection {
         channels,
+        branch: crate::worktree_branch::for_root(store, &session.work_root),
         state: presence.state,
         state_since: presence.state_since,
         title: presence.title,

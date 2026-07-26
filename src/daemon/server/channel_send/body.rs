@@ -37,6 +37,7 @@ fn strip_existing_tag_prefix<'a>(message: &'a str, tagged: &[TaggedRecipient]) -
     match suffix.chars().next() {
         Some(':') | Some(',') => suffix[1..].trim_start(),
         Some(ch) if ch.is_whitespace() => suffix.trim_start(),
+        None => "",
         _ => message,
     }
 }
@@ -100,6 +101,13 @@ mod tests {
             assert!(body.ends_with(": hello"), "got {body}");
             assert!(!body.to_ascii_lowercase().contains("@agent1"), "got {body}");
         }
+    }
+
+    #[test]
+    fn strips_a_bare_matching_tag() {
+        let body = format_tagged_body("@agent1", &[recipient("agent1", FIRST_PK)]).unwrap();
+        assert!(body.ends_with(": "), "got {body}");
+        assert!(!body.contains("@agent1"), "got {body}");
     }
 
     #[test]

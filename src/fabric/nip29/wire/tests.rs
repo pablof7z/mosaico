@@ -191,7 +191,6 @@ fn status_expiration_roundtrips_and_emits_tag() {
         other => panic!("expected status, got {other:?}"),
     }
 }
-
 #[test]
 fn status_uses_constant_address_independent_from_channel_h() {
     let keys = Keys::generate();
@@ -215,7 +214,6 @@ fn status_uses_constant_address_independent_from_channel_h() {
         other => panic!("expected status, got {other:?}"),
     }
 }
-
 #[test]
 fn status_private_runtime_id_d_is_rejected() {
     let keys = Keys::generate();
@@ -231,7 +229,6 @@ fn status_private_runtime_id_d_is_rejected() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
 }
-
 #[test]
 fn bare_reaction_without_e_tag_decodes_to_none() {
     // A kind:7 with no `e` tag is not a domain reaction: it has no target, so it
@@ -242,7 +239,6 @@ fn bare_reaction_without_e_tag_decodes_to_none() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&reaction).is_none());
 }
-
 #[test]
 fn reaction_with_oversized_or_textual_content_decodes_to_none() {
     // TRUST BOUNDARY: an adversarial member could e-tag one of the target's
@@ -269,7 +265,6 @@ fn reaction_with_oversized_or_textual_content_decodes_to_none() {
         );
     }
 }
-
 #[test]
 fn reaction_roundtrips_channel_target_and_emoji() {
     use crate::domain::Reaction;
@@ -282,7 +277,6 @@ fn reaction_roundtrips_channel_target_and_emoji() {
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
 }
-
 #[test]
 fn reaction_with_e_tag_decodes_and_emits_kind7_tags() {
     use crate::domain::Reaction;
@@ -325,7 +319,6 @@ fn kind_24011_presence_is_ignored() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
 }
-
 #[test]
 fn t_only_channel_notes_are_ignored() {
     // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None

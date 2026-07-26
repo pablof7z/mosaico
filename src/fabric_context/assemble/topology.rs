@@ -50,7 +50,11 @@ fn workspace_row(
     if !full && selected.is_empty() && !workspace_changed {
         return None;
     }
-    let content = expanded.then(|| selected.clone()).unwrap_or_default();
+    let content = if expanded {
+        selected.clone()
+    } else {
+        BTreeSet::new()
+    };
     let selected = if full {
         selected
     } else {
@@ -260,13 +264,7 @@ fn named_agent_count(inputs: &ViewInputs, channel: &str) -> Option<usize> {
         .into_iter()
         .flat_map(|members| members.iter())
     {
-        if role == "admin" {
-            continue;
-        }
-        if inputs.members.backend.contains(pubkey.as_str()) {
-            continue;
-        }
-        let is_agent = pubkey.as_str() == inputs.meta.self_pubkey
+        let is_named_agent = pubkey.as_str() == inputs.meta.self_pubkey
             || inputs
                 .members
                 .agent_slugs
@@ -275,12 +273,15 @@ fn named_agent_count(inputs: &ViewInputs, channel: &str) -> Option<usize> {
             || statuses
                 .iter()
                 .any(|status| status.pubkey == pubkey.as_str() && !status.slug.trim().is_empty());
-        if is_agent {
-            count += 1;
-        } else if !inputs.members.has_handle(pubkey) {
-            // The roster is hydrated, but this identity is not: counting it as
-            // a human would silently under-report agents.
-            return None;
+        match crate::agent_count::classify(
+            role,
+            inputs.members.backend.contains(pubkey.as_str()),
+            inputs.members.known_profiles.contains(pubkey.as_str()),
+            is_named_agent,
+        ) {
+            crate::agent_count::MemberClass::Agent => count += 1,
+            crate::agent_count::MemberClass::Unknown => return None,
+            crate::agent_count::MemberClass::Ignore | crate::agent_count::MemberClass::Human => {}
         }
     }
     Some(count)

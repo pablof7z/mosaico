@@ -228,7 +228,6 @@ pub(super) async fn rpc_session_start_inner(
         prepared.identity,
         prepared.keys,
         runtime_generation,
-        !joined.is_empty(),
         &work_root,
         &spawn.rel_cwd,
         p.dispatch_event.filter(|value| !value.is_empty()),
@@ -251,7 +250,6 @@ pub(super) async fn rpc_session_start_inner(
     }
     Ok(serde_json::json!({ "pubkey": pubkey }))
 }
-
 fn resolve_start_channel(
     _state: &Arc<DaemonState>,
     p: &SessionStartParams,
@@ -262,20 +260,17 @@ fn resolve_start_channel(
     };
     Ok((channel_h.to_string(), None))
 }
-
 fn progress_emit(progress: &Option<InitProgress>, stage: &str, message: &str) {
     if let Some(progress) = progress {
         progress.emit(stage, message);
     }
 }
-
 struct RuntimeReservation {
     state: Arc<DaemonState>,
     pubkey: String,
     generation: u64,
     armed: bool,
 }
-
 impl RuntimeReservation {
     fn new(state: Arc<DaemonState>, pubkey: String, generation: u64) -> Self {
         Self {
@@ -285,12 +280,10 @@ impl RuntimeReservation {
             armed: true,
         }
     }
-
     fn disarm(&mut self) {
         self.armed = false;
     }
 }
-
 impl Drop for RuntimeReservation {
     fn drop(&mut self) {
         if self.armed {

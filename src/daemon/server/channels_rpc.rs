@@ -48,14 +48,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     }
     #[derive(serde::Deserialize)]
     struct P {
-        /// Explicit literal parent group h. Set by the launch picker, operator
-        /// invocations, and tests.
-        #[serde(default)]
-        parent: Option<String>,
-        /// Absolute parent path from `channel create`.
-        #[serde(default)]
-        parent_channel: Option<String>,
-        name: String,
+        channel: String,
         #[serde(default)]
         agents: Vec<AgentSpec>,
         /// Durable channel description, published to the relay as kind:39000
@@ -65,6 +58,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_create params")?;
     crate::channel_about::validate_channel_about(&p.about)?;
+    let (parent_ref, name) = crate::channel_ref::split_create_path(&p.channel)?;
 
     // Resolve the creator only to join it to the new channel. Creation never
     // changes a session's channel memberships except for this additive join.
@@ -75,41 +69,15 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     )
     .ok();
 
-    // Operator cwd-resolved channel slug (== root channel_h for channel roots).
-    // Used as fallback when there is no agent session.
-    let cwd_channel: Option<String> = params["cwd"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
-        .transpose()?;
-
-    // Parent priority: absolute path, explicit literal parent, then cwd root.
-    let parent: String = if let Some(r) = p
-        .parent_channel
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    let parent = match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &parent_ref))
     {
-        absolute::require_full_path("--parent-channel", r)?;
-        // The parent must already exist — `channel create` mints only the one
-        // leaf you named, never the ancestor chain too.
-        match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, r)) {
-            super::ChannelResolution::Unique(h) => h,
-            super::ChannelResolution::NotFound => {
-                anyhow::bail!(
-                    "{}",
-                    state.with_store(|s| absolute::describe_missing_channel(s, r))
-                )
-            }
+        super::ChannelResolution::Unique(h) => h,
+        super::ChannelResolution::NotFound => {
+            anyhow::bail!(
+                "{}",
+                state.with_store(|s| absolute::describe_missing_channel(s, &parent_ref))
+            )
         }
-    } else if let Some(par) = p.parent.as_deref().filter(|s| !s.is_empty()) {
-        par.to_string()
-    } else if let Some(proj) = cwd_channel {
-        proj
-    } else {
-        anyhow::bail!(
-            "channel create needs a parent: run it inside an agent session, pass --parent-channel, or run from a channel directory"
-        );
     };
 
     let workspace_root =
@@ -118,10 +86,10 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             None => Some(parent.clone()),
             _ => None,
         });
-    crate::channel_name::validate_child(&p.name, workspace_root.as_deref())?;
+    crate::channel_name::validate_child(&name, workspace_root.as_deref())?;
 
     // Names are unique per parent. A duplicate is an error, not a silent no-op.
-    if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &p.name))? {
+    if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &name))? {
         let existing = state
             .with_store(|store| super::channel_resolve::channel_reference_for(store, &existing))?;
         anyhow::bail!("channel {existing} already exists");
@@ -182,7 +150,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             parent_hint: Some(&parent),
             // Operator-chosen name rides on the create publish; the relay's
             // kind:39000 echo lands it in the cache (no local fabrication).
-            name: Some(&p.name),
+            name: Some(&name),
             repair_whitelisted_admins: true,
         });
     let gate = match tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready).await {
@@ -275,18 +243,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         oid
     };
 
-    let joined = if let Some(rec) = &creator_rec {
-        super::presence::reconcile_generation(
-            state,
-            &rec.pubkey,
-            rec.runtime_generation,
-            "channel_created",
-        )
-        .await;
-        true
-    } else {
-        false
-    };
+    let joined = creator_rec.is_some();
 
     let channel =
         state.with_store(|store| super::channel_resolve::channel_reference_for(store, &child_h))?;

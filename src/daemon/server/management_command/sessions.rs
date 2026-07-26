@@ -46,7 +46,7 @@ struct SessionSummary {
     activity: String,
     state: SessionState,
     last_seen: u64,
-    updated_at: u64,
+    selected_at: u64,
 }
 
 fn session_summaries_from_store(
@@ -78,11 +78,11 @@ fn session_summaries_from_store(
         rows.entry(key)
             .and_modify(|row| {
                 row.channels.insert(label.clone());
-                if status.updated_at >= row.updated_at {
+                if status.last_seen >= row.selected_at {
                     row.title = presence.title.clone();
                     row.activity = presence.activity.clone();
                     row.state = presence.state;
-                    row.updated_at = status.updated_at;
+                    row.selected_at = status.last_seen;
                 }
                 row.last_seen = row.last_seen.max(status.last_seen);
             })
@@ -97,7 +97,7 @@ fn session_summaries_from_store(
                     activity: presence.activity,
                     state: presence.state,
                     last_seen: presence.observed_at,
-                    updated_at: status.updated_at,
+                    selected_at: status.last_seen,
                 };
                 row.channels.insert(label);
                 row

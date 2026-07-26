@@ -305,7 +305,6 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
     let sibling = Keys::generate();
     let target_pk = target.public_key().to_hex();
     let sibling_pk = sibling.public_key().to_hex();
-
     register(&store, &target_pk, "proj", "target-ext");
     register(&store, &sibling_pk, "proj", "sibling-ext");
     store
@@ -315,7 +314,6 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
         !store.is_channel_member("proj", &target_pk).unwrap(),
         "relay membership is not the durable exact-resume affinity"
     );
-
     let event = build(
         &sender,
         9,
@@ -328,7 +326,6 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
         body: "resume this exact session".into(),
         mentioned_pubkeys: vec![target_pk.clone()],
     };
-
     assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&target_pk).unwrap().len(), 1);
@@ -338,7 +335,6 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
         .is_empty());
     assert!(!store.get_session(&target_pk).unwrap().unwrap().is_running());
 }
-
 #[test]
 fn other_kind_lands_in_relay_events() {
     let store = Store::open_memory().unwrap();

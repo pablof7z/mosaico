@@ -341,7 +341,6 @@ async fn pty_transport_reports_a_controlled_socket_live_and_delivers_to_it() {
         }
         panic!("PTY fixture did not receive delivery before deadline");
     });
-
     let endpoint = EndpointRef {
         kind: TransportKind::Pty,
         endpoint_id: socket.to_string_lossy().into_owned(),
@@ -351,7 +350,6 @@ async fn pty_transport_reports_a_controlled_socket_live_and_delivers_to_it() {
         .deliver(&endpoint, "positive PTY delivery", false)
         .await
         .unwrap();
-
     let delivered = delivered_rx
         .recv_timeout(std::time::Duration::from_secs(2))
         .expect("PTY fixture delivery");

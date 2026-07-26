@@ -20,8 +20,8 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
         .get(channel)
         .cloned()
         .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(pubkey, _role)| member_row(inputs, channel, &pubkey, now))
+        .into_keys()
+        .filter_map(|pubkey| member_row(inputs, channel, &pubkey, now))
         .collect()
 }
 
@@ -134,9 +134,11 @@ fn member_origin(
     (
         name,
         host.to_string(),
-        cross_workspace
-            .then(|| workspace.to_string())
-            .unwrap_or_default(),
+        if cross_workspace {
+            workspace.to_string()
+        } else {
+            String::new()
+        },
         branch,
     )
 }

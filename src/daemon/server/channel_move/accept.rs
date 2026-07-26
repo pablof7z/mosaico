@@ -67,7 +67,10 @@ pub(in crate::daemon::server) async fn rpc_accept(
             (child_h, child_path, false)
         }
         None => {
-            let create_params = move_create_params(params, &offer.evidence.parent, name, about);
+            let parent_path = state.with_store(|store| {
+                channel_resolve::channel_reference_for(store, &offer.evidence.parent)
+            })?;
+            let create_params = move_create_params(params, &parent_path, name, about);
             let created = channels_rpc::rpc_channel_create(state, &create_params).await?;
             let child_path = created["channel"]
                 .as_str()
@@ -210,8 +213,10 @@ fn move_create_params(
     let obj = create_params
         .as_object_mut()
         .expect("validated channel move params are an object");
-    obj.insert("parent".into(), serde_json::json!(parent));
-    obj.insert("name".into(), serde_json::json!(name));
+    obj.insert(
+        "channel".into(),
+        serde_json::json!(format!("{parent}/{name}")),
+    );
     obj.insert("about".into(), serde_json::json!(about));
     obj.insert("agents".into(), serde_json::json!([]));
     create_params

@@ -210,7 +210,6 @@ use statusline::rpc_statusline;
 use subscriptions::{ensure_subscription, replay_channel_chat, sync_subscriptions};
 use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
-
 async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
@@ -285,9 +284,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         }
     }
 }
-
 const SEEN_EVENTS_CAP: usize = 4096;
-
 impl DaemonState {
     /// True exactly once per native event id (bounded memory). Subsequent
     /// sightings — NMP notifying for every matching observation —
@@ -314,7 +311,6 @@ impl DaemonState {
         let _ = self.connections.tail_tx.send(ev);
     }
 }
-
 fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value> {
     rows.iter()
         .filter_map(|r| {
@@ -342,7 +338,6 @@ fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value>
         })
         .collect()
 }
-
 fn sort_message_json(rows: &mut [serde_json::Value]) {
     rows.sort_by_key(|row| row["created_at"].as_i64().unwrap_or_default());
 }
@@ -359,7 +354,6 @@ fn env_u64(key: &str, default: u64) -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
 }
-
 fn presence_lease_ttl() -> Duration {
     Duration::from_secs(env_u64(
         "MOSAICO_PRESENCE_LEASE_TTL_S",

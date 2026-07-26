@@ -97,7 +97,6 @@ fn idle_eviction_and_exact_resume_reopen_presence_under_the_new_generation() {
     let snapshot = |session: &crate::state::Session| PresenceSnapshot {
         host: "test-host".into(),
         workspace: session.work_root.clone(),
-        branch: "feat/context".into(),
         slug: session.agent_slug.clone(),
         rel_cwd: ".".into(),
         dispatch_event: None,

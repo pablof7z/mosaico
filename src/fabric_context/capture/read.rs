@@ -22,15 +22,18 @@ enum ChannelReadiness {
     Missing,
 }
 
+#[derive(Default)]
+pub(super) struct IdentityCaps {
+    pub(super) refs: BTreeMap<String, String>,
+    pub(super) agent_slugs: BTreeMap<String, String>,
+    pub(super) backend: BTreeSet<String>,
+    pub(super) has_handle: BTreeSet<String>,
+    pub(super) known_profiles: BTreeSet<String>,
+}
+
 pub(super) fn self_cap(store: &Store, s: &Session, input: &FabricContextInput<'_>) -> SelfCap {
-    let resolver = crate::daemon::workspace_path::WorkspacePathResolver::new(store);
     let workspace = s.work_root.clone();
-    let branch = resolver
-        .path_for_channel(&workspace)
-        .ok()
-        .flatten()
-        .and_then(|path| git_branch(std::path::Path::new(&path)))
-        .unwrap_or_default();
+    let branch = crate::worktree_branch::for_root(store, &workspace);
     SelfCap {
         name: input.self_slug.to_string(),
         host: input.local_host.to_string(),
@@ -40,47 +43,6 @@ pub(super) fn self_cap(store: &Store, s: &Session, input: &FabricContextInput<'_
         branch,
         turn_count: s.turn_count,
     }
-}
-
-fn git_branch(workspace: &std::path::Path) -> Option<String> {
-    if !workspace.is_dir() {
-        return None;
-    }
-    if let Some(branch) = branch_from_head(workspace) {
-        return Some(branch);
-    }
-    let output = std::process::Command::new("git")
-        .args(["-C"])
-        .arg(workspace)
-        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let branch = String::from_utf8(output.stdout).ok()?;
-    let branch = branch.trim();
-    (!branch.is_empty() && !branch.chars().any(char::is_control)).then(|| branch.to_string())
-}
-
-fn branch_from_head(workspace: &std::path::Path) -> Option<String> {
-    let dot_git = workspace.join(".git");
-    let git_dir = if dot_git.is_dir() {
-        dot_git
-    } else {
-        let pointer = std::fs::read_to_string(dot_git).ok()?;
-        let path = pointer.trim().strip_prefix("gitdir:")?.trim();
-        let path = std::path::Path::new(path);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            workspace.join(path)
-        }
-    };
-    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
-    let branch = head.trim().strip_prefix("ref: refs/heads/")?;
-    (!branch.is_empty() && !branch.chars().any(char::is_control)).then(|| branch.to_string())
 }
 
 pub(super) fn joined_channels(store: &Store, session: Option<&Session>) -> Vec<String> {
@@ -281,24 +243,26 @@ pub(super) fn resolve_pubkey(
     store: &Store,
     pubkey: &str,
     local_host: &str,
-    refs: &mut BTreeMap<String, String>,
-    agent_slugs: &mut BTreeMap<String, String>,
-    backend: &mut BTreeSet<String>,
-    has_handle: &mut BTreeSet<String>,
+    identities: &mut IdentityCaps,
 ) {
-    if refs.contains_key(pubkey) {
+    if identities.refs.contains_key(pubkey) {
         return;
     }
-    refs.insert(pubkey.to_string(), pubkey_ref(store, pubkey, local_host));
+    identities
+        .refs
+        .insert(pubkey.to_string(), pubkey_ref(store, pubkey, local_host));
     if let Some(profile) = store.get_profile(pubkey).ok().flatten() {
+        identities.known_profiles.insert(pubkey.to_string());
         if !profile.slug.trim().is_empty() {
-            has_handle.insert(pubkey.to_string());
+            identities.has_handle.insert(pubkey.to_string());
         }
         if !profile.agent_slug.is_empty() {
-            agent_slugs.insert(pubkey.to_string(), profile.agent_slug);
+            identities
+                .agent_slugs
+                .insert(pubkey.to_string(), profile.agent_slug);
         }
         if profile.is_backend {
-            backend.insert(pubkey.to_string());
+            identities.backend.insert(pubkey.to_string());
         }
     }
 }

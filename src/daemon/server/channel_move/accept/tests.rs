@@ -91,13 +91,12 @@ fn move_creation_uses_the_required_about_as_the_child_about() {
     });
     let created = move_create_params(
         &params,
-        "root",
+        "/root",
         "focused",
         "Coordinate the focused implementation",
     );
 
-    assert_eq!(created["parent"], "root");
-    assert_eq!(created["name"], "focused");
+    assert_eq!(created["channel"], "/root/focused");
     assert_eq!(created["about"], "Coordinate the focused implementation");
     assert_eq!(created["agents"], serde_json::json!([]));
     assert_eq!(created["session"], A1);

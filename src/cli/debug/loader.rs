@@ -426,12 +426,10 @@ fn parse_command_log(
     }
     Ok(unscoped)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::RegisterSession;
-
     #[test]
     fn enriches_pane_agent_with_public_session_handle() {
         let dir = tempfile::tempdir().unwrap();
@@ -458,7 +456,6 @@ mod tests {
         store
             .grant_session_route("pk", "unknown-internal-id", 3)
             .unwrap();
-
         let mut panes = BTreeMap::from([(
             "pk".into(),
             SessionPane {
@@ -467,9 +464,7 @@ mod tests {
                 ..SessionPane::default()
             },
         )]);
-
         enrich_panes_from_store_path(&mut panes, &path).unwrap();
-
         assert_eq!(panes["pk"].agent, "pearl-cliff-395-haiku");
         assert_eq!(panes["pk"].root, "/aaa");
         assert_eq!(panes["pk"].channels, vec!["/aaa", "/aaa/dev"]);

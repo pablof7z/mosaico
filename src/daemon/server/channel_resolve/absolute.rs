@@ -36,8 +36,7 @@ pub(in crate::daemon::server) fn root_channel(
     crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_channel(channel)
 }
 
-/// The top-level workspace channel whose slug (its `channel_h`) matches `slug`
-/// case-insensitively, if any.
+/// The top-level channel whose durable public root slug matches `slug`, if any.
 pub(in crate::daemon::server) fn root_channel_by_slug(
     store: &crate::state::Store,
     slug: &str,
@@ -46,7 +45,7 @@ pub(in crate::daemon::server) fn root_channel_by_slug(
         .list_root_channels()
         .unwrap_or_default()
         .into_iter()
-        .find(|c| c.channel_h.eq_ignore_ascii_case(slug))
+        .find(|channel| channel.channel_h == slug)
         .map(|c| c.channel_h)
 }
 

@@ -37,6 +37,10 @@ pub(crate) struct MembersInput {
     /// omitted from member rows and queued for a profile refetch instead.
     #[serde(default)]
     pub(in crate::fabric_context) has_handle: BTreeSet<String>,
+    /// Pubkeys with any resolved kind:0 profile. An empty handle means a known
+    /// human, while no profile leaves the agent count unknown.
+    #[serde(default)]
+    pub(in crate::fabric_context) known_profiles: BTreeSet<String>,
 }
 
 impl MembersInput {

@@ -14,11 +14,8 @@ pub(in crate::daemon::server) async fn spawn_session(
 ) -> Result<()> {
     let pubkey = params.identity.pubkey.clone();
     let runtime_generation = params.runtime_generation;
-    let has_channels = params.has_channels;
-
     tracing::info!(
         agent = %params.identity.slug,
-        has_channels,
         runtime_generation,
         pubkey,
         "spawning session engine"
@@ -350,7 +347,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             identity,
             keys,
             runtime_generation,
-            !routes.is_empty(),
             &workspace,
             "",
             None,

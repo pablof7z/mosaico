@@ -81,7 +81,7 @@ impl WhoAggregation {
                 .push(status);
         }
         for rows in statuses.values_mut() {
-            rows.sort_by_key(|status| Reverse(status.updated_at));
+            rows.sort_by_key(|status| Reverse(status.last_seen));
         }
         let mut referenced_pubkeys = BTreeSet::new();
         referenced_pubkeys.extend(local_sessions.iter().map(|session| session.pubkey.clone()));
@@ -136,7 +136,7 @@ impl WhoAggregation {
                     .values()
                     .flatten()
                     .filter(|row| row.pubkey == session.pubkey)
-                    .max_by_key(|row| row.updated_at);
+                    .max_by_key(|row| row.last_seen);
                 (
                     session.pubkey.clone(),
                     crate::session_presence::local(store, session, published),

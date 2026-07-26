@@ -10,6 +10,7 @@
 
 mod agent_about;
 pub mod agent_catalog;
+mod agent_count;
 pub(crate) mod agent_inventory;
 mod attachment;
 mod channel_about;
@@ -59,6 +60,7 @@ mod expired_sessions;
 mod turn_context;
 mod who_aggregation;
 mod who_snapshot;
+mod worktree_branch;
 
 #[cfg(test)]
 pub(crate) mod test_env;

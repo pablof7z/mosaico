@@ -76,8 +76,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "parent_channel": format!("/{root}"),
-                "name": "side",
+                "channel": format!("/{root}/side"),
                 "about": "side channel",
                 "cwd": &work_dir,
             }),

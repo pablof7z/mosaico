@@ -45,8 +45,7 @@ fn channel_edit_updates_about_from_relay_truth() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "parent_channel": "/tmp",
-                "name": &child_name,
+                "channel": format!("/tmp/{child_name}"),
                 "about": "old about",
                 "agents": [],
                 "harness": "claude-code",

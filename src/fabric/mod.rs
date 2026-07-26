@@ -303,7 +303,6 @@ mod tests {
             .unwrap();
         assert_eq!(rows.len(), 1, "replayed reaction stays a single row");
     }
-
     #[test]
     fn unknown_kind_is_cached_verbatim() {
         let store = Store::open_memory().unwrap();

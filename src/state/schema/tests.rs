@@ -273,7 +273,6 @@ fn stamped_non_canonical_file_db_is_rejected() {
     .unwrap();
     conn.pragma_update(None, "user_version", 16u32).unwrap();
     drop(conn);
-
     let err = match Store::open(&path) {
         Ok(_) => panic!("non-canonical schema must be rejected"),
         Err(err) => err,
@@ -284,7 +283,6 @@ fn stamped_non_canonical_file_db_is_rejected() {
         "{text}"
     );
 }
-
 #[test]
 fn unstamped_existing_file_db_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
@@ -293,7 +291,6 @@ fn unstamped_existing_file_db_is_rejected() {
     conn.execute("CREATE TABLE anything (id INTEGER)", [])
         .unwrap();
     drop(conn);
-
     let err = match Store::open(&path) {
         Ok(_) => panic!("unstamped db must be rejected"),
         Err(err) => err,

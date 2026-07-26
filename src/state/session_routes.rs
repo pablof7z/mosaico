@@ -134,19 +134,25 @@ impl Store {
             "DELETE FROM session_channels WHERE pubkey=?1 AND channel_h=?2",
             params![pubkey, channel_h],
         )? > 0;
-        transaction.execute(
-            "INSERT INTO session_standing
+        let updated = transaction.execute(
+            "UPDATE session_standing
+             SET state='absent',
+                 standing_epoch=standing_epoch+1,
+                 updated_at=?3
+             WHERE pubkey=?1 AND channel_h=?2",
+            params![pubkey, channel_h, now],
+        )?;
+        if updated == 0 {
+            transaction.execute(
+                "INSERT INTO session_standing
                  (pubkey, channel_h, state, standing_epoch,
                   session_lifecycle_epoch, updated_at)
              SELECT ?1, ?2, 'absent', 1, lifecycle_epoch, ?3
                FROM sessions WHERE pubkey=?1
-             ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-                 state='absent',
-                 standing_epoch=session_standing.standing_epoch+1,
-                 session_lifecycle_epoch=excluded.session_lifecycle_epoch,
-                 updated_at=excluded.updated_at",
-            params![pubkey, channel_h, now],
-        )?;
+             ON CONFLICT(pubkey, channel_h) DO NOTHING",
+                params![pubkey, channel_h, now],
+            )?;
+        }
         transaction.commit()?;
         Ok(removed)
     }

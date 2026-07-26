@@ -53,3 +53,17 @@ fn channel_list_schema_uses_the_shared_path_projection_modes() {
     assert!(properties.get("channel").is_none());
     assert_eq!(list["annotations"]["readOnlyHint"], true);
 }
+
+#[test]
+fn channel_create_uses_one_absolute_path_contract() {
+    let tools = list();
+    let create = tool(&tools, "mosaico.channel_create");
+    let properties = &create["inputSchema"]["properties"];
+    assert!(properties.get("channel").is_some());
+    assert!(properties.get("name").is_none());
+    assert!(properties.get("parent_channel").is_none());
+    assert_eq!(
+        create["inputSchema"]["required"],
+        json!(["channel", "about"])
+    );
+}

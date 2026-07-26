@@ -6,7 +6,6 @@ pub(in crate::daemon::server) fn engine_params_for(
     identity: crate::identity::SessionIdentity,
     keys: Keys,
     runtime_generation: u64,
-    has_channels: bool,
     workspace: &str,
     rel_cwd: &str,
     dispatch_event: Option<String>,
@@ -15,7 +14,6 @@ pub(in crate::daemon::server) fn engine_params_for(
     EngineParams {
         identity,
         keys,
-        has_channels,
         workspace: workspace.to_string(),
         runtime_generation,
         host: cfg.host.clone(),

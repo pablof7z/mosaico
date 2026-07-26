@@ -8,6 +8,8 @@
 
 use super::*;
 
+mod quarantine_arrival;
+
 fn row_to_event(row: &rusqlite::Row) -> rusqlite::Result<RelayEvent> {
     Ok(RelayEvent {
         id: row.get(0)?,
@@ -22,6 +24,7 @@ fn row_to_event(row: &rusqlite::Row) -> rusqlite::Result<RelayEvent> {
 }
 
 const COLS: &str = "id, kind, pubkey, created_at, channel_h, d_tag, content, tags_json";
+const QUARANTINED_EVENT_KIND: u32 = u32::MAX;
 
 fn is_addressable(kind: u32) -> bool {
     (30000..40000).contains(&kind)
@@ -97,8 +100,8 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                &format!("SELECT {COLS} FROM relay_events WHERE id=?1"),
-                params![id],
+                &format!("SELECT {COLS} FROM relay_events WHERE id=?1 AND kind!=?2"),
+                params![id, QUARANTINED_EVENT_KIND as i64],
                 row_to_event,
             )
             .optional()?)
@@ -117,9 +120,13 @@ impl Store {
         }
         let pattern = format!("{prefix}*");
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_events WHERE id GLOB ?1 LIMIT 2"
+            "SELECT {COLS} FROM relay_events
+             WHERE id GLOB ?1 AND kind!=?2 LIMIT 2"
         ))?;
-        let mut rows = stmt.query_map(params![pattern], row_to_event)?;
+        let mut rows = stmt.query_map(
+            params![pattern, QUARANTINED_EVENT_KIND as i64],
+            row_to_event,
+        )?;
         let first = rows.next().transpose()?;
         if rows.next().is_some() {
             anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one message");
@@ -132,8 +139,8 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT 1 FROM relay_events WHERE id=?1",
-                params![id],
+                "SELECT 1 FROM relay_events WHERE id=?1 AND kind!=?2",
+                params![id, QUARANTINED_EVENT_KIND as i64],
                 |_| Ok(()),
             )
             .optional()?

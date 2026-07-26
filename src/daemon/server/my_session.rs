@@ -188,12 +188,12 @@ mod tests {
                 crate::reconcile::PresenceSnapshot {
                     host: "test-host".into(),
                     workspace: "root".into(),
-                    branch: "feat/context".into(),
                     slug: "codex".into(),
                     rel_cwd: ".".into(),
                     dispatch_event: None,
                     projection: crate::reconcile::PresenceProjection {
                         channels: BTreeSet::from(["root".to_string()]),
+                        branch: "feat/context".into(),
                         state: crate::session_state::SessionState::Working,
                         state_since: 1,
                         title: String::new(),

@@ -116,13 +116,6 @@ pub(in crate::daemon::server) async fn rpc_channel_join(
     let already_joined =
         state.with_store(|store| store.has_session_route(&rec.pubkey, &channel))?;
     ensure_joinable(state, &rec, &channel).await?;
-    super::presence::reconcile_generation(
-        state,
-        &rec.pubkey,
-        rec.runtime_generation,
-        "channel_joined",
-    )
-    .await;
     sync_subscriptions(state).await?;
     let history_notice = if already_joined {
         None

@@ -73,9 +73,11 @@ fn render_channel(output: &mut String, channel: &serde_json::Value, depth: usize
     {
         details.push(format!("active {activity}"));
     }
-    let details = (!details.is_empty())
-        .then(|| format!("  — {}", details.join(" · ")))
-        .unwrap_or_default();
+    let details = if details.is_empty() {
+        String::new()
+    } else {
+        format!("  — {}", details.join(" · "))
+    };
     let _ = writeln!(output, "{}{path}{suffix}{details}", "  ".repeat(depth));
 
     for child in channel["children"]

@@ -88,8 +88,7 @@ against relay state before success is reported.
 ## `channel_create`
 
 ```jsonc
-params: {"name": "child", "about": "…",
-         "parent_channel": "/root/parent", "agents": […]}
+params: {"channel": "/root/parent/child", "about": "…", "agents": […]}
 result: {"channel": "/root/parent/child", "joined": true,
          "orchestration_event_id": "hex"|""}
 ```

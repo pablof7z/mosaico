@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use serde::{Deserialize, Serialize};
 
 use super::read;
@@ -41,25 +39,14 @@ pub(super) fn status_caps(
     store: &Store,
     channel: &str,
     local_host: &str,
-    refs: &mut BTreeMap<String, String>,
-    agent_slugs: &mut BTreeMap<String, String>,
-    backend: &mut BTreeSet<String>,
-    has_handle: &mut BTreeSet<String>,
+    identities: &mut read::IdentityCaps,
 ) -> Vec<StatusCap> {
     let mut rows = store
         .live_status_for_channel(channel, 0)
         .unwrap_or_default()
         .into_iter()
         .map(|status| {
-            read::resolve_pubkey(
-                store,
-                &status.pubkey,
-                local_host,
-                refs,
-                agent_slugs,
-                backend,
-                has_handle,
-            );
+            read::resolve_pubkey(store, &status.pubkey, local_host, identities);
             let local_session = store
                 .get_session(&status.pubkey)
                 .ok()
@@ -105,15 +92,7 @@ pub(super) fn status_caps(
         if !routed || rows.iter().any(|row| row.pubkey == session.pubkey) {
             continue;
         }
-        read::resolve_pubkey(
-            store,
-            &session.pubkey,
-            local_host,
-            refs,
-            agent_slugs,
-            backend,
-            has_handle,
-        );
+        read::resolve_pubkey(store, &session.pubkey, local_host, identities);
         let presence = crate::session_presence::local(store, &session, None);
         let native_failure = native_failure(store, &session);
         let slug = store

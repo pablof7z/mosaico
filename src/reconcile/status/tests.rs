@@ -4,7 +4,6 @@ fn snapshot(state: SessionState, title: &str) -> PresenceSnapshot {
     PresenceSnapshot {
         host: "laptop".into(),
         workspace: "mosaico".into(),
-        branch: "feat/context".into(),
         slug: "coder".into(),
         rel_cwd: ".".into(),
         dispatch_event: None,
@@ -15,9 +14,20 @@ fn snapshot(state: SessionState, title: &str) -> PresenceSnapshot {
 fn projection(state: SessionState, title: &str) -> PresenceProjection {
     PresenceProjection {
         channels: BTreeSet::from(["room".into()]),
+        branch: "feat/context".into(),
         state,
         state_since: 5,
         title: title.into(),
+    }
+}
+
+fn unscoped_projection() -> PresenceProjection {
+    PresenceProjection {
+        channels: BTreeSet::new(),
+        branch: "feat/context".into(),
+        state: SessionState::Idle,
+        state_since: 5,
+        title: "Waiting".into(),
     }
 }
 fn seeded(generation: u64, state: SessionState) -> StatusReconciler {
@@ -118,4 +128,35 @@ fn revoke_expires_only_the_owned_generation() {
     };
     assert_eq!(status.expires_at, Some(123));
     assert_eq!(status.state, SessionState::Offline);
+}
+
+#[test]
+fn an_unscoped_owner_publishes_only_after_its_first_join() {
+    let mut policy = StatusReconciler::new(90, 30);
+    let mut initial = snapshot(SessionState::Idle, "Waiting");
+    initial.projection = unscoped_projection();
+    assert!(policy.open("pk1", 1, initial, 0).effects.is_empty());
+    assert!(policy.renew("pk1", 1, 30).effects.is_empty());
+
+    let joined = policy.reconcile("pk1", 1, projection(SessionState::Idle, "Joined"), 31);
+    let (status, reason) = published(&joined.effects).unwrap();
+    assert_eq!(reason, PublishReason::Changed);
+    assert_eq!(status.channels, vec!["room"]);
+
+    let left = policy.reconcile("pk1", 1, unscoped_projection(), 32);
+    let StatusEffect::Expire { status } = &left.effects[0] else {
+        panic!("last leave must expire the prior channel presence");
+    };
+    assert_eq!(status.channels, vec!["room"]);
+    assert_eq!(status.expires_at, Some(32));
+}
+
+#[test]
+fn semantic_reconcile_refreshes_the_published_branch() {
+    let mut policy = seeded(1, SessionState::Working);
+    let mut changed = projection(SessionState::Working, "Task");
+    changed.branch = "feat/new-branch".into();
+
+    let out = policy.reconcile("pk1", 1, changed, 10);
+    assert_eq!(published(&out.effects).unwrap().0.branch, "feat/new-branch");
 }

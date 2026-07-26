@@ -146,17 +146,13 @@ async fn react(args: &Value, caller: Option<&str>) -> Result<Value> {
 }
 
 async fn channel_create(args: &Value, caller: Option<&str>) -> Result<Value> {
-    let name = required_string(args, "name")?;
-    let about = required_string(args, "about")?;
-    let agents = agent_specs(args)?;
     daemon_identity(
         "channel_create",
         with_session(
             json!({
-                "name": name,
-                "about": about,
-                "parent_channel": opt_string(args, "parent_channel"),
-                "agents": agents,
+                "channel": required_string(args, "channel")?,
+                "about": required_string(args, "about")?,
+                "agents": agent_specs(args)?,
             }),
             args,
         ),

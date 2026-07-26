@@ -40,30 +40,22 @@ pub(super) fn count(store: &Store, channel: &str, facts: &Facts) -> Result<Optio
     }
     let mut count = 0;
     for member in store.list_channel_members(channel)? {
-        // NIP-29 admins are operator or management identities. Agent sessions
-        // join as ordinary members; counting an unresolved admin as an unknown
-        // member would make every otherwise-complete roster look incomplete.
-        if member.role == "admin" {
-            continue;
-        }
-        if facts.backend.contains(&member.pubkey) {
-            continue;
-        }
         let profile = store.get_profile(&member.pubkey)?;
-        if profile.as_ref().is_some_and(|profile| profile.is_backend) {
-            continue;
-        }
-        if facts.named.contains(&member.pubkey)
+        let is_backend = facts.backend.contains(&member.pubkey)
+            || profile.as_ref().is_some_and(|profile| profile.is_backend);
+        let is_named_agent = facts.named.contains(&member.pubkey)
             || profile
                 .as_ref()
-                .is_some_and(|profile| !profile.agent_slug.trim().is_empty())
-        {
-            count += 1;
-        } else if profile.is_none() {
-            // A hydrated relay roster does not by itself tell us whether an
-            // unknown pubkey is a human, agent, or backend. Omit the count
-            // instead of confidently under-reporting zero agents.
-            return Ok(None);
+                .is_some_and(|profile| !profile.agent_slug.trim().is_empty());
+        match crate::agent_count::classify(
+            &member.role,
+            is_backend,
+            profile.is_some(),
+            is_named_agent,
+        ) {
+            crate::agent_count::MemberClass::Agent => count += 1,
+            crate::agent_count::MemberClass::Unknown => return Ok(None),
+            crate::agent_count::MemberClass::Ignore | crate::agent_count::MemberClass::Human => {}
         }
     }
     Ok(Some(count))
