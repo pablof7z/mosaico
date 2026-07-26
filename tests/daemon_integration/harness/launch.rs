@@ -41,6 +41,9 @@ case "${1:-forever}" in
     while :; do sleep 1; done
     ;;
   sleep-2) sleep 2 ;;
+  wait-file)
+    while [ ! -f "$MOSAICO_HOME/release-harness" ]; do sleep 0.1; done
+    ;;
   exit-0) exit 0 ;;
   exit-1) exit 1 ;;
   forever) while :; do sleep 1; done ;;

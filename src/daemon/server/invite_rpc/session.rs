@@ -29,6 +29,7 @@ async fn pull_live_session(
     rec: &crate::state::Session,
     pty_id: &str,
 ) -> Result<serde_json::Value> {
+    let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
     let standing_lane = state.standing_sync.lock().await;
     ensure_live_session_member(state, channel_h, rec).await?;
     let recorded = super::super::managed_lifecycle::commit_confirmed_admission(
@@ -50,7 +51,7 @@ async fn pull_live_session(
         "npub": crate::idref::npub(&rec.pubkey),
         "agent": rec.agent_slug,
         "online_agent": online,
-        "channel": channel_h,
+        "channel": channel,
         "host": state.host,
     }))
 }
@@ -61,6 +62,7 @@ async fn resume_local_session(
     work_root: &str,
     rec: &crate::state::Session,
 ) -> Result<serde_json::Value> {
+    let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
     let resume_id = super::super::pty_rpc::resume_token_for(state, rec)
         .with_context(|| format!("session {} has no resume token (not resumable)", rec.pubkey))?;
     super::super::pty_rpc::provision_before_spawn(
@@ -85,7 +87,7 @@ async fn resume_local_session(
         "npub": crate::idref::npub(&rec.pubkey),
         "agent": rec.agent_slug,
         "online_agent": online,
-        "channel": channel_h,
+        "channel": channel,
         "host": state.host,
     }))
 }
@@ -95,6 +97,7 @@ async fn invite_remote_session(
     channel_h: &str,
     selector: &str,
 ) -> Result<serde_json::Value> {
+    let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
     let remote = remote_session(state, selector)?;
     if remote.backend == state.host {
         anyhow::bail!(
@@ -120,7 +123,7 @@ async fn invite_remote_session(
         "npub": crate::idref::npub(&remote.pubkey),
         "agent": remote.slug,
         "online_agent": online,
-        "channel": channel_h,
+        "channel": channel,
         "orchestration_event_id": event_id,
     }))
 }
@@ -130,6 +133,10 @@ async fn ensure_live_session_member(
     channel_h: &str,
     rec: &crate::state::Session,
 ) -> Result<()> {
+    let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
+    if channel.is_empty() {
+        anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
+    }
     refresh_channel_members_cache(state, channel_h).await;
     let is_member =
         state.with_store(|s| s.is_channel_member(channel_h, &rec.pubkey).unwrap_or(false));
@@ -146,7 +153,7 @@ async fn ensure_live_session_member(
             "session {} is not a member of channel {:?} and could not be confirmed as added \
              (is the management key an admin of that channel?)",
             rec.pubkey,
-            channel_h
+            channel
         );
     }
     refresh_channel_members_cache(state, channel_h).await;

@@ -41,3 +41,15 @@ fn wait_schema_exposes_ambient_and_correlated_forms() {
         "integer"
     );
 }
+
+#[test]
+fn channel_list_schema_uses_the_shared_path_projection_modes() {
+    let tools = list();
+    let list = tool(&tools, "mosaico.channel_list");
+    let properties = &list["inputSchema"]["properties"];
+    for property in ["workspace", "all", "recursive", "session"] {
+        assert!(properties.get(property).is_some(), "missing {property}");
+    }
+    assert!(properties.get("channel").is_none());
+    assert_eq!(list["annotations"]["readOnlyHint"], true);
+}

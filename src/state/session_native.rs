@@ -87,7 +87,8 @@ mod tests {
                 pubkey: pubkey.into(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
-                channel_h: "mosaico".into(),
+                launch_channel_h: "mosaico".into(),
+                work_root: "mosaico".into(),
                 child_pid: None,
                 now: 1,
             })

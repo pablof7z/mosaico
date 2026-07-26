@@ -42,7 +42,7 @@ pub(crate) struct MetaInput {
     pub(super) self_row: Option<SelfCap>,
     pub(super) hosts: Vec<HostCap>,
     pub(super) workspaces: Vec<WorkspaceCap>,
-    pub(super) active_channels: BTreeSet<String>,
+    pub(super) joined_channels: BTreeSet<String>,
     pub(super) current_workspace: String,
     pub(super) warnings: Vec<String>,
     pub(super) self_pubkey: String,
@@ -82,6 +82,12 @@ pub(super) struct SelfCap {
     pub(super) headless: bool,
     #[serde(default)]
     pub(super) title: String,
+    #[serde(default)]
+    pub(super) workspace: String,
+    #[serde(default)]
+    pub(super) branch: String,
+    #[serde(default)]
+    pub(super) turn_count: u64,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,13 +107,14 @@ pub(super) struct AgentCap {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct HostCap {
     pub(super) name: String,
+    #[serde(default)]
+    pub(super) roots: Vec<String>,
     pub(super) agents: Vec<AgentCap>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ChannelCap {
     pub(super) h: String,
-    pub(super) name: String,
     #[serde(default)]
     pub(super) reference: String,
     pub(super) about: String,
@@ -158,7 +165,7 @@ pub(crate) fn capture_inputs(
                 .ok()
         })
         .unwrap_or_else(|| input.scope.to_string());
-    let active_channels = read::active_channels(store, input.session)
+    let joined_channels = read::joined_channels(store, input.session)
         .into_iter()
         .collect::<BTreeSet<_>>();
     let selected_channels = read::selected_channels(store, input)
@@ -177,6 +184,8 @@ pub(crate) fn capture_inputs(
     let mut backend: BTreeSet<String> = BTreeSet::new();
     let mut has_handle: BTreeSet<String> = BTreeSet::new();
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let mut hydrated: BTreeSet<String> = BTreeSet::new();
+    let mut hosts_by_pubkey: BTreeMap<String, String> = BTreeMap::new();
     let mut activity: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut statuses: BTreeMap<String, Vec<StatusCap>> = BTreeMap::new();
     let mut messages: BTreeMap<String, MsgBundle> = BTreeMap::new();
@@ -188,12 +197,20 @@ pub(crate) fn capture_inputs(
         .map(|channel| &channel.h)
     {
         // Keep relay roles in the frozen input; rendered rows do not expose them.
-        let members: BTreeMap<String, String> = store
-            .list_channel_members(h)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| (m.pubkey, m.role))
-            .collect();
+        let members: BTreeMap<String, String> = match store.list_channel_members(h) {
+            Ok(rows) => {
+                if store.has_channel_membership_snapshot(h)? {
+                    hydrated.insert(h.clone());
+                }
+                rows.into_iter()
+                    .map(|member| (member.pubkey, member.role))
+                    .collect()
+            }
+            Err(error) => {
+                tracing::debug!(channel = %h, %error, "membership snapshot unavailable");
+                BTreeMap::new()
+            }
+        };
         let chan_statuses = activity::status_caps(
             store,
             h,
@@ -213,6 +230,9 @@ pub(crate) fn capture_inputs(
                 &mut backend,
                 &mut has_handle,
             );
+            hosts_by_pubkey
+                .entry(pk.clone())
+                .or_insert_with(|| read::profile_host(store, pk));
         }
         activity.insert(
             h.clone(),
@@ -258,7 +278,7 @@ pub(crate) fn capture_inputs(
         self_row: input.session.map(|s| read::self_cap(store, s, input)),
         hosts,
         workspaces,
-        active_channels,
+        joined_channels,
         current_workspace,
         warnings,
         self_pubkey: input.self_pubkey.to_string(),
@@ -283,8 +303,10 @@ pub(crate) fn capture_inputs(
         meta,
         members: MembersInput {
             roster,
+            hydrated,
             refs,
             agent_slugs,
+            hosts: hosts_by_pubkey,
             backend,
             activity,
             has_handle,

@@ -14,6 +14,7 @@ mod topology;
 
 const SELF_PK: &str = "self-pubkey";
 const OTHER_PK: &str = "other-pubkey";
+const TASK_H: &str = "task-h";
 
 fn seed_store() -> Store {
     let store = Store::open_memory().unwrap();
@@ -21,14 +22,16 @@ fn seed_store() -> Store {
         .upsert_channel("root", "main", "Root room", "", 1)
         .unwrap();
     store
-        .upsert_channel("task", "task", "Task room", "root", 1)
+        .upsert_channel(TASK_H, "task", "Task room", "root", 1)
         .unwrap();
     store
         .replace_channel_members("root", &[SELF_PK.into(), OTHER_PK.into()], 1)
         .unwrap();
+    store.replace_channel_admins("root", &[], 1).unwrap();
     store
-        .replace_channel_members("task", &[SELF_PK.into(), OTHER_PK.into()], 1)
+        .replace_channel_members(TASK_H, &[SELF_PK.into(), OTHER_PK.into()], 1)
         .unwrap();
+    store.replace_channel_admins(TASK_H, &[], 1).unwrap();
     for (pk, slug) in [(SELF_PK, "coder"), (OTHER_PK, "reviewer")] {
         store
             .upsert_profile_with_agent_slug(pk, slug, slug, slug, "laptop", false, 1)
@@ -45,6 +48,8 @@ fn publish_idle_status(store: &Store, pubkey: &str, slug: &str, title: &str) {
             slug: slug.into(),
             title: title.into(),
             activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since: 90,
             last_seen: 90,
@@ -56,7 +61,7 @@ fn publish_idle_status(store: &Store, pubkey: &str, slug: &str, title: &str) {
 
 fn session(store: &Store) -> Session {
     let rec = session_record(store, "sess", "root");
-    store.grant_session_route(&rec.pubkey, "task", 20).unwrap();
+    store.grant_session_route(&rec.pubkey, TASK_H, 20).unwrap();
     rec
 }
 
@@ -66,7 +71,8 @@ fn session_record(store: &Store, _label: &str, channel_h: &str) -> Session {
             pubkey: SELF_PK.into(),
             observed_harness: "codex".into(),
             agent_slug: "coder".into(),
-            channel_h: channel_h.into(),
+            launch_channel_h: channel_h.into(),
+            work_root: channel_h.split('-').next().unwrap_or(channel_h).to_string(),
             child_pid: None,
             now: 10,
         })
@@ -138,6 +144,42 @@ fn archived_joined_channels_are_hidden_from_fabric_context() {
 }
 
 #[test]
+fn automatic_context_requires_both_join_fences() {
+    let store = seed_store();
+    chat(
+        &store,
+        "future-before-join",
+        "root",
+        500,
+        "future-dated prejoin body",
+        "[]",
+    );
+    let rec = session(&store);
+    chat(
+        &store,
+        "backdated-after-join",
+        "root",
+        5,
+        "backdated postjoin body",
+        "[]",
+    );
+    chat(
+        &store,
+        "valid-after-join",
+        "root",
+        210,
+        "valid postjoin body",
+        "[]",
+    );
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 600, true))
+        .expect("forced context should render");
+    assert!(!text.contains("future-dated prejoin body"), "got: {text}");
+    assert!(!text.contains("backdated postjoin body"), "got: {text}");
+    assert!(text.contains("valid postjoin body"), "got: {text}");
+}
+
+#[test]
 fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     let store = seed_store();
     let rec = session(&store);
@@ -160,9 +202,10 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
-    assert!(text.contains("<workspace name=\"root\""));
-    assert!(!text.contains("<workspace name=\"root\" channel="));
-    assert!(text.contains("<channel name=\"root\" id=\"/root\""));
+    assert!(text.contains("<channels>"));
+    assert!(!text.contains("<workspace"));
+    assert!(text.contains("<channel name=\"/root\""));
+    assert!(!text.contains("<channel name=\"/root\" id=\""));
     assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\">"));
     assert!(
         !text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
@@ -307,7 +350,7 @@ fn missing_channels_are_warned_not_rendered() {
 }
 
 /// A forced but empty delta (nothing new since the cursor) must explain that the
-/// fabric reports only changes, NOT emit a bare empty `<workspace>` skeleton that
+/// fabric reports only changes, NOT emit a bare empty `<channels>` skeleton that
 /// reads as "channels disappeared". Regression for the confusing second `who`.
 #[test]
 fn quiet_forced_delta_renders_no_new_activity_note() {
@@ -322,6 +365,7 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
     // The tell-tale empty skeleton must NOT appear: no channel/members blocks.
     assert!(!text.contains("<members>"), "got: {text}");
     assert!(!text.contains("<channel name="), "got: {text}");
+    assert!(!text.contains("<channels>"), "got: {text}");
 
     // Parity: the pure capture→assemble path renders identically.
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, true)).unwrap();

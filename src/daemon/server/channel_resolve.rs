@@ -3,7 +3,7 @@
 //! The identity of a channel is the `(parent, name)` pair; the `channel_h` is its
 //! durable, opaque key. This module is the single place a human channel NAME first
 //! becomes a wire NIP-29 `h`, so every downstream consumer (launch/provision,
-//! session-start, chat, switch) lands on ONE id and the old "name vs id" double
+//! session-start, chat, membership) lands on ONE id and the old "name vs id" double
 //! create can never recur.
 
 use super::*;
@@ -88,10 +88,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     // would point callers at a channel with no `relay_channels` row — exactly the
     // phantom-state the relay-sourced rule forbids.
     if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        anyhow::bail!(
-            "relay did not provision channel {name:?} (id {child_h}, parent {parent}); \
-             its kind:39000 never materialized"
-        );
+        anyhow::bail!("relay did not provision channel {name:?}; its metadata never materialized");
     }
     if let Err(e) = ensure_subscription(state, &child_h).await {
         tracing::warn!(

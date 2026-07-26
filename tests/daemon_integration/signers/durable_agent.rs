@@ -14,7 +14,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
     let relay = rewrite_config_with_nak_relay(&home);
     let slug = "chief-of-staff";
     let durable_pubkey = configure_durable_agent(&home, slug);
-    let channel = unique_channel("durable-agent");
+    let channel = "tmp".to_string();
     let launch_cwd = home.dir.path().join("work");
     std::fs::create_dir_all(&launch_cwd).unwrap();
     std::fs::write(
@@ -31,7 +31,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 "session_start",
                 hook_session_start(
                     serde_json::json!({
-                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "agent": slug, "cwd": &launch_cwd, "channel": channel,
                         "harness_session": "durable-native-a",
                     }),
                     "opencode",
@@ -41,12 +41,9 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             .expect("durable launch registers session");
         let first = started["pubkey"].as_str().unwrap().to_string();
 
-        // Session readiness is asynchronous. An immediate send to the exact
-        // current channel must join that readiness work, never reinterpret the
-        // channel id as a human name and mint a second subgroup. The channel is
-        // targeted by OMITTING `--channel`: a raw `h` is no longer an accepted
-        // reference, and the not-yet-materialized own channel is exactly the
-        // case the implicit destination exists for.
+        // Session readiness is asynchronous. An immediate send to the requested
+        // launch channel must join that readiness work, never reinterpret its
+        // private id as a human name and mint a second subgroup.
         let bare_id = client
             .call(
                 "channel_send",
@@ -72,7 +69,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             )
             .await
             .expect("send as durable agent");
-        assert_eq!(sent["channel"].as_str(), Some(channel.as_str()));
+        assert_eq!(sent["channel"].as_str(), Some("/tmp"));
         let chat_event_id = sent["event_id"].as_str().unwrap().to_string();
 
         let isolated_home = home.dir.path().to_string_lossy().into_owned();
@@ -98,7 +95,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 "session_start",
                 hook_session_start(
                     serde_json::json!({
-                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "agent": slug, "cwd": &launch_cwd, "channel": channel,
                         "harness_session": "fresh-after-mode-flip",
                     }),
                     "opencode",
@@ -127,7 +124,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 "session_start",
                 hook_session_start(
                     serde_json::json!({
-                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "agent": slug, "cwd": &launch_cwd, "channel": channel,
                         "harness_session": "durable-native-a",
                     }),
                     "opencode",
@@ -153,7 +150,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 "session_start",
                 hook_session_start(
                     serde_json::json!({
-                        "agent": slug, "cwd": "/tmp", "channel": channel,
+                        "agent": slug, "cwd": &launch_cwd, "channel": channel,
                         "harness_session": "durable-native-a",
                     }),
                     "opencode",
@@ -171,12 +168,13 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
 
         let normal_slug = "mode-flip-normal";
         mosaico::identity::load_or_create(home.dir.path(), normal_slug, "codex", None, 1).unwrap();
-        let normal = start_session(
+        let normal = start_session_in(
             &mut client,
             normal_slug,
             Some("normal-native"),
             None,
             &channel,
+            &launch_cwd,
         )
         .await;
         let mut normal_config = read_agent_config(&home, normal_slug);
@@ -185,25 +183,20 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         normal_config["secret_key"] = serde_json::json!(normal_keys.secret_key().to_secret_hex());
         normal_config["public_key"] = serde_json::json!(normal_keys.public_key().to_hex());
         write_agent_config(&home, normal_slug, &normal_config);
-        let normal_flip = client
+        let normal_reassert = client
             .call(
                 "session_start",
                 hook_session_start(
                     serde_json::json!({
-                        "agent": normal_slug, "cwd": "/tmp", "channel": channel,
+                        "agent": normal_slug, "cwd": &launch_cwd, "channel": channel,
                         "harness_session": "normal-native",
                     }),
                     "codex",
                 ),
             )
             .await
-            .expect_err("per-session-to-durable live mode flip must be rejected");
-        assert!(
-            normal_flip
-                .to_string()
-                .contains("identity configuration changed"),
-            "{normal_flip:#}"
-        );
+            .expect("a live derived session keeps its persisted identity");
+        assert_eq!(normal_reassert["pubkey"].as_str(), Some(normal.as_str()));
         normal_config["perSessionKey"] = serde_json::json!(true);
         normal_config.as_object_mut().unwrap().remove("secret_key");
         normal_config.as_object_mut().unwrap().remove("public_key");
@@ -215,7 +208,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
                 hook_session_start(
                     serde_json::json!({
                         "agent": slug,
-                        "cwd": "/tmp",
+                        "cwd": &launch_cwd,
                         "channel": channel,
                         "harness_session": "durable-native-b",
                     }),
@@ -237,8 +230,15 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             )
             .await
             .expect("end first durable session");
-        let third =
-            start_session(&mut client, slug, Some("durable-native-a"), None, &channel).await;
+        let third = start_session_in(
+            &mut client,
+            slug,
+            Some("durable-native-a"),
+            None,
+            &channel,
+            &launch_cwd,
+        )
+        .await;
         (first, third, normal, chat_event_id)
     });
 
@@ -247,15 +247,9 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         "sequential durable-agent runs reuse their durable pubkey"
     );
     let store = Store::open(&home.store_path()).unwrap();
-    assert_eq!(
-        store.channel_id_for_name("tmp", &channel).unwrap(),
-        Some(channel.clone()),
-        "the exact current channel id must be the one materialized under the workspace"
-    );
-    assert_eq!(
-        store.channel_resolution_intent("tmp", &channel).unwrap(),
-        None,
-        "an exact current channel id must not enter the human-name provisioning path"
+    assert!(
+        store.get_channel("tmp").unwrap().is_some(),
+        "the durable agent's root channel must have public metadata"
     );
     for pubkey in [&first_id, &third_id] {
         let session = store.get_session(pubkey).unwrap().unwrap();

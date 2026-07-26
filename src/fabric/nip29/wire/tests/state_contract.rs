@@ -22,8 +22,10 @@ fn canonical_state_tag_is_accepted() {
             tag(&["h", "mosaico"]).unwrap(),
             tag(&["d", "status"]).unwrap(),
             tag(&["state", "working"]).unwrap(),
+            tag(&["state-since", "42"]).unwrap(),
             tag(&["title", "codec refactor"]).unwrap(),
             tag(&["host", "laptop"]).unwrap(),
+            tag(&["workspace", "mosaico"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),
         ])
         .sign_with_keys(&keys)

@@ -52,7 +52,8 @@ async fn missing_hosted_locators_never_fall_back_to_a_live_pid() {
                         pubkey: pubkey.clone(),
                         observed_harness: "codex".into(),
                         agent_slug: "codex".into(),
-                        channel_h: "root".into(),
+                        launch_channel_h: "root".into(),
+                        work_root: "root".into(),
                         child_pid: Some(std::process::id() as i32),
                         now: 1,
                     },
@@ -81,7 +82,8 @@ fn idle_eviction_and_exact_resume_reopen_presence_under_the_new_generation() {
         pubkey: "pk-resume".into(),
         observed_harness: "codex".into(),
         agent_slug: "codex".into(),
-        channel_h: "root".into(),
+        launch_channel_h: "root".into(),
+        work_root: "root".into(),
         child_pid: None,
         now,
     };
@@ -94,6 +96,8 @@ fn idle_eviction_and_exact_resume_reopen_presence_under_the_new_generation() {
     };
     let snapshot = |session: &crate::state::Session| PresenceSnapshot {
         host: "test-host".into(),
+        workspace: session.work_root.clone(),
+        branch: "feat/context".into(),
         slug: session.agent_slug.clone(),
         rel_cwd: ".".into(),
         dispatch_event: None,

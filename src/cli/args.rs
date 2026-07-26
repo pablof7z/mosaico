@@ -83,7 +83,7 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub all: bool,
 
-    /// Accept the current channel-topology suggestion using this child name and
+    /// Accept the pending channel-topology suggestion using this child name and
     /// about. Hidden: agents are told about it in the topology nudge at the
     /// moment it applies, so it is never something to discover from `--help`.
     #[arg(
@@ -118,7 +118,7 @@ pub(super) enum Cmd {
         #[command(subcommand)]
         action: SessionCatalogAction,
     },
-    /// Read/send chat and manage channels (read, send, create, edit, list, init, join, leave, archive, switch).
+    /// Read/send chat and manage channels (read, send, create, edit, list, init, join, leave, archive).
     Channel {
         #[command(subcommand)]
         action: ChannelAction,

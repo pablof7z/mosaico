@@ -37,6 +37,9 @@ pub enum SubEffect {
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoverageSnapshot {
     pub daemon_channels: BTreeSet<String>,
+    /// Known groups whose relay-authored metadata and roster stay hydrated even
+    /// when no local session has joined them.
+    pub group_state_channels: BTreeSet<String>,
     pub addressed_pubkeys: BTreeSet<String>,
     pub profile_pubkeys: BTreeSet<String>,
     pub archived_channels: BTreeSet<String>,
@@ -127,12 +130,25 @@ fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
             crate::fabric::nip29::wire::KIND_GROUP_PUT_USER.to_string(),
         ),
     );
+    add_owner(
+        &mut desired,
+        (
+            Space::GlobalKind,
+            crate::fabric::nip29::wire::KIND_GROUP_METADATA.to_string(),
+        ),
+    );
 
     for channel in snapshot
         .daemon_channels
         .difference(&snapshot.archived_channels)
     {
         add_channel_owner(&mut desired, channel);
+    }
+    for channel in snapshot
+        .group_state_channels
+        .difference(&snapshot.archived_channels)
+    {
+        add_owner(&mut desired, (Space::GroupStateD, channel.clone()));
     }
     for channels in snapshot.sessions.values() {
         for channel in channels.difference(&snapshot.archived_channels) {

@@ -160,7 +160,8 @@ mod tests {
                 pubkey: pubkey.into(),
                 observed_harness: "claude-code".into(),
                 agent_slug: agent_slug.into(),
-                channel_h: channel_h.into(),
+                launch_channel_h: channel_h.into(),
+                work_root: channel_h.into(),
                 child_pid: None,
                 now: 1,
             })

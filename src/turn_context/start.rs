@@ -3,9 +3,7 @@
 //! agent each turn: membership warnings, inbox mentions, ambient chat, and
 //! fabric awareness.
 
-use super::reads::{
-    ambient_by_joined_channel, context_instance, joined_channels, root_channel_h, take_inbox,
-};
+use super::reads::{ambient_by_joined_channel, context_instance, joined_channels, take_inbox};
 use super::TurnContext;
 use crate::fabric_context::{capture_inputs, inbox_seed, FabricContextInput};
 use crate::state::{Session, Store};
@@ -53,11 +51,9 @@ pub(crate) fn assemble_turn_start(
     hook_contexts: &super::HookContextStates,
 ) -> Result<TurnContext> {
     let first_turn = rec.seen_cursor == 0;
-    // Routing scope is the session's `channel_h` — a root channel, or the
-    // session/task channel the active channel was repointed to. All fabric
-    // presence/deltas key on this so a repointed session's turn context
-    // reflects the channel it actually publishes into.
-    let scope = rec.channel_h.clone();
+    // A session has no mutable current channel. The renderer reads the complete
+    // membership set; forced deliveries retain their own envelope channel.
+    let scope = String::new();
     let self_instance = context_instance(store, rec);
     let self_slug = self_instance.display_slug();
     let self_pubkey = self_instance.pubkey.clone();
@@ -74,83 +70,74 @@ pub(crate) fn assemble_turn_start(
         joined_channels(&s, rec)
     };
 
-    if first_turn && scope.is_empty() {
+    if first_turn && joined.is_empty() {
         warnings.push(
-            "This session started unscoped: it is not part of a Mosaico workspace or \
-             channel. Its current working directory and normal filesystem access are \
-             unchanged."
+            "This session has not joined any Mosaico channels. Its launch workspace, \
+             current working directory, and normal filesystem access are unchanged."
                 .to_string(),
         );
     } else if first_turn {
-        // Warn only when this daemon does not manage the channel. If it is an
-        // admin, channel/room-minting is responsible for signing the member-add
-        // itself; a cache miss here is transient local state, not a user action.
-        // Compute membership AND the names needed for the warning in one lock.
-        let warn: Option<(String, String, String)> = {
+        // Warn independently for every joined channel whose relay standing has
+        // not materialized. No membership is privileged as a current location.
+        let missing_relay_memberships = {
             let s = store.lock().expect("store mutex poisoned");
-            // A lookup error is NOT membership: treat an Err as "unknown" and
-            // fail loud rather than assuming the agent is a member (which would
-            // silently suppress the warning when the DB read actually failed).
-            let member = match s.is_channel_member(&scope, &self_pubkey) {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::error!(
-                        channel = %scope,
-                        error = ?e,
-                        "turn_start: channel membership lookup failed; cannot confirm membership"
-                    );
-                    false
-                }
-            };
-            // Likewise, an admin-lookup error must not be read as "we manage it"
-            // — that would suppress a legitimate not-a-member warning.
-            let locally_managed = match s.is_channel_admin(&scope, backend_pubkey) {
-                Ok(a) => a,
-                Err(e) => {
-                    tracing::error!(
-                        channel = %scope,
-                        error = ?e,
-                        "turn_start: channel admin lookup failed; cannot confirm management"
-                    );
-                    false
-                }
-            };
-            if !member && !locally_managed {
-                let root = match root_channel_h(&s, &scope) {
-                    Ok(root) => root,
-                    Err(error) => {
-                        tracing::warn!(
-                            channel = %scope,
-                            %error,
-                            "turn_start: channel ancestry unavailable; warning uses exact scope"
-                        );
-                        scope.clone()
-                    }
-                };
-                let channel_name = crate::injection::channel_display(&s, &scope);
-                let root_name = crate::injection::channel_display(&s, &root);
-                Ok::<_, anyhow::Error>(Some((root, channel_name, root_name)))
-            } else {
-                Ok::<_, anyhow::Error>(None)
-            }
-        }?;
-        if let Some((root, channel_name, root_name)) = warn {
-            // Name the scope precisely: a channel distinct from its root channel
-            // gets both. When the scope IS the root channel, the channel and root
-            // coincide and only the root is named.
-            let where_label = if root == scope {
-                format!("channel \"{root_name}\"")
-            } else {
-                format!("channel \"{channel_name}\" (in channel \"{root_name}\")")
-            };
+            joined
+                .iter()
+                .filter_map(|(channel, _)| {
+                    let member = s
+                        .is_channel_member(channel, &self_pubkey)
+                        .unwrap_or_else(|e| {
+                            tracing::error!(
+                                channel,
+                                error = ?e,
+                                "turn_start: channel membership lookup failed"
+                            );
+                            false
+                        });
+                    let locally_managed = s
+                        .is_channel_admin(channel, backend_pubkey)
+                        .unwrap_or_else(|e| {
+                            tracing::error!(
+                                channel,
+                                error = ?e,
+                                "turn_start: channel admin lookup failed"
+                            );
+                            false
+                        });
+                    (!member && !locally_managed)
+                        .then(|| crate::channel_ref::full_channel_ref(&s, channel))
+                })
+                .collect::<Vec<_>>()
+        };
+        for channel_ref in missing_relay_memberships {
             warnings.push(format!(
-                "WARNING: this agent ({slug}) is not a member of the channel \
-                 group for {where_label}. Messages published by this session may be \
-                 rejected by the relay. Ask an operator with relay admin access \
-                 to add this agent to the channel.",
-                slug = self_slug,
+                "WARNING: this agent ({self_slug}) has joined {channel_ref} locally, but \
+                 its relay membership is not confirmed. Messages may be rejected until \
+                 an operator with relay admin access adds this agent."
             ));
         }
+    }
+
+    if first_turn {
+        let history_notices = {
+            let s = store.lock().expect("store mutex poisoned");
+            match super::history::prejoin_notices(&s, rec, &joined, now) {
+                Ok(notices) => notices,
+                Err(error) => {
+                    tracing::error!(
+                        pubkey = %rec.pubkey,
+                        %error,
+                        "turn_start: pre-join history summary failed"
+                    );
+                    warnings.push(
+                        "Fabric history summary failed; prior channel activity may be hidden."
+                            .to_string(),
+                    );
+                    Vec::new()
+                }
+            }
+        };
+        warnings.extend(history_notices);
     }
 
     if first_turn {
@@ -182,7 +169,7 @@ pub(crate) fn assemble_turn_start(
     // Seed with the joined-channel read result: a failure there silently dropped
     // passive channels, so the marker must fire even if every other read succeeds.
     let mut read_failed = joined_read_failed;
-    let (mentions, pre_history_notice) = {
+    let mentions = {
         let s = store.lock().expect("store mutex poisoned");
         // A failed inbox claim must NOT render as an empty inbox: log loudly and
         // flag the turn so a visible marker is injected below.
@@ -201,35 +188,7 @@ pub(crate) fn assemble_turn_start(
         let (_ambient, ambient_failed) =
             ambient_by_joined_channel(&s, &joined, ambient_since, &self_pubkey);
         read_failed |= ambient_failed;
-        let notice = if first_turn && !scope.is_empty() {
-            // A count failure must not silently render as "no prior history": log
-            // loudly and flag the turn so the read-failure marker fires instead of
-            // quietly hiding pre-join messages.
-            let n = match s.count_channel_events_before(&scope, rec.created_at) {
-                Ok(n) => n,
-                Err(e) => {
-                    tracing::error!(
-                        channel = %scope,
-                        error = ?e,
-                        "turn_start: pre-join history count failed; prior messages may be hidden"
-                    );
-                    read_failed = true;
-                    0
-                }
-            };
-            if n > 0 {
-                let name = crate::injection::channel_display(&s, &scope);
-                Some(format!(
-                    "{n} message(s) in #{name} before you joined this session. \
-                     Run `mosaico channel read` to see them."
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        (mentions, notice)
+        mentions
     };
     if read_failed {
         warnings.push(
@@ -239,10 +198,6 @@ pub(crate) fn assemble_turn_start(
                 .to_string(),
         );
     }
-    if let Some(notice) = pre_history_notice {
-        warnings.push(notice);
-    }
-
     let forced = mentions.iter().map(inbox_seed).collect::<Vec<_>>();
     // Freeze the canonical inputs from the store, then render the snapshot. The
     // stateful renderer is the single authority that both produces the injected

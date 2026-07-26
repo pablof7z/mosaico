@@ -9,8 +9,9 @@ pub(crate) struct FabricView {
     /// `Some` means the canonical `<hosts>` node is present, including when its
     /// full-state value is empty. Delta assembly uses `None` when it is unchanged.
     pub(in crate::fabric_context) hosts: Option<Vec<HostRow>>,
-    /// `Some` means the canonical `<workspaces>` node is present. Each workspace
-    /// contains only the channel nodes selected by assembly for this cursor.
+    /// `Some` means the canonical `<channels>` forest is present. Workspace
+    /// grouping is retained internally so assembly can keep outside roots
+    /// compact without leaking workspace wrapper nodes into the agent document.
     pub(in crate::fabric_context) workspaces: Option<Vec<WorkspaceView>>,
     pub(in crate::fabric_context) important: Vec<ImportantRow>,
     pub(in crate::fabric_context) reactions: Vec<ReactionRow>,
@@ -47,6 +48,8 @@ impl FabricView {
 pub(in crate::fabric_context) struct SelfRow {
     pub(in crate::fabric_context) name: String,
     pub(in crate::fabric_context) host: String,
+    pub(in crate::fabric_context) workspace: String,
+    pub(in crate::fabric_context) branch: String,
     pub(in crate::fabric_context) headless: bool,
     pub(in crate::fabric_context) title: String,
     pub(in crate::fabric_context) hint: String,
@@ -55,6 +58,7 @@ pub(in crate::fabric_context) struct SelfRow {
 #[derive(Clone, PartialEq)]
 pub(in crate::fabric_context) struct HostRow {
     pub(in crate::fabric_context) name: String,
+    pub(in crate::fabric_context) roots: Vec<String>,
     pub(in crate::fabric_context) agents: Vec<AgentRow>,
 }
 
@@ -77,13 +81,13 @@ pub(in crate::fabric_context) struct WorkspaceView {
 
 #[derive(Clone, PartialEq)]
 pub(in crate::fabric_context) struct ChannelBlock {
-    pub(in crate::fabric_context) name: String,
-    pub(in crate::fabric_context) id: String,
+    pub(in crate::fabric_context) path: String,
     pub(in crate::fabric_context) about: String,
-    pub(in crate::fabric_context) member_count: Option<usize>,
+    pub(in crate::fabric_context) agent_count: Option<usize>,
     pub(in crate::fabric_context) last_active: Option<String>,
     pub(in crate::fabric_context) members: Vec<MemberRow>,
     pub(in crate::fabric_context) presence: Vec<PresenceRow>,
+    pub(in crate::fabric_context) departures: Vec<String>,
     pub(in crate::fabric_context) children: Vec<ChannelBlock>,
     pub(in crate::fabric_context) messages: Vec<MessageRow>,
     pub(in crate::fabric_context) omitted: usize,
@@ -93,6 +97,7 @@ impl ChannelBlock {
     pub(in crate::fabric_context) fn is_compact(&self) -> bool {
         self.members.is_empty()
             && self.presence.is_empty()
+            && self.departures.is_empty()
             && self.children.is_empty()
             && self.messages.is_empty()
             && self.omitted == 0
@@ -109,6 +114,9 @@ pub(in crate::fabric_context) enum MemberKind {
 pub(in crate::fabric_context) struct MemberRow {
     pub(in crate::fabric_context) kind: MemberKind,
     pub(in crate::fabric_context) name: String,
+    pub(in crate::fabric_context) host: String,
+    pub(in crate::fabric_context) workspace: String,
+    pub(in crate::fabric_context) branch: String,
     /// `Some` only for a member with a live heartbeat. A member surfaced purely
     /// from message activity has no lifecycle we can vouch for, so it carries no
     /// state label — just `since`.
@@ -120,6 +128,9 @@ pub(in crate::fabric_context) struct MemberRow {
 #[derive(Clone, PartialEq)]
 pub(in crate::fabric_context) struct PresenceRow {
     pub(in crate::fabric_context) name: String,
+    pub(in crate::fabric_context) host: String,
+    pub(in crate::fabric_context) workspace: String,
+    pub(in crate::fabric_context) branch: String,
     pub(in crate::fabric_context) state: crate::session_state::SessionState,
     pub(in crate::fabric_context) status: String,
     pub(in crate::fabric_context) since: String,

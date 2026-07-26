@@ -61,6 +61,11 @@ pub(super) async fn handle_management_command(state: &Arc<DaemonState>, event: &
         tracing::debug!(event_id = %short(&event_id), "mgmt command already claimed");
         return;
     }
+    tracing::info!(
+        event_id = %short(&event_id),
+        channel = %channel_label(state, &channel_h),
+        "management command claimed"
+    );
 
     let reply = match accept_command(state, event, &channel_h).await {
         Ok(command) => {
@@ -70,10 +75,16 @@ pub(super) async fn handle_management_command(state: &Arc<DaemonState>, event: &
             reaction::publish_thumbs_up(state, event, &channel_h).await;
             match execute_command(state, command, &channel_h).await {
                 Ok(reply) => reply,
-                Err(e) => format!("mgmt error: {e:#}"),
+                Err(e) => {
+                    tracing::warn!(event_id = %short(&event_id), error = %format!("{e:#}"), "management command execution failed");
+                    format!("mgmt error: {e:#}")
+                }
             }
         }
-        Err(e) => format!("mgmt error: {e:#}"),
+        Err(e) => {
+            tracing::warn!(event_id = %short(&event_id), error = %format!("{e:#}"), "management command rejected");
+            format!("mgmt error: {e:#}")
+        }
     };
     if let Err(e) = state.with_store(|s| s.complete_management_command(&event_id, now_secs())) {
         tracing::error!(
@@ -102,7 +113,7 @@ async fn accept_command(
         anyhow::bail!(
             "signer {} is not an admin of channel {}",
             crate::util::pubkey_short(&signer),
-            channel_h
+            channel_label(state, channel_h)
         );
     }
     Ok(command)
@@ -180,9 +191,6 @@ async fn archive_named_channel(
         state.with_store(
             |s| match absolute::resolve_absolute_channel_ref(s, channel_ref) {
                 ChannelResolution::Unique(h) => Ok(h),
-                ChannelResolution::Ambiguous(refs) => {
-                    anyhow::bail!("channel {channel_ref:?} is ambiguous: {}", refs.join(", "))
-                }
                 ChannelResolution::NotFound => {
                     anyhow::bail!("{}", absolute::describe_missing_channel(s, channel_ref))
                 }
@@ -250,13 +258,15 @@ async fn stop_local_process(
 }
 
 fn channel_label(state: &Arc<DaemonState>, channel_h: &str) -> String {
-    state.with_store(|s| {
-        s.get_channel(channel_h)
-            .ok()
-            .flatten()
-            .and_then(|c| c.human_name().map(str::to_string))
-            .unwrap_or_else(|| channel_h.to_string())
-    })
+    let path = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
+    if !path.is_empty() {
+        return path;
+    }
+    tracing::debug!(
+        channel = %channel_h,
+        "management command withheld a channel with no complete public path"
+    );
+    "a channel with unavailable public path".to_string()
 }
 
 fn first_tag<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
@@ -287,4 +297,26 @@ fn p_tags(event: &Event) -> Vec<String> {
 
 fn short(s: &str) -> String {
     s.chars().take(12).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn management_channel_labels_are_public_paths_or_generic() {
+        let state = DaemonState::new_for_test().await;
+        state
+            .with_store(|store| {
+                store.upsert_channel("root", "general", "", "", 1)?;
+                store.upsert_channel("opaque-child", "review", "", "root", 2)
+            })
+            .unwrap();
+
+        assert_eq!(channel_label(&state, "opaque-child"), "/root/review");
+        assert_eq!(
+            channel_label(&state, "unknown-internal-id"),
+            "a channel with unavailable public path"
+        );
+    }
 }

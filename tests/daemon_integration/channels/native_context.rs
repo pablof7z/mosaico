@@ -1,12 +1,20 @@
 use super::*;
 
+fn named_child_h(home: &Home, parent_h: &str, name: &str) -> String {
+    Store::open(&home.store_path())
+        .unwrap()
+        .channel_id_for_name(parent_h, name)
+        .unwrap()
+        .unwrap_or_else(|| panic!("missing child {name:?} beneath {parent_h:?}"))
+}
+
 #[test]
 fn channel_create_uses_watch_pid_as_exact_session_anchor() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
     let sid = unique_session("sess-watch-create");
-    let parent = unique_session("watch-parent");
+    let parent = "tmp".to_string();
     let watch_pid = std::process::id() as i32;
 
     rt().block_on(async {
@@ -29,44 +37,42 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let current_channel = session_for_harness_session(&store, "claude-code", &sid).channel_h;
+    let session = session_for_harness_session(&store, "claude-code", &sid);
+    let routes_before = session_routes(&store, &session.pubkey);
 
-    rt().block_on(async {
+    let created = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v = c
-            .call(
-                "channel_create",
-                serde_json::json!({
-                    "name": "native-subtask",
-                    "agents": [],
-                    "harness": "claude-code",
-                    "watch_pid": watch_pid,
-                    "agent": "coder",
-                    "cwd": "/tmp"
-                }),
-            )
-            .await
-            .expect("channel_create should resolve the exact watched process");
-
-        assert!(
-            v["switched"].as_bool().unwrap_or(false),
-            "watched-process caller should auto-switch"
-        );
+        c.call(
+            "channel_create",
+            serde_json::json!({
+                "parent_channel": format!("/{parent}"),
+                "name": "native-subtask",
+                "agents": [],
+                "harness": "claude-code",
+                "watch_pid": watch_pid,
+                "agent": "coder",
+                "cwd": "/tmp"
+            }),
+        )
+        .await
+        .expect("channel_create should resolve the exact watched process")
     });
+    let child_path = format!("/{parent}/native-subtask");
+    assert_eq!(created["channel"], child_path);
+    assert_eq!(created["joined"].as_bool(), Some(true));
 
     let store = Store::open(&home.store_path()).unwrap();
     let rec = session_for_harness_session(&store, "claude-code", &sid);
-    assert_ne!(
-        rec.channel_h, current_channel,
-        "session should have moved to the child"
-    );
+    let child_h = named_child_h(&home, &parent, "native-subtask");
+    let routes_after = session_routes(&store, &rec.pubkey);
+    assert!(routes_before
+        .iter()
+        .all(|route| routes_after.contains(route)));
+    assert!(routes_after.contains(&child_h));
     assert_eq!(
-        store
-            .channel_parent(&rec.channel_h)
-            .unwrap()
-            .unwrap_or_default(),
-        current_channel,
-        "new channel should nest under the caller's current channel"
+        store.channel_parent(&child_h).unwrap().unwrap_or_default(),
+        parent,
+        "new channel should nest under the explicit public parent"
     );
 
     stop_daemon(&home);
@@ -102,12 +108,12 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
 
     let store = Store::open(&home.store_path()).unwrap();
     let session = session_for_harness_session(&store, "claude-code", &sid);
-    let current_channel = session.channel_h.clone();
+    let joined_channel_h = only_session_route(&store, &session.pubkey);
     store
-        .upsert_channel(&current_channel, "who-parent", "", "", 1)
+        .upsert_channel(&joined_channel_h, "who-parent", "", "", 1)
         .unwrap();
     store
-        .replace_channel_members(&current_channel, &[session.pubkey], 1)
+        .replace_channel_members(&joined_channel_h, &[session.pubkey], 1)
         .unwrap();
 
     rt().block_on(async {
@@ -151,7 +157,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
         let fabric = briefing["fabric"].as_str().expect("agent briefing");
         assert!(fabric.contains("<mosaico>"), "got: {fabric}");
         assert!(
-            fabric.contains(&format!("channel=\"{current_channel}\"")),
+            fabric.contains(&format!("name=\"/{parent}\"")),
             "got: {fabric}"
         );
     });
@@ -165,7 +171,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
     let sid = unique_session("sess-watch-membership");
-    let parent = unique_session("membership-parent");
+    let parent = "tmp".to_string();
     let watch_pid = std::process::id() as i32;
 
     rt().block_on(async {
@@ -189,54 +195,40 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
 
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
-    let parent_h = store.get_session(&pubkey).unwrap().unwrap().channel_h;
+    let routes_before = session_routes(&store, &pubkey);
 
-    let child_h = rt().block_on(async {
+    let created = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let created = c
-            .call(
-                "channel_create",
-                serde_json::json!({
-                    "name": "membership-child",
-                    "agents": [],
-                    "harness": "claude-code",
-                    "watch_pid": watch_pid,
-                    "agent": "coder",
-                    "cwd": "/tmp"
-                }),
-            )
-            .await
-            .expect("create should resolve by watched process");
-        created["child_h"].as_str().unwrap().to_string()
+        c.call(
+            "channel_create",
+            serde_json::json!({
+                "parent_channel": format!("/{parent}"),
+                "name": "membership-child",
+                "agents": [],
+                "harness": "claude-code",
+                "watch_pid": watch_pid,
+                "agent": "coder",
+                "cwd": "/tmp"
+            }),
+        )
+        .await
+        .expect("create should resolve by watched process")
     });
+    let child_path = format!("/{parent}/membership-child");
+    assert_eq!(created["channel"], child_path);
+    assert_eq!(created["joined"].as_bool(), Some(true));
+    let child_h = named_child_h(&home, &parent, "membership-child");
 
-    // The active channel is now the child; the parent is a non-active channel
-    // this session can still join/leave passively, which is what these two
-    // membership commands exercise via the exact watch_pid anchor.
+    // Leave and rejoin the workspace root through its public path. The child
+    // route remains independent throughout.
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-
-        let joined = c
-            .call(
-                "channel_join",
-                serde_json::json!({
-                    "channel": format!("@{parent_h}"),
-                    "harness": "claude-code",
-                    "watch_pid": watch_pid,
-                    "agent": "coder",
-                    "cwd": "/tmp"
-                }),
-            )
-            .await
-            .expect("join should resolve by watched process");
-        assert_eq!(joined["channel"].as_str(), Some(parent_h.as_str()));
-        assert_eq!(joined["active_channel"].as_str(), Some(child_h.as_str()));
 
         let left = c
             .call(
                 "channel_leave",
                 serde_json::json!({
-                    "channel": format!("@{parent_h}"),
+                    "channel": format!("/{parent}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -245,19 +237,34 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             )
             .await
             .expect("leave should resolve by watched process");
-        assert_eq!(left["channel"].as_str(), Some(parent_h.as_str()));
+        assert_eq!(left["channel"], format!("/{parent}"));
         assert_eq!(left["left"].as_bool(), Some(true));
+
+        let joined = c
+            .call(
+                "channel_join",
+                serde_json::json!({
+                    "channel": format!("/{parent}"),
+                    "harness": "claude-code",
+                    "watch_pid": watch_pid,
+                    "agent": "coder",
+                    "cwd": "/tmp"
+                }),
+            )
+            .await
+            .expect("join should resolve by watched process");
+        assert_eq!(joined["channel"], format!("/{parent}"));
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&pubkey).unwrap().expect("session row");
-    assert_eq!(rec.channel_h, child_h);
-    assert!(
-        !store
-            .has_session_route(&pubkey, &parent_h)
-            .expect("joined-channel check"),
-        "leave should remove the passive parent-channel join"
-    );
+    let routes_after = session_routes(&store, &pubkey);
+    assert!(routes_before
+        .iter()
+        .all(|route| routes_after.contains(route)));
+    assert!(routes_after.contains(&child_h));
+    assert!(store
+        .has_session_route(&pubkey, &parent)
+        .expect("joined-channel check"));
 
     stop_daemon(&home);
 }

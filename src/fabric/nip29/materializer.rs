@@ -134,26 +134,30 @@ impl Nip29Materializer {
                 .flatten()
                 .unwrap_or_default()
         };
-        for channel in &st.channels {
-            if let Err(e) = store.upsert_status(&crate::state::Status {
+        let statuses = st
+            .channels
+            .iter()
+            .map(|channel| crate::state::Status {
                 pubkey: st.agent.pubkey.clone(),
                 channel_h: channel.clone(),
                 slug: slug.clone(),
                 title: st.title.clone(),
                 activity: st.activity.clone(),
+                workspace: st.workspace.clone(),
+                branch: st.branch.clone(),
                 state: st.state,
                 state_since: st.state_since,
                 last_seen: updated_at,
                 updated_at,
                 expiration: st.expires_at.unwrap_or(0),
-            }) {
-                tracing::error!(
-                    pubkey = %st.agent.pubkey,
-                    channel,
-                    error = %e,
-                    "materialize_status: relay_status upsert failed — relay truth diverged from cache"
-                );
-            }
+            })
+            .collect::<Vec<_>>();
+        if let Err(e) = store.replace_status_channels(&st.agent.pubkey, &statuses, updated_at) {
+            tracing::error!(
+                pubkey = %st.agent.pubkey,
+                error = %e,
+                "materialize_status: relay_status snapshot replacement failed"
+            );
         }
     }
 
@@ -214,6 +218,26 @@ impl Nip29Materializer {
                 }
             };
             if !has_route {
+                continue;
+            }
+            let admitted = match store.session_membership_admits_event(
+                &session.pubkey,
+                channel_h,
+                &event_id,
+            ) {
+                Ok(admitted) => admitted,
+                Err(e) => {
+                    tracing::error!(
+                        channel = channel_h,
+                        session = %session.pubkey,
+                        event_id = %event_id,
+                        error = %e,
+                        "route_chat: membership cutoff lookup failed closed"
+                    );
+                    false
+                }
+            };
+            if !admitted {
                 continue;
             }
             match store.enqueue_inbox(

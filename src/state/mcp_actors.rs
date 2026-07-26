@@ -59,10 +59,10 @@ impl Store {
         let idle_deadline = now.saturating_add(HEADLESS_IDLE_TIMEOUT_SECS);
         self.conn.execute(
             "INSERT INTO sessions
-                 (pubkey, runtime_generation, agent_slug, channel_h, work_root,
+                 (pubkey, runtime_generation, agent_slug, work_root,
                   runtime_state, presentation_state, work_state, recovery_state,
                   lifecycle_epoch, idle_since, idle_deadline, created_at, last_seen)
-             VALUES (?1, 1, ?2, ?3, ?3, 'running', 'headless', 'idle', 'ready',
+             VALUES (?1, 1, ?2, ?3, 'running', 'headless', 'idle', 'ready',
                      1, ?4, ?5, ?4, ?4)",
             params![pubkey, agent_slug, channel, now, idle_deadline],
         )?;

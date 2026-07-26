@@ -23,7 +23,13 @@ pub(super) fn session_parent_hint(
         .or(resolution_parent.as_deref())
         .or_else(|| {
             existing
-                .filter(|session| session.channel_h == channel)
+                .filter(|session| {
+                    state.with_store(|store| {
+                        store
+                            .has_session_route(&session.pubkey, channel)
+                            .unwrap_or(false)
+                    })
+                })
                 .map(|session| session.readiness_parent.as_str())
                 .filter(|parent| !parent.is_empty())
         })
@@ -170,11 +176,12 @@ mod tests {
                     pubkey: "pk".into(),
                     observed_harness: "codex".into(),
                     agent_slug: "agent".into(),
-                    channel_h: "old-room".into(),
+                    launch_channel_h: "old-room".into(),
+                    work_root: "workspace".into(),
                     child_pid: None,
                     now: 1,
                 })?;
-                store.set_session_context("pk", "old-room", "workspace", "old-parent")?;
+                store.set_session_readiness_parent("pk", "old-parent")?;
                 store.get_session("pk")
             })
             .unwrap()

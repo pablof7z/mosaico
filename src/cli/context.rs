@@ -10,7 +10,6 @@ pub(crate) struct InvocationContext {
     watch_pid: Option<i32>,
     agent: Option<String>,
     cwd: Option<String>,
-    group: Option<String>,
 }
 
 impl InvocationContext {
@@ -48,7 +47,6 @@ impl InvocationContext {
             cwd: std::env::current_dir()
                 .ok()
                 .map(|p| p.to_string_lossy().to_string()),
-            group: super::channel_env(),
         }
     }
 
@@ -60,7 +58,6 @@ impl InvocationContext {
             "watch_pid": self.watch_pid,
             "agent": self.agent,
             "cwd": self.cwd,
-            "group": self.group,
         })
     }
 }

@@ -27,7 +27,8 @@ fn caller_session(state: &Arc<DaemonState>, channels: &[&str]) -> crate::state::
             pubkey: "caller-pubkey".to_string(),
             observed_harness: "codex".to_string(),
             agent_slug: "codex".to_string(),
-            channel_h: channels.first().copied().unwrap_or("project1").to_string(),
+            launch_channel_h: channels.first().copied().unwrap_or("project1").to_string(),
+            work_root: channels.first().copied().unwrap_or("project1").to_string(),
             child_pid: None,
             now: 1,
         })

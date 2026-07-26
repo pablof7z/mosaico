@@ -33,11 +33,17 @@ fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Se
     let mut found = None;
     assert!(
         wait_until(Duration::from_secs(25), || {
-            found = Store::open(&home.store_path())
-                .and_then(|s| s.list_running_sessions())
-                .unwrap_or_default()
-                .into_iter()
-                .find(|rec| rec.agent_slug == agent && rec.channel_h == channel);
+            found = Store::open(&home.store_path()).ok().and_then(|s| {
+                s.list_running_sessions().ok()?.into_iter().find(|rec| {
+                    rec.agent_slug == agent
+                        && if channel.is_empty() {
+                            s.list_session_routes(&rec.pubkey)
+                                .is_ok_and(|routes| routes.is_empty())
+                        } else {
+                            s.has_session_route(&rec.pubkey, channel).unwrap_or(false)
+                        }
+                })
+            });
             found.is_some()
         }),
         "session {agent} in {channel} did not become alive; daemon_log={}",
@@ -103,7 +109,7 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     // asserting on a single refresh — otherwise this races the propagation.
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&channel);
+            refresh_channel_members(&format!("/{channel}"));
             Store::open(&home.store_path())
                 .map(|s| s.is_channel_member(&channel, &rec.pubkey).unwrap_or(false))
                 .unwrap_or(false)
@@ -178,7 +184,12 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
         .list_running_sessions()
         .unwrap()
         .into_iter()
-        .filter(|rec| rec.agent_slug == agent && rec.channel_h == channel)
+        .filter(|rec| {
+            rec.agent_slug == agent
+                && store
+                    .has_session_route(&rec.pubkey, &channel)
+                    .unwrap_or(false)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         alive.len(),
@@ -265,7 +276,12 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
         .list_running_sessions()
         .unwrap()
         .into_iter()
-        .filter(|rec| rec.agent_slug == agent && rec.channel_h == channel)
+        .filter(|rec| {
+            rec.agent_slug == agent
+                && store
+                    .has_session_route(&rec.pubkey, &channel)
+                    .unwrap_or(false)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         alive.len(),

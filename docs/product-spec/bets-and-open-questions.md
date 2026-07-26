@@ -74,7 +74,7 @@ Settled to **per session by default, explicitly durable by configuration**. Norm
 derive a key from the machine root; their npub is permanent for resume and their dashed
 handle is a reclaimable lease. A `perSessionKey: false` agent instead reuses its persisted
 key across fresh sequential sessions, has no leased handle or resume history, and permits
-one live session on its backend. In both modes standing is *current channel membership*,
+one live session on its backend. In both modes standing is *joined-channel membership*,
 not possession of the key. How durable reputation accrues remains unsettled.
 
 ## Strategy

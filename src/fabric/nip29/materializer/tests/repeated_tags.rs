@@ -28,6 +28,7 @@ fn routes_every_repeated_p_tag() {
         mentioned_pubkeys: vec![first_pk.clone(), second_pk.clone()],
     };
 
+    assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&first_pk).unwrap().len(), 1);
     assert_eq!(store.peek_pending_for_pubkey(&second_pk).unwrap().len(), 1);

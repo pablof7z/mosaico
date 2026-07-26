@@ -3,7 +3,7 @@
 //! | Domain      | Wire |
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]` and scoped live-agent `["workspace", root_h]`; backend profiles additionally carry `["backend"]`, repeated `["agent", slug, desc]`, and repeated `["workspace", root_h]` tags |
-//! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["state-since", ts]`, `["host", host]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
+//! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["state-since", ts]`, `["host", host]`, `["workspace", root-name]`, optional `["branch", branch]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
 //! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]` |
 //!
 //! Status is the single self-contained per-agent signal: ONE kind:30315 event
@@ -111,6 +111,8 @@ impl Nip29WireCodec {
                 agent,
                 channels,
                 host,
+                workspace,
+                branch,
                 title,
                 activity,
                 state,
@@ -128,6 +130,7 @@ impl Nip29WireCodec {
                     tag(&["state", state.as_str()])?,
                     tag(&["state-since", &state_since.to_string()])?,
                     tag(&["host", host])?,
+                    tag(&["workspace", workspace])?,
                     tag(&["slug", &agent.slug])?,
                 ];
                 for channel in channels {
@@ -135,6 +138,9 @@ impl Nip29WireCodec {
                 }
                 if !rel_cwd.is_empty() {
                     tags.push(tag(&["rel-cwd", rel_cwd])?);
+                }
+                if !branch.is_empty() {
+                    tags.push(tag(&["branch", branch])?);
                 }
                 if let Some(exp) = expires_at {
                     tags.push(tag(&["expiration", &exp.to_string()])?);
@@ -186,13 +192,12 @@ impl Nip29WireCodec {
                     return None;
                 }
                 let channels = all_tag_values(event, "h");
-                if channels.is_empty() {
-                    return None;
-                }
                 Some(DomainEvent::Status(Status {
                     agent: AgentRef::new(pubkey, first_tag(event, "slug")?.to_string()),
                     channels,
                     host: first_tag(event, "host")?.to_string(),
+                    workspace: first_tag(event, "workspace")?.to_string(),
+                    branch: first_tag(event, "branch").unwrap_or_default().to_string(),
                     title: first_tag(event, "title")?.to_string(),
                     // The live activity is the event content (empty when idle).
                     activity: event.content.clone(),

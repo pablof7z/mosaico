@@ -61,25 +61,18 @@ pub(crate) fn publication(
     store: &Store,
     session: &Session,
 ) -> crate::reconcile::PresenceProjection {
-    let published = store
-        .get_status(&session.pubkey, &session.channel_h)
-        .ok()
-        .flatten();
-    let presence = local(store, session, published.as_ref());
-    let mut channels = store
+    let route_rows = store
         .list_session_routes(&session.pubkey)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let published = route_rows
+        .iter()
+        .find_map(|(channel, _)| store.get_status(&session.pubkey, channel).ok().flatten());
+    let presence = local(store, session, published.as_ref());
+    let channels = route_rows
         .into_iter()
         .map(|(channel, _)| channel)
         .filter(|channel| !store.is_archived_channel(channel).unwrap_or(false))
         .collect::<BTreeSet<_>>();
-    if !session.channel_h.is_empty()
-        && !store
-            .is_archived_channel(&session.channel_h)
-            .unwrap_or(false)
-    {
-        channels.insert(session.channel_h.clone());
-    }
     crate::reconcile::PresenceProjection {
         channels,
         state: presence.state,
@@ -152,6 +145,8 @@ mod tests {
             slug: "peer".into(),
             title: "Task".into(),
             activity: "Working".into(),
+            workspace: "mosaico".into(),
+            branch: "feat/context".into(),
             state: SessionState::Working,
             state_since: 90,
             last_seen: 115,

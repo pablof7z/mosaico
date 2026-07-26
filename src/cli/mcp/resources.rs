@@ -41,13 +41,6 @@ pub(super) fn list() -> Value {
         "my-session",
         "Current agent session and full mosaico awareness",
     ));
-    if let Some(channel) = super::super::channel_env() {
-        resources.push(resource(
-            &status_uri(&channel),
-            "current-channel-status",
-            "Live status snapshot for the current channel",
-        ));
-    }
     json!({ "resources": resources })
 }
 
@@ -205,7 +198,10 @@ fn parse_uri(uri: &str) -> Result<ResourceUri> {
     if let Some(channel) = uri.strip_prefix(STATUS_PREFIX) {
         let channel = channel.trim();
         if !channel.is_empty() {
-            return Ok(ResourceUri::ChannelStatus(channel.to_string()));
+            return Ok(ResourceUri::ChannelStatus(format!(
+                "/{}",
+                channel.trim_start_matches('/')
+            )));
         }
     }
     anyhow::bail!("unsupported mosaico MCP resource URI: {uri}")
@@ -219,10 +215,6 @@ fn resource(uri: &str, name: &str, description: &str) -> Value {
         "description": description,
         "mimeType": "application/json",
     })
-}
-
-fn status_uri(channel: &str) -> String {
-    format!("{STATUS_PREFIX}{channel}")
 }
 
 fn operator_params(extra: Value) -> Value {
@@ -266,7 +258,7 @@ mod tests {
         ));
         assert!(matches!(
             parse_uri("mosaico://channels/status/root/task").unwrap(),
-            ResourceUri::ChannelStatus(channel) if channel == "root/task"
+            ResourceUri::ChannelStatus(channel) if channel == "/root/task"
         ));
     }
 

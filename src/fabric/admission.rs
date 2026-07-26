@@ -198,7 +198,8 @@ mod tests {
                 pubkey: pubkey.into(),
                 observed_harness: "codex".into(),
                 agent_slug: agent_slug.into(),
-                channel_h: channel.into(),
+                launch_channel_h: channel.into(),
+                work_root: channel.into(),
                 child_pid: None,
                 now: 1,
             })

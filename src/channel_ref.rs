@@ -7,29 +7,21 @@ const MAX_CHANNEL_REF_DEPTH: usize = 32;
 pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
     let mut parts = Vec::new();
     let mut cur = channel_h.to_string();
-    let mut workspace = channel_h.to_string();
     for _ in 0..MAX_CHANNEL_REF_DEPTH {
         let Some(channel) = store.get_channel(&cur).ok().flatten() else {
-            if parts.is_empty() {
-                return format_channel_ref(channel_h, &[]);
-            }
-            parts.push(cur);
-            break;
+            return String::new();
         };
         if channel.parent.is_empty() {
-            workspace = channel.channel_h;
-            break;
+            parts.reverse();
+            return format_channel_ref(&channel.channel_h, &parts);
         }
-        parts.push(
-            channel
-                .human_name()
-                .map(str::to_string)
-                .unwrap_or_else(|| channel.channel_h.clone()),
-        );
+        let Some(name) = channel.human_name() else {
+            return String::new();
+        };
+        parts.push(name.to_string());
         cur = channel.parent;
     }
-    parts.reverse();
-    format_channel_ref(&workspace, &parts)
+    String::new()
 }
 
 pub(crate) fn format_channel_ref(workspace: &str, descendants: &[String]) -> String {
@@ -62,10 +54,10 @@ mod tests {
     }
 
     #[test]
-    fn full_channel_ref_falls_back_to_unknown_h() {
+    fn full_channel_ref_never_exposes_unknown_h() {
         let store = Store::open_memory().unwrap();
 
-        assert_eq!(full_channel_ref(&store, "opaque"), "/opaque");
+        assert_eq!(full_channel_ref(&store, "opaque"), "");
     }
 
     #[test]

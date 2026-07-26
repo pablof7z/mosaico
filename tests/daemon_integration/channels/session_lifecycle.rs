@@ -43,7 +43,7 @@ fn session_start_without_mosaico_private_key_generates_key_and_provisions_channe
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members("tmp");
+            refresh_channel_members("/tmp");
             let members = Store::open(&home.store_path())
                 .and_then(|store| store.list_channel_members("tmp"))
                 .unwrap_or_default();
@@ -124,7 +124,7 @@ fn generated_management_key_self_grants_on_existing_user_owned_channel() {
     .unwrap();
     let backend_pk = pubkey_of(cfg["mosaicoPrivateKey"].as_str().unwrap());
     if !wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&channel);
+        refresh_channel_members(&format!("/{channel}"));
         let members = Store::open(&home.store_path())
             .and_then(|store| store.list_channel_members(&channel))
             .unwrap_or_default();
@@ -182,13 +182,12 @@ fn session_start_schedules_unverified_channel_work_without_blocking() {
 }
 
 /// Regression: a duplicate session-start fired by the offline-agent-mention
-/// handler (with a different MOSAICO_CHANNEL env, e.g. "backlog") must NOT
-/// overwrite the running session's `channel_h` or add a spurious passive join
-/// in `session_channels`. Before the fix, the stale env var stomped the active
-/// channel and left the session receiving inbox messages from the wrong channel,
-/// causing it to respond there with a cross-channel redirect prefix.
+/// handler with a different requested launch channel must not replace the
+/// running session's joined-route set or add a spurious join. Before the fix,
+/// stale launch input rewrote the session scope and delivered inbox messages
+/// from a channel the session had never explicitly joined.
 #[test]
-fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
+fn session_reassert_with_wrong_channel_does_not_corrupt_joined_routes() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
@@ -198,7 +197,7 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        // First start: engine spawns, channel_h = real_channel.
+        // First start: the engine joins the requested launch channel.
         c.call(
             "session_start",
             hook_session_start(
@@ -216,15 +215,10 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
         .expect("first session_start");
     });
 
-    // The daemon resolves the channel name to an opaque channel_h id; read it
-    // back from the store so subsequent assertions compare against the real id.
+    // Read the resolved private route from the store for the internal assertion.
     let lookup_store = Store::open(&home.store_path()).unwrap();
     let pubkey = pubkey_for_harness_session(&lookup_store, "claude-code", &sid).unwrap();
-    let stored_real_channel = lookup_store
-        .get_session(&pubkey)
-        .unwrap()
-        .expect("session row after first start")
-        .channel_h;
+    let stored_real_channel = only_session_route(&lookup_store, &pubkey);
     assert!(
         !stored_real_channel.is_empty(),
         "initial channel must be resolved and stored"
@@ -232,9 +226,8 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        // Re-assert from a duplicate spawn with a DIFFERENT channel (simulates
-        // the offline-agent-mention handler spawning a new process with
-        // MOSAICO_CHANNEL=stale_channel while the engine is already live).
+        // Re-assert from a duplicate spawn with a different requested launch
+        // channel while the engine is already live.
         c.call(
             "session_start",
             hook_session_start(
@@ -253,14 +246,6 @@ fn session_reassert_with_wrong_channel_does_not_corrupt_active_channel() {
     });
 
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store
-        .get_session(&pubkey)
-        .unwrap()
-        .expect("session row after re-assert");
-    assert_eq!(
-        rec.channel_h, stored_real_channel,
-        "re-assert with wrong channel must NOT overwrite the active channel_h"
-    );
     // The session must only be joined to the real channel -- exactly one entry.
     // A spurious re-assert with a different channel used to add a second passive
     // join for the stale channel, leaving two rows in session_channels.

@@ -12,7 +12,7 @@ use crate::fabric_context::{
 };
 use crate::state::{RelayEvent, Status, Store};
 
-use super::{input, seed_store, session, OTHER_PK, SELF_PK};
+use super::{input, seed_store, session, OTHER_PK, SELF_PK, TASK_H};
 
 const GHOST_PK: &str = "ghost-pubkey";
 
@@ -39,6 +39,8 @@ fn heartbeat(store: &Store, pubkey: &str, slug: &str, state_since: u64) {
             slug: slug.into(),
             title: "Reviewing".into(),
             activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since,
             last_seen: state_since,
@@ -122,6 +124,13 @@ fn an_unnameable_member_is_withheld_and_reported_for_refetch() {
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
+        !xml.lines()
+            .find(|line| line.contains("<channel name=\"/root\""))
+            .unwrap_or_default()
+            .contains(" agents="),
+        "an unclassified roster identity must make the count unknown: {xml}"
+    );
+    assert!(
         !member_rows(&xml).iter().any(|row| row.contains("ghost")),
         "{xml}"
     );
@@ -169,7 +178,7 @@ fn a_status_slug_names_a_member_whose_profile_has_not_arrived() {
 #[test]
 fn missing_profile_pubkeys_dedupes_and_excludes_self_and_backend() {
     let store = seed_store();
-    for channel in ["root", "task"] {
+    for channel in ["root", TASK_H] {
         store
             .replace_channel_members(
                 channel,
@@ -214,7 +223,6 @@ fn a_blank_slug_does_not_count_as_a_handle() {
 
     let inputs = captured(&store, &rec);
     assert!(!inputs.members.has_handle(GHOST_PK));
-    assert!(inputs.members.has_handle(OTHER_PK), "control: a real slug");
     assert_eq!(missing_profile_pubkeys(&inputs), vec![GHOST_PK.to_string()]);
 }
 

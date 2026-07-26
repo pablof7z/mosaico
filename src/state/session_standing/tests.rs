@@ -7,7 +7,8 @@ fn reserve(store: &Store, at: u64) {
                 pubkey: "pk".into(),
                 observed_harness: "grok".into(),
                 agent_slug: "grok".into(),
-                channel_h: "room".into(),
+                launch_channel_h: "room".into(),
+                work_root: "room".into(),
                 child_pid: None,
                 now: at,
             },
@@ -23,7 +24,7 @@ fn reserve(store: &Store, at: u64) {
 }
 
 #[test]
-fn standing_epoch_fences_expiry_after_reactivation() {
+fn stopped_session_standing_does_not_expire_before_explicit_leave() {
     let store = Store::open_memory().unwrap();
     reserve(&store, 1);
     let running = store.get_session("pk").unwrap().unwrap();
@@ -34,65 +35,45 @@ fn standing_epoch_fences_expiry_after_reactivation() {
     store
         .mark_runtime_stopped_if_generation("pk", running.runtime_generation, StopReason::Crash, 10)
         .unwrap();
-    let stopped = store.get_session("pk").unwrap().unwrap();
-    let retained_rows = store.list_session_standing("pk").unwrap();
-    let retained = retained_rows[0].standing_epoch;
-    assert_eq!(store.list_due_retained_standing(3_609).unwrap(), []);
-    assert_eq!(store.list_due_retained_standing(3_610).unwrap().len(), 1);
-
-    reserve(&store, 90);
-    let resumed = store.get_session("pk").unwrap().unwrap();
-    let member = store
-        .mark_session_standing_member_if_running("pk", "room", resumed.lifecycle_epoch, 90)
-        .unwrap()
-        .unwrap();
-    assert!(member > retained);
-    assert!(!store
-        .mark_session_standing_absent_if_epoch(
-            "pk",
-            "room",
-            StandingState::Retained,
-            retained,
-            stopped.lifecycle_epoch,
-            101,
-        )
-        .unwrap());
+    let standing = store.get_session_standing("pk", "room").unwrap().unwrap();
+    assert_eq!(standing.state, StandingState::Member);
+    assert!(store.has_session_route("pk", "room").unwrap());
+    assert_eq!(store.list_cleanup_due_member_standing().unwrap(), []);
     assert_eq!(
-        store
-            .get_session_standing("pk", "room")
-            .unwrap()
-            .unwrap()
-            .state,
-        StandingState::Member
+        store.list_stopped_member_standing().unwrap(),
+        [standing.clone()]
     );
-}
 
-#[test]
-fn retained_standing_can_expire_for_the_same_lifecycle_epoch() {
-    let store = Store::open_memory().unwrap();
-    store.grant_session_route("pk", "room", 1).unwrap();
     store
         .conn
         .execute(
-            "INSERT INTO session_standing VALUES ('pk','room','retained',100,1,7,10)",
+            "DELETE FROM session_channels WHERE pubkey='pk' AND channel_h='room'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        store.list_cleanup_due_member_standing().unwrap(),
+        [standing]
+    );
+    assert_eq!(store.list_stopped_member_standing().unwrap(), []);
+}
+
+#[test]
+fn cleanup_due_member_can_be_marked_absent_for_the_same_lifecycle_epoch() {
+    let store = Store::open_memory().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO session_standing VALUES ('pk','room','member',1,7,10)",
             [],
         )
         .unwrap();
     let epoch = 1;
-    assert!(
-        store
-            .mark_session_standing_absent_if_epoch(
-                "pk",
-                "room",
-                StandingState::Retained,
-                epoch,
-                7,
-                100,
-            )
-            .unwrap()
-    );
+    assert!(store
+        .mark_member_standing_absent_if_epoch("pk", "room", epoch, 7, 100)
+        .unwrap());
     let row = store.get_session_standing("pk", "room").unwrap().unwrap();
     assert_eq!(row.state, StandingState::Absent);
-    assert_eq!(row.retain_until, 0);
     assert_eq!(row.standing_epoch, epoch + 1);
+    assert_eq!(store.list_cleanup_due_member_standing().unwrap(), []);
 }

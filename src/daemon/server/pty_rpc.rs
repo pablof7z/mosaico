@@ -1,4 +1,3 @@
-use super::resolution::work_root_for;
 use super::*;
 
 #[path = "pty_rpc/existing.rs"]
@@ -6,6 +5,9 @@ mod existing;
 mod native_resume;
 mod spawn;
 mod status;
+#[cfg(test)]
+#[path = "pty_rpc/tests.rs"]
+mod tests;
 
 pub(super) use existing::rpc_pty_launch_existing;
 pub(super) use native_resume::rpc_pty_resume_native;
@@ -94,13 +96,33 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         .with_store(|s| s.list_running_sessions())
         .unwrap_or_default()
         .iter()
-        .any(|r| r.agent_slug == slug && r.channel_h == scope);
+        .any(|r| {
+            r.agent_slug == slug
+                && state
+                    .with_store(|store| store.has_session_route(&r.pubkey, scope).unwrap_or(false))
+        });
     if already_live {
         tracing::info!(
             slug,
             scope,
             "provision: launching concurrent instance (agent already has live session)"
         );
+    }
+
+    let expect_member = state.backend_pubkey().unwrap_or_default();
+    let already_ready = state.with_store(|store| {
+        store.get_channel(scope).ok().flatten().is_some()
+            && store
+                .is_channel_admin(scope, &expect_member)
+                .unwrap_or(false)
+    });
+    if already_ready {
+        tracing::debug!(
+            slug,
+            channel = scope,
+            "provision: using relay-confirmed cached channel readiness"
+        );
+        return Ok(());
     }
 
     let timeout = std::time::Duration::from_secs(20);
@@ -119,7 +141,6 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         channel_name,
         "provision: ensuring channel ready"
     );
-    let expect_member = state.backend_pubkey().unwrap_or_default();
     let ctx = crate::fabric::nip29::readiness::ChannelCtx {
         channel: scope,
         expect_member: &expect_member,
@@ -268,7 +289,18 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
         if live_pty {
             continue;
         }
-        let work_root = state.with_store(|s| work_root_for(s, &rec.channel_h))?;
+        let (work_root, channels) = state.with_store(|store| {
+            let work_root = crate::channel_ref::full_channel_ref(store, &rec.work_root);
+            let channels = store
+                .list_session_routes(&rec.pubkey)?
+                .into_iter()
+                .filter_map(|(channel, _)| {
+                    let path = crate::channel_ref::full_channel_ref(store, &channel);
+                    (!path.is_empty()).then_some(path)
+                })
+                .collect::<Vec<_>>();
+            Ok::<_, anyhow::Error>((work_root, channels))
+        })?;
         let pubkey = rec.pubkey.clone();
         let npub = crate::idref::npub(&pubkey).unwrap_or_default();
         let handle = state.with_store(|s| s.handle_for_pubkey(&pubkey).ok().flatten());
@@ -276,7 +308,7 @@ pub(super) async fn rpc_pty_resumable(state: &Arc<DaemonState>) -> Result<serde_
             "pubkey": pubkey,
             "npub": npub,
             "handle": handle,
-            "root": rec.channel_h,
+            "channels": channels,
             "work_root": work_root,
             "rel_cwd": "",
             "runtime_state": rec.runtime_state.as_str(),

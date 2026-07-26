@@ -21,7 +21,8 @@ async fn reconstructs_signer_from_pubkey_bound_material() {
                 pubkey: pubkey.clone(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
-                channel_h: "root".into(),
+                launch_channel_h: "root".into(),
+                work_root: "root".into(),
                 child_pid: None,
                 now: 1,
             })

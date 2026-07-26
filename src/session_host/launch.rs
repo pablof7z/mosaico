@@ -8,9 +8,7 @@ use std::sync::Arc;
 mod resume;
 mod source;
 mod spawn;
-pub(crate) use resume::{
-    adopt_native_session, resume_agent, resume_agent_in_channel, resume_session_record,
-};
+pub(crate) use resume::{adopt_native_session, resume_agent, resume_agent_in_channel};
 use source::resolve_agent_source;
 pub(crate) use spawn::spawn_ephemeral_agent_for_pubkey;
 pub(crate) use spawn::{spawn_agent, SpawnRequest};

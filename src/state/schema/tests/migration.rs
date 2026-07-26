@@ -14,6 +14,8 @@ mod v14_v15;
 mod v15_v16;
 #[path = "migration/v16_v17.rs"]
 mod v16_v17;
+#[path = "migration/v17_v18.rs"]
+mod v17_v18;
 #[test]
 fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     let directory = tempfile::tempdir().unwrap();
@@ -21,7 +23,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     fixture::create_schema_four(&path);
     drop(Store::open(&path).expect("schema four upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -68,7 +70,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     );
     assert_eq!(
         conn.query_row(
-            "SELECT channel_h || ':' || granted_at FROM session_channels WHERE pubkey='pk1'",
+            "SELECT channel_h || ':' || joined_at FROM session_channels WHERE pubkey='pk1'",
             [],
             |row| row.get::<_, String>(0),
         )
@@ -136,7 +138,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
     fixture::create_schema_eight(&migrated_path);
     drop(Store::open(&migrated_path).expect("schema eight upgrades to current"));
     let migrated = Connection::open(&migrated_path).unwrap();
-    assert_eq!(version(&migrated), 17);
+    assert_eq!(version(&migrated), 18);
     assert_eq!(
         session_runtime_facts(&migrated, "pk-pty"),
         ("pty".to_string(), "migration".to_string())
@@ -176,7 +178,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
 fn migration_chain_covers_every_version_before_current() {
     assert_eq!(
         super::super::migration::supported_versions(),
-        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
     );
 }
 fn version(conn: &Connection) -> u32 {

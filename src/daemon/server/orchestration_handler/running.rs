@@ -13,10 +13,9 @@ pub(super) async fn admit_running_target(
             let Some(rec) = store.get_session(session_pubkey)? else {
                 return Ok(None);
             };
-            let in_parent = rec.channel_h == op.parent
-                || store
-                    .has_session_route(&rec.pubkey, &op.parent)
-                    .unwrap_or(false);
+            let in_parent = store
+                .has_session_route(&rec.pubkey, &op.parent)
+                .unwrap_or(false);
             Ok((rec.is_running() && in_parent).then_some(rec))
         })
         .unwrap_or_else(|error| {
@@ -85,7 +84,8 @@ mod tests {
                     pubkey: SESSION.into(),
                     observed_harness: "codex".into(),
                     agent_slug: "agent".into(),
-                    channel_h: "root".into(),
+                    launch_channel_h: "root".into(),
+                    work_root: "root".into(),
                     child_pid: None,
                     now: 1,
                 })

@@ -207,6 +207,29 @@ impl Store {
         Ok(n as u32)
     }
 
+    /// Chat that was already present when this exact session membership began,
+    /// newest first. The local arrival fence is authoritative here: signed
+    /// timestamps can be backdated or future-dated and must not decide whether
+    /// an event existed before the join.
+    pub fn prejoin_chat_for_session(
+        &self,
+        pubkey: &str,
+        channel_h: &str,
+        limit: u32,
+    ) -> Result<Vec<RelayEvent>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM relay_events
+             WHERE channel_h=?2 AND kind=9
+               AND rowid <= (
+                   SELECT joined_event_seq FROM session_channels
+                   WHERE pubkey=?1 AND channel_h=?2
+               )
+             ORDER BY created_at DESC, id DESC LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(params![pubkey, channel_h, limit], row_to_event)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Most recent events of a given kind, newest-first, capped at `limit`.
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let mut stmt = self.conn.prepare(&format!(

@@ -31,6 +31,9 @@ fn inbox_event_prefix_lookup_can_filter_target_pubkey() {
 #[test]
 fn claim_pending_event_ids_claims_only_the_planned_rows() {
     let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk-1", 1);
+    insert_chat(&s, "evt-1", 10);
+    insert_chat(&s, "evt-2", 11);
     s.enqueue_inbox("evt-1", "pk-1", "pk", "room", "one", 10)
         .unwrap();
     s.enqueue_inbox("evt-2", "pk-1", "pk", "room", "two", 11)
@@ -54,6 +57,7 @@ fn claim_pending_event_ids_claims_only_the_planned_rows() {
 fn pending_event_survives_runtime_replacement() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk-agent", 10);
+    insert_chat(&s, "evt", 11);
     s.enqueue_inbox("evt", "pk-agent", "sender", "room", "hello", 11)
         .unwrap();
     s.mark_runtime_stopped("pk-agent", StopReason::Unknown, 11)
@@ -70,6 +74,8 @@ fn pending_event_survives_runtime_replacement() {
 #[test]
 fn hook_claim_stages_one_work_start_reaction() {
     let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk", 1);
+    insert_chat(&s, "evt", 10);
     s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
         .unwrap();
 
@@ -81,6 +87,8 @@ fn hook_claim_stages_one_work_start_reaction() {
 #[test]
 fn injected_delivery_stages_work_start_for_a_later_hook() {
     let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk", 1);
+    insert_chat(&s, "evt", 10);
     s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
         .unwrap();
     s.claim_pending_event_ids_for_pubkey(&["evt".into()], "pk", 11)
@@ -90,6 +98,22 @@ fn injected_delivery_stages_work_start_for_a_later_hook() {
     let handoffs = s.take_work_start_claims("pk", 13).unwrap();
     assert_eq!(handoffs.len(), 1);
     assert_eq!(handoffs[0].event_id, "evt");
+}
+
+#[test]
+fn leave_and_rejoin_rejects_a_message_queued_under_the_old_membership() {
+    let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk", 1);
+    insert_chat(&s, "old-membership", 10);
+    s.enqueue_inbox("old-membership", "pk", "human", "room", "queued", 10)
+        .unwrap();
+
+    s.revoke_route_and_mark_absent("pk", "room", 11).unwrap();
+    s.grant_session_route("pk", "room", 12).unwrap();
+
+    assert!(s.claim_pending_for_pubkey("pk", 13).unwrap().is_empty());
+    assert_eq!(state_for(&s, "old-membership", "pk"), "rejected_membership");
+    assert!(s.peek_pending_for_pubkey("pk").unwrap().is_empty());
 }
 
 #[test]
@@ -112,9 +136,25 @@ fn upsert_runtime(store: &Store, pubkey: &str, now: u64) {
             pubkey: pubkey.into(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "room".into(),
+            launch_channel_h: "room".into(),
+            work_root: "room".into(),
             child_pid: None,
             now,
+        })
+        .unwrap();
+}
+
+fn insert_chat(store: &Store, event_id: &str, created_at: u64) {
+    store
+        .insert_event(&RelayEvent {
+            id: event_id.into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: event_id.into(),
+            tags_json: "[]".into(),
         })
         .unwrap();
 }

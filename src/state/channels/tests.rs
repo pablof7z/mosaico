@@ -35,6 +35,33 @@ fn channel_meta_read_model_returns_parent_metadata() {
 }
 
 #[test]
+fn only_named_siblings_share_a_unique_namespace() {
+    let store = Store::open_memory().unwrap();
+    store
+        .upsert_channel("root-a", "general", "", "", 1)
+        .unwrap();
+    store
+        .upsert_channel("root-b", "general", "", "", 1)
+        .unwrap();
+    store
+        .upsert_channel("unnamed-a", "", "", "root-a", 1)
+        .unwrap();
+    store
+        .upsert_channel("unnamed-b", "", "", "root-a", 1)
+        .unwrap();
+    store
+        .upsert_channel("named-a", "planning", "", "root-a", 1)
+        .unwrap();
+
+    assert!(store
+        .upsert_channel("named-b", "planning", "", "root-a", 1)
+        .is_err());
+    store
+        .upsert_channel("named-other", "planning", "", "root-b", 1)
+        .unwrap();
+}
+
+#[test]
 fn archived_channel_predicate_uses_about_prefix() {
     let store = Store::open_memory().unwrap();
     store

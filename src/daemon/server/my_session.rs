@@ -61,15 +61,19 @@ mod tests {
             s.upsert_channel("beta", "beta", "Beta", "", 1).unwrap();
             s.upsert_profile("pk", "codex", "codex", "test-host", false, 1)
                 .unwrap();
-            s.upsert_channel_member("alpha", "pk", "member", 1).unwrap();
-            s.upsert_channel_member("beta", "pk", "member", 1).unwrap();
+            for channel in ["alpha", "beta"] {
+                s.replace_channel_members(channel, &["pk".into()], 1)
+                    .unwrap();
+                s.replace_channel_admins(channel, &[], 1).unwrap();
+            }
             let generation = s
                 .reserve_session_with_facts(
                     &RegisterSession {
                         pubkey: "pk".into(),
                         observed_harness: "codex".into(),
                         agent_slug: "codex".into(),
-                        channel_h: "alpha".into(),
+                        launch_channel_h: "alpha".into(),
+                        work_root: "alpha".into(),
                         child_pid: Some(42),
                         now: 10,
                     },
@@ -106,15 +110,15 @@ mod tests {
         let first = first["fabric"].as_str().expect("agent briefing");
         assert!(first.contains("<self name=\"@codex\""), "{first}");
         assert!(first.contains("headless=\"on\""), "{first}");
-        assert!(first.contains("<hosts>"), "{first}");
-        assert!(first.contains("<workspace name=\"alpha\" about=\"Alpha\" hosts=\"\">"));
+        assert!(!first.contains("<hosts>"), "{first}");
+        assert!(!first.contains("<workspace"), "{first}");
         assert!(
-            first.contains("<channel name=\"alpha\" id=\"/alpha\""),
+            first.contains("<channel name=\"/alpha\" about=\"Alpha\" agents=\"1\">")
+                && first.contains("<agent name=\"@codex\""),
             "{first}"
         );
-        assert!(first.contains("<workspace name=\"beta\" about=\"Beta\" hosts=\"\">"));
         assert!(
-            first.contains("<channel name=\"beta\" id=\"/beta\" about=\"Beta\" members=\"1\" />"),
+            first.contains("<channel name=\"/beta\" about=\"Beta\" agents=\"1\" />"),
             "{first}"
         );
 
@@ -128,9 +132,9 @@ mod tests {
         )
         .unwrap();
         let second = second["fabric"].as_str().expect("agent briefing");
-        assert!(second.contains("<workspace name=\"beta\" about=\"Beta\" hosts=\"\">"));
+        assert!(!second.contains("<workspace"), "{second}");
         assert!(
-            second.contains("<channel name=\"beta\" id=\"/beta\""),
+            second.contains("<channel name=\"/beta\" about=\"Beta\" agents=\"1\">"),
             "{second}"
         );
 
@@ -159,7 +163,8 @@ mod tests {
                     pubkey: pubkey.clone(),
                     observed_harness: "codex".into(),
                     agent_slug: "codex".into(),
-                    channel_h: "root".into(),
+                    launch_channel_h: "root".into(),
+                    work_root: "root".into(),
                     child_pid: None,
                     now: 1,
                 },
@@ -182,6 +187,8 @@ mod tests {
                 1,
                 crate::reconcile::PresenceSnapshot {
                     host: "test-host".into(),
+                    workspace: "root".into(),
+                    branch: "feat/context".into(),
                     slug: "codex".into(),
                     rel_cwd: ".".into(),
                     dispatch_event: None,

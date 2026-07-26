@@ -7,6 +7,7 @@ fn schema_fourteen_adds_zeroed_busy_time() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
         .unwrap();
     fixture::add_removed_v15_session_columns(&conn);
@@ -22,7 +23,7 @@ fn schema_fourteen_adds_zeroed_busy_time() {
 
     drop(Store::open(&path).expect("schema fourteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert_eq!(
         conn.query_row(
             "SELECT busy_seconds FROM sessions WHERE pubkey='historical'",

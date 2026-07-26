@@ -48,6 +48,8 @@ pub enum StatusEffect {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresenceSnapshot {
     pub host: String,
+    pub workspace: String,
+    pub branch: String,
     pub slug: String,
     pub rel_cwd: String,
     pub dispatch_event: Option<String>,
@@ -261,6 +263,8 @@ fn command_of(pubkey: &str, state: &PublishedPresence) -> StatusCommand {
         },
         state_since: snapshot.projection.state_since,
         host: snapshot.host.clone(),
+        workspace: snapshot.workspace.clone(),
+        branch: snapshot.branch.clone(),
         slug: snapshot.slug.clone(),
         rel_cwd: snapshot.rel_cwd.clone(),
         dispatch_event: snapshot.dispatch_event.clone(),

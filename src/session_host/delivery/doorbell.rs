@@ -33,7 +33,7 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
             Err(e) => {
                 tracing::error!(%pubkey, error = %e, "ring_doorbells: peek_pending_for_pubkey failed");
                 state.emit_delivery_failure(
-                    &rec.channel_h,
+                    "",
                     &rec.agent_slug,
                     &pubkey,
                     format!("failed to read pending inbox for doorbell scan: {e:#}"),
@@ -44,17 +44,25 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
         if pending.is_empty() {
             continue;
         }
+        let mut pending_channels = pending
+            .iter()
+            .map(|row| row.channel_h.clone())
+            .collect::<Vec<_>>();
+        pending_channels.sort();
+        pending_channels.dedup();
 
         let hosted = match state.with_store(|s| hosted_endpoint_for(s, &rec)) {
             Ok(hosted) => hosted,
             Err(e) => {
                 tracing::error!(%pubkey, error = %e, "ring_doorbells: locator lookup failed — cannot resolve endpoint this tick");
-                state.emit_delivery_failure(
-                    &rec.channel_h,
-                    &rec.agent_slug,
-                    &pubkey,
-                    format!("failed to resolve delivery endpoint: {e:#}"),
-                );
+                for channel in &pending_channels {
+                    state.emit_delivery_failure(
+                        channel,
+                        &rec.agent_slug,
+                        &pubkey,
+                        format!("failed to resolve delivery endpoint: {e:#}"),
+                    );
+                }
                 continue;
             }
         };
@@ -79,12 +87,14 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
         let effects = match state.drive_delivery_scan("doorbell", fact) {
             Ok(effects) => effects,
             Err(e) => {
-                state.emit_delivery_failure(
-                    &rec.channel_h,
-                    &rec.agent_slug,
-                    &pubkey,
-                    format!("delivery reconciler failed: {e:#}"),
-                );
+                for channel in &pending_channels {
+                    state.emit_delivery_failure(
+                        channel,
+                        &rec.agent_slug,
+                        &pubkey,
+                        format!("delivery reconciler failed: {e:#}"),
+                    );
+                }
                 continue;
             }
         };
@@ -121,15 +131,25 @@ async fn apply_delivery_effects(
                         }
                     }
                     Ok(false) => {}
-                    Err(e) => state.emit_delivery_failure(
-                        &rec.channel_h,
-                        &rec.agent_slug,
-                        &pubkey,
-                        format!(
-                            "pending message delivery failed for {} endpoint {endpoint_id}: {e:#}",
-                            transport.kind().as_str()
-                        ),
-                    ),
+                    Err(e) => {
+                        let channels = state
+                            .with_store(|store| store.peek_pending_for_pubkey(&pubkey))
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|row| row.channel_h)
+                            .collect::<std::collections::BTreeSet<_>>();
+                        for channel in channels {
+                            state.emit_delivery_failure(
+                                &channel,
+                                &rec.agent_slug,
+                                &pubkey,
+                                format!(
+                                    "pending message delivery failed for {} endpoint {endpoint_id}: {e:#}",
+                                    transport.kind().as_str()
+                                ),
+                            );
+                        }
+                    }
                 }
             }
             crate::reconcile::DeliveryEffect::RetryAfter { pubkey, delay_secs } => {

@@ -44,6 +44,12 @@ fn session_start_runs_engine_and_records_alive_session() {
     );
     assert!(rec.is_running());
     assert_eq!(rec.agent_slug, "coder");
+    assert!(
+        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
+            .and_then(|store| store.has_session_route(&pubkey, "tmp"))
+            .unwrap_or(false)),
+        "session did not finish joining /tmp"
+    );
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
@@ -126,6 +132,12 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .is_running(),
         "new session should remain alive"
     );
+    assert!(
+        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
+            .and_then(|store| store.has_session_route(&new_pubkey, "tmp"))
+            .unwrap_or(false)),
+        "replacement session did not finish joining /tmp"
+    );
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
@@ -174,12 +186,12 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
             r["pubkey"].as_str().unwrap().to_string(),
         )
     });
-    let receiver_row = Store::open(&home.store_path())
-        .unwrap()
+    let store = Store::open(&home.store_path()).unwrap();
+    let receiver_row = store
         .get_session(&receiver_pubkey)
         .unwrap()
         .expect("receiver session row");
-    let receiver_scope = format!("/{}", receiver_row.channel_h);
+    let receiver_scope = format!("/{}", only_session_route(&store, &receiver_row.pubkey));
     let receiver_pubkey = receiver_row.pubkey.clone();
     let receiver_handle = Store::open(&home.store_path())
         .unwrap()

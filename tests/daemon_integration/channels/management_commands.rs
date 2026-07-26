@@ -49,9 +49,12 @@ while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
   test -n "$id" || continue
   case "$line" in
+    *'"method":"model/list"'*)
+      result='{"data":[{"model":"gpt-current","defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"medium"}]}],"nextCursor":null}'
+      ;;
     *'"method":"thread/start"'*)
       printf '%s\n' "$line" >> "$MOSAICO_HOME/codex-thread-starts.jsonl"
-      result="{\"thread\":{\"id\":\"fixture-thread-$id\",\"turns\":[]}}"
+      result="{\"thread\":{\"id\":\"fixture-thread-$id\",\"turns\":[]},\"model\":\"gpt-current\",\"reasoningEffort\":\"medium\"}"
       ;;
     *) result='{}' ;;
   esac
@@ -75,6 +78,11 @@ fn configure_agents(home: &Home, codex_home: &Path) {
     std::fs::write(
         native,
         "name='native-codex-role'\ndescription='Native fixture'\ndeveloper_instructions='Use native fixture instructions'\n",
+    )
+    .unwrap();
+    std::fs::write(
+        codex_home.join("agents/interactive-codex-role.toml"),
+        "name='interactive-codex-role'\ndescription='Interactive PTY fixture'\ndeveloper_instructions='Use interactive fixture instructions'\n",
     )
     .unwrap();
     std::fs::write(
@@ -112,6 +120,7 @@ fn start_channel(home: &Home, channel: &str, work_dir: &Path) {
         serde_json::Value::Object(workspaces).to_string(),
     )
     .unwrap();
+    initialize_workspace_root(channel, work_dir.to_str().unwrap());
     rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect daemon");
         client
@@ -133,7 +142,7 @@ fn start_channel(home: &Home, channel: &str, work_dir: &Path) {
     });
     let user = pubkey_of(EXAMPLE_USER_NSEC);
     assert!(wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(channel);
+        refresh_channel_members(&format!("/{channel}"));
         Store::open(&home.store_path())
             .map(|store| store.is_channel_admin(channel, &user).unwrap_or(false))
             .unwrap_or(false)
@@ -160,15 +169,26 @@ async fn publish_management_command(channel: &str, body: &str) {
 }
 
 fn running_session(home: &Home, channel: &str, slug: &str) -> Option<mosaico::state::Session> {
-    Store::open(&home.store_path())
-        .ok()?
+    let store = Store::open(&home.store_path()).ok()?;
+    store
         .list_running_sessions()
         .ok()?
         .into_iter()
         .find(|session| {
-            session.channel_h == channel
+            store
+                .has_session_route(&session.pubkey, channel)
+                .unwrap_or(false)
                 && session.agent_slug == slug
                 && session.admitted_transport == "app-server"
+                && store
+                    .runtime_locator_for_session(
+                        &session.pubkey,
+                        session.runtime_generation,
+                        "app_server",
+                    )
+                    .ok()
+                    .flatten()
+                    .is_some()
         })
 }
 
@@ -204,7 +224,7 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
     let work_dir = home.dir.path().join("work");
     start_channel(&home, &channel, &work_dir);
 
-    let interactive = run_cli_with_env_in_dir(&home, &["codex"], &[], &work_dir);
+    let interactive = run_cli_with_env_in_dir(&home, &["interactive-codex-role"], &[], &work_dir);
     assert!(
         interactive.status.success(),
         "restricted-PATH PTY launch failed: {}",
@@ -214,7 +234,9 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
     assert!(wait_until(Duration::from_secs(10), || {
         interactive_pty = mosaico::pty::read_all_metadata()
             .into_iter()
-            .find(|metadata| metadata.agent == "codex" && mosaico::pty::is_live(&metadata.id));
+            .find(|metadata| {
+                metadata.agent == "interactive-codex-role" && mosaico::pty::is_live(&metadata.id)
+            });
         interactive_pty.is_some()
     }));
 

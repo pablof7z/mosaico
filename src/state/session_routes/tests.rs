@@ -5,7 +5,8 @@ fn running(store: &Store) -> (u64, Session) {
         pubkey: "pk".into(),
         observed_harness: "grok".into(),
         agent_slug: "grok".into(),
-        channel_h: "root".into(),
+        launch_channel_h: "root".into(),
+        work_root: "root".into(),
         child_pid: None,
         now: 1,
     };
@@ -31,19 +32,19 @@ fn route_affinity_survives_standing_removal() {
     store
         .conn
         .execute(
-            "INSERT INTO session_standing VALUES ('pk','room','retained',10,1,2,2)",
+            "INSERT INTO session_standing VALUES ('pk','room','member',1,2,2)",
             [],
         )
         .unwrap();
     store
-        .mark_session_standing_absent_if_epoch("pk", "room", StandingState::Retained, 1, 2, 10)
+        .mark_member_standing_absent_if_epoch("pk", "room", 1, 2, 10)
         .unwrap();
 
     assert!(store.has_session_route("pk", "room").unwrap());
 }
 
 #[test]
-fn confirmed_runtime_join_is_retained_atomically_on_stop() {
+fn confirmed_runtime_join_remains_a_member_on_stop() {
     let store = Store::open_memory().unwrap();
     let (generation, session) = running(&store);
     assert_eq!(
@@ -63,28 +64,39 @@ fn confirmed_runtime_join_is_retained_atomically_on_stop() {
         .unwrap();
 
     let joined = store.get_session_standing("pk", "joined").unwrap().unwrap();
-    assert_eq!(joined.state, StandingState::Retained);
-    assert_eq!(joined.retain_until, 10 + STOPPED_STANDING_RETENTION_SECS);
+    assert_eq!(joined.state, StandingState::Member);
 }
 
 #[test]
-fn stale_confirmed_admission_is_persisted_due_for_cleanup() {
+fn confirmed_admission_after_runtime_stop_preserves_membership() {
     let store = Store::open_memory().unwrap();
     let (generation, session) = running(&store);
     store
         .mark_runtime_stopped_if_generation("pk", generation, StopReason::Crash, 10)
         .unwrap();
 
-    let result = store
-        .commit_confirmed_session_admission("pk", "joined", generation, session.lifecycle_epoch, 11)
-        .unwrap();
-    let ConfirmedAdmissionCommit::CleanupDue(due) = result else {
-        panic!("expected durable cleanup")
-    };
-    assert_eq!(due.state, StandingState::Retained);
-    assert_eq!(due.retain_until, 11);
-    assert_eq!(due.session_lifecycle_epoch, session.lifecycle_epoch);
-    assert!(!store.has_session_route("pk", "joined").unwrap());
+    assert_eq!(
+        store
+            .commit_confirmed_session_admission(
+                "pk",
+                "joined",
+                generation,
+                session.lifecycle_epoch,
+                11,
+            )
+            .unwrap(),
+        ConfirmedAdmissionCommit::Committed
+    );
+    assert!(store.has_session_route("pk", "joined").unwrap());
+    assert_eq!(
+        store
+            .get_session_standing("pk", "joined")
+            .unwrap()
+            .unwrap()
+            .state,
+        StandingState::Member
+    );
+    assert!(store.list_cleanup_due_member_standing().unwrap().is_empty());
 }
 
 #[test]
@@ -137,6 +149,116 @@ fn compensation_fallback_persists_due_after_primary_write_error() {
     let ConfirmedAdmissionCommit::CleanupDue(due) = result else {
         panic!("expected durable cleanup")
     };
-    assert_eq!(due.retain_until, 3);
-    assert_eq!(due.state, StandingState::Retained);
+    assert_eq!(due.state, StandingState::Member);
+    assert_eq!(store.list_cleanup_due_member_standing().unwrap(), [due]);
+}
+
+#[test]
+fn confirmed_admission_preserves_the_original_membership_cutoff() {
+    let store = Store::open_memory().unwrap();
+    let (generation, session) = running(&store);
+    store.grant_session_route("pk", "joined", 2).unwrap();
+    let original = route_fence(&store, "pk", "joined");
+    insert_chat(&store, "arrived-after-join", "joined", 3);
+
+    store
+        .commit_confirmed_session_admission("pk", "joined", generation, session.lifecycle_epoch, 4)
+        .unwrap();
+
+    assert_eq!(route_fence(&store, "pk", "joined"), original);
+}
+
+#[test]
+fn explicit_leave_and_rejoin_resets_both_membership_fences() {
+    let store = Store::open_memory().unwrap();
+    let (generation, session) = running(&store);
+    store.grant_session_route("pk", "joined", 2).unwrap();
+    insert_chat(&store, "before-rejoin", "joined", 10);
+    let before = route_fence(&store, "pk", "joined");
+
+    assert!(store
+        .revoke_route_and_mark_absent("pk", "joined", 11)
+        .unwrap());
+    store
+        .commit_confirmed_session_admission("pk", "joined", generation, session.lifecycle_epoch, 12)
+        .unwrap();
+    let after = route_fence(&store, "pk", "joined");
+
+    assert_eq!(after.0, 12);
+    assert!(after.1 > before.1);
+    assert!(!store
+        .session_membership_admits_event("pk", "joined", "before-rejoin")
+        .unwrap());
+}
+
+#[test]
+fn automatic_body_eligibility_requires_arrival_and_signed_time_fences() {
+    let store = Store::open_memory().unwrap();
+    running(&store);
+    insert_chat(&store, "future-seen-before", "joined", 500);
+    store.grant_session_route("pk", "joined", 100).unwrap();
+    insert_chat(&store, "same-second", "joined", 100);
+    insert_chat(&store, "backdated", "joined", 99);
+    insert_chat(&store, "wrong-channel", "other", 101);
+
+    assert!(store
+        .session_membership_admits_event("pk", "joined", "same-second")
+        .unwrap());
+    for event_id in [
+        "future-seen-before",
+        "backdated",
+        "wrong-channel",
+        "missing",
+    ] {
+        assert!(
+            !store
+                .session_membership_admits_event("pk", "joined", event_id)
+                .unwrap(),
+            "{event_id} must fail closed"
+        );
+    }
+
+    assert!(!store
+        .insert_event(&RelayEvent {
+            id: "future-seen-before".into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at: 500,
+            channel_h: "joined".into(),
+            d_tag: String::new(),
+            content: "duplicate replay".into(),
+            tags_json: "[]".into(),
+        })
+        .unwrap());
+    assert!(!store
+        .session_membership_admits_event("pk", "joined", "future-seen-before")
+        .unwrap());
+}
+
+fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
+    store
+        .conn
+        .query_row(
+            "SELECT joined_at, joined_event_seq
+               FROM session_channels
+              WHERE pubkey=?1 AND channel_h=?2",
+            params![pubkey, channel_h],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) {
+    assert!(store
+        .insert_event(&RelayEvent {
+            id: id.into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at,
+            channel_h: channel_h.into(),
+            d_tag: String::new(),
+            content: id.into(),
+            tags_json: "[]".into(),
+        })
+        .unwrap());
 }

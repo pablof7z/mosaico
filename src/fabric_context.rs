@@ -3,6 +3,7 @@ use crate::state::{InboxRow, Session, Store};
 pub(crate) mod assemble;
 pub(crate) mod capture;
 mod human_render;
+mod member_delta;
 mod messages;
 mod model;
 mod reactions;
@@ -15,6 +16,7 @@ mod xml;
 
 pub(crate) use assemble::missing_profile_pubkeys;
 pub(crate) use capture::{capture_inputs, ViewInputs};
+pub(crate) use member_delta::{inject_member_deltas, inject_member_snapshot};
 pub(crate) use messages::{is_backend_pubkey, p_tag_pubkeys};
 pub(crate) use model::FabricView;
 
@@ -67,7 +69,7 @@ pub(crate) struct FabricContextInput<'a> {
 fn missing_channel_warning(channel: &str) -> String {
     format!(
         "Fabric channel {channel:?} is unavailable: no relay-backed channel metadata \
-         exists locally, so it is not rendered as an active channel."
+         exists locally, so it is not rendered as a joined channel."
     )
 }
 
@@ -94,6 +96,7 @@ pub(crate) fn render_fabric_context(
     Some(render_view(&view))
 }
 
+#[cfg(test)]
 pub(crate) fn render_fabric_context_human(
     store: &Store,
     input: FabricContextInput<'_>,
@@ -101,6 +104,25 @@ pub(crate) fn render_fabric_context_human(
 ) -> anyhow::Result<Option<String>> {
     let force = input.force;
     let view = derive_view(store, input)?;
+    if !force && view.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(render_human_view(&view, color)))
+}
+
+/// Operator view for one requested root. Agent snapshots still receive the
+/// complete topology policy; `who --workspace` uses this narrow projection and
+/// appends the other roots as compact summaries itself.
+pub(crate) fn render_fabric_context_human_scoped(
+    store: &Store,
+    input: FabricContextInput<'_>,
+    color: bool,
+) -> anyhow::Result<Option<String>> {
+    let force = input.force;
+    let (mut view, inputs) = derive_view_with_inputs(store, input)?;
+    if let Some(workspaces) = &mut view.workspaces {
+        workspaces.retain(|workspace| workspace.name == inputs.meta.current_workspace);
+    }
     if !force && view.is_empty() {
         return Ok(None);
     }
@@ -171,7 +193,7 @@ pub(crate) fn render_full_session_state(
         store,
         FabricContextInput {
             session: Some(session),
-            scope: &session.channel_h,
+            scope: "",
             cursor: 0,
             now,
             self_slug,

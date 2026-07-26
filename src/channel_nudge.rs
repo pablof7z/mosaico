@@ -234,7 +234,11 @@ pub(crate) fn is_substantive_message(body: &str) -> bool {
         .trim()
         .trim_matches(|c: char| c.is_ascii_punctuation())
         .to_ascii_lowercase();
-    if normalized.is_empty() || body.trim_start().starts_with("Moving this to #") {
+    if normalized.is_empty()
+        || body
+            .trim_start()
+            .starts_with("Continue this conversation in /")
+    {
         return false;
     }
     !matches!(
@@ -247,12 +251,12 @@ pub(crate) fn render_nudge(offer: &MoveOffer) -> String {
     let evidence = &offer.evidence;
     let peers = evidence.cohort.len().saturating_sub(1);
     let peer_word = if peers == 1 { "agent" } else { "agents" };
+    let parent_ref = crate::channel_ref::format_channel_ref(&evidence.parent, &[]);
     format!(
         "<channel-topology-nudge>\n\
-You are communicating with {peers} other {peer_word} in #{}. If this is ongoing work with a natural home, consider a focused child channel.\n\
+You are communicating with {peers} other {peer_word} in {parent_ref}. If this is ongoing work with a natural home, consider a focused child channel.\n\
 Run `mosaico --yes-lets-move <new-channel-name> <about>` to create or reuse it, adding all {} participating agents plus human users and admins.\n\
 </channel-topology-nudge>",
-        evidence.parent,
         evidence.cohort.len(),
     )
 }

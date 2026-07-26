@@ -33,6 +33,8 @@ fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
         agent: AgentRef::new(keys.public_key().to_hex(), "coder"),
         channels: vec!["mosaico".into()],
         host: "laptop".into(),
+        workspace: "mosaico".into(),
+        branch: "feat/context".into(),
         title: "fixing the auth bug".into(),
         activity: if busy {
             "reading the diff".into()
@@ -107,6 +109,8 @@ fn status_is_per_group_self_contained_signal() {
     assert!(has_tag(&signed, "state", "working"));
     assert!(has_tag(&signed, "state-since", "42"));
     assert!(has_tag(&signed, "host", "laptop"));
+    assert!(has_tag(&signed, "workspace", "mosaico"));
+    assert!(has_tag(&signed, "branch", "feat/context"));
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
     // A None `expires_at` publishes no NIP-40 expiration tag.
     assert!(!has_tag_name(&signed, "expiration"));
@@ -124,6 +128,8 @@ fn status_slug_is_canonical_hint_not_agent_tag() {
         agent: agent(&keys, "coder"),
         channels: vec!["mosaico".into()],
         host: "laptop".into(),
+        workspace: "mosaico".into(),
+        branch: "feat/context".into(),
         title: "fixing the auth bug".into(),
         activity: "reading the diff".into(),
         state: crate::session_state::SessionState::Working,
@@ -197,6 +203,7 @@ fn status_uses_constant_address_independent_from_channel_h() {
             tag(&["state-since", "42"]).unwrap(),
             tag(&["title", ""]).unwrap(),
             tag(&["host", "laptop"]).unwrap(),
+            tag(&["workspace", "mosaico"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),
         ])
         .sign_with_keys(&keys)

@@ -243,6 +243,8 @@ mod tests {
             slug: "coder".to_string(),
             title: "fixing parser".to_string(),
             activity: "running tests".to_string(),
+            workspace: String::new(),
+            branch: String::new(),
             state: SessionState::Working,
             state_since: seen,
             last_seen: seen,

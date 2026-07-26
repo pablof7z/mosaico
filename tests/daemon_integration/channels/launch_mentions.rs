@@ -31,7 +31,7 @@ fn harness_script(native_session: &str, cwd: &Path, injected_log: &Path) -> Stri
     let cwd_json = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
     let hook_log = injected_log.with_extension("hook.log");
     let script = format!(
-        "printf '{{\"session_id\":\"{}\",\"cwd\":{},\"pid\":%s}}\\n' \"$$\" \
+        "printf '{{\"resume_id\":\"{}\",\"cwd\":{},\"pid\":%s}}\\n' \"$$\" \
          | \"$MOSAICO_BIN\" harness hook opencode --type session-start >{} 2>&1; \
          while IFS= read -r line; do printf '%s\\n' \"$line\" >> {}; done",
         native_session,
@@ -113,12 +113,10 @@ fn pty_diagnostics() -> String {
 }
 
 fn find_alive_session(home: &Home, slug: &str, scope: &str) -> Option<Session> {
-    Store::open(&home.store_path())
-        .ok()?
-        .list_running_sessions()
-        .ok()?
-        .into_iter()
-        .find(|rec| rec.agent_slug == slug && rec.channel_h == scope)
+    let store = Store::open(&home.store_path()).ok()?;
+    store.list_running_sessions().ok()?.into_iter().find(|rec| {
+        rec.agent_slug == slug && store.has_session_route(&rec.pubkey, scope).unwrap_or(false)
+    })
 }
 
 fn wait_for_alive_session(home: &Home, slug: &str, scope: &str) -> Session {
@@ -128,11 +126,22 @@ fn wait_for_alive_session(home: &Home, slug: &str, scope: &str) -> Session {
         wait_until(Duration::from_secs(25), || {
             found = find_alive_session(home, slug, scope);
             seen = Store::open(&home.store_path())
-                .and_then(|s| s.list_running_sessions())
-                .unwrap_or_default()
-                .into_iter()
-                .map(|rec| format!("{}:{}:{}", rec.agent_slug, rec.channel_h, rec.pubkey))
-                .collect();
+                .map(|store| {
+                    store
+                        .list_running_sessions()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|rec| {
+                            format!(
+                                "{}:{:?}:{}",
+                                rec.agent_slug,
+                                session_routes(&store, &rec.pubkey),
+                                rec.pubkey
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             found.is_some()
         }),
         "session {slug} in {scope} did not become alive; alive={seen:?}; pty={}; daemon_log={}",
@@ -147,7 +156,7 @@ fn wait_for_group_member(home: &Home, channel: &str, pubkey: &str) {
     assert!(
         wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
             .map(|s| {
-                refresh_channel_members(channel);
+                refresh_channel_members(&format!("/{channel}"));
                 s.is_channel_member(channel, pubkey).unwrap_or(false)
             })
             .unwrap_or(false)),

@@ -50,13 +50,22 @@ async fn my_session(caller: Option<&str>) -> Result<Value> {
 }
 
 async fn channel_list(args: &Value, caller: Option<&str>) -> Result<Value> {
-    let channel = match opt_string(args, "channel") {
-        Some(channel) => channel,
-        None => crate::daemon::workspace_path::channel_for_path_or_bail(
-            &std::env::current_dir().unwrap_or_default(),
-        )?,
-    };
-    daemon_identity("channel_list", json!({ "channel": channel }), caller).await
+    daemon_identity(
+        "channel_list",
+        with_session(
+            json!({
+                "workspace": opt_string(args, "workspace"),
+                "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
+                "recursive": args
+                    .get("recursive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            }),
+            args,
+        ),
+        caller,
+    )
+    .await
 }
 
 async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {

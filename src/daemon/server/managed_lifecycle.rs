@@ -27,7 +27,6 @@ pub(super) fn spawn(state: Arc<DaemonState>) {
             standing::reconcile_running(&state).await;
             eviction::reconcile_stopping(&state).await;
             eviction::evict_due_idle_sessions(&state).await;
-            standing::reconcile_expired(&state).await;
         }
     });
 }
@@ -139,9 +138,6 @@ pub(super) async fn supervisor_exited(
             session.runtime_generation,
         )
     })?;
-    if stopped && reason == StopReason::AttachedCleanExit {
-        standing::reconcile_expired(state).await;
-    }
     Ok(stopped)
 }
 
@@ -192,12 +188,17 @@ fn session_for_pty(state: &Arc<DaemonState>, pty_id: &str) -> Result<Option<Sess
 }
 
 fn emit_stopped(state: &Arc<DaemonState>, session: &Session, at: u64) {
-    state.emit_tail(TailEvent::Sess {
-        ts: at,
-        channel: session.channel_h.clone(),
-        agent: session.agent_slug.clone(),
-        session: session.pubkey.clone(),
-        state: "end".into(),
-        rel_cwd: String::new(),
-    });
+    let routes = state
+        .with_store(|store| store.list_session_routes(&session.pubkey))
+        .unwrap_or_default();
+    for (channel, _) in routes {
+        state.emit_tail(TailEvent::Sess {
+            ts: at,
+            channel,
+            agent: session.agent_slug.clone(),
+            session: session.pubkey.clone(),
+            state: "end".into(),
+            rel_cwd: String::new(),
+        });
+    }
 }

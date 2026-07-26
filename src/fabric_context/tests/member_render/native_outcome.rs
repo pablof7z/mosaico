@@ -10,6 +10,8 @@ fn semantic_status_change_is_a_delta_without_resetting_state_age() {
         slug: "amber-reviewer".into(),
         title: "Reviewing".into(),
         activity: String::new(),
+        workspace: "root".into(),
+        branch: String::new(),
         state: crate::session_state::SessionState::Suspended,
         state_since: 90,
         last_seen: 90,
@@ -25,8 +27,9 @@ fn semantic_status_change_is_a_delta_without_resetting_state_age() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("status-change delta should render");
-    assert!(text.contains("<recent-presence>"), "got: {text}");
-    assert!(text.contains("text=\"Updated title\""), "got: {text}");
+    assert!(text.contains("<members>"), "got: {text}");
+    assert!(!text.contains("<recent-presence>"), "got: {text}");
+    assert!(text.contains("status=\"Updated title\""), "got: {text}");
     assert!(text.contains("since=\"1 min ago\""), "got: {text}");
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 160, true)).unwrap();
     assert_eq!(
@@ -44,7 +47,8 @@ fn native_failure_delta_does_not_overwrite_presence_state() {
             pubkey: OTHER_PK.into(),
             observed_harness: "codex".into(),
             agent_slug: "reviewer".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now: 90,
         })

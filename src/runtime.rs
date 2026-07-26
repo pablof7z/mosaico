@@ -19,7 +19,9 @@ pub struct EngineParams {
     pub identity: crate::identity::SessionIdentity,
     /// The keypair selected for this session: derived or durable-agent config.
     pub keys: Keys,
-    pub channel: String,
+    /// Whether this session has at least one channel membership. The exact
+    /// publication set is loaded from `session_channels`.
+    pub has_channels: bool,
     /// Top-level workspace channel containing `channel`.
     pub workspace: String,
     pub runtime_generation: u64,
@@ -45,8 +47,8 @@ impl EngineParams {
     }
 }
 
-fn publishes_presence(channel: &str) -> bool {
-    !channel.is_empty()
+fn publishes_presence(has_channels: bool) -> bool {
+    has_channels
 }
 
 // ── daemon-hosted session task (the relocated engine) ────────────────────────
@@ -72,7 +74,7 @@ pub(crate) async fn run_session_in_daemon(
     let owners = p.owners.clone();
     let signing_keys = p.signing_keys();
     let aref = p.identity.agent_ref();
-    let publishes_presence = publishes_presence(&p.channel);
+    let publishes_presence = publishes_presence(p.has_channels);
 
     macro_rules! st {
         ($f:expr) => {{
@@ -81,6 +83,8 @@ pub(crate) async fn run_session_in_daemon(
             ($f)(&*g)
         }};
     }
+
+    let branch = st!(|s: &Store| launch_branch(s, &p.workspace));
 
     let publish_de = |ev: DomainEvent| {
         let provider = provider.clone();
@@ -139,6 +143,8 @@ pub(crate) async fn run_session_in_daemon(
                     p.runtime_generation,
                     crate::reconcile::PresenceSnapshot {
                         host: p.host.clone(),
+                        workspace: p.workspace.clone(),
+                        branch: branch.clone(),
                         slug: aref.slug.clone(),
                         rel_cwd: p.rel_cwd.clone(),
                         dispatch_event: p.dispatch_event.clone(),
@@ -189,6 +195,27 @@ pub(crate) async fn run_session_in_daemon(
     Ok(())
 }
 
+fn launch_branch(store: &Store, work_root: &str) -> String {
+    let Some(path) = store.workspace_path(work_root).ok().flatten() else {
+        return String::new();
+    };
+    let Ok(output) = std::process::Command::new("git")
+        .args(["-C", &path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+    else {
+        return String::new();
+    };
+    if !output.status.success() {
+        return String::new();
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|branch| branch.trim().to_string())
+        .filter(|branch| !branch.is_empty() && !branch.chars().any(char::is_control))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::publishes_presence;
@@ -200,7 +227,7 @@ mod tests {
 
     #[test]
     fn unscoped_sessions_do_not_publish_channel_presence() {
-        assert!(!publishes_presence(""));
-        assert!(publishes_presence("workspace"));
+        assert!(!publishes_presence(false));
+        assert!(publishes_presence(true));
     }
 }

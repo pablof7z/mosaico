@@ -47,8 +47,9 @@ Stops exactly the resolved runtime generation but does **not** signal its
 hosted process. A process left running after a manual `session_end` therefore
 keeps executing unsupervised. A PTY harness hook is deferred because only the
 supervisor can atomically classify child status with attachment state: a clean
-zero-status exit while headed is intentional user exit, while a headless or
-non-clean exit retains standing for one hour.
+zero-status exit while headed is intentional user exit, while headless and
+non-clean exits are other stop reasons. Every ordinary stop preserves channel
+membership and standing without a deadline.
 Manual calls resolve the explicit public `session`; hooks resolve the same
 daemon-owned caller anchor chain as other lifecycle RPCs, including the typed
 native harness locator when no public identity is present.
@@ -83,11 +84,10 @@ remove signer, route, and locator authority; relay removals remain durable
 retry work until confirmed. `mosaico my session kill --self` leaves `forget`
 false and may only kill the caller's own session.
 
-Ordinary stops do not revoke recovery. A stopped pubkey retains channel
-standing for one hour, and exact p-tag routing can re-admit it after standing
-expires. A native resume locator restores the same provider conversation;
-without one, Mosaico launches a fresh provider conversation under the same
-session pubkey.
+Ordinary stops do not revoke recovery or channel membership. A stopped pubkey
+remains a member without a deadline, and exact p-tag routing can resume it. A
+native resume locator restores the same provider conversation; without one,
+Mosaico launches a fresh provider conversation under the same session pubkey.
 
 ## `pty_resume_native`
 

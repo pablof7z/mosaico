@@ -62,7 +62,7 @@ impl<'a> CallerAnchor<'a> {
 pub(in crate::daemon::server) enum ResolveScope {
     /// Exact anchors only (explicit / PTY session / harness id). No cwd+agent scan.
     /// Fails loud rather than binding a sibling. For per-session MUTATIONS
-    /// (active-channel repoint, join/leave, invite, create) where guessing the
+    /// (join/leave, invite, create) where guessing the
     /// wrong session is harmful.
     Strict,
     /// Exact anchors, then the cwd+agent scan (latest running in the channel). For

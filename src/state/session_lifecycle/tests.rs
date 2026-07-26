@@ -10,7 +10,8 @@ fn seed() -> Store {
         pubkey: "pk".into(),
         observed_harness: "grok".into(),
         agent_slug: "grok".into(),
-        channel_h: "room".into(),
+        launch_channel_h: "room".into(),
+        work_root: "room".into(),
         child_pid: Some(42),
         now: 1,
     };
@@ -114,6 +115,18 @@ fn pending_inbox_fences_idle_eviction() {
         )
         .unwrap();
     store
+        .insert_event(&RelayEvent {
+            id: "event".into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at: 20,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: "hello".into(),
+            tags_json: "[]".into(),
+        })
+        .unwrap();
+    store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)
         .unwrap();
     let due = 10 + HEADLESS_IDLE_TIMEOUT_SECS;
@@ -143,6 +156,18 @@ fn completed_turn_consumes_injected_fence_and_rearms_true_idle() {
             PresentationState::Headless,
             10,
         )
+        .unwrap();
+    store
+        .insert_event(&RelayEvent {
+            id: "event".into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at: 20,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: "hello".into(),
+            tags_json: "[]".into(),
+        })
         .unwrap();
     store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)
@@ -375,7 +400,7 @@ fn unavailable_conditional_kill_unwinds_stopping_at_the_same_epoch() {
 }
 
 #[test]
-fn finalized_stop_retains_confirmed_standing_for_one_hour() {
+fn finalized_stop_preserves_membership_until_explicit_leave() {
     let store = seed();
     let initial = running(&store);
     store
@@ -412,11 +437,9 @@ fn finalized_stop_retains_confirmed_standing_for_one_hour() {
         .unwrap()
         .unwrap();
     let standing = store.list_session_standing("pk").unwrap();
-    assert_eq!(standing[0].state, StandingState::Retained);
-    assert_eq!(
-        standing[0].retain_until,
-        stopping.stopped_at + STOPPED_STANDING_RETENTION_SECS
-    );
+    assert_eq!(standing[0].state, StandingState::Member);
+    assert!(store.has_session_route("pk", "room").unwrap());
+    assert!(store.list_cleanup_due_member_standing().unwrap().is_empty());
 }
 
 #[test]

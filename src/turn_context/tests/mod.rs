@@ -18,7 +18,8 @@ fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
             pubkey: pk.to_string(),
             observed_harness: "codex".into(),
             agent_slug: "test-agent".into(),
-            channel_h: channel.to_string(),
+            launch_channel_h: channel.to_string(),
+            work_root: channel.to_string(),
             child_pid: None,
             now,
         })
@@ -51,6 +52,24 @@ fn insert_chat(store: &Store, channel: &str, pubkey: &str, created_at: u64, body
         .unwrap();
 }
 
+fn insert_mention(store: &Store, id: &str, channel: &str, created_at: u64, body: &str) {
+    store
+        .insert_event(&RelayEvent {
+            id: id.to_string(),
+            kind: 9,
+            pubkey: OTHER_PK.to_string(),
+            created_at,
+            channel_h: channel.to_string(),
+            d_tag: String::new(),
+            content: body.to_string(),
+            tags_json: format!("[[\"p\",\"{SELF_PK}\"]]"),
+        })
+        .unwrap();
+    store
+        .enqueue_inbox(id, SELF_PK, OTHER_PK, channel, body, created_at)
+        .unwrap();
+}
+
 /// Pre-join history (messages before session.created_at) is announced as a
 /// compact count, never dumped inline.
 #[test]
@@ -70,7 +89,8 @@ fn first_turn_pre_join_history_compact_notice() {
     };
     let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
     assert!(
-        ctx.contains("3 message(s)") && ctx.contains("before you joined"),
+        ctx.contains("3 messages in a prior 1 min activity cluster")
+            && ctx.contains("explicit channel read"),
         "pre-join history should be announced as a compact count; got:\n{ctx}"
     );
     assert!(
@@ -146,7 +166,8 @@ fn first_turn_self_authored_pre_join_events_count_for_notice() {
     };
     let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
     assert!(
-        ctx.contains("1 message(s)") && ctx.contains("before you joined"),
+        ctx.contains("1 message in a prior 1 min activity cluster")
+            && ctx.contains("explicit channel read"),
         "self-authored pre-join messages should count toward notice; got:\n{ctx}"
     );
 }
@@ -218,15 +239,7 @@ fn inbox_mention_surfaces_in_turn_context() {
     };
     {
         let s = m.lock().unwrap();
-        s.enqueue_inbox(
-            "ev-mention-1",
-            SELF_PK,
-            OTHER_PK,
-            ch,
-            "hey do the thing",
-            110,
-        )
-        .unwrap();
+        insert_mention(&s, "ev-mention-1", ch, 110, "hey do the thing");
     }
     let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
     let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
@@ -256,15 +269,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
     // Direct mention in inbox.
     {
         let s = m.lock().unwrap();
-        s.enqueue_inbox(
-            "ev-dm-1",
-            SELF_PK,
-            OTHER_PK,
-            ch,
-            "start working on X",
-            now + 15,
-        )
-        .unwrap();
+        insert_mention(&s, "ev-dm-1", ch, now + 15, "start working on X");
     }
     let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
     let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();

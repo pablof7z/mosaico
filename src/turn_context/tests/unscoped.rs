@@ -12,7 +12,8 @@ fn first_turn_explains_unscoped_state_without_fake_channel_warnings() {
                 pubkey: SELF_PK.into(),
                 observed_harness: "codex".into(),
                 agent_slug: "test-agent".into(),
-                channel_h: String::new(),
+                launch_channel_h: String::new(),
+                work_root: String::new(),
                 child_pid: None,
                 now: 100,
             })
@@ -22,7 +23,10 @@ fn first_turn_explains_unscoped_state_without_fake_channel_warnings() {
 
     let context =
         super::super::render_turn_start_text_for_test(&store, &session, "", "", 0).unwrap();
-    assert!(context.contains("started unscoped"), "{context}");
+    assert!(
+        context.contains("has not joined any Mosaico channels"),
+        "{context}"
+    );
     assert!(context.contains("normal filesystem access"), "{context}");
     assert!(!context.contains("not a member"), "{context}");
     assert!(!context.contains("<workspace name=\"\""), "{context}");

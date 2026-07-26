@@ -7,6 +7,7 @@ fn schema_sixteen_moves_backend_advertisements_into_profiles() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     conn.execute("ALTER TABLE relay_profiles DROP COLUMN agents_json", [])
         .unwrap();
     conn.execute("ALTER TABLE relay_profiles DROP COLUMN workspaces_json", [])
@@ -36,7 +37,7 @@ fn schema_sixteen_moves_backend_advertisements_into_profiles() {
 
     drop(Store::open(&path).expect("schema sixteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert!(!fixture::table_exists(&conn, "relay_agent_roster"));
     assert_eq!(
         conn.query_row(

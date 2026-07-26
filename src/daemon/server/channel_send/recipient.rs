@@ -52,12 +52,9 @@ pub(in crate::daemon::server) fn resolve_recipient(
         Ref::Token(tok) => {
             if let Some(pubkey) = store.pubkey_for_handle(&tok)? {
                 if let Some(identity) = store.session_identity(&pubkey)? {
-                    let session = store
-                        .get_session(&identity.pubkey)?
-                        .context("handle points to a missing session")?;
                     return Ok(ResolvedRecipient {
                         pubkey: identity.pubkey,
-                        channel: session.channel_h,
+                        channel: my_channel.to_string(),
                     });
                 }
             }

@@ -23,6 +23,7 @@ const TABLES: &[&str] = &[
     "relay_profiles",
     "relay_reactions",
     "relay_status",
+    "relay_status_sets",
     "session_channels",
     "session_locators",
     "session_signers",
@@ -40,6 +41,7 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "session_locators",
         "event_claims",
         "native_turn_attempts",
+        "relay_status_sets",
     ] {
         ensure_table(conn, table, path)?;
     }
@@ -84,8 +86,15 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     ensure_columns(
         conn,
         "relay_status",
-        &["state", "state_since"],
+        &["state", "state_since", "workspace", "branch"],
         &["busy"],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "relay_status_sets",
+        &["pubkey", "updated_at"],
+        &[],
         path,
     )?;
     ensure_columns(
@@ -125,8 +134,8 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     ensure_columns(
         conn,
         "session_channels",
-        &["pubkey", "channel_h", "granted_at"],
-        &["session_id", "joined_at"],
+        &["pubkey", "channel_h", "joined_at", "joined_event_seq"],
+        &["session_id", "granted_at"],
         path,
     )?;
     ensure_columns(
@@ -136,11 +145,10 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
             "pubkey",
             "channel_h",
             "state",
-            "retain_until",
             "standing_epoch",
             "session_lifecycle_epoch",
         ],
-        &[],
+        &["retain_until"],
         path,
     )?;
     ensure_columns(
@@ -209,6 +217,7 @@ fn validate_session(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "harness",
             "explicit_chat_published_at",
             "transcript_path",
+            "channel_h",
         ],
         path,
     )

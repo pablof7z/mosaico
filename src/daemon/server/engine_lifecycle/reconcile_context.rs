@@ -2,13 +2,12 @@ use crate::daemon::server::DaemonState;
 use crate::state::Session;
 use anyhow::Result;
 
-pub(super) fn parent_hint(state: &DaemonState, session: &Session) -> Option<String> {
-    let relay_parent =
-        state.with_store(|store| store.channel_parent(&session.channel_h).ok().flatten());
+pub(super) fn parent_hint(state: &DaemonState, session: &Session, channel: &str) -> Option<String> {
+    let relay_parent = state.with_store(|store| store.channel_parent(channel).ok().flatten());
     crate::fabric::nip29::readiness::effective_parent_hint(
         relay_parent,
         Some(&session.readiness_parent),
-        &session.channel_h,
+        channel,
     )
 }
 

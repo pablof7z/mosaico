@@ -23,7 +23,11 @@ fn register_local_in(
             pubkey: pubkey.to_string(),
             observed_harness: "claude-code".to_string(),
             agent_slug: slug.to_string(),
-            channel_h: channel.to_string(),
+            launch_channel_h: channel.to_string(),
+            work_root: store
+                .root_channel_of(channel)
+                .unwrap()
+                .unwrap_or_else(|| channel.to_string()),
             child_pid: Some(42),
             now: ts,
         })
@@ -72,6 +76,8 @@ fn record_peer(
             slug: slug.to_string(),
             title: title.to_string(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: if busy {
                 crate::session_state::SessionState::Working
             } else {
@@ -193,6 +199,8 @@ fn who_snapshot_hides_archived_channel_presence() {
             slug: "reviewer".to_string(),
             title: "done".to_string(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since: 1_000,
             last_seen: 1_000,

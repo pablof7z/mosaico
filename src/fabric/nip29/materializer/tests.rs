@@ -31,7 +31,8 @@ fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
             pubkey: pubkey.into(),
             observed_harness: "claude-code".into(),
             agent_slug: agent_slug.into(),
-            channel_h: channel_h.into(),
+            launch_channel_h: channel_h.into(),
+            work_root: channel_h.into(),
             child_pid: None,
             now: 100,
         })
@@ -166,6 +167,7 @@ fn status_materializes_and_reads_live() {
             make_tag(&["state", "working"]),
             make_tag(&["state-since", "42"]),
             make_tag(&["host", "laptop"]),
+            make_tag(&["workspace", "proj"]),
             make_tag(&["slug", "smith"]),
             make_tag(&["expiration", &exp.to_string()]),
         ],
@@ -281,6 +283,7 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
         body: "hey one ordinal".into(),
         mentioned_pubkeys: vec![ord0_pk.clone()],
     };
+    assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
 
     assert_eq!(
@@ -326,6 +329,7 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
         mentioned_pubkeys: vec![target_pk.clone()],
     };
 
+    assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(Nip29Materializer::route_chat(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&target_pk).unwrap().len(), 1);
     assert!(store

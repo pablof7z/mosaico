@@ -74,17 +74,12 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     let lookup_store = Store::open(&home.store_path()).unwrap();
     let pubkey =
         pubkey_for_harness_session(&lookup_store, "claude-code", "freeze-grp-idem-1").unwrap();
+    let channel = only_session_route(&lookup_store, &pubkey);
 
     assert!(
         wait_until(Duration::from_secs(20), || Store::open(&home.store_path())
             .map(|store| {
-                store
-                    .get_session(&pubkey)
-                    .ok()
-                    .flatten()
-                    .and_then(|rec| store.channel_parent(&rec.channel_h).ok().flatten())
-                    .as_deref()
-                    == Some("tmp")
+                store.channel_parent(&channel).ok().flatten().as_deref() == Some("tmp")
             })
             .unwrap_or(false)),
         "session start should materialize the room's parent root channel"
@@ -92,8 +87,6 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // Record baseline membership state.
     let store = Store::open(&home.store_path()).unwrap();
-    let rec = store.get_session(&pubkey).unwrap().expect("session row");
-    let channel = rec.channel_h.clone();
 
     // FREEZE: the minted room's parent root channel is present after first
     // start. (Parent now lives in `relay_channels`; `session_room_parent` →
@@ -115,7 +108,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
     // by a per-role high-water mark, and a real relay event's timestamp (~1.7e9)
     // beats this low seed ts — so the live snapshot, not this seed, would win.
     let mem_h = "freeze-39002-members";
-    let members_snapshot = vec![rec.pubkey.clone()];
+    let members_snapshot = vec![pubkey.clone()];
     let ts = 9_000_000u64;
     store
         .replace_channel_members(mem_h, &members_snapshot, ts)
@@ -126,7 +119,7 @@ fn freeze_39000_39002_idempotency_no_member_duplication() {
 
     // FREEZE: membership is stable — no duplication, same set.
     assert!(
-        store.is_channel_member(mem_h, &rec.pubkey).unwrap(),
+        store.is_channel_member(mem_h, &pubkey).unwrap(),
         "member still present after double-apply of 39002 snapshot"
     );
     // Count members via list — expect exactly 1 (no duplication).
@@ -206,11 +199,12 @@ fn freeze_status_presence_is_unified() {
     // identity that signs chat) — not a separate presence table.
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store.get_session(&pubkey).unwrap().expect("session row");
+    let channel = only_session_route(&store, &rec.pubkey);
     assert!(
         wait_until(Duration::from_secs(20), || {
             Store::open(&home.store_path())
                 .map(|s| {
-                    s.live_status_for_channel(&rec.channel_h, 0)
+                    s.live_status_for_channel(&channel, 0)
                         .map(|rows| rows.iter().any(|r| r.pubkey == rec.pubkey))
                         .unwrap_or(false)
                 })
@@ -238,6 +232,8 @@ fn freeze_peer_status_materializes_to_unified_presence_state() {
             slug: "peer".into(),
             title: "reviewing relay state".into(),
             activity: "checking 39002".into(),
+            workspace: String::new(),
+            branch: String::new(),
             state: mosaico::session_state::SessionState::Working,
             state_since: 105,
             last_seen: 105,

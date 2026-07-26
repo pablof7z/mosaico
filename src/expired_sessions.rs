@@ -17,8 +17,8 @@ pub(crate) struct ExpiredSessionRow {
     pub(crate) handle: Option<String>,
     /// The daemon host these sessions belong to (they are always local).
     pub(crate) host: String,
-    /// Human channel name (falls back to the raw channel id when unnamed).
-    pub(crate) channel: String,
+    /// Full public paths for every channel the stopped session still belongs to.
+    pub(crate) channels: Vec<String>,
     /// Last lease observation, unix seconds (0 when never seen).
     pub(crate) last_seen: u64,
     /// Whether exact recovery authority remains (native resume or fresh launch).
@@ -43,20 +43,23 @@ pub(crate) fn load_expired_sessions(
             npub: crate::idref::npub(&s.pubkey).unwrap_or_default(),
             handle: store.handle_for_pubkey(&s.pubkey).ok().flatten(),
             host: host.to_string(),
-            channel: channel_name(store, &s.channel_h),
+            channels: channel_paths(store, &s.pubkey),
             last_seen: s.last_seen,
             resumable: true,
         })
         .collect()
 }
 
-fn channel_name(store: &Store, channel_h: &str) -> String {
+fn channel_paths(store: &Store, pubkey: &str) -> Vec<String> {
     store
-        .get_channel(channel_h)
-        .ok()
-        .flatten()
-        .and_then(|c| c.human_name().map(str::to_string))
-        .unwrap_or_else(|| channel_h.to_string())
+        .list_session_routes(pubkey)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(channel, _)| {
+            let path = crate::channel_ref::full_channel_ref(store, &channel);
+            (!path.is_empty()).then_some(path)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -71,7 +74,8 @@ mod tests {
                 pubkey: pubkey.clone(),
                 observed_harness: "claude-code".into(),
                 agent_slug: "coder".into(),
-                channel_h: channel.into(),
+                launch_channel_h: channel.into(),
+                work_root: channel.into(),
                 child_pid: Some(7),
                 now: 1_000,
             })
@@ -114,7 +118,7 @@ mod tests {
         );
         assert_ne!(stopped_id, running_id);
         assert_eq!(row.host, "laptop");
-        assert_eq!(row.channel, "main");
+        assert_eq!(row.channels, vec!["/proj"]);
         assert!(row.resumable, "row retains exact recovery authority");
     }
 }

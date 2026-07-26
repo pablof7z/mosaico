@@ -4,7 +4,6 @@ use mosaico::state::Store;
 use nostr::{Keys, PublicKey, ToBech32};
 use std::time::Duration;
 
-/// Start one `/tmp`-rooted session and return its pubkey.
 async fn start_session(client: &mut Client, agent: &str) -> String {
     client
         .call(
@@ -25,7 +24,6 @@ async fn start_session(client: &mut Client, agent: &str) -> String {
         .to_string()
 }
 
-/// Block until an accepted chat event materializes in the `/tmp` read model.
 fn await_chat_event(home: &Home, event_id: &str) -> mosaico::state::RelayEvent {
     let mut found = None;
     assert!(
@@ -46,7 +44,6 @@ fn await_chat_event(home: &Home, event_id: &str) -> mosaico::state::RelayEvent {
 fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
-
     let (sender, receiver, second_receiver) = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         (
@@ -55,37 +52,42 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             start_session(&mut client, "second-receiver").await,
         )
     });
-
     assert!(
         wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
             .map(|store| store.get_channel("tmp").unwrap_or(None).is_some())
             .unwrap_or(false)),
         "root channel did not materialize before explicit-destination send"
     );
-
-    let child = rt().block_on(async {
+    let routes_before = session_routes(&Store::open(&home.store_path()).unwrap(), &sender);
+    let child_path = "/tmp/nip29";
+    let created = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
-        let created = client
+        client
             .call(
                 "channel_create",
                 serde_json::json!({
                     "session": &sender,
+                    "parent_channel": "/tmp",
                     "name": "nip29",
                     "about": "explicit destination regression"
                 }),
             )
             .await
-            .expect("create child channel");
-        created["child_h"].as_str().unwrap().to_string()
+            .expect("create child channel")
     });
-
+    assert_eq!(created["channel"], child_path);
+    assert_eq!(created["joined"].as_bool(), Some(true));
     let store = Store::open(&home.store_path()).unwrap();
-    let sender_row = store
-        .get_session(&sender)
+    let child_h = store
+        .channel_id_for_name("tmp", "nip29")
         .unwrap()
-        .expect("sender session row");
-    assert_eq!(sender_row.channel_h, child);
-    assert_eq!(store.list_session_routes(&sender).unwrap().len(), 2);
+        .expect("nip29 child id");
+    let routes_after = session_routes(&store, &sender);
+    assert!(routes_before
+        .iter()
+        .all(|route| routes_after.contains(route)));
+    assert!(routes_after.contains(&child_h));
+    assert_eq!(routes_after.len(), routes_before.len() + 1);
     let sender_identity = store
         .session_identity(&sender)
         .unwrap()
@@ -157,7 +159,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     assert_eq!(published.channel_h, "tmp");
     assert_eq!(published.content, expected_wire_body);
     assert!(!published.content.contains("[from @"));
-    assert!(!published.content.contains(&child));
+    assert!(!published.content.contains(child_path));
     let tags: Vec<Vec<String>> = serde_json::from_str(&published.tags_json).unwrap();
     assert!(tags.iter().any(|tag| {
         tag.first().map(String::as_str) == Some("p")
@@ -210,7 +212,6 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     assert!(!ambient_tags
         .iter()
         .any(|tag| tag.first().map(String::as_str) == Some("p")));
-
     stop_daemon(&home);
 }
 
@@ -218,7 +219,6 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
 fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
-
     let store = Store::open(&home.store_path()).unwrap();
     store
         .upsert_channel("root-chat-channel", "root-chat-channel", "", "", 1)
@@ -233,7 +233,8 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
                 pubkey: pubkey.clone(),
                 observed_harness: "codex".to_string(),
                 agent_slug: "multi-chat".to_string(),
-                channel_h: "root-chat-channel".to_string(),
+                launch_channel_h: "root-chat-channel".to_string(),
+                work_root: "root-chat-channel".to_string(),
                 child_pid: None,
                 now: 1,
             },

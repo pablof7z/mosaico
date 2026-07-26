@@ -20,6 +20,19 @@ fn launch_no_hook(home: &Home, agent: &str, channel: &str, mode: &str) {
     );
 }
 
+fn wait_for_member_standing(home: &Home, pubkey: &str, channel: &str) {
+    assert!(
+        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
+            .and_then(|store| store.get_session_standing(pubkey, channel))
+            .ok()
+            .flatten()
+            .is_some_and(|standing| {
+                standing.state == mosaico::state::StandingState::Member
+            })),
+        "confirmed membership did not survive runtime stop"
+    );
+}
+
 #[test]
 fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -222,7 +235,7 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
 }
 
 #[test]
-fn supervisor_exit_retires_the_bootstrapped_session() {
+fn supervisor_exit_stops_runtime_without_leaving_the_channel() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     write_config(&home, false);
@@ -259,30 +272,22 @@ fn supervisor_exit_retires_the_bootstrapped_session() {
         stopped.stop_reason,
         Some(mosaico::state::StopReason::AttachedCleanExit)
     );
+    wait_for_member_standing(&home, &rec.pubkey, &channel);
     let standing = Store::open(&home.store_path())
         .unwrap()
         .get_session_standing(&rec.pubkey, &channel)
         .unwrap()
         .unwrap();
-    assert_eq!(standing.retain_until, stopped.stopped_at);
-    assert!(
-        wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&channel);
-            Store::open(&home.store_path())
-                .map(|store| {
-                    !store
-                        .is_channel_member(&channel, &rec.pubkey)
-                        .unwrap_or(true)
-                })
-                .unwrap_or(false)
-        }),
-        "clean headed exit did not remove relay standing"
-    );
+    assert_eq!(standing.state, mosaico::state::StandingState::Member);
+    assert!(Store::open(&home.store_path())
+        .unwrap()
+        .has_session_route(&rec.pubkey, &channel)
+        .unwrap());
     stop_daemon(&home);
 }
 
 #[test]
-fn headless_clean_exit_retains_standing_for_one_hour() {
+fn headless_clean_exit_preserves_member_standing() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     write_config(&home, false);
@@ -304,19 +309,19 @@ fn headless_clean_exit_retains_standing_for_one_hour() {
         stopped.stop_reason,
         Some(mosaico::state::StopReason::HeadlessExit)
     );
-    let standing = store
+    drop(store);
+    wait_for_member_standing(&home, &rec.pubkey, &channel);
+    let standing = Store::open(&home.store_path())
+        .unwrap()
         .get_session_standing(&rec.pubkey, &channel)
         .unwrap()
         .unwrap();
-    assert_eq!(
-        standing.retain_until,
-        stopped.stopped_at + mosaico::state::STOPPED_STANDING_RETENTION_SECS
-    );
+    assert_eq!(standing.state, mosaico::state::StandingState::Member);
     stop_daemon(&home);
 }
 
 #[test]
-fn unreachable_supervisor_fallback_confirms_the_harness_is_dead() {
+fn unreachable_supervisor_control_does_not_implicitly_terminate_the_harness() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -363,20 +368,27 @@ fn unreachable_supervisor_fallback_confirms_the_harness_is_dead() {
     std::fs::remove_file(&metadata.socket).unwrap();
 
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            Store::open(&home.store_path())
-                .and_then(|store| store.get_session(&session.pubkey))
-                .ok()
-                .flatten()
-                .is_some_and(|session| !session.is_running())
-        }),
-        "unreachable supervisor was not retired; daemon_log={}",
+        wait_until(Duration::from_secs(25), || std::fs::read_to_string(
+            home.dir.path().join("daemon.log")
+        )
+        .is_ok_and(|log| log.contains("automatic termination denied"))),
+        "unreachable supervisor was not retained as unavailable; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+    );
+    let retained = Store::open(&home.store_path())
+        .unwrap()
+        .get_session(&session.pubkey)
+        .unwrap()
+        .unwrap();
+    assert!(retained.is_running());
+    assert_eq!(
+        retained.presentation_state,
+        mosaico::state::PresentationState::Unavailable
     );
     let child_pid = i32::try_from(child_pid.unwrap()).unwrap();
     assert!(
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(child_pid), None).is_err(),
-        "harness child survived supervisor fallback termination"
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(child_pid), None).is_ok(),
+        "presentation loss implicitly terminated the harness"
     );
     stop_daemon(&home);
 }

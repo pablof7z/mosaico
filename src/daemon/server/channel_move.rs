@@ -26,26 +26,32 @@ fn maybe_nudge_with_roll(
     now: u64,
     roll: u64,
 ) -> Option<String> {
-    let evidence = match current_evidence(state, &rec.channel_h, now) {
-        Ok(Some(evidence)) => evidence,
-        Ok(None) => return None,
-        Err(error) => {
-            tracing::warn!(
-                pubkey = %rec.pubkey,
-                channel = %rec.channel_h,
-                error = %format!("{error:#}"),
-                "channel topology nudge evaluation failed open"
-            );
-            return None;
-        }
-    };
-    let offer = state
-        .runtime
-        .channel_nudges
-        .lock()
-        .expect("channel nudge mutex poisoned")
-        .consider(&rec.pubkey, evidence, now, roll)?;
-    Some(render_nudge(&offer))
+    let routes = state
+        .with_store(|store| store.list_session_routes(&rec.pubkey))
+        .unwrap_or_default();
+    for (channel, _) in routes {
+        let evidence = match current_evidence(state, &channel, now) {
+            Ok(Some(evidence)) => evidence,
+            Ok(None) => continue,
+            Err(error) => {
+                tracing::warn!(
+                    pubkey = %rec.pubkey,
+                    %channel,
+                    error = %format!("{error:#}"),
+                    "channel topology nudge evaluation failed open"
+                );
+                continue;
+            }
+        };
+        let offer = state
+            .runtime
+            .channel_nudges
+            .lock()
+            .expect("channel nudge mutex poisoned")
+            .consider(&rec.pubkey, evidence, now, roll)?;
+        return Some(render_nudge(&offer));
+    }
+    None
 }
 
 pub(super) fn clear_offer(state: &Arc<DaemonState>, pubkey: &str) {
@@ -95,10 +101,9 @@ pub(super) fn current_evidence(
         let mut participants = BTreeMap::<String, ParticipantSnapshot>::new();
 
         for session in store.list_running_sessions()? {
-            let joined = session.channel_h == parent
-                || store
-                    .has_session_route(&session.pubkey, parent)
-                    .unwrap_or(false);
+            let joined = store
+                .has_session_route(&session.pubkey, parent)
+                .unwrap_or(false);
             if !joined || admins.contains(&session.pubkey) || whitelisted.contains(&session.pubkey)
             {
                 continue;

@@ -2,7 +2,8 @@
 //! `session_rooms.rs` to keep that file under its LOC baseline.
 use super::super::{rewrite_config_with_user_nsec, unique_session, write_config};
 use crate::daemon_harness::{
-    hook_session_start, pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
+    hook_session_start, only_session_route, pubkey_for_harness_session, rt, stop_daemon,
+    wait_until, Home, ENV_LOCK,
 };
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
@@ -32,14 +33,15 @@ fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
     let rec = store.get_session(&pubkey).unwrap().expect("session row");
+    let channel_h = only_session_route(&store, &rec.pubkey);
     assert_eq!(
-        rec.channel_h, "tmp",
+        channel_h, "tmp",
         "with per-session rooms disabled, the session should use the root channel"
     );
     assert!(
-        !rec.channel_h.starts_with("session-"),
+        !channel_h.starts_with("session-"),
         "no per-session room should be minted: got {}",
-        rec.channel_h
+        channel_h
     );
     // A session room is a channel with a non-empty parent; the work-root channel
     // is a root channel. (`is_session_room` was removed; the distinction is
@@ -48,7 +50,7 @@ fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
         wait_until(std::time::Duration::from_secs(25), || Store::open(
             &home.store_path()
         )
-        .map(|s| s.is_root_channel(&rec.channel_h).unwrap_or(false))
+        .map(|s| s.is_root_channel(&channel_h).unwrap_or(false))
         .unwrap_or(false)),
         "the work-root channel is not a session room"
     );
@@ -81,10 +83,11 @@ fn opencode_style_session_without_id_mints_room_via_pid() {
         .into_iter()
         .find(|r| r.agent_slug == "opencoder")
         .expect("opencode session row");
+    let channel_h = only_session_route(&store, &rec.pubkey);
     assert!(
-        rec.channel_h.starts_with("session-"),
+        channel_h.starts_with("session-"),
         "opencode session must mint a per-session room: got {}",
-        rec.channel_h
+        channel_h
     );
     // A minted session room is a non-root channel (it has a parent channel).
     // (`is_session_room` was removed; the distinction is `!is_root_channel`.)
@@ -95,8 +98,8 @@ fn opencode_style_session_without_id_mints_room_via_pid() {
         wait_until(std::time::Duration::from_secs(25), || Store::open(
             &home.store_path()
         )
-        .map(|s| s.get_channel(&rec.channel_h).unwrap_or(None).is_some()
-            && !s.is_root_channel(&rec.channel_h).unwrap_or(true))
+        .map(|s| s.get_channel(&channel_h).unwrap_or(None).is_some()
+            && !s.is_root_channel(&channel_h).unwrap_or(true))
         .unwrap_or(false)),
         "minted group must be a per-session room (non-root channel)"
     );

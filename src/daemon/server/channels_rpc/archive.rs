@@ -10,10 +10,7 @@ pub(in crate::daemon::server) async fn rpc_channel_archive(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_archive params")?;
     let _rec = resolve_caller(state, params, "channel archive")?;
-    let channel = match resolve_target_channel(state, &p.channel)? {
-        TargetChannel::Unique(h) => h,
-        TargetChannel::Ambiguous(v) => return Ok(v),
-    };
+    let channel = resolve_target_channel(state, &p.channel)?;
 
     archive_channel(state, &channel).await
 }
@@ -22,9 +19,11 @@ pub(in crate::daemon::server) async fn archive_channel(
     state: &Arc<DaemonState>,
     channel: &str,
 ) -> Result<serde_json::Value> {
+    let channel_ref = state
+        .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
     let current = state
         .with_store(|s| s.get_channel(channel))?
-        .with_context(|| format!("resolved channel {channel:?} has no metadata row"))?;
+        .with_context(|| format!("resolved channel {channel_ref} has no metadata row"))?;
     let archived_about = crate::state::archived_channel_about(&current.about);
 
     let event_id = if current.about == archived_about {
@@ -58,14 +57,14 @@ pub(in crate::daemon::server) async fn archive_channel(
     }
     if !failures.is_empty() {
         anyhow::bail!(
-            "archived metadata for {channel}, but failed to confirm removal of {} non-admin member(s): {}",
+            "archived metadata for {channel_ref}, but failed to confirm removal of {} non-admin member(s): {}",
             failures.len(),
             failures.join(", ")
         );
     }
 
     Ok(serde_json::json!({
-        "channel": channel,
+        "channel": channel_ref,
         "about": archived_about,
         "event_id": event_id,
         "metadata_confirmed": metadata_confirmed,

@@ -84,10 +84,16 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             Ok(work_root_for(s, &destination)? == work_root_for(s, &target.channel)?)
         })?;
         if target.channel != destination && !same_work_root {
+            let (target_ref, destination_ref) = state.with_store(|store| {
+                (
+                    channel_resolve::channel_reference_for(store, &target.channel),
+                    channel_resolve::channel_reference_for(store, &destination),
+                )
+            });
             bail!(
-                "tagged agent is in channel {:?}, but this chat is for channel {:?}",
-                target.channel,
-                destination
+                "tagged agent is in channel {}, but this chat is for channel {}",
+                target_ref?,
+                destination_ref?
             );
         }
         if tagged
@@ -187,11 +193,14 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 .any(|recipient| recipient.pubkey == target.pubkey);
             let joined_target = s
                 .has_session_route(&target.pubkey, &deliver_scope)
-                .unwrap_or(target.channel_h == deliver_scope);
-            if !is_direct_target && !joined_target {
+                .unwrap_or(false);
+            if !joined_target {
                 continue;
             }
-            if target.created_at > created_at {
+            if !s
+                .session_membership_admits_event(&target.pubkey, &deliver_scope, &event_id)
+                .unwrap_or(false)
+            {
                 continue;
             }
             // Skip the sender's own session by its sole identity.
@@ -263,9 +272,11 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         body: body_to_send.chars().take(200).collect(),
     });
 
+    let channel_ref = state
+        .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
     Ok(serde_json::json!({
         "event_id": event_id,
-        "channel": publish_scope,
+        "channel": channel_ref,
         "mentioned_pubkeys": mentioned_pubkeys,
         "mentioned_labels": mentioned_labels,
         "recipient_reminders": recipient_reminders,

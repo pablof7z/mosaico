@@ -10,7 +10,7 @@
 #   4. SMOKE TEST:
 #        a. backend-a drives a session-start in the workspace dir
 #           → daemon-a publishes kind:9007 create-group + 9000 put-user to relay
-#        b. backend-b runs `channel list --all-workspaces`
+#        b. backend-b runs `channel list --all`
 #           → daemon-b fetches kind:39000 from the relay and sees the group
 #      Backend B learning about A's group is only possible via the shared relay:
 #      the two backends share NO filesystem state.
@@ -84,10 +84,19 @@ ok  "mosaico-b pubkey ${B_PK}"
 log "step 3: writing isolated configs"
 write_backend() {
   local name="$1" sk="$2"
-  local mosaico cfg workspace_dir
+  local mosaico cfg user_home workspace_dir
   mosaico="$(backend_mosaico_home "$name")"; cfg="$(backend_config "$name")"
+  user_home="$(backend_user_home "$name")"
   workspace_dir="$(backend_workspace_dir "$name")"
-  mkdir -p "${mosaico}" "${workspace_dir}"
+  mkdir -p "${mosaico}" "${user_home}/.local/bin" \
+    "${user_home}/.claude/agents" "${workspace_dir}"
+  install -m 755 "${E2E_DIR}/fixtures/claude" "${user_home}/.local/bin/claude"
+  printf '%s\n' \
+    '---' \
+    'name: reviewer' \
+    'description: Reviews correctness' \
+    '---' \
+    'Review carefully.' >"${user_home}/.claude/agents/reviewer.md"
 
   # Both backends' pubkeys are whitelisted on BOTH so each is a trusted admin on
   # every group. relays: only the local NIP-29 relay. mosaicoPrivateKey = this
@@ -107,7 +116,8 @@ JSON
   # backends resolve the same slug independent of any git root.
   ( cd "${workspace_dir}" && mosaico "${name}" channel init --force >/dev/null )
   dim "  ${name}: config=${cfg}"
-  dim "          mosaico_home=${mosaico}  workspace_dir=${workspace_dir}"
+  dim "          home=${user_home}  mosaico_home=${mosaico}"
+  dim "          workspace_dir=${workspace_dir}"
 }
 write_backend mosaico-a "${A_SK}"
 write_backend mosaico-b "${B_SK}"
@@ -147,13 +157,13 @@ ok "backend-a session-start completed"
 
 # Confirm A's own daemon created the group (sanity: the publisher sees it).
 log "4a-check: backend-a sees its own workspace"
-wait_for_soft "backend-a channel_list --all-workspaces to include ${E2E_WORKSPACE}" 20 \
-  "mosaico mosaico-a channel list --all-workspaces 2>/dev/null | grep -q '${E2E_WORKSPACE}'" || true
-if mosaico mosaico-a channel list --all-workspaces 2>/dev/null | grep -q "${E2E_WORKSPACE}"; then
-  ok "backend-a channel list --all-workspaces shows '${E2E_WORKSPACE}'"
+wait_for_soft "backend-a channel_list --all to include ${E2E_WORKSPACE}" 20 \
+  "mosaico mosaico-a channel list --all 2>/dev/null | grep -q '/${E2E_WORKSPACE}'" || true
+if mosaico mosaico-a channel list --all 2>/dev/null | grep -q "/${E2E_WORKSPACE}"; then
+  ok "backend-a channel list --all shows '/${E2E_WORKSPACE}'"
 else
   warn "backend-a does not yet list the workspace; dumping its view:"
-  mosaico mosaico-a channel list --all-workspaces 2>&1 | sed 's/^/    /' || true
+  mosaico mosaico-a channel list --all 2>&1 | sed 's/^/    /' || true
 fi
 
 # Independent confirmation the group really landed on the relay: query the relay
@@ -169,17 +179,17 @@ fi
 
 # 4b. backend-b: a SEPARATE install with its own daemon + db. If it can list the
 #     workspace, the only path the knowledge took was A → relay → B.
-log "4b: backend-b channel list --all-workspaces (must observe A's group via the relay)"
+log "4b: backend-b channel list --all (must observe A's group via the relay)"
 B_OK=0
-if wait_for_soft "backend-b channel_list --all-workspaces to include ${E2E_WORKSPACE}" 25 \
-     "mosaico mosaico-b channel list --all-workspaces 2>/dev/null | grep -q '${E2E_WORKSPACE}'"; then
+if wait_for_soft "backend-b channel_list --all to include ${E2E_WORKSPACE}" 25 \
+     "mosaico mosaico-b channel list --all 2>/dev/null | grep -q '/${E2E_WORKSPACE}'"; then
   B_OK=1
 fi
 record_backend_daemon_pid mosaico-b
 
 echo
-log "backend-b channel list --all-workspaces:"
-mosaico mosaico-b channel list --all-workspaces 2>&1 | sed 's/^/    /' || true
+log "backend-b channel list --all:"
+mosaico mosaico-b channel list --all 2>&1 | sed 's/^/    /' || true
 echo
 
 if [[ "${B_OK}" == "1" ]]; then
@@ -195,7 +205,7 @@ log "4c: harness-owned PTY launch applies the agent profile"
 rm -f "${E2E_CLAUDE_ARGV_LOG}"
 (
   cd "${A_WORKSPACE_DIR}"
-  mosaico mosaico-a agents reviewer --workspace "${E2E_WORKSPACE}" >/dev/null
+  mosaico mosaico-a reviewer >/dev/null
 ) || die "configured reviewer launch failed"
 wait_for "Claude shim argv to be recorded" 10 "test -s '${E2E_CLAUDE_ARGV_LOG}'"
 CLAUDE_ARGV="$(paste -sd ' ' "${E2E_CLAUDE_ARGV_LOG}")"
@@ -214,7 +224,7 @@ ${_c_green}=== smoke test PASSED ===${_c_reset}
 
 Inspect:
   mosaico() helper is in lib.sh; e.g.
-    MOSAICO_CONFIG=$(backend_config mosaico-b) MOSAICO_HOME=$(backend_mosaico_home mosaico-b) ${MOSAICO_BIN} channel list --all-workspaces
+    MOSAICO_CONFIG=$(backend_config mosaico-b) MOSAICO_HOME=$(backend_mosaico_home mosaico-b) ${MOSAICO_BIN} channel list --all
   relay events:
     nak req -k 39000 ${RELAY_WS}
 Tear down:

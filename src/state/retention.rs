@@ -39,7 +39,9 @@ impl Store {
         )?;
         let delivered_inbox = self.conn.execute(
             "DELETE FROM inbox
-             WHERE state IN ('delivered', 'injected', 'echo_consumed')
+             WHERE state IN (
+                 'delivered', 'injected', 'echo_consumed', 'rejected_membership'
+             )
                AND delivered_at > 0 AND delivered_at < ?1",
             params![completed_ledgers_before],
         )?;

@@ -4,7 +4,6 @@ use super::*;
 use rusqlite::{Transaction, TransactionBehavior};
 
 pub const HEADLESS_IDLE_TIMEOUT_SECS: u64 = 10 * 60;
-pub const STOPPED_STANDING_RETENTION_SECS: u64 = 60 * 60;
 
 impl Store {
     pub fn apply_session_presentation_edge(
@@ -234,18 +233,6 @@ impl Store {
             "UPDATE handle_leases SET live=0,
                  last_active_at=MAX(last_active_at, ?2) WHERE pubkey=?1",
             params![pubkey, stopped_at],
-        )?;
-        let lifecycle_epoch: u64 = transaction.query_row(
-            "SELECT lifecycle_epoch FROM sessions WHERE pubkey=?1",
-            [pubkey],
-            |row| row.get(0),
-        )?;
-        super::session_standing::retain_in_transaction(
-            &transaction,
-            pubkey,
-            lifecycle_epoch,
-            stopped_at.saturating_add(STOPPED_STANDING_RETENTION_SECS),
-            stopped_at,
         )?;
         transaction.commit()?;
         self.get_session(pubkey)

@@ -7,6 +7,7 @@ fn schema_twelve_backfills_semantic_state_time() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
         .unwrap();
     conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
@@ -33,7 +34,7 @@ fn schema_twelve_backfills_semantic_state_time() {
 
     drop(Store::open(&path).expect("schema twelve upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert_eq!(
         conn.query_row(
             "SELECT state_since FROM relay_status WHERE pubkey='peer'",

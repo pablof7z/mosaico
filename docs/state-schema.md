@@ -79,12 +79,13 @@ mutable agent or bundle configuration to rediscover a live runtime. A newly admi
 generation records its own fresh launch facts.
 
 `session_channels` stores durable channel affinity and recovery authority;
-`session_standing` separately stores whether the exact pubkey is currently a
-member, retained for one hour after stopping, or absent. Standing expiry never
-deletes a signer, route, or native resume locator. A confirmed relay admission
-is committed with the runtime generation and lifecycle epoch that requested it;
-stale or failed commits first persist immediately-due cleanup work so removal
-can be retried after a daemon or relay failure.
+`session_standing` separately stores whether the exact pubkey is a member or
+absent. Stopping a runtime does not change either record or remove relay
+membership. A confirmed relay admission is committed with the runtime
+generation and lifecycle epoch that requested it; stale or failed commits first
+persist immediately-due cleanup work so removal can be retried after a daemon
+or relay failure. Explicit leave or recovery revocation removes the route and
+changes standing to absent only after the corresponding relay cleanup.
 
 Runtime endpoint locators carry their owning generation. PTY supervisor
 attachment epochs and exit reports fence late callbacks, while persisted idle

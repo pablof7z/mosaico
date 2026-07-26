@@ -18,9 +18,15 @@ pub(crate) struct MembersInput {
     /// retained as relay state; rendered awareness exposes the member identity,
     /// status, and liveness only.
     pub(in crate::fabric_context) roster: BTreeMap<String, BTreeMap<String, String>>,
+    /// Channels for which both relay-authored admin and member snapshots have
+    /// arrived. An absent marker means the member count is unknown, not zero.
+    #[serde(default)]
+    pub(in crate::fabric_context) hydrated: BTreeSet<String>,
     pub(in crate::fabric_context) refs: BTreeMap<String, String>,
     #[serde(default)]
     pub(in crate::fabric_context) agent_slugs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(in crate::fabric_context) hosts: BTreeMap<String, String>,
     pub(in crate::fabric_context) backend: BTreeSet<String>,
     /// channel_h -> (pubkey -> latest kind:9 message time). Activity-derived
     /// presence folded in alongside kind:30315 heartbeat statuses.

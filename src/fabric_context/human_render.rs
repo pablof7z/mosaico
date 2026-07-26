@@ -50,8 +50,9 @@ pub(in crate::fabric_context) fn render_human_views(views: &[FabricView], color:
 }
 
 fn render_human_workspace(out: &mut String, view: &WorkspaceView, color: bool) {
-    let workspace = crate::console_style::paint_workspace(&view.name, &view.name, color);
-    let _ = writeln!(out, "{}", style(&workspace, color, Style::Title));
+    let root = format!("/{}", view.name);
+    let root = crate::console_style::paint_workspace(&root, &view.name, color);
+    let _ = writeln!(out, "{}", style(&root, color, Style::Title));
     if !view.about.is_empty() {
         let _ = writeln!(out, "{}", dim(&view.about, color));
     }
@@ -110,15 +111,26 @@ fn render_members(out: &mut String, members: &[MemberRow], color: bool) {
     let _ = writeln!(out, "  {}", dim("Members", color));
     for m in members {
         let reference = pad_ref(&m.name, width);
-        let _ = writeln!(
-            out,
-            "    {}  {:<12} {} {} {}",
-            style(&reference, color, Style::Agent),
-            m.state.map(|s| state_text(s, color)).unwrap_or_default(),
-            m.status,
-            dim("since", color),
-            dim(&m.since, color)
-        );
+        let state = m.state.map(|s| state_text(s, color)).unwrap_or_default();
+        if m.since.is_empty() {
+            let _ = writeln!(
+                out,
+                "    {}  {:<12} {}",
+                style(&reference, color, Style::Agent),
+                state,
+                m.status
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    {}  {:<12} {} {} {}",
+                style(&reference, color, Style::Agent),
+                state,
+                m.status,
+                dim("since", color),
+                dim(&m.since, color)
+            );
+        }
     }
 }
 
@@ -222,7 +234,7 @@ fn render_important(out: &mut String, important: &[ImportantRow], color: bool) {
                 color,
                 Style::Warning
             ),
-            style(&format!("#{}", row.channel_ref), color, Style::Channel)
+            style(&row.channel_ref, color, Style::Channel)
         );
     }
     out.push('\n');

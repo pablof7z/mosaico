@@ -15,9 +15,10 @@ CREATE TABLE IF NOT EXISTS relay_channels (
     about       TEXT NOT NULL DEFAULT '',
     parent      TEXT NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL,
-    UNIQUE(parent, name)
+    updated_at  INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_channels_named_sibling
+    ON relay_channels(parent, name) WHERE parent<>'' AND name<>'';
 CREATE TABLE IF NOT EXISTS relay_channel_members (
     channel_h   TEXT NOT NULL,
     pubkey      TEXT NOT NULL,
@@ -53,6 +54,8 @@ CREATE TABLE IF NOT EXISTS relay_status (
     slug         TEXT NOT NULL DEFAULT '',
     title        TEXT NOT NULL DEFAULT '',
     activity     TEXT NOT NULL DEFAULT '',
+    workspace    TEXT NOT NULL DEFAULT '',
+    branch       TEXT NOT NULL DEFAULT '',
     state        TEXT NOT NULL,
     state_since  INTEGER NOT NULL DEFAULT 0,
     last_seen    INTEGER NOT NULL DEFAULT 0,
@@ -62,6 +65,10 @@ CREATE TABLE IF NOT EXISTS relay_status (
 );
 CREATE INDEX IF NOT EXISTS idx_relay_status_channel
     ON relay_status(channel_h, expiration);
+CREATE TABLE IF NOT EXISTS relay_status_sets (
+    pubkey      TEXT PRIMARY KEY,
+    updated_at  INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS relay_events (
     id          TEXT PRIMARY KEY,
@@ -142,7 +149,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     pubkey             TEXT PRIMARY KEY,
     runtime_generation INTEGER NOT NULL,
     agent_slug        TEXT NOT NULL DEFAULT '',
-    channel_h         TEXT NOT NULL DEFAULT '',
     work_root         TEXT NOT NULL DEFAULT '',
     readiness_parent  TEXT NOT NULL DEFAULT '',
     observed_harness  TEXT NOT NULL DEFAULT '',
@@ -180,7 +186,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     state_changed_at  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_runtime
-    ON sessions(runtime_state, channel_h);
+    ON sessions(runtime_state);
 CREATE INDEX IF NOT EXISTS idx_sessions_idle_deadline
     ON sessions(runtime_state, presentation_state, work_state, idle_deadline);
 
@@ -193,12 +199,14 @@ CREATE TABLE IF NOT EXISTS mcp_actor_aliases (
     last_seen  INTEGER NOT NULL
 );
 
--- Durable exact-session routing affinity. These rows do not assert NIP-29
--- membership; fabric standing is owned exclusively by session_standing.
+-- Durable exact-session channel membership. Automatic delivery is fenced by
+-- both the signed event time and the local event-arrival sequence at join.
+-- Fabric standing is owned exclusively by session_standing.
 CREATE TABLE IF NOT EXISTS session_channels (
-    pubkey        TEXT NOT NULL,
-    channel_h    TEXT NOT NULL,
-    granted_at   INTEGER NOT NULL,
+    pubkey           TEXT NOT NULL,
+    channel_h       TEXT NOT NULL,
+    joined_at       INTEGER NOT NULL,
+    joined_event_seq INTEGER NOT NULL,
     PRIMARY KEY (pubkey, channel_h)
 );
 CREATE INDEX IF NOT EXISTS idx_session_channels_channel
@@ -207,15 +215,14 @@ CREATE INDEX IF NOT EXISTS idx_session_channels_channel
 CREATE TABLE IF NOT EXISTS session_standing (
     pubkey                  TEXT NOT NULL,
     channel_h               TEXT NOT NULL,
-    state                   TEXT NOT NULL CHECK (state IN ('member', 'retained', 'absent')),
-    retain_until            INTEGER NOT NULL DEFAULT 0,
+    state                   TEXT NOT NULL CHECK (state IN ('member', 'absent')),
     standing_epoch          INTEGER NOT NULL DEFAULT 1,
     session_lifecycle_epoch INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,
     PRIMARY KEY (pubkey, channel_h)
 );
-CREATE INDEX IF NOT EXISTS idx_session_standing_due
-    ON session_standing(state, retain_until);
+CREATE INDEX IF NOT EXISTS idx_session_standing_state
+    ON session_standing(state, pubkey, channel_h);
 
 CREATE TABLE IF NOT EXISTS session_locators (
     harness        TEXT NOT NULL,

@@ -9,7 +9,8 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
             pubkey: pubkey.into(),
             observed_harness: "claude-code".into(),
             agent_slug: slug.into(),
-            channel_h: channel.into(),
+            launch_channel_h: channel.into(),
+            work_root: channel.into(),
             child_pid: Some(42),
             now: 1000,
         })

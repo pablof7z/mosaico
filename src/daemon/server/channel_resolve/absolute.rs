@@ -1,11 +1,9 @@
 //! Global, full-path channel resolution.
 //!
 //! Every "channel" argument across the CLI (send/read/join/leave/archive/
-//! edit/create/add) requires a full absolute path (`/workspace/child`)
-//! or an explicit `@<id-prefix>`. Resolution is GLOBAL — no caller-scoped root,
-//! no relative/suffix matching, no ambiguity for a well-formed full path (a
-//! full path names exactly one channel or none). Only `@<id-prefix>` can still
-//! be ambiguous, across every known channel.
+//! edit/create/add) requires a full absolute path (`/root/child`). Resolution
+//! is GLOBAL — no caller-scoped root, opaque-id selector, or relative/suffix
+//! matching.
 
 use super::super::*;
 use super::paths::{absolute_path_segments, subtree_paths};
@@ -13,7 +11,7 @@ use super::paths::{absolute_path_segments, subtree_paths};
 /// Every channel argument is full-path-only. `label` names the argument in the
 /// error so the caller sees which one it was (`channel`, `--parent-channel`…).
 pub(in crate::daemon::server) fn require_full_path(label: &str, reference: &str) -> Result<()> {
-    if !reference.starts_with('/') && !reference.starts_with('@') {
+    if !reference.starts_with('/') {
         anyhow::bail!(
             "{label} must be a full path starting with \"/\", e.g. /workspace/child \
              (got {reference:?})"
@@ -26,8 +24,6 @@ pub(in crate::daemon::server) fn require_full_path(label: &str, reference: &str)
 pub(in crate::daemon::server) enum ChannelResolution {
     /// Exactly one channel matched → its opaque `channel_h`.
     Unique(String),
-    /// Several `@<id-prefix>` matches → their opaque-id selectors, sorted.
-    Ambiguous(Vec<String>),
     /// Nothing matched.
     NotFound,
 }
@@ -54,24 +50,9 @@ pub(in crate::daemon::server) fn root_channel_by_slug(
         .map(|c| c.channel_h)
 }
 
-/// Split a full absolute path into its workspace slug (segment 0) and the
-/// remaining segments, for callers that need to mkdir-p missing descendants
-/// under an already-confirmed-to-exist workspace (`channel join`/`switch`).
-/// `None` for anything that isn't a well-formed absolute path.
-pub(in crate::daemon::server) fn split_workspace_and_rest(
-    reference: &str,
-) -> Option<(String, Vec<String>)> {
-    let mut segments = absolute_path_segments(reference)?;
-    let workspace = segments.remove(0);
-    Some((workspace, segments))
-}
-
-/// Resolve a full absolute channel path (or `@<id-prefix>`) GLOBALLY: any
-/// session may address any channel in any workspace this way. Forms:
-///   - `@<id-prefix>` → the channel whose opaque id starts with the prefix,
-///     searched across every known channel;
-///   - `/workspace[/child...]` → segment 0 must name an existing top-level
-///     workspace; each further segment is an exact (case-insensitive) name
+/// Resolve a full absolute channel path GLOBALLY. `/root[/child...]` segment 0
+/// must name an existing top-level root; each further segment is an exact
+/// (case-insensitive) name
 ///     lookup under the previous segment. Any miss is `NotFound` — there is
 ///     no fuzzy/suffix matching once a full path is required.
 pub(in crate::daemon::server) fn resolve_absolute_channel_ref(
@@ -82,28 +63,6 @@ pub(in crate::daemon::server) fn resolve_absolute_channel_ref(
     if reference.is_empty() {
         return ChannelResolution::NotFound;
     }
-    if let Some(prefix) = reference.strip_prefix('@') {
-        if prefix.is_empty() {
-            return ChannelResolution::NotFound;
-        }
-        let mut hits = store
-            .list_channels()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| c.channel_h)
-            .filter(|id| id.starts_with(prefix))
-            .collect::<Vec<_>>();
-        hits.sort();
-        hits.dedup();
-        return match hits.len() {
-            0 => ChannelResolution::NotFound,
-            1 => ChannelResolution::Unique(hits.remove(0)),
-            _ => {
-                ChannelResolution::Ambiguous(hits.into_iter().map(|id| format!("@{id}")).collect())
-            }
-        };
-    }
-
     let Some(segments) = absolute_path_segments(reference) else {
         return ChannelResolution::NotFound;
     };
@@ -142,11 +101,6 @@ pub(in crate::daemon::server) fn describe_missing_channel(
     reference: &str,
 ) -> String {
     let Some(segments) = absolute_path_segments(reference) else {
-        // An `@<id-prefix>` selector is well-formed; it simply matched nothing.
-        // Saying "not a valid channel path" there would be a lie.
-        if let Some(prefix) = reference.strip_prefix('@') {
-            return format!("no channel whose id starts with {prefix:?}");
-        }
         return format!(
             "{reference:?} is not a valid channel path; use a full path such as /workspace/child"
         );

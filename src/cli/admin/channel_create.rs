@@ -21,16 +21,11 @@ pub(super) async fn channel_create(
         )),
     )
     .await?;
-    if let Some(refs) = v["ambiguous"].as_array() {
-        print_ambiguous_create(&path, &about, &agents, session.as_deref(), refs, &v);
-    }
-
     let oid = v["orchestration_event_id"].as_str().unwrap_or("");
-    let switched = v["switched"].as_bool().unwrap_or(false);
-    if switched {
-        println!("#{path} created and switched to it");
+    if v["joined"].as_bool().unwrap_or(false) {
+        println!("{path} created and joined");
     } else {
-        println!("#{path} created");
+        println!("{path} created");
     }
     if !oid.is_empty() {
         println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
@@ -87,44 +82,6 @@ fn with_session(mut params: serde_json::Value, session: Option<&str>) -> serde_j
         }
     }
     params
-}
-
-fn print_ambiguous_create(
-    path: &str,
-    about: &str,
-    agents: &[String],
-    session: Option<&str>,
-    refs: &[serde_json::Value],
-    response: &serde_json::Value,
-) -> ! {
-    let reference = response["reference"].as_str().unwrap_or(path);
-    let leaf = create_target(path)
-        .ok()
-        .map(|target| target.name)
-        .unwrap_or_else(|| path.to_string());
-    eprintln!("'{reference}' is ambiguous — re-run with an exact path:");
-    for r in refs.iter().filter_map(|r| r.as_str()) {
-        let full_path = format!("{r}/{leaf}");
-        let mut cmd = format!(
-            "  mosaico channel create {} --about {}",
-            shell_quote(&full_path),
-            shell_quote(about)
-        );
-        for agent in agents {
-            cmd.push_str(" --agent ");
-            cmd.push_str(&shell_quote(agent));
-        }
-        if let Some(session) = session {
-            cmd.push_str(" --session ");
-            cmd.push_str(&shell_quote(session));
-        }
-        eprintln!("{cmd}");
-    }
-    std::process::exit(2);
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]

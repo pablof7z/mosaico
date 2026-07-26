@@ -136,6 +136,10 @@ pub struct Status {
     pub channels: Vec<String>,
     /// The machine this session lives on.
     pub host: String,
+    /// Immutable launch workspace, as its user-facing root-channel name.
+    pub workspace: String,
+    /// Git branch observed in the launch workspace, when available.
+    pub branch: String,
     /// The session title: a short, stable description of what the session is
     /// about. Retained across idle turns AND after the session exits — a
     /// finished session keeps its title on the fabric. Never cleared.
@@ -251,6 +255,8 @@ mod tests {
             agent: agent.clone(),
             channels: vec!["p".into()],
             host: "laptop".into(),
+            workspace: "mosaico".into(),
+            branch: "feat/context".into(),
             title: "fixing auth".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Idle,
@@ -263,6 +269,8 @@ mod tests {
             agent,
             channels: vec!["p".into()],
             host: "laptop".into(),
+            workspace: "mosaico".into(),
+            branch: "feat/context".into(),
             title: "fixing auth".into(),
             activity: String::new(),
             state: crate::session_state::SessionState::Working,

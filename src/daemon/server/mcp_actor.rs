@@ -119,6 +119,9 @@ mod tests {
         let actor_key = "mcp1_redacted_actor_key_1234567890";
         state.with_store(|store| {
             store
+                .upsert_channel("mosaico", "mosaico", "", "", 1)
+                .unwrap();
+            store
                 .reserve_mcp_actor_session(&pubkey, "mcp-openai", "mosaico", 1)
                 .unwrap();
             store

@@ -25,31 +25,62 @@ fn channel_list_workspace_flags_parse() {
             action:
                 ChannelAction::List {
                     workspace,
-                    workspaces,
+                    all,
+                    recursive,
                 },
         } => {
             assert_eq!(workspace.as_deref(), Some("mosaico"));
-            assert!(!workspaces);
+            assert!(!all);
+            assert!(!recursive);
         }
         _ => panic!("expected channel list command"),
     }
 
-    let all =
-        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "list", "--all-workspaces"])
-            .expect("channel list --all-workspaces parses");
+    let all = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "list", "-a"])
+        .expect("channel list -a parses");
     match all.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action:
                 ChannelAction::List {
                     workspace,
-                    workspaces,
+                    all,
+                    recursive,
                 },
         } => {
             assert_eq!(workspace, None);
-            assert!(workspaces);
+            assert!(all);
+            assert!(!recursive);
         }
         _ => panic!("expected channel list command"),
     }
+
+    let recursive =
+        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "list", "--recursive"])
+            .expect("channel list --recursive parses");
+    match recursive.cmd.expect("expected channel command") {
+        crate::cli::args::Cmd::Channel {
+            action:
+                ChannelAction::List {
+                    workspace,
+                    all,
+                    recursive,
+                },
+        } => {
+            assert_eq!(workspace, None);
+            assert!(!all);
+            assert!(recursive);
+        }
+        _ => panic!("expected channel list command"),
+    }
+}
+
+#[test]
+fn channel_list_rejects_retired_and_conflicting_flags() {
+    let retired = parse_err(&["mosaico", "channel", "list", "--all-workspaces"]);
+    assert_eq!(retired.kind(), ErrorKind::UnknownArgument);
+
+    let conflict = parse_err(&["mosaico", "channel", "list", "--all", "--recursive"]);
+    assert_eq!(conflict.kind(), ErrorKind::ArgumentConflict);
 }
 
 #[test]

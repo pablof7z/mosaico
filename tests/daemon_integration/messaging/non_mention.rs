@@ -50,12 +50,8 @@ fn non_mention_chat_does_not_route_to_inbox() {
 
     // Send only once the sender's channel has materialized, so `channel send`
     // doesn't race relay provisioning (cold-relay readiness stall → ~90s fail).
-    let sch = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sender_pubkey)
-        .unwrap()
-        .expect("sender session row")
-        .channel_h;
+    let store = Store::open(&home.store_path()).unwrap();
+    let sch = only_session_route(&store, &sender_pubkey);
     assert!(
         wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
             .map(|s| s.get_channel(&sch).unwrap_or(None).is_some())

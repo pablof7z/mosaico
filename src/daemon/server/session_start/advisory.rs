@@ -26,7 +26,6 @@ pub(super) struct ChannelReadyIntent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct EngineStartIntent {
-    pub channel_h: String,
     pub rel_cwd: String,
     pub watch_pid: Option<i32>,
 }
@@ -57,7 +56,6 @@ pub(super) fn plan(request: &SessionStartRequest) -> SessionStartPlan {
             && scoped
             && (request.channel_already_subscribed || request.pty_session.is_some()),
         spawn: active.then(|| EngineStartIntent {
-            channel_h: request.channel_h.clone(),
             rel_cwd: request.rel_cwd.clone(),
             watch_pid: request.watch_pid,
         }),

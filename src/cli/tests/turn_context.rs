@@ -34,9 +34,8 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        text.contains("<workspace name=\"proj\"")
-            && !text.contains("<workspace name=\"proj\" channel="),
-        "awareness should name only the workspace; got: {text:?}"
+        text.contains("<channel name=\"/proj\"") && !text.contains("<workspace"),
+        "awareness should use the public root-channel path without a workspace wrapper; got: {text:?}"
     );
     assert!(
         text.contains("<self name=\"@coder\" host=\"laptop\""),
@@ -60,7 +59,8 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
             pubkey: "pk-coder1".to_string(),
             observed_harness: "codex".to_string(),
             agent_slug: "coder".to_string(),
-            channel_h: "proj".to_string(),
+            launch_channel_h: "proj".to_string(),
+            work_root: "proj".to_string(),
             child_pid: None,
             now: 1,
         })
@@ -206,6 +206,9 @@ fn turn_check_context_returns_none_when_nothing_due() {
 fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
+    store
+        .replace_channel_members("proj", &["pk-coder".into(), "pk-sib".into()], 2)
+        .unwrap();
     // Sibling changed after the cursor (50) and is still live at now=200.
     pub_status(
         &store,
@@ -233,11 +236,11 @@ fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
     let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
         .expect("delta block expected when a sibling changed");
     assert!(
-        text.contains("<recent-presence>"),
-        "awareness update header expected; got: {text:?}"
+        text.contains("<members>") && !text.contains("<recent-presence>"),
+        "presence deltas should use the same members block as full state; got: {text:?}"
     );
     assert!(
-        text.contains("text=\"editing hooks.rs\""),
+        text.contains("status=\"editing hooks.rs\""),
         "sibling activity expected as a member work line; got: {text:?}"
     );
     assert!(
@@ -321,6 +324,18 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
 fn turn_check_direct_mentions_surface_from_inbox() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
+    store
+        .insert_event(&crate::state::RelayEvent {
+            id: "mention-1".to_string(),
+            kind: 9,
+            pubkey: "pk-chat".to_string(),
+            created_at: 120,
+            channel_h: "proj".to_string(),
+            d_tag: String::new(),
+            content: "please review this now".to_string(),
+            tags_json: "[[\"p\",\"pk-coder\"]]".to_string(),
+        })
+        .unwrap();
     let newly = store
         .enqueue_inbox(
             "mention-1",

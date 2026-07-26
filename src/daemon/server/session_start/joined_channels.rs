@@ -1,12 +1,19 @@
 use super::*;
 
 pub(super) fn record(
-    _state: &Arc<DaemonState>,
-    _session_id: &str,
+    state: &Arc<DaemonState>,
+    session_id: &str,
     primary: String,
     mut requested: Vec<String>,
     _now: u64,
 ) -> Vec<String> {
+    requested.extend(
+        state
+            .with_store(|store| store.list_session_routes(session_id))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(channel, _)| channel),
+    );
     requested.retain(|channel| !channel.is_empty());
     if !primary.is_empty() {
         requested.push(primary);
@@ -22,11 +29,11 @@ pub(super) fn schedule_admission(
     runtime_generation: u64,
     lifecycle_epoch: u64,
     joined_channels: &[String],
-    active_channel: &str,
+    primary_channel: &str,
 ) {
     let passive = joined_channels
         .iter()
-        .filter(|channel| channel.as_str() != active_channel)
+        .filter(|channel| channel.as_str() != primary_channel)
         .cloned()
         .collect::<Vec<_>>();
     if passive.is_empty() {

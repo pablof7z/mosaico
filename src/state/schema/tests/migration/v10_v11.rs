@@ -7,6 +7,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     conn.execute("ALTER TABLE sessions DROP COLUMN state_changed_at", [])
         .unwrap();
     conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
@@ -31,7 +32,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     drop(Store::open(&path).expect("schema ten upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     let states = conn
         .prepare("SELECT event_id, state FROM inbox ORDER BY event_id")
         .unwrap()

@@ -20,11 +20,12 @@ fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Se
     let mut found = None;
     assert!(
         wait_until(Duration::from_secs(25), || {
-            found = Store::open(&home.store_path())
-                .and_then(|s| s.list_running_sessions())
-                .unwrap_or_default()
-                .into_iter()
-                .find(|rec| rec.agent_slug == agent && rec.channel_h == channel);
+            found = Store::open(&home.store_path()).ok().and_then(|s| {
+                s.list_running_sessions().ok()?.into_iter().find(|rec| {
+                    rec.agent_slug == agent
+                        && s.has_session_route(&rec.pubkey, channel).unwrap_or(false)
+                })
+            });
             found.is_some()
         }),
         "session {agent} in {channel} did not become alive; daemon_log={}",
@@ -63,31 +64,53 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
         v["pty_id"].as_str().unwrap().to_string()
     });
     let rec = wait_for_alive(&home, agent, &root);
+    let spawned_meta = mosaico::pty::read_all_metadata()
+        .into_iter()
+        .find(|metadata| metadata.id == pty_id)
+        .expect("spawned PTY metadata");
+    assert_eq!(spawned_meta.command, ["opencode", "forever"]);
 
-    let side = rt().block_on(async {
+    let side_path = format!("/{root}/side");
+    let created = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v = c
-            .call(
-                "channel_create",
-                serde_json::json!({
-                    "parent": &root,
-                    "name": "side",
-                    "about": "side channel",
-                    "cwd": &work_dir,
-                }),
-            )
-            .await
-            .expect("channel_create");
-        v["child_h"].as_str().unwrap().to_string()
+        c.call(
+            "channel_create",
+            serde_json::json!({
+                "parent_channel": format!("/{root}"),
+                "name": "side",
+                "about": "side channel",
+                "cwd": &work_dir,
+            }),
+        )
+        .await
+        .expect("channel_create")
     });
+    assert_eq!(created["channel"], side_path);
+    assert_eq!(created["joined"].as_bool(), Some(false));
+    let side = Store::open(&home.store_path())
+        .unwrap()
+        .channel_id_for_name(&root, "side")
+        .unwrap()
+        .expect("side channel id");
     let pty_count = mosaico::pty::read_all_metadata().len();
+    let before_invite = Store::open(&home.store_path())
+        .unwrap()
+        .get_session(&rec.pubkey)
+        .unwrap()
+        .expect("live session before invite");
+    assert!(
+        before_invite.is_running(),
+        "target stopped before invite: {before_invite:?}; pty_live={}; daemon_log={}",
+        mosaico::pty::is_live(&pty_id),
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+    );
 
     let added = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "invite",
             serde_json::json!({
-                "channel": format!("@{side}"),
+                "channel": &side_path,
                 "session": &rec.pubkey,
                 "cwd": &work_dir,
             }),
@@ -96,11 +119,12 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
         .expect("invite live session")
     });
     assert_eq!(added["pty_id"], pty_id);
+    assert_eq!(added["channel"], side_path);
     assert_eq!(mosaico::pty::read_all_metadata().len(), pty_count);
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&side);
+            refresh_channel_members(&side_path);
             Store::open(&home.store_path())
                 .map(|s| {
                     s.has_session_route(&rec.pubkey, &side).unwrap_or(false)
@@ -113,13 +137,8 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
             .unwrap_or_else(|e| format!("<unreadable: {e}>"))
     );
 
-    let active = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&rec.pubkey)
-        .unwrap()
-        .expect("session row after invite")
-        .channel_h;
-    assert_eq!(active, root);
+    let store = Store::open(&home.store_path()).unwrap();
+    assert!(store.has_session_route(&rec.pubkey, &root).unwrap());
 
     let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);

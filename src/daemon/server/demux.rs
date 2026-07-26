@@ -86,7 +86,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
     // Resolve newly surfaced identities without waiting for a turn to warm them.
     warm_profiles(state, referenced_pubkeys(event));
     let first_sight = state.first_sight(&event.id.to_hex());
-    super::subscriptions::reconcile_after_admin_event(state, event, first_sight);
+    super::subscriptions::reconcile_after_group_state_event(state, event, first_sight);
 
     // NMP can deliver once per matching observation (scope filters × live
     // sessions), so the same event reaches here many times. The tail

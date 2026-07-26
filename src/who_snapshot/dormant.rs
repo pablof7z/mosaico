@@ -2,7 +2,7 @@ use super::{scope, WhoRow, WhoSource};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-pub(super) fn push_retained_rows(
+pub(super) fn push_stopped_rows(
     aggregation: &crate::who_aggregation::WhoAggregation,
     current_root: Option<&str>,
     now: u64,
@@ -11,7 +11,7 @@ pub(super) fn push_retained_rows(
     other_agents: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> Result<()> {
     let live_pubkeys: HashSet<String> = rows.iter().map(|row| row.pubkey.clone()).collect();
-    for standing in &aggregation.retained_standing {
+    for standing in &aggregation.stopped_standing {
         if live_pubkeys.contains(&standing.pubkey)
             || scope::is_archived_channel(aggregation, &standing.channel_h)
         {
@@ -28,7 +28,7 @@ pub(super) fn push_retained_rows(
             .transpose()?
             .unwrap_or(true)
         {
-            rows.push(retained_row(
+            rows.push(stopped_row(
                 aggregation,
                 session,
                 &standing.channel_h,
@@ -46,7 +46,7 @@ pub(super) fn push_retained_rows(
     Ok(())
 }
 
-fn retained_row(
+fn stopped_row(
     aggregation: &crate::who_aggregation::WhoAggregation,
     session: &crate::state::Session,
     channel: &str,

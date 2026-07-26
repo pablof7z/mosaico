@@ -47,6 +47,8 @@ async fn publishes_and_decodes_all_event_types() {
             agent: aref.clone(),
             channels: vec![channel.clone()],
             host: "test-host".into(),
+            workspace: String::new(),
+            branch: String::new(),
             title: "fixing the auth bug".into(),
             activity: "reading the diff".into(),
             state: mosaico::session_state::SessionState::Working,

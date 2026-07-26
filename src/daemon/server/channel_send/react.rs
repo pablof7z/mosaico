@@ -52,10 +52,12 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .provider
         .publish_reaction_checked(&reaction, &keys)
         .await?;
+    let channel_ref = state
+        .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
 
     Ok(serde_json::json!({
         "event_id": event_id,
-        "channel": original.channel_h,
+        "channel": channel_ref,
         "target": target_event_id,
         "emoji": emoji,
     }))

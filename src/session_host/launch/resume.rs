@@ -18,10 +18,13 @@ pub(crate) async fn resume_agent(
         !resume_id.is_empty(),
         "session has no resume token (not resumable)"
     );
-    let root = state.with_store(|store| {
-        crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_session(rec)
-    })?;
-    resume_session_record(state, rec, &root, &rec.channel_h, resume_id, intent).await
+    let group = state
+        .with_store(|store| store.list_session_routes(&rec.pubkey))?
+        .into_iter()
+        .map(|(channel, _)| channel)
+        .next()
+        .unwrap_or_default();
+    resume_session_record(state, rec, &rec.work_root, &group, resume_id, intent).await
 }
 
 /// Resume an exact persisted identity into a caller-selected channel.
@@ -40,7 +43,7 @@ pub(crate) async fn resume_agent_in_channel(
     resume_session_record(state, rec, root, group, resume_id, intent).await
 }
 
-pub(crate) async fn resume_session_record(
+async fn resume_session_record(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     root: &str,
@@ -48,6 +51,16 @@ pub(crate) async fn resume_session_record(
     resume_id: &str,
     intent: LaunchIntent,
 ) -> Result<String> {
+    let mut channels = state
+        .with_store(|store| store.list_session_routes(&rec.pubkey))?
+        .into_iter()
+        .map(|(channel, _)| channel)
+        .collect::<Vec<_>>();
+    if !group.is_empty() && !channels.iter().any(|channel| channel == group) {
+        channels.push(group.to_string());
+    }
+    channels.sort();
+    channels.dedup();
     let harness = crate::session::Harness::from_str(&rec.observed_harness);
     anyhow::ensure!(
         harness != crate::session::Harness::Unknown,
@@ -77,6 +90,7 @@ pub(crate) async fn resume_session_record(
         &rec.agent_slug,
         root,
         group,
+        &channels,
         &abs_path,
         resume_id,
     )
@@ -123,6 +137,7 @@ pub(crate) async fn adopt_native_session(
         );
     }
     let pubkey = reservation.pubkey.clone();
+    let channels = vec![root.to_string()];
     let pty_id = launch_resume(
         state,
         source,
@@ -130,6 +145,7 @@ pub(crate) async fn adopt_native_session(
         slug,
         root,
         root,
+        &channels,
         &abs_path,
         resume_id,
     )
@@ -159,6 +175,7 @@ async fn launch_resume(
     slug: &str,
     root: &str,
     group: &str,
+    channels: &[String],
     abs_path: &str,
     resume_id: &str,
 ) -> Result<String> {
@@ -197,7 +214,7 @@ async fn launch_resume(
             pubkey: &reservation.pubkey,
             reclaimed_pubkey: None,
             channel: Some(group),
-            channels: &[],
+            channels: &channels,
             resume_id: Some(resume_id),
             dispatch_event: None,
             session_name: None,

@@ -9,7 +9,8 @@ async fn running_non_pty_session_refuses_a_second_process() {
                 pubkey: "mapped-pubkey".into(),
                 observed_harness: "codex".into(),
                 agent_slug: "agent1".into(),
-                channel_h: "mosaico".into(),
+                launch_channel_h: "mosaico".into(),
+                work_root: "mosaico".into(),
                 child_pid: Some(42),
                 now: 1,
             })

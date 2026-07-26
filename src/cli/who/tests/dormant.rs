@@ -1,7 +1,7 @@
 use super::*;
 use crate::state::{AdmittedRuntimeFacts, RegisterSession, StopReason};
 
-fn seed_retained(store: &Store) {
+fn seed_stopped_member(store: &Store) {
     store.upsert_channel("proj", "proj", "", "", 900).unwrap();
     store
         .upsert_profile_with_agent_slug(
@@ -20,7 +20,8 @@ fn seed_retained(store: &Store) {
                 pubkey: "pk-codex".into(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
-                channel_h: "proj".into(),
+                launch_channel_h: "proj".into(),
+                work_root: "proj".into(),
                 child_pid: None,
                 now: 900,
             },
@@ -52,9 +53,9 @@ fn seed_retained(store: &Store) {
 }
 
 #[test]
-fn who_snapshot_renders_retained_standing_as_dormant_presence() {
+fn stopped_session_keeps_membership_as_dormant_presence() {
     let store = Store::open_memory().unwrap();
-    seed_retained(&store);
+    seed_stopped_member(&store);
 
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let row = snapshot.rows.first().expect("dormant row");
@@ -62,12 +63,24 @@ fn who_snapshot_renders_retained_standing_as_dormant_presence() {
     assert_eq!(row.slug, "codex");
     assert_eq!(row.age_secs, Some(100));
     assert!(!row.remote);
+    assert!(store.has_session_route("pk-codex", "proj").unwrap());
+    assert_eq!(
+        store
+            .get_session_standing("pk-codex", "proj")
+            .unwrap()
+            .unwrap()
+            .state,
+        crate::state::StandingState::Member
+    );
 }
 
 #[test]
-fn who_snapshot_hides_expired_retention() {
+fn stopped_membership_does_not_expire() {
     let store = Store::open_memory().unwrap();
-    seed_retained(&store);
+    seed_stopped_member(&store);
     let snapshot = load_who_snapshot(&store, Some("proj"), 4_501, "laptop").unwrap();
-    assert!(snapshot.rows.is_empty());
+    let row = snapshot.rows.first().expect("dormant row");
+    assert!(row.dormant);
+    assert_eq!(row.age_secs, Some(3_601));
+    assert!(store.has_session_route("pk-codex", "proj").unwrap());
 }

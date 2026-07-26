@@ -4,7 +4,7 @@ use super::*;
 use rusqlite::{Transaction, TransactionBehavior};
 
 pub(super) const COLS: &str =
-    "pubkey, runtime_generation, agent_slug, channel_h, work_root, readiness_parent, \
+    "pubkey, runtime_generation, agent_slug, work_root, readiness_parent, \
      observed_harness, claimed_harness, admitted_bundle, admitted_transport, \
      endpoint_provenance, child_pid, runtime_state, presentation_state, \
      work_state, recovery_state, lifecycle_epoch, attachment_epoch, idle_since, idle_deadline, \
@@ -22,45 +22,44 @@ fn conversion<T>(index: usize, result: Result<T>) -> rusqlite::Result<T> {
 }
 
 pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
-    let runtime_state = conversion(12, RuntimeState::parse(&row.get::<_, String>(12)?))?;
-    let presentation_state = conversion(13, PresentationState::parse(&row.get::<_, String>(13)?))?;
-    let work_state = conversion(14, WorkState::parse(&row.get::<_, String>(14)?))?;
-    let recovery_state = conversion(15, RecoveryState::parse(&row.get::<_, String>(15)?))?;
+    let runtime_state = conversion(11, RuntimeState::parse(&row.get::<_, String>(11)?))?;
+    let presentation_state = conversion(12, PresentationState::parse(&row.get::<_, String>(12)?))?;
+    let work_state = conversion(13, WorkState::parse(&row.get::<_, String>(13)?))?;
+    let recovery_state = conversion(14, RecoveryState::parse(&row.get::<_, String>(14)?))?;
     let stop_reason = row
-        .get::<_, Option<String>>(21)?
-        .map(|value| conversion(21, StopReason::parse(&value)))
+        .get::<_, Option<String>>(20)?
+        .map(|value| conversion(20, StopReason::parse(&value)))
         .transpose()?;
     Ok(Session {
         pubkey: row.get(0)?,
         runtime_generation: row.get(1)?,
         agent_slug: row.get(2)?,
-        channel_h: row.get(3)?,
-        work_root: row.get(4)?,
-        readiness_parent: row.get(5)?,
-        observed_harness: row.get(6)?,
-        claimed_harness: row.get(7)?,
-        admitted_bundle: row.get(8)?,
-        admitted_transport: row.get(9)?,
-        endpoint_provenance: row.get(10)?,
-        child_pid: row.get(11)?,
+        work_root: row.get(3)?,
+        readiness_parent: row.get(4)?,
+        observed_harness: row.get(5)?,
+        claimed_harness: row.get(6)?,
+        admitted_bundle: row.get(7)?,
+        admitted_transport: row.get(8)?,
+        endpoint_provenance: row.get(9)?,
+        child_pid: row.get(10)?,
         runtime_state,
         presentation_state,
         work_state,
         recovery_state,
-        lifecycle_epoch: row.get(16)?,
-        attachment_epoch: row.get(17)?,
-        idle_since: row.get(18)?,
-        idle_deadline: row.get(19)?,
-        stopped_at: row.get(20)?,
+        lifecycle_epoch: row.get(15)?,
+        attachment_epoch: row.get(16)?,
+        idle_since: row.get(17)?,
+        idle_deadline: row.get(18)?,
+        stopped_at: row.get(19)?,
         stop_reason,
-        turn_count: row.get(22)?,
-        busy_seconds: row.get(23)?,
-        created_at: row.get(24)?,
-        last_seen: row.get(25)?,
-        turn_started_at: row.get(26)?,
-        seen_cursor: row.get(27)?,
-        title: row.get(28)?,
-        state_changed_at: row.get(29)?,
+        turn_count: row.get(21)?,
+        busy_seconds: row.get(22)?,
+        created_at: row.get(23)?,
+        last_seen: row.get(24)?,
+        turn_started_at: row.get(25)?,
+        seen_cursor: row.get(26)?,
+        title: row.get(27)?,
+        state_changed_at: row.get(28)?,
     })
 }
 
@@ -95,7 +94,7 @@ impl Store {
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let previous = tx
             .query_row(
-                "SELECT runtime_generation, runtime_state, recovery_state
+                "SELECT runtime_generation, runtime_state, recovery_state, work_root
                  FROM sessions WHERE pubkey=?1",
                 [&r.pubkey],
                 |row| {
@@ -103,27 +102,36 @@ impl Store {
                         row.get::<_, u64>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 },
             )
             .optional()?;
-        if let Some((_, state, recovery)) = previous.as_ref() {
+        if let Some((_, state, recovery, work_root)) = previous.as_ref() {
             if RuntimeState::parse(state)? != RuntimeState::Stopped {
                 anyhow::bail!("pubkey {} already has an active runtime", r.pubkey);
             }
             if RecoveryState::parse(recovery)? == RecoveryState::Revoked {
                 anyhow::bail!("pubkey {} recovery authority is revoked", r.pubkey);
             }
+            if work_root != &r.work_root {
+                anyhow::bail!(
+                    "pubkey {} belongs to immutable work root {:?}, not {:?}",
+                    r.pubkey,
+                    work_root,
+                    r.work_root
+                );
+            }
         }
         let generation = match previous {
-            Some((generation, _, _)) => generation
+            Some((generation, _, _, _)) => generation
                 .checked_add(1)
                 .context("runtime generation exhausted")?,
             None => 1,
         };
         tx.execute(
             "INSERT INTO sessions
-                 (pubkey, runtime_generation, agent_slug, channel_h, observed_harness,
+                 (pubkey, runtime_generation, agent_slug, work_root, observed_harness,
                   claimed_harness, admitted_bundle, admitted_transport, endpoint_provenance,
                   child_pid, runtime_state, presentation_state, work_state,
                   recovery_state, lifecycle_epoch, created_at, last_seen, state_changed_at)
@@ -131,7 +139,7 @@ impl Store {
                      'running', 'unavailable', 'idle', 'pending', 1, ?11, ?11, ?11)
              ON CONFLICT(pubkey) DO UPDATE SET
                  runtime_generation=excluded.runtime_generation,
-                 agent_slug=excluded.agent_slug, channel_h=excluded.channel_h,
+                 agent_slug=excluded.agent_slug,
                  observed_harness=CASE
                      WHEN excluded.endpoint_provenance='launch' THEN excluded.observed_harness
                      WHEN sessions.endpoint_provenance='launch' THEN sessions.observed_harness
@@ -160,7 +168,7 @@ impl Store {
                 r.pubkey,
                 generation,
                 r.agent_slug,
-                r.channel_h,
+                r.work_root,
                 facts.observed_harness,
                 facts.claimed_harness,
                 facts.bundle,
@@ -170,7 +178,7 @@ impl Store {
                 r.now,
             ],
         )?;
-        if !r.channel_h.trim().is_empty() {
+        if !r.launch_channel_h.trim().is_empty() {
             grant_route_and_initialize_standing(&tx, r)?;
         }
         tx.execute(
@@ -275,24 +283,6 @@ impl Store {
         )?;
         if changed > 0 {
             mark_handle_stopped(&tx, pubkey)?;
-            let lifecycle_epoch: u64 = tx.query_row(
-                "SELECT lifecycle_epoch FROM sessions WHERE pubkey=?1",
-                [pubkey],
-                |row| row.get(0),
-            )?;
-            let retain_until =
-                if matches!(reason, StopReason::AttachedCleanExit | StopReason::Revoked) {
-                    stopped_at
-                } else {
-                    stopped_at.saturating_add(STOPPED_STANDING_RETENTION_SECS)
-                };
-            super::session_standing::retain_in_transaction(
-                &tx,
-                pubkey,
-                lifecycle_epoch,
-                retain_until,
-                stopped_at,
-            )?;
         }
         tx.commit()?;
         Ok(changed == 1)
@@ -320,24 +310,25 @@ fn grant_route_and_initialize_standing(
     registration: &RegisterSession,
 ) -> Result<()> {
     tx.execute(
-        "INSERT OR IGNORE INTO session_channels (pubkey, channel_h, granted_at)
-         VALUES (?1, ?2, ?3)",
+        "INSERT OR IGNORE INTO session_channels
+             (pubkey, channel_h, joined_at, joined_event_seq)
+         VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))",
         params![
             registration.pubkey,
-            registration.channel_h,
+            registration.launch_channel_h,
             registration.now
         ],
     )?;
     tx.execute(
         "INSERT INTO session_standing
-             (pubkey, channel_h, state, retain_until, standing_epoch,
+             (pubkey, channel_h, state, standing_epoch,
               session_lifecycle_epoch, updated_at)
-         SELECT ?1, ?2, 'absent', 0, 1, lifecycle_epoch, ?3
+         SELECT ?1, ?2, 'absent', 1, lifecycle_epoch, ?3
          FROM sessions WHERE pubkey=?1
          ON CONFLICT(pubkey, channel_h) DO NOTHING",
         params![
             registration.pubkey,
-            registration.channel_h,
+            registration.launch_channel_h,
             registration.now
         ],
     )?;

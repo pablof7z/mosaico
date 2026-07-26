@@ -98,13 +98,14 @@ params: {"pty_session": "…"|null, "harness_session": "…"|null,
 result: {"fabric": "<mosaico>…</mosaico>"}
 ```
 Strict self-scoped agent briefing. It resolves the exact live caller, requests
-canonical state at cursor `0`, and emits `<self>`, host agents, workspaces,
-channels, and member sessions. A workspace lists only advertising hosts whose
-management keys are current admins; rows expose neither repeated channel ids nor
-local paths. Each workspace contains its root `<channel>` and member data belongs
-only to channels. IDs are absolute slash paths (`/<workspace>/<child>`). Channels
-on the exact session's active route omit `members`; inactive channels retain the
-count; expanded channels may expose typed member rows. Non-member channels with accepted chat expose relative `last-active`. This pure read does not advance the hook-awareness cursor.
+canonical state at cursor `0`, and emits `<self>`, host inventory, a root-channel
+forest, and typed member sessions. There are no workspace wrappers and no
+repeated channel name/id attributes. Public names are absolute slash paths
+(`/root/child`); opaque protocol ids and local paths are never exposed. Every
+root containing one of the session's joined channels expands recursively.
+Other roots remain compact. Member rows appear only where the session belongs;
+non-member channels may expose an agent-only count and relative `last-active`.
+This pure read does not advance the hook-awareness cursor.
 
 ### `my_session_status`
 ```jsonc
@@ -154,19 +155,19 @@ use this diagnostic path.
 
 ### `tail` (streaming)
 ```jsonc
-params: {"channel": "…"|null}
-stream: {"item": {"line": "<rendered fabric line>"}}   // repeated
+params: {"channel": "/root/child"|null}
+stream: {"item": {"category": "…", "channel": "/root/child", …}} // repeated
         … until client disconnects (Ctrl-C)
 ```
-The daemon ensures NMP observation coverage for the requested channel, then
-forwards structured events emitted by the materializer and daemon lifecycle.
-Backfill comes from the canonical store; live events come from the daemon's
-bounded tail broadcast. The client renders each streamed item. `channel` here is
-a raw opaque `channel_h`, not a channel reference.
+The daemon resolves the requested full path, ensures NMP observation coverage,
+then forwards structured events emitted by the materializer and daemon
+lifecycle. Backfill comes from the canonical store; live events come from the
+daemon's bounded tail broadcast. Every streamed `channel` is a full public path;
+opaque protocol identifiers remain inside the daemon.
 
 ### Channels
-The channel addressing contract (every `"channel"` argument is a full absolute
-path `/workspace/child` or an `@<id-prefix>`, resolved globally and exactly)
+The channel addressing contract (every public `"channel"` argument is a full
+absolute path `/workspace/child`, resolved globally and exactly)
 and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
 `channel_members`, `channel_add_member`, `channel_remove_member`,
 `channel_create`, `channel_list`, `channel_join`, `channel_leave`,

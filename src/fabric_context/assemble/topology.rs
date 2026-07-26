@@ -32,23 +32,25 @@ fn workspace_row(
         .iter()
         .map(|channel| (channel.reference.clone(), channel))
         .collect::<BTreeMap<_, _>>();
-    let selected = if full {
+    let expanded = inputs.meta.self_row.is_none() || workspace_is_expanded(inputs, workspace);
+    let mut selected = if full {
         full_channel_ids(inputs, workspace, &caps)
-    } else {
+    } else if expanded {
         delta_channel_ids(inputs, workspace, cursor, now)
+    } else {
+        compact_delta_ids(workspace, &caps, cursor, now)
     };
     let workspace_changed = !full && workspace.updated_at > cursor && workspace.updated_at <= now;
+    if !expanded {
+        selected.retain(|id| id == &workspace.summary.channel);
+        if full || workspace_changed {
+            selected.insert(workspace.summary.channel.clone());
+        }
+    }
     if !full && selected.is_empty() && !workspace_changed {
         return None;
     }
-    let content =
-        if full && (inputs.meta.self_row.is_none() || workspace_is_expanded(inputs, workspace)) {
-            selected.clone()
-        } else if full {
-            BTreeSet::new()
-        } else {
-            selected.clone()
-        };
+    let content = expanded.then(|| selected.clone()).unwrap_or_default();
     let selected = if full {
         selected
     } else {
@@ -62,7 +64,11 @@ fn workspace_row(
             })
         })
         .collect();
-    let (root, channels) = crate::fabric_context::tree::arrange(&workspace.summary.name, blocks);
+    let (mut root, channels) =
+        crate::fabric_context::tree::arrange(&workspace.summary.name, blocks);
+    if root.is_none() && selected.contains(&workspace.summary.channel) {
+        root = Some(compact_root(inputs, workspace));
+    }
     Some(WorkspaceView {
         name: workspace.summary.name.clone(),
         about: workspace.summary.about.clone(),
@@ -70,6 +76,33 @@ fn workspace_row(
         root,
         channels,
     })
+}
+
+fn compact_delta_ids(
+    workspace: &WorkspaceCap,
+    caps: &BTreeMap<String, &ChannelCap>,
+    cursor: u64,
+    now: u64,
+) -> BTreeSet<String> {
+    caps.get(&workspace.summary.channel)
+        .filter(|root| root.updated_at > cursor && root.updated_at <= now)
+        .map(|_| BTreeSet::from([workspace.summary.channel.clone()]))
+        .unwrap_or_default()
+}
+
+fn compact_root(inputs: &ViewInputs, workspace: &WorkspaceCap) -> ChannelBlock {
+    ChannelBlock {
+        path: workspace.summary.channel.clone(),
+        about: workspace.summary.about.clone(),
+        agent_count: named_agent_count(inputs, &workspace.summary.name),
+        last_active: None,
+        members: Vec::new(),
+        presence: Vec::new(),
+        departures: Vec::new(),
+        children: Vec::new(),
+        messages: Vec::new(),
+        omitted: 0,
+    }
 }
 
 fn full_channel_ids(
@@ -86,7 +119,7 @@ fn full_channel_ids(
         selected.insert(root.clone());
     }
     if workspace_is_expanded(inputs, workspace) {
-        add_visible_children(inputs, &root, caps, &mut selected);
+        add_visible_children(&root, caps, &mut selected);
     }
     selected
 }
@@ -95,23 +128,20 @@ fn workspace_is_expanded(inputs: &ViewInputs, workspace: &WorkspaceCap) -> bool 
     workspace
         .channels
         .iter()
-        .any(|channel| inputs.meta.active_channels.contains(&channel.h))
+        .any(|channel| inputs.meta.joined_channels.contains(&channel.h))
 }
 
 fn add_visible_children(
-    inputs: &ViewInputs,
     parent: &str,
     caps: &BTreeMap<String, &ChannelCap>,
     selected: &mut BTreeSet<String>,
 ) {
-    for (id, channel) in caps
+    for (id, _) in caps
         .iter()
         .filter(|(id, _)| parent_id(id).is_some_and(|candidate| candidate == parent))
     {
         selected.insert(id.clone());
-        if is_member(inputs, &channel.h) {
-            add_visible_children(inputs, id, caps, selected);
-        }
+        add_visible_children(id, caps, selected);
     }
 }
 
@@ -126,7 +156,8 @@ fn delta_channel_ids(
         .iter()
         .filter(|channel| {
             (channel.updated_at > cursor && channel.updated_at <= now)
-                || !presence_rows(inputs, &channel.h, cursor, now).is_empty()
+                || ((inputs.meta.self_row.is_none() || is_member(inputs, &channel.h))
+                    && !presence_rows(inputs, &channel.h, cursor, now).is_empty())
                 || inputs
                     .messages
                     .channels
@@ -164,17 +195,14 @@ fn channel_block(
     now: u64,
 ) -> ChannelBlock {
     let member = is_member(inputs, &channel.h);
-    let active = inputs.meta.active_channels.contains(&channel.h);
-    let member_count = (!active).then(|| member_count(inputs, &channel.h));
-    let last_active = (!member)
-        .then(|| channel.latest_message_at.map(|at| relative_time(at, now)))
-        .flatten();
+    let agent_count = named_agent_count(inputs, &channel.h);
+    let last_active = channel.latest_message_at.map(|at| relative_time(at, now));
     let members = if content && full && (member || inputs.meta.self_row.is_none()) {
         members::member_rows(inputs, &channel.h, now)
     } else {
         Vec::new()
     };
-    let presence = if content {
+    let presence = if content && (member || inputs.meta.self_row.is_none()) {
         presence_rows(inputs, &channel.h, cursor, now)
     } else {
         Vec::new()
@@ -190,13 +218,13 @@ fn channel_block(
         Default::default()
     };
     ChannelBlock {
-        name: channel.name.clone(),
-        id: channel.reference.clone(),
+        path: channel.reference.clone(),
         about: channel.about.clone(),
-        member_count,
+        agent_count,
         last_active,
         members,
         presence,
+        departures: Vec::new(),
         children: Vec::new(),
         messages,
         omitted,
@@ -205,6 +233,8 @@ fn channel_block(
 
 fn is_member(inputs: &ViewInputs, channel: &str) -> bool {
     !inputs.meta.self_pubkey.is_empty()
+        && inputs.meta.joined_channels.contains(channel)
+        && inputs.members.hydrated.contains(channel)
         && inputs
             .members
             .roster
@@ -212,18 +242,48 @@ fn is_member(inputs: &ViewInputs, channel: &str) -> bool {
             .is_some_and(|members| members.contains_key(&inputs.meta.self_pubkey))
 }
 
-fn member_count(inputs: &ViewInputs, channel: &str) -> usize {
-    inputs
+fn named_agent_count(inputs: &ViewInputs, channel: &str) -> Option<usize> {
+    if !inputs.members.hydrated.contains(channel) {
+        return None;
+    }
+    let statuses = inputs
+        .presence
+        .statuses
+        .get(channel)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut count = 0;
+    for (pubkey, role) in inputs
         .members
         .roster
         .get(channel)
-        .map(|members| {
-            members
-                .keys()
-                .filter(|pubkey| !inputs.members.backend.contains(*pubkey))
-                .count()
-        })
-        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|members| members.iter())
+    {
+        if role == "admin" {
+            continue;
+        }
+        if inputs.members.backend.contains(pubkey.as_str()) {
+            continue;
+        }
+        let is_agent = pubkey.as_str() == inputs.meta.self_pubkey
+            || inputs
+                .members
+                .agent_slugs
+                .get(pubkey.as_str())
+                .is_some_and(|slug| !slug.trim().is_empty())
+            || statuses
+                .iter()
+                .any(|status| status.pubkey == pubkey.as_str() && !status.slug.trim().is_empty());
+        if is_agent {
+            count += 1;
+        } else if !inputs.members.has_handle(pubkey) {
+            // The roster is hydrated, but this identity is not: counting it as
+            // a human would silently under-report agents.
+            return None;
+        }
+    }
+    Some(count)
 }
 
 fn parent_id(id: &str) -> Option<&str> {

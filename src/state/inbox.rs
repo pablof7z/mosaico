@@ -4,8 +4,10 @@
 //! because a row exists. Direct-message rows start `pending` (parked for the next
 //! hook), become `delivered` when surfaced by turn context, or `injected` when
 //! submitted through a hosted PTY as a prompt awaiting echo suppression. Consumed echoes
-//! become `echo_consumed`. Runtime ids are locators and never enter this ledger;
-//! orchestration and management replay guards live in `event_claims`.
+//! become `echo_consumed`. Rows invalidated by a later leave/rejoin become
+//! `rejected_membership` instead of being delivered under the new membership.
+//! Runtime ids are locators and never enter this ledger; orchestration and
+//! management replay guards live in `event_claims`.
 use super::*;
 
 const COLS: &str = "event_id, target_pubkey, state, from_pubkey, channel_h, body, created_at, \

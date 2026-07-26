@@ -6,6 +6,8 @@ pub(super) fn to_status(cmd: &StatusCommand, ttl_secs: u64, now: u64, expiring: 
         agent: AgentRef::new(cmd.pubkey.clone(), cmd.slug.clone()),
         channels: cmd.channels.clone(),
         host: cmd.host.clone(),
+        workspace: cmd.workspace.clone(),
+        branch: cmd.branch.clone(),
         title: cmd.title.clone(),
         activity: String::new(),
         state: if expiring {

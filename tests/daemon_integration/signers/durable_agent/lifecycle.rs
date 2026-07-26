@@ -12,7 +12,8 @@ fn launch(home: &Home, slug: &str, mode: &str) -> std::process::Output {
 }
 
 pub(super) async fn assert_supervisor_releases_reservations(home: &Home, slug: &str) {
-    let running = launch(home, slug, "sleep-2");
+    let release = home.dir.path().join("release-harness");
+    let running = launch(home, slug, "wait-file");
     assert!(
         running.status.success(),
         "{}",
@@ -24,7 +25,19 @@ pub(super) async fn assert_supervisor_releases_reservations(home: &Home, slug: &
         "reservation must remain exclusive while the no-hook child is alive"
     );
 
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    std::fs::write(&release, "").unwrap();
+    assert!(wait_until(std::time::Duration::from_secs(10), || {
+        Store::open(&home.store_path())
+            .map(|store| {
+                store
+                    .list_running_sessions()
+                    .unwrap_or_default()
+                    .iter()
+                    .all(|session| session.agent_slug != slug)
+            })
+            .unwrap_or(false)
+    }));
+    std::fs::remove_file(&release).unwrap();
     let after_exit = launch(home, slug, "exit-0");
     assert!(
         !after_exit.status.success(),

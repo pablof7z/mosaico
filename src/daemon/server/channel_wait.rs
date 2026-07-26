@@ -139,30 +139,30 @@ fn wait_scope_and_cursor(
         ));
     }
 
-    let scopes = resolve_active_scopes(state, rec, &params.channels)?;
+    let scopes = resolve_joined_scopes(state, rec, &params.channels)?;
     let cursor = state.with_store(|store| store.latest_message_rowid())?;
     Ok((scopes, cursor, None))
 }
 
-fn resolve_active_scopes(
+fn resolve_joined_scopes(
     state: &Arc<DaemonState>,
     rec: &Session,
     requested: &[String],
 ) -> Result<Vec<String>> {
-    let active = state.with_store(|store| store.list_session_routes(&rec.pubkey))?;
-    let active = active
+    let joined = state.with_store(|store| store.list_session_routes(&rec.pubkey))?;
+    let joined = joined
         .into_iter()
         .map(|(channel, _)| channel)
         .collect::<Vec<_>>();
-    if active.is_empty() {
-        anyhow::bail!("this session is not active on any channels");
+    if joined.is_empty() {
+        anyhow::bail!("this session has not joined any channels");
     }
     if requested.is_empty() {
-        return Ok(active);
+        return Ok(joined);
     }
     let mut scopes = Vec::new();
     for reference in requested {
-        let resolved = resolve_active_reference(state, &active, reference)?;
+        let resolved = resolve_joined_reference(state, &joined, reference)?;
         if !scopes.contains(&resolved) {
             scopes.push(resolved);
         }
@@ -170,14 +170,14 @@ fn resolve_active_scopes(
     Ok(scopes)
 }
 
-fn resolve_active_reference(
+fn resolve_joined_reference(
     state: &Arc<DaemonState>,
-    active: &[String],
+    joined: &[String],
     reference: &str,
 ) -> Result<String> {
     let reference = reference.trim();
-    let active_refs = state.with_store(|store| {
-        active
+    let joined_refs = state.with_store(|store| {
+        joined
             .iter()
             .map(|channel| {
                 (
@@ -187,25 +187,16 @@ fn resolve_active_reference(
             })
             .collect::<Vec<_>>()
     });
-    // An exact full path or @id match against an ALREADY-joined channel —
-    // no fuzzy suffix matching now that a full path is required everywhere.
-    let matches = active_refs
+    // An exact full path against an already-joined channel.
+    let matches = joined_refs
         .iter()
-        .filter(|(channel, full)| {
-            if let Some(prefix) = reference.strip_prefix('@') {
-                return !prefix.is_empty() && channel.starts_with(prefix);
-            }
-            // Deliberately NOT `channel == reference`: a bare opaque id is not
-            // an accepted reference form anywhere else, and accepting it here
-            // would leave one lenient corner of the surface.
-            full.eq_ignore_ascii_case(reference)
-        })
+        .filter(|(_, full)| full.eq_ignore_ascii_case(reference))
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [(channel, _)] => Ok(channel.clone()),
-        [] => anyhow::bail!("this session is not active on channel {reference:?}"),
+        [] => anyhow::bail!("this session has not joined channel {reference:?}"),
         many => anyhow::bail!(
-            "channel reference {reference:?} is ambiguous among active channels: {}",
+            "channel reference {reference:?} is ambiguous among joined channels: {}",
             many.iter()
                 .map(|(_, full)| full.as_str())
                 .collect::<Vec<_>>()
@@ -265,10 +256,7 @@ fn message_result(
     channels: &[String],
     elapsed: Duration,
 ) -> serde_json::Value {
-    let mut rendered = channel_read_tail::chat_row_to_json(state, message, false);
-    let channel_ref =
-        state.with_store(|store| crate::channel_ref::full_channel_ref(store, &message.channel_h));
-    rendered["channel_ref"] = serde_json::Value::String(channel_ref);
+    let rendered = channel_read_tail::chat_row_to_json(state, message, false);
     serde_json::json!({
         "outcome": "message",
         "waited_secs": elapsed.as_secs(),

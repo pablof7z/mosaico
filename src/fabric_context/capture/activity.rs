@@ -12,6 +12,10 @@ pub(in crate::fabric_context) struct StatusCap {
     pub(in crate::fabric_context) host: String,
     #[serde(default)]
     pub(in crate::fabric_context) slug: String,
+    #[serde(default)]
+    pub(in crate::fabric_context) workspace: String,
+    #[serde(default)]
+    pub(in crate::fabric_context) branch: String,
     pub(in crate::fabric_context) state: crate::session_state::SessionState,
     pub(in crate::fabric_context) activity: String,
     pub(in crate::fabric_context) title: String,
@@ -71,6 +75,10 @@ pub(super) fn status_caps(
                 host: read::profile_host(store, &status.pubkey),
                 slug: status.slug,
                 pubkey: status.pubkey,
+                workspace: local_session
+                    .as_ref()
+                    .map_or(status.workspace, |session| session.work_root.clone()),
+                branch: status.branch,
                 state: local.as_ref().map_or(status.state, |row| row.state),
                 activity: local
                     .as_ref()
@@ -91,10 +99,9 @@ pub(super) fn status_caps(
         })
         .collect::<Vec<_>>();
     for session in store.list_running_sessions().unwrap_or_default() {
-        let routed = session.channel_h == channel
-            || store
-                .has_session_route(&session.pubkey, channel)
-                .unwrap_or(false);
+        let routed = store
+            .has_session_route(&session.pubkey, channel)
+            .unwrap_or(false);
         if !routed || rows.iter().any(|row| row.pubkey == session.pubkey) {
             continue;
         }
@@ -119,6 +126,8 @@ pub(super) fn status_caps(
             pubkey: session.pubkey,
             host: local_host.to_string(),
             slug,
+            workspace: session.work_root,
+            branch: String::new(),
             state: presence.state,
             activity: presence.activity,
             title: presence.title,

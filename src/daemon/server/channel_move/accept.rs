@@ -25,21 +25,26 @@ pub(in crate::daemon::server) async fn rpc_accept(
     let caller = resolve_session(state, &CallerAnchor::from_params(params))?;
     let now = now_secs();
     let Some(offer) = current_offer(state, &caller.pubkey, now) else {
-        anyhow::bail!(
-            "no current channel-move suggestion for this session; wait for a new topology nudge"
-        );
+        anyhow::bail!("no channel-move suggestion for this session; wait for a new topology nudge");
     };
     let existing =
         state.with_store(|store| store.channel_id_for_name(&offer.evidence.parent, name))?;
-    let resuming_partial_move = caller.channel_h != offer.evidence.parent
-        && existing.as_deref() == Some(caller.channel_h.as_str());
-    if !caller_can_resume_offer(
-        &caller.channel_h,
-        &offer.evidence.parent,
-        existing.as_deref(),
-    ) {
+    let joined_parent = state.with_store(|store| {
+        store
+            .has_session_route(&caller.pubkey, &offer.evidence.parent)
+            .unwrap_or(false)
+    });
+    let joined_existing = existing.as_deref().is_some_and(|channel| {
+        state.with_store(|store| {
+            store
+                .has_session_route(&caller.pubkey, channel)
+                .unwrap_or(false)
+        })
+    });
+    let resuming_partial_move = joined_parent && joined_existing;
+    if !joined_parent {
         clear_offer(state, &caller.pubkey);
-        anyhow::bail!("channel-move suggestion is stale because this session changed channels");
+        anyhow::bail!("channel-move suggestion is stale because this session left the parent");
     }
     if !resuming_partial_move {
         let Some(current) = current_evidence(state, &offer.evidence.parent, now)? else {
@@ -54,20 +59,27 @@ pub(in crate::daemon::server) async fn rpc_accept(
         }
     }
 
-    let (child_h, created) = match existing {
+    let (child_h, child_path, created) = match existing {
         Some(child_h) => {
             channel_membership_rpc::ensure_joinable(state, &caller, &child_h).await?;
-            channel_membership_rpc::set_active_session_channel(state, &caller.pubkey, &child_h)?;
-            (child_h, false)
+            let child_path = state
+                .with_store(|store| channel_resolve::channel_reference_for(store, &child_h))?;
+            (child_h, child_path, false)
         }
         None => {
             let create_params = move_create_params(params, &offer.evidence.parent, name, about);
             let created = channels_rpc::rpc_channel_create(state, &create_params).await?;
-            let child_h = created["child_h"]
+            let child_path = created["channel"]
                 .as_str()
-                .context("channel create returned no child id")?
+                .context("channel create returned no channel path")?
                 .to_string();
-            (child_h, true)
+            let child_h = match state.with_store(|store| {
+                channel_resolve::absolute::resolve_absolute_channel_ref(store, &child_path)
+            }) {
+                ChannelResolution::Unique(channel) => channel,
+                _ => anyhow::bail!("created channel path {child_path:?} did not resolve uniquely"),
+            };
+            (child_h, child_path, true)
         }
     };
 
@@ -117,7 +129,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
             state,
             &offer.evidence.parent,
             &child_h,
-            name,
+            &child_path,
             &remote_targets,
         )
         .await
@@ -155,15 +167,20 @@ pub(in crate::daemon::server) async fn rpc_accept(
         }
     }
 
-    let pointer = format!("Moving this to #{name}");
+    let pointer = format!(
+        "Continue this conversation in {child_path}; existing channel memberships are unchanged"
+    );
     let pointer_posted =
         if pointer_exists(state, &offer.evidence.parent, &pointer, offer.offered_at)? {
             false
         } else {
+            let parent_path = state.with_store(|store| {
+                channel_resolve::channel_reference_for(store, &offer.evidence.parent)
+            })?;
             let mut send_params = params.clone();
             if let Some(obj) = send_params.as_object_mut() {
                 obj.insert("message".into(), serde_json::json!(pointer));
-                obj.insert("channel".into(), serde_json::json!(offer.evidence.parent));
+                obj.insert("channel".into(), serde_json::json!(parent_path));
                 obj.insert("tags".into(), serde_json::json!([]));
                 obj.insert("force".into(), serde_json::json!(false));
                 obj.insert("attachments".into(), serde_json::json!([]));
@@ -173,9 +190,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
         };
     clear_offer(state, &caller.pubkey);
     Ok(serde_json::json!({
-        "parent": offer.evidence.parent,
-        "child_h": child_h,
-        "name": name,
+        "channel": child_path,
         "created": created,
         "added": added,
         "requested": requested,
@@ -202,10 +217,6 @@ fn move_create_params(
     create_params
 }
 
-fn caller_can_resume_offer(current: &str, parent: &str, existing_child: Option<&str>) -> bool {
-    current == parent || existing_child == Some(current)
-}
-
 fn same_cohort(captured: &ConversationEvidence, current: &ConversationEvidence) -> bool {
     captured.parent == current.parent
         && captured.cohort.len() == current.cohort.len()
@@ -228,10 +239,9 @@ fn current_local_participant(
             return Ok(None);
         };
         let generation_matches = participant.runtime_generation == Some(session.runtime_generation);
-        let still_in_parent = session.channel_h == parent
-            || store
-                .has_session_route(&session.pubkey, parent)
-                .unwrap_or(false);
+        let still_in_parent = store
+            .has_session_route(&session.pubkey, parent)
+            .unwrap_or(false);
         Ok((session.is_running() && generation_matches && still_in_parent).then_some(session))
     })
 }
@@ -240,11 +250,13 @@ async fn publish_running_only_moves(
     state: &Arc<DaemonState>,
     parent: &str,
     child_h: &str,
-    name: &str,
+    child_path: &str,
     targets: &[AddTarget],
 ) -> Result<String> {
     let keys = state.management_keys()?;
-    let prose = format!("Move the active conversation into #{name}");
+    let prose = format!(
+        "Join {child_path} to continue this conversation; existing channel memberships are unchanged"
+    );
     let builder = build_admit_running_event(parent, child_h, targets, &prose)?;
     let signed = state.nmp.sign_event(builder, &keys).await?;
     let event_id = signed.id.to_hex();

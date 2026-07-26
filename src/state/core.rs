@@ -233,11 +233,11 @@ fn sample_order_sql(table: &str, table_columns: &[String]) -> Option<&'static st
                  WHERE s.pubkey = session_locators.pubkey AND s.runtime_state = 'running'\
              ) THEN 0 ELSE 1 END, created_at DESC",
         ),
-        "session_channels" if has_columns(table_columns, &["pubkey", "granted_at"]) => Some(
+        "session_channels" if has_columns(table_columns, &["pubkey", "joined_at"]) => Some(
             "CASE WHEN EXISTS (\
                  SELECT 1 FROM sessions s \
                  WHERE s.pubkey = session_channels.pubkey AND s.runtime_state = 'running'\
-             ) THEN 0 ELSE 1 END, granted_at DESC",
+             ) THEN 0 ELSE 1 END, joined_at DESC",
         ),
         "sessions" if has_columns(table_columns, &["runtime_state", "last_seen", "created_at"]) => {
             Some("(runtime_state='running') DESC, last_seen DESC, created_at DESC")

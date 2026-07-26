@@ -23,15 +23,67 @@ enum ChannelReadiness {
 }
 
 pub(super) fn self_cap(store: &Store, s: &Session, input: &FabricContextInput<'_>) -> SelfCap {
+    let resolver = crate::daemon::workspace_path::WorkspacePathResolver::new(store);
+    let workspace = s.work_root.clone();
+    let branch = resolver
+        .path_for_channel(&workspace)
+        .ok()
+        .flatten()
+        .and_then(|path| git_branch(std::path::Path::new(&path)))
+        .unwrap_or_default();
     SelfCap {
         name: input.self_slug.to_string(),
         host: input.local_host.to_string(),
         headless: crate::session_host::session_is_headless(store, s),
         title: s.title.clone(),
+        workspace,
+        branch,
+        turn_count: s.turn_count,
     }
 }
 
-pub(super) fn active_channels(store: &Store, session: Option<&Session>) -> Vec<String> {
+fn git_branch(workspace: &std::path::Path) -> Option<String> {
+    if !workspace.is_dir() {
+        return None;
+    }
+    if let Some(branch) = branch_from_head(workspace) {
+        return Some(branch);
+    }
+    let output = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(workspace)
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8(output.stdout).ok()?;
+    let branch = branch.trim();
+    (!branch.is_empty() && !branch.chars().any(char::is_control)).then(|| branch.to_string())
+}
+
+fn branch_from_head(workspace: &std::path::Path) -> Option<String> {
+    let dot_git = workspace.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        let pointer = std::fs::read_to_string(dot_git).ok()?;
+        let path = pointer.trim().strip_prefix("gitdir:")?.trim();
+        let path = std::path::Path::new(path);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            workspace.join(path)
+        }
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let branch = head.trim().strip_prefix("ref: refs/heads/")?;
+    (!branch.is_empty() && !branch.chars().any(char::is_control)).then(|| branch.to_string())
+}
+
+pub(super) fn joined_channels(store: &Store, session: Option<&Session>) -> Vec<String> {
     session_channels(store, session)
         .into_iter()
         .filter(|channel| matches!(channel_readiness(store, channel), ChannelReadiness::Ready))
@@ -44,14 +96,11 @@ fn session_channels(store: &Store, session: Option<&Session>) -> Vec<String> {
     };
     let mut channels = store
         .list_session_routes(&rec.pubkey)
-        .unwrap_or_else(|_| vec![(rec.channel_h.clone(), rec.created_at)])
+        .unwrap_or_default()
         .into_iter()
         .map(|(h, _)| h)
         .filter(|channel| !channel.is_empty())
         .collect::<Vec<_>>();
-    if !rec.channel_h.is_empty() && !channels.iter().any(|channel| channel == &rec.channel_h) {
-        channels.push(rec.channel_h.clone());
-    }
     channels.sort();
     channels.dedup();
     channels
@@ -60,7 +109,7 @@ fn session_channels(store: &Store, session: Option<&Session>) -> Vec<String> {
 /// The ordered, deduped, archived-pruned channel set: joined channels plus
 /// forced-message channels, minus archived channels.
 pub(super) fn selected_channels(store: &Store, input: &FabricContextInput<'_>) -> Vec<String> {
-    let mut channels = active_channels(store, input.session);
+    let mut channels = joined_channels(store, input.session);
     if input.session.is_none() && !input.scope.is_empty() {
         channels.push(input.scope.to_string());
     }
@@ -141,14 +190,25 @@ pub(super) fn capture_messages(
         .into_iter()
         .filter(|e| e.kind == crate::fabric::nip29::wire::KIND_CHAT as u32)
         .filter(|e| e.pubkey != input.self_pubkey)
+        .filter(|e| {
+            input.session.is_none_or(|session| {
+                store
+                    .session_membership_admits_event(&session.pubkey, channel, &e.id)
+                    .unwrap_or(false)
+            })
+        })
         .filter(|e| !injected.contains(&e.id))
         .filter(|e| !is_backend_traffic(store, input.backend_pubkey, &e.pubkey, &e.tags_json))
-        .map(|ev| {
+        .filter_map(|ev| {
+            let channel_ref = crate::channel_ref::full_channel_ref(store, &ev.channel_h);
+            if channel_ref.is_empty() {
+                return None;
+            }
             let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
             let (body, truncated) = truncate_words(&resolved_body, CHAT_RENDER_WORD_LIMIT);
-            EvCap {
+            Some(EvCap {
                 id: ev.id.clone(),
-                channel_ref: crate::channel_ref::full_channel_ref(store, &ev.channel_h),
+                channel_ref,
                 from_ref: pubkey_ref(store, &ev.pubkey, input.local_host),
                 recipient_refs: p_tag_refs(store, &ev.tags_json, input.local_host),
                 created_at: ev.created_at,
@@ -164,16 +224,20 @@ pub(super) fn capture_messages(
                     ev.created_at,
                     mentions_pubkey(&ev.tags_json, input.self_pubkey),
                 ),
-            }
+            })
         })
         .collect();
     let forced = forced
         .iter()
-        .map(|row| {
+        .filter_map(|row| {
+            let channel_ref = crate::channel_ref::full_channel_ref(store, channel);
+            if channel_ref.is_empty() {
+                return None;
+            }
             let (body, truncated) = truncate_words(&row.body, CHAT_RENDER_WORD_LIMIT);
-            EvCap {
+            Some(EvCap {
                 id: row.id.clone(),
-                channel_ref: crate::channel_ref::full_channel_ref(store, channel),
+                channel_ref,
                 from_ref: pubkey_ref(store, &row.from_pubkey, input.local_host),
                 recipient_refs: forced_recipient_refs(store, input, row.mention),
                 created_at: row.created_at,
@@ -189,7 +253,7 @@ pub(super) fn capture_messages(
                     row.created_at,
                     row.mention,
                 ),
-            }
+            })
         })
         .collect();
     MsgBundle { events, forced }

@@ -61,14 +61,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     let agent_label = instance.display_slug();
 
     // Emit Turn{working} for the live tail feed, keyed on the routing scope.
-    state.emit_tail(TailEvent::Turn {
-        ts: now,
-        channel: rec.channel_h.clone(),
-        agent: agent_label,
-        session: rec.pubkey.clone(),
-        state: "working".into(),
-        elapsed_s: None,
-    });
+    emit_turn_for_routes(state, &rec, now, &agent_label, "working", None);
 
     schedule_context_profile_warm(state.clone(), rec.clone(), context_warm_since(&rec, now));
 
@@ -187,18 +180,34 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
         let elapsed_s = (turn_started_at > 0).then(|| now.saturating_sub(turn_started_at));
         if let Some(rec) = rec.as_ref() {
             let agent_label = state.session_instance(rec).display_slug();
-            state.emit_tail(TailEvent::Turn {
-                ts: now,
-                channel: rec.channel_h.clone(),
-                agent: agent_label,
-                session: rec.pubkey.clone(),
-                state: "idle".into(),
-                elapsed_s,
-            });
+            emit_turn_for_routes(state, rec, now, &agent_label, "idle", elapsed_s);
         }
         crate::session_host::ring_doorbells(state.clone());
     }
     Ok(serde_json::json!({ "ok": true }))
+}
+
+fn emit_turn_for_routes(
+    state: &Arc<DaemonState>,
+    rec: &crate::state::Session,
+    at: u64,
+    agent: &str,
+    work_state: &str,
+    elapsed_s: Option<u64>,
+) {
+    let routes = state
+        .with_store(|store| store.list_session_routes(&rec.pubkey))
+        .unwrap_or_default();
+    for (channel, _) in routes {
+        state.emit_tail(TailEvent::Turn {
+            ts: at,
+            channel,
+            agent: agent.to_string(),
+            session: rec.pubkey.clone(),
+            state: work_state.to_string(),
+            elapsed_s,
+        });
+    }
 }
 
 fn context_warm_since(rec: &crate::state::Session, now: u64) -> u64 {

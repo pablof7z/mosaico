@@ -52,9 +52,28 @@ async fn start_session(
     resume_id: Option<&str>,
     channel: &str,
 ) -> String {
+    start_session_in(
+        client,
+        agent,
+        harness_id,
+        resume_id,
+        channel,
+        std::path::Path::new("/tmp"),
+    )
+    .await
+}
+
+async fn start_session_in(
+    client: &mut Client,
+    agent: &str,
+    harness_id: Option<&str>,
+    resume_id: Option<&str>,
+    channel: &str,
+    cwd: &std::path::Path,
+) -> String {
     let mut params = serde_json::json!({
         "agent": agent,
-        "cwd": "/tmp",
+        "cwd": cwd,
         "channel": channel,
     });
     if let Some(id) = harness_id {

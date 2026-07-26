@@ -2,24 +2,28 @@ use super::*;
 use crate::state::{RecordMessage, RegisterSession, RelayEvent};
 
 const SELF_PUBKEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+const X_CHANNEL: &str = "x-h";
+const Y_CHANNEL: &str = "y-h";
+const Z_CHANNEL: &str = "z-h";
 
 fn seed_session(state: &Arc<DaemonState>) -> Session {
     state
         .with_store(|store| {
             store.upsert_channel("root", "root", "", "", 1)?;
-            store.upsert_channel("x", "x", "", "root", 2)?;
-            store.upsert_channel("y", "y", "", "root", 3)?;
-            store.upsert_channel("z", "z", "", "root", 4)?;
+            store.upsert_channel(X_CHANNEL, "x", "", "root", 2)?;
+            store.upsert_channel(Y_CHANNEL, "y", "", "root", 3)?;
+            store.upsert_channel(Z_CHANNEL, "z", "", "root", 4)?;
             store.reserve_hook_session_for_test(&RegisterSession {
                 pubkey: SELF_PUBKEY.into(),
                 observed_harness: "codex".into(),
                 agent_slug: "self".into(),
-                channel_h: "x".into(),
+                launch_channel_h: X_CHANNEL.into(),
+                work_root: "root".into(),
                 child_pid: None,
                 now: 1,
             })?;
-            store.grant_session_route(SELF_PUBKEY, "x", 1)?;
-            store.grant_session_route(SELF_PUBKEY, "y", 2)?;
+            store.grant_session_route(SELF_PUBKEY, X_CHANNEL, 1)?;
+            store.grant_session_route(SELF_PUBKEY, Y_CHANNEL, 2)?;
             store.get_session(SELF_PUBKEY)?.context("missing session")
         })
         .unwrap()
@@ -66,28 +70,27 @@ fn insert_chat(
 }
 
 #[tokio::test]
-async fn no_channel_uses_all_active_channels_and_explicit_channels_narrow() {
+async fn no_channel_uses_all_joined_channels_and_explicit_channels_narrow() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
 
     assert_eq!(
-        resolve_active_scopes(&state, &rec, &[]).unwrap(),
-        ["x", "y"]
+        resolve_joined_scopes(&state, &rec, &[]).unwrap(),
+        [X_CHANNEL, Y_CHANNEL]
     );
     assert_eq!(
-        resolve_active_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
-        ["y"]
+        resolve_joined_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
+        [Y_CHANNEL]
     );
-    let error = resolve_active_scopes(&state, &rec, &["/root/z".into()]).unwrap_err();
-    assert!(error.to_string().contains("not active on channel"));
-    // A bare opaque id is not an accepted reference form, even though "y" is
-    // the literal channel_h of /root/y in this fixture.
-    let bare = resolve_active_scopes(&state, &rec, &["y".into()]).unwrap_err();
-    assert!(bare.to_string().contains("not active on channel"));
+    let error = resolve_joined_scopes(&state, &rec, &["/root/z".into()]).unwrap_err();
+    assert!(error.to_string().contains("has not joined channel"));
+    // A bare opaque id is not an accepted reference form.
+    let bare = resolve_joined_scopes(&state, &rec, &[Y_CHANNEL.into()]).unwrap_err();
+    assert!(bare.to_string().contains("has not joined channel"));
 }
 
 #[tokio::test]
-async fn explicit_channel_filters_resolve_across_every_active_workspace() {
+async fn explicit_channel_filters_resolve_across_every_joined_workspace() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
     state
@@ -100,37 +103,51 @@ async fn explicit_channel_filters_resolve_across_every_active_workspace() {
         .unwrap();
 
     assert_eq!(
-        resolve_active_scopes(&state, &rec, &["/other/y".into()]).unwrap(),
+        resolve_joined_scopes(&state, &rec, &["/other/y".into()]).unwrap(),
         ["other-y"]
     );
     assert_eq!(
-        resolve_active_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
-        ["y"]
+        resolve_joined_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
+        [Y_CHANNEL]
     );
-    // Two active channels are named "y" (/root/y and /other/y), and "y" is
-    // also the literal channel_h of the first. A bare id disambiguates
-    // neither, so it is rejected outright rather than silently picking one.
-    let bare = resolve_active_scopes(&state, &rec, &["y".into()]).unwrap_err();
-    assert!(bare.to_string().contains("not active on channel"));
+    // A bare opaque id is rejected even when two joined channels share a
+    // human-facing leaf name.
+    let bare = resolve_joined_scopes(&state, &rec, &[Y_CHANNEL.into()]).unwrap_err();
+    assert!(bare.to_string().contains("has not joined channel"));
 }
 
 #[tokio::test]
 async fn correlated_wait_skips_unrelated_chat_and_returns_exact_reply() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
-    insert_chat(&state, "original", "x", SELF_PUBKEY, "please reply", None);
+    insert_chat(
+        &state,
+        "original",
+        X_CHANNEL,
+        SELF_PUBKEY,
+        "please reply",
+        None,
+    );
     let mut cursor = state
         .with_store(|store| store.message_rowid("original"))
         .unwrap()
         .unwrap();
-    insert_chat(&state, "noise", "x", "noise-pk", "noise", None);
-    insert_chat(&state, "reply", "x", "peer-pk", "done", Some("original"));
-    let filter = AuthorFilter::from_params(&state, &["x".into()], &WaitParams::default()).unwrap();
+    insert_chat(&state, "noise", X_CHANNEL, "noise-pk", "noise", None);
+    insert_chat(
+        &state,
+        "reply",
+        X_CHANNEL,
+        "peer-pk",
+        "done",
+        Some("original"),
+    );
+    let filter =
+        AuthorFilter::from_params(&state, &[X_CHANNEL.into()], &WaitParams::default()).unwrap();
 
     let found = drain_matching(
         &state,
         &mut cursor,
-        &["x".into()],
+        &[X_CHANNEL.into()],
         Some("original"),
         &filter,
         &own_pubkeys(&rec),
@@ -148,22 +165,23 @@ async fn ambient_wait_excludes_management_and_callers_own_chat() {
     let mut cursor = state
         .with_store(|store| store.latest_message_rowid())
         .unwrap();
-    insert_chat(&state, "self-chat", "x", SELF_PUBKEY, "mine", None);
+    insert_chat(&state, "self-chat", X_CHANNEL, SELF_PUBKEY, "mine", None);
     insert_chat(
         &state,
         "management-chat",
-        "x",
+        X_CHANNEL,
         &state.backend_pubkey().unwrap(),
         "mgmt ok",
         None,
     );
-    insert_chat(&state, "human-chat", "x", "human-pk", "hello", None);
-    let filter = AuthorFilter::from_params(&state, &["x".into()], &WaitParams::default()).unwrap();
+    insert_chat(&state, "human-chat", X_CHANNEL, "human-pk", "hello", None);
+    let filter =
+        AuthorFilter::from_params(&state, &[X_CHANNEL.into()], &WaitParams::default()).unwrap();
 
     let found = drain_matching(
         &state,
         &mut cursor,
-        &["x".into()],
+        &[X_CHANNEL.into()],
         None,
         &filter,
         &own_pubkeys(&rec),
@@ -181,7 +199,7 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
     state
         .with_store(|store| {
             store.upsert_profile("human-pk", "pablo", "pablo", "", false, 1)?;
-            store.upsert_channel_member("y", "human-pk", "member", 1)?;
+            store.upsert_channel_member(Y_CHANNEL, "human-pk", "member", 1)?;
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -189,11 +207,12 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
         from: Some("pablo".into()),
         ..WaitParams::default()
     };
-    let filter = AuthorFilter::from_params(&state, &["x".into(), "y".into()], &params).unwrap();
+    let filter =
+        AuthorFilter::from_params(&state, &[X_CHANNEL.into(), Y_CHANNEL.into()], &params).unwrap();
     let message = Message {
         message_id: "human-message".into(),
-        thread_id: "y".into(),
-        channel_h: "y".into(),
+        thread_id: Y_CHANNEL.into(),
+        channel_h: Y_CHANNEL.into(),
         author_pubkey: "human-pk".into(),
         body: "hello".into(),
         created_at: 1,
@@ -207,7 +226,7 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
 }
 
 #[tokio::test]
-async fn ambient_rpc_returns_first_new_chat_from_any_active_channel() {
+async fn ambient_rpc_returns_first_new_chat_from_any_joined_channel() {
     let state = DaemonState::new_for_test().await;
     seed_session(&state);
     let waiting = {
@@ -224,10 +243,10 @@ async fn ambient_rpc_returns_first_new_chat_from_any_active_channel() {
         })
     };
     tokio::time::sleep(Duration::from_millis(30)).await;
-    insert_chat(&state, "new-chat", "y", "peer-pk", "hello", None);
+    insert_chat(&state, "new-chat", Y_CHANNEL, "peer-pk", "hello", None);
     state.emit_tail(TailEvent::Msg {
         ts: 10,
-        channel: "y".into(),
+        channel: Y_CHANNEL.into(),
         from: "peer".into(),
         to: "channel-chat".into(),
         body: "hello".into(),
@@ -236,7 +255,8 @@ async fn ambient_rpc_returns_first_new_chat_from_any_active_channel() {
     let result = waiting.await.unwrap().unwrap();
     assert_eq!(result["outcome"], "message");
     assert_eq!(result["message"]["event_id"], "new-chat");
-    assert_eq!(result["message"]["channel_ref"], "/root/y");
+    assert_eq!(result["message"]["channel"], "/root/y");
+    assert!(result["message"].get("channel_ref").is_none());
 }
 
 #[tokio::test]

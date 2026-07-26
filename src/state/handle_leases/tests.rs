@@ -72,7 +72,8 @@ fn dead_custom_handle_is_available_and_atomically_reclaimed() {
             pubkey: "old".into(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now: 10,
         })

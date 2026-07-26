@@ -19,19 +19,25 @@ pub(super) fn format_tagged_body(message: &str, tagged: &[TaggedRecipient]) -> R
 }
 
 fn strip_existing_tag_prefix<'a>(message: &'a str, tagged: &[TaggedRecipient]) -> &'a str {
-    let Some((prefix, body)) = message.split_once(':') else {
+    let trimmed = message.trim_start();
+    let Some(rest) = trimmed.strip_prefix('@') else {
         return message;
     };
-    let already_addressed = prefix.split(',').all(|part| {
-        let Some(label) = part.trim().strip_prefix('@') else {
-            return false;
-        };
-        !label.is_empty() && tagged.iter().any(|target| target.label == label)
-    });
-    if already_addressed {
-        body.strip_prefix(' ').unwrap_or(body)
-    } else {
-        message
+    let label_end = rest
+        .find(|ch: char| ch.is_whitespace() || matches!(ch, ':' | ','))
+        .unwrap_or(rest.len());
+    let (label, suffix) = rest.split_at(label_end);
+    let matches_tag = !label.is_empty()
+        && tagged
+            .iter()
+            .any(|target| target.label.eq_ignore_ascii_case(label));
+    if !matches_tag {
+        return message;
+    }
+    match suffix.chars().next() {
+        Some(':') | Some(',') => suffix[1..].trim_start(),
+        Some(ch) if ch.is_whitespace() => suffix.trim_start(),
+        _ => message,
     }
 }
 
@@ -85,6 +91,23 @@ mod tests {
         );
         assert!(body.ends_with(": hello"));
         assert!(!body.contains("@agent1"));
+    }
+
+    #[test]
+    fn strips_supported_leading_tag_forms_case_insensitively() {
+        for message in ["@agent1 hello", "@agent1, hello", "@Agent1: hello"] {
+            let body = format_tagged_body(message, &[recipient("agent1", FIRST_PK)]).unwrap();
+            assert!(body.ends_with(": hello"), "got {body}");
+            assert!(!body.to_ascii_lowercase().contains("@agent1"), "got {body}");
+        }
+    }
+
+    #[test]
+    fn strips_at_most_one_leading_matching_tag() {
+        let body = format_tagged_body("@agent1: @agent1: hello", &[recipient("agent1", FIRST_PK)])
+            .unwrap();
+
+        assert!(body.ends_with(": @agent1: hello"), "got {body}");
     }
 
     #[test]

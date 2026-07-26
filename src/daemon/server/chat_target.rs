@@ -8,20 +8,20 @@ pub(in crate::daemon::server) struct ChatTarget {
 
 /// Resolve `--channel`/inferred destination for `channel send`/`channel read`.
 ///
-/// An explicit reference must be a full absolute path (`/workspace/child`) or
-/// an `@<id-prefix>` — no bare relative names, no bare raw ids, and no
-/// exception for the caller's own channel. Resolution is GLOBAL (not scoped to
+/// An explicit reference must be a full absolute path (`/workspace/child`) —
+/// no bare names or opaque ids, and no exception for a launch channel.
+/// Resolution is GLOBAL (not scoped to
 /// the caller's own workspace). A reference that doesn't resolve is rejected
 /// with a list of what actually exists — nothing is ever created here. A
 /// reference that DOES resolve but the calling session hasn't joined is also
 /// rejected: sending/reading requires having joined first. (A session that
-/// wants to target its own current channel, including one whose relay
+/// has exactly one joined channel, including one whose relay
 /// metadata hasn't materialized yet and so isn't otherwise addressable, should
 /// simply omit `--channel` — see below.)
 ///
 /// With no explicit reference, the destination is inferred from the
-/// session's already-joined channels (none -> its own channel; exactly one ->
-/// that one; several -> ambiguous, re-run explicitly).
+/// session's already-joined channels (none -> error; exactly one -> that one;
+/// several -> ambiguous, re-run explicitly).
 pub(in crate::daemon::server) fn resolve_chat_target(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
@@ -49,10 +49,9 @@ pub(in crate::daemon::server) fn resolve_chat_target(
 
     let joined = state.with_store(|s| s.list_session_routes(&rec.pubkey))?;
     match joined.as_slice() {
-        [] => Ok(ChatTarget {
-            channel_h: rec.channel_h.clone(),
-            explicit: false,
-        }),
+        [] => anyhow::bail!(
+            "{command} requires a channel because this session has not joined any channels"
+        ),
         [(channel_h, _)] => Ok(ChatTarget {
             channel_h: channel_h.clone(),
             explicit: false,
@@ -81,13 +80,6 @@ Pass one explicitly:\n{}",
 fn resolve_chat_channel_ref(store: &crate::state::Store, reference: &str) -> Result<String> {
     match absolute::resolve_absolute_channel_ref(store, reference) {
         super::ChannelResolution::Unique(h) => Ok(h),
-        super::ChannelResolution::Ambiguous(refs) => anyhow::bail!(
-            "channel reference {reference:?} is ambiguous; re-run with one of: {}",
-            refs.into_iter()
-                .map(|r| format!("--channel {r}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
         super::ChannelResolution::NotFound => {
             anyhow::bail!("{}", absolute::describe_missing_channel(store, reference))
         }
@@ -100,12 +92,11 @@ mod tests {
     use super::*;
     use crate::state::{Session, Store};
 
-    fn session(channel_h: &str) -> Session {
+    fn session(_channel_h: &str) -> Session {
         Session {
             pubkey: "pk".to_string(),
             runtime_generation: 1,
             agent_slug: "codex".to_string(),
-            channel_h: channel_h.to_string(),
             work_root: "root".to_string(),
             readiness_parent: "root".to_string(),
             observed_harness: "codex".to_string(),
@@ -136,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_chat_target_resolves_absolute_path_and_id_selector_when_joined() {
+    fn explicit_chat_target_resolves_absolute_path_when_joined() {
         let store = Store::open_memory().unwrap();
         store.upsert_channel("root", "general", "", "", 1).unwrap();
         store
@@ -146,10 +137,6 @@ mod tests {
 
         assert_eq!(
             resolve_chat_channel_ref(&store, "/root/planning").unwrap(),
-            "abcd1234"
-        );
-        assert_eq!(
-            resolve_chat_channel_ref(&store, "@abcd").unwrap(),
             "abcd1234"
         );
     }
@@ -213,9 +200,7 @@ mod tests {
     #[tokio::test]
     async fn a_bare_raw_id_is_rejected_even_when_it_is_the_callers_own_channel() {
         // No exception for "it's my own channel": --channel is always a full
-        // path or @id, with zero leniency. Targeting one's own current
-        // (possibly not-yet-materialized) channel is done by omitting
-        // --channel entirely (see below), not by passing its raw id.
+        // path, with zero leniency.
         let state = DaemonState::new_for_test().await;
         let rec = session("pending-channel-id");
 
@@ -228,18 +213,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn omitting_channel_still_targets_a_not_yet_materialized_own_channel() {
+    async fn omitting_channel_rejects_a_session_with_no_memberships() {
         let state = DaemonState::new_for_test().await;
         let rec = session("pending-channel-id");
 
-        let target = resolve_chat_target(&state, &rec, None, "channel send").unwrap();
-
-        assert_eq!(target.channel_h, "pending-channel-id");
-        assert!(!target.explicit);
-        assert!(state
-            .with_store(|store| store.get_channel("pending-channel-id"))
-            .unwrap()
-            .is_none());
+        let error = resolve_chat_target(&state, &rec, None, "channel send")
+            .expect_err("zero memberships have no implicit destination");
+        assert!(error.to_string().contains("has not joined any channels"));
     }
 
     #[test]
@@ -247,13 +227,13 @@ mod tests {
         let store = Store::open_memory().unwrap();
         store.upsert_channel("root", "root", "", "", 1).unwrap();
         store.upsert_channel("other", "other", "", "", 1).unwrap();
-        let rec = session("root");
         store
             .reserve_hook_session_for_test(&crate::state::RegisterSession {
                 pubkey: "pk".to_string(),
                 observed_harness: "codex".to_string(),
                 agent_slug: "codex".to_string(),
-                channel_h: "root".to_string(),
+                launch_channel_h: "root".to_string(),
+                work_root: "root".to_string(),
                 child_pid: None,
                 now: 1,
             })
@@ -270,7 +250,6 @@ mod tests {
             .unwrap();
         assert!(refs.contains(&"/root".to_string()));
         assert!(refs.contains(&"/other".to_string()));
-        assert_eq!(rec.channel_h, "root");
     }
 
     #[test]

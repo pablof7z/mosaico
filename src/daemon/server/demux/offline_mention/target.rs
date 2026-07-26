@@ -1,5 +1,4 @@
 use crate::daemon::server::DaemonState;
-use crate::util::now_secs;
 use std::sync::Arc;
 
 pub(super) struct MentionTarget {
@@ -54,24 +53,17 @@ pub(super) fn resolve_and_persist(
         return Resolution::Reject;
     };
 
-    // A stopped session may no longer be a relay member after its retention
-    // window. The durable local channel affinity remains the authorization to
-    // resume that exact pubkey; current sender membership was already enforced
-    // by fabric admission.
-    let addressed_affinity = state.with_store(|store| match session.as_ref() {
-        Some(session) => store
-            .has_session_route(&session.pubkey, channel)
-            .unwrap_or(false),
-        None => store
-            .is_channel_member(channel, mentioned_pubkey)
-            .unwrap_or(false),
+    let admitted = state.with_store(|store| {
+        store
+            .session_membership_admits_event(mentioned_pubkey, channel, event_id)
+            .unwrap_or(false)
     });
-    if !addressed_affinity {
+    if !admitted {
         tracing::warn!(
             event_id,
             pubkey = %mentioned_pubkey,
             channel,
-            "exact mention target has no durable channel affinity; refusing recovery"
+            "exact mention predates the target's durable channel membership; refusing recovery"
         );
         return Resolution::Reject;
     }
@@ -82,7 +74,7 @@ pub(super) fn resolve_and_persist(
             .ok()
             .flatten()
             .map(|event| event.created_at)
-            .unwrap_or_else(now_secs)
+            .unwrap_or_default()
     });
     let persisted = state.with_store(|store| {
         store.enqueue_inbox(

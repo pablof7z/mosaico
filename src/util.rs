@@ -119,7 +119,7 @@ pub(crate) const CODE_WORDS_B: [&str; 32] = [
     "yonder",
 ];
 
-pub const CHAT_RENDER_WORD_LIMIT: usize = 300;
+pub const CHAT_RENDER_WORD_LIMIT: usize = 100;
 
 /// `channel send` refuses to publish a message longer than this many characters
 /// unless the caller passes `--long-message`.

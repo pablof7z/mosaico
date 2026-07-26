@@ -1,8 +1,7 @@
 use super::*;
 
-/// An orchestration-spawned session (the backend set `MOSAICO_CHANNEL` to add
-/// this agent to a task subgroup) joins that group as-is and does NOT mint a
-/// child room. Guards the discriminator boundary.
+/// An orchestration-spawned session joins the requested task channel as-is and
+/// does not mint a child. Guards the launch-channel discriminator boundary.
 #[test]
 fn orchestration_session_uses_existing_group_without_minting() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -24,11 +23,12 @@ fn orchestration_session_uses_existing_group_without_minting() {
         .get_session(&pubkey_for_harness_session(&store, "claude-code", "sess-orch-1").unwrap())
         .unwrap()
         .expect("session row");
+    let channel_h = only_session_route(&store, &rec.pubkey);
     let mut channel = None;
     assert!(
         wait_until(std::time::Duration::from_secs(25), || {
             channel = Store::open(&home.store_path())
-                .and_then(|store| store.get_channel(&rec.channel_h))
+                .and_then(|store| store.get_channel(&channel_h))
                 .unwrap_or(None);
             // The channel row can materialize (from the 39002 members snapshot)
             // BEFORE its 39000 metadata (name/parent) arrives, so wait for the
@@ -40,7 +40,7 @@ fn orchestration_session_uses_existing_group_without_minting() {
                 .unwrap_or(false)
         }),
         "channel row {} did not materialize with name+parent; got={:?}; daemon_log={}",
-        rec.channel_h,
+        channel_h,
         channel,
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<{e}>"))

@@ -12,6 +12,7 @@ use crate::util::relative_time;
 mod members;
 mod topology;
 
+pub(super) use members::member_row;
 pub(crate) use members::missing_profile_pubkeys;
 
 const WINDOW_SECS: u64 = 4 * 60 * 60;
@@ -49,14 +50,19 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
 
 fn self_row(row: &super::capture::SelfCap) -> SelfRow {
     let hint = if row.title.is_empty() {
-        "No session status set — once your outcome is clear, set a short one with \
-         `mosaico my session status \"<outcome>\"` so peers can see what you own."
+        "No session status set. Read mosaico://skill/public-work-status before \
+         publishing a concise outcome that helps peers understand your work."
+    } else if row.turn_count > 0 && row.turn_count.is_multiple_of(12) {
+        "Is this session status still the meaningful outcome you own? Read \
+         mosaico://skill/public-work-status before updating it."
     } else {
-        "If your title drifted, update it with `mosaico my session status`."
+        ""
     };
     SelfRow {
         name: row.name.clone(),
         host: row.host.clone(),
+        workspace: row.workspace.clone(),
+        branch: row.branch.clone(),
         headless: row.headless,
         title: row.title.clone(),
         hint: hint.to_string(),
@@ -78,8 +84,9 @@ fn host_rows(inputs: &ViewInputs, cursor: u64, now: u64, full: bool) -> Option<V
                     about: crate::agent_about::for_injection(&agent.about),
                 })
                 .collect::<Vec<_>>();
-            (!agents.is_empty()).then(|| HostRow {
+            (full || !agents.is_empty()).then(|| HostRow {
                 name: host.name.clone(),
+                roots: host.roots.clone(),
                 agents,
             })
         })
@@ -137,6 +144,13 @@ pub(super) fn presence_rows(
         .map(Vec::as_slice)
         .unwrap_or_default()
         .iter()
+        .filter(|status| {
+            inputs
+                .members
+                .roster
+                .get(channel)
+                .is_some_and(|roster| roster.contains_key(&status.pubkey))
+        })
         .filter_map(|status| presence_row(inputs, status, cursor, now))
         .collect()
 }
@@ -165,20 +179,91 @@ fn presence_row(
     if (changed_at <= cursor || changed_at > now) && native_failure.is_none() {
         return None;
     }
+    presence_snapshot_row_with_failure(inputs, status, now, native_failure)
+}
+
+pub(super) fn presence_snapshot_row(
+    inputs: &ViewInputs,
+    status: &StatusCap,
+    now: u64,
+) -> Option<PresenceRow> {
+    if status.changed_at > now {
+        return None;
+    }
+    let native_failure = status
+        .native_failure
+        .as_ref()
+        .filter(|failure| failure.finished_at <= now)
+        .map(|failure| NativeFailureRow {
+            outcome: failure.outcome.clone(),
+            message: failure.message.clone(),
+            since: relative_time(failure.finished_at, now),
+        });
+    presence_snapshot_row_with_failure(inputs, status, now, native_failure)
+}
+
+fn presence_snapshot_row_with_failure(
+    inputs: &ViewInputs,
+    status: &StatusCap,
+    now: u64,
+    native_failure: Option<NativeFailureRow>,
+) -> Option<PresenceRow> {
     if status.pubkey == inputs.meta.self_pubkey {
         return None;
     }
+    let presence = projected_presence(status, now);
     let text = presence.text();
     if text.is_empty() && native_failure.is_none() {
         return None;
     }
+    let (name, host, workspace) = member_origin(
+        presence_reference(inputs, status),
+        &status.host,
+        &status.workspace,
+        inputs,
+    );
     Some(PresenceRow {
-        name: presence_reference(inputs, status),
+        name,
+        host,
+        workspace,
+        branch: status.branch.clone(),
         state: presence.state,
         status: text,
         since: relative_time(presence.state_since, now),
         native_failure,
     })
+}
+
+fn member_origin(
+    mut name: String,
+    host: &str,
+    workspace: &str,
+    inputs: &ViewInputs,
+) -> (String, String, String) {
+    let self_workspace = inputs
+        .meta
+        .self_row
+        .as_ref()
+        .map(|row| row.workspace.as_str())
+        .unwrap_or(inputs.meta.current_workspace.trim());
+    let cross_workspace = !workspace.is_empty() && workspace != self_workspace;
+    let cross_host = !host.is_empty() && host != inputs.meta.local_host.trim();
+    if !cross_workspace && !cross_host {
+        return (name, String::new(), String::new());
+    }
+    if !host.is_empty() {
+        let suffix = format!("@{host}");
+        if let Some(bare) = name.strip_suffix(&suffix) {
+            name = bare.to_string();
+        }
+    }
+    (
+        name,
+        host.to_string(),
+        cross_workspace
+            .then(|| workspace.to_string())
+            .unwrap_or_default(),
+    )
 }
 
 fn presence_reference(inputs: &ViewInputs, status: &StatusCap) -> String {

@@ -60,7 +60,7 @@ fn print_result(result: &serde_json::Value) -> Result<()> {
             println!(
                 "{}",
                 crate::injection::render_agent_message(
-                    message["channel_ref"].as_str().unwrap_or_default(),
+                    message["channel"].as_str().unwrap_or_default(),
                     message["from_slug"].as_str().unwrap_or_default(),
                     message["event_id"].as_str().unwrap_or_default(),
                     message["body"].as_str().unwrap_or_default(),

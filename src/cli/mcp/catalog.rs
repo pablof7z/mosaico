@@ -66,12 +66,27 @@ const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "mosaico.channel_list",
-        description: "List channels under a channel.",
-        props: &[Prop::new(
-            "channel",
-            "string",
-            "Channel slug. Defaults to current directory channel.",
-        )],
+        description: "List the caller-aware workspace/channel forest with public paths. By \
+                      default, own and joined workspaces are expanded and other workspaces are \
+                      compact.",
+        props: &[
+            Prop::new(
+                "workspace",
+                "string",
+                "Expand only this workspace root. Mutually exclusive with all and recursive.",
+            ),
+            Prop::new(
+                "all",
+                "boolean",
+                "Return every workspace root as a compact inventory.",
+            ),
+            Prop::new(
+                "recursive",
+                "boolean",
+                "Expand every known workspace and channel, including unjoined ones.",
+            ),
+            SESSION_PROP,
+        ],
         required: &[],
         read_only: true,
         destructive: false,
@@ -83,7 +98,7 @@ const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+                "Full channel path (/workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
@@ -108,7 +123,7 @@ const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+                "Full channel path (/workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new("long_message", "boolean", "Allow long messages."),
@@ -204,11 +219,7 @@ const SESSION_PROP: Prop = Prop::new(
 );
 
 const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new(
-        "channel",
-        "string",
-        "Full channel path (/workspace/child) or @id-prefix.",
-    ),
+    Prop::new("channel", "string", "Full channel path (/workspace/child)."),
     SESSION_PROP,
 ];
 

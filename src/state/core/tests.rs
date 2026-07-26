@@ -5,7 +5,8 @@ fn reg(pubkey: &str, channel: &str, now: u64) -> RegisterSession {
         pubkey: pubkey.into(),
         observed_harness: "codex".into(),
         agent_slug: "agent".into(),
-        channel_h: channel.into(),
+        launch_channel_h: channel.into(),
+        work_root: channel.into(),
         child_pid: None,
         now,
     }
@@ -45,15 +46,14 @@ fn table_samples_prefer_alive_sessions_and_locators() {
 #[test]
 fn session_context_persists_host_workspace_without_fabricating_channel_metadata() {
     let store = Store::open_memory().unwrap();
+    let mut registration = reg("pk", "pending-room", 100);
+    registration.work_root = "workspace".into();
+    store.reserve_hook_session_for_test(&registration).unwrap();
     store
-        .reserve_hook_session_for_test(&reg("pk", "pending-room", 100))
-        .unwrap();
-    store
-        .set_session_context("pk", "pending-room", "workspace", "immediate-parent")
+        .set_session_readiness_parent("pk", "immediate-parent")
         .unwrap();
 
     let session = store.get_session("pk").unwrap().unwrap();
-    assert_eq!(session.channel_h, "pending-room");
     assert_eq!(session.work_root, "workspace");
     assert_eq!(session.readiness_parent, "immediate-parent");
     assert_eq!(
@@ -67,6 +67,29 @@ fn session_context_persists_host_workspace_without_fabricating_channel_metadata(
 }
 
 #[test]
+fn registered_work_root_cannot_change_on_relaunch() {
+    let store = Store::open_memory().unwrap();
+    let mut registration = reg("pk", "launch", 100);
+    registration.work_root = "workspace".into();
+    let generation = store.reserve_hook_session_for_test(&registration).unwrap();
+    store
+        .mark_runtime_stopped_if_generation("pk", generation, StopReason::Crash, 101)
+        .unwrap();
+
+    registration.work_root = "other-workspace".into();
+    registration.now = 102;
+    let error = store
+        .reserve_hook_session_for_test(&registration)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("immutable work root"));
+    assert_eq!(
+        store.get_session("pk").unwrap().unwrap().work_root,
+        "workspace"
+    );
+}
+
+#[test]
 fn table_samples_prefer_fresh_status_rows() {
     let store = Store::open_memory().unwrap();
     for (pubkey, updated_at, expiration) in [("old", 100, 100), ("fresh", 200, 300)] {
@@ -77,6 +100,8 @@ fn table_samples_prefer_fresh_status_rows() {
                 slug: "agent".into(),
                 title: String::new(),
                 activity: String::new(),
+                workspace: "workspace".into(),
+                branch: String::new(),
                 state: crate::session_state::SessionState::Idle,
                 state_since: updated_at,
                 last_seen: updated_at,

@@ -114,7 +114,6 @@ fn native_hook_launch_from_unknown_directory_registers_unscoped_session() {
         session.is_some()
     }));
     let session = session.unwrap();
-    assert_eq!(session.channel_h, "");
     assert_eq!(session.work_root, "");
     assert!(Store::open(&home.store_path())
         .unwrap()

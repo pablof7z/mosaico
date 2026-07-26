@@ -107,18 +107,19 @@ termination mechanics remain private executors behind that boundary, and the
 durable stopped edge is committed only after process exit is confirmed.
 
 When a headless, idle runtime has no pending delivery for ten minutes, the
-lifecycle coordinator stops that exact incarnation. Its channel standing moves
-to a persisted one-hour retention deadline. A clean successful child exit while
-headed moves standing directly to absent. Both paths preserve exact recovery
-identity and route affinity; only explicit forget or revoke destroys them.
+lifecycle coordinator stops that exact incarnation. Runtime stop, including a
+clean successful child exit while headed, preserves channel membership,
+standing, exact recovery identity, and route affinity without a deadline. Only
+explicit leave or forget/revoke removes membership; forget/revoke also destroys
+recovery authority.
 
-Membership writes are serialized with lifecycle reconciliation. Expiry removes
-standing only after the relay confirms it; a failed write remains retryable. An
-authorized p-tag to a recoverable exact pubkey cancels stale eviction/removal
-and re-admits absent standing. It resumes the native harness conversation when
-a native locator exists; otherwise it fresh-launches the harness under the same
-session pubkey. All timers and supervisor presentation are reconciled again
-after daemon restart.
+Membership writes are serialized with lifecycle reconciliation. A stale or
+failed relay admission persists a member row without a route as durable
+compensation work; standing becomes absent only after the relay confirms its
+removal. An authorized p-tag to a stopped member resumes the native harness
+conversation when a native locator exists; otherwise it fresh-launches the
+harness under the same session pubkey. All timers and supervisor presentation
+are reconciled again after daemon restart.
 
 ### Daemon process lifetime
 
@@ -361,7 +362,7 @@ supervisor-exit reports, resumes any fenced `stopping` eviction, and then
 reconciles each running row:
 
 - `watch_pid` set and `pid_alive(watch_pid)` → respawn a `SessionTask` for it;
-- else → atomically stop that generation and begin its one-hour standing retention.
+- else → atomically stop that generation while preserving its channel memberships.
 
 Without this, `who` and routing membership would lie after every daemon restart.
 

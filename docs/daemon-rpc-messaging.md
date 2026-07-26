@@ -1,93 +1,96 @@
 # Channel messaging RPCs
 
-Companion to the [daemon RPC catalog](daemon-rpc-surface.md). This file owns the
-channel messaging wire contracts.
+Companion to [daemon-rpc-channels.md](daemon-rpc-channels.md). Every public
+channel value below is a full `/root[/child…]` path. No messaging surface
+accepts or returns opaque protocol ids.
 
-`channel` on `channel_read` and `channel_send` is a channel reference: a full
-absolute path (`/workspace/child`) or an `@<id-prefix>`, resolved globally and
-exactly — see [Channel references](daemon-rpc-channels.md#channel-references).
-Both RPCs additionally require that the calling session has ALREADY joined the
-resolved channel; neither ever creates one. Omitting `channel` targets the
-session's own channel (or its single joined channel), which is also the only
-way to address an own channel whose relay metadata has not materialized yet.
+Explicit targets must already be in the caller's joined-channel set. Omitting a
+target is valid only when that set contains exactly one channel. A session with
+zero or multiple joined channels must name the destination.
 
-## `channel_read` (streaming)
+## `channel_read`
 
 ```jsonc
-params: {"id": "event-id"|null, "channel": "/workspace/child"|"@id-prefix"|null,
+params: {"id": "event-id"|null, "channel": "/root/child"|null,
          "since": u64|null, "limit": u64|null, "offset": u64,
-         "tail": bool, "live": bool, ...}
-stream: {"item": {event_id, from_pubkey, from_slug, channel, body,
-                  truncated, created_at, ...}}
+         "tail": bool, "live": bool}
+stream: {"item": {"event_id": "hex", "from_slug": "agent",
+                  "channel": "/root/child", "body": "…",
+                  "truncated": false, "created_at": 123}}
 ```
 
-Streams channel chat from the relay-event cache. Normal history reads truncate
-bodies past the fabric render limit and include `truncated=true`; exact
-`--id`/`id` reads fetch one event by id and return the full body without channel
-inference (and without any channel resolution).
+Normal history reads use the shared 100-word render limit and set
+`truncated=true` when content is shortened. Exact `id` reads return the complete
+message body. Explicit history reads are deliberate inspection and are not
+subject to automatic-context join cutoffs.
 
 ## `channel_send`
 
 ```jsonc
-params: {"message": "see [report]", "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "channel": "/workspace/child"|"@id-prefix"|null, "long_message": bool, ...}
-result: {"event_id": "hex", "channel": "channel-h", "mentioned_pubkeys": ["hex", ...],
-         "mentioned_labels": ["agent", ...],
-          "recipient_reminders": ["Reminder: @agent is suspended and will receive this message after manual resumption."]}
+params: {"message": "see [report]",
+         "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
+         "channel": "/root/child"|null, "long_message": false}
+result: {"event_id": "hex", "channel": "/root/child",
+         "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
+         "recipient_reminders": []}
 ```
 
-Publishes a NIP-29 kind:9 chat message signed by the caller's own per-session key
-and returns only after checked relay acceptance. Messages over the fabric render
-limit are rejected unless `long_message=true`. `channel` is destination targeting
-only; caller identity is resolved independently from the session anchors. A
-suspended target produces a just-in-time reminder after relay acceptance,
-including before `channel send --wait` starts blocking for a reply.
+Publishes a kind:9 event signed by the caller's session key and succeeds only
+after checked relay acceptance. Destination selection never changes session
+membership. Mentions wake only explicitly tagged joined recipients; untagged
+channel chat remains ambient awareness.
 
-Each attachment label must occur in the message as `[label]`. Before publishing
-chat, the daemon reads the file, hashes it, signs a kind:24242 Blossom upload
-authorization with the caller's session key, and uploads it to the HTTP origin
-of the primary configured relay. Every matching marker is replaced by the
-public URL returned in the verified blob descriptor. Invalid files, duplicate
-or unused labels, upload failures, malformed descriptors, hash/size mismatches,
-and post-expansion length violations fail the RPC without publishing chat.
+Attachment labels must appear as `[label]`. The daemon uploads and verifies each
+blob before publishing, then replaces markers with public URLs. Invalid,
+duplicate, unused, mismatched, or failed attachments abort without publishing.
 
 ## `channel_wait`
 
 ```jsonc
-params: {"timeout_secs": 60, "channels": ["channel-ref", ...],
-         "from": "human-or-agent"|null, "reply_to": "event-id"|null, ...}
-result: {"outcome": "message", "waited_secs": 4, "channels": ["channel-ref", ...],
-         "message": {event_id, from_pubkey, from_slug, channel, channel_ref, body, ...}}
-      | {"outcome": "timeout", "timeout_secs": 60, "channels": ["channel-ref", ...]}
+params: {"timeout_secs": 60, "channels": ["/root/child"],
+         "from": "human-or-agent"|null, "reply_to": "event-id"|null}
+result: {"outcome": "message", "waited_secs": 4,
+         "channels": ["/root/child"],
+         "message": {"event_id": "hex", "channel": "/root/child", "body": "…"}}
+      | {"outcome": "timeout", "timeout_secs": 60,
+         "channels": ["/root/child"]}
 ```
 
-One blocking, agent-only read primitive backs both top-level `mosaico wait`
-and `channel send --wait`. Ambient waits capture the exact caller session's
-daemon-local message-arrival cursor and active-channel set before subscribing,
-then return the first new visible kind:9 row. Repeated explicit channels narrow
-that active set; `from` narrows the author. Each entry of `channels` matches
-only within that already-joined set, by full path, `@<id-prefix>`, or raw
-`channel_h` — never by suffix.
+Wait captures a message-arrival cursor and the caller's joined-channel set
+before subscribing. Repeated `channels` entries may only narrow that set. An
+omitted list means all joined channels, including an empty set. `from` narrows
+the author. A correlated send-wait additionally requires a native reply tag
+pointing to the outbound event. Backend-management traffic and the caller's own
+messages are excluded.
 
-Correlated send waits start at the outbound message cursor and require the
-reply's native `e` tag to reference that event. Backend-management traffic and
-the caller's own messages are excluded. Timeout is a successful RPC outcome.
-The CLI renders both outcomes through the canonical `<mosaico>` agent
-envelope and exposes no JSON/human mode.
+The CLI always renders the outcome through the canonical `<mosaico>` envelope.
+Timeout is a successful RPC outcome.
 
 ## `channel_reply`
 
 ```jsonc
 params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "long_message": bool, ...}
-result: {"event_id": "hex", "reply_to": "hex", "channel": "channel-h",
-         "mentioned_pubkey": "hex",
-          "recipient_reminders": ["Reminder: @agent is suspended and will receive this message after manual resumption."]}
+         "long_message": false}
+result: {"event_id": "hex", "reply_to": "hex",
+         "channel": "/root/child", "mentioned_pubkey": "hex",
+         "recipient_reminders": []}
 ```
 
-Publishes a threaded NIP-10 reply to an existing channel message. The daemon
-resolves `id` against the channel read model, targets the original author's
-pubkey, and signs the reply with the caller's per-session key. Attachment upload
-and marker expansion use the same contract as `channel_send`; suspended authors
-also produce the same reminder contract.
+Publishes a threaded NIP-10 reply in the original message's channel and targets
+its author. The caller must belong to that channel. Attachment handling matches
+`channel_send`.
+
+## Automatic delivery cutoff
+
+Automatic ambient context and inbox delivery admit a message only when both
+conditions hold:
+
+1. its local arrival sequence is later than the session's join watermark; and
+2. its signed timestamp is at or after the recorded join time.
+
+Missing or unverifiable evidence fails closed. This prevents future-dated
+pre-join events and backdated post-join events from leaking old conversation
+bodies. On a new join, Mosaico instead renders a compact recent-activity hint
+with count, time window, and authors, plus a pointer to the coordination skill
+for deliberate history navigation.

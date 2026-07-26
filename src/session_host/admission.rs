@@ -32,6 +32,7 @@ pub(super) fn reserve_fresh(
         transport,
         root,
         group,
+        false,
     )
 }
 
@@ -83,6 +84,7 @@ pub(super) fn reserve_fresh_for_pubkey(
             transport,
             root,
             group,
+            true,
         );
     }
     let configured_pubkey = agent
@@ -103,6 +105,7 @@ pub(super) fn reserve_fresh_for_pubkey(
         transport,
         root,
         group,
+        true,
     )
 }
 
@@ -128,6 +131,7 @@ pub(super) fn reserve_resume_exact(
         transport,
         root,
         Some(group),
+        true,
     )
 }
 
@@ -141,6 +145,7 @@ fn reserve_prepared(
     transport: &str,
     root: &str,
     group: Option<&str>,
+    preserve_memberships: bool,
 ) -> Result<Reservation> {
     let agent_nsec = prepared
         .keys
@@ -148,12 +153,13 @@ fn reserve_prepared(
         .to_bech32()
         .context("encoding the assigned agent session signer")?;
     let pubkey = prepared.identity.pubkey;
-    let channel = match group.filter(|group| !group.is_empty()) {
-        Some(group) => group.to_string(),
-        None if state.per_session_rooms() && !root.is_empty() => {
+    let channel = match (preserve_memberships, group) {
+        (true, group) => group.unwrap_or_default().to_string(),
+        (false, Some(group)) if !group.is_empty() => group.to_string(),
+        (false, _) if state.per_session_rooms() && !root.is_empty() => {
             crate::util::session_room_id(&pubkey)
         }
-        None => root.to_string(),
+        (false, _) => root.to_string(),
     };
     let runtime_generation = state.with_store(|store| {
         store.reserve_session_with_facts(
@@ -161,7 +167,8 @@ fn reserve_prepared(
                 pubkey: pubkey.clone(),
                 observed_harness: harness.to_string(),
                 agent_slug: slug.to_string(),
-                channel_h: channel,
+                launch_channel_h: channel,
+                work_root: root.to_string(),
                 child_pid: None,
                 now: crate::util::now_secs(),
             },

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn pane_title_uses_session_workspace_and_active_channels() {
+fn pane_title_uses_session_workspace_and_joined_channels() {
     let pane = SessionPane {
         short: "6a4ddbe6".into(),
         root: "aaa".into(),

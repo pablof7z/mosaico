@@ -21,6 +21,7 @@ fn canonical_context_and_human_view_keep_host_capabilities() {
     assert!(!text.contains("<available-agents>"));
     assert!(!text.contains("<workspace-agents>"));
     assert!(text.contains("<host name=\"laptop\">"), "{text}");
+    assert!(text.contains("Workspaces:\n      * root"), "{text}");
     assert!(
         text.contains("<agent ref=\"helper@laptop\" about=\"For testing\" />"),
         "{text}"
@@ -35,14 +36,15 @@ fn canonical_context_and_human_view_keep_host_capabilities() {
 
     let empty = Store::open_memory().unwrap();
     empty.upsert_channel("solo", "solo", "", "", 1).unwrap();
+    empty.replace_channel_members("solo", &[], 1).unwrap();
+    empty.replace_channel_admins("solo", &[], 1).unwrap();
     empty
         .upsert_profile(SELF_PK, "coder", "coder", "laptop", false, 1)
         .unwrap();
     let solo = session_record(&empty, "solo", "solo");
     let text = render_fabric_context(&empty, input(Some(&solo), "solo", 0, 100, true)).unwrap();
-    assert!(text.contains("<workspace name=\"solo\""));
-    assert!(!text.contains("<workspace name=\"solo\" channel="));
-    assert!(text.contains("<channel name=\"solo\" id=\"/solo\""));
+    assert!(!text.contains("<workspace"));
+    assert!(text.contains("<channel name=\"/solo\" agents=\"0\""));
     assert!(!text.contains("<members>"), "got: {text}");
 }
 
@@ -76,7 +78,11 @@ fn host_profile_delta_emits_through_the_canonical_hook_context() {
 
     let before = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
     let baseline = state.render_context("sess", "turn_start", 100, 200, before);
-    assert!(baseline.text.is_none());
+    let baseline = baseline
+        .text
+        .expect("a fresh hook cache re-baselines joined members");
+    assert!(baseline.contains("<channel name=\"/root\""), "{baseline}");
+    assert!(!baseline.contains("<hosts>"), "{baseline}");
 
     advertise_host(
         &store,
@@ -95,9 +101,6 @@ fn host_profile_delta_emits_through_the_canonical_hook_context() {
         text.contains("<agent ref=\"new-helper@laptop\" about=\"Newly available\" />"),
         "{text}"
     );
-    assert!(
-        text.contains("<workspace name=\"root\" about=\"Root room\" hosts=\"laptop\">"),
-        "{text}"
-    );
+    assert!(!text.contains("<channels>"), "{text}");
     assert_eq!(changed.receipt.frame, FrameKind::Delta);
 }

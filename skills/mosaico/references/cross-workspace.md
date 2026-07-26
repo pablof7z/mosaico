@@ -25,7 +25,8 @@ and recent activity. Expand only when the decision needs broader current state:
 
 ```bash
 mosaico my session
-mosaico channel list --all-workspaces
+mosaico channel list -a
+mosaico channel list -r
 mosaico channel list --workspace <workspace>
 ```
 
@@ -51,7 +52,7 @@ mosaico dispatch <agent-ref> --workspace <workspace> \
   --channel /<workspace>/<channel> --message "..."
 ```
 
-Keep active coordination in that focused channel and surface its consequences
+Keep active coordination in that narrow topic channel and surface its consequences
 in the relevant parent channels.
 
 ## Preserve The Relationship

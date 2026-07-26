@@ -3,6 +3,8 @@ use super::*;
 fn snapshot(state: SessionState, title: &str) -> PresenceSnapshot {
     PresenceSnapshot {
         host: "laptop".into(),
+        workspace: "mosaico".into(),
+        branch: "feat/context".into(),
         slug: "coder".into(),
         rel_cwd: ".".into(),
         dispatch_event: None,

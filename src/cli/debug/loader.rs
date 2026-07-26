@@ -149,25 +149,26 @@ fn enrich_pane_scope_from_store(
     if channels.is_empty() {
         return Ok(());
     }
-    pane.channels = channels
+    let public_channels = channels
         .iter()
-        .map(|(channel, _)| channel_display_label(store, channel))
-        .collect();
+        .filter_map(|(channel, _)| public_channel_path(store, channel))
+        .collect::<Vec<_>>();
+    if !public_channels.is_empty() {
+        pane.channels = public_channels;
+    }
     if let Some((channel, _)) = channels.first() {
         let workspace = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
             .root_for_channel(channel)?;
-        pane.root = channel_display_label(store, &workspace);
+        if let Some(path) = public_channel_path(store, &workspace) {
+            pane.root = path;
+        }
     }
     Ok(())
 }
 
-fn channel_display_label(store: &crate::state::Store, channel_h: &str) -> String {
-    store
-        .get_channel(channel_h)
-        .ok()
-        .flatten()
-        .and_then(|channel| channel.human_name().map(str::to_string))
-        .unwrap_or_else(|| channel_h.to_string())
+fn public_channel_path(store: &crate::state::Store, channel_h: &str) -> Option<String> {
+    let path = crate::channel_ref::full_channel_ref(store, channel_h);
+    (!path.is_empty()).then_some(path)
 }
 
 fn non_empty_str(v: &Value) -> Option<String> {
@@ -441,7 +442,8 @@ mod tests {
                 pubkey: "pk".into(),
                 observed_harness: "claude-code".into(),
                 agent_slug: "haiku".into(),
-                channel_h: "aaa".into(),
+                launch_channel_h: "aaa".into(),
+                work_root: "aaa".into(),
                 child_pid: None,
                 now: 1,
             })
@@ -453,6 +455,9 @@ mod tests {
         store.upsert_channel("aaa", "aaa", "", "", 1).unwrap();
         store.upsert_channel("dev-h", "dev", "", "aaa", 1).unwrap();
         store.grant_session_route("pk", "dev-h", 2).unwrap();
+        store
+            .grant_session_route("pk", "unknown-internal-id", 3)
+            .unwrap();
 
         let mut panes = BTreeMap::from([(
             "pk".into(),
@@ -466,7 +471,7 @@ mod tests {
         enrich_panes_from_store_path(&mut panes, &path).unwrap();
 
         assert_eq!(panes["pk"].agent, "pearl-cliff-395-haiku");
-        assert_eq!(panes["pk"].root, "aaa");
-        assert_eq!(panes["pk"].channels, vec!["aaa", "dev"]);
+        assert_eq!(panes["pk"].root, "/aaa");
+        assert_eq!(panes["pk"].channels, vec!["/aaa", "/aaa/dev"]);
     }
 }
