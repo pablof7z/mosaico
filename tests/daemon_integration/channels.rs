@@ -23,6 +23,8 @@ mod native_context;
 mod orchestration;
 #[path = "channels/pty_bootstrap.rs"]
 mod pty_bootstrap;
+#[path = "channels/publication_membership.rs"]
+mod publication_membership;
 #[path = "channels/session_add.rs"]
 mod session_add;
 #[path = "channels/session_kill.rs"]

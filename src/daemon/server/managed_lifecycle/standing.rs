@@ -1,6 +1,49 @@
 use super::*;
 use crate::state::ConfirmedAdmissionCommit;
 
+/// Revalidate a relay-admission task while `standing_sync` is held. Existing
+/// durable routes are always authoritative. A fresh launch may establish a new
+/// route only if this lifecycle has not already recorded an explicit absence.
+pub(in crate::daemon::server) fn admission_is_current(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    channel: &str,
+    runtime_generation: u64,
+    lifecycle_epoch: u64,
+    allow_new_route: bool,
+) -> bool {
+    state
+        .with_store(|store| -> Result<bool> {
+            let Some(session) = store.get_session(pubkey)? else {
+                return Ok(false);
+            };
+            if !session.is_running()
+                || session.runtime_generation != runtime_generation
+                || session.lifecycle_epoch != lifecycle_epoch
+            {
+                return Ok(false);
+            }
+            if store.has_session_route(pubkey, channel)? {
+                return Ok(true);
+            }
+            if !allow_new_route {
+                return Ok(false);
+            }
+            Ok(store
+                .get_session_standing(pubkey, channel)?
+                .is_none_or(|standing| standing.session_lifecycle_epoch != lifecycle_epoch))
+        })
+        .unwrap_or_else(|error| {
+            tracing::error!(
+                pubkey = %pubkey_short(pubkey),
+                %channel,
+                %error,
+                "admission authorization revalidation failed"
+            );
+            false
+        })
+}
+
 /// Finalize relay-confirmed membership while the caller holds `standing_sync`.
 /// The exact lifecycle may already have stopped; runtime stop is not leave.
 /// A stale or failed primary commit first becomes durable cleanup work, so an
@@ -68,7 +111,7 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
 }
 
 async fn reconcile_admission(state: &Arc<DaemonState>, pubkey: &str, generation: u64) {
-    super::super::presence::reconcile_generation(state, pubkey, generation, "channel_admitted")
+    super::super::presence::reassert_generation(state, pubkey, generation, "channel_admitted")
         .await;
 }
 
@@ -166,6 +209,21 @@ pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
 
 async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) {
     let _lane = state.standing_sync.lock().await;
+    if !admission_is_current(
+        state,
+        &session.pubkey,
+        channel,
+        session.runtime_generation,
+        session.lifecycle_epoch,
+        false,
+    ) {
+        tracing::debug!(
+            pubkey = %session.pubkey,
+            %channel,
+            "running-standing repair was cancelled because its route is no longer current"
+        );
+        return;
+    }
     let relay_parent = state.with_store(|store| store.channel_parent(channel).ok().flatten());
     let parent = crate::fabric::nip29::readiness::effective_parent_hint(
         relay_parent,

@@ -279,55 +279,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             }
         };
 
-        // Re-establish every durable membership independently. Relay-authored
-        // parent state wins; the admission-time parent is only a bootstrap hint
-        // while metadata is incomplete.
-        for channel in &routes {
-            let parent_hint = reconcile_context::parent_hint(state, &snap, channel);
-            let _lane = state.standing_sync.lock().await;
-            let gate = state
-                .provider
-                .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-                    channel,
-                    expect_member: &pubkey,
-                    parent_hint: parent_hint.as_deref(),
-                    name: None,
-                    repair_whitelisted_admins: true,
-                })
-                .await;
-            if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-                tracing::warn!(
-                    pubkey,
-                    agent = %snap.agent_slug,
-                    %channel,
-                    "channel not verified ready on reconcile; retaining live session and retrying later"
-                );
-                continue;
-            }
-            match super::managed_lifecycle::commit_confirmed_admission(
-                state,
-                &pubkey,
-                channel,
-                runtime_generation,
-                snap.lifecycle_epoch,
-            )
-            .await
-            {
-                Ok(true) => {}
-                Ok(false) => tracing::warn!(
-                    pubkey,
-                    runtime_generation,
-                    %channel,
-                    "reconciled membership became stale"
-                ),
-                Err(error) => tracing::error!(
-                    pubkey,
-                    %channel,
-                    %error,
-                    "reconciled membership admission could not be persisted"
-                ),
-            }
-        }
+        reconcile_context::restore_routes(state, &snap, &routes).await;
         if let Err(e) = sync_subscriptions(state).await {
             tracing::warn!(pubkey, error = %e, "subscription sync failed during reconcile");
         }

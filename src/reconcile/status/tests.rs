@@ -108,6 +108,15 @@ fn semantic_reconcile_is_deduped() {
 }
 
 #[test]
+fn admission_reasserts_unchanged_status_after_membership_confirmation() {
+    let mut policy = seeded(1, SessionState::Working);
+    let reasserted = policy.reassert("pk1", 1, projection(SessionState::Working, "Task"), 10);
+    let (status, reason) = published(&reasserted.effects).unwrap();
+    assert_eq!(reason, PublishReason::Admitted);
+    assert_eq!(status.channels, vec!["room"]);
+}
+
+#[test]
 fn renewal_rearms_without_semantic_change() {
     let mut policy = seeded(1, SessionState::Working);
     let renewed = policy.renew("pk1", 1, 30);

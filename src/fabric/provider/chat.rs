@@ -1,6 +1,5 @@
 use super::Nip29Provider;
 use crate::domain::{ChatMessage, DomainEvent};
-use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate};
 use crate::fabric::NostrEventCodec;
 use crate::state::{RecordMessage, RelayEvent, Store};
 use anyhow::Result;
@@ -97,20 +96,8 @@ impl Nip29Provider {
                 "signed chat targets group {signed_channel:?}, not checked group {channel:?}"
             );
         }
-        let agent_pubkey = signed.pubkey.to_hex();
-        let parent = super::readiness::stored_parent_hint(self, channel)?;
-        let ctx = ChannelCtx {
-            channel,
-            expect_member: &agent_pubkey,
-            parent_hint: parent.as_deref(),
-            name: None,
-            repair_whitelisted_admins: true,
-        };
-        if matches!(self.ensure_channel_ready(ctx).await, ChannelGate::Degraded) {
-            anyhow::bail!(
-                "publish_chat_checked: channel {channel} is not verified (ChannelGate::Degraded) — refusing to publish into an unverified channel"
-            );
-        }
+        self.verify_publish_scope(channel, &signed.pubkey.to_hex(), true)
+            .await?;
         self.nmp.enqueue_group_event(signed)
     }
 }

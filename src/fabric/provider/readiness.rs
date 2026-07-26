@@ -7,8 +7,6 @@ mod ancestry;
 mod attempt;
 mod verify;
 
-pub(super) use ancestry::stored_parent_hint;
-
 impl Nip29Provider {
     /// Ensure `ctx.channel` exists on the relay and has `ctx.expect_member`.
     pub async fn ensure_channel_ready<'a>(&'a self, ctx: ChannelCtx<'a>) -> ChannelGate {

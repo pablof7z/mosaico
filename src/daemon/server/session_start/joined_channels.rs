@@ -42,6 +42,22 @@ pub(super) fn schedule_admission(
     tokio::spawn(async move {
         for channel in passive {
             let _lane = state.standing_sync.lock().await;
+            if !super::super::managed_lifecycle::admission_is_current(
+                &state,
+                &pubkey,
+                &channel,
+                runtime_generation,
+                lifecycle_epoch,
+                true,
+            ) {
+                tracing::debug!(
+                    pubkey,
+                    %channel,
+                    lifecycle_epoch,
+                    "session_start passive admission was cancelled by newer membership state"
+                );
+                continue;
+            }
             let outcome = state
                 .provider
                 .grant_member_confirmed(&channel, &pubkey)

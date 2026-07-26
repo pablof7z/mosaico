@@ -3,6 +3,7 @@
 //! Managed lifecycle owns session truth. This reconciler only projects a
 //! lifecycle snapshot into an expiring signed status lease.
 
+mod admission;
 mod command;
 mod status_build;
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub use command::{StatusCommand, StatusOutcome};
 pub enum PublishReason {
     Opened,
     Changed,
+    Admitted,
     Renewed,
 }
 
@@ -28,6 +30,7 @@ impl PublishReason {
         match self {
             Self::Opened => "opened",
             Self::Changed => "changed",
+            Self::Admitted => "admitted",
             Self::Renewed => "renewed",
         }
     }
