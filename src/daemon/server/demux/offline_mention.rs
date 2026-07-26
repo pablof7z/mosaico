@@ -24,15 +24,9 @@ pub(super) async fn handle(
     channel: &str,
     requester_pubkey: Option<&str>,
 ) -> RecoveryOutcome {
-    let has_alive = state.with_store(|s| has_alive_session_for(s, mentioned_pk, channel));
+    let has_alive = state.with_store(|s| has_alive_session_for(s, mentioned_pk));
     if has_alive {
-        return match standing::confirm(state, mentioned_pk, channel).await {
-            Ok(()) => RecoveryOutcome::Complete,
-            Err(error) => {
-                tracing::warn!(pubkey = %mentioned_pk, channel, %error, "running exact target is not yet relay-admitted");
-                RecoveryOutcome::Retry
-            }
-        };
+        return RecoveryOutcome::Complete;
     }
 
     let target = match target::resolve(state, mentioned_pk, channel) {
@@ -42,11 +36,33 @@ pub(super) async fn handle(
     let agent_slug = target.agent_slug;
     let target_session = target.session;
 
-    let work_root = match state.with_store(|s| work_root_for(s, channel)) {
-        Ok(root) => root,
-        Err(error) => {
-            tracing::error!(channel, %error, "mention spawn workspace ancestry lookup failed");
-            return RecoveryOutcome::Retry;
+    let (work_root, launch_channel, mention_route_active) = match target_session.as_ref() {
+        Some(session) => {
+            let routes = match state.with_store(|store| store.list_session_routes(mentioned_pk)) {
+                Ok(routes) => routes
+                    .into_iter()
+                    .map(|(channel, _)| channel)
+                    .collect::<Vec<_>>(),
+                Err(error) => {
+                    tracing::error!(pubkey = %mentioned_pk, channel, %error, "mention recovery route lookup failed");
+                    return RecoveryOutcome::Retry;
+                }
+            };
+            (
+                session.work_root.clone(),
+                routes.first().cloned(),
+                routes.iter().any(|route| route == channel),
+            )
+        }
+        None => {
+            let root = match state.with_store(|store| work_root_for(store, channel)) {
+                Ok(root) => root,
+                Err(error) => {
+                    tracing::error!(channel, %error, "mention spawn workspace ancestry lookup failed");
+                    return RecoveryOutcome::Retry;
+                }
+            };
+            (root, Some(channel.to_string()), true)
         }
     };
     let has_path = match state.with_store(|s| {
@@ -81,11 +97,9 @@ pub(super) async fn handle(
                 work_root = %work_root,
                 "resuming exact session on mention"
             );
-            return match crate::session_host::resume_agent_in_channel(
+            return match crate::session_host::resume_agent(
                 state,
                 target,
-                &work_root,
-                channel,
                 &locator.locator_value,
                 crate::session_host::LaunchIntent::Managed,
             )
@@ -99,13 +113,7 @@ pub(super) async fn handle(
                         channel,
                         "exact session resumed; pending inbox will ring its doorbell"
                     );
-                    match standing::confirm(state, mentioned_pk, channel).await {
-                        Ok(()) => RecoveryOutcome::Complete,
-                        Err(error) => {
-                            tracing::warn!(pubkey = %mentioned_pk, channel, %error, "resumed exact target is not yet relay-admitted");
-                            RecoveryOutcome::Retry
-                        }
-                    }
+                    finish_recovery(state, mentioned_pk, channel, mention_route_active).await
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -144,7 +152,7 @@ pub(super) async fn handle(
                 state,
                 &agent_slug,
                 &work_root,
-                Some(channel),
+                launch_channel.as_deref(),
                 None,
                 mentioned_pk,
             )
@@ -158,13 +166,7 @@ pub(super) async fn handle(
                         channel,
                         "session relaunched with its exact pubkey"
                     );
-                    match standing::confirm(state, mentioned_pk, channel).await {
-                        Ok(()) => RecoveryOutcome::Complete,
-                        Err(error) => {
-                            tracing::warn!(pubkey = %mentioned_pk, channel, %error, "relaunched exact target is not yet relay-admitted");
-                            RecoveryOutcome::Retry
-                        }
-                    }
+                    finish_recovery(state, mentioned_pk, channel, mention_route_active).await
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -221,7 +223,7 @@ pub(super) async fn handle(
         state,
         &agent_slug,
         &work_root,
-        Some(channel),
+        launch_channel.as_deref(),
         None,
         mentioned_pk,
     )
@@ -229,13 +231,7 @@ pub(super) async fn handle(
     {
         Ok(endpoint) => {
             tracing::info!(agent = %agent_slug, endpoint = %endpoint.endpoint_id, channel, "agent spawned successfully");
-            match standing::confirm(state, mentioned_pk, channel).await {
-                Ok(()) => RecoveryOutcome::Complete,
-                Err(error) => {
-                    tracing::warn!(pubkey = %mentioned_pk, channel, %error, "spawned exact target is not yet relay-admitted");
-                    RecoveryOutcome::Retry
-                }
-            }
+            finish_recovery(state, mentioned_pk, channel, mention_route_active).await
         }
         Err(e) => {
             tracing::warn!(agent = %agent_slug, channel, error = %e, "agent spawn failed");
@@ -248,6 +244,24 @@ pub(super) async fn handle(
                 &e.to_string(),
             )
             .await;
+            RecoveryOutcome::Retry
+        }
+    }
+}
+
+async fn finish_recovery(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    channel: &str,
+    mention_route_active: bool,
+) -> RecoveryOutcome {
+    if !mention_route_active {
+        return RecoveryOutcome::Complete;
+    }
+    match standing::confirm(state, pubkey, channel).await {
+        Ok(()) => RecoveryOutcome::Complete,
+        Err(error) => {
+            tracing::warn!(%pubkey, channel, %error, "recovered exact target is not yet relay-admitted");
             RecoveryOutcome::Retry
         }
     }

@@ -22,14 +22,14 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
 // ── has_alive gate ────────────────────────────────────────────────────────────
 
 #[test]
-fn has_alive_gate_skips_when_agent_has_live_session_in_channel() {
+fn has_alive_gate_skips_when_agent_has_live_session() {
     let store = Store::open_memory().unwrap();
     let sid = register(&store, "pk-ord-1", "codex", "proj", "ext-1");
     // reserve_session creates a running runtime generation.
     assert!(!sid.is_empty());
 
     assert!(offline_mention::liveness::has_alive_session_for(
-        &store, "pk-ord-1", "proj"
+        &store, "pk-ord-1"
     ));
 }
 
@@ -42,17 +42,17 @@ fn has_alive_gate_does_not_skip_when_session_is_dead() {
         .unwrap();
 
     assert!(!offline_mention::liveness::has_alive_session_for(
-        &store, "pk-ord-1", "proj"
+        &store, "pk-ord-1"
     ));
 }
 
 #[test]
-fn has_alive_gate_does_not_skip_when_agent_in_different_channel() {
+fn has_alive_gate_skips_when_agent_has_live_session_in_a_different_channel() {
     let store = Store::open_memory().unwrap();
     let _sid = register(&store, "pk-ord-1", "codex", "other-proj", "ext-1");
 
-    assert!(!offline_mention::liveness::has_alive_session_for(
-        &store, "pk-ord-1", "proj"
+    assert!(offline_mention::liveness::has_alive_session_for(
+        &store, "pk-ord-1"
     ));
 }
 
@@ -63,10 +63,10 @@ fn has_alive_gate_matches_derived_ordinal_pubkey_not_base() {
     let _sid = register(&store, "pk-ord-2", "codex", "proj", "ext-2");
 
     assert!(offline_mention::liveness::has_alive_session_for(
-        &store, "pk-ord-2", "proj"
+        &store, "pk-ord-2"
     ));
     assert!(!offline_mention::liveness::has_alive_session_for(
-        &store, "base-pk", "proj"
+        &store, "base-pk"
     ));
 }
 
@@ -78,7 +78,7 @@ fn has_alive_gate_matches_joined_subchannel_not_just_home_channel() {
     store.grant_session_route(&sid, "sub-chan", 10).unwrap();
 
     assert!(offline_mention::liveness::has_alive_session_for(
-        &store, "pk-ord-1", "sub-chan"
+        &store, "pk-ord-1"
     ));
 }
 

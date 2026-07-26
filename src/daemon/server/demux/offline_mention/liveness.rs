@@ -3,17 +3,12 @@ use crate::state::Store;
 pub(in crate::daemon::server::demux) fn has_alive_session_for(
     store: &Store,
     mentioned_pk: &str,
-    channel: &str,
 ) -> bool {
-    let Some(rec) = store.get_session(mentioned_pk).ok().flatten() else {
-        return false;
-    };
-    if !rec.is_running() {
-        return false;
-    }
     store
-        .has_session_route(&rec.pubkey, channel)
-        .unwrap_or(false)
+        .get_session(mentioned_pk)
+        .ok()
+        .flatten()
+        .is_some_and(|session| session.is_running())
 }
 
 #[cfg(test)]
@@ -22,7 +17,7 @@ mod tests {
     use crate::state::RegisterSession;
 
     #[test]
-    fn alive_gate_requires_membership_in_the_delivery_channel() {
+    fn alive_gate_is_runtime_ownership_not_channel_membership() {
         let store = Store::open_memory().unwrap();
         store
             .reserve_hook_session_for_test(&RegisterSession {
@@ -36,7 +31,13 @@ mod tests {
             })
             .unwrap();
 
-        assert!(has_alive_session_for(&store, "durable-pk", "channel-a"));
-        assert!(!has_alive_session_for(&store, "durable-pk", "channel-b"));
+        assert!(has_alive_session_for(&store, "durable-pk"));
+        store
+            .revoke_route_and_mark_absent("durable-pk", "channel-a", 2)
+            .unwrap();
+        assert!(
+            has_alive_session_for(&store, "durable-pk"),
+            "a direct mention can ring an owned live runtime after every explicit leave"
+        );
     }
 }

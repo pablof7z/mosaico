@@ -113,6 +113,11 @@ fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
 
     let resumed = wait_for_alive_session(&home, agent, &channel);
     assert_eq!(resumed.pubkey, original.pubkey);
+    assert_eq!(resumed.runtime_generation, original.runtime_generation + 1);
+    assert!(Store::open(&home.store_path())
+        .unwrap()
+        .has_session_route(&resumed.pubkey, &channel)
+        .unwrap());
     wait_for_injected_log(&log, &body);
 
     let store = Store::open(&home.store_path()).unwrap();
@@ -120,6 +125,9 @@ fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
     kill_pty(&endpoint);
     stop_daemon(&home);
 }
+
+#[path = "offline/explicit_leave.rs"]
+mod explicit_leave;
 
 #[test]
 fn operator_kind9_to_zero_turn_session_without_native_resume_relaunches_exact_pubkey() {
