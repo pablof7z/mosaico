@@ -13,18 +13,15 @@ pub(super) use claim::{dispatch_all, drive_retries};
 use liveness::has_alive_session_for;
 
 /// Spawn a local agent that was p-tagged in a kind:9 message but had no running
-/// session. The caller durably claims `(event_id, mentioned_pubkey)` before
+/// session. The caller durably claims `(event id, mentioned_pubkey)` before
 /// entering this handler, so relay replay cannot repeat the side effect after a
 /// daemon restart. `has_alive` still avoids unnecessary work on the first sight.
-/// Delivery: session start schedules subscription/replay work in the daemon;
-/// recent kind:9 events are re-materialized against the now-running session and
-/// delivered via `ring_doorbells`.
+/// The canonical direct router has already parked the inbox row; successful
+/// recovery only supplies an executor, whose doorbell claims that existing row.
 pub(super) async fn handle(
     state: &Arc<DaemonState>,
-    event_id: &str,
     mentioned_pk: &str,
     channel: &str,
-    body: &str,
     requester_pubkey: Option<&str>,
 ) -> RecoveryOutcome {
     let has_alive = state.with_store(|s| has_alive_session_for(s, mentioned_pk, channel));
@@ -38,17 +35,9 @@ pub(super) async fn handle(
         };
     }
 
-    let target = match target::resolve_and_persist(
-        state,
-        event_id,
-        mentioned_pk,
-        channel,
-        body,
-        requester_pubkey,
-    ) {
+    let target = match target::resolve(state, mentioned_pk, channel) {
         target::Resolution::Ready(target) => target,
         target::Resolution::Retry => return RecoveryOutcome::Retry,
-        target::Resolution::Reject => return RecoveryOutcome::Complete,
     };
     let agent_slug = target.agent_slug;
     let target_session = target.session;
@@ -206,7 +195,7 @@ pub(super) async fn handle(
                 channel,
                 "exact mention target agent projection disagrees; refusing launch"
             );
-            return RecoveryOutcome::Complete;
+            return RecoveryOutcome::Retry;
         }
     }
 
@@ -224,7 +213,7 @@ pub(super) async fn handle(
             channel,
             "offline p-tag is not the configured stable agent pubkey; refusing slug substitution"
         );
-        return RecoveryOutcome::Complete;
+        return RecoveryOutcome::Retry;
     }
 
     tracing::info!(agent = %agent_slug, pubkey = %mentioned_pk, channel, work_root = %work_root, "starting stable agent on exact mention");

@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::ChatMessage;
 use crate::state::{RegisterSession, Store};
 use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp, ToBech32};
 
@@ -37,6 +38,25 @@ fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
             now: 100,
         })
         .unwrap();
+}
+
+fn route_for_test(store: &Store, event: &Event, chat: &ChatMessage) -> bool {
+    let mut inserted = false;
+    for target in &chat.mentioned_pubkeys {
+        if target != &event.pubkey.to_hex() {
+            inserted |= store
+                .park_direct_mention(
+                    &event.id.to_hex(),
+                    target,
+                    &event.pubkey.to_hex(),
+                    &chat.channel,
+                    &chat.body,
+                    event.created_at.as_secs(),
+                )
+                .unwrap();
+        }
+    }
+    inserted
 }
 
 #[test]
@@ -193,7 +213,7 @@ fn status_materializes_and_reads_live() {
 }
 
 #[test]
-fn chat_routes_to_channel_sessions_and_skips_sender() {
+fn direct_parking_targets_exact_pubkey_and_skips_sender() {
     let store = Store::open_memory().unwrap();
     let sender = Keys::generate();
     let receiver = Keys::generate();
@@ -213,11 +233,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
         mentioned_pubkeys: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &ambient_event));
-    assert!(!Nip29Materializer::route_chat(
-        &store,
-        &ambient_event,
-        &ambient_chat
-    ));
+    assert!(!route_for_test(&store, &ambient_event, &ambient_chat));
     assert!(store
         .peek_pending_for_pubkey(&receiver_pk)
         .unwrap()
@@ -237,11 +253,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
         mentioned_pubkeys: vec![receiver_pk.clone()],
     };
     assert!(Nip29Materializer::materialize_event(&store, &mention_event));
-    assert!(Nip29Materializer::route_chat(
-        &store,
-        &mention_event,
-        &mention_chat
-    ));
+    assert!(route_for_test(&store, &mention_event, &mention_chat));
 
     let pending = store.peek_pending_for_pubkey(&receiver_pk).unwrap();
     assert_eq!(pending.len(), 1);
@@ -257,7 +269,7 @@ fn chat_routes_to_channel_sessions_and_skips_sender() {
 /// must route independently: a mention p-tagging only one ordinal's pubkey
 /// reaches ONLY that session, never the sibling ordinal.
 #[test]
-fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
+fn direct_parking_does_not_substitute_a_sibling_ordinal() {
     let store = Store::open_memory().unwrap();
     let sender = Keys::generate();
     let ord0 = Keys::generate();
@@ -284,7 +296,7 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
         mentioned_pubkeys: vec![ord0_pk.clone()],
     };
     assert!(Nip29Materializer::materialize_event(&store, &event));
-    assert!(Nip29Materializer::route_chat(&store, &event, &chat));
+    assert!(route_for_test(&store, &event, &chat));
 
     assert_eq!(
         store.peek_pending_for_pubkey(&ord0_pk).unwrap().len(),
@@ -298,7 +310,7 @@ fn mention_to_one_ordinal_does_not_route_to_sibling_ordinal() {
 }
 
 #[test]
-fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
+fn direct_parking_survives_a_stopped_exact_session() {
     let store = Store::open_memory().unwrap();
     let sender = Keys::generate();
     let target = Keys::generate();
@@ -327,7 +339,7 @@ fn mention_to_dead_session_stays_pending_for_that_exact_pubkey() {
         mentioned_pubkeys: vec![target_pk.clone()],
     };
     assert!(Nip29Materializer::materialize_event(&store, &event));
-    assert!(Nip29Materializer::route_chat(&store, &event, &chat));
+    assert!(route_for_test(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&target_pk).unwrap().len(), 1);
     assert!(store
         .peek_pending_for_pubkey(&sibling_pk)

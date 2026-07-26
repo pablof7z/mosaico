@@ -93,6 +93,13 @@ deadlines let restart reconciliation continue the same ten-minute headless-idle
 policy. Only explicit forget/revoke changes recovery to `revoked` and removes
 the local signer, routes, and locators after process termination is confirmed.
 
+The `inbox` is direct-recipient state, not ambient history. A relay-accepted
+event explicitly p-tagging a daemon-owned pubkey creates one pending inbox row
+and one recipient edge atomically. Claiming that row does not consult
+`session_channels`; it remains claimable when it predates registration or when
+the route is later removed. Ambient context reads continue to apply both the
+arrival-sequence and signed-time join fences.
+
 Completed offline-mention claims are compact durable tombstones keyed by event
 and exact recipient. Unlike ordinary completed operation ledgers, they do not
 expire: relay observations can replay old Nostr events, and recovery or process

@@ -63,7 +63,7 @@ fn rewrite_config_with_user_nsec_without_backend_key(home: &Home, per_session_ro
     write_config_with_backend_key(home, per_session_rooms, None);
 }
 
-fn write_config(home: &Home, per_session_rooms: bool) {
+pub(crate) fn write_config(home: &Home, per_session_rooms: bool) {
     write_config_with_backend_key(home, per_session_rooms, Some(EXAMPLE_BACKEND_SEC_HEX));
 }
 
@@ -90,7 +90,7 @@ fn write_config_with_backend_key(home: &Home, per_session_rooms: bool, backend_k
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }
 
-fn refresh_channel_members(channel_path: &str) {
+pub(crate) fn refresh_channel_members(channel_path: &str) {
     let _ = mosaico::daemon::blocking::call(
         "channel_members",
         serde_json::json!({ "channel": channel_path }),
@@ -116,7 +116,7 @@ fn wait_for_channel_metadata(home: &Home, channel: &str) {
     );
 }
 
-fn initialize_workspace_root(channel: &str, path: &str) {
+pub(crate) fn initialize_workspace_root(channel: &str, path: &str) {
     rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         let initialized = client

@@ -64,6 +64,19 @@ pub(in crate::state::schema::tests) fn downgrade_channel_context_to_v17(conn: &C
         ALTER TABLE relay_status DROP COLUMN workspace;
         ALTER TABLE relay_status DROP COLUMN branch;
         DROP TABLE relay_status_sets;
+
+        CREATE TABLE relay_event_quarantine (
+            id TEXT PRIMARY KEY,
+            kind INTEGER NOT NULL,
+            pubkey TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            channel_h TEXT NOT NULL DEFAULT '',
+            event_json TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            quarantined_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_relay_event_quarantine_channel
+            ON relay_event_quarantine(channel_h, kind, created_at, id);
         "#,
     )
     .unwrap();

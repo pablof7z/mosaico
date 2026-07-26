@@ -24,6 +24,15 @@ pub(in crate::daemon::server) fn drive_offline_mention_retries(state: &Arc<Daemo
     offline_mention::drive_retries(state);
 }
 
+pub(in crate::daemon::server) fn dispatch_offline_mentions(
+    state: &Arc<DaemonState>,
+    event_id: &str,
+    chat: &crate::domain::ChatMessage,
+    owned_targets: &[String],
+) -> bool {
+    offline_mention::dispatch_all(state, event_id, chat, owned_targets)
+}
+
 /// Every identity a raw event references: its author plus all `p`-tagged pubkeys
 /// (channel members on a 39001/39002, mention targets on chat). These are the
 /// pubkeys whose `kind:0` we want cached so they render by name.
@@ -50,8 +59,8 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     });
 }
 
-/// Decode one event and apply it. Multi-agent aware: "me" is the SET of hosted
-/// local pubkeys; a mention routes by `to_pubkey` to that agent's sessions only.
+/// Decode one event and apply it. Multi-agent aware: "me" is the set of
+/// daemon-owned pubkeys; direct p-tags park under those exact identities.
 ///
 /// Thin dispatch to `provider.materialize` (Phase 5), then derives TailEvents
 /// from the domain event using the in-memory tracking maps.
@@ -63,11 +72,8 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         "incoming event"
     );
     let env = crate::fabric::RawEnvelope::Nostr(event.clone());
-    // Expand the hosted set to include configured offline targets and every
-    // known local session pubkey.
-    // This makes `is_self` (Profile/Status self-skip), the routing gate
-    // (`hosted.contains(&m.to_pubkey)`), and the sender admission check
-    // (`hosted.contains(&sender_pk)`) all recognize session-signed events.
+    // Expand the hosted set for self-profile/status suppression and tail
+    // presentation. Direct execution uses its own durable ownership classifier.
     let hosted: Vec<String> = {
         let mut h = state.hosted_pubkeys();
         h.extend(crate::identity::list_local_pubkeys(
@@ -79,8 +85,8 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
         h
     };
     let now = now_secs();
-    // ALWAYS materialize: re-deliveries are how a NEW session receives mentions
-    // that predate it; store writes are idempotent.
+    // Always materialize: transport read models are idempotent across relay
+    // redelivery. Direct execution is first-sight plus durable per-target claims.
     let outcome = state.with_store(|s| state.provider.materialize(&env, s));
 
     // Resolve newly surfaced identities without waiting for a turn to warm them.
@@ -106,12 +112,30 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             derive_and_emit_tail_events(state, &de, &hosted, now);
             if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
                 if let DomainEvent::ChatMessage(ref chat) = de {
-                    if offline_mention::dispatch_all(state, &event.id.to_hex(), chat, &hosted) {
-                        let st = state.clone();
-                        let ev = event.clone();
-                        tokio::spawn(async move {
-                            route_reaction::publish_eye_reaction(&st, &ev).await;
-                        });
+                    match super::direct_mentions::route(
+                        state,
+                        super::direct_mentions::DirectMention {
+                            event_id: &event.id.to_hex(),
+                            from_pubkey: &event.pubkey.to_hex(),
+                            channel_h: &chat.channel,
+                            body: &chat.body,
+                            created_at: event.created_at.as_secs(),
+                            target_pubkeys: &chat.mentioned_pubkeys,
+                        },
+                    ) {
+                        Ok(report) if !report.owned_targets.is_empty() => {
+                            let st = state.clone();
+                            let ev = event.clone();
+                            tokio::spawn(async move {
+                                route_reaction::publish_eye_reaction(&st, &ev).await;
+                            });
+                        }
+                        Ok(_) => {}
+                        Err(error) => tracing::error!(
+                            event_id = %event.id,
+                            %error,
+                            "direct mention routing failed; relay event remains cached"
+                        ),
                     }
                 }
             }
@@ -123,10 +147,6 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
             );
         }
     }
-    if outcome.wake_mentions {
-        crate::session_host::ring_doorbells(state.clone());
-    }
-
     chat_ops::dispatch(state, event);
 }
 

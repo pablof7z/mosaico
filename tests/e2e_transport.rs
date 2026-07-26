@@ -13,7 +13,7 @@ use nmp::{
     SourceAuthority,
 };
 use nmp_client::NmpRelayClient;
-use nostr::{EventBuilder, Filter, Keys, Kind};
+use nostr::{Alphabet, EventBuilder, Filter, Keys, Kind, SingleLetterTag, Tag, TagKind};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -147,6 +147,120 @@ async fn bounded_nmp_read_accepts_an_active_empty_acquisition() {
         .await
         .expect("empty NMP read should complete with acquisition evidence");
     assert!(events.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires the exact external MDB_NOLOCK Croissant binary"]
+async fn croissant_admits_chat_by_sender_membership_not_p_tag_target_route() {
+    let relay = TestRelay::start_nip29_relay();
+    let admin_keys = Keys::generate();
+    let member_keys = Keys::generate();
+    let outsider_keys = Keys::generate();
+    let unrouted_target = Keys::generate().public_key().to_hex();
+    let group = format!(
+        "sender-admission-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let admin = relay_client(&relay.url, admin_keys.clone()).await;
+    let member = relay_client(&relay.url, member_keys.clone()).await;
+    let outsider = relay_client(&relay.url, outsider_keys.clone()).await;
+
+    let create = EventBuilder::new(Kind::from(9007u16), "")
+        .tags([h_tag(&group)])
+        .sign_with_keys(&admin_keys)
+        .unwrap();
+    assert!(!admin.send_event(&create).await.unwrap().success.is_empty());
+    let lock = EventBuilder::new(Kind::from(9002u16), "")
+        .tags([
+            h_tag(&group),
+            Tag::custom(TagKind::Custom("name".into()), [group.clone()]),
+            Tag::custom(TagKind::Custom("closed".into()), Vec::<String>::new()),
+            Tag::custom(TagKind::Custom("public".into()), Vec::<String>::new()),
+        ])
+        .sign_with_keys(&admin_keys)
+        .unwrap();
+    assert!(!admin.send_event(&lock).await.unwrap().success.is_empty());
+    let put_member = EventBuilder::new(Kind::from(9000u16), "")
+        .tags([
+            h_tag(&group),
+            Tag::custom(
+                TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
+                [member_keys.public_key().to_hex(), "member".into()],
+            ),
+        ])
+        .sign_with_keys(&admin_keys)
+        .unwrap();
+    assert!(!admin
+        .send_event(&put_member)
+        .await
+        .unwrap()
+        .success
+        .is_empty());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let roster = admin
+        .fetch_events(
+            Filter::new().kind(Kind::from(39002u16)).identifier(&group),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    let roster_pubkeys = roster
+        .iter()
+        .flat_map(|event| event.tags.iter())
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("p"))
+                .then(|| parts.get(1).cloned())
+                .flatten()
+        })
+        .collect::<BTreeSet<_>>();
+    assert!(roster_pubkeys.contains(&member_keys.public_key().to_hex()));
+    assert!(!roster_pubkeys.contains(&unrouted_target));
+
+    let direct_tags = || [h_tag(&group), p_tag(&unrouted_target)];
+    let member_chat = EventBuilder::new(Kind::from(9u16), "member accepted")
+        .tags(direct_tags())
+        .sign_with_keys(&member_keys)
+        .unwrap();
+    let outsider_chat = EventBuilder::new(Kind::from(9u16), "outsider rejected")
+        .tags(direct_tags())
+        .sign_with_keys(&outsider_keys)
+        .unwrap();
+    let member_outcome = member.send_event(&member_chat).await.unwrap();
+    let outsider_outcome = outsider.send_event(&outsider_chat).await.unwrap();
+
+    assert!(
+        !member_outcome.success.is_empty(),
+        "member chat was not accepted: {:?}",
+        member_outcome.failed
+    );
+    assert!(
+        outsider_outcome.success.is_empty() && !outsider_outcome.failed.is_empty(),
+        "nonmember chat unexpectedly passed: success={:?} failed={:?}",
+        outsider_outcome.success,
+        outsider_outcome.failed
+    );
+
+    admin.disconnect().await;
+    member.disconnect().await;
+    outsider.disconnect().await;
+}
+
+fn h_tag(group: &str) -> Tag {
+    Tag::custom(
+        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
+        [group],
+    )
+}
+
+fn p_tag(pubkey: &str) -> Tag {
+    Tag::custom(
+        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
+        [pubkey],
+    )
 }
 
 async fn relay_client(relay: &str, keys: Keys) -> NmpRelayClient {

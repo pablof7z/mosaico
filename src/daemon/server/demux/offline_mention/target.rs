@@ -9,16 +9,12 @@ pub(super) struct MentionTarget {
 pub(super) enum Resolution {
     Ready(Box<MentionTarget>),
     Retry,
-    Reject,
 }
 
-pub(super) fn resolve_and_persist(
+pub(super) fn resolve(
     state: &Arc<DaemonState>,
-    event_id: &str,
     mentioned_pubkey: &str,
     channel: &str,
-    body: &str,
-    requester_pubkey: Option<&str>,
 ) -> Resolution {
     let session = match state.with_store(|store| store.get_session(mentioned_pubkey)) {
         Ok(session) => session,
@@ -45,59 +41,12 @@ pub(super) fn resolve_and_persist(
         .or(configured_slug)
     else {
         tracing::warn!(
-            event_id,
             pubkey = %mentioned_pubkey,
             channel,
             "exact mention target has no locally owned session or configured identity"
         );
-        return Resolution::Reject;
-    };
-
-    let admitted = state.with_store(|store| {
-        store
-            .session_membership_admits_event(mentioned_pubkey, channel, event_id)
-            .unwrap_or(false)
-    });
-    if !admitted {
-        tracing::warn!(
-            event_id,
-            pubkey = %mentioned_pubkey,
-            channel,
-            "exact mention predates the target's durable channel membership; refusing recovery"
-        );
-        return Resolution::Reject;
-    }
-
-    let created_at = state.with_store(|store| {
-        store
-            .get_event(event_id)
-            .ok()
-            .flatten()
-            .map(|event| event.created_at)
-            .unwrap_or_default()
-    });
-    let persisted = state.with_store(|store| {
-        store.enqueue_inbox(
-            event_id,
-            mentioned_pubkey,
-            requester_pubkey.unwrap_or_default(),
-            channel,
-            body,
-            created_at,
-        )?;
-        store.add_message_recipient(event_id, mentioned_pubkey, None)?;
-        Ok::<_, anyhow::Error>(())
-    });
-    if let Err(error) = persisted {
-        tracing::error!(
-            event_id,
-            pubkey = %mentioned_pubkey,
-            channel,
-            %error,
-            "exact mention could not be persisted before recovery; refusing launch"
-        );
         return Resolution::Retry;
-    }
+    };
     Resolution::Ready(Box::new(MentionTarget {
         agent_slug,
         session,

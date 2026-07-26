@@ -6,7 +6,6 @@
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
 //!   Materializer (store writes)       ← materialize()
 
-mod admission;
 pub(crate) mod group_management;
 pub mod nip29;
 pub mod provider;
@@ -31,18 +30,13 @@ pub trait NostrEventCodec {
 
 // ── Materializer output ───────────────────────────────────────────────────────
 
-/// The two side-effects that `handle_incoming` performs outside the store.
-/// Admission/quarantine writes happen inside materialization; sync-state
-/// reconciliation remains reserved for later phases.
 #[derive(Default)]
 pub struct MaterializationOutcome {
     /// The decoded domain event to forward onto the tail channel, if any.
     /// Emitted for every successfully decoded event, including is_self. For
-    /// routed mentions this is the ENRICHED event (sender slug resolved from
-    /// the store), so tail consumers never see an empty slug.
+    /// chat this is the enriched event (sender slug resolved from the store),
+    /// so tail consumers never see an empty slug.
     pub tail: Option<crate::domain::DomainEvent>,
-    /// True when a mention was routed and live delivery surfaces should be notified.
-    pub wake_mentions: bool,
 }
 
 // ── Top-level dispatcher ──────────────────────────────────────────────────────
@@ -50,12 +44,9 @@ pub struct MaterializationOutcome {
 /// Decode one raw envelope and apply all store side-effects.
 ///
 /// Every observed event is materialized into one cache by kind.
-/// Chat (kind:9) is additionally routed into the inbox ledger for local sessions
-/// in its channel. The same ledger stores per-target orchestration claims.
-///
-/// Tail is emitted for every decoded domain event. `wake_mentions` is set only
-/// when a chat message is newly routed to a live local session.
-///
+/// Relay acceptance is the sender/channel admission boundary. Chat is cached
+/// without a second local membership decision; daemon-owned p-tag execution is
+/// handled by the server after materialization.
 pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> MaterializationOutcome {
     use crate::domain::DomainEvent;
     use crate::fabric::nip29::materializer::Nip29Materializer;
@@ -72,23 +63,11 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
         }
         39001 => {
             Nip29Materializer::materialize_admins(store, event);
-            return MaterializationOutcome {
-                tail: None,
-                wake_mentions: admission::replay_quarantined_chat(
-                    store,
-                    crate::fabric::nip29::nostr_tag(event, "d").unwrap_or(""),
-                ),
-            };
+            return MaterializationOutcome::default();
         }
         39002 => {
             Nip29Materializer::materialize_members(store, event);
-            return MaterializationOutcome {
-                tail: None,
-                wake_mentions: admission::replay_quarantined_chat(
-                    store,
-                    crate::fabric::nip29::nostr_tag(event, "d").unwrap_or(""),
-                ),
-            };
+            return MaterializationOutcome::default();
         }
         _ => {}
     }
@@ -106,7 +85,6 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
     let created_at = event.created_at.as_secs();
     let mut outcome = MaterializationOutcome {
         tail: Some(de.clone()),
-        wake_mentions: false,
     };
 
     match de {
@@ -119,12 +97,24 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
         }
 
         DomainEvent::ChatMessage(ref chat) => {
-            outcome = admission::materialize_chat(store, event, chat);
+            Nip29Materializer::materialize_event(store, event);
+            Nip29Materializer::materialize_chat_message(store, event, chat);
+            let sender_pk = event.pubkey.to_hex();
+            if let Some(slug) = store
+                .resolve_slug_for_pubkey(&sender_pk)
+                .ok()
+                .flatten()
+                .filter(|slug| !slug.is_empty())
+            {
+                outcome.tail = Some(DomainEvent::ChatMessage(crate::domain::ChatMessage {
+                    from: crate::domain::AgentRef::new(sender_pk, slug),
+                    ..chat.clone()
+                }));
+            }
         }
 
         // Reactions (kind:7) are passive awareness: written to the reactions
-        // projection ONLY. `wake_mentions` stays false and this arm never enters
-        // `admission::materialize_chat`, so a reaction can never ring a doorbell,
+        // projection ONLY, so a reaction can never enter direct-mention routing,
         // wake an idle agent, or inject mid-turn. No tail (nothing live-delivers).
         DomainEvent::Reaction(ref rx) => {
             Nip29Materializer::materialize_reaction(store, event, rx);
@@ -169,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_routes_to_channel_session_via_inbox_and_skips_sender() {
+    fn chat_materialization_stays_transport_only() {
         let store = Store::open_memory().unwrap();
         let sender_keys = Keys::generate();
         let receiver_keys = Keys::generate();
@@ -190,18 +180,15 @@ mod tests {
             "heads up: I pushed the parser fix",
             vec![make_tag(&["h", "mychannel"])],
         );
-        let outcome = materialize(&RawEnvelope::Nostr(ambient.clone()), &store);
-        assert!(
-            !outcome.wake_mentions,
-            "ambient message must not wake inbox"
-        );
+        materialize(&RawEnvelope::Nostr(ambient.clone()), &store);
         assert!(store
             .peek_pending_for_pubkey(&receiver_pk)
             .unwrap()
             .is_empty());
         assert!(store.has_event(&ambient.id.to_hex()).unwrap());
 
-        // Mention (p-tagged): routed to inbox and wakes doorbell.
+        // Mention execution belongs to the daemon ownership router, not this
+        // transport projection.
         let mention = build_event(
             &sender_keys,
             9,
@@ -211,11 +198,13 @@ mod tests {
                 make_tag(&["p", &receiver_pk]),
             ],
         );
-        let outcome2 = materialize(&RawEnvelope::Nostr(mention.clone()), &store);
-        assert!(outcome2.wake_mentions, "mention should wake inbox");
+        materialize(&RawEnvelope::Nostr(mention.clone()), &store);
         let receiver_rows = store.peek_pending_for_pubkey(&receiver_pk).unwrap();
-        assert_eq!(receiver_rows.len(), 1);
-        assert_eq!(receiver_rows[0].body, "hey receiver, LGTM");
+        assert!(receiver_rows.is_empty());
+        assert!(store
+            .message_recipients(&mention.id.to_hex())
+            .unwrap()
+            .is_empty());
         assert!(
             store
                 .peek_pending_for_pubkey(&sender_pk)
@@ -282,7 +271,6 @@ mod tests {
 
         // Passive: no tail, no wake, no inbox row, no recipient edge.
         assert!(outcome.tail.is_none(), "reaction emits no tail");
-        assert!(!outcome.wake_mentions, "reaction must never wake mentions");
         assert!(
             store.message_recipients(&target_id).unwrap().is_empty(),
             "reaction writes no recipient edge (no inject path)"

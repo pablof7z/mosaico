@@ -18,7 +18,6 @@ const TABLES: &[&str] = &[
     "relay_channel_member_sets",
     "relay_channel_members",
     "relay_channels",
-    "relay_event_quarantine",
     "relay_events",
     "relay_profiles",
     "relay_reactions",

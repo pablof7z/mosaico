@@ -13,11 +13,9 @@ impl Store {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        reject_ineligible_pending(&transaction, target_pubkey, None, now)?;
         let mut stmt = transaction.prepare(&format!(
             "UPDATE inbox SET state='delivered', delivered_at=?2
              WHERE target_pubkey=?1 AND state='pending'
-               AND {ELIGIBLE_MEMBERSHIP_SQL}
              RETURNING {COLS}"
         ))?;
         let rows = stmt.query_map(params![target_pubkey, now], row_to_inbox)?;
@@ -44,11 +42,9 @@ impl Store {
         )?;
         let mut out = Vec::new();
         for id in event_ids {
-            reject_ineligible_pending(&transaction, target_pubkey, Some(id), now)?;
             let mut stmt = transaction.prepare(&format!(
                 "UPDATE inbox SET state='delivered', delivered_at=?3
                  WHERE event_id=?1 AND target_pubkey=?2 AND state='pending'
-                   AND {ELIGIBLE_MEMBERSHIP_SQL}
                  RETURNING {COLS}"
             ))?;
             let rows = stmt.query_map(params![id, target_pubkey, now], row_to_inbox)?;
@@ -143,39 +139,4 @@ impl Store {
         }
         Ok(())
     }
-}
-
-const ELIGIBLE_MEMBERSHIP_SQL: &str = "EXISTS(
-    SELECT 1
-      FROM session_channels membership
-      JOIN relay_events event ON event.id=inbox.event_id
-     WHERE membership.pubkey=inbox.target_pubkey
-       AND membership.channel_h=inbox.channel_h
-       AND event.channel_h=inbox.channel_h
-       AND event.rowid > membership.joined_event_seq
-       AND event.created_at >= membership.joined_at
-)";
-
-fn reject_ineligible_pending(
-    transaction: &rusqlite::Transaction<'_>,
-    target_pubkey: &str,
-    event_id: Option<&str>,
-    now: u64,
-) -> Result<()> {
-    let event_filter = event_id.map_or("", |_| " AND event_id=?3");
-    let sql = format!(
-        "UPDATE inbox
-            SET state='rejected_membership', delivered_at=?2
-          WHERE target_pubkey=?1 AND state='pending'
-            AND NOT {ELIGIBLE_MEMBERSHIP_SQL}{event_filter}"
-    );
-    match event_id {
-        Some(event_id) => {
-            transaction.execute(&sql, params![target_pubkey, now, event_id])?;
-        }
-        None => {
-            transaction.execute(&sql, params![target_pubkey, now])?;
-        }
-    }
-    Ok(())
 }

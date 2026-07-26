@@ -3,14 +3,13 @@
 //! The single intake point for every relay event the daemon observes. Each event
 //! is routed by kind into exactly one of the `relay_*` caches (channels, members,
 //! profiles, status) or, for every other kind, the verbatim `relay_events` log.
-//! Chat (kind:9) is additionally routed into the `inbox` delivery ledger for
-//! local sessions occupying the event's channel. The same ledger stores
-//! per-target orchestration claims with synthetic target keys.
+//! Direct-message execution is deliberately outside this transport projection:
+//! the daemon classifies its own identities after the relay event is cached.
 //!
 //! None of these writes touch authoritative local truth: `relay_*` are caches,
 //! identical for local and remote agents, rebuildable from the relay at any time.
 
-use crate::domain::{ChatMessage, Profile};
+use crate::domain::Profile;
 use crate::state::{RelayEvent, Store};
 use nostr::Event;
 
@@ -110,110 +109,6 @@ impl Nip29Materializer {
     pub fn materialize_event(store: &Store, event: &Event) -> bool {
         store.insert_event(&to_relay_event(event)).unwrap_or(false)
     }
-
-    /// Route a chat message into the `inbox` ledger for every known local session
-    /// whose exact pubkey is explicitly p-tagged in the event. Dead targets stay
-    /// pending under that same pubkey until the session is resumed; a slug or a
-    /// sibling session is never substituted. Non-mention channel chat stays in
-    /// `relay_events` for ambient context but does not ring the direct doorbell.
-    /// Returns `true` if at least one new inbox row was enqueued.
-    /// Idempotent: a duplicate `(event_id, target_pubkey)` is ignored by the store.
-    pub fn route_chat(store: &Store, event: &Event, chat: &ChatMessage) -> bool {
-        let channel_h = chat.channel.as_str();
-        let from_pubkey = event.pubkey.to_hex();
-        let event_id = event.id.to_hex();
-        let created_at = event.created_at.as_secs();
-        let p_pubkeys = collect_p_pubkeys(event);
-        if p_pubkeys.is_empty() {
-            return false;
-        }
-        let mut woke = false;
-        for target_pubkey in p_pubkeys {
-            if target_pubkey == from_pubkey {
-                continue;
-            }
-            let session = match store.get_session(&target_pubkey) {
-                Ok(Some(session)) => session,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::error!(
-                        channel = channel_h,
-                        pubkey = %target_pubkey,
-                        event_id = %event_id,
-                        error = %e,
-                        "route_chat: exact target lookup failed — mention left in relay cache"
-                    );
-                    continue;
-                }
-            };
-            let has_route = match store.has_session_route(&session.pubkey, channel_h) {
-                Ok(has_route) => has_route,
-                Err(e) => {
-                    tracing::error!(
-                        channel = channel_h,
-                        session = %session.pubkey,
-                        error = %e,
-                        "route_chat: durable session route lookup failed"
-                    );
-                    continue;
-                }
-            };
-            if !has_route {
-                continue;
-            }
-            let admitted = match store.session_membership_admits_event(
-                &session.pubkey,
-                channel_h,
-                &event_id,
-            ) {
-                Ok(admitted) => admitted,
-                Err(e) => {
-                    tracing::error!(
-                        channel = channel_h,
-                        session = %session.pubkey,
-                        event_id = %event_id,
-                        error = %e,
-                        "route_chat: membership cutoff lookup failed closed"
-                    );
-                    false
-                }
-            };
-            if !admitted {
-                continue;
-            }
-            match store.enqueue_inbox(
-                &event_id,
-                &session.pubkey,
-                &from_pubkey,
-                channel_h,
-                &chat.body,
-                created_at,
-            ) {
-                Ok(true) => woke = true,
-                Ok(false) => {}
-                // A matched session whose inbox write failed is a dropped mention:
-                // the agent will never see it. Surface loudly rather than folding
-                // the failure into woke=false.
-                Err(e) => tracing::error!(
-                    pubkey = %session.pubkey,
-                    channel = channel_h,
-                    event_id = %event_id,
-                    error = %e,
-                    "route_chat: enqueue_inbox failed for matched session — mention not delivered (agent not woken)"
-                ),
-            }
-            if let Err(e) = store.add_message_recipient(&event_id, &session.pubkey, None) {
-                tracing::error!(
-                    pubkey = %session.pubkey,
-                    channel = channel_h,
-                    event_id = %event_id,
-                    error = %e,
-                    "route_chat: recipient pubkey edge upsert failed"
-                );
-            }
-        }
-        woke
-    }
 }
 
 /// All `p`-tag pubkey values (`slice[1]`) on the event.
@@ -221,13 +116,11 @@ fn collect_p_pubkeys(event: &Event) -> Vec<String> {
     event
         .tags
         .iter()
-        .filter_map(|t| {
-            let s = t.as_slice();
-            if s.first().map(String::as_str) == Some("p") {
-                s.get(1).cloned()
-            } else {
-                None
-            }
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("p"))
+                .then(|| parts.get(1).cloned())
+                .flatten()
         })
         .collect()
 }

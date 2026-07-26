@@ -250,11 +250,9 @@ pub use native_turn_attempts::{
 mod profiles;
 mod workspace_roots;
 pub use workspace_roots::WorkspaceBinding;
-mod quarantine;
-pub(crate) mod work_start;
-pub use quarantine::QuarantinedEvent;
 mod reactions;
 mod reader;
+pub(crate) mod work_start;
 pub(crate) use reader::StoreReader;
 pub mod receipts;
 mod retention;

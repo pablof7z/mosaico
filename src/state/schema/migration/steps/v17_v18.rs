@@ -148,6 +148,10 @@ pub(super) fn migrate(conn: &mut Connection, _path: &Path) -> Result<()> {
           FROM relay_status
          GROUP BY pubkey;
 
+        -- Relay acceptance is the sender/channel admission boundary. Schema 18
+        -- has no second local chat quarantine.
+        DROP TABLE IF EXISTS relay_event_quarantine;
+
         PRAGMA user_version = 18;
         "#,
     )?;

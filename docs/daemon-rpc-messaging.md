@@ -37,8 +37,11 @@ result: {"event_id": "hex", "channel": "/root/child",
 
 Publishes a kind:9 event signed by the caller's session key and succeeds only
 after checked relay acceptance. Destination selection never changes session
-membership. Mentions wake only explicitly tagged joined recipients; untagged
-channel chat remains ambient awareness.
+membership. Explicit p-tags to identities owned by this daemon are durably
+parked under the exact recipient pubkey whether the executor is running,
+stopped, route-less, or revoked. Locality selects the executor; it does not
+decide whether the relay-accepted mention is valid. Remote p-tags cause no
+local action. Untagged channel chat remains ambient awareness.
 
 Attachment labels must appear as `[label]`. The daemon uploads and verifies each
 blob before publishing, then replaces markers with public URLs. Invalid,
@@ -81,10 +84,9 @@ Publishes a threaded NIP-10 reply in the original message's channel and targets
 its author. The caller must belong to that channel. Attachment handling matches
 `channel_send`.
 
-## Automatic delivery cutoff
+## Automatic ambient cutoff
 
-Automatic ambient context and inbox delivery admit a message only when both
-conditions hold:
+Automatic ambient context admits a message only when both conditions hold:
 
 1. its local arrival sequence is later than the session's join watermark; and
 2. its signed timestamp is at or after the recorded join time.
@@ -93,4 +95,6 @@ Missing or unverifiable evidence fails closed. This prevents future-dated
 pre-join events and backdated post-join events from leaking old conversation
 bodies. On a new join, Mosaico instead renders a compact recent-activity hint
 with count, time window, and authors, plus a pointer to the coordination skill
-for deliberate history navigation.
+for deliberate history navigation. Direct inbox rows do not use this cutoff:
+they belong to an exact local recipient because the accepted event explicitly
+p-tagged that pubkey, and remain claimable across route and runtime changes.

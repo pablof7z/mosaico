@@ -48,6 +48,16 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
     drop(store);
     let conn = Connection::open(&path).unwrap();
     assert_eq!(version(&conn), 18);
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+              WHERE type='table' AND name='relay_event_quarantine'",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap(),
+        0
+    );
     assert!(!columns(&conn, "sessions")
         .iter()
         .any(|column| column == "channel_h"));

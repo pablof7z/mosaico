@@ -15,9 +15,10 @@ mod session_start;
 mod target_wire;
 use inbox_rows::receiver_inbox_rows;
 #[test]
-fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
+fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    crate::channels::write_config(&home, false);
 
     let (sender_pubkey, receiver_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -44,6 +45,27 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .expect("receiver session row");
     let receiver_scope = format!("/{}", only_session_route(&store, &receiver_row.pubkey));
+    let receiver_channel = receiver_scope.trim_start_matches('/').to_string();
+    drop(store);
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            crate::channels::refresh_channel_members(&receiver_scope);
+            Store::open(&home.store_path())
+                .map(|store| {
+                    store
+                        .has_channel_membership_snapshot(&receiver_channel)
+                        .unwrap_or(false)
+                        && store
+                            .is_channel_member(&receiver_channel, &sender_pubkey)
+                            .unwrap_or(false)
+                        && store
+                            .is_channel_member(&receiver_channel, &receiver_row.pubkey)
+                            .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        }),
+        "sender and receiver did not become relay-confirmed channel members"
+    );
     let receiver_pubkey = receiver_row.pubkey.clone();
     let receiver_handle = Store::open(&home.store_path())
         .unwrap()
@@ -83,6 +105,15 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    let immediately_parked = Store::open(&home.store_path()).unwrap();
+    assert!(
+        receiver_inbox_rows(&immediately_parked, &receiver_pubkey)
+            .iter()
+            .any(|row| row.body == wire_body),
+        "successful local send must park the direct inbox before any readback wait"
+    );
+    drop(immediately_parked);
+
     // Poll until the relay-materialized chat propagates to the readable store,
     // rather than asserting on a single racy read.
     let mut read_stdout = String::new();
@@ -117,6 +148,45 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .expect("sender session row")
         .pubkey;
+    let original_channel = receiver_scope.trim_start_matches('/');
+    let original_event = Store::open(&home.store_path())
+        .unwrap()
+        .chat_for_channel(original_channel, 0, u32::MAX)
+        .unwrap()
+        .into_iter()
+        .find(|event| event.content == wire_body)
+        .expect("original chat event");
+    Store::open(&home.store_path())
+        .unwrap()
+        .revoke_route_and_mark_absent(&sender_pubkey, original_channel, now + 1)
+        .expect("remove reply target's local route");
+    let reply_text = "reply parked without relay echo";
+    rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_reply",
+                serde_json::json!({
+                    "session": &receiver_pubkey,
+                    "id": original_event.id,
+                    "message": reply_text
+                }),
+            )
+            .await
+            .expect("reply to route-less local author");
+    });
+    let reply_store = Store::open(&home.store_path()).unwrap();
+    assert!(!reply_store
+        .has_session_route(&sender_pubkey, original_channel)
+        .unwrap());
+    assert!(
+        receiver_inbox_rows(&reply_store, &sender_pubkey)
+            .iter()
+            .any(|row| row.body.contains(reply_text)),
+        "local reply must park under the owned author even without a target route"
+    );
+    drop(reply_store);
+
     assert!(
         wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
             .map(|store| receiver_inbox_rows(&store, &receiver_pubkey)
@@ -182,8 +252,9 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         store
             .peek_pending_for_pubkey(&sender_pubkey)
             .unwrap()
-            .is_empty(),
-        "sender should not receive its own chat row"
+            .iter()
+            .all(|row| row.body != wire_body),
+        "sender should not receive its own original chat row"
     );
 
     stop_daemon(&home);

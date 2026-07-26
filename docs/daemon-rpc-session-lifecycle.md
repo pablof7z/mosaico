@@ -88,6 +88,8 @@ Ordinary stops do not revoke recovery or channel membership. A stopped pubkey
 remains a member without a deadline, and exact p-tag routing can resume it. A
 native resume locator restores the same provider conversation; without one,
 Mosaico launches a fresh provider conversation under the same session pubkey.
+Revocation disables automatic execution but does not discard an already
+accepted direct inbox row; that row stays pending for retry or manual action.
 
 ## `pty_resume_native`
 

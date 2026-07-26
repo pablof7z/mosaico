@@ -28,6 +28,7 @@ mod backend_profile;
 mod background;
 mod delivery_drive;
 mod demux;
+mod direct_mentions;
 mod invite_rpc;
 mod managed_lifecycle;
 mod management_command;

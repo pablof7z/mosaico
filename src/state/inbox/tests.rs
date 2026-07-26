@@ -101,7 +101,7 @@ fn injected_delivery_stages_work_start_for_a_later_hook() {
 }
 
 #[test]
-fn leave_and_rejoin_rejects_a_message_queued_under_the_old_membership() {
+fn direct_message_survives_route_removal_and_rejoin() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
     insert_chat(&s, "old-membership", 10);
@@ -111,9 +111,23 @@ fn leave_and_rejoin_rejects_a_message_queued_under_the_old_membership() {
     s.revoke_route_and_mark_absent("pk", "room", 11).unwrap();
     s.grant_session_route("pk", "room", 12).unwrap();
 
-    assert!(s.claim_pending_for_pubkey("pk", 13).unwrap().is_empty());
-    assert_eq!(state_for(&s, "old-membership", "pk"), "rejected_membership");
-    assert!(s.peek_pending_for_pubkey("pk").unwrap().is_empty());
+    let claimed = s.claim_pending_for_pubkey("pk", 13).unwrap();
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].event_id, "old-membership");
+    assert_eq!(state_for(&s, "old-membership", "pk"), "delivered");
+}
+
+#[test]
+fn direct_message_parked_before_registration_is_claimable_after_registration() {
+    let s = Store::open_memory().unwrap();
+    assert!(s
+        .enqueue_inbox("pre-route", "pk", "human", "room", "queued", 10)
+        .unwrap());
+    upsert_runtime(&s, "pk", 11);
+
+    let claimed = s.claim_pending_for_pubkey("pk", 12).unwrap();
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].event_id, "pre-route");
 }
 
 #[test]
