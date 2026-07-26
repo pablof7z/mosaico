@@ -3,83 +3,23 @@
 //! The single intake point for every relay event the daemon observes. Each event
 //! is routed by kind into exactly one of the `relay_*` caches (channels, members,
 //! profiles, status) or, for every other kind, the verbatim `relay_events` log.
-//! Chat (kind:9) is additionally routed into the `inbox` delivery ledger for
-//! local sessions occupying the event's channel. The same ledger stores
-//! per-target orchestration claims with synthetic target keys.
+//! Direct-message execution is deliberately outside this transport projection:
+//! the daemon classifies its own identities after the relay event is cached.
 //!
 //! None of these writes touch authoritative local truth: `relay_*` are caches,
 //! identical for local and remote agents, rebuildable from the relay at any time.
 
-use crate::domain::{ChatMessage, Profile};
+use crate::domain::Profile;
 use crate::state::{RelayEvent, Store};
 use nostr::Event;
 
+mod group_state;
 mod messages;
 mod reactions;
 
 pub struct Nip29Materializer;
 
 impl Nip29Materializer {
-    // ── relay_channels (kind:39000) ──────────────────────────────────────────
-
-    /// Materialise kind:39000 group metadata into `relay_channels`. The group id
-    /// is the event's `d` tag; `parent` (empty for top-level root channels)
-    /// distinguishes a session/task channel from a root channel.
-    pub fn materialize_channel(store: &Store, event: &Event) {
-        let Some(channel_h) = super::nostr_tag(event, "d") else {
-            return;
-        };
-        let name = super::nostr_tag(event, "name").unwrap_or("");
-        let about = super::nostr_tag(event, "about").unwrap_or("");
-        let parent = super::nostr_tag(event, "parent").unwrap_or("");
-        if let Err(e) =
-            store.upsert_channel(channel_h, name, about, parent, event.created_at.as_secs())
-        {
-            tracing::error!(
-                channel = channel_h,
-                error = %e,
-                "materialize_channel: relay_channels upsert failed — relay truth diverged from cache"
-            );
-        }
-    }
-
-    // ── relay_channel_members (kind:39001 admins / 39002 members) ─────────────
-
-    /// Materialise kind:39001 — replace the admin rows for the channel, preserving
-    /// member rows.
-    pub fn materialize_admins(store: &Store, event: &Event) {
-        let Some(channel_h) = super::nostr_tag(event, "d") else {
-            return;
-        };
-        let admins = collect_p_pubkeys(event);
-        if let Err(e) = store.replace_channel_admins(channel_h, &admins, event.created_at.as_secs())
-        {
-            tracing::error!(
-                channel = channel_h,
-                error = %e,
-                "materialize_admins: replace_channel_admins failed — relay truth diverged from cache"
-            );
-        }
-    }
-
-    /// Materialise kind:39002 — replace the member rows for the channel, preserving
-    /// admin rows.
-    pub fn materialize_members(store: &Store, event: &Event) {
-        let Some(channel_h) = super::nostr_tag(event, "d") else {
-            return;
-        };
-        let members = collect_p_pubkeys(event);
-        if let Err(e) =
-            store.replace_channel_members(channel_h, &members, event.created_at.as_secs())
-        {
-            tracing::error!(
-                channel = channel_h,
-                error = %e,
-                "materialize_members: replace_channel_members failed — relay truth diverged from cache"
-            );
-        }
-    }
-
     // ── relay_profiles (kind:0) ──────────────────────────────────────────────
 
     /// Materialise a decoded kind:0 profile into `relay_profiles`. Newer
@@ -134,26 +74,30 @@ impl Nip29Materializer {
                 .flatten()
                 .unwrap_or_default()
         };
-        for channel in &st.channels {
-            if let Err(e) = store.upsert_status(&crate::state::Status {
+        let statuses = st
+            .channels
+            .iter()
+            .map(|channel| crate::state::Status {
                 pubkey: st.agent.pubkey.clone(),
                 channel_h: channel.clone(),
                 slug: slug.clone(),
                 title: st.title.clone(),
                 activity: st.activity.clone(),
+                workspace: st.workspace.clone(),
+                branch: st.branch.clone(),
                 state: st.state,
                 state_since: st.state_since,
                 last_seen: updated_at,
                 updated_at,
                 expiration: st.expires_at.unwrap_or(0),
-            }) {
-                tracing::error!(
-                    pubkey = %st.agent.pubkey,
-                    channel,
-                    error = %e,
-                    "materialize_status: relay_status upsert failed — relay truth diverged from cache"
-                );
-            }
+            })
+            .collect::<Vec<_>>();
+        if let Err(e) = store.replace_status_channels(&st.agent.pubkey, &statuses, updated_at) {
+            tracing::error!(
+                pubkey = %st.agent.pubkey,
+                error = %e,
+                "materialize_status: relay_status snapshot replacement failed"
+            );
         }
     }
 
@@ -165,90 +109,6 @@ impl Nip29Materializer {
     pub fn materialize_event(store: &Store, event: &Event) -> bool {
         store.insert_event(&to_relay_event(event)).unwrap_or(false)
     }
-
-    /// Route a chat message into the `inbox` ledger for every known local session
-    /// whose exact pubkey is explicitly p-tagged in the event. Dead targets stay
-    /// pending under that same pubkey until the session is resumed; a slug or a
-    /// sibling session is never substituted. Non-mention channel chat stays in
-    /// `relay_events` for ambient context but does not ring the direct doorbell.
-    /// Returns `true` if at least one new inbox row was enqueued.
-    /// Idempotent: a duplicate `(event_id, target_pubkey)` is ignored by the store.
-    pub fn route_chat(store: &Store, event: &Event, chat: &ChatMessage) -> bool {
-        let channel_h = chat.channel.as_str();
-        let from_pubkey = event.pubkey.to_hex();
-        let event_id = event.id.to_hex();
-        let created_at = event.created_at.as_secs();
-        let p_pubkeys = collect_p_pubkeys(event);
-        if p_pubkeys.is_empty() {
-            return false;
-        }
-        let mut woke = false;
-        for target_pubkey in p_pubkeys {
-            if target_pubkey == from_pubkey {
-                continue;
-            }
-            let session = match store.get_session(&target_pubkey) {
-                Ok(Some(session)) => session,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::error!(
-                        channel = channel_h,
-                        pubkey = %target_pubkey,
-                        event_id = %event_id,
-                        error = %e,
-                        "route_chat: exact target lookup failed — mention left in relay cache"
-                    );
-                    continue;
-                }
-            };
-            let has_route = match store.has_session_route(&session.pubkey, channel_h) {
-                Ok(has_route) => has_route,
-                Err(e) => {
-                    tracing::error!(
-                        channel = channel_h,
-                        session = %session.pubkey,
-                        error = %e,
-                        "route_chat: durable session route lookup failed"
-                    );
-                    continue;
-                }
-            };
-            if !has_route {
-                continue;
-            }
-            match store.enqueue_inbox(
-                &event_id,
-                &session.pubkey,
-                &from_pubkey,
-                channel_h,
-                &chat.body,
-                created_at,
-            ) {
-                Ok(true) => woke = true,
-                Ok(false) => {}
-                // A matched session whose inbox write failed is a dropped mention:
-                // the agent will never see it. Surface loudly rather than folding
-                // the failure into woke=false.
-                Err(e) => tracing::error!(
-                    pubkey = %session.pubkey,
-                    channel = channel_h,
-                    event_id = %event_id,
-                    error = %e,
-                    "route_chat: enqueue_inbox failed for matched session — mention not delivered (agent not woken)"
-                ),
-            }
-            if let Err(e) = store.add_message_recipient(&event_id, &session.pubkey, None) {
-                tracing::error!(
-                    pubkey = %session.pubkey,
-                    channel = channel_h,
-                    event_id = %event_id,
-                    error = %e,
-                    "route_chat: recipient pubkey edge upsert failed"
-                );
-            }
-        }
-        woke
-    }
 }
 
 /// All `p`-tag pubkey values (`slice[1]`) on the event.
@@ -256,13 +116,11 @@ fn collect_p_pubkeys(event: &Event) -> Vec<String> {
     event
         .tags
         .iter()
-        .filter_map(|t| {
-            let s = t.as_slice();
-            if s.first().map(String::as_str) == Some("p") {
-                s.get(1).cloned()
-            } else {
-                None
-            }
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("p"))
+                .then(|| parts.get(1).cloned())
+                .flatten()
         })
         .collect()
 }

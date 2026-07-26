@@ -1,7 +1,51 @@
 use super::*;
 use crate::state::ConfirmedAdmissionCommit;
 
+/// Revalidate a relay-admission task while `standing_sync` is held. Existing
+/// durable routes are always authoritative. A fresh launch may establish a new
+/// route only if this lifecycle has not already recorded an explicit absence.
+pub(in crate::daemon::server) fn admission_is_current(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    channel: &str,
+    runtime_generation: u64,
+    lifecycle_epoch: u64,
+    allow_new_route: bool,
+) -> bool {
+    state
+        .with_store(|store| -> Result<bool> {
+            let Some(session) = store.get_session(pubkey)? else {
+                return Ok(false);
+            };
+            if !session.is_running()
+                || session.runtime_generation != runtime_generation
+                || session.lifecycle_epoch != lifecycle_epoch
+            {
+                return Ok(false);
+            }
+            if store.has_session_route(pubkey, channel)? {
+                return Ok(true);
+            }
+            if !allow_new_route {
+                return Ok(false);
+            }
+            Ok(store
+                .get_session_standing(pubkey, channel)?
+                .is_none_or(|standing| standing.session_lifecycle_epoch != lifecycle_epoch))
+        })
+        .unwrap_or_else(|error| {
+            tracing::error!(
+                pubkey = %pubkey_short(pubkey),
+                %channel,
+                %error,
+                "admission authorization revalidation failed"
+            );
+            false
+        })
+}
+
 /// Finalize relay-confirmed membership while the caller holds `standing_sync`.
+/// The exact lifecycle may already have stopped; runtime stop is not leave.
 /// A stale or failed primary commit first becomes durable cleanup work, so an
 /// unconfirmed compensation is retried by the standing coordinator.
 pub(in crate::daemon::server) async fn commit_confirmed_admission(
@@ -22,7 +66,10 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
         )
     });
     match primary {
-        Ok(ConfirmedAdmissionCommit::Committed) => Ok(true),
+        Ok(ConfirmedAdmissionCommit::Committed) => {
+            reconcile_admission(state, pubkey, runtime_generation).await;
+            Ok(true)
+        }
         Ok(ConfirmedAdmissionCommit::Superseded) => {
             tracing::warn!(pubkey = %pubkey_short(pubkey), %channel, lifecycle_epoch, "stale admission was superseded by newer member standing");
             Ok(false)
@@ -44,6 +91,7 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
             match fallback {
                 Ok(ConfirmedAdmissionCommit::Committed) => {
                     tracing::warn!(pubkey = %pubkey_short(pubkey), %channel, %primary_error, "admission commit reported an error but its exact durable state is present");
+                    reconcile_admission(state, pubkey, runtime_generation).await;
                     Ok(true)
                 }
                 Ok(ConfirmedAdmissionCommit::Superseded) => {
@@ -62,6 +110,11 @@ pub(in crate::daemon::server) async fn commit_confirmed_admission(
     }
 }
 
+async fn reconcile_admission(state: &Arc<DaemonState>, pubkey: &str, generation: u64) {
+    super::super::presence::reassert_generation(state, pubkey, generation, "channel_admitted")
+        .await;
+}
+
 async fn compensate_due_admission(state: &Arc<DaemonState>, due: &crate::state::SessionStanding) {
     let removal = state
         .provider
@@ -77,10 +130,9 @@ async fn compensate_due_admission(state: &Arc<DaemonState>, due: &crate::state::
         return;
     }
     match state.with_store(|store| {
-        store.mark_session_standing_absent_if_epoch(
+        store.mark_member_standing_absent_if_epoch(
             &due.pubkey,
             &due.channel_h,
-            due.state,
             due.standing_epoch,
             due.session_lifecycle_epoch,
             now_secs(),
@@ -105,59 +157,37 @@ async fn compensate_due_admission(state: &Arc<DaemonState>, due: &crate::state::
     }
 }
 
-pub(super) async fn reconcile_expired(state: &Arc<DaemonState>) {
-    let _lane = state.standing_sync.lock().await;
-    let mut changed = false;
-    let due = match state.with_store(|store| store.list_due_retained_standing(now_secs())) {
+pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
+    let cleanup_due = match state.with_store(|store| store.list_cleanup_due_member_standing()) {
         Ok(due) => due,
         Err(error) => {
-            tracing::error!(%error, "standing reconciliation scan failed");
-            return;
+            tracing::error!(%error, "standing cleanup scan failed");
+            Vec::new()
         }
     };
-    for standing in due {
-        let current = state
-            .with_store(|store| store.get_session_standing(&standing.pubkey, &standing.channel_h))
-            .ok()
-            .flatten();
-        if current.as_ref() != Some(&standing) {
-            continue;
-        }
-        let outcome = state
-            .provider
-            .remove_member_confirmed(&standing.channel_h, &standing.pubkey)
-            .await;
-        if !outcome.is_confirmed() {
-            tracing::warn!(
-                pubkey = %pubkey_short(&standing.pubkey),
-                channel = %standing.channel_h,
-                outcome = ?outcome,
-                "standing removal was not confirmed; retaining retry deadline"
-            );
-            continue;
-        }
-        if let Err(error) = state.with_store(|store| {
-            store.mark_session_standing_absent_if_epoch(
-                &standing.pubkey,
-                &standing.channel_h,
-                standing.state,
-                standing.standing_epoch,
-                standing.session_lifecycle_epoch,
-                now_secs(),
-            )
+    for due in cleanup_due {
+        let _lane = state.standing_sync.lock().await;
+        let still_due = match state.with_store(|store| {
+            let standing = store.get_session_standing(&due.pubkey, &due.channel_h)?;
+            let routed = store.has_session_route(&due.pubkey, &due.channel_h)?;
+            Ok::<_, anyhow::Error>(standing.as_ref() == Some(&due) && !routed)
         }) {
-            tracing::error!(%error, "confirmed standing removal could not be persisted");
-        } else {
-            changed = true;
+            Ok(still_due) => still_due,
+            Err(error) => {
+                tracing::error!(
+                    pubkey = %pubkey_short(&due.pubkey),
+                    channel = %due.channel_h,
+                    %error,
+                    "standing cleanup revalidation failed"
+                );
+                false
+            }
+        };
+        if still_due {
+            compensate_due_admission(state, &due).await;
         }
     }
-    drop(_lane);
-    if changed {
-        super::super::subscriptions::reconcile_subs_logged(state, "standing_expired").await;
-    }
-}
 
-pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
     let sessions = state.with_store(|store| store.list_running_sessions().unwrap_or_default());
     for session in sessions {
         let routes = state
@@ -179,32 +209,43 @@ pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
 
 async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) {
     let _lane = state.standing_sync.lock().await;
-    let confirmed = if channel == session.channel_h {
-        let parent =
-            (!session.readiness_parent.is_empty()).then_some(session.readiness_parent.as_str());
-        matches!(
-            tokio::time::timeout(
-                Duration::from_secs(15),
-                state.provider.ensure_channel_ready(
-                    crate::fabric::nip29::readiness::ChannelCtx {
-                        channel,
-                        expect_member: &session.pubkey,
-                        parent_hint: parent,
-                        name: None,
-                        repair_whitelisted_admins: true,
-                    },
-                ),
-            )
-            .await,
-            Ok(gate) if !matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded)
+    if !admission_is_current(
+        state,
+        &session.pubkey,
+        channel,
+        session.runtime_generation,
+        session.lifecycle_epoch,
+        false,
+    ) {
+        tracing::debug!(
+            pubkey = %session.pubkey,
+            %channel,
+            "running-standing repair was cancelled because its route is no longer current"
+        );
+        return;
+    }
+    let relay_parent = state.with_store(|store| store.channel_parent(channel).ok().flatten());
+    let parent = crate::fabric::nip29::readiness::effective_parent_hint(
+        relay_parent,
+        (!session.readiness_parent.is_empty()).then_some(session.readiness_parent.as_str()),
+        channel,
+    );
+    let confirmed = matches!(
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            state.provider.ensure_channel_ready(
+                crate::fabric::nip29::readiness::ChannelCtx {
+                    channel,
+                    expect_member: &session.pubkey,
+                    parent_hint: parent.as_deref(),
+                    name: None,
+                    repair_whitelisted_admins: true,
+                },
+            ),
         )
-    } else {
-        state
-            .provider
-            .grant_member_confirmed(channel, &session.pubkey)
-            .await
-            .is_confirmed()
-    };
+        .await,
+        Ok(gate) if !matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded)
+    );
     if !confirmed {
         tracing::warn!(pubkey = %session.pubkey, %channel, "running session standing remains retryable");
         return;

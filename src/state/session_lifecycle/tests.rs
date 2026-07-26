@@ -1,3 +1,6 @@
+#[path = "tests/membership.rs"]
+mod membership;
+
 use super::*;
 
 fn running(store: &Store) -> Session {
@@ -10,7 +13,8 @@ fn seed() -> Store {
         pubkey: "pk".into(),
         observed_harness: "grok".into(),
         agent_slug: "grok".into(),
-        channel_h: "room".into(),
+        launch_channel_h: "room".into(),
+        work_root: "room".into(),
         child_pid: Some(42),
         now: 1,
     };
@@ -114,6 +118,18 @@ fn pending_inbox_fences_idle_eviction() {
         )
         .unwrap();
     store
+        .insert_event(&RelayEvent {
+            id: "event".into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at: 20,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: "hello".into(),
+            tags_json: "[]".into(),
+        })
+        .unwrap();
+    store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)
         .unwrap();
     let due = 10 + HEADLESS_IDLE_TIMEOUT_SECS;
@@ -143,6 +159,18 @@ fn completed_turn_consumes_injected_fence_and_rearms_true_idle() {
             PresentationState::Headless,
             10,
         )
+        .unwrap();
+    store
+        .insert_event(&RelayEvent {
+            id: "event".into(),
+            kind: 9,
+            pubkey: "human".into(),
+            created_at: 20,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: "hello".into(),
+            tags_json: "[]".into(),
+        })
         .unwrap();
     store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)
@@ -372,51 +400,6 @@ fn unavailable_conditional_kill_unwinds_stopping_at_the_same_epoch() {
     assert_eq!(current.runtime_state, RuntimeState::Running);
     assert_eq!(current.presentation_state, PresentationState::Unavailable);
     assert_eq!(current.idle_deadline, 0);
-}
-
-#[test]
-fn finalized_stop_retains_confirmed_standing_for_one_hour() {
-    let store = seed();
-    let initial = running(&store);
-    store
-        .mark_session_standing_member_if_running("pk", "room", initial.lifecycle_epoch, 2)
-        .unwrap()
-        .unwrap();
-    store
-        .apply_session_presentation_edge(
-            "pk",
-            initial.runtime_generation,
-            1,
-            PresentationState::Headless,
-            10,
-        )
-        .unwrap();
-    let stopping = store
-        .reserve_due_idle_eviction(
-            "pk",
-            initial.runtime_generation,
-            initial.lifecycle_epoch,
-            1,
-            10 + HEADLESS_IDLE_TIMEOUT_SECS,
-        )
-        .unwrap()
-        .unwrap();
-    store
-        .finalize_runtime_stopped_if_epoch(
-            "pk",
-            initial.runtime_generation,
-            stopping.lifecycle_epoch,
-            StopReason::IdleEvicted,
-            stopping.stopped_at,
-        )
-        .unwrap()
-        .unwrap();
-    let standing = store.list_session_standing("pk").unwrap();
-    assert_eq!(standing[0].state, StandingState::Retained);
-    assert_eq!(
-        standing[0].retain_until,
-        stopping.stopped_at + STOPPED_STANDING_RETENTION_SECS
-    );
 }
 
 #[test]

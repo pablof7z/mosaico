@@ -37,7 +37,24 @@ impl HookContextState {
         inputs: ViewInputs,
     ) -> HookContextOutcome {
         let force = inputs.force();
-        let view = assemble_view(&inputs, cursor.max(0) as u64, now.max(0) as u64);
+        let mut view = assemble_view(&inputs, cursor.max(0) as u64, now.max(0) as u64);
+        if cursor > 0 {
+            if let Some(previous) = self.last_inputs.as_ref() {
+                crate::fabric_context::inject_member_deltas(
+                    &mut view,
+                    previous,
+                    &inputs,
+                    self.last_now.unwrap_or(now).max(0) as u64,
+                    now.max(0) as u64,
+                );
+            } else {
+                crate::fabric_context::inject_member_snapshot(
+                    &mut view,
+                    &inputs,
+                    now.max(0) as u64,
+                );
+            }
+        }
         let changed = self.last_view.as_ref() != Some(&view);
         let first = self.last_view.is_none();
         let frame = if first {

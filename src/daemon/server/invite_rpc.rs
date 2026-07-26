@@ -44,12 +44,12 @@ pub(super) async fn rpc_invite(
         anyhow::bail!("invite requires a session; use dispatch to start a new agent session");
     };
 
-    let channel_h = match resolve_target_channel(state, &p)? {
-        TargetChannel::Unique(h) => h,
-        TargetChannel::Ambiguous(v) => return Ok(v),
-    };
+    let channel_h = resolve_target_channel(state, &p)?;
     let work_root = state.with_store(|s| work_root_for(s, &channel_h))?;
     let mut result = invite_session(state, &channel_h, &work_root, session_id).await?;
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("channel".into(), serde_json::json!(p.channel));
+    }
     maybe_post_add_message(state, params, &channel_h, &p, &mut result).await;
     Ok(result)
 }
@@ -76,12 +76,7 @@ async fn maybe_post_add_message(
     }
 }
 
-enum TargetChannel {
-    Unique(String),
-    Ambiguous(serde_json::Value),
-}
-
-fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<TargetChannel> {
+fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<String> {
     let anchor = CallerAnchor {
         pty_session: p.pty_session.as_deref(),
         harness_session: p.harness_session.as_deref(),
@@ -102,10 +97,7 @@ fn resolve_target_channel(state: &Arc<DaemonState>, p: &InviteParams) -> Result<
     }
     absolute::require_full_path("channel", &p.channel)?;
     match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &p.channel)) {
-        ChannelResolution::Unique(h) => Ok(TargetChannel::Unique(h)),
-        ChannelResolution::Ambiguous(refs) => Ok(TargetChannel::Ambiguous(
-            serde_json::json!({ "ambiguous": refs, "reference": p.channel }),
-        )),
+        ChannelResolution::Unique(h) => Ok(h),
         ChannelResolution::NotFound => {
             anyhow::bail!(
                 "{}",
@@ -122,6 +114,11 @@ pub(super) async fn invite_agent(
     spec: &str,
     cwd: Option<&str>,
 ) -> Result<serde_json::Value> {
+    let channel_ref =
+        state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
+    if channel_ref.is_empty() {
+        anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
+    }
     let target = crate::idref::parse_agent_backend_ref(spec)
         .with_context(|| format!("malformed agent {spec:?}: expected agent[@backend-label]"))?;
     if target
@@ -148,7 +145,7 @@ pub(super) async fn invite_agent(
         return Ok(serde_json::json!({
             "agent": target.slug,
             "online_agent": online,
-            "channel": channel_h,
+            "channel": channel_ref,
             "pty_id": "",
             "orchestration_event_id": event_id,
         }));
@@ -164,7 +161,7 @@ pub(super) async fn invite_agent(
             "pty_id": "",
             "agent": target.slug,
             "online_agent": online,
-            "channel": channel_h,
+            "channel": channel_ref,
             "host": state.host,
         }));
     }
@@ -189,7 +186,7 @@ pub(super) async fn invite_agent(
         "pty_id": spawn.endpoint.endpoint_id,
         "agent": target.slug,
         "online_agent": online,
-        "channel": channel_h,
+        "channel": channel_ref,
         "host": state.host,
     }))
 }
@@ -205,6 +202,10 @@ pub(super) async fn ensure_backend_admin(
     channel_h: &str,
     backend_pubkey: &str,
 ) -> Result<()> {
+    let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
+    if channel.is_empty() {
+        anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
+    }
     let mgmt = state.management_keys()?;
     let mgmt_hex = mgmt.public_key().to_hex();
     let parent = state
@@ -224,7 +225,7 @@ pub(super) async fn ensure_backend_admin(
         Err(_) => crate::fabric::nip29::readiness::ChannelGate::Degraded,
     };
     if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        anyhow::bail!("channel {channel_h} is not ready for remote invite");
+        anyhow::bail!("channel {channel} is not ready for remote invite");
     }
     let confirmed = state
         .provider
@@ -234,7 +235,7 @@ pub(super) async fn ensure_backend_admin(
         return Ok(());
     }
     anyhow::bail!(
-        "backend {} was not confirmed as an admin of channel {channel_h}",
+        "backend {} was not confirmed as an admin of channel {channel}",
         crate::util::pubkey_short(backend_pubkey)
     )
 }

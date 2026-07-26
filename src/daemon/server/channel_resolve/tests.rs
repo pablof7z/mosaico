@@ -142,6 +142,7 @@ fn resolution_is_global_across_workspaces() {
         Some("other")
     );
     assert_eq!(root_channel_by_slug(&store, "nonexistent"), None);
+    assert_eq!(root_channel_by_slug(&store, "OTHER"), None);
 }
 
 #[test]
@@ -158,7 +159,21 @@ fn channel_reference_prefers_unique_relative_path() {
 }
 
 #[test]
-fn literal_id_requires_the_canonical_at_prefix() {
+fn channel_reference_hides_internal_ids_when_ancestry_is_invalid() {
+    let store = Store::open_memory().unwrap();
+    chan(&store, "opaque-a", "a", "opaque-b");
+    chan(&store, "opaque-b", "b", "opaque-a");
+
+    let error = channel_reference_for(&store, "opaque-a")
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "channel has no complete agent-facing path");
+    assert!(!error.contains("opaque-a"));
+    assert!(!error.contains("opaque-b"));
+}
+
+#[test]
+fn literal_id_selectors_are_rejected_in_every_form() {
     let store = Store::open_memory().unwrap();
     chan(&store, "h-root", "proj", "");
     chan(&store, "h-plan", "planning", "h-root");
@@ -168,16 +183,20 @@ fn literal_id_requires_the_canonical_at_prefix() {
     ));
     assert!(matches!(
         resolve_absolute_channel_ref(&store, "@h-plan"),
-        ChannelResolution::Unique(ref id) if id == "h-plan"
+        ChannelResolution::NotFound
     ));
     assert!(matches!(
         resolve_absolute_channel_ref(&store, "@nonexistent"),
         ChannelResolution::NotFound
     ));
+    assert!(matches!(
+        resolve_absolute_channel_ref(&store, "/h-root/planning"),
+        ChannelResolution::Unique(ref id) if id == "h-plan"
+    ));
 }
 
 #[test]
-fn id_selector_is_global_and_reaches_below_unnamed_session_rooms() {
+fn unnamed_internal_ancestry_cannot_be_bypassed_with_an_id_selector() {
     let store = Store::open_memory().unwrap();
     chan(&store, "h-root", "workspace", "");
     chan(&store, "session-room", "session-room", "h-root");
@@ -189,7 +208,7 @@ fn id_selector_is_global_and_reaches_below_unnamed_session_rooms() {
     ));
     assert!(matches!(
         resolve_absolute_channel_ref(&store, "@abcd"),
-        ChannelResolution::Unique(ref id) if id == "abcd1234"
+        ChannelResolution::NotFound
     ));
 }
 

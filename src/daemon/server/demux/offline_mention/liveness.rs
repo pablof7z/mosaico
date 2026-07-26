@@ -3,23 +3,12 @@ use crate::state::Store;
 pub(in crate::daemon::server::demux) fn has_alive_session_for(
     store: &Store,
     mentioned_pk: &str,
-    channel: &str,
 ) -> bool {
-    let Some(rec) = store.get_session(mentioned_pk).ok().flatten() else {
-        return false;
-    };
-    if !rec.is_running() {
-        return false;
-    }
-    if !store
-        .is_derived_session_pubkey(mentioned_pk)
-        .unwrap_or(true)
-    {
-        return true;
-    }
     store
-        .has_session_route(&rec.pubkey, channel)
-        .unwrap_or(rec.channel_h == channel)
+        .get_session(mentioned_pk)
+        .ok()
+        .flatten()
+        .is_some_and(|session| session.is_running())
 }
 
 #[cfg(test)]
@@ -28,19 +17,27 @@ mod tests {
     use crate::state::RegisterSession;
 
     #[test]
-    fn durable_alive_gate_is_backend_global_across_channels() {
+    fn alive_gate_is_runtime_ownership_not_channel_membership() {
         let store = Store::open_memory().unwrap();
         store
             .reserve_hook_session_for_test(&RegisterSession {
                 pubkey: "durable-pk".into(),
                 observed_harness: "codex".into(),
                 agent_slug: "chief".into(),
-                channel_h: "channel-a".into(),
+                launch_channel_h: "channel-a".into(),
+                work_root: "channel-a".into(),
                 child_pid: None,
                 now: 1,
             })
             .unwrap();
 
-        assert!(has_alive_session_for(&store, "durable-pk", "channel-b"));
+        assert!(has_alive_session_for(&store, "durable-pk"));
+        store
+            .revoke_route_and_mark_absent("durable-pk", "channel-a", 2)
+            .unwrap();
+        assert!(
+            has_alive_session_for(&store, "durable-pk"),
+            "a direct mention can ring an owned live runtime after every explicit leave"
+        );
     }
 }

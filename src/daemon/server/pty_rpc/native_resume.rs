@@ -115,14 +115,9 @@ async fn resume_mapped(
         !rec.is_running(),
         "@{handle} is already running without an attachable PTY; open `mosaico` for explicit takeover"
     );
-    let root = state.with_store(|store| {
-        crate::daemon::workspace_path::WorkspacePathResolver::new(store).root_for_session(rec)
-    })?;
-    let pty_id = crate::session_host::resume_session_record(
+    let pty_id = crate::session_host::resume_agent(
         state,
         rec,
-        &root,
-        &rec.channel_h,
         native_id,
         crate::session_host::LaunchIntent::Interactive,
     )

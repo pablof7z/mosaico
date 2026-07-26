@@ -9,6 +9,8 @@ pub struct StatusCommand {
     pub state: SessionState,
     pub state_since: u64,
     pub host: String,
+    pub workspace: String,
+    pub branch: String,
     pub slug: String,
     pub rel_cwd: String,
     pub dispatch_event: Option<String>,

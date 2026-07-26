@@ -57,10 +57,6 @@ pub(super) async fn report_observation(
         // A direct `claude --agent <profile>` observation seeds only the
         // agent-owned profile selection. Launch argv remains bundle-owned.
         "profile": profile,
-        // NIP-29 subgroup id this hosted process was spawned into, when
-        // present. The daemon stores the session under this `h` instead of the
-        // cwd-derived channel so its presence/chat publish into the subgroup.
-        "channel": crate::cli::channel_env(),
     });
     let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {
         render_init_progress(&item);

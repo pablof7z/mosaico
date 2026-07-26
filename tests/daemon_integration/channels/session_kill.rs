@@ -20,11 +20,12 @@ fn wait_for_alive(home: &Home, agent: &str, channel: &str) -> mosaico::state::Se
     let mut found = None;
     assert!(
         wait_until(Duration::from_secs(25), || {
-            found = Store::open(&home.store_path())
-                .and_then(|s| s.list_running_sessions())
-                .unwrap_or_default()
-                .into_iter()
-                .find(|rec| rec.agent_slug == agent && rec.channel_h == channel);
+            found = Store::open(&home.store_path()).ok().and_then(|s| {
+                s.list_running_sessions().ok()?.into_iter().find(|rec| {
+                    rec.agent_slug == agent
+                        && s.has_session_route(&rec.pubkey, channel).unwrap_or(false)
+                })
+            });
             found.is_some()
         }),
         "session {agent} in {channel} did not become alive"

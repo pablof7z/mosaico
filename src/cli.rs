@@ -54,17 +54,6 @@ pub(crate) fn agent_env_slug() -> Option<String> {
     select_agent_env(std::env::var("MOSAICO_AGENT").ok())
 }
 
-/// The NIP-29 subgroup id (`h`) this PTY session was spawned into, exported as
-/// `MOSAICO_CHANNEL`. Present only for sessions launched into a subgroup task
-/// room; absent for ordinary channel sessions. Threaded into session-resolving
-/// RPCs so the daemon binds to the subgroup session (stored under this `h`)
-/// rather than a sibling parent-channel session in the same working directory.
-pub(crate) fn channel_env() -> Option<String> {
-    std::env::var("MOSAICO_CHANNEL")
-        .ok()
-        .filter(|s| !s.is_empty())
-}
-
 /// The hosted PTY session this CLI invocation runs in. It is present in the
 /// harness env from process birth and is 1:1 with the session, so the daemon
 /// resolves its typed PTY locator to the caller's pubkey. Native harness shells

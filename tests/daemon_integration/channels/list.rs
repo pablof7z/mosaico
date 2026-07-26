@@ -1,13 +1,13 @@
 use super::*;
 
 #[test]
-fn channel_list_from_registered_workspace_sends_channel_param() {
+fn channel_list_explicit_workspace_renders_public_root_path() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
 
     let out = run_cli_with_env_in_dir(
         &home,
-        &["channel", "list"],
+        &["channel", "list", "--workspace", "tmp"],
         &[],
         std::path::Path::new("/tmp"),
     );
@@ -20,7 +20,7 @@ fn channel_list_from_registered_workspace_sends_channel_param() {
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.lines().any(|line| line.contains("tmp")),
+        stdout.lines().any(|line| line.contains("/tmp")),
         "channel list should render the resolved root; stdout={stdout}"
     );
 

@@ -3,12 +3,9 @@
 use super::ManagementCommand;
 use anyhow::{Context, Result};
 
-const HASH_PLACEHOLDER: &str = "__mosaico_channel_hash__";
-
 pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
     let body = strip_leading_inline_mentions(body.trim());
-    let body = preserve_archive_channel_hash(body);
-    let words = shlex::split(&body).context("could not parse command quoting")?;
+    let words = shlex::split(body).context("could not parse command quoting")?;
     match words.as_slice() {
         [verb, spec] if eq(verb, "add") => {
             crate::idref::parse_agent_backend_ref(spec)
@@ -35,13 +32,9 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
             Ok(ManagementCommand::Kill { selector: selector.to_string() })
         }
         [verb, channel] if eq(verb, "archive") => {
-            let channel = channel
-                .strip_prefix(HASH_PLACEHOLDER)
-                .map(|rest| format!("#{rest}"))
-                .unwrap_or_else(|| channel.clone());
-            let channel_ref = channel.strip_prefix('#').unwrap_or(&channel).trim();
-            if channel_ref.is_empty() {
-                anyhow::bail!("archive requires a channel name");
+            let channel_ref = channel.trim();
+            if !channel_ref.starts_with('/') {
+                anyhow::bail!("archive requires a full channel path such as /mosaico/old");
             }
             Ok(ManagementCommand::Archive {
                 channel_ref: channel_ref.to_string(),
@@ -49,7 +42,7 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
         }
         [] => anyhow::bail!("empty management command"),
         _ => anyhow::bail!(
-            "unsupported management command; supported: add agent[@backend], list agents, list sessions, list all sessions, kill <npub|hex|handle>, archive #channel"
+            "unsupported management command; supported: add agent[@backend], list agents, list sessions, list all sessions, kill <npub|hex|handle>, archive /root/channel"
         ),
     }
 }
@@ -95,28 +88,6 @@ fn is_inline_mention(word: &str) -> bool {
         || lower.starts_with("nostr:nprofile1")
         || lower.starts_with("npub1")
         || lower.starts_with("nprofile1")
-}
-
-fn preserve_archive_channel_hash(body: &str) -> String {
-    let Some((verb, rest_start)) = first_word(body) else {
-        return body.to_string();
-    };
-    if !eq(verb, "archive") {
-        return body.to_string();
-    }
-
-    let rest = &body[rest_start..];
-    let whitespace_len = rest.len() - rest.trim_start().len();
-    let channel = &rest[whitespace_len..];
-    let Some(after_hash) = channel.strip_prefix('#') else {
-        return body.to_string();
-    };
-
-    let mut out = String::with_capacity(body.len() + HASH_PLACEHOLDER.len());
-    out.push_str(&body[..rest_start + whitespace_len]);
-    out.push_str(HASH_PLACEHOLDER);
-    out.push_str(after_hash);
-    out
 }
 
 fn first_word(body: &str) -> Option<(&str, usize)> {
@@ -166,7 +137,7 @@ mod tests {
             "list sessions",
             "list all sessions",
             "kill quill-codex",
-            "archive #planning",
+            "archive /mosaico/planning",
             // leading inline npub mention (the rendered p-tag) is stripped:
             "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs add coder",
             "ADD coder", // case-insensitive verb
@@ -224,15 +195,15 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_command("archive #planning").unwrap(),
+            parse_command("archive /mosaico/planning").unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "planning".to_string()
+                channel_ref: "/mosaico/planning".to_string()
             }
         );
         assert_eq!(
-            parse_command("archive \"#planning\"").unwrap(),
+            parse_command("archive \"/mosaico/planning\"").unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "planning".to_string()
+                channel_ref: "/mosaico/planning".to_string()
             }
         );
         assert_eq!(
@@ -244,12 +215,13 @@ mod tests {
         );
         assert_eq!(
             parse_command(
-                "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs archive #planning"
+                "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs archive /mosaico/planning"
             )
             .unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "planning".to_string()
+                channel_ref: "/mosaico/planning".to_string()
             }
         );
+        assert!(parse_command("archive #planning").is_err());
     }
 }

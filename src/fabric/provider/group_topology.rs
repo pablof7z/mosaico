@@ -1,5 +1,5 @@
 use super::Nip29Provider;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use nostr::Event;
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -7,13 +7,22 @@ use std::time::Duration;
 const RELATIONSHIP_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl Nip29Provider {
-    fn observe_group_metadata(&self, parent_h: &str) -> Result<nmp::Subscription> {
+    async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        self.nmp.observe(&crate::reconcile::SubscriptionQuery {
-            kinds: BTreeSet::from([KIND_GROUP_METADATA]),
-            authors: BTreeSet::new(),
-            tag: Some(('d', parent_h.to_string())),
-        })
+        let filter = crate::nmp_host::read::filter(
+            &[KIND_GROUP_METADATA],
+            &[],
+            &[('d', parent_h.to_string())],
+        )?;
+        let events = self
+            .nmp
+            .fetch_group(filter, 10, Duration::from_secs(5))
+            .await?;
+        Ok(events
+            .iter()
+            .max_by_key(|event| event.created_at.as_secs())
+            .map(children_from_metadata)
+            .unwrap_or_default())
     }
 
     /// Wait until the relay's parent metadata reciprocally confirms `child_h`.
@@ -26,32 +35,24 @@ impl Nip29Provider {
         parent_h: &str,
         child_h: &str,
     ) -> Result<()> {
-        let subscription = self
-            .observe_group_metadata(parent_h)
-            .with_context(|| format!("observing parent {parent_h:?} metadata"))?;
-        let child_h = child_h.to_string();
-        tokio::task::spawn_blocking(move || {
-            let deadline = std::time::Instant::now() + RELATIONSHIP_READBACK_TIMEOUT;
-            loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    anyhow::bail!("relay did not confirm child {child_h:?} in parent metadata");
+        let deadline = tokio::time::Instant::now() + RELATIONSHIP_READBACK_TIMEOUT;
+        loop {
+            let last_error = match self.fetch_parent_children(parent_h).await {
+                Ok(children) if children.contains(child_h) => return Ok(()),
+                Ok(_) => None,
+                Err(error) => Some(format!("{error:#}")),
+            };
+            if tokio::time::Instant::now() >= deadline {
+                if let Some(error) = last_error {
+                    anyhow::bail!(
+                        "relay did not confirm child {child_h:?} in parent metadata; \
+                         final read failed: {error}"
+                    );
                 }
-                let frame = subscription
-                    .recv_timeout(remaining)
-                    .context("parent metadata observation disconnected")?;
-                if frame
-                    .deltas
-                    .iter()
-                    .filter_map(|delta| delta.event())
-                    .any(|event| children_from_metadata(event).contains(&child_h))
-                {
-                    return Ok(());
-                }
+                anyhow::bail!("relay did not confirm child {child_h:?} in parent metadata");
             }
-        })
-        .await
-        .context("joining parent metadata observation")?
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
 }
 

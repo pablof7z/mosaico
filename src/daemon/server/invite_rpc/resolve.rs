@@ -100,6 +100,8 @@ mod tests {
                 slug: "old-codex".into(),
                 title: String::new(),
                 activity: String::new(),
+                workspace: String::new(),
+                branch: String::new(),
                 state: crate::session_state::SessionState::Idle,
                 state_since: 1,
                 last_seen: 1,

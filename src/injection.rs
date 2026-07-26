@@ -48,9 +48,13 @@ pub(crate) fn render_terminal_mention(
     let mut lines: Vec<String> = Vec::with_capacity(rows.len() * 3 + 4);
     lines.push("<mosaico>".to_string());
     for row in rows {
+        let channel_ref = crate::channel_ref::full_channel_ref(store, &row.channel_h);
+        if channel_ref.is_empty() {
+            return None;
+        }
         push_agent_message(
             &mut lines,
-            &crate::channel_ref::full_channel_ref(store, &row.channel_h),
+            &channel_ref,
             &speaker_label(store, &row.from_pubkey),
             &row.event_id,
             &row.body,
@@ -130,18 +134,6 @@ fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
             row.created_at,
         )
         .unwrap_or(true)
-}
-
-/// The human display label for a channel: its kind:39000 `name` when set, else
-/// the raw `channel_h` as a genuine fallback. The opaque id must never appear in
-/// agent-facing text when a name exists.
-pub(crate) fn channel_display(store: &Store, channel_h: &str) -> String {
-    store
-        .get_channel(channel_h)
-        .ok()
-        .flatten()
-        .and_then(|c| c.human_name().map(str::to_string))
-        .unwrap_or_else(|| channel_h.to_string())
 }
 
 fn esc_attr(input: &str) -> String {

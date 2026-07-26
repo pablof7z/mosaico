@@ -39,7 +39,7 @@ pub(super) async fn rpc_session_start_inner(
     let harness_name = harness.as_str();
     let located_pubkey = runtime::resolve_existing_pubkey(state, &p, harness_name)?;
     let persisted = runtime::reconcile_agent_from_pubkey(state, &mut p, located_pubkey.as_deref())?;
-    let agent = if let Some(existing) = persisted {
+    let agent = if let Some(existing) = persisted.as_ref() {
         if state.with_store(|store| store.is_derived_session_pubkey(&existing.pubkey))? {
             identity::AgentIdentity::per_session(&existing.agent_slug, harness_name)
         } else {
@@ -87,8 +87,14 @@ pub(super) async fn rpc_session_start_inner(
         .or(prepared.reclaimed_pubkey.as_deref())
         .map(str::to_string);
 
-    let (mut channel, channel_provision_name) = resolve_start_channel(state, &p, &work_root)?;
-    let room_parent = if p.channel.as_deref().is_none_or(str::is_empty)
+    let (mut channel, channel_provision_name) =
+        if persisted.is_some() && p.channel.as_deref().is_none_or(str::is_empty) {
+            (String::new(), None)
+        } else {
+            resolve_start_channel(state, &p, &work_root)?
+        };
+    let room_parent = if persisted.is_none()
+        && p.channel.as_deref().is_none_or(str::is_empty)
         && state.per_session_rooms()
         && !work_root.is_empty()
     {
@@ -112,11 +118,6 @@ pub(super) async fn rpc_session_start_inner(
         .as_ref()
         .is_some_and(|session| session.is_running())
         && state.runtime.engines.lock().unwrap().contains_key(&pubkey);
-    if already_running {
-        if let Some(existing) = &existing {
-            channel = existing.channel_h.clone();
-        }
-    }
     let readiness_parent = channel_ready::session_parent_hint(
         state,
         &channel,
@@ -125,13 +126,23 @@ pub(super) async fn rpc_session_start_inner(
         existing.as_ref(),
     )?;
     let now = now_secs();
-    let runtime_generation =
-        runtime::reserve_generation(state, &p, &facts, &pubkey, &channel, now, existing.as_ref())?;
+    let runtime_generation = runtime::reserve_generation(
+        state,
+        &p,
+        &facts,
+        &pubkey,
+        &channel,
+        &work_root,
+        now,
+        existing.as_ref(),
+    )?;
     let mut reservation = (!already_running)
         .then(|| RuntimeReservation::new(state.clone(), pubkey.clone(), runtime_generation));
 
     state.with_store(|store| -> Result<()> {
-        store.set_session_context(&pubkey, &channel, &work_root, &readiness_parent)?;
+        if !already_running {
+            store.set_session_readiness_parent(&pubkey, &readiness_parent)?;
+        }
         if !store.bind_runtime_process(&pubkey, runtime_generation, p.watch_pid)? {
             anyhow::bail!(
                 "runtime generation {runtime_generation} for {pubkey} is no longer active"
@@ -217,7 +228,6 @@ pub(super) async fn rpc_session_start_inner(
         prepared.identity,
         prepared.keys,
         runtime_generation,
-        &spawn.channel_h,
         &work_root,
         &spawn.rel_cwd,
         p.dispatch_event.filter(|value| !value.is_empty()),
@@ -240,7 +250,6 @@ pub(super) async fn rpc_session_start_inner(
     }
     Ok(serde_json::json!({ "pubkey": pubkey }))
 }
-
 fn resolve_start_channel(
     _state: &Arc<DaemonState>,
     p: &SessionStartParams,
@@ -251,20 +260,17 @@ fn resolve_start_channel(
     };
     Ok((channel_h.to_string(), None))
 }
-
 fn progress_emit(progress: &Option<InitProgress>, stage: &str, message: &str) {
     if let Some(progress) = progress {
         progress.emit(stage, message);
     }
 }
-
 struct RuntimeReservation {
     state: Arc<DaemonState>,
     pubkey: String,
     generation: u64,
     armed: bool,
 }
-
 impl RuntimeReservation {
     fn new(state: Arc<DaemonState>, pubkey: String, generation: u64) -> Self {
         Self {
@@ -274,12 +280,10 @@ impl RuntimeReservation {
             armed: true,
         }
     }
-
     fn disarm(&mut self) {
         self.armed = false;
     }
 }
-
 impl Drop for RuntimeReservation {
     fn drop(&mut self) {
         if self.armed {

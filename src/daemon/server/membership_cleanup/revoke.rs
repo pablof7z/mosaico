@@ -15,9 +15,6 @@ pub(in crate::daemon::server) fn recorded_channels(
             .into_iter()
             .map(|(channel, _)| channel)
             .collect::<BTreeSet<_>>();
-        if !session.channel_h.is_empty() {
-            channels.insert(session.channel_h.clone());
-        }
         channels.extend(
             store
                 .list_session_standing(&session.pubkey)
@@ -40,6 +37,7 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
     let _lane = state.standing_sync.lock().await;
     let mut failures = Vec::new();
     for channel in channels {
+        let public_channel = state.with_store(|store| public_channel_label(store, &channel));
         let standing = state
             .with_store(|store| store.get_session_standing(pubkey, &channel))
             .ok()
@@ -49,25 +47,45 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
             .remove_member_confirmed(&channel, pubkey)
             .await;
         if !outcome.is_confirmed() {
-            failures.push(format!("{channel}: {outcome:?}"));
+            tracing::warn!(
+                channel = %channel,
+                ?outcome,
+                "revoked-session membership removal was not confirmed"
+            );
+            failures.push(format!(
+                "{public_channel}: membership removal was not confirmed"
+            ));
         } else if let Some(standing) = standing {
             if let Err(error) = state.with_store(|store| {
-                store.mark_session_standing_absent_if_epoch(
+                store.mark_member_standing_absent_if_epoch(
                     pubkey,
                     &channel,
-                    standing.state,
                     standing.standing_epoch,
                     standing.session_lifecycle_epoch,
                     now_secs(),
                 )
             }) {
+                tracing::warn!(
+                    channel = %channel,
+                    error = %format!("{error:#}"),
+                    "confirmed membership removal could not be persisted"
+                );
                 failures.push(format!(
-                    "{channel}: confirmed removal persistence: {error:#}"
+                    "{public_channel}: confirmed membership removal could not be persisted"
                 ));
             }
         }
     }
     failures
+}
+
+fn public_channel_label(store: &crate::state::Store, channel_h: &str) -> String {
+    let path = crate::channel_ref::full_channel_ref(store, channel_h);
+    if path.is_empty() {
+        "channel with unavailable public path".to_string()
+    } else {
+        path
+    }
 }
 
 #[cfg(test)]
@@ -85,7 +103,8 @@ mod tests {
                     pubkey: session.into(),
                     observed_harness: "claude-code".into(),
                     agent_slug: "reviewer".into(),
-                    channel_h: "active".into(),
+                    launch_channel_h: "active".into(),
+                    work_root: "active".into(),
                     child_pid: None,
                     now: now_secs(),
                 })
@@ -101,6 +120,21 @@ mod tests {
         assert_eq!(
             recorded_channels(&state, session),
             vec![String::from("active"), String::from("joined")]
+        );
+    }
+
+    #[test]
+    fn cleanup_failure_labels_never_expose_internal_channel_ids() {
+        let store = crate::state::Store::open_memory().unwrap();
+        store.upsert_channel("root", "general", "", "", 1).unwrap();
+        store
+            .upsert_channel("opaque-child", "review", "", "root", 2)
+            .unwrap();
+
+        assert_eq!(public_channel_label(&store, "opaque-child"), "/root/review");
+        assert_eq!(
+            public_channel_label(&store, "unknown-internal-id"),
+            "channel with unavailable public path"
         );
     }
 }

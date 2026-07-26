@@ -44,8 +44,8 @@ pub struct Config {
     /// create and is the address the orchestration listener matches `add`
     /// tags against.
     pub mosaico_private_key: Option<String>,
-    /// Whether human-initiated sessions (no `MOSAICO_CHANNEL` override) mint
-    /// their own per-session NIP-29 subgroup. Default `false`: such sessions
+    /// Whether human-initiated sessions mint their own per-session NIP-29
+    /// subgroup. Default `false`: such sessions
     /// land in the bare root channel, and a direct launch without `--channel`
     /// uses that root instead of minting a room.
     /// When `true`, per-session rooms are enabled (mint a per-session room).

@@ -55,6 +55,7 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
         open_ids(&sync(&mut policy, &snapshot)),
         set([
             "mosaico-global-kind-9000",
+            "mosaico-global-kind-39000",
             "mosaico-h-room-a",
             "mosaico-h-room-b",
             "mosaico-gstate-room-a",
@@ -65,6 +66,19 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
         ])
     );
     assert!(sync(&mut policy, &snapshot).is_empty());
+}
+
+#[test]
+fn known_unjoined_channels_hydrate_group_state_without_subscribing_to_content() {
+    let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {
+        group_state_channels: set(["known-child"]),
+        ..Default::default()
+    });
+    let opened = open_ids(&effects);
+
+    assert!(opened.contains("mosaico-global-kind-39000"));
+    assert!(opened.contains("mosaico-gstate-known-child"));
+    assert!(!opened.contains("mosaico-h-known-child"));
 }
 
 #[test]

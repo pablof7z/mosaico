@@ -10,7 +10,8 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
             pubkey: pubkey.clone(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: Some(42),
             now: 10,
         })
@@ -21,6 +22,8 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
         slug: "codex".into(),
         title: "Picker status".into(),
         activity: String::new(),
+        workspace: String::new(),
+        branch: String::new(),
         state: crate::session_state::SessionState::Suspended,
         state_since: 10,
         last_seen: 20,
@@ -46,7 +49,8 @@ fn native_failure_is_separate_from_canonical_presence() {
             pubkey: pubkey.clone(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: Some(42),
             now: 10,
         })

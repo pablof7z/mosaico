@@ -48,7 +48,7 @@ impl<'a> WorkspacePathResolver<'a> {
     }
 
     pub(crate) fn root_for_session(&self, session: &crate::state::Session) -> Result<String> {
-        self.root_for_channel(&session.channel_h)
+        Ok(session.work_root.clone())
     }
 
     pub(crate) fn bind_root_path(&self, root: &str, path: &std::path::Path, at: u64) -> Result<()> {

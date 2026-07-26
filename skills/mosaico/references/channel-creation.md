@@ -7,7 +7,7 @@ creating, joining, seeding, or reorganizing channels.
 
 Use the narrowest channel that owns the active conversation.
 
-- Continue in the current channel when the work directly serves its topic and
+- Continue in a joined channel when the work directly serves its topic and
   shares the same participants and decisions.
 - Reuse an existing channel when its topic already owns the work.
 - Join a channel when its ongoing context and directed messages should remain in
@@ -26,7 +26,7 @@ better home once the exchange has become an ongoing workstream rather than a
 bounded handoff. Do not keep splitting when the current child already owns the
 topic and its audience is participating in the same work.
 
-Create proactively. A focused channel gives the work a durable address, keeps
+Create proactively. A narrow topic channel gives the work a durable address, keeps
 its working context coherent, and lets the relevant participants coordinate
 closely while adjacent work stays legible.
 
@@ -44,13 +44,12 @@ working conversation. Nest a narrower stream beneath the child that owns it.
 Choose a durable topic name and a short stable `--about` description. Treat the
 name and description as shared orientation for future participants.
 
-Canonical channel IDs are absolute slash paths: `/<workspace>` is the root and
-`/<workspace>/<child>` addresses a descendant. Dotted paths are not aliases.
-Every channel argument across the CLI (`send`, `read`, `join`, `switch`,
-`leave`, `archive`, `edit`, `add`, `create`) requires this full path — there is
-no bare relative name and no fuzzy matching. Resolution is global: any session
-can address any workspace's channel this way, regardless of which workspace it
-is currently running in.
+Canonical channel names are absolute slash paths: `/<root>` for a root and
+`/<root>/<child>` for a descendant. Dotted paths, bare names, `#` names, and
+opaque group ids are not aliases. Every channel argument across the CLI
+requires the full path. A session has one immutable launch workspace and one
+set of zero or more joined channels; there is no current, active, focused, or
+switched channel.
 
 ## Seed The Channel
 
@@ -64,21 +63,21 @@ Start the channel with enough context for another participant to act:
 - expected next action or handoff.
 
 An accepted topology nudge is the exception: it never posts an automatic seed
-or summary in the child. The participating agents move there and establish the
+or summary in the child. The participating agents join it and establish the
 next useful context themselves; Mosaico only leaves a short pointer in the
 parent.
 
 ## Work There And Surface Consequences
 
 Keep active discussion, evidence, intermediate decisions, and coordination in
-the focused channel. Publish milestones, decisions, dependencies, blockers,
+the narrow topic channel. Publish milestones, decisions, dependencies, blockers,
 completion, and handoffs in the parent when they change what its audience should
-know or do. Summarize the consequence and point to the focused channel for
+know or do. Summarize the consequence and point to the narrow topic channel for
 detail.
 
 This is the reciprocal rule for niching down: details flow into the narrowest
 channel that naturally owns them, while consequences bubble up whenever they
-become relevant to the parent. Moving a conversation must not make the broader
+become relevant to the parent. Continuing in a child must not make the broader
 coordination surface blind to decisions that affect it.
 
 Keep bounded in-session helper work with the parent agent, then publish the
@@ -86,8 +85,8 @@ useful synthesis to the channel that owns the outcome.
 
 ## Commands
 
-Every channel argument below is a full absolute path (`/workspace/child`) or
-`@<id-prefix>` — never a bare relative name. A path that doesn't resolve is
+Every channel argument below is a full absolute path (`/root/child`) — never a
+bare relative name or internal id. A path that doesn't resolve is
 rejected with the channels that actually exist, never silently created; join
 is unrestricted (any session may join any channel in any workspace), but
 `channel send`/`channel read` additionally require having joined first.
@@ -96,12 +95,19 @@ Inspect the available hierarchy:
 
 ```bash
 mosaico channel list
-mosaico channel list --workspace <workspace>
+mosaico channel list -r
+mosaico channel list -a
 ```
 
-Join for passive context. Joining still mints missing descendants under an
-EXISTING workspace ("intent to be there"); an unknown workspace is always
-rejected, never auto-created:
+The default expands your immutable launch workspace and any other workspace
+where this session has joined a channel. Other known workspaces stay compact.
+`-a` is the compact root inventory; `-r` expands every known channel, including
+unjoined workspaces. Output uses full public paths, never opaque ids. Agent
+counts appear only after the relay roster is hydrated and exclude humans and
+management identities.
+
+Join for passive context. Joining never creates anything; every path segment
+must already exist:
 
 ```bash
 mosaico channel join /workspace/child
@@ -116,8 +122,8 @@ mosaico channel add <pubkey-or-npub-or-nip05> /workspace/child
 mosaico channel add --session <session-handle> /workspace/child
 ```
 
-Create and focus a child; the parent (everything but the last segment) must
-already exist:
+Create a child and join it; the parent (everything but the last segment) must
+already exist. Creation never leaves any other channel:
 
 ```bash
 mosaico channel create /workspace/epic/child --about "short stable description"
@@ -132,12 +138,13 @@ mosaico --yes-lets-move <new-channel-name> <about>
 
 The required `about` is the new child's durable description and follows the
 same 80-character limit as `channel create --about`. The command creates or
-reuses that child beneath the captured parent, focuses the accepting session
-there, and passively adds the still-running agents that actually participated
-in the conversation, including participants currently between turns. It does
+reuses that child beneath the captured parent, joins the accepting session to
+it, and passively adds the still-running agents that actually participated in
+the conversation, including participants currently between turns. It does
 not add silent agent members or restart stopped sessions. Human users and
 parent admins retain access through normal child inheritance. Mosaico posts one
-untagged `Moving this to #<new-channel-name>` pointer in the parent and no
+untagged `Continue this conversation in /<root>/<new-channel-name>; existing
+channel memberships are unchanged` pointer in the parent and no
 automatic message in the child.
 
 Maintain a channel's durable metadata only when you own that decision:

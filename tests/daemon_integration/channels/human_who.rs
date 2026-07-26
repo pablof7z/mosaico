@@ -22,6 +22,8 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
             slug: "reviewer".to_string(),
             title: "Reviewing".to_string(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: mosaico::session_state::SessionState::Idle,
             state_since: 1,
             last_seen: 1,
@@ -47,7 +49,10 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
         let human = v["fabric_human"]
             .as_str()
             .expect("human who should include fabric_human");
-        assert!(human.starts_with(&format!("{channel}\n\n")), "got: {human}");
+        assert!(
+            human.starts_with(&format!("/{channel}\n\n")),
+            "got: {human}"
+        );
         assert!(human.contains("Other workspaces"), "got: {human}");
         assert!(human.contains(&other_root), "got: {human}");
         assert!(human.contains("@reviewer"), "got: {human}");

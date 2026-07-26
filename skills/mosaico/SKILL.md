@@ -47,9 +47,9 @@ coordination overhead.
 - Treat the fabric snapshot as task context, not decoration. Use `my session`
   only when the current decision depends on complete fabric state; do not use
   it as a ritual preflight.
-- Treat the workspace as its root channel. Canonical channel IDs are absolute
-  slash paths: `/<workspace>` for the root and `/<workspace>/reviews` for a
-  descendant.
+- Treat the launch workspace as execution context and its root channel as an
+  ordinary channel. Canonical channel names are absolute slash paths:
+  `/<root>` and `/<root>/reviews`.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
   secret-bearing environment affects the work.
@@ -57,8 +57,8 @@ coordination overhead.
   the local CLI session (`mosaico my session` / `MOSAICO_PUBKEY`). A remote
   MCP actor (for example a grok.com OAuth `mcp-grok` session) is a separate
   fabric participant even when those tools appear in this conversation.
-- Expect every known workspace to be listed. Workspaces joined by this exact
-  session are expanded; merely known workspaces remain compact.
+- Expect roots containing this session's memberships to be expanded; other
+  known roots remain compact.
 - Expect a channel's descendants and typed member rows only when you belong to
   that channel. Backend identities are never participants or member counts.
 - Never create `/<workspace>/<workspace>`; that is invalid self-nesting, not

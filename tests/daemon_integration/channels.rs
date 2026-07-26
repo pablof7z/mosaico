@@ -23,6 +23,8 @@ mod native_context;
 mod orchestration;
 #[path = "channels/pty_bootstrap.rs"]
 mod pty_bootstrap;
+#[path = "channels/publication_membership.rs"]
+mod publication_membership;
 #[path = "channels/session_add.rs"]
 mod session_add;
 #[path = "channels/session_kill.rs"]
@@ -61,7 +63,7 @@ fn rewrite_config_with_user_nsec_without_backend_key(home: &Home, per_session_ro
     write_config_with_backend_key(home, per_session_rooms, None);
 }
 
-fn write_config(home: &Home, per_session_rooms: bool) {
+pub(crate) fn write_config(home: &Home, per_session_rooms: bool) {
     write_config_with_backend_key(home, per_session_rooms, Some(EXAMPLE_BACKEND_SEC_HEX));
 }
 
@@ -88,10 +90,10 @@ fn write_config_with_backend_key(home: &Home, per_session_rooms: bool, backend_k
     std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
 }
 
-fn refresh_channel_members(channel: &str) {
+pub(crate) fn refresh_channel_members(channel_path: &str) {
     let _ = mosaico::daemon::blocking::call(
         "channel_members",
-        serde_json::json!({ "channel": channel }),
+        serde_json::json!({ "channel": channel_path }),
     );
 }
 
@@ -100,6 +102,35 @@ fn materialize_member_snapshot(home: &Home, channel: &str, pubkey: &str) {
         .unwrap()
         .replace_channel_members(channel, &[pubkey.to_string()], 9_000_000)
         .unwrap();
+}
+
+fn wait_for_channel_metadata(home: &Home, channel: &str) {
+    assert!(
+        wait_until(std::time::Duration::from_secs(10), || {
+            Store::open(&home.store_path())
+                .ok()
+                .and_then(|store| store.get_channel(channel).ok().flatten())
+                .is_some()
+        }),
+        "channel metadata for {channel:?} did not materialize"
+    );
+}
+
+pub(crate) fn initialize_workspace_root(channel: &str, path: &str) {
+    rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        let initialized = client
+            .call(
+                "channel_init",
+                serde_json::json!({
+                    "channel": format!("/{channel}"),
+                    "path": path,
+                }),
+            )
+            .await
+            .expect("initialize workspace root");
+        assert_eq!(initialized["channel"], format!("/{channel}"));
+    });
 }
 
 async fn precreate_channel_group_as_user(channel: &str) {

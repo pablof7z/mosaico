@@ -9,7 +9,8 @@ async fn mapped_pubkey_overrides_stale_hook_agent_claim() {
                 pubkey: "mapped-pubkey".into(),
                 observed_harness: "claude-code".into(),
                 agent_slug: "claude".into(),
-                channel_h: "mosaico".into(),
+                launch_channel_h: "mosaico".into(),
+                work_root: "mosaico".into(),
                 child_pid: None,
                 now: 1,
             })
@@ -59,7 +60,8 @@ fn bind_locators_records_native_resume_locator() {
             pubkey: "pk".into(),
             observed_harness: "claude-code".into(),
             agent_slug: "claude".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now: 1,
         })

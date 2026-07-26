@@ -18,7 +18,8 @@ fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str) -> u64 {
             pubkey: pubkey.into(),
             observed_harness: "codex".into(),
             agent_slug: slug.into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now: 1,
         })

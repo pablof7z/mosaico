@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use serde::{Deserialize, Serialize};
 
 use super::read;
@@ -12,6 +10,10 @@ pub(in crate::fabric_context) struct StatusCap {
     pub(in crate::fabric_context) host: String,
     #[serde(default)]
     pub(in crate::fabric_context) slug: String,
+    #[serde(default)]
+    pub(in crate::fabric_context) workspace: String,
+    #[serde(default)]
+    pub(in crate::fabric_context) branch: String,
     pub(in crate::fabric_context) state: crate::session_state::SessionState,
     pub(in crate::fabric_context) activity: String,
     pub(in crate::fabric_context) title: String,
@@ -37,25 +39,14 @@ pub(super) fn status_caps(
     store: &Store,
     channel: &str,
     local_host: &str,
-    refs: &mut BTreeMap<String, String>,
-    agent_slugs: &mut BTreeMap<String, String>,
-    backend: &mut BTreeSet<String>,
-    has_handle: &mut BTreeSet<String>,
+    identities: &mut read::IdentityCaps,
 ) -> Vec<StatusCap> {
     let mut rows = store
         .live_status_for_channel(channel, 0)
         .unwrap_or_default()
         .into_iter()
         .map(|status| {
-            read::resolve_pubkey(
-                store,
-                &status.pubkey,
-                local_host,
-                refs,
-                agent_slugs,
-                backend,
-                has_handle,
-            );
+            read::resolve_pubkey(store, &status.pubkey, local_host, identities);
             let local_session = store
                 .get_session(&status.pubkey)
                 .ok()
@@ -71,6 +62,10 @@ pub(super) fn status_caps(
                 host: read::profile_host(store, &status.pubkey),
                 slug: status.slug,
                 pubkey: status.pubkey,
+                workspace: local_session
+                    .as_ref()
+                    .map_or(status.workspace, |session| session.work_root.clone()),
+                branch: status.branch,
                 state: local.as_ref().map_or(status.state, |row| row.state),
                 activity: local
                     .as_ref()
@@ -91,22 +86,13 @@ pub(super) fn status_caps(
         })
         .collect::<Vec<_>>();
     for session in store.list_running_sessions().unwrap_or_default() {
-        let routed = session.channel_h == channel
-            || store
-                .has_session_route(&session.pubkey, channel)
-                .unwrap_or(false);
+        let routed = store
+            .has_session_route(&session.pubkey, channel)
+            .unwrap_or(false);
         if !routed || rows.iter().any(|row| row.pubkey == session.pubkey) {
             continue;
         }
-        read::resolve_pubkey(
-            store,
-            &session.pubkey,
-            local_host,
-            refs,
-            agent_slugs,
-            backend,
-            has_handle,
-        );
+        read::resolve_pubkey(store, &session.pubkey, local_host, identities);
         let presence = crate::session_presence::local(store, &session, None);
         let native_failure = native_failure(store, &session);
         let slug = store
@@ -119,6 +105,8 @@ pub(super) fn status_caps(
             pubkey: session.pubkey,
             host: local_host.to_string(),
             slug,
+            workspace: session.work_root,
+            branch: String::new(),
             state: presence.state,
             activity: presence.activity,
             title: presence.title,

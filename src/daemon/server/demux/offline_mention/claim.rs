@@ -40,13 +40,13 @@ pub(in crate::daemon::server::demux) fn dispatch_all(
     state: &Arc<DaemonState>,
     event_id: &str,
     chat: &crate::domain::ChatMessage,
-    hosted: &[String],
+    owned_targets: &[String],
 ) -> bool {
     let mut dispatched = false;
     for mentioned_pk in chat
         .mentioned_pubkeys
         .iter()
-        .filter(|pubkey| hosted.contains(pubkey))
+        .filter(|pubkey| owned_targets.contains(pubkey))
     {
         if begin(state, event_id, mentioned_pk, chat) {
             dispatch(state, event_id, chat, mentioned_pk);
@@ -95,7 +95,6 @@ fn dispatch(
     let event_id = event_id.to_string();
     let mentioned_pubkey = mentioned_pubkey.to_string();
     let channel = chat.channel.clone();
-    let body = chat.body.clone();
     let requester_pubkey = chat.from.pubkey.clone();
     tracing::info!(
         mentioned_pk = %crate::util::pubkey_short(&mentioned_pubkey),
@@ -103,15 +102,8 @@ fn dispatch(
         "dispatching offline-agent-mention handler"
     );
     tokio::spawn(async move {
-        let outcome = super::handle(
-            &st,
-            &event_id,
-            &mentioned_pubkey,
-            &channel,
-            &body,
-            Some(&requester_pubkey),
-        )
-        .await;
+        let outcome =
+            super::handle(&st, &mentioned_pubkey, &channel, Some(&requester_pubkey)).await;
         finish(&st, &event_id, &mentioned_pubkey, outcome);
     });
 }

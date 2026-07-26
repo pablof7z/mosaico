@@ -24,8 +24,8 @@ seam along **concerns**, not along **kinds**.
 
 Two observations drive the whole design:
 
-1. **Membership is the hinge.** Whether to show a peer's presence or deliver a
-   mention to an agent is one decision — *"is this pubkey a member?"* — but its
+1. **Membership governs ambient visibility and writes.** Whether to show a
+   peer's presence or accept a channel write depends on membership, whose
    **source** differs per fabric:
 
    | Fabric | "member" means | hydrated from |
@@ -46,11 +46,12 @@ Two observations drive the whole design:
    | nip29  | server-side — relay rejects non-member writes (closed group) | the relay |
    | mls    | cryptographically — non-members cannot decrypt | the crypto |
 
-   **Principle:** the domain `is_member` gate is *always* consulted client-side;
-   server/crypto enforcement is defense-in-depth, never a replacement. Even nip29 has inbound p-tag paths outside
-   the group `#h` stream: NMP's aggregate `#p` live query receives them
-   without a relay-side group-membership check. So the gate can never be skipped
-   — which is exactly why it lives in the domain, above the provider seam.
+   **Principle:** the fabric enforces sender/channel admission. For NIP-29, a
+   checked relay acceptance is authoritative; for MLS, successful authenticated
+   decryption is authoritative. The materializer does not repeat that decision
+   against a potentially stale local roster. Direct-recipient execution is a
+   separate locality decision: an explicit target pubkey owned by this daemon is
+   parked durably regardless of its local route or runtime state.
 
 2. **Lifecycle events have provider-specific side-effects.** "I run claude-code
    in a never-seen directory" is one domain event — `ProjectOpened` — that each
@@ -248,12 +249,11 @@ flowchart LR
   The provider only then reflects accepted
   local writes into relay-derived read rows. Future optimistic UX must use an
   explicit pending-outbound state, never fabricated relay cache rows.
-- **The admission gate lives on the write face, then becomes a read.** `is_member` is
-  consulted *twice*: once at materialization time as an **admission predicate**
-  (decode an inbound event → is the sender authorized → upsert or drop), and again
-  at read time as a **query** over the membership rows (who may I show / route
-  to). Both consult the same rows; neither touches the wire. One policy, one
-  place — the store.
+- **Admission and ambient reads have distinct evidence.** The fabric's accepted
+  stream supplies sender/channel admission. Local membership rows govern ambient
+  read visibility and lifecycle reconciliation. Explicit direct recipients are
+  routed by daemon ownership, then stored as inbox and recipient edges without a
+  target-side membership predicate.
 
 ### 3a. Behind the materialization seam — the provenance axis
 
@@ -291,7 +291,7 @@ flowchart TD
     PROVIDER["FabricProvider<br/>(Nip29 · Mls)"]
     PROVIDER --> L["① Lifecycle reactor<br/>react(ProjectOpened, AgentJoined…)<br/>→ native side-effects"]
     NMP["NMP Nostr engine<br/>live queries → canonical events<br/>accounts · writes · receipts"] --> M
-    PROVIDER --> M["② Materializer<br/>decode · admit · derive<br/>· upsert canonical rows into the store"]
+    PROVIDER --> M["② Materializer<br/>decode accepted events · derive<br/>· upsert canonical rows into the store"]
     PROVIDER --> W["③ Provider codec<br/>DomainEvent ⇄ provider-native envelope"]
     PROVIDER --> D["④ Diagnostic edge<br/>doctor probe · bounded readback"]
     PROVIDER --> NMP
@@ -300,7 +300,7 @@ flowchart TD
 | # | Capability | Responsibility | Must **not** |
 |---|------------|----------------|--------------|
 | ① | **Lifecycle** | Turn a domain lifecycle event into provider-native setup (create group, invite, or no-op). | Decide *when* a project opens (that's the host/daemon). |
-| ② | **Materializer** | Consume NMP-delivered envelopes through one bounded, backpressured stream, decode via ③, then own admission and canonical upserts — membership, channel metadata, agents, status, and messages. The store is the read contract; this fills it. | Open relay work, drop canonical additions under load, or answer reads. |
+| ② | **Materializer** | Consume NMP-delivered accepted envelopes through one bounded, backpressured stream, decode via ③, then own canonical upserts — membership, channel metadata, agents, status, and messages. The store is the read contract; this fills it. | Re-evaluate relay admission from a stale local roster, open relay work, drop canonical additions under load, or answer reads. |
 | ③ | **Provider codec** | Pure, symmetric ser/de of the five+ `DomainEvent` nouns to the provider's native envelope. The current NIP-29 provider uses a Nostr-event codec. | Open subscriptions or manage groups. |
 | ④ | **Diagnostic edge** | Run the explicit doctor connectivity probe and bounded diagnostic/resolution reads. | Publish runtime or profile state, sign product writes, own retries, or grow into a second write plane. |
 
@@ -368,14 +368,14 @@ sequenceDiagram
     P->>STORE: materialize accepted local message
 
     Note over FAB,P: inbound side
-    FAB-->>P: inbound event
-    P->>P: is_member(sender)?  (admission)
-    P->>STORE: upsert message + recipient (if admitted)
+    FAB-->>P: accepted inbound event
+    P->>STORE: upsert message
+    P->>P: select daemon-owned p-tags
+    P->>STORE: park inbox + local recipient edges
 
     STORE-->>RD: rows
 ```
 
-The admission check (`is_member?`) is identical logic for all three fabrics; only
-the source rows differ. When NMP delivers an updated `39002` row, the NIP-29
-materializer updates membership and every reader sees the change through the
-same store contract.
+When NMP delivers an updated `39002` row, the NIP-29 materializer updates
+membership and every ambient reader sees the change through the same store
+contract. It does not retroactively validate or invalidate direct inbox rows.

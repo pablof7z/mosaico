@@ -38,7 +38,7 @@ pub(in crate::cli) async fn launch(request: LaunchRequest) -> Result<()> {
 /// Resolve the launch channel shared by the PTY and ACP paths. `--channel ""`
 /// opens the interactive picker (TTY required); a bare launch defaults to the
 /// workspace channel; a name is resolved to its opaque `channel_h` (created if
-/// absent) BEFORE spawning, so MOSAICO_CHANNEL and provisioning see one id.
+/// absent) before spawning, so admission and provisioning use the same route.
 async fn resolve_launch_channel(
     root: Option<&str>,
     agent: &str,
@@ -92,34 +92,33 @@ fn channel_resolve_params(root: &str, name: &str, agent: &str) -> serde_json::Va
     })
 }
 
-/// Fetch all rooms under `root` and present an interactive fuzzy picker.
+/// Fetch all public channel paths under `root` and present a fuzzy picker.
 /// Here `root` is the top-level channel backing the user-facing workspace.
 /// Includes a "＋ Create new channel…" entry at the top; selecting it prompts
-/// for a name, creates the channel via the daemon, and returns the new id.
-/// `agent_slug` is used as the default agent spec when creating.
+/// for a name and creates the channel through the daemon. The selected public
+/// path resolves to an internal id only at the private launch boundary.
 async fn pick_channel(root: &str, agent_slug: &str) -> Result<String> {
-    let v = super::super::daemon_call_async("channel_list", serde_json::json!({ "channel": root }))
-        .await?;
-
-    let rooms = v["rooms"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+    let v = super::super::daemon_call_async(
+        "channel_list",
+        crate::cli::rpc_params(serde_json::json!({
+            "workspace": root,
+            "all": false,
+            "recursive": false,
+        })),
+    )
+    .await?;
 
     // "＋ Create…" is always the first item so it's reachable by typing its name.
     const CREATE: &str = "＋  Create new channel…";
-    let mut ids: Vec<Option<String>> = vec![None]; // None = create sentinel
+    let mut paths: Vec<Option<String>> = vec![None]; // None = create sentinel
     let mut labels: Vec<String> = vec![CREATE.to_string()];
-
-    for r in rooms {
-        let id = r["child_h"].as_str().unwrap_or("").to_string();
-        let name = r["name"].as_str().unwrap_or("").to_string();
-        let depth = r["depth"].as_u64().unwrap_or(0) as usize;
-        let indent = "  ".repeat(depth);
-        let label = if name.is_empty() {
-            format!("{indent}{id}")
-        } else {
-            format!("{indent}{name}  ({})", &id[..id.len().min(12)])
-        };
-        labels.push(label);
-        ids.push(Some(id));
+    for workspace in v["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["channels"].as_array().into_iter().flatten())
+    {
+        collect_picker_channels(&workspace["children"], 0, &mut paths, &mut labels);
     }
 
     let theme = dialoguer::theme::ColorfulTheme::default();
@@ -129,14 +128,60 @@ async fn pick_channel(root: &str, agent_slug: &str) -> Result<String> {
         .default(0)
         .interact()?;
 
-    match &ids[idx] {
-        Some(id) => Ok(id.clone()),
+    match &paths[idx] {
+        Some(path) => resolve_existing_channel_path(root, path, agent_slug).await,
         None => create_channel_interactive(root, agent_slug, &theme).await,
     }
 }
 
+fn collect_picker_channels(
+    channels: &serde_json::Value,
+    depth: usize,
+    paths: &mut Vec<Option<String>>,
+    labels: &mut Vec<String>,
+) {
+    for channel in channels.as_array().into_iter().flatten() {
+        let Some(path) = channel["path"].as_str().filter(|path| !path.is_empty()) else {
+            continue;
+        };
+        labels.push(format!("{}{}", "  ".repeat(depth), path));
+        paths.push(Some(path.to_string()));
+        collect_picker_channels(&channel["children"], depth + 1, paths, labels);
+    }
+}
+
+async fn resolve_existing_channel_path(root: &str, path: &str, agent: &str) -> Result<String> {
+    let prefix = format!("/{root}");
+    let remainder = path
+        .strip_prefix(&prefix)
+        .with_context(|| format!("selected channel path {path:?} is outside /{root}"))?;
+    anyhow::ensure!(
+        remainder.is_empty() || remainder.starts_with('/'),
+        "selected channel path {path:?} is outside /{root}"
+    );
+    let mut parent = root.to_string();
+    for name in remainder.split('/').filter(|segment| !segment.is_empty()) {
+        let v = super::super::daemon_call_async(
+            "channel_resolve",
+            serde_json::json!({
+                "channel": parent,
+                "name": name,
+                "agent": agent,
+                "create_if_absent": false,
+            }),
+        )
+        .await?;
+        parent = v["channel_h"]
+            .as_str()
+            .context("channel_resolve did not return channel_h")?
+            .to_string();
+    }
+    Ok(parent)
+}
+
 /// Prompt for a channel name, then create it via the daemon using the agent
-/// being launched and the local backend pubkey. Returns the new channel id.
+/// being launched and the local backend pubkey. Resolves the returned public
+/// path through the private launch boundary before returning the internal id.
 async fn create_channel_interactive(
     root: &str,
     agent_slug: &str,
@@ -156,25 +201,24 @@ async fn create_channel_interactive(
     let v = super::super::daemon_call_async(
         "channel_create",
         crate::cli::rpc_params(serde_json::json!({
-            "parent": root,
-            "name": &name,
+            "channel": format!("/{root}/{name}"),
             "about": &name,
             "agents": [{ "slug": agent_slug, "backend": backend_label }],
         })),
     )
     .await?;
 
-    let child_h = v["child_h"]
+    let channel = v["channel"]
         .as_str()
-        .context("channel_create did not return child_h")?
+        .context("channel_create did not return channel")?
         .to_string();
-    eprintln!("created channel {child_h}");
-    Ok(child_h)
+    eprintln!("created {channel}");
+    resolve_existing_channel_path(root, &channel, agent_slug).await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{channel_resolve_params, resolve_launch_channel};
+    use super::{channel_resolve_params, collect_picker_channels, resolve_launch_channel};
 
     #[test]
     fn named_launch_channel_uses_channel_resolve_contract() {
@@ -187,6 +231,34 @@ mod tests {
                 "create_if_absent": true,
             })
         );
+    }
+
+    #[test]
+    fn picker_collects_only_public_nested_paths() {
+        let children = serde_json::json!([
+            {
+                "path": "/nmp/review",
+                "about": "Reviews",
+                "children": [{
+                    "path": "/nmp/review/deep",
+                    "about": "Deep reviews",
+                }],
+            }
+        ]);
+        let mut paths = vec![None];
+        let mut labels = vec!["create".to_string()];
+
+        collect_picker_channels(&children, 0, &mut paths, &mut labels);
+
+        assert_eq!(
+            paths,
+            vec![
+                None,
+                Some("/nmp/review".into()),
+                Some("/nmp/review/deep".into())
+            ]
+        );
+        assert_eq!(labels, ["create", "/nmp/review", "  /nmp/review/deep"]);
     }
 
     #[tokio::test]

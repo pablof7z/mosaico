@@ -24,7 +24,13 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
 ) -> Result<()> {
     let p: TailParams = serde_json::from_value(params.clone()).unwrap_or_default();
-    let channel = p.channel.clone();
+    let channel = p
+        .channel
+        .as_deref()
+        .map(|reference| {
+            super::super::channel_membership_rpc::resolve_target_channel(state, reference)
+        })
+        .transpose()?;
     let backfill_n = p.backfill.unwrap_or(20);
     let since = p.since.unwrap_or(0);
 
@@ -45,6 +51,9 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     if backfill_n > 0 {
         let backfill_events = build_backfill(state, channel.as_deref(), backfill_n, since);
         for ev in backfill_events {
+            let Some(ev) = public_tail_event(state, ev) else {
+                continue;
+            };
             if write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
                 .await
                 .is_err()
@@ -59,13 +68,16 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     loop {
         match rx.recv().await {
             Ok(ev) => {
-                if tail_event_matches_channel(&ev, channel.as_deref())
-                    && ev.ts() >= since
-                    && write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
+                if tail_event_matches_channel(&ev, channel.as_deref()) && ev.ts() >= since {
+                    let Some(ev) = public_tail_event(state, ev) else {
+                        continue;
+                    };
+                    if write_json(writer, &Response::item(id, serde_json::to_value(&ev)?))
                         .await
                         .is_err()
-                {
-                    break;
+                    {
+                        break;
+                    }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -77,6 +89,22 @@ pub(in crate::daemon::server) async fn handle_tail<W: AsyncWriteExt + Unpin>(
     }
     let _ = write_json(writer, &Response::end(id)).await;
     Ok(())
+}
+
+fn public_tail_event(state: &Arc<DaemonState>, mut event: TailEvent) -> Option<TailEvent> {
+    let Some(channel) = event.channel_mut() else {
+        return Some(event);
+    };
+    let path = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel));
+    if path.is_empty() {
+        tracing::debug!(
+            channel = %channel,
+            "tail: withholding event whose public channel path is incomplete"
+        );
+        return None;
+    }
+    *channel = path;
+    Some(event)
 }
 
 /// True when the event belongs to the requested channel scope (or no filter).
@@ -176,30 +204,64 @@ pub(in crate::daemon::server) fn build_backfill(
     // ── This daemon's own live sessions as synthetic Sess/Turn events ────────
     let mine = state.with_store(|s| s.list_running_sessions().unwrap_or_default());
     for rec in mine {
-        if channel.map(|pr| rec.channel_h != pr).unwrap_or(false) {
-            continue;
-        }
-        events.push(TailEvent::Sess {
-            ts: rec.created_at,
-            channel: rec.channel_h.clone(),
-            agent: rec.agent_slug.clone(),
-            session: rec.pubkey.clone(),
-            state: "start".into(),
-            rel_cwd: String::new(),
-        });
-        if rec.is_working() {
-            events.push(TailEvent::Turn {
-                ts: rec.turn_started_at,
-                channel: rec.channel_h.clone(),
+        let routes = state
+            .with_store(|store| store.list_session_routes(&rec.pubkey))
+            .unwrap_or_default();
+        for (route, _) in routes
+            .into_iter()
+            .filter(|(route, _)| channel.is_none_or(|requested| route == requested))
+        {
+            events.push(TailEvent::Sess {
+                ts: rec.created_at,
+                channel: route.clone(),
                 agent: rec.agent_slug.clone(),
                 session: rec.pubkey.clone(),
-                state: "working".into(),
-                elapsed_s: None,
+                state: "start".into(),
+                rel_cwd: String::new(),
             });
+            if rec.is_working() {
+                events.push(TailEvent::Turn {
+                    ts: rec.turn_started_at,
+                    channel: route,
+                    agent: rec.agent_slug.clone(),
+                    session: rec.pubkey.clone(),
+                    state: "working".into(),
+                    elapsed_s: None,
+                });
+            }
         }
     }
 
     // Sort ascending by timestamp.
     events.sort_by_key(|e| e.ts());
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn public_tail_events_replace_internal_channel_ids_with_full_paths() {
+        let state = DaemonState::new_for_test().await;
+        state.with_store(|store| {
+            store.upsert_channel("root-h", "root", "", "", 1).unwrap();
+            store
+                .upsert_channel("child-h", "review", "", "root-h", 2)
+                .unwrap();
+        });
+        let event = TailEvent::Msg {
+            ts: 3,
+            channel: "child-h".into(),
+            from: "agent".into(),
+            to: "channel-chat".into(),
+            body: "hello".into(),
+        };
+
+        let event = public_tail_event(&state, event).expect("complete public path");
+        assert!(matches!(
+            event,
+            TailEvent::Msg { channel, .. } if channel == "/root-h/review"
+        ));
+    }
 }

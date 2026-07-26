@@ -11,7 +11,8 @@ fn reg(harness: &str, ext: &str, channel: &str) -> RegisterSession {
         pubkey: ext.into(),
         observed_harness: harness.into(),
         agent_slug: "agent".into(),
-        channel_h: channel.into(),
+        launch_channel_h: channel.into(),
+        work_root: channel.into(),
         child_pid: Some(42),
         now: 1000,
     }

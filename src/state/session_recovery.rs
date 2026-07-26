@@ -57,20 +57,18 @@ impl Store {
         )?;
         transaction.execute(
             "INSERT INTO session_standing
-                 (pubkey, channel_h, state, retain_until, standing_epoch,
+                 (pubkey, channel_h, state, standing_epoch,
                   session_lifecycle_epoch, updated_at)
-             SELECT route.pubkey, route.channel_h, 'absent', 0, 1, ?2, ?3
+             SELECT route.pubkey, route.channel_h, 'absent', 1, ?2, ?3
                FROM session_channels route WHERE route.pubkey=?1
              ON CONFLICT(pubkey, channel_h) DO NOTHING",
             params![pubkey, lifecycle_epoch, now],
         )?;
         transaction.execute(
             "UPDATE session_standing
-             SET state=CASE WHEN state='absent' THEN 'absent' ELSE 'retained' END,
-                 retain_until=CASE WHEN state='absent' THEN 0 ELSE ?3 END,
-                 standing_epoch=standing_epoch+1,
+             SET standing_epoch=standing_epoch+1,
                  session_lifecycle_epoch=?2, updated_at=?3
-             WHERE pubkey=?1",
+             WHERE pubkey=?1 AND state='member'",
             params![pubkey, lifecycle_epoch, now],
         )?;
         transaction.execute("DELETE FROM session_locators WHERE pubkey=?1", [pubkey])?;
@@ -90,7 +88,8 @@ mod tests {
             pubkey: "pk".into(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now: at,
         }
@@ -113,6 +112,11 @@ mod tests {
     fn revocation_fence_survives_exit_before_finalize_and_blocks_respawn() {
         let store = Store::open_memory().unwrap();
         let generation = reserve(&store, 1).unwrap();
+        let lifecycle_epoch = store.get_session("pk").unwrap().unwrap().lifecycle_epoch;
+        store
+            .mark_session_standing_member_if_running("pk", "root", lifecycle_epoch, 1)
+            .unwrap()
+            .unwrap();
         store.bind_session_signer("pk", "salt").unwrap();
         store
             .put_session_locator("codex", LOCATOR_PTY, "pty-1", "pk", 2)
@@ -141,6 +145,9 @@ mod tests {
         assert!(store.locators_for_pubkey("pk").unwrap().is_empty());
         assert!(store.list_session_routes("pk").unwrap().is_empty());
         assert!(store.session_signer_salt("pk").unwrap().is_none());
+        let cleanup_due = store.list_cleanup_due_member_standing().unwrap();
+        assert_eq!(cleanup_due.len(), 1);
+        assert_eq!(cleanup_due[0].state, StandingState::Member);
     }
 
     #[test]

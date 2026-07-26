@@ -41,3 +41,29 @@ fn wait_schema_exposes_ambient_and_correlated_forms() {
         "integer"
     );
 }
+
+#[test]
+fn channel_list_schema_uses_the_shared_path_projection_modes() {
+    let tools = list();
+    let list = tool(&tools, "mosaico.channel_list");
+    let properties = &list["inputSchema"]["properties"];
+    for property in ["workspace", "all", "recursive", "session"] {
+        assert!(properties.get(property).is_some(), "missing {property}");
+    }
+    assert!(properties.get("channel").is_none());
+    assert_eq!(list["annotations"]["readOnlyHint"], true);
+}
+
+#[test]
+fn channel_create_uses_one_absolute_path_contract() {
+    let tools = list();
+    let create = tool(&tools, "mosaico.channel_create");
+    let properties = &create["inputSchema"]["properties"];
+    assert!(properties.get("channel").is_some());
+    assert!(properties.get("name").is_none());
+    assert!(properties.get("parent_channel").is_none());
+    assert_eq!(
+        create["inputSchema"]["required"],
+        json!(["channel", "about"])
+    );
+}

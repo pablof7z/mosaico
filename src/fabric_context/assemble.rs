@@ -10,8 +10,14 @@ use super::model::*;
 use crate::util::relative_time;
 
 mod members;
+mod presence;
 mod topology;
 
+pub(in crate::fabric_context) use presence::{
+    presence_rows, presence_snapshot_row, projected_presence,
+};
+
+pub(super) use members::member_row;
 pub(crate) use members::missing_profile_pubkeys;
 
 const WINDOW_SECS: u64 = 4 * 60 * 60;
@@ -49,14 +55,19 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
 
 fn self_row(row: &super::capture::SelfCap) -> SelfRow {
     let hint = if row.title.is_empty() {
-        "No session status set — once your outcome is clear, set a short one with \
-         `mosaico my session status \"<outcome>\"` so peers can see what you own."
+        "No session status set. Read mosaico://skill/public-work-status before \
+         publishing a concise outcome that helps peers understand your work."
+    } else if row.turn_count > 0 && row.turn_count.is_multiple_of(12) {
+        "Is this session status still the meaningful outcome you own? Read \
+         mosaico://skill/public-work-status before updating it."
     } else {
-        "If your title drifted, update it with `mosaico my session status`."
+        ""
     };
     SelfRow {
         name: row.name.clone(),
         host: row.host.clone(),
+        workspace: row.workspace.clone(),
+        branch: row.branch.clone(),
         headless: row.headless,
         title: row.title.clone(),
         hint: hint.to_string(),
@@ -78,8 +89,9 @@ fn host_rows(inputs: &ViewInputs, cursor: u64, now: u64, full: bool) -> Option<V
                     about: crate::agent_about::for_injection(&agent.about),
                 })
                 .collect::<Vec<_>>();
-            (!agents.is_empty()).then(|| HostRow {
+            (full || !agents.is_empty()).then(|| HostRow {
                 name: host.name.clone(),
+                roots: host.roots.clone(),
                 agents,
             })
         })
@@ -119,93 +131,6 @@ fn collect_channels<'a>(channel: &'a ChannelBlock, rows: &mut Vec<&'a ChannelBlo
     for child in &channel.children {
         collect_channels(child, rows);
     }
-}
-
-pub(super) fn presence_rows(
-    inputs: &ViewInputs,
-    channel: &str,
-    cursor: u64,
-    now: u64,
-) -> Vec<PresenceRow> {
-    if cursor == 0 {
-        return Vec::new();
-    }
-    inputs
-        .presence
-        .statuses
-        .get(channel)
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|status| presence_row(inputs, status, cursor, now))
-        .collect()
-}
-
-fn presence_row(
-    inputs: &ViewInputs,
-    status: &StatusCap,
-    cursor: u64,
-    now: u64,
-) -> Option<PresenceRow> {
-    let presence = projected_presence(status, now);
-    let changed_at = if presence.state == status.state {
-        status.changed_at
-    } else {
-        status.changed_at.max(presence.state_since)
-    };
-    let native_failure = status
-        .native_failure
-        .as_ref()
-        .filter(|failure| failure.finished_at > cursor && failure.finished_at <= now)
-        .map(|failure| NativeFailureRow {
-            outcome: failure.outcome.clone(),
-            message: failure.message.clone(),
-            since: relative_time(failure.finished_at, now),
-        });
-    if (changed_at <= cursor || changed_at > now) && native_failure.is_none() {
-        return None;
-    }
-    if status.pubkey == inputs.meta.self_pubkey {
-        return None;
-    }
-    let text = presence.text();
-    if text.is_empty() && native_failure.is_none() {
-        return None;
-    }
-    Some(PresenceRow {
-        name: presence_reference(inputs, status),
-        state: presence.state,
-        status: text,
-        since: relative_time(presence.state_since, now),
-        native_failure,
-    })
-}
-
-fn presence_reference(inputs: &ViewInputs, status: &StatusCap) -> String {
-    if !status.slug.trim().is_empty() {
-        return status.slug.clone();
-    }
-    inputs
-        .members
-        .refs
-        .get(&status.pubkey)
-        .cloned()
-        .unwrap_or_default()
-}
-
-pub(super) fn projected_presence(
-    status: &StatusCap,
-    now: u64,
-) -> crate::session_presence::PublicPresence {
-    crate::session_presence::observed(
-        status.state,
-        status.state_since,
-        &status.title,
-        &status.activity,
-        status.observed_at,
-        status.expiration,
-        now,
-    )
 }
 
 pub(super) fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<MessageRow>, usize) {

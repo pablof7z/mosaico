@@ -107,17 +107,20 @@ termination mechanics remain private executors behind that boundary, and the
 durable stopped edge is committed only after process exit is confirmed.
 
 When a headless, idle runtime has no pending delivery for ten minutes, the
-lifecycle coordinator stops that exact incarnation. Its channel standing moves
-to a persisted one-hour retention deadline. A clean successful child exit while
-headed moves standing directly to absent. Both paths preserve exact recovery
-identity and route affinity; only explicit forget or revoke destroys them.
+lifecycle coordinator stops that exact incarnation. Runtime stop, including a
+clean successful child exit while headed, preserves channel membership,
+standing, exact recovery identity, and route affinity without a deadline. Only
+explicit leave or forget/revoke removes membership; forget/revoke also destroys
+recovery authority.
 
-Membership writes are serialized with lifecycle reconciliation. Expiry removes
-standing only after the relay confirms it; a failed write remains retryable. An
-authorized p-tag to a recoverable exact pubkey cancels stale eviction/removal
-and re-admits absent standing. It resumes the native harness conversation when
-a native locator exists; otherwise it fresh-launches the harness under the same
-session pubkey. All timers and supervisor presentation are reconciled again
+Membership writes are serialized with lifecycle reconciliation. A stale or
+failed relay admission persists a member row without a route as durable
+compensation work; standing becomes absent only after the relay confirms its
+removal. An accepted p-tag to a daemon-owned pubkey is parked before execution
+selection. A stopped recoverable identity resumes the native harness when a
+native locator exists; otherwise it fresh-launches under the same session
+pubkey. A revoked or otherwise unlaunchable target stays pending for retry or
+manual action. All timers and supervisor presentation are reconciled again
 after daemon restart.
 
 ### Daemon process lifetime
@@ -273,8 +276,10 @@ The `session_start` RPC makes the daemon spawn a tokio task running
   backpressured single-consumer channel into the materializer; relay bursts can
   slow observation drains but cannot silently drop read-model updates. Events
   are demuxed once, daemon-side, and routed to the right session chat queue(s).
-  Mentions route via the `compute_targets` / `route_mention` logic over all running
-  sessions.
+  Direct p-tags route through one ownership classifier shared by inbound relay
+  events and local send/reply. It covers running, stopped, configured stable,
+  and revoked daemon-owned identities; runtime state is consulted only by the
+  executor after durable parking.
 - Profile publication, presence-lease renewal, and `watch_pid` death detection
   run in the per-session task. Managed lifecycle edges directly reconcile the
   generation-owned presence projection; there is no periodic semantic-state
@@ -337,15 +342,14 @@ accepted write. Relay sessions belong to NMP, never to an agent runtime.
 
 ## 8b. Demux + routing for multiple local agents (correctness)
 
-Today `handle_incoming` / `route_mention` assume a single `me`. Inside the
-daemon, "me" becomes the **set** of hosted local agent pubkeys:
+Inside the daemon, "me" is the **set** of daemon-owned agent pubkeys:
 
 - `is_self` = `local_pubkeys.contains(event.pubkey)` — skip our own
   profile/presence/activity/status for **any** hosted key.
-- A `Mention` routes by `m.to_pubkey`: find the hosted identity whose pubkey
-  equals `to_pubkey`, then deliver to that pubkey's active runtime if present
-  (never another agent's runtime). Pending delivery remains owned by the pubkey
-  across runtime replacement.
+- A direct p-tag routes by exact pubkey. The daemon first parks inbox and
+  recipient-edge facts for every owned target, then selects an executor if one
+  is available (never another agent's runtime). Pending delivery remains owned
+  by the pubkey across route removal, revocation, and runtime replacement.
 - Profile/presence/status from peers (non-local pubkeys) update the directory as
   today.
 
@@ -361,7 +365,7 @@ supervisor-exit reports, resumes any fenced `stopping` eviction, and then
 reconciles each running row:
 
 - `watch_pid` set and `pid_alive(watch_pid)` → respawn a `SessionTask` for it;
-- else → atomically stop that generation and begin its one-hour standing retention.
+- else → atomically stop that generation while preserving its channel memberships.
 
 Without this, `who` and routing membership would lie after every daemon restart.
 
@@ -407,7 +411,6 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
   allow/block files are not part of the active NIP-29 path.
 
 ## 10. Tests
-
 - **Daemon spawn race**: N threads call `connect_or_spawn()` simultaneously;
   assert exactly one daemon binds and all clients connect.
 - **Stale-socket reclaim**: create a `daemon.sock` file with no listener; assert

@@ -2,7 +2,6 @@ use super::super::*;
 use super::recipient_notice;
 use super::self_target;
 use crate::fabric::provider::chat::OutboundChatRecord;
-use crate::state::{Message, Session};
 use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::{bail, Context, Result};
 use nostr::{PublicKey, ToBech32};
@@ -86,14 +85,17 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             },
         )
         .await?;
-    enqueue_local_reply(
+    super::super::direct_mentions::route(
         state,
-        &rec,
-        &original,
-        &published.event_id,
-        &body,
-        published.created_at,
-    );
+        super::super::direct_mentions::DirectMention {
+            event_id: &published.event_id,
+            from_pubkey: &rec.pubkey,
+            channel_h: &original.channel_h,
+            body: &body,
+            created_at: published.created_at,
+            target_pubkeys: std::slice::from_ref(&original.author_pubkey),
+        },
+    )?;
     state.emit_tail(TailEvent::Msg {
         ts: published.created_at,
         channel: original.channel_h.clone(),
@@ -102,10 +104,12 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         body: body.chars().take(200).collect(),
     });
 
+    let channel_ref = state
+        .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
     Ok(serde_json::json!({
         "event_id": published.event_id,
         "reply_to": reply_to,
-        "channel": original.channel_h,
+        "channel": channel_ref,
         "mentioned_pubkey": original.author_pubkey,
         "recipient_reminders": recipient_reminders,
     }))
@@ -115,50 +119,4 @@ fn reply_body(author_pubkey: &str, message: &str) -> Result<String> {
     let pk = PublicKey::parse(author_pubkey)
         .with_context(|| format!("invalid author pubkey for reply: {author_pubkey}"))?;
     Ok(format!("nostr:{}: {message}", pk.to_bech32()?))
-}
-
-fn enqueue_local_reply(
-    state: &Arc<DaemonState>,
-    rec: &Session,
-    original: &Message,
-    event_id: &str,
-    body: &str,
-    created_at: u64,
-) {
-    let targets = state
-        .with_store(|s| s.list_running_sessions())
-        .unwrap_or_default();
-    let mut routed = false;
-    state.with_store(|s| {
-        for target in targets {
-            if target.pubkey == rec.pubkey {
-                continue;
-            }
-            let is_author_pubkey = target.pubkey == original.author_pubkey;
-            if !is_author_pubkey {
-                continue;
-            }
-            let joined = s
-                .has_session_route(&target.pubkey, &original.channel_h)
-                .unwrap_or(target.channel_h == original.channel_h);
-            if !joined {
-                continue;
-            }
-            if s.enqueue_inbox(
-                event_id,
-                &target.pubkey,
-                &rec.pubkey,
-                &original.channel_h,
-                body,
-                created_at,
-            )
-            .unwrap_or(false)
-            {
-                routed = true;
-            }
-        }
-    });
-    if routed {
-        crate::session_host::ring_doorbells(state.clone());
-    }
 }

@@ -1,32 +1,11 @@
 use super::*;
 
 impl Store {
-    pub fn set_session_channel(&self, pubkey: &str, channel_h: &str) -> Result<()> {
+    pub fn set_session_readiness_parent(&self, pubkey: &str, readiness_parent: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET channel_h=?2 WHERE pubkey=?1",
-            params![pubkey, channel_h],
+            "UPDATE sessions SET readiness_parent=?2 WHERE pubkey=?1",
+            params![pubkey, readiness_parent],
         )?;
-        if !channel_h.trim().is_empty() {
-            self.grant_session_route(pubkey, channel_h, crate::util::now_secs())?;
-        }
-        Ok(())
-    }
-
-    pub fn set_session_context(
-        &self,
-        pubkey: &str,
-        channel_h: &str,
-        work_root: &str,
-        readiness_parent: &str,
-    ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE sessions SET channel_h=?2, work_root=?3, readiness_parent=?4
-             WHERE pubkey=?1",
-            params![pubkey, channel_h, work_root, readiness_parent],
-        )?;
-        if !channel_h.trim().is_empty() {
-            self.grant_session_route(pubkey, channel_h, crate::util::now_secs())?;
-        }
         Ok(())
     }
 
@@ -34,9 +13,16 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT readiness_parent FROM sessions
-                 WHERE channel_h=?1 AND readiness_parent<>''
-                 ORDER BY (runtime_state='running') DESC, created_at DESC LIMIT 1",
+                "SELECT session.readiness_parent
+                   FROM sessions session
+                   JOIN session_channels membership
+                     ON membership.pubkey=session.pubkey
+                  WHERE membership.channel_h=?1
+                    AND session.readiness_parent<>''
+                  ORDER BY (session.runtime_state='running') DESC,
+                           membership.joined_at DESC,
+                           session.created_at DESC
+                  LIMIT 1",
                 [channel_h],
                 |row| row.get::<_, String>(0),
             )

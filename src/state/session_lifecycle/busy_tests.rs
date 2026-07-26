@@ -7,7 +7,8 @@ fn seed() -> Store {
             pubkey: "pk".into(),
             observed_harness: "codex".into(),
             agent_slug: "codex".into(),
-            channel_h: "mosaico".into(),
+            launch_channel_h: "mosaico".into(),
+            work_root: "mosaico".into(),
             child_pid: Some(42),
             now: 1,
         })

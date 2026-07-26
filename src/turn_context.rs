@@ -5,6 +5,7 @@
 
 mod check;
 mod headless;
+pub(crate) mod history;
 mod reads;
 mod start;
 

@@ -83,10 +83,10 @@ there (`src/daemon/mod.rs`). It reads device config from `MOSAICO_CONFIG`
 The rig gives each backend its own trio of these, under
 `$E2E_WORK/<name>/`, so the two daemons are completely independent:
 
-| backend | `MOSAICO_HOME`            | `MOSAICO_CONFIG`                 | identity key      |
-|---------|-----------------------------|--------------------------------|-------------------|
-| mosaico-a  | `$E2E_WORK/mosaico-a/mosaico`     | `$E2E_WORK/mosaico-a/config.json` | minted, cached    |
-| mosaico-b  | `$E2E_WORK/mosaico-b/mosaico`     | `$E2E_WORK/mosaico-b/config.json` | minted, cached    |
+| backend | `HOME` | `MOSAICO_HOME` | `MOSAICO_CONFIG` | identity key |
+|---------|--------|----------------|------------------|--------------|
+| mosaico-a | `$E2E_WORK/mosaico-a/home` | `$E2E_WORK/mosaico-a/mosaico` | `$E2E_WORK/mosaico-a/config.json` | minted, cached |
+| mosaico-b | `$E2E_WORK/mosaico-b/home` | `$E2E_WORK/mosaico-b/mosaico` | `$E2E_WORK/mosaico-b/config.json` | minted, cached |
 
 Each `config.json`:
 
@@ -106,10 +106,11 @@ group. `mosaicoPrivateKey` is the backend's own identity — its pubkey is added
 a group admin when the workspace root channel opens.
 
 The daemon is **auto-spawned** on the first client call (`spawn_daemon_if_absent`)
-and **inherits the client's environment**, so the isolation env vars propagate
-to it automatically. The rig's `mosaico()` helper scrubs any inherited
-`$MOSAICO_BIN` so the daemon re-execs the binary under test, not a
-dev-shell-installed one.
+and **inherits the client's environment**, so the isolated user home and
+Mosaico paths propagate to it automatically. The rig installs its deterministic
+Claude shim and reviewer profile inside that private home. Its `mosaico()`
+helper also scrubs any inherited `$MOSAICO_BIN` so the daemon re-execs the
+binary under test, not a dev-shell-installed one.
 
 ## What the smoke test does
 
@@ -128,9 +129,9 @@ the backend's admins and the session agent (`src/fabric/provider.rs`).
    → daemon-a creates the NIP-29 group `e2e-demo` on the relay.
 2. **Direct relay check:** `nak req -k 39000 -d e2e-demo ws://127.0.0.1:10547`
    returns the relay-signed metadata event → the group really landed on the relay.
-3. **mosaico-b** (a separate install, separate daemon + db) runs `channel list --all-workspaces`:
+3. **mosaico-b** (a separate install, separate daemon + db) runs `channel list --all`:
    ```bash
-   mosaico mosaico-b channel list --all-workspaces      # → e2e-demo
+   mosaico mosaico-b channel list --all                 # → /e2e-demo
    ```
    Backend-b learning the group exists is only possible via the shared relay;
    the backends share no filesystem state. That is the proof of cross-backend
@@ -145,7 +146,7 @@ nip29: create-group accepted or already existed
 nip29: group lock accepted or already existed
 nip29: admin grant accepted for <mosaico-b>
 nip29: agent membership accepted for <session>
-ok  backend-a channel list --all-workspaces shows 'e2e-demo'
+ok  backend-a channel list --all shows '/e2e-demo'
 ok  relay holds kind:39000 metadata for 'e2e-demo'
 ok  PASS — backend-b observed backend-a's group 'e2e-demo' through ws://127.0.0.1:10547
 ok  PTY exec argv is claude --dangerously-skip-permissions --agent reviewer
@@ -177,11 +178,11 @@ Reuse the `mosaico()` helper from `lib.sh` for any backend command:
 
 ```bash
 source e2e/lib.sh
-mosaico mosaico-b channel list --all-workspaces
+mosaico mosaico-b channel list --all
 mosaico mosaico-b who --all-workspaces
-# Every channel argument is a full absolute path (`/<workspace>/<child>`) or an
-# `@<id-prefix>`; a bare name is rejected. `channel send`/`channel read` also
-# require that the calling session has already joined the target.
+# Every channel argument is a full absolute path (`/<workspace>/<child>`).
+# Bare names and opaque protocol ids are rejected. `channel send`/`channel read`
+# also require that the calling session has already joined the target.
 mosaico mosaico-a channel send --message 'hello from a' --channel /e2e-demo
 nak req -k 39000 "$RELAY_WS"          # all group metadata on the relay
 nak req -k 9      -h e2e-demo "$RELAY_WS"   # chat messages in the group

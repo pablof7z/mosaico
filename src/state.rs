@@ -12,9 +12,9 @@
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
 //! The pubkey is the sole session identity. Harness-native ids and PTY endpoints
-//! are typed locators that point to it. A runtime has one active publishing
-//! channel (`sessions.channel_h`) and may listen in additional joined channels
-//! (`session_channels`).
+//! are typed locators that point to it. Runtime execution belongs to one
+//! immutable workspace root; every channel scope is an explicit
+//! `session_channels` membership.
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
@@ -79,6 +79,10 @@ pub struct Status {
     pub slug: String,
     pub title: String,
     pub activity: String,
+    /// Immutable launch workspace advertised by the remote session.
+    pub workspace: String,
+    /// Launch branch when known; empty for non-git or older peers.
+    pub branch: String,
     pub state: crate::session_state::SessionState,
     pub state_since: u64,
     pub last_seen: u64,
@@ -163,7 +167,10 @@ pub struct RegisterSession {
     pub pubkey: String,
     pub observed_harness: String,
     pub agent_slug: String,
-    pub channel_h: String,
+    /// Channel membership requested by this launch. Empty means unscoped.
+    pub launch_channel_h: String,
+    /// Immutable top-level workspace root for this durable session identity.
+    pub work_root: String,
     pub child_pid: Option<i32>,
     pub now: u64,
 }
@@ -243,11 +250,9 @@ pub use native_turn_attempts::{
 mod profiles;
 mod workspace_roots;
 pub use workspace_roots::WorkspaceBinding;
-mod quarantine;
-pub(crate) mod work_start;
-pub use quarantine::QuarantinedEvent;
 mod reactions;
 mod reader;
+pub(crate) mod work_start;
 pub(crate) use reader::StoreReader;
 pub mod receipts;
 mod retention;
@@ -259,7 +264,7 @@ mod session_cursor;
 mod session_lifecycle;
 mod session_native;
 mod session_recovery;
-pub use session_lifecycle::{HEADLESS_IDLE_TIMEOUT_SECS, STOPPED_STANDING_RETENTION_SECS};
+pub use session_lifecycle::HEADLESS_IDLE_TIMEOUT_SECS;
 mod session_resume;
 mod session_routes;
 pub use session_routes::ConfirmedAdmissionCommit;

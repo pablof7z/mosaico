@@ -18,9 +18,19 @@ pub(crate) struct MembersInput {
     /// retained as relay state; rendered awareness exposes the member identity,
     /// status, and liveness only.
     pub(in crate::fabric_context) roster: BTreeMap<String, BTreeMap<String, String>>,
+    /// Canonically normalized count facts for the same roster rows.
+    #[serde(default)]
+    pub(in crate::fabric_context) count_facts:
+        BTreeMap<String, Vec<crate::agent_count::MemberFacts>>,
+    /// Channels for which both relay-authored admin and member snapshots have
+    /// arrived. An absent marker means the member count is unknown, not zero.
+    #[serde(default)]
+    pub(in crate::fabric_context) hydrated: BTreeSet<String>,
     pub(in crate::fabric_context) refs: BTreeMap<String, String>,
     #[serde(default)]
     pub(in crate::fabric_context) agent_slugs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(in crate::fabric_context) hosts: BTreeMap<String, String>,
     pub(in crate::fabric_context) backend: BTreeSet<String>,
     /// channel_h -> (pubkey -> latest kind:9 message time). Activity-derived
     /// presence folded in alongside kind:30315 heartbeat statuses.
@@ -31,6 +41,10 @@ pub(crate) struct MembersInput {
     /// omitted from member rows and queued for a profile refetch instead.
     #[serde(default)]
     pub(in crate::fabric_context) has_handle: BTreeSet<String>,
+    /// Pubkeys with any resolved kind:0 profile. An empty handle means a known
+    /// human, while no profile leaves the agent count unknown.
+    #[serde(default)]
+    pub(in crate::fabric_context) known_profiles: BTreeSet<String>,
 }
 
 impl MembersInput {

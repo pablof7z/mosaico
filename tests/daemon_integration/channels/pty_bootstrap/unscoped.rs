@@ -20,7 +20,6 @@ fn direct_launch_from_unknown_directory_starts_unscoped_in_that_directory() {
     );
 
     let session = wait_for_alive(&home, agent, "");
-    assert_eq!(session.channel_h, "");
     assert_eq!(session.work_root, "");
     let store = Store::open(&home.store_path()).unwrap();
     assert!(store

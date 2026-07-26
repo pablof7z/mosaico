@@ -14,6 +14,22 @@ pub(super) fn schedule_channel_ready(
     };
     tokio::spawn(async move {
         let _lane = state.standing_sync.lock().await;
+        if !super::super::managed_lifecycle::admission_is_current(
+            &state,
+            &check.pubkey,
+            &check.channel_h,
+            runtime_generation,
+            lifecycle_epoch,
+            true,
+        ) {
+            tracing::debug!(
+                pubkey,
+                channel = %check.channel_h,
+                lifecycle_epoch,
+                "session_start channel admission was cancelled by newer membership state"
+            );
+            return;
+        }
         match channel_ready::verify_start_channel_ready(
             &state,
             &check.channel_h,

@@ -15,17 +15,15 @@ set -euo pipefail
 #
 # The rig may be run from INSIDE a live mosaico agent session (a developer or
 # an agent driving it from a hooked shell). That parent process exports its own
-# session identity — MOSAICO_CHANNEL, MOSAICO_AGENT, the harness session id
-# — and the auto-spawned isolated daemon inherits the client's environment
-# wholesale. A leaked MOSAICO_CHANNEL is the worst offender: a bare
-# `session-start` (no channel) would then scope the isolated backend into the
-# CALLER's channel name, minting a spurious child group under the test workspace
-# (observed: a `name=<caller-channel>` 39000 with `parent=<test-workspace>`).
+# session identity — including the now-ignored legacy MOSAICO_CHANNEL variable,
+# MOSAICO_AGENT, and the harness session id — and the auto-spawned isolated
+# daemon inherits the client's environment wholesale. Scrub all of it so the
+# rig proves launch scope comes only from explicit RPC input.
 #
 # Unset these ONCE here, at source time, BEFORE any run-*.sh applies its own
-# intentional per-call prefixes (e.g. `MOSAICO_CHANNEL=<room> mosaico ...` in
-# run-ordinal.sh). Scrubbing per-call inside `mosaico()` would instead clobber those
-# deliberate values — this is why the scrub lives at harness entry, not in mosaico().
+# intentional per-call configuration. Scrubbing per-call inside `mosaico()`
+# would instead clobber those deliberate values — this is why the scrub lives at
+# harness entry, not in mosaico().
 # MOSAICO_HOME and MOSAICO_CONFIG are re-set per call by `mosaico()`; unsetting the
 # ambient ones keeps any stray un-wrapped invocation off the caller's real home.
 unset MOSAICO_CHANNEL \
@@ -81,6 +79,7 @@ KEYS_DIR="${E2E_WORK}/keys"
 backend_root() { echo "${E2E_WORK}/$1"; }
 backend_config() { echo "$(backend_root "$1")/config.json"; }
 backend_mosaico_home() { echo "$(backend_root "$1")/mosaico"; }
+backend_user_home() { echo "$(backend_root "$1")/home"; }
 backend_pidfile() { echo "$(backend_root "$1")/daemon.pid"; }
 # Each backend uses an independent checkout path so workspace-root discovery does
 # not collapse both installs onto one shared git root.
@@ -174,6 +173,7 @@ mosaico() {
   # auto-spawned daemon re-execs THIS binary via current_exe(), not whatever the
   # dev shell exported. The client process is ${MOSAICO_BIN} explicitly.
   env -u MOSAICO_BIN \
+    HOME="$(backend_user_home "$name")" \
     MOSAICO_CONFIG="$(backend_config "$name")" \
     MOSAICO_HOME="$(backend_mosaico_home "$name")" \
     MOSAICO_DEBUG="${MOSAICO_DEBUG}" \
@@ -191,7 +191,7 @@ record_backend_daemon_pid() {
 # for teardown.
 start_backend_daemon() {
   local name="$1"
-  mosaico "${name}" channel list --all-workspaces >/dev/null
+  mosaico "${name}" channel list --all >/dev/null
   record_backend_daemon_pid "${name}"
 }
 

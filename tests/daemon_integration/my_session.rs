@@ -55,18 +55,16 @@ fn cli_my_session_status_sets_the_exact_pty_session_title() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("Session status set"));
 
-    let rec = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&pubkey)
-        .unwrap()
-        .expect("session row");
+    let store = Store::open(&home.store_path()).unwrap();
+    let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_eq!(rec.title, title);
+    let channel = only_session_route(&store, &rec.pubkey);
 
     assert!(
         wait_until(Duration::from_secs(20), || {
             Store::open(&home.store_path())
                 .map(|s| {
-                    s.live_status_for_channel(&rec.channel_h, 0)
+                    s.live_status_for_channel(&channel, 0)
                         .map(|rows| {
                             rows.iter()
                                 .any(|row| row.pubkey == pubkey && row.title == title)

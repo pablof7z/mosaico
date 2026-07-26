@@ -128,6 +128,20 @@ impl TailEvent {
         }
     }
 
+    pub(crate) fn channel_mut(&mut self) -> Option<&mut String> {
+        match self {
+            TailEvent::Msg { channel, .. }
+            | TailEvent::Sync { channel, .. }
+            | TailEvent::Turn { channel, .. }
+            | TailEvent::Status { channel, .. }
+            | TailEvent::Join { channel, .. }
+            | TailEvent::Leave { channel, .. }
+            | TailEvent::Sess { channel, .. }
+            | TailEvent::Proj { channel, .. } => Some(channel),
+            TailEvent::Profile { .. } => None,
+        }
+    }
+
     /// Return the severity tier for default display filtering.
     ///
     /// Tiers (high to low):

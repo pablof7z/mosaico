@@ -3,7 +3,6 @@ fn sample_session() -> crate::state::Session {
         pubkey: "pk-target".into(),
         runtime_generation: 1,
         agent_slug: "claude".into(),
-        channel_h: "proj".into(),
         work_root: "proj".into(),
         readiness_parent: String::new(),
         observed_harness: "claude".into(),
@@ -49,9 +48,9 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     };
 
     // No whitelist → the sender is treated as another agent. With no cached slug
-    // the name falls back to the short sender pubkey ("pk-sende"), and with no
-    // channel metadata the source room is still the workspace's general channel.
+    // the name falls back to the short sender pubkey ("pk-sende").
     let store = crate::state::Store::open_memory().unwrap();
+    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
     store
         .upsert_reaction("rx-1", "abcdef123456", "proj", "pk-target", "👍", 110)
         .unwrap();
@@ -126,6 +125,7 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
     };
 
     let store = crate::state::Store::open_memory().unwrap();
+    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
     let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
 
     assert!(

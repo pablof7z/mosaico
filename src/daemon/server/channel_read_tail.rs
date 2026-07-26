@@ -205,7 +205,11 @@ pub(in crate::daemon::server) fn chat_row_to_json(
         body: resolved_body,
         ..row.clone()
     };
-    chat_log_row_to_json(&resolved_row, &from_slug, &host, truncate)
+    let mut json = chat_log_row_to_json(&resolved_row, &from_slug, &host, truncate);
+    json["channel"] = serde_json::Value::String(
+        state.with_store(|store| crate::channel_ref::full_channel_ref(store, &row.channel_h)),
+    );
+    json
 }
 
 pub(in crate::daemon::server) fn chat_log_row_to_json(

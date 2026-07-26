@@ -15,7 +15,12 @@ pub async fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::V
         .with_store(|s| s.list_root_channels())
         .unwrap_or_default()
         .into_iter()
-        .map(|c| serde_json::json!({ "slug": c.channel_h, "about": c.about }))
+        .filter_map(|c| {
+            let channel =
+                state.with_store(|s| crate::channel_ref::full_channel_ref(s, &c.channel_h));
+            (!channel.is_empty())
+                .then(|| serde_json::json!({ "channel": channel, "about": c.about }))
+        })
         .collect();
 
     Ok(serde_json::json!({ "channels": channels }))
@@ -36,10 +41,21 @@ pub async fn rpc_channel_members(
         channel: String,
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_members params")?;
-    refresh_channel_members_cache(state, &p.channel).await;
+    absolute::require_full_path("channel", &p.channel)?;
+    let channel_h =
+        match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &p.channel)) {
+            ChannelResolution::Unique(channel_h) => channel_h,
+            ChannelResolution::NotFound => {
+                anyhow::bail!(
+                    "{}",
+                    state.with_store(|s| absolute::describe_missing_channel(s, &p.channel))
+                )
+            }
+        };
+    refresh_channel_members_cache(state, &channel_h).await;
 
     let member_pubkeys = state
-        .with_store(|s| s.list_channel_members(&p.channel))
+        .with_store(|s| s.list_channel_members(&channel_h))
         .unwrap_or_default()
         .into_iter()
         .map(|m| m.pubkey)
@@ -47,7 +63,7 @@ pub async fn rpc_channel_members(
     crate::profile::warm(state, &member_pubkeys).await;
 
     let members = state
-        .with_store(|s| s.list_channel_members(&p.channel))
+        .with_store(|s| s.list_channel_members(&channel_h))
         .unwrap_or_default()
         .into_iter()
         .map(|m| {
@@ -65,8 +81,8 @@ pub async fn rpc_channel_members(
 }
 
 /// `channel add <pubkey|npub|nip05> <channel> [--admin]` — add a human member to
-/// a channel. Resolves the full-path (or `@id`) reference globally to its
-/// opaque `h`, ensures the channel is ready (management is admin), then publishes an explicit
+/// a channel. Resolves its full path globally to the internal group id, ensures
+/// the channel is ready (management is admin), then publishes an explicit
 /// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), read
 /// back for confirmation.
 pub async fn rpc_channel_add_member(
@@ -84,9 +100,6 @@ pub async fn rpc_channel_add_member(
 
     let channel_h = match resolve_add_channel(state, params, &p.channel)? {
         ChannelResolution::Unique(h) => h,
-        ChannelResolution::Ambiguous(refs) => {
-            return Ok(serde_json::json!({ "ambiguous": refs, "reference": p.channel }));
-        }
         ChannelResolution::NotFound => {
             anyhow::bail!(
                 "{}",
@@ -94,6 +107,7 @@ pub async fn rpc_channel_add_member(
             )
         }
     };
+    let channel = state.with_store(|s| crate::channel_ref::full_channel_ref(s, &channel_h));
 
     let pubkey_hex = resolve_channel_member_pubkey_hex(&p.pubkey).await?;
     let role = if p.admin { "admin" } else { "member" };
@@ -123,7 +137,7 @@ pub async fn rpc_channel_add_member(
     if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
         anyhow::bail!(
             "channel_add_member could not verify channel {} readiness within {}s",
-            channel_h,
+            channel,
             CHANNEL_MEMBER_READY_TIMEOUT.as_secs()
         );
     }
@@ -144,20 +158,20 @@ pub async fn rpc_channel_add_member(
     };
     if !outcome.is_confirmed() {
         anyhow::bail!(
-            "could not confirm {} as {role} of channel {channel_h}",
+            "could not confirm {} as {role} of channel {channel}",
             crate::util::pubkey_short(&pubkey_hex)
         );
     }
 
     Ok(serde_json::json!({
-        "channel": channel_h,
+        "channel": channel,
         "pubkey": pubkey_hex,
         "role": role,
         "confirmed": true,
     }))
 }
 
-/// Resolve a full-path (or `@id`) reference for `channel add`, globally —
+/// Resolve a full-path reference for `channel add`, globally —
 /// not scoped to the caller's workspace. Still requires a resolvable caller
 /// context (session anchor, else the invoking directory) as a precondition.
 fn resolve_add_channel(
@@ -198,10 +212,21 @@ pub async fn rpc_channel_remove_member(
     let p: P = serde_json::from_value(params.clone()).context("channel_remove_member params")?;
 
     let pubkey_hex = resolve_pubkey_hex(&p.pubkey).await?;
+    absolute::require_full_path("channel", &p.channel)?;
+    let channel_h =
+        match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &p.channel)) {
+            ChannelResolution::Unique(channel_h) => channel_h,
+            ChannelResolution::NotFound => {
+                anyhow::bail!(
+                    "{}",
+                    state.with_store(|s| absolute::describe_missing_channel(s, &p.channel))
+                )
+            }
+        };
 
     let outcome = state
         .provider
-        .remove_member_confirmed(&p.channel, &pubkey_hex)
+        .remove_member_confirmed(&channel_h, &pubkey_hex)
         .await;
     if outcome.is_rejected() {
         anyhow::bail!(

@@ -7,6 +7,7 @@ fn schema_fifteen_drops_the_auto_publish_marker() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     fixture::add_removed_v15_session_columns(&conn);
     conn.execute(
         "INSERT INTO sessions
@@ -21,7 +22,7 @@ fn schema_fifteen_drops_the_auto_publish_marker() {
 
     drop(Store::open(&path).expect("schema fifteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert_eq!(
         conn.query_row(
             "SELECT agent_slug FROM sessions WHERE pubkey='historical'",

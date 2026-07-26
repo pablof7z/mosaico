@@ -1,4 +1,4 @@
-use super::{collect_p_pubkeys, Nip29Materializer};
+use super::Nip29Materializer;
 use crate::domain::ChatMessage;
 use crate::state::{RecordMessage, Store};
 use nostr::Event;
@@ -29,18 +29,6 @@ impl Nip29Materializer {
                 error = %e,
                 "materialize_chat_message: messages upsert failed — channel read model may miss this line"
             );
-            return;
-        }
-        for pk in collect_p_pubkeys(event) {
-            if let Err(e) = store.add_message_recipient(&event_id, &pk, None) {
-                tracing::error!(
-                    channel = channel_h,
-                    event_id = %event_id,
-                    recipient = %crate::util::pubkey_short(&pk),
-                    error = %e,
-                    "materialize_chat_message: recipient upsert failed"
-                );
-            }
         }
     }
 }

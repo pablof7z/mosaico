@@ -28,6 +28,7 @@ mod backend_profile;
 mod background;
 mod delivery_drive;
 mod demux;
+mod direct_mentions;
 mod invite_rpc;
 mod managed_lifecycle;
 mod management_command;
@@ -150,6 +151,7 @@ impl DaemonState {
 }
 
 // ── entry point ──────────────────────────────────────────────────────────────
+mod channel_init;
 mod channel_membership_rpc;
 mod channel_move;
 mod channel_read_tail;
@@ -209,7 +211,6 @@ use statusline::rpc_statusline;
 use subscriptions::{ensure_subscription, replay_channel_chat, sync_subscriptions};
 use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
-
 async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
@@ -250,6 +251,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         }
         "backend_profile_refresh" => rpc_backend_profile_refresh(state),
         "channel_create" => rpc_channel_create(state, &req.params).await,
+        "channel_init" => channel_init::rpc_channel_init(state, &req.params).await,
         "channel_edit" => rpc_channel_edit(state, &req.params).await,
         "channel_resolve" => rpc_channel_resolve(state, &req.params).await,
         "channel_list" => rpc_channel_list(state, &req.params),
@@ -283,9 +285,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         }
     }
 }
-
 const SEEN_EVENTS_CAP: usize = 4096;
-
 impl DaemonState {
     /// True exactly once per native event id (bounded memory). Subsequent
     /// sightings — NMP notifying for every matching observation —
@@ -312,10 +312,9 @@ impl DaemonState {
         let _ = self.connections.tail_tx.send(ev);
     }
 }
-
 fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value> {
     rows.iter()
-        .map(|r| {
+        .filter_map(|r| {
             // Sender slug is no longer stored on the row; resolve it from the
             // profile cache (empty -> host falls back to the short pubkey).
             let from_slug = store
@@ -323,20 +322,23 @@ fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value>
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            serde_json::json!({
+            let channel = crate::channel_ref::full_channel_ref(store, &r.channel_h);
+            if channel.is_empty() {
+                return None;
+            }
+            Some(serde_json::json!({
                 "from_slug": from_slug,
-                "channel": r.channel_h,
+                "channel": channel,
                 "host": "",
                 "subject": "",
                 "created_at": r.created_at,
                 "id": crate::idref::event_short_id(&r.event_id),
                 "mention_event_id": r.event_id,
                 "body": r.body,
-            })
+            }))
         })
         .collect()
 }
-
 fn sort_message_json(rows: &mut [serde_json::Value]) {
     rows.sort_by_key(|row| row["created_at"].as_i64().unwrap_or_default());
 }
@@ -353,7 +355,6 @@ fn env_u64(key: &str, default: u64) -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
 }
-
 fn presence_lease_ttl() -> Duration {
     Duration::from_secs(env_u64(
         "MOSAICO_PRESENCE_LEASE_TTL_S",

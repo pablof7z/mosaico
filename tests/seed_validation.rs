@@ -167,6 +167,8 @@ async fn seed_session_with_thread_root_link() {
             agent: agent_ref.clone(),
             channels: vec![channel.clone()],
             host: "seed-host".into(),
+            workspace: String::new(),
+            branch: String::new(),
             title: title.into(),
             activity: String::new(),
             state: mosaico::session_state::SessionState::Idle,

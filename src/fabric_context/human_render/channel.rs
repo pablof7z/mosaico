@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn render_channel(out: &mut String, channel: &ChannelBlock, color: bool, indent: usize) {
     let pad = " ".repeat(indent);
-    let name = format!("#{}", channel.id);
+    let name = channel.path.clone();
     if channel.about.is_empty() {
         let _ = writeln!(out, "{pad}{}", style(&name, color, Style::Channel));
     } else {

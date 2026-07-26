@@ -6,14 +6,13 @@ pub(super) async fn channel_create(
     agents: Vec<String>,
     session: Option<String>,
 ) -> Result<()> {
-    let target = create_target(&path)?;
+    crate::channel_ref::split_create_path(&path)?;
     let parsed = parse_agents(&agents)?;
     let v = daemon_call_async(
         "channel_create",
         crate::cli::rpc_params(with_session(
             serde_json::json!({
-                "parent_channel": target.parent_channel,
-                "name": target.name,
+                "channel": path,
                 "about": about,
                 "agents": parsed,
             }),
@@ -21,50 +20,16 @@ pub(super) async fn channel_create(
         )),
     )
     .await?;
-    if let Some(refs) = v["ambiguous"].as_array() {
-        print_ambiguous_create(&path, &about, &agents, session.as_deref(), refs, &v);
-    }
-
     let oid = v["orchestration_event_id"].as_str().unwrap_or("");
-    let switched = v["switched"].as_bool().unwrap_or(false);
-    if switched {
-        println!("#{path} created and switched to it");
+    if v["joined"].as_bool().unwrap_or(false) {
+        println!("{path} created and joined");
     } else {
-        println!("#{path} created");
+        println!("{path} created");
     }
     if !oid.is_empty() {
         println!("  orchestration kind:9 {}", &oid[..oid.len().min(8)]);
     }
     Ok(())
-}
-
-struct CreateTarget {
-    parent_channel: Option<String>,
-    name: String,
-}
-
-fn create_target(path: &str) -> Result<CreateTarget> {
-    let path = path.trim();
-    if !path.starts_with('/') || path.contains('.') || path.ends_with('/') || path.contains("//") {
-        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
-    }
-    let segments: Vec<&str> = path[1..].split('/').map(str::trim).collect();
-    if segments.iter().any(|segment| segment.is_empty()) {
-        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
-    }
-    let Some(name) = segments.last() else {
-        anyhow::bail!("channel create <path> requires a non-empty path");
-    };
-    let Some(parent_segments) = segments.get(..segments.len() - 1).filter(|s| !s.is_empty()) else {
-        anyhow::bail!(
-            "channel create <path> needs a parent, e.g. /workspace/{name}; the workspace itself \
-             comes from `channel init`, not `channel create`"
-        );
-    };
-    Ok(CreateTarget {
-        parent_channel: Some(format!("/{}", parent_segments.join("/"))),
-        name: (*name).to_string(),
-    })
 }
 
 fn parse_agents(agents: &[String]) -> Result<Vec<serde_json::Value>> {
@@ -89,89 +54,16 @@ fn with_session(mut params: serde_json::Value, session: Option<&str>) -> serde_j
     params
 }
 
-fn print_ambiguous_create(
-    path: &str,
-    about: &str,
-    agents: &[String],
-    session: Option<&str>,
-    refs: &[serde_json::Value],
-    response: &serde_json::Value,
-) -> ! {
-    let reference = response["reference"].as_str().unwrap_or(path);
-    let leaf = create_target(path)
-        .ok()
-        .map(|target| target.name)
-        .unwrap_or_else(|| path.to_string());
-    eprintln!("'{reference}' is ambiguous — re-run with an exact path:");
-    for r in refs.iter().filter_map(|r| r.as_str()) {
-        let full_path = format!("{r}/{leaf}");
-        let mut cmd = format!(
-            "  mosaico channel create {} --about {}",
-            shell_quote(&full_path),
-            shell_quote(about)
-        );
-        for agent in agents {
-            cmd.push_str(" --agent ");
-            cmd.push_str(&shell_quote(agent));
-        }
-        if let Some(session) = session {
-            cmd.push_str(" --session ");
-            cmd.push_str(&shell_quote(session));
-        }
-        eprintln!("{cmd}");
-    }
-    std::process::exit(2);
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn create_target_splits_leaf_from_absolute_parent_path() {
-        let target = create_target("/workspace/epic/planning").unwrap();
-        assert_eq!(target.parent_channel.as_deref(), Some("/workspace/epic"));
-        assert_eq!(target.name, "planning");
-    }
-
-    #[test]
-    fn create_target_accepts_deeper_absolute_paths() {
-        let target = create_target("/workspace/epic/planning/research").unwrap();
+    fn parse_agents_requires_backend_qualified_targets() {
+        assert!(parse_agents(&["agent".into()]).is_err());
         assert_eq!(
-            target.parent_channel.as_deref(),
-            Some("/workspace/epic/planning")
+            parse_agents(&["agent@laptop".into()]).unwrap(),
+            vec![serde_json::json!({"slug": "agent", "backend": "laptop"})]
         );
-        assert_eq!(target.name, "research");
-    }
-
-    #[test]
-    fn create_target_rejects_relative_paths() {
-        let error = match create_target("epic/planning") {
-            Ok(_) => panic!("a relative path must be rejected"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("full absolute path"));
-    }
-
-    #[test]
-    fn create_target_rejects_a_bare_workspace_with_no_parent() {
-        let error = match create_target("/workspace") {
-            Ok(_) => panic!("a bare workspace path has no parent to create under"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("channel init"));
-    }
-
-    #[test]
-    fn create_target_rejects_dotted_paths() {
-        let error = match create_target("/workspace/epic.planning") {
-            Ok(_) => panic!("dotted path must be rejected"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("full absolute path"));
     }
 }

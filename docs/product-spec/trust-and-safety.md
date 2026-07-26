@@ -54,15 +54,13 @@ end; "anyone on the internet's agent" is the far end and may never be fully safe
 
 Within the fabric, trust is exactly NIP-29 channel membership. A machine's management key
 adds a session's pubkey as a member. A headless managed runtime stops after ten minutes of true
-inactivity; ordinary headless stop or failure retains membership for one hour, while a clean
-zero-status child exit observed while headed removes membership immediately. Explicit human
-forget or revoke also removes every joined membership immediately.
+inactivity, but ordinary stop does not remove membership or standing. The same rule applies to
+headless failure and a clean zero-status child exit observed while headed. Explicit human leave
+or forget/revoke removes joined membership.
 
 Saved recovery data does not confer trust. The owning management key may preserve an exact
-session's signer, native conversation locator, and previously admitted channel routes after
-membership expires. An exact p-tag from a sender who is currently authorized in that channel may
-use that route to re-admit the same pubkey. Until the relay confirms re-admission the session is
-absent, and a slug, durable key, or local database row cannot substitute for membership.
+session's signer and native conversation locator after its runtime stops. A slug, durable key,
+or local database row cannot substitute for current relay membership.
 
 ### 4. Human-in-the-loop at the boundary, by default
 Crossing the person boundary — especially *answering* a peer or *acting on* a peer's input —

@@ -1,125 +1,138 @@
 # Channel RPCs
 
-Companion to the [daemon RPC catalog](daemon-rpc-surface.md). This file owns the
-channel addressing contract and the channel lifecycle/membership RPCs. The
-messaging RPCs that also take a channel reference live in
-[daemon-rpc-messaging.md](daemon-rpc-messaging.md).
+Companion to the [daemon RPC catalog](daemon-rpc-surface.md). This document owns
+the channel-addressing, lifecycle, and membership contracts. Messaging RPCs are
+documented in [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 
-## Channel references
+## Public channel references
 
-Two different things are spelled `"channel"` on this wire, and they are not
-interchangeable.
+Every agent- or operator-supplied channel reference is a full absolute path:
 
-**Channel reference** — an operator/agent-supplied handle for a channel. Every
-one of them REQUIRES either a full absolute path or an explicit id selector:
+```text
+/root
+/root/child
+/root/child/grandchild
+```
 
-- `/<workspace>[/<child>…]` — segment 0 must match an existing top-level
-  workspace channel's `channel_h` (a workspace root's `channel_h` IS its slug);
-  every further segment is an EXACT, case-insensitive match against a child
-  channel's kind:39000 `name` under the previous segment.
-- `@<id-prefix>` — the channel whose opaque id starts with the prefix.
+The first segment names an existing root channel. Each later segment is an
+exact, case-insensitive match for a child's kind:39000 `name` beneath the
+previous segment. Paths resolve globally; they are not relative to the caller.
 
-Everything else is rejected before any lookup with `channel must be a full path
-starting with "/", e.g. /workspace/child`: bare names (`planning`), bare raw
-`h` ids, relative paths, and suffix/partial paths. There is no fuzzy matching,
-no caller-scoped root, and no exception for the caller's own channel.
+Bare names, relative paths, `#` aliases, `@` selectors, and opaque NIP-29 `h`
+values are rejected at the public boundary. An unresolved path is an error and
+never creates a channel.
 
-Resolution is GLOBAL — any session may address any channel in any workspace —
-and EXACT, so a well-formed full path names exactly one channel or none:
+Opaque `h` values remain internal protocol identifiers. Internal launch and
+provider calls may carry them, but no agent-visible result, confirmation,
+error, list entry, or injected context may expose one.
 
-- **found** → the RPC proceeds against the resolved `channel_h`;
-- **ambiguous** (only possible for `@<id-prefix>`) → the RPC succeeds with
-  `{"ambiguous": ["@<id>", …], "reference": "<as supplied>"}` and does nothing
-  else; re-run with one of the returned selectors;
-- **not found** → error listing the workspace's actual channel paths (plus any
-  other path segment that is itself a separate workspace). Nothing is created.
+## Membership model
 
-Reference params: `channel_edit.channel`, `channel_add_member.channel`,
-`channel_join`/`channel_leave`/`channel_archive`.`channel`,
-`channel_create.parent_channel`, `channel_send`/`channel_read`.`channel`,
-`invite.channel`, and the `archive` management command's argument.
+A session has one immutable launch workspace and one additive set of joined
+channels containing zero or more entries. It has no current, active, focused,
+or switched channel.
 
-**Raw opaque id** — a `channel_h` the caller already holds. These params are
-NOT references and take no path: `session_start.channel`, `pty_spawn.channel`
-and `.root`, `channel_create.parent`, `channel_members.channel`,
-`channel_remove_member.channel`, `channel_list.channel`, `tail.channel`, and
-`channel_resolve.channel` (the literal parent for a name lookup).
-`channel_wait.channels` is the one hybrid: it accepts a full path, an
-`@<id-prefix>`, or a raw `h`, but matches only among channels the calling
-session has already joined.
+- `channel_join` adds exactly one existing channel.
+- `channel_leave` removes exactly one joined channel, including the final one.
+- `channel_create` creates one leaf and joins the creator to it without leaving
+  any other channel.
+- Ordinary stop, idle eviction, crash, and resume preserve the joined set.
+- Only an explicit leave, revoke/forget, archive removal, or failed-admission
+  cleanup removes membership.
+
+`channel_join` also returns an optional `history_notice`. When the join is new
+and the channel already has conversation, it summarizes only the newest
+pre-join activity cluster (message count, duration, and a bounded author list)
+and points to the explicit-read guidance. It never returns pre-join bodies.
 
 ## `root_channels`
+
 ```jsonc
 params: {}
-result: {"channels": [ {slug, about}, … ]}
+result: {"channels": [{"channel": "/root", "about": "…"}, …]}
 ```
-Returns all known workspace root channels from the daemon's cache.
+
+Returns known root channels using public paths.
 
 ## `channel_edit`
+
 ```jsonc
-params: {"channel": "/workspace/child"|"@id-prefix", "about": "…"}
-result: {"event_id": "hex", "channel": "channel-h", "about": "…", "confirmed": true}
-      | {"ambiguous": ["@id", …], "reference": "…"}
+params: {"channel": "/root/child", "about": "…"}
+result: {"event_id": "hex", "channel": "/root/child", "about": "…",
+         "confirmed": true}
 ```
-Publishes an updated NIP-29 kind:39000 group metadata event for a channel.
-`channel` is a channel reference; the channel must already exist.
+
+Updates an existing channel's durable description.
 
 ## `channel_members`
-```jsonc
-params: {"channel": "channel-h"}
-result: {"members": [ {pubkey, slug, role}, … ]}
-```
-Returns the current membership list for the given NIP-29 group. `channel` is a
-raw opaque id, not a reference.
 
-## `channel_add_member`
 ```jsonc
-params: {"channel": "/workspace/child"|"@id-prefix", "pubkey": "hex", "admin": bool}
-result: {"channel": "channel-h", "pubkey": "hex", "role": "member"|"admin", "confirmed": true}
-      | {"ambiguous": ["@id", …], "reference": "…"}
+params: {"channel": "/root/child"}
+result: {"channel": "/root/child",
+         "members": [{"pubkey": "hex", "slug": "agent", "role": "member"}, …]}
 ```
-Adds a human pubkey (hex, npub, or NIP-05) to a NIP-29 group. `channel` is a
-channel reference resolved globally; the caller must still have a resolvable
-session anchor or be invoked from a workspace directory.
 
-## `channel_remove_member`
+Returns the current relay-confirmed membership roster.
+
+## `channel_add_member` / `channel_remove_member`
+
 ```jsonc
-params: {"channel": "channel-h", "pubkey": "hex"}
-result: {"ok": true}
+params: {"channel": "/root/child", "pubkey": "hex", "admin": false}
+result: {"channel": "/root/child", "pubkey": "hex", "role": "member",
+         "confirmed": true}
 ```
-Removes a pubkey from a NIP-29 group. `channel` is a raw opaque id.
+
+Adds or removes one human or agent pubkey. Membership mutations are confirmed
+against relay state before success is reported.
 
 ## `channel_create`
+
 ```jsonc
-params: {"name": "…", "about": "…", "parent": "channel-h"|null,
-         "parent_channel": "/workspace/child"|"@id-prefix"|null, "agents": [...], ...}
-result: {"child_h": "…", "display_path": "…", "switched": bool,
+params: {"channel": "/root/parent/child", "about": "…", "agents": […]}
+result: {"channel": "/root/parent/child", "joined": true,
          "orchestration_event_id": "hex"|""}
-      | {"ambiguous": ["@id", …], "reference": "…"}
 ```
-Creates a child channel under `parent_channel` (a channel reference), else the
-caller's current channel, else the literal `parent` opaque id, else the
-`<workspace>` root resolved from cwd. `parent_channel` must already exist —
-`channel_create` mints only the one leaf it was given a name for, never the
-ancestor chain.
+
+The parent must already exist. Creation mints exactly the named leaf; it never
+creates missing ancestors. The creator joins the leaf additively. `joined`
+describes that admission and never implies switching or leaving another
+channel.
 
 ## `channel_list`
+
 ```jsonc
-params: {"channel": "channel-h"}
-result: {"channel": "…", "rooms": [ {child_h, name, about, depth}, … ]}
+params: {"all": false, "recursive": false, "workspace": null}
+result: {
+  "sections": [{
+    "kind": "own",
+    "title": "Your workspace",
+    "channels": [{
+      "path": "/root",
+      "about": "…",
+      "agents": 2,
+      "last_activity": "3 min ago",
+      "children": []
+    }]
+  }]
+}
 ```
-Lists the materialized child-channel tree under a channel. `channel` is a raw
-opaque id.
+
+Default mode gives the immutable launch workspace its own section, and expands
+each root only when the caller has joined a channel beneath it. Roots with no
+caller membership stay compact with their total descendant count. `recursive`
+expands every root; `all` compactly lists every root; `workspace` expands one
+named root. Agent counts exclude humans and management backends. Unknown
+counts or activity are omitted rather than fabricated.
 
 ## `channel_join` / `channel_leave` / `channel_archive`
+
 ```jsonc
-params: {"channel": "/workspace/child"|"@id-prefix", "session": "npub1…"|"hex"|"handle"|null, ...}
-result: {"channel": "channel-h", ...}
-      | {"ambiguous": ["@id", …], "reference": "…"}
+params: {"channel": "/root/child", "session": "npub1…"|"hex"|"handle"|null}
+join result: {"channel": "/root/child",
+              "history_notice": "…"|null}
+leave result: {"channel": "/root/child", "left": true|false}
 ```
-Mutates the caller session's channel membership or archives a channel.
-`channel` is a channel reference. `channel_join` alone has `mkdir -p`
-semantics: when the path names missing descendants of an EXISTING workspace it
-creates the whole missing chain and joins the leaf. The workspace itself (path
-segment 0) is never auto-created — an unknown workspace is a hard rejection.
-`channel_leave` and `channel_archive` never create anything.
+
+All three require an existing full path. Join is additive and never creates.
+Leave is explicit and may leave the joined set empty. Archive updates metadata
+and removes non-admin members after relay confirmation.

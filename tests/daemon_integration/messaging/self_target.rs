@@ -7,6 +7,8 @@ use std::time::Duration;
 fn agent_cannot_tag_or_reply_to_its_own_identity() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let home = Home::new().with_backend_key();
+    crate::channels::write_config(&home, false);
+    crate::channels::initialize_workspace_root("tmp", "/tmp");
 
     let pubkey = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
@@ -34,6 +36,20 @@ fn agent_cannot_tag_or_reply_to_its_own_identity() {
         .unwrap()
         .expect("session identity")
         .display_slug();
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            crate::channels::refresh_channel_members("/tmp");
+            Store::open(&home.store_path())
+                .map(|store| {
+                    store
+                        .has_channel_membership_snapshot("tmp")
+                        .unwrap_or(false)
+                        && store.is_channel_member("tmp", &pubkey).unwrap_or(false)
+                })
+                .unwrap_or(false)
+        }),
+        "self-target identity did not become a relay-confirmed /tmp member"
+    );
 
     let tag_error = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");

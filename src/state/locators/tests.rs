@@ -5,7 +5,8 @@ fn registration(pubkey: &str, at: u64) -> RegisterSession {
         pubkey: pubkey.into(),
         observed_harness: "codex".into(),
         agent_slug: "codex".into(),
-        channel_h: "root".into(),
+        launch_channel_h: "root".into(),
+        work_root: "root".into(),
         child_pid: None,
         now: at,
     }

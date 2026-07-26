@@ -66,12 +66,27 @@ const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "mosaico.channel_list",
-        description: "List channels under a channel.",
-        props: &[Prop::new(
-            "channel",
-            "string",
-            "Channel slug. Defaults to current directory channel.",
-        )],
+        description: "List the caller-aware workspace/channel forest with public paths. By \
+                      default, own and joined workspaces are expanded and other workspaces are \
+                      compact.",
+        props: &[
+            Prop::new(
+                "workspace",
+                "string",
+                "Expand only this workspace root. Mutually exclusive with all and recursive.",
+            ),
+            Prop::new(
+                "all",
+                "boolean",
+                "Return every workspace root as a compact inventory.",
+            ),
+            Prop::new(
+                "recursive",
+                "boolean",
+                "Expand every known workspace and channel, including unjoined ones.",
+            ),
+            SESSION_PROP,
+        ],
         required: &[],
         read_only: true,
         destructive: false,
@@ -83,7 +98,7 @@ const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+                "Full channel path (/workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
@@ -108,7 +123,7 @@ const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child) or @id-prefix. Must already be joined.",
+                "Full channel path (/workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new("long_message", "boolean", "Allow long messages."),
@@ -133,13 +148,16 @@ const SPECS: &[ToolSpec] = &[
         name: "mosaico.channel_create",
         description: "Create and join a task channel.",
         props: &[
-            Prop::new("name", "string", "Human channel name."),
+            Prop::new(
+                "channel",
+                "string",
+                "Full absolute path for the new leaf (/workspace/epic/child).",
+            ),
             Prop::new("about", "string", "Short stable channel description."),
-            Prop::new("parent_channel", "string", "Parent channel reference."),
             Prop::new("agents", "array", "Agent targets as slug@backend strings."),
             SESSION_PROP,
         ],
-        required: &["name", "about"],
+        required: &["channel", "about"],
         read_only: false,
         destructive: false,
     },
@@ -202,16 +220,10 @@ const SESSION_PROP: Prop = Prop::new(
     "string",
     "Public session npub, hex pubkey, or handle.",
 );
-
 const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new(
-        "channel",
-        "string",
-        "Full channel path (/workspace/child) or @id-prefix.",
-    ),
+    Prop::new("channel", "string", "Full channel path (/workspace/child)."),
     SESSION_PROP,
 ];
-
 const fn channel_tool(
     name: &'static str,
     description: &'static str,
@@ -226,7 +238,6 @@ const fn channel_tool(
         destructive,
     }
 }
-
 impl Prop {
     const fn new(name: &'static str, ty: &'static str, description: &'static str) -> Self {
         Self {
@@ -236,7 +247,6 @@ impl Prop {
         }
     }
 }
-
 fn def(spec: &ToolSpec) -> Value {
     let schemes = security_schemes(spec);
     json!({
@@ -254,7 +264,6 @@ fn def(spec: &ToolSpec) -> Value {
         },
     })
 }
-
 fn security_schemes(spec: &ToolSpec) -> Value {
     let scopes = if spec.read_only {
         json!(["mosaico:read"])
@@ -263,7 +272,6 @@ fn security_schemes(spec: &ToolSpec) -> Value {
     };
     json!([{ "type": "oauth2", "scopes": scopes }])
 }
-
 fn schema(props: &[Prop], required: &[&str]) -> Value {
     let properties = props
         .iter()
@@ -287,7 +295,6 @@ fn schema(props: &[Prop], required: &[&str]) -> Value {
         "additionalProperties": false,
     })
 }
-
 #[cfg(test)]
 #[path = "catalog/tests.rs"]
 mod tests;

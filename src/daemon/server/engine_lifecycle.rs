@@ -14,11 +14,8 @@ pub(in crate::daemon::server) async fn spawn_session(
 ) -> Result<()> {
     let pubkey = params.identity.pubkey.clone();
     let runtime_generation = params.runtime_generation;
-    let channel = params.channel.clone();
-
     tracing::info!(
         agent = %params.identity.slug,
-        channel = %channel,
         runtime_generation,
         pubkey,
         "spawning session engine"
@@ -28,7 +25,15 @@ pub(in crate::daemon::server) async fn spawn_session(
     {
         let mut sessions = state.runtime.engines.lock().unwrap();
         if let Some(previous) = sessions.get(&pubkey) {
-            if previous.runtime_generation >= runtime_generation {
+            if previous.runtime_generation == runtime_generation {
+                tracing::debug!(
+                    pubkey,
+                    runtime_generation,
+                    "same runtime generation is already hosted; treating duplicate bootstrap as reassertion"
+                );
+                return Ok(());
+            }
+            if previous.runtime_generation > runtime_generation {
                 anyhow::bail!("pubkey {pubkey} already has an active runtime");
             }
             // The store has already admitted a newer generation. Retain a
@@ -51,11 +56,9 @@ pub(in crate::daemon::server) async fn spawn_session(
         },
     );
     let st = state.clone();
-    let channel_for_sub = channel.clone();
     tokio::spawn(async move {
         if let Err(e) = sync_subscriptions(&st).await {
             tracing::warn!(
-                channel = %channel_for_sub,
                 error = %e,
                 "session subscription setup failed"
             );
@@ -205,11 +208,15 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
         // reachable supervisor socket (connect+write) is the authoritative
         // signal (risk #1).
         if !session_still_live(state, &snap) {
+            let route_count = state
+                .with_store(|store| store.list_session_routes(&pubkey))
+                .map(|routes| routes.len())
+                .unwrap_or_default();
             tracing::warn!(
                 pubkey,
                 runtime_generation,
                 agent = %snap.agent_slug,
-                channel = %snap.channel_h,
+                route_count,
                 pid = ?snap.child_pid,
                 "session endpoint is gone or unreachable; reconciling exact ownership"
             );
@@ -239,11 +246,17 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
                 }
             }
         }
+        let routes = state
+            .with_store(|store| store.list_session_routes(&pubkey))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(channel, _)| channel)
+            .collect::<Vec<_>>();
         tracing::info!(
             pubkey,
             runtime_generation,
             agent = %snap.agent_slug,
-            channel = %snap.channel_h,
+            route_count = routes.len(),
             pid = ?snap.child_pid,
             "reviving session from previous daemon instance"
         );
@@ -266,82 +279,17 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             }
         };
 
-        // Re-establish membership + the group-state subscription through the one
-        // channel-provisioning primitive. The scope may be a top-level channel
-        // (root channel) or a subgroup. Relay-authored parent state wins; the
-        // admission-time immediate parent is retained only for a restart before
-        // metadata materializes. Idempotent ready channels still fast-path.
-        let parent_hint = reconcile_context::parent_hint(state, &snap);
-        let (gate, admission_current) = {
-            let _lane = state.standing_sync.lock().await;
-            let gate = state
-                .provider
-                .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-                    channel: &snap.channel_h,
-                    expect_member: &pubkey,
-                    parent_hint: parent_hint.as_deref(),
-                    name: None,
-                    repair_whitelisted_admins: true,
-                })
-                .await;
-            let admission_current = if matches!(
-                gate,
-                crate::fabric::nip29::readiness::ChannelGate::Degraded
-            ) {
-                true
-            } else {
-                match super::managed_lifecycle::commit_confirmed_admission(
-                    state,
-                    &pubkey,
-                    &snap.channel_h,
-                    runtime_generation,
-                    snap.lifecycle_epoch,
-                )
-                .await
-                {
-                    Ok(current) => current,
-                    Err(error) => {
-                        tracing::error!(pubkey, %error, "reconciled membership admission could not be persisted");
-                        false
-                    }
-                }
-            };
-            (gate, admission_current)
-        };
-        if !admission_current {
-            tracing::warn!(
-                pubkey,
-                runtime_generation,
-                "reconciled admission became stale; skipping engine revival"
-            );
-            continue;
-        }
-        // `Degraded` means the channel was NOT verified ready on the relay (e.g.
-        // the freshly-reconnected relay is still cold / not yet NIP-42 authed).
-        // A LIVE session must never be reaped for a transient relay condition, so
-        // we revive the engine anyway and log loudly. Correctness is preserved by
-        // the send-time readiness gate (per #157), which still refuses to publish
-        // into an unverified channel — only session *liveness* is decoupled from
-        // relay *readiness* here (risk #2).
-        if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-            tracing::warn!(
-                pubkey,
-                agent = %snap.agent_slug,
-                channel = %snap.channel_h,
-                "channel not verified ready on reconcile; reviving live session anyway (send-time gate still enforced), will re-verify during readiness reconciliation"
-            );
-        }
+        reconcile_context::restore_routes(state, &snap, &routes).await;
         if let Err(e) = sync_subscriptions(state).await {
-            tracing::warn!(channel = %snap.channel_h, error = %e, "ensure_subscription failed during reconcile");
+            tracing::warn!(pubkey, error = %e, "subscription sync failed during reconcile");
         }
         let workspace = match reconcile_context::workspace(state, &snap) {
             Ok(workspace) => workspace,
             Err(error) => {
                 tracing::error!(
                     pubkey,
-                    channel = %snap.channel_h,
                     %error,
-                    "cannot reconcile session with unresolved workspace ancestry"
+                    "cannot reconcile session with unresolved launch workspace"
                 );
                 continue;
             }
@@ -351,7 +299,6 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             identity,
             keys,
             runtime_generation,
-            &snap.channel_h,
             &workspace,
             "",
             None,

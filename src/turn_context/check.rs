@@ -32,7 +32,7 @@ pub(crate) fn assemble_turn_check(
 ) -> Result<TurnContext> {
     let mut warnings: Vec<String> = Vec::new();
     super::headless::push_mode_notice(store, hook_contexts, rec, false, &mut warnings);
-    let scope = rec.channel_h.clone();
+    let scope = String::new();
     let self_instance = context_instance(store, rec);
     let self_slug = self_instance.display_slug();
     let self_pubkey = self_instance.pubkey;

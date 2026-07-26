@@ -14,10 +14,6 @@ pub(super) fn context_instance(
         .expect("registered session identity")
 }
 
-pub(super) fn root_channel_h(s: &Store, channel: &str) -> Result<String> {
-    crate::daemon::workspace_path::WorkspacePathResolver::new(s).root_for_channel(channel)
-}
-
 pub(super) fn take_inbox(s: &Store, target_pubkey: &str, now: u64) -> Result<Vec<InboxRow>> {
     // Atomic claim (pending -> delivered in one statement). Whoever drains the
     // row first wins; the inbox state is the idempotency record.
@@ -35,21 +31,11 @@ pub(super) fn joined_channels(s: &Store, rec: &Session) -> (Vec<(String, u64)>, 
                 error = ?e,
                 "turn: joined-channel read failed; passive channels may be dropped from this turn"
             );
-            (vec![(rec.channel_h.clone(), rec.created_at)], true)
+            (Vec::new(), true)
         }
     };
-    if !rec.channel_h.is_empty() && !channels.iter().any(|(h, _)| h == &rec.channel_h) {
-        channels.push((rec.channel_h.clone(), rec.created_at));
-    }
     channels.retain(|(channel, _)| !s.is_archived_channel(channel).unwrap_or(false));
-    channels.sort_by(|(a_h, a_t), (b_h, b_t)| {
-        let a_active = if a_h == &rec.channel_h { 0 } else { 1 };
-        let b_active = if b_h == &rec.channel_h { 0 } else { 1 };
-        a_active
-            .cmp(&b_active)
-            .then(a_t.cmp(b_t))
-            .then(a_h.cmp(b_h))
-    });
+    channels.sort_by(|(a_h, a_t), (b_h, b_t)| a_t.cmp(b_t).then(a_h.cmp(b_h)));
     (channels, read_failed)
 }
 
@@ -85,8 +71,15 @@ fn rewrite_inbox_bodies(s: &Store, rows: &mut [InboxRow]) {
 }
 
 fn ambient_chat(s: &Store, scope: &str, since: u64, self_pubkey: &str) -> Result<Vec<RelayEvent>> {
-    Ok(s.chat_for_channel(scope, since, AMBIENT_CHAT_LIMIT)?
-        .into_iter()
-        .filter(|ev| ev.pubkey != self_pubkey)
-        .collect())
+    let mut admitted = Vec::new();
+    for event in s.chat_for_channel(scope, since, AMBIENT_CHAT_LIMIT)? {
+        if event.pubkey == self_pubkey || event.kind != crate::fabric::nip29::wire::KIND_CHAT as u32
+        {
+            continue;
+        }
+        if s.session_membership_admits_event(self_pubkey, scope, &event.id)? {
+            admitted.push(event);
+        }
+    }
+    Ok(admitted)
 }

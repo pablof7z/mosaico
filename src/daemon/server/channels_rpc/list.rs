@@ -1,84 +1,106 @@
+use std::collections::BTreeSet;
+
 use super::*;
 
-/// `channel list`: render the subgroup tree under `channel` from LOCAL daemon
-/// state (materialized kind:39000 metadata) — no relay round-trip. Returns the
-/// rooms in depth-first order, each with a `depth` (the channel root is depth 0
-/// and not included; its direct children are depth 1) so the CLI can indent.
+mod projection;
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ChannelList {
+    pub sections: Vec<ChannelListSection>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ChannelListSection {
+    pub kind: &'static str,
+    pub title: &'static str,
+    pub channels: Vec<ChannelListEntry>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct ChannelListEntry {
+    pub path: String,
+    pub about: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subchannels: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ChannelListEntry>,
+}
+
 pub(in crate::daemon::server) fn rpc_channel_list(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
+    #[derive(Default, serde::Deserialize)]
     struct P {
-        channel: String,
+        #[serde(default)]
+        all: bool,
+        #[serde(default)]
+        recursive: bool,
+        #[serde(default)]
+        workspace: Option<String>,
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_list params")?;
+    let selected =
+        usize::from(p.all) + usize::from(p.recursive) + usize::from(p.workspace.is_some());
+    anyhow::ensure!(
+        selected <= 1,
+        "channel list accepts only one of all, recursive, or workspace"
+    );
 
-    // Every channel the daemon has materialized.
-    let rows = state.with_store(|s| s.list_channels())?;
-    let rooms = channel_list_rooms(rows, &p.channel);
-    Ok(serde_json::json!({ "channel": p.channel, "rooms": rooms }))
-}
-
-fn channel_list_rooms(rows: Vec<crate::state::Channel>, root: &str) -> Vec<serde_json::Value> {
-    // parent id -> children (id, display name, about). Sorted for stable output.
-    let mut children: std::collections::BTreeMap<String, Vec<(String, String, String)>> =
-        std::collections::BTreeMap::new();
-    for ch in rows {
-        if ch.parent.is_empty() || ch.is_archived() {
-            continue;
+    let mode = if p.recursive {
+        projection::ListMode::Recursive
+    } else if p.all {
+        projection::ListMode::All
+    } else if let Some(workspace) = p.workspace {
+        projection::ListMode::Workspace(normalize_workspace(&workspace)?)
+    } else {
+        let caller = resolve_session(state, &CallerAnchor::from_params(params))
+            .context("channel list must be run from a mosaico session or with a list flag")?;
+        let joined = state.with_store(|store| joined_roots(store, &caller.pubkey))?;
+        projection::ListMode::Caller {
+            own: caller.work_root,
+            joined,
         }
-        let display = if ch.name.is_empty() {
-            ch.about.clone()
-        } else {
-            ch.name.clone()
-        };
-        children.entry(ch.parent.clone()).or_default().push((
-            ch.channel_h.clone(),
-            display,
-            ch.about.clone(),
-        ));
-    }
-    for v in children.values_mut() {
-        v.sort();
-    }
+    };
 
-    preorder_rooms(&children, root)
+    let backend = state.backend_pubkey().unwrap_or_default();
+    let list = state
+        .with_store(|store| projection::build(store, mode, crate::util::now_secs(), &backend))?;
+    Ok(serde_json::to_value(list)?)
 }
 
-/// Pre-order DFS flatten of the subgroup tree rooted at `root` into
-/// `{child_h, name, about, depth}` JSON (root excluded, its children at depth 0).
-fn preorder_rooms(
-    children: &std::collections::BTreeMap<String, Vec<(String, String, String)>>,
-    root: &str,
-) -> Vec<serde_json::Value> {
-    fn walk(
-        children: &std::collections::BTreeMap<String, Vec<(String, String, String)>>,
-        node: &str,
-        depth: usize,
-        seen: &mut std::collections::HashSet<String>,
-        out: &mut Vec<serde_json::Value>,
-    ) {
-        if let Some(kids) = children.get(node) {
-            for (child_id, name, about) in kids {
-                if !seen.insert(child_id.clone()) {
-                    continue;
-                }
-                out.push(serde_json::json!({
-                    "child_h": child_id,
-                    "name": name,
-                    "about": about,
-                    "depth": depth,
-                }));
-                walk(children, child_id, depth + 1, seen, out);
+fn normalize_workspace(value: &str) -> Result<String> {
+    let workspace = value.trim().trim_start_matches('/');
+    anyhow::ensure!(!workspace.is_empty(), "workspace must not be empty");
+    anyhow::ensure!(
+        !workspace.contains('/'),
+        "workspace must be a root name, not a channel path"
+    );
+    Ok(workspace.to_string())
+}
+
+fn joined_roots(store: &crate::state::Store, pubkey: &str) -> Result<BTreeSet<String>> {
+    let mut roots = BTreeSet::new();
+    for (channel, _) in store.list_session_routes(pubkey)? {
+        match crate::daemon::workspace_path::WorkspacePathResolver::new(store)
+            .root_for_channel(&channel)
+        {
+            Ok(root) if !root.is_empty() => {
+                roots.insert(root);
             }
+            Ok(_) => {}
+            Err(error) => tracing::debug!(
+                channel,
+                %error,
+                "channel list: ignoring joined route with incomplete ancestry"
+            ),
         }
     }
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    seen.insert(root.to_string());
-    walk(children, root, 0, &mut seen, &mut out);
-    out
+    Ok(roots)
 }
 
 #[cfg(test)]

@@ -12,7 +12,8 @@ fn register(
                 pubkey: pubkey.into(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
-                channel_h: "root".into(),
+                launch_channel_h: "root".into(),
+                work_root: "root".into(),
                 child_pid: Some(child_pid),
                 now: 1,
             };

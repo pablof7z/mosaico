@@ -53,17 +53,17 @@ pub(super) fn capture(store: &Store) -> anyhow::Result<(Vec<HostCap>, Vec<Worksp
                 continue;
             }
         };
+        let reference = crate::channel_ref::full_channel_ref(store, &channel.channel_h);
+        if reference.is_empty() {
+            tracing::debug!(
+                channel = %channel.channel_h,
+                "topology: skipping channel without a complete public path"
+            );
+            continue;
+        }
         channels_by_root.entry(root).or_default().push(ChannelCap {
             h: channel.channel_h.clone(),
-            name: if channel.parent.is_empty() {
-                channel.channel_h.clone()
-            } else {
-                channel
-                    .human_name()
-                    .unwrap_or(&channel.channel_h)
-                    .to_string()
-            },
-            reference: crate::channel_ref::full_channel_ref(store, &channel.channel_h),
+            reference,
             about: channel.about.clone(),
             updated_at: channel.updated_at,
             latest_message_at: latest_message_at.get(&channel.channel_h).copied(),
@@ -146,11 +146,10 @@ fn host_caps(
         if !advertised.contains(&profile.host) {
             continue;
         }
+        let host_agents = grouped.entry(profile.host.clone()).or_default();
         for (slug, about) in profile.agents {
             let reference = format!("{slug}@{}", profile.host);
-            grouped
-                .entry(profile.host.clone())
-                .or_default()
+            host_agents
                 .entry(reference.clone())
                 .and_modify(|agent| {
                     if profile.updated_at >= agent.created_at {
@@ -168,6 +167,11 @@ fn host_caps(
     grouped
         .into_iter()
         .map(|(name, agents)| HostCap {
+            roots: workspace_hosts
+                .iter()
+                .filter(|(_, hosts)| hosts.contains(&name))
+                .map(|(root, _)| root.clone())
+                .collect(),
             name,
             agents: agents.into_values().collect(),
         })

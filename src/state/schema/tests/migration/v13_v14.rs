@@ -7,6 +7,7 @@ fn schema_thirteen_adds_native_turn_attempts_forward_only() {
     drop(Store::open(&path).expect("fresh schema opens"));
 
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_channel_context_to_v17(&conn);
     conn.execute("DROP TABLE native_turn_attempts", []).unwrap();
     conn.execute("ALTER TABLE sessions DROP COLUMN busy_seconds", [])
         .unwrap();
@@ -16,6 +17,6 @@ fn schema_thirteen_adds_native_turn_attempts_forward_only() {
 
     drop(Store::open(&path).expect("schema thirteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 17);
+    assert_eq!(version(&conn), 18);
     assert!(fixture::table_exists(&conn, "native_turn_attempts"));
 }

@@ -19,7 +19,6 @@ pub struct EngineParams {
     pub identity: crate::identity::SessionIdentity,
     /// The keypair selected for this session: derived or durable-agent config.
     pub keys: Keys,
-    pub channel: String,
     /// Top-level workspace channel containing `channel`.
     pub workspace: String,
     pub runtime_generation: u64,
@@ -45,10 +44,6 @@ impl EngineParams {
     }
 }
 
-fn publishes_presence(channel: &str) -> bool {
-    !channel.is_empty()
-}
-
 // ── daemon-hosted session task (the relocated engine) ────────────────────────
 
 /// Run the per-session engine INSIDE the daemon, using the SHARED relay
@@ -72,7 +67,6 @@ pub(crate) async fn run_session_in_daemon(
     let owners = p.owners.clone();
     let signing_keys = p.signing_keys();
     let aref = p.identity.agent_ref();
-    let publishes_presence = publishes_presence(&p.channel);
 
     macro_rules! st {
         ($f:expr) => {{
@@ -129,25 +123,24 @@ pub(crate) async fn run_session_in_daemon(
     if let Err(e) = st!(|s: &Store| s.touch_session(&aref.pubkey, now_secs())) {
         tracing::error!(session = %aref.pubkey, error = %e, "touch_session failed — liveness not bumped at startup");
     }
-    if publishes_presence {
-        if let Some(session) = load_session("startup-status") {
-            let now = now_secs();
-            let projection = st!(|s: &Store| crate::session_presence::publication(s, &session));
-            drive_status!("session_started", |r| {
-                r.open(
-                    &aref.pubkey,
-                    p.runtime_generation,
-                    crate::reconcile::PresenceSnapshot {
-                        host: p.host.clone(),
-                        slug: aref.slug.clone(),
-                        rel_cwd: p.rel_cwd.clone(),
-                        dispatch_event: p.dispatch_event.clone(),
-                        projection,
-                    },
-                    now,
-                )
-            });
-        }
+    if let Some(session) = load_session("startup-status") {
+        let now = now_secs();
+        let projection = st!(|s: &Store| crate::session_presence::publication(s, &session));
+        drive_status!("session_started", |r| {
+            r.open(
+                &aref.pubkey,
+                p.runtime_generation,
+                crate::reconcile::PresenceSnapshot {
+                    host: p.host.clone(),
+                    workspace: p.workspace.clone(),
+                    slug: aref.slug.clone(),
+                    rel_cwd: p.rel_cwd.clone(),
+                    dispatch_event: p.dispatch_event.clone(),
+                    projection,
+                },
+                now,
+            )
+        });
     }
 
     let mut lease = tokio::time::interval(p.presence_lease_interval);
@@ -156,12 +149,10 @@ pub(crate) async fn run_session_in_daemon(
     loop {
         tokio::select! {
             _ = lease.tick() => {
-                if publishes_presence {
-                    let now = now_secs();
-                    drive_status!("presence_lease_renewal", |r| {
-                        r.renew(&aref.pubkey, p.runtime_generation, now)
-                    });
-                }
+                let now = now_secs();
+                drive_status!("presence_lease_renewal", |r| {
+                    r.renew(&aref.pubkey, p.runtime_generation, now)
+                });
             }
             _ = process_probe.tick() => {
                 if let Some(pid) = p.watch_pid {
@@ -177,11 +168,9 @@ pub(crate) async fn run_session_in_daemon(
     }
 
     let end_now = now_secs();
-    if publishes_presence {
-        drive_status!("session_ended", |r| {
-            r.close(&aref.pubkey, p.runtime_generation, end_now)
-        });
-    }
+    drive_status!("session_ended", |r| {
+        r.close(&aref.pubkey, p.runtime_generation, end_now)
+    });
 
     if let Err(e) = st!(|s: &Store| { s.touch_session(&aref.pubkey, end_now) }) {
         tracing::error!(pubkey = %aref.pubkey, error = %e, "final liveness touch failed");
@@ -191,16 +180,8 @@ pub(crate) async fn run_session_in_daemon(
 
 #[cfg(test)]
 mod tests {
-    use super::publishes_presence;
-
     #[test]
     fn current_pid_is_alive() {
         assert!(crate::liveness::pid_alive(std::process::id() as i32));
-    }
-
-    #[test]
-    fn unscoped_sessions_do_not_publish_channel_presence() {
-        assert!(!publishes_presence(""));
-        assert!(publishes_presence("workspace"));
     }
 }

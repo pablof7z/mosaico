@@ -22,6 +22,8 @@ pub(super) fn pub_status(
             slug: slug.to_string(),
             title: title.to_string(),
             activity: activity.to_string(),
+            workspace: String::new(),
+            branch: String::new(),
             state: if busy {
                 crate::session_state::SessionState::Working
             } else {
@@ -42,6 +44,7 @@ pub(super) fn seed_channel(store: &Store) {
     store
         .replace_channel_members("proj", &["pk-coder".to_string()], 1)
         .unwrap();
+    store.replace_channel_admins("proj", &[], 1).unwrap();
     store
         .upsert_profile_with_agent_slug("pk-coder", "coder", "coder", "coder", "laptop", false, 1)
         .unwrap();
@@ -50,7 +53,8 @@ pub(super) fn seed_channel(store: &Store) {
             pubkey: "pk-coder".to_string(),
             observed_harness: "claude-code".to_string(),
             agent_slug: "coder".to_string(),
-            channel_h: "proj".to_string(),
+            launch_channel_h: "proj".to_string(),
+            work_root: "proj".to_string(),
             child_pid: None,
             now: 1,
         })
@@ -62,7 +66,6 @@ pub(super) fn test_session(_id: &str) -> Session {
         pubkey: "pk-coder".to_string(),
         runtime_generation: 1,
         agent_slug: "coder".to_string(),
-        channel_h: "proj".to_string(),
         work_root: "proj".to_string(),
         readiness_parent: String::new(),
         observed_harness: "claude-code".to_string(),

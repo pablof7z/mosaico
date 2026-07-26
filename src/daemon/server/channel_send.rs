@@ -84,10 +84,16 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             Ok(work_root_for(s, &destination)? == work_root_for(s, &target.channel)?)
         })?;
         if target.channel != destination && !same_work_root {
+            let (target_ref, destination_ref) = state.with_store(|store| {
+                (
+                    channel_resolve::channel_reference_for(store, &target.channel),
+                    channel_resolve::channel_reference_for(store, &destination),
+                )
+            });
             bail!(
-                "tagged agent is in channel {:?}, but this chat is for channel {:?}",
-                target.channel,
-                destination
+                "tagged agent is in channel {}, but this chat is for channel {}",
+                target_ref?,
+                destination_ref?
             );
         }
         if tagged
@@ -161,90 +167,20 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .await?;
     let event_id = published.event_id;
     let created_at = published.created_at;
-    // Local live delivery: relays often don't echo an event back to the same
-    // connection that published it. Seed the verbatim log and park inbox rows for
-    // sessions already running in the same routing scope.
-    let routed = state.with_store(|s| {
-        let mut routed = false;
-        // Best-effort local delivery (the publish already succeeded), but a store
-        // failure listing targets must not silently drop a direct mention — log it
-        // loudly and skip local routing this call rather than abort.
-        let targets = match s.list_running_sessions() {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::error!(
-                    event_id = %event_id,
-                    channel = %deliver_scope,
-                    error = %e,
-                    "channel_send: listing live sessions for local delivery failed — direct mention may not reach a local inbox/doorbell"
-                );
-                Vec::new()
-            }
-        };
-        for target in targets {
-            let is_direct_target = tagged
-                .iter()
-                .any(|recipient| recipient.pubkey == target.pubkey);
-            let joined_target = s
-                .has_session_route(&target.pubkey, &deliver_scope)
-                .unwrap_or(target.channel_h == deliver_scope);
-            if !is_direct_target && !joined_target {
-                continue;
-            }
-            if target.created_at > created_at {
-                continue;
-            }
-            // Skip the sender's own session by its sole identity.
-            if target.pubkey == from_pubkey {
-                continue;
-            }
-            // Only ring the doorbell for explicitly mentioned sessions/pubkeys;
-            // channel-broadcast messages stay in relay_events for ambient context.
-            let is_mentioned = is_direct_target
-                || mentioned_pubkeys
-                    .iter()
-                    .any(|pubkey| pubkey == &target.pubkey);
-            if !is_mentioned {
-                continue;
-            }
-            let enqueued = match s.enqueue_inbox(
-                &event_id,
-                &target.pubkey,
-                &from_pubkey,
-                &deliver_scope,
-                &body_to_send,
-                created_at,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!(
-                        event_id = %event_id,
-                        pubkey = %target.pubkey,
-                        channel = %deliver_scope,
-                        error = %e,
-                        "channel_send: enqueue_inbox failed — this direct mention may never reach the target's inbox/doorbell"
-                    );
-                    false
-                }
-            };
-            if enqueued {
-                routed = true;
-            }
-            if let Err(e) = s.add_message_recipient(&event_id, &target.pubkey, None) {
-                tracing::error!(
-                    event_id = %event_id,
-                    pubkey = %target.pubkey,
-                    channel = %deliver_scope,
-                    error = %e,
-                    "channel_send: recipient pubkey edge upsert failed"
-                );
-            }
-        }
-        routed
-    });
-    if routed {
-        crate::session_host::ring_doorbells(state.clone());
-    }
+    // Relays need not echo a successful publish to this connection. Use the
+    // same ownership router as inbound events so local direct delivery is
+    // durable even when the target is stopped or has no channel route.
+    super::direct_mentions::route(
+        state,
+        super::direct_mentions::DirectMention {
+            event_id: &event_id,
+            from_pubkey: &from_pubkey,
+            channel_h: &deliver_scope,
+            body: &body_to_send,
+            created_at,
+            target_pubkeys: &mentioned_pubkeys,
+        },
+    )?;
 
     let from_label = instance.display_slug();
     state.emit_tail(TailEvent::Msg {
@@ -263,9 +199,11 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         body: body_to_send.chars().take(200).collect(),
     });
 
+    let channel_ref = state
+        .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
     Ok(serde_json::json!({
         "event_id": event_id,
-        "channel": publish_scope,
+        "channel": channel_ref,
         "mentioned_pubkeys": mentioned_pubkeys,
         "mentioned_labels": mentioned_labels,
         "recipient_reminders": recipient_reminders,

@@ -1,66 +1,94 @@
 use super::*;
 
-/// `channel_create` (the launch channel picker's "create new channel" path)
-/// must auto-create the parent channel group when it doesn't exist on the relay
-/// yet. With per-session rooms off (the default), the picker can be the FIRST
-/// thing to touch a channel, so the parent isn't guaranteed to exist; without
-/// the parent-ensure the relay rejects the 9007 with "parent group doesn't
-/// exist". Regression for that path.
+fn start_creator(home: &Home, sid: &str) -> String {
+    initialize_workspace_root("tmp", "/tmp");
+    rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "session_start",
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "coder",
+                        "harness_session": sid,
+                        "cwd": "/tmp",
+                        "channel": "tmp",
+                        "watch_pid": std::process::id(),
+                    }),
+                    "claude-code",
+                ),
+            )
+            .await
+            .expect("session_start");
+    });
+    wait_for_channel_metadata(home, "tmp");
+    let store = Store::open(&home.store_path()).unwrap();
+    pubkey_for_harness_session(&store, "claude-code", sid).expect("creator pubkey")
+}
+
+fn named_child_h(home: &Home, parent_h: &str, name: &str) -> String {
+    Store::open(&home.store_path())
+        .unwrap()
+        .channel_id_for_name(parent_h, name)
+        .unwrap()
+        .unwrap_or_else(|| panic!("missing child {name:?} beneath {parent_h:?}"))
+}
+
+/// Creating siblings through an absolute parent path returns their public
+/// paths, preserves the complete parent relationship, and additively joins the
+/// calling session to both.
 #[test]
-fn channel_create_auto_creates_missing_parent_channel() {
+fn channel_create_returns_public_paths_and_preserves_siblings() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
     let relay = shared_nip29_relay_url();
-    // A fresh parent channel that has NEVER been opened on the relay.
-    let parent = unique_session("freshproj");
+    let parent = "tmp";
+    let sid = unique_session("freshproj-creator");
+    let creator = start_creator(&home, &sid);
+    let first_name = unique_session("tester");
+    let second_name = unique_session("reviewer");
     let backend_pk = pubkey_of(EXAMPLE_BACKEND_SEC_HEX);
+    let routes_before = session_routes(&Store::open(&home.store_path()).unwrap(), &creator);
 
-    let (child_h, sibling_h) = rt().block_on(async {
+    let (first, second) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let first = c
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "parent": parent,
-                    "name": "tester",
+                    "channel": format!("/tmp/{first_name}"),
                     "about": "tester",
                     "agents": [{ "slug": "coder", "backend": "test-host" }],
+                    "session": &creator,
                 }),
             )
             .await
-            .expect("channel_create should succeed even when the parent is new");
+            .expect("create first child");
         let second = c
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "parent": parent,
-                    "name": "reviewer",
+                    "channel": format!("/tmp/{second_name}"),
                     "about": "reviewer",
                     "agents": [],
+                    "session": &creator,
                 }),
             )
             .await
             .expect("a sibling channel should preserve the first relationship");
-        (
-            first["child_h"]
-                .as_str()
-                .expect("first child_h returned")
-                .to_string(),
-            second["child_h"]
-                .as_str()
-                .expect("second child_h returned")
-                .to_string(),
-        )
+        (first, second)
     });
 
-    assert!(!child_h.is_empty(), "channel_create returned a child id");
-    assert!(
-        !sibling_h.is_empty(),
-        "channel_create returned a sibling id"
-    );
+    assert_eq!(first["channel"], format!("/tmp/{first_name}"));
+    assert_eq!(second["channel"], format!("/tmp/{second_name}"));
+    assert_eq!(first["joined"].as_bool(), Some(true));
+    assert_eq!(second["joined"].as_bool(), Some(true));
 
-    let parent_metadata = fetch_group_metadata(&relay, &parent);
+    let child_h = named_child_h(&home, parent, &first_name);
+    let sibling_h = named_child_h(&home, parent, &second_name);
+
+    let parent_metadata = fetch_group_metadata(&relay, parent);
     assert!(
         has_metadata_tag(&parent_metadata, "child", &child_h),
         "parent metadata must reciprocally confirm its first child"
@@ -74,8 +102,14 @@ fn channel_create_auto_creates_missing_parent_channel() {
     // key is now an admin of it. (Manageability = `is_channel_admin`; the old
     // `is_group_owned` ownership flag no longer exists.)
     let store = Store::open(&home.store_path()).unwrap();
+    let routes_after = session_routes(&store, &creator);
+    assert!(routes_before
+        .iter()
+        .all(|route| routes_after.contains(route)));
+    assert!(routes_after.contains(&child_h));
+    assert!(routes_after.contains(&sibling_h));
     assert!(
-        store.is_channel_admin(&parent, &backend_pk).unwrap(),
+        store.is_channel_admin(parent, &backend_pk).unwrap(),
         "parent channel {parent} should be managed (backend admin) after channel_create created it"
     );
 
@@ -110,61 +144,38 @@ fn has_metadata_tag(event: &serde_json::Value, name: &str, value: &str) -> bool 
     })
 }
 
-/// `channel create` run as an agent (harness_session set) with NO `--agent` targets
-/// nests the new channel under the creator's CURRENT channel and auto-switches the
-/// running session into it. One test covers three behaviors: `--agent` is optional,
-/// the parent defaults to the current channel, and the creator auto-switches.
+/// An agent can create an empty channel at an explicit public path. Creation
+/// joins that channel without replacing any channel the session already joined.
 #[test]
-fn channel_create_no_agents_nests_under_current_and_auto_switches() {
+fn channel_create_no_agents_adds_join_without_replacing_routes() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
     let sid = unique_session("sess-create");
-    let parent = unique_session("currentchan");
-
-    // Start a session pinned to a known current channel (the override wins over
-    // any per-session room), kept alive by watching this test process. The channel
-    // NAME resolves to an opaque id, so read back the session's actual `channel_h`.
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "session_start",
-            hook_session_start(serde_json::json!({"agent": "coder", "harness_session": sid, "cwd": "/tmp", "channel": parent, "watch_pid": std::process::id()}), "claude-code"),
-        )
-        .await
-        .expect("session_start");
-    });
+    let parent = "tmp";
+    let pubkey = start_creator(&home, &sid);
+    let child_name = unique_session("subtask");
     let lookup_store = Store::open(&home.store_path()).unwrap();
-    let pubkey = pubkey_for_harness_session(&lookup_store, "claude-code", &sid).unwrap();
-    let current_channel = lookup_store
-        .get_session(&pubkey)
-        .unwrap()
-        .unwrap()
-        .channel_h;
+    let routes_before = session_routes(&lookup_store, &pubkey);
 
-    // Create a child channel as that agent with NO agents and no explicit parent.
+    // Create a child channel as that agent with no orchestration targets.
     let v = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "channel_create",
             serde_json::json!({
-                "name": "subtask",
+                "channel": format!("/tmp/{child_name}"),
                 "agents": [],
-                "harness_session": sid,
-                "harness": "claude-code",
-                "agent": "coder",
-                "cwd": "/tmp",
+                "session": &pubkey,
             }),
         )
         .await
         .expect("channel_create with no agents should succeed")
     });
 
-    let child_h = v["child_h"].as_str().expect("child_h returned").to_string();
-    assert!(
-        v["switched"].as_bool().unwrap_or(false),
-        "the creating session should auto-switch into the new channel"
-    );
+    let child_path = format!("/tmp/{child_name}");
+    assert_eq!(v["channel"], child_path);
+    assert_eq!(v["joined"].as_bool(), Some(true));
     assert_eq!(
         v["orchestration_event_id"].as_str().unwrap_or("<missing>"),
         "",
@@ -172,38 +183,39 @@ fn channel_create_no_agents_nests_under_current_and_auto_switches() {
     );
 
     let store = Store::open(&home.store_path()).unwrap();
-    // The new channel nests under the creator's CURRENT channel, not the channel root.
+    let child_h = named_child_h(&home, parent, &child_name);
     assert_eq!(
         store.channel_parent(&child_h).unwrap().unwrap_or_default(),
-        current_channel,
-        "new channel should nest under the creator's current channel"
+        parent,
+        "new channel should nest under its explicit public parent"
     );
-    // The creating session is re-homed onto the new channel.
-    let rec = store.get_session(&pubkey).unwrap().expect("session row");
-    assert_eq!(
-        rec.channel_h, child_h,
-        "session route scope should follow the auto-switch onto the new channel"
-    );
+    let routes_after = session_routes(&store, &pubkey);
+    assert!(routes_before
+        .iter()
+        .all(|route| routes_after.contains(route)));
+    assert!(routes_after.contains(&child_h));
 
     stop_daemon(&home);
 }
 
 /// Channel names are unique per parent: re-running `channel create` with a name
 /// that already exists under the same parent is a hard ERROR (not a silent dedup),
-/// so the agent learns the channel is already there and switches in instead.
+/// so the agent learns the channel already exists and can join it explicitly.
 #[test]
 fn channel_create_errors_when_name_already_exists() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
-    let parent = unique_session("dupproj");
+    let sid = unique_session("dup-creator");
+    let creator = start_creator(&home, &sid);
+    let name = unique_session("dup");
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let mk = || {
             serde_json::json!({
-                "parent": parent,
-                "name": "dup",
+                "channel": format!("/tmp/{name}"),
                 "agents": [{ "slug": "coder", "backend": "test-host" }],
+                "session": &creator,
             })
         };
         c.call("channel_create", mk())
@@ -227,7 +239,9 @@ fn channel_create_rejects_workspace_self_nesting() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();
     rewrite_config_with_user_nsec(&home);
-    let parent = unique_session("workspace-root");
+    let parent = "tmp";
+    let sid = unique_session("self-nesting-creator");
+    let creator = start_creator(&home, &sid);
 
     let error = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
@@ -235,9 +249,9 @@ fn channel_create_rejects_workspace_self_nesting() {
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "parent": parent,
-                    "name": parent,
+                    "channel": format!("/tmp/{parent}"),
                     "agents": [],
+                    "session": creator,
                 }),
             )
             .await

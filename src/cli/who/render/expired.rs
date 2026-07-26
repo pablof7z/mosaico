@@ -27,9 +27,13 @@ pub(in crate::cli::who) fn render_expired(rows: &[ExpiredSessionRow]) -> String 
         };
         let _ = writeln!(
             out,
-            "{}  #{}  observed {}  {}",
+            "{}  {}  observed {}  {}",
             identity.cyan(),
-            row.channel,
+            if row.channels.is_empty() {
+                "(no channels)".to_string()
+            } else {
+                row.channels.join(", ")
+            },
             observed.dimmed(),
             resumable,
         );
@@ -48,7 +52,7 @@ mod tests {
             npub: "npub1durable".into(),
             handle: handle.map(str::to_string),
             host: "laptop".into(),
-            channel: "main".into(),
+            channels: vec!["/main".into()],
             last_seen: 0,
             resumable,
         }
@@ -59,7 +63,7 @@ mod tests {
         let out = render_expired(&[row(Some("amber-coder"), true), row(None, false)]);
         assert!(out.contains("@amber-coder"), "got: {out}");
         assert!(out.contains("npub1durable"), "got: {out}");
-        assert!(out.contains("#main"), "got: {out}");
+        assert!(out.contains("/main"), "got: {out}");
         assert!(out.contains("resumable"), "got: {out}");
         assert!(out.contains("not resumable"), "got: {out}");
     }

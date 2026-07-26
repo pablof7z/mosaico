@@ -67,7 +67,8 @@ pub struct Session {
     pub pubkey: String,
     pub runtime_generation: u64,
     pub agent_slug: String,
-    pub channel_h: String,
+    /// Immutable top-level workspace root selected when the identity was first
+    /// registered. Channel memberships are stored separately.
     pub work_root: String,
     pub readiness_parent: String,
     /// Harness observed from the admitted launch plan or the external process.

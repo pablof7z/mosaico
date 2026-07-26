@@ -1,6 +1,9 @@
 //! Sole agent-facing XML serializer; node selection happens before rendering,
 //! so this module cannot vary by cursor, caller, or delivery surface.
 
+mod activity;
+use activity::{render_important, render_messages, render_reactions};
+
 use crate::fabric_context::model::*;
 use crate::fabric_context::xml::{attr, text};
 use std::fmt::Write as _;
@@ -8,7 +11,7 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<mosaico>");
     render_self(&mut out, view.self_row.as_ref());
     render_hosts(&mut out, view.hosts.as_deref());
-    render_workspaces(&mut out, view.workspaces.as_deref());
+    render_channels(&mut out, view.workspaces.as_deref());
     render_important(&mut out, &view.important);
     render_reactions(&mut out, &view.reactions, view.reactions_omitted);
     render_warnings(&mut out, &view.warnings);
@@ -27,6 +30,12 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
         out,
         "\n  <self name=\"@{name}\" host=\"{host}\" headless=\"{headless}\""
     );
+    if !row.workspace.is_empty() {
+        let _ = write!(out, " workspace=\"{}\"", attr(&row.workspace));
+    }
+    if !row.branch.is_empty() {
+        let _ = write!(out, " branch=\"{}\"", attr(&row.branch));
+    }
     if !row.title.is_empty() {
         let _ = write!(out, " title=\"{}\"", attr(&row.title));
     }
@@ -39,55 +48,63 @@ fn render_hosts(out: &mut String, hosts: Option<&[HostRow]>) {
     let Some(hosts) = hosts else {
         return;
     };
+    if hosts.is_empty() {
+        return;
+    }
     out.push_str("\n  <hosts>");
     for host in hosts {
         let _ = write!(out, "\n    <host name=\"{}\">", attr(&host.name));
-        out.push_str("\n      <agents>");
-        for agent in &host.agents {
-            let _ = write!(out, "\n        <agent ref=\"{}\"", attr(&agent.reference));
-            if !agent.about.is_empty() {
-                let _ = write!(out, " about=\"{}\"", attr(&agent.about));
+        if !host.roots.is_empty() {
+            out.push_str("\n      Workspaces:");
+            for root in &host.roots {
+                let _ = write!(out, "\n      * {}", text(root));
             }
-            out.push_str(" />");
         }
-        out.push_str("\n      </agents>\n    </host>");
+        if !host.agents.is_empty() {
+            out.push_str("\n      <agents>");
+            for agent in &host.agents {
+                let _ = write!(out, "\n        <agent ref=\"{}\"", attr(&agent.reference));
+                if !agent.about.is_empty() {
+                    let _ = write!(out, " about=\"{}\"", attr(&agent.about));
+                }
+                out.push_str(" />");
+            }
+            out.push_str("\n      </agents>");
+        }
+        out.push_str("\n    </host>");
     }
     out.push_str("\n  </hosts>");
 }
-fn render_workspaces(out: &mut String, workspaces: Option<&[WorkspaceView]>) {
+fn render_channels(out: &mut String, workspaces: Option<&[WorkspaceView]>) {
     let Some(workspaces) = workspaces else {
         return;
     };
-    out.push_str("\n  <workspaces>");
+    if !workspaces
+        .iter()
+        .any(|workspace| workspace.root.is_some() || !workspace.channels.is_empty())
+    {
+        return;
+    }
+    out.push_str("\n  <channels>");
     for workspace in workspaces {
-        render_workspace(out, workspace);
+        if let Some(root) = &workspace.root {
+            render_channel(out, root, 4);
+        }
+        for channel in &workspace.channels {
+            render_channel(out, channel, 4);
+        }
     }
-    out.push_str("\n  </workspaces>");
-}
-fn render_workspace(out: &mut String, workspace: &WorkspaceView) {
-    let _ = write!(out, "\n    <workspace name=\"{}\"", attr(&workspace.name));
-    if !workspace.about.is_empty() {
-        let _ = write!(out, " about=\"{}\"", attr(&workspace.about));
-    }
-    let _ = write!(out, " hosts=\"{}\">", attr(&workspace.hosts.join(",")));
-    if let Some(root) = &workspace.root {
-        render_channel(out, root, 6);
-    }
-    for channel in &workspace.channels {
-        render_channel(out, channel, 6);
-    }
-    out.push_str("\n    </workspace>");
+    out.push_str("\n  </channels>");
 }
 fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize) {
     let pad = " ".repeat(indent);
-    let name = attr(&channel.name);
-    let id = attr(&channel.id);
-    let _ = write!(out, "\n{pad}<channel name=\"{name}\" id=\"{id}\"");
+    let name = attr(&channel.path);
+    let _ = write!(out, "\n{pad}<channel name=\"{name}\"");
     if !channel.about.is_empty() {
         let _ = write!(out, " about=\"{}\"", attr(&channel.about));
     }
-    if let Some(count) = channel.member_count {
-        let _ = write!(out, " members=\"{count}\"");
+    if let Some(count) = channel.agent_count {
+        let _ = write!(out, " agents=\"{count}\"");
     }
     if let Some(last_active) = &channel.last_active {
         let _ = write!(out, " last-active=\"{}\"", attr(last_active));
@@ -97,16 +114,27 @@ fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize) {
         return;
     }
     out.push('>');
-    render_members(out, &channel.members, indent + 2);
-    render_presence(out, &channel.presence, indent + 2);
+    render_members(
+        out,
+        &channel.members,
+        &channel.presence,
+        &channel.departures,
+        indent + 2,
+    );
     render_messages(out, channel, indent + 2);
     for child in &channel.children {
         render_channel(out, child, indent + 2);
     }
     let _ = write!(out, "\n{pad}</channel>");
 }
-fn render_members(out: &mut String, members: &[MemberRow], indent: usize) {
-    if members.is_empty() {
+fn render_members(
+    out: &mut String,
+    members: &[MemberRow],
+    presence: &[PresenceRow],
+    departures: &[String],
+    indent: usize,
+) {
+    if members.is_empty() && presence.is_empty() && departures.is_empty() {
         return;
     }
     let pad = " ".repeat(indent);
@@ -119,37 +147,30 @@ fn render_members(out: &mut String, members: &[MemberRow], indent: usize) {
         };
         let name = attr(member.name.trim_start_matches('@'));
         let _ = write!(out, "\n{child_pad}<{tag} name=\"@{name}\"");
+        render_origin(out, &member.host, &member.workspace, &member.branch);
         if let Some(state) = member.state {
             let _ = write!(out, " state=\"{}\"", state.as_str());
         }
         if !member.status.is_empty() {
             let _ = write!(out, " status=\"{}\"", attr(&member.status));
         }
-        let _ = write!(out, " since=\"{}\" />", attr(&member.since));
-    }
-    let _ = write!(out, "\n{pad}</members>");
-}
-fn render_presence(out: &mut String, presence: &[PresenceRow], indent: usize) {
-    if presence.is_empty() {
-        return;
-    }
-    let pad = " ".repeat(indent);
-    let child_pad = " ".repeat(indent + 2);
-    let _ = write!(out, "\n{pad}<recent-presence>");
-    for status in presence {
-        if !status.status.is_empty() {
-            let name = attr(status.name.trim_start_matches('@'));
-            let state = status.state.as_str();
-            let status_text = attr(&status.status);
-            let since = attr(&status.since);
-            let _ = write!(
-                out,
-                "\n{child_pad}<status name=\"@{name}\" state=\"{state}\" \
-                 text=\"{status_text}\" since=\"{since}\" />"
-            );
+        if !member.since.is_empty() {
+            let _ = write!(out, " since=\"{}\"", attr(&member.since));
         }
+        out.push_str(" />");
+    }
+    for status in presence {
+        let name = attr(status.name.trim_start_matches('@'));
+        let state = status.state.as_str();
+        let since = attr(&status.since);
+        let _ = write!(out, "\n{child_pad}<agent name=\"@{name}\"");
+        render_origin(out, &status.host, &status.workspace, &status.branch);
+        let _ = write!(out, " state=\"{state}\"");
+        if !status.status.is_empty() {
+            let _ = write!(out, " status=\"{}\"", attr(&status.status));
+        }
+        let _ = write!(out, " since=\"{since}\" />");
         if let Some(failure) = &status.native_failure {
-            let name = attr(status.name.trim_start_matches('@'));
             let outcome = attr(&failure.outcome);
             let message = attr(&failure.message);
             let since = attr(&failure.since);
@@ -160,110 +181,25 @@ fn render_presence(out: &mut String, presence: &[PresenceRow], indent: usize) {
             );
         }
     }
-    let _ = write!(out, "\n{pad}</recent-presence>");
-}
-fn render_messages(out: &mut String, channel: &ChannelBlock, indent: usize) {
-    if channel.messages.is_empty() && channel.omitted == 0 {
-        return;
-    }
-    let pad = " ".repeat(indent);
-    let child_pad = " ".repeat(indent + 2);
-    let detail_pad = " ".repeat(indent + 4);
-    let _ = write!(out, "\n{pad}<chatter>");
-    if channel.omitted > 0 {
+    for name in departures {
         let _ = write!(
             out,
-            "\n{child_pad}<omitted count=\"{}\" window=\"last 4h\" />",
-            channel.omitted
+            "\n{child_pad}@{} left.",
+            text(name.trim_start_matches('@'))
         );
     }
-    for message in &channel.messages {
-        if message.mention {
-            render_mention_message(out, message, &child_pad);
-            continue;
-        }
-        let short = crate::util::short_id(&message.id);
-        let from = attr(&message.from);
-        let id = attr(&short);
-        let _ = write!(out, "\n{child_pad}<message from=\"@{from}\" id=\"{id}\"");
-        if !message.recipients.is_empty() {
-            let recipients = message
-                .recipients
-                .iter()
-                .map(|recipient| format!("@{recipient}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let _ = write!(out, " for=\"{}\"", attr(&recipients));
-        }
-        let _ = write!(out, " age=\"{}\">", attr(&message.age));
-        out.push_str(&text(&message.body));
-        if message.truncated {
-            let _ = write!(
-                out,
-                "\n{detail_pad}[message truncated; run `mosaico channel read --id {}`]",
-                text(&short)
-            );
-        }
-        out.push_str("</message>");
-    }
-    let _ = write!(out, "\n{pad}</chatter>");
+    let _ = write!(out, "\n{pad}</members>");
 }
-fn render_mention_message(out: &mut String, message: &MessageRow, pad: &str) {
-    let short = crate::util::short_id(&message.id);
-    let from = attr(&message.from);
-    let id = attr(&short);
-    let body = text(&message.body);
-    let _ = write!(
-        out,
-        "\n{pad}<message from=\"@{from}\" id=\"{id}\">{body}</message>"
-    );
-    if message.needs_reply_nudge {
-        let _ = write!(
-            out,
-            "\n{pad}Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
-        );
+fn render_origin(out: &mut String, host: &str, workspace: &str, branch: &str) {
+    if !host.is_empty() {
+        let _ = write!(out, " host=\"{}\"", attr(host));
     }
-}
-fn render_important(out: &mut String, rows: &[ImportantRow]) {
-    if rows.is_empty() {
-        return;
+    if !workspace.is_empty() {
+        let _ = write!(out, " workspace=\"{}\"", attr(workspace));
     }
-    out.push_str("\n  <important>");
-    for row in rows {
-        let channel = attr(&row.channel_ref);
-        let message_id = attr(&crate::util::short_id(&row.message_id));
-        let _ = write!(
-            out,
-            "\n    <mention channel=\"{channel}\" message_id=\"{message_id}\" />"
-        );
+    if !branch.is_empty() {
+        let _ = write!(out, " branch=\"{}\"", attr(branch));
     }
-    out.push_str("\n  </important>");
-}
-fn render_reactions(out: &mut String, rows: &[ReactionRow], omitted: usize) {
-    if rows.is_empty() && omitted == 0 {
-        return;
-    }
-    out.push_str("\n  <reactions>");
-    for row in rows {
-        let reactors = row
-            .reactors
-            .iter()
-            .map(|reactor| format!("@{}", text(reactor)))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let _ = write!(
-            out,
-            "\n    {} {} on your message \"{}\" ({})",
-            reactors,
-            text(&row.emoji),
-            text(&row.target_snippet),
-            text(&row.age)
-        );
-    }
-    if omitted > 0 {
-        let _ = write!(out, "\n    <omitted count=\"{omitted}\" />");
-    }
-    out.push_str("\n  </reactions>");
 }
 fn render_warnings(out: &mut String, rows: &[WarningRow]) {
     if rows.is_empty() {

@@ -11,6 +11,7 @@ mod v13_v14;
 mod v14_v15;
 mod v15_v16;
 mod v16_v17;
+mod v17_v18;
 mod v5_v6;
 mod v9_v10;
 
@@ -48,6 +49,10 @@ pub(super) fn v15_to_v16(conn: &mut Connection, path: &Path) -> Result<()> {
 
 pub(super) fn v16_to_v17(conn: &mut Connection, path: &Path) -> Result<()> {
     v16_v17::migrate(conn, path)
+}
+
+pub(super) fn v17_to_v18(conn: &mut Connection, path: &Path) -> Result<()> {
+    v17_v18::migrate(conn, path)
 }
 
 pub(super) fn v4_to_v5(conn: &mut Connection, _path: &Path) -> Result<()> {
@@ -126,7 +131,6 @@ pub(super) fn v4_to_v5(conn: &mut Connection, _path: &Path) -> Result<()> {
     )?;
     tx.commit().context("committing schema-4 migration")
 }
-
 pub(super) fn v6_to_v7(conn: &mut Connection, _path: &Path) -> Result<()> {
     require_shape(
         conn,
@@ -169,7 +173,6 @@ pub(super) fn v6_to_v7(conn: &mut Connection, _path: &Path) -> Result<()> {
     )?;
     tx.commit().context("committing schema-6 migration")
 }
-
 pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
     require_shape(
         conn,
@@ -202,7 +205,6 @@ pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
     )?;
     tx.commit().context("committing schema-7 migration")
 }
-
 pub(super) fn v8_to_v9(conn: &mut Connection, _path: &Path) -> Result<()> {
     require_shape(
         conn,
@@ -263,7 +265,6 @@ pub(super) fn v8_to_v9(conn: &mut Connection, _path: &Path) -> Result<()> {
     )?;
     tx.commit().context("committing schema-8 migration")
 }
-
 fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
     let mut statement =
         conn.prepare("SELECT event_json FROM outbox WHERE state='pending' ORDER BY local_id")?;
@@ -271,7 +272,6 @@ fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .context("collecting schema-7 pending writes")
 }
-
 fn require_shape(
     conn: &Connection,
     version: u32,

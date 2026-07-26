@@ -5,21 +5,41 @@ use crate::fabric_context::capture::{MembersInput, StatusCap, ViewInputs};
 use crate::fabric_context::model::{MemberKind, MemberRow};
 use crate::util::relative_time;
 
-/// The `since` label for a member the fabric knows nothing live about.
-const UNKNOWN: &str = "unknown";
-
 /// Full-snapshot member rows from the frozen roster, profile, and status inputs.
 ///
-/// A member earns a row from either a live heartbeat OR observed kind:9 activity
-/// in the channel. Only a live heartbeat carries a `state` label — presence is a
-/// lifecycle fact, and a peer we have merely seen talking has no lifecycle we can
-/// vouch for. Two kinds of non-self member are dropped instead of rendered: one
-/// that is unaddressable (see [`addressable`]) and one that is inert — no
-/// heartbeat and no activity at all, so there is nothing to say about it beyond
-/// its bare existence. Self always survives, so an agent never loses sight of
-/// itself.
+/// Every nameable roster member earns a row. Only a live heartbeat carries a
+/// `state` label — presence is a
+/// lifecycle fact, and a peer we have merely seen talking has no lifecycle we
+/// can vouch for. Nameable roster members remain visible even without activity;
+/// their row simply omits state, status, and since. Only an unaddressable member
+/// is withheld while its profile is fetched.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
+    inputs
+        .members
+        .roster
+        .get(channel)
+        .cloned()
+        .unwrap_or_default()
+        .into_keys()
+        .filter_map(|pubkey| member_row(inputs, channel, &pubkey, now))
+        .collect()
+}
+
+pub(in crate::fabric_context) fn member_row(
+    inputs: &ViewInputs,
+    channel: &str,
+    pubkey: &str,
+    now: u64,
+) -> Option<MemberRow> {
     let members = &inputs.members;
+    if members.backend.contains(pubkey)
+        || !members
+            .roster
+            .get(channel)
+            .is_some_and(|roster| roster.contains_key(pubkey))
+    {
+        return None;
+    }
     let statuses = inputs
         .presence
         .statuses
@@ -27,55 +47,100 @@ pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<M
         .map(Vec::as_slice)
         .unwrap_or_default();
     let status_map = live_status_map(statuses, now);
+    let is_self = pubkey == inputs.meta.self_pubkey;
+    let status = status_map.get(pubkey);
+    let presence = status.map(|status| projected_presence(status, now));
+    // A live heartbeat owns both the state label and its `since`; without one,
+    // the most recent thing the member said stands in for liveness.
+    let (state, since) = match presence.as_ref() {
+        Some(row) => (Some(row.state), relative_time(row.state_since, now)),
+        None => match members.activity_at(channel, pubkey) {
+            Some(at) => (None, relative_time(at, now)),
+            None => (None, String::new()),
+        },
+    };
+    if !is_self && !addressable(members, pubkey, status) {
+        return None;
+    }
+    let status_text = presence
+        .as_ref()
+        .map(crate::session_presence::PublicPresence::text)
+        .unwrap_or_default();
+    let kind = if is_self
+        || status.is_some()
+        || members
+            .agent_slugs
+            .get(pubkey)
+            .is_some_and(|slug| !slug.trim().is_empty())
+    {
+        MemberKind::Agent
+    } else {
+        MemberKind::Human
+    };
+    let (name, host, workspace, branch) = member_origin(inputs, pubkey, status, kind);
+    Some(MemberRow {
+        kind,
+        name,
+        host,
+        workspace,
+        branch,
+        state,
+        status: status_text,
+        since,
+    })
+}
 
-    members
-        .roster
-        .get(channel)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(pk, _)| !members.backend.contains(pk))
-        .filter_map(|(pk, _role)| {
-            let is_self = pk == inputs.meta.self_pubkey;
-            let status = status_map.get(&pk);
-            let presence = status.map(|status| projected_presence(status, now));
-            // A live heartbeat owns both the state label and its `since`; without
-            // one, the most recent thing the member said stands in for liveness so
-            // a talkative peer with no presence lease still reads as recently here.
-            let (state, since) = match presence.as_ref() {
-                Some(row) => (Some(row.state), relative_time(row.state_since, now)),
-                None => match members.activity_at(channel, &pk) {
-                    Some(at) => (None, relative_time(at, now)),
-                    None => (None, UNKNOWN.to_string()),
-                },
-            };
-            if !is_self && (!addressable(members, &pk, status) || since == UNKNOWN) {
-                return None;
-            }
-            let status_text = presence
-                .as_ref()
-                .map(crate::session_presence::PublicPresence::text)
-                .unwrap_or_default();
-            let kind = if is_self
-                || status.is_some()
-                || members
-                    .agent_slugs
-                    .get(&pk)
-                    .is_some_and(|slug| !slug.trim().is_empty())
-            {
-                MemberKind::Agent
-            } else {
-                MemberKind::Human
-            };
-            Some(MemberRow {
-                kind,
-                name: reference(inputs, &pk, status),
-                state,
-                status: status_text,
-                since,
-            })
+fn member_origin(
+    inputs: &ViewInputs,
+    pubkey: &str,
+    status: Option<&&StatusCap>,
+    kind: MemberKind,
+) -> (String, String, String, String) {
+    let mut name = reference(inputs, pubkey, status);
+    if kind != MemberKind::Agent {
+        return (name, String::new(), String::new(), String::new());
+    }
+    let host = status
+        .map(|row| row.host.as_str())
+        .filter(|host| !host.is_empty())
+        .or_else(|| {
+            inputs
+                .members
+                .hosts
+                .get(pubkey)
+                .map(String::as_str)
+                .filter(|host| !host.is_empty())
         })
-        .collect()
+        .unwrap_or_default();
+    let workspace = status.map(|row| row.workspace.as_str()).unwrap_or_default();
+    let self_workspace = inputs
+        .meta
+        .self_row
+        .as_ref()
+        .map(|row| row.workspace.as_str())
+        .unwrap_or(inputs.meta.current_workspace.trim());
+    let cross_workspace = !workspace.is_empty() && workspace != self_workspace;
+    let cross_host = !host.is_empty() && host != inputs.meta.local_host.trim();
+    let branch = status.map(|row| row.branch.clone()).unwrap_or_default();
+    if !cross_workspace && !cross_host {
+        return (name, String::new(), String::new(), branch);
+    }
+    if !host.is_empty() {
+        let suffix = format!("@{host}");
+        if let Some(bare) = name.strip_suffix(&suffix) {
+            name = bare.to_string();
+        }
+    }
+    (
+        name,
+        host.to_string(),
+        if cross_workspace {
+            workspace.to_string()
+        } else {
+            String::new()
+        },
+        branch,
+    )
 }
 
 /// Whether the member has a name an agent could actually address. A kind:0

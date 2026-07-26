@@ -11,6 +11,8 @@ use std::time::Duration;
 fn non_mention_chat_does_not_route_to_inbox() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
+    crate::channels::write_config(&home, false);
+    crate::channels::initialize_workspace_root("tmp", "/tmp");
 
     let (sender_pubkey, receiver_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -48,19 +50,26 @@ fn non_mention_chat_does_not_route_to_inbox() {
         )
     });
 
-    // Send only once the sender's channel has materialized, so `channel send`
-    // doesn't race relay provisioning (cold-relay readiness stall → ~90s fail).
-    let sch = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&sender_pubkey)
-        .unwrap()
-        .expect("sender session row")
-        .channel_h;
+    // Publish is deliberately non-mutating: the fixture must provision the
+    // channel and wait for relay-authored membership before sending.
     assert!(
-        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
-            .map(|s| s.get_channel(&sch).unwrap_or(None).is_some())
-            .unwrap_or(false)),
-        "sender channel did not materialize before send"
+        wait_until(Duration::from_secs(25), || {
+            crate::channels::refresh_channel_members("/tmp");
+            Store::open(&home.store_path())
+                .map(|store| {
+                    store
+                        .has_channel_membership_snapshot("tmp")
+                        .unwrap_or(false)
+                        && store
+                            .is_channel_member("tmp", &sender_pubkey)
+                            .unwrap_or(false)
+                        && store
+                            .is_channel_member("tmp", &receiver_pubkey)
+                            .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        }),
+        "sender and receiver did not become relay-confirmed /tmp members"
     );
 
     // Write a plain channel message — no @mention in the body.

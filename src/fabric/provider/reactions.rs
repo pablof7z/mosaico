@@ -1,6 +1,5 @@
 use super::Nip29Provider;
 use crate::domain::{DomainEvent, Reaction};
-use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
 use nostr::Keys;
@@ -25,20 +24,8 @@ impl Nip29Provider {
 
         let channel = reaction.channel.as_str();
         if !channel.is_empty() {
-            let reactor_pubkey = signed.pubkey.to_hex();
-            let parent = super::readiness::stored_parent_hint(self, channel)?;
-            let ctx = ChannelCtx {
-                channel,
-                expect_member: &reactor_pubkey,
-                parent_hint: parent.as_deref(),
-                name: None,
-                repair_whitelisted_admins: true,
-            };
-            if matches!(self.ensure_channel_ready(ctx).await, ChannelGate::Degraded) {
-                anyhow::bail!(
-                    "publish_reaction_checked: channel {channel} is not verified (ChannelGate::Degraded) — refusing to publish"
-                );
-            }
+            self.verify_publish_scope(channel, &signed.pubkey.to_hex(), true)
+                .await?;
         }
 
         let event_id = self.nmp.enqueue_group_event(&signed)?;

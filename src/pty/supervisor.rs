@@ -84,9 +84,7 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     cmd.env("CLICOLOR_FORCE", "1");
     cmd.env("FORCE_COLOR", "1");
     cmd.env_remove("NO_COLOR");
-    if let Some(channel) = &args.channel {
-        cmd.env("MOSAICO_CHANNEL", channel);
-    }
+    cmd.env_remove("MOSAICO_CHANNEL");
     if let Some(session_name) = &args.session_name {
         cmd.env("MOSAICO_SESSION_NAME", session_name);
     } else {

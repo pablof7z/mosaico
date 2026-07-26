@@ -39,7 +39,8 @@ fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str, now: u64)
             pubkey: pubkey.into(),
             observed_harness: "codex".into(),
             agent_slug: slug.into(),
-            channel_h: "root".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
             child_pid: None,
             now,
         })
@@ -82,13 +83,6 @@ fn stale_generation_or_added_speaker_invalidates_offer() {
 }
 
 #[test]
-fn retry_can_continue_after_the_creator_already_switched_to_the_offered_child() {
-    assert!(caller_can_resume_offer("root", "root", Some("child")));
-    assert!(caller_can_resume_offer("child", "root", Some("child")));
-    assert!(!caller_can_resume_offer("other", "root", Some("child")));
-}
-
-#[test]
 fn move_creation_uses_the_required_about_as_the_child_about() {
     let params = serde_json::json!({
         "name": "focused",
@@ -97,13 +91,12 @@ fn move_creation_uses_the_required_about_as_the_child_about() {
     });
     let created = move_create_params(
         &params,
-        "root",
+        "/root",
         "focused",
         "Coordinate the focused implementation",
     );
 
-    assert_eq!(created["parent"], "root");
-    assert_eq!(created["name"], "focused");
+    assert_eq!(created["channel"], "/root/focused");
     assert_eq!(created["about"], "Coordinate the focused implementation");
     assert_eq!(created["agents"], serde_json::json!([]));
     assert_eq!(created["session"], A1);
@@ -165,7 +158,14 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
                 now.saturating_sub(ago),
             );
         }
-        record(store, 7, A1, "Moving this to #focused".into(), now);
+        record(
+            store,
+            7,
+            A1,
+            "Continue this conversation in /root/focused; existing channel memberships are unchanged"
+                .into(),
+            now,
+        );
     });
 
     let captured = current_evidence(&state, "root", now)
@@ -195,8 +195,8 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
     assert_eq!(response["child_seed_posted"], false);
 
     state.with_store(|store| {
-        assert_eq!(store.get_session(A1).unwrap().unwrap().channel_h, "child");
-        assert_eq!(store.get_session(A2).unwrap().unwrap().channel_h, "root");
+        assert!(store.has_session_route(A1, "child").unwrap());
+        assert!(store.has_session_route(A2, "root").unwrap());
         assert!(store.has_session_route(A2, "child").unwrap());
     });
 }

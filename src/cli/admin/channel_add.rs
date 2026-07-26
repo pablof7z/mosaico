@@ -16,17 +16,6 @@ pub(super) async fn channel_add(a: AddArgs) -> Result<()> {
     }
 }
 
-fn print_ambiguous(re_run_target: &str, channel: &str, v: &serde_json::Value) -> ! {
-    let name = v["reference"].as_str().unwrap_or(channel);
-    eprintln!("'{name}' is ambiguous — re-run with an exact channel:");
-    if let Some(refs) = v["ambiguous"].as_array() {
-        for r in refs.iter().filter_map(|r| r.as_str()) {
-            eprintln!("  mosaico channel add {re_run_target} {r}");
-        }
-    }
-    std::process::exit(2);
-}
-
 async fn human_add(
     id: Option<String>,
     channel: Option<String>,
@@ -49,13 +38,10 @@ async fn human_add(
         })),
     )
     .await?;
-    if v["ambiguous"].is_array() {
-        print_ambiguous(&id, &channel, &v);
-    }
     let role = v["role"]
         .as_str()
         .unwrap_or(if admin { "admin" } else { "member" });
-    println!("added {} to #{channel} as {role}", id.bold());
+    println!("added {} to {channel} as {role}", id.bold());
     Ok(())
 }
 
@@ -72,10 +58,7 @@ async fn session_add(channel: Option<String>, handle: &str, message: Option<Stri
         message,
     )
     .await?;
-    if v["ambiguous"].is_array() {
-        print_ambiguous(&format!("--session {handle}"), &channel, &v);
-    }
-    println!("@{} is now on #{channel}", online_label(&v).bold());
+    println!("@{} joined {channel}", online_label(&v).bold());
     warn_message_error(&v);
     Ok(())
 }

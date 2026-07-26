@@ -33,6 +33,8 @@ fn status(keys: &Keys, busy: bool, rel_cwd: &str) -> DomainEvent {
         agent: AgentRef::new(keys.public_key().to_hex(), "coder"),
         channels: vec!["mosaico".into()],
         host: "laptop".into(),
+        workspace: "mosaico".into(),
+        branch: "feat/context".into(),
         title: "fixing the auth bug".into(),
         activity: if busy {
             "reading the diff".into()
@@ -107,6 +109,8 @@ fn status_is_per_group_self_contained_signal() {
     assert!(has_tag(&signed, "state", "working"));
     assert!(has_tag(&signed, "state-since", "42"));
     assert!(has_tag(&signed, "host", "laptop"));
+    assert!(has_tag(&signed, "workspace", "mosaico"));
+    assert!(has_tag(&signed, "branch", "feat/context"));
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
     // A None `expires_at` publishes no NIP-40 expiration tag.
     assert!(!has_tag_name(&signed, "expiration"));
@@ -124,6 +128,8 @@ fn status_slug_is_canonical_hint_not_agent_tag() {
         agent: agent(&keys, "coder"),
         channels: vec!["mosaico".into()],
         host: "laptop".into(),
+        workspace: "mosaico".into(),
+        branch: "feat/context".into(),
         title: "fixing the auth bug".into(),
         activity: "reading the diff".into(),
         state: crate::session_state::SessionState::Working,
@@ -185,7 +191,6 @@ fn status_expiration_roundtrips_and_emits_tag() {
         other => panic!("expected status, got {other:?}"),
     }
 }
-
 #[test]
 fn status_uses_constant_address_independent_from_channel_h() {
     let keys = Keys::generate();
@@ -197,6 +202,7 @@ fn status_uses_constant_address_independent_from_channel_h() {
             tag(&["state-since", "42"]).unwrap(),
             tag(&["title", ""]).unwrap(),
             tag(&["host", "laptop"]).unwrap(),
+            tag(&["workspace", "mosaico"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),
         ])
         .sign_with_keys(&keys)
@@ -208,7 +214,6 @@ fn status_uses_constant_address_independent_from_channel_h() {
         other => panic!("expected status, got {other:?}"),
     }
 }
-
 #[test]
 fn status_private_runtime_id_d_is_rejected() {
     let keys = Keys::generate();
@@ -224,7 +229,6 @@ fn status_private_runtime_id_d_is_rejected() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
 }
-
 #[test]
 fn bare_reaction_without_e_tag_decodes_to_none() {
     // A kind:7 with no `e` tag is not a domain reaction: it has no target, so it
@@ -235,7 +239,6 @@ fn bare_reaction_without_e_tag_decodes_to_none() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&reaction).is_none());
 }
-
 #[test]
 fn reaction_with_oversized_or_textual_content_decodes_to_none() {
     // TRUST BOUNDARY: an adversarial member could e-tag one of the target's
@@ -262,7 +265,6 @@ fn reaction_with_oversized_or_textual_content_decodes_to_none() {
         );
     }
 }
-
 #[test]
 fn reaction_roundtrips_channel_target_and_emoji() {
     use crate::domain::Reaction;
@@ -275,7 +277,6 @@ fn reaction_roundtrips_channel_target_and_emoji() {
     });
     assert_eq!(roundtrip(ev.clone(), &keys), ev);
 }
-
 #[test]
 fn reaction_with_e_tag_decodes_and_emits_kind7_tags() {
     use crate::domain::Reaction;
@@ -318,7 +319,6 @@ fn kind_24011_presence_is_ignored() {
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
 }
-
 #[test]
 fn t_only_channel_notes_are_ignored() {
     // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None

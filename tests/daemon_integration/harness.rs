@@ -7,6 +7,12 @@ use std::time::{Duration, Instant};
 #[path = "harness/daemon.rs"]
 mod daemon;
 pub(crate) use daemon::stop_daemon;
+#[path = "harness/cli.rs"]
+mod cli;
+pub(crate) use cli::{
+    run_cli, run_cli_stdin, run_cli_stdin_with_env, run_cli_stdin_with_env_in_dir,
+    run_cli_with_env, run_cli_with_env_in_dir,
+};
 #[path = "harness/launch.rs"]
 mod launch;
 pub(crate) use launch::{
@@ -62,17 +68,26 @@ pub(crate) fn bin() -> PathBuf {
 
 pub(crate) struct Home {
     pub(crate) dir: tempfile::TempDir,
+    original_home: Option<std::ffi::OsString>,
 }
 
 impl Drop for Home {
     fn drop(&mut self) {
         stop_daemon(self);
+        unsafe {
+            match self.original_home.take() {
+                Some(home) => std::env::set_var("HOME", home),
+                None => std::env::remove_var("HOME"),
+            }
+        }
     }
 }
 
 impl Home {
     pub(crate) fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
+        let original_home = std::env::var_os("HOME");
+        unsafe { std::env::set_var("HOME", dir.path()) };
         install_test_harness_shim(dir.path());
         std::env::set_var("MOSAICO_HOME", dir.path());
         let cfg = dir.path().join("config.json");
@@ -94,7 +109,7 @@ impl Home {
             serde_json::to_string(&workspace_map).unwrap(),
         )
         .unwrap();
-        Home { dir }
+        Home { dir, original_home }
     }
 
     pub(crate) fn with_wedged_relay(relay_url: &str) -> Self {
@@ -155,123 +170,8 @@ pub(crate) fn wait_until(timeout: Duration, mut pred: impl FnMut() -> bool) -> b
     }
 }
 
-/// Run the real `mosaico` binary as a subprocess with the home's env — i.e.
-/// exactly how the hooks invoke it. This is the ONLY path that exercises the
-/// SYNCHRONOUS blocking client (`daemon::blocking`) + real CLI dispatch + the
-/// actual stdout bytes the hooks parse.
-pub(crate) fn run_cli(home: &Home, args: &[&str]) -> std::process::Output {
-    cli_command(home, args).output().expect("run mosaico")
-}
-
-pub(crate) fn run_cli_with_env(
-    home: &Home,
-    args: &[&str],
-    env: &[(&str, &str)],
-) -> std::process::Output {
-    let mut cmd = cli_command(home, args);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    cmd.output().expect("run mosaico")
-}
-
-pub(crate) fn run_cli_with_env_in_dir(
-    home: &Home,
-    args: &[&str],
-    env: &[(&str, &str)],
-    cwd: &std::path::Path,
-) -> std::process::Output {
-    let mut cmd = cli_command(home, args);
-    cmd.current_dir(cwd);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    cmd.output().expect("run mosaico")
-}
-
-fn cli_command(home: &Home, args: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new(bin());
-    cmd.args(args)
-        // Isolate from the invoking shell's mosaico env (a live claude/codex
-        // shell exports these), so session pubkey derivation is deterministic.
-        .env_remove("MOSAICO_AGENT")
-        .env_remove("MOSAICO_PUBKEY")
-        .env_remove("MOSAICO_PTY_SESSION")
-        .env_remove("MOSAICO_PTY_SOCKET")
-        .env_remove("MOSAICO_CHANNEL")
-        .env_remove("MOSAICO_EPHEMERAL")
-        .env("MOSAICO_HOME", home.dir.path())
-        .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
-        .env("MOSAICO_BIN", bin())
-        .env("MOSAICO_DAEMON_GRACE_S", "30");
-    cmd
-}
-
-// Like run_cli, but pipes `stdin` to the child — used to drive the `hook`
-// subcommand, which reads its harness payload from stdin (there are no longer
-// any session/turn subcommands to call directly).
-pub(crate) fn run_cli_stdin(home: &Home, args: &[&str], stdin: &str) -> std::process::Output {
-    run_cli_stdin_with_env(home, args, stdin, &[])
-}
-
-pub(crate) fn run_cli_stdin_with_env(
-    home: &Home,
-    args: &[&str],
-    stdin: &str,
-    env: &[(&str, &str)],
-) -> std::process::Output {
-    use std::io::Write as _;
-    let mut cmd = cli_command(home, args);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    let mut child = cmd
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn mosaico");
-    child
-        .stdin
-        .take()
-        .expect("child stdin")
-        .write_all(stdin.as_bytes())
-        .expect("write stdin");
-    child.wait_with_output().expect("run mosaico")
-}
-
-pub(crate) fn run_cli_stdin_with_env_in_dir(
-    home: &Home,
-    args: &[&str],
-    stdin: &str,
-    env: &[(&str, &str)],
-    cwd: &std::path::Path,
-) -> std::process::Output {
-    use std::io::Write as _;
-    let mut cmd = cli_command(home, args);
-    cmd.current_dir(cwd);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    let mut child = cmd
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn mosaico");
-    child
-        .stdin
-        .take()
-        .expect("child stdin")
-        .write_all(stdin.as_bytes())
-        .expect("write stdin");
-    child.wait_with_output().expect("run mosaico")
-}
-
-/// Chat (kind:9/11) events materialized in a channel, oldest-first. Replaces the
-/// removed `Store::list_chat_messages`/`peek_chat` channel reader — chat now lives
-/// verbatim in `relay_events`, read back via `chat_for_channel`. Row fields map:
-/// `.body` → `.content`, `.from_pubkey` → `.pubkey`.
+/// Chat events materialized in a channel, oldest-first. Chat lives verbatim in
+/// `relay_events`; row `.content` is the message body and `.pubkey` the author.
 pub(crate) fn chat_in_channel(
     store: &mosaico::state::Store,
     channel_h: &str,
@@ -307,6 +207,21 @@ pub(crate) fn session_for_harness_session(
     let pubkey = pubkey_for_harness_session(store, harness, harness_session)
         .expect("harness session locator");
     store.get_session(&pubkey).unwrap().expect("session row")
+}
+
+pub(crate) fn session_routes(store: &mosaico::state::Store, pubkey: &str) -> Vec<String> {
+    store
+        .list_session_routes(pubkey)
+        .expect("session routes")
+        .into_iter()
+        .map(|(channel_h, _)| channel_h)
+        .collect()
+}
+
+pub(crate) fn only_session_route(store: &mosaico::state::Store, pubkey: &str) -> String {
+    let routes = session_routes(store, pubkey);
+    assert_eq!(routes.len(), 1, "expected exactly one session route");
+    routes.into_iter().next().unwrap()
 }
 
 /// The PTY supervisor id bound to a session via its `pty_session` alias, if any.

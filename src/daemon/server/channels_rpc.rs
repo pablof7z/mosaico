@@ -1,6 +1,4 @@
-use super::channel_membership_rpc::{
-    resolve_caller, resolve_target_channel, set_active_session_channel, TargetChannel,
-};
+use super::channel_membership_rpc::{resolve_caller, resolve_target_channel};
 use super::*;
 
 const CHANNEL_CREATE_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
@@ -50,18 +48,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     }
     #[derive(serde::Deserialize)]
     struct P {
-        /// Explicit literal parent group h. Set by the launch picker, operator
-        /// invocations, and tests. When absent, the parent defaults to the
-        /// creating agent's CURRENT channel (see `parent` resolution below).
-        #[serde(default)]
-        parent: Option<String>,
-        /// Channel-relative parent override from `channel create
-        /// --parent-channel`. Resolved within the creator's channel subtree; takes
-        /// precedence over both the literal `parent` and the current-channel
-        /// default.
-        #[serde(default)]
-        parent_channel: Option<String>,
-        name: String,
+        channel: String,
         #[serde(default)]
         agents: Vec<AgentSpec>,
         /// Durable channel description, published to the relay as kind:39000
@@ -71,9 +58,10 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_create params")?;
     crate::channel_about::validate_channel_about(&p.about)?;
+    let (parent_ref, name) = crate::channel_ref::split_create_path(&p.channel)?;
 
-    // Resolve the creator first for child-of-current and auto-switch. Strict
-    // resolution prevents a bare operator invocation from binding a sibling.
+    // Resolve the creator only to join it to the new channel. Creation never
+    // changes a session's channel memberships except for this additive join.
     let creator_rec = resolve_session_inner(
         state,
         &CallerAnchor::from_params(params),
@@ -81,46 +69,15 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     )
     .ok();
 
-    // Operator cwd-resolved channel slug (== root channel_h for channel roots).
-    // Used as fallback when there is no agent session.
-    let cwd_channel: Option<String> = params["cwd"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(|cwd| crate::daemon::workspace_path::channel_for_path(std::path::Path::new(cwd)))
-        .transpose()?;
-
-    // Parent priority: override, current session, explicit parent, then cwd root.
-    let parent: String = if let Some(r) = p
-        .parent_channel
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    let parent = match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, &parent_ref))
     {
-        absolute::require_full_path("--parent-channel", r)?;
-        // The parent must already exist — `channel create` mints only the one
-        // leaf you named, never the ancestor chain too.
-        match state.with_store(|s| absolute::resolve_absolute_channel_ref(s, r)) {
-            super::ChannelResolution::Unique(h) => h,
-            super::ChannelResolution::Ambiguous(refs) => {
-                return Ok(serde_json::json!({ "ambiguous": refs, "reference": r }));
-            }
-            super::ChannelResolution::NotFound => {
-                anyhow::bail!(
-                    "{}",
-                    state.with_store(|s| absolute::describe_missing_channel(s, r))
-                )
-            }
+        super::ChannelResolution::Unique(h) => h,
+        super::ChannelResolution::NotFound => {
+            anyhow::bail!(
+                "{}",
+                state.with_store(|s| absolute::describe_missing_channel(s, &parent_ref))
+            )
         }
-    } else if let Some(rec) = &creator_rec {
-        rec.channel_h.clone()
-    } else if let Some(par) = p.parent.as_deref().filter(|s| !s.is_empty()) {
-        par.to_string()
-    } else if let Some(proj) = cwd_channel {
-        proj
-    } else {
-        anyhow::bail!(
-            "channel create needs a parent: run it inside an agent session, pass --parent-channel, or run from a channel directory"
-        );
     };
 
     let workspace_root =
@@ -129,14 +86,13 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             None => Some(parent.clone()),
             _ => None,
         });
-    crate::channel_name::validate_child(&p.name, workspace_root.as_deref())?;
+    crate::channel_name::validate_child(&name, workspace_root.as_deref())?;
 
     // Names are unique per parent. A duplicate is an error, not a silent no-op.
-    if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &p.name))? {
-        anyhow::bail!(
-            "channel {:?} already exists under this parent (id {existing})",
-            p.name
-        );
+    if let Some(existing) = state.with_store(|s| s.channel_id_for_name(&parent, &name))? {
+        let existing = state
+            .with_store(|store| super::channel_resolve::channel_reference_for(store, &existing))?;
+        anyhow::bail!("channel {existing} already exists");
     }
 
     // Relay subgroup-support verification is handled by a separate workstream;
@@ -194,7 +150,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             parent_hint: Some(&parent),
             // Operator-chosen name rides on the create publish; the relay's
             // kind:39000 echo lands it in the cache (no local fabrication).
-            name: Some(&p.name),
+            name: Some(&name),
             repair_whitelisted_admins: true,
         });
     let gate = match tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready).await {
@@ -210,9 +166,11 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         }
     };
     if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
+        let parent_ref = state
+            .with_store(|store| super::channel_resolve::channel_reference_for(store, &parent))?;
         anyhow::bail!(
-            "relay did not provision subgroup {child_h} (parent {parent}) within {}s; does the \
-             relay support NIP-29 subgroups and is the signing key an admin?",
+            "relay did not provision the new child of {parent_ref} within {}s; does the relay \
+             support NIP-29 subgroups and is the signing key an admin?",
             CHANNEL_CREATE_READY_TIMEOUT.as_secs()
         );
     }
@@ -285,29 +243,15 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         oid
     };
 
-    // Auto-focus: join the new room and make it the active publishing channel.
-    // The parent stays a passive joined channel so the creator can still see
-    // and receive mentions from it.
-    let switched = if let Some(rec) = &creator_rec {
-        set_active_session_channel(state, &rec.pubkey, &child_h)?;
-        super::presence::reconcile_generation(
-            state,
-            &rec.pubkey,
-            rec.runtime_generation,
-            "channel_created",
-        )
-        .await;
-        true
-    } else {
-        false
-    };
+    let joined = creator_rec.is_some();
 
+    let channel =
+        state.with_store(|store| super::channel_resolve::channel_reference_for(store, &child_h))?;
     Ok(serde_json::json!({
-        "child_h": child_h,
-        "display_path": format!("{} > {}", parent, p.name),
+        "channel": channel,
         "admins": granted,
         "creator": creator.unwrap_or_default(),
-        "switched": switched,
+        "joined": joined,
         "orchestration_event_id": orchestration_event_id,
     }))
 }
@@ -330,10 +274,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         ResolveScope::Strict,
     )
     .context("channel edit must be run from within a mosaico agent session")?;
-    let channel_h = match resolve_target_channel(state, &p.channel)? {
-        TargetChannel::Unique(h) => h,
-        TargetChannel::Ambiguous(v) => return Ok(v),
-    };
+    let channel_h = resolve_target_channel(state, &p.channel)?;
 
     let mgmt_keys = state.management_keys()?;
     let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&channel_h, &p.about)?;
@@ -342,13 +283,15 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         .publish_group_builder(builder, &mgmt_keys, true)
         .await?;
     let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
+    let channel = state
+        .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
     if !confirmed {
-        anyhow::bail!("relay did not confirm updated about for channel {channel_h}");
+        anyhow::bail!("relay did not confirm updated about for channel {channel}");
     }
 
     Ok(serde_json::json!({
         "event_id": event_id.to_hex(),
-        "channel": channel_h,
+        "channel": channel,
         "about": p.about,
         "confirmed": confirmed,
     }))

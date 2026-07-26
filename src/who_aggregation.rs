@@ -12,7 +12,7 @@ pub(crate) struct WhoAggregation {
     pub(crate) channels: Vec<Channel>,
     pub(crate) local_sessions: Vec<Session>,
     pub(crate) local_pubkeys: BTreeSet<String>,
-    pub(crate) retained_standing: Vec<SessionStanding>,
+    pub(crate) stopped_standing: Vec<SessionStanding>,
     pub(crate) backend_profiles: Vec<Profile>,
     pub(crate) local_spawnable: BTreeMap<String, (String, Option<String>)>,
     channels_by_id: BTreeMap<String, Channel>,
@@ -21,6 +21,7 @@ pub(crate) struct WhoAggregation {
     profiles: BTreeMap<String, Profile>,
     identities: BTreeMap<String, SessionIdentity>,
     sessions_by_pubkey: BTreeMap<String, Session>,
+    session_routes: BTreeMap<String, Vec<String>>,
     local_presence: BTreeMap<String, crate::session_presence::PublicPresence>,
     workspace_paths: BTreeMap<String, String>,
 }
@@ -45,9 +46,9 @@ impl WhoAggregation {
             .into_iter()
             .map(|(slug, command, byline)| (slug, (command, byline)))
             .collect();
-        let retained_standing = store
-            .list_retained_session_standing(now)
-            .context("who aggregation: failed to list retained session standing")?;
+        let stopped_standing = store
+            .list_stopped_member_standing()
+            .context("who aggregation: failed to list stopped session standing")?;
         let channels_by_id = channels
             .iter()
             .cloned()
@@ -80,12 +81,12 @@ impl WhoAggregation {
                 .push(status);
         }
         for rows in statuses.values_mut() {
-            rows.sort_by_key(|status| Reverse(status.updated_at));
+            rows.sort_by_key(|status| Reverse(status.last_seen));
         }
         let mut referenced_pubkeys = BTreeSet::new();
         referenced_pubkeys.extend(local_sessions.iter().map(|session| session.pubkey.clone()));
         referenced_pubkeys.extend(
-            retained_standing
+            stopped_standing
                 .iter()
                 .map(|standing| standing.pubkey.clone()),
         );
@@ -132,12 +133,26 @@ impl WhoAggregation {
             .iter()
             .map(|session| {
                 let published = statuses
-                    .get(&session.channel_h)
-                    .and_then(|rows| rows.iter().find(|row| row.pubkey == session.pubkey));
+                    .values()
+                    .flatten()
+                    .filter(|row| row.pubkey == session.pubkey)
+                    .max_by_key(|row| row.last_seen);
                 (
                     session.pubkey.clone(),
                     crate::session_presence::local(store, session, published),
                 )
+            })
+            .collect();
+        let session_routes = local_sessions
+            .iter()
+            .map(|session| {
+                let routes = store
+                    .list_session_routes(&session.pubkey)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(channel, _)| channel)
+                    .collect();
+                (session.pubkey.clone(), routes)
             })
             .collect();
         let workspace_paths = store
@@ -150,7 +165,7 @@ impl WhoAggregation {
             channels,
             local_sessions,
             local_pubkeys,
-            retained_standing,
+            stopped_standing,
             backend_profiles,
             local_spawnable,
             channels_by_id,
@@ -159,6 +174,7 @@ impl WhoAggregation {
             profiles,
             identities,
             sessions_by_pubkey,
+            session_routes,
             local_presence,
             workspace_paths,
         })
@@ -201,6 +217,10 @@ impl WhoAggregation {
                 observed_at: session.last_seen,
             },
         )
+    }
+
+    pub(crate) fn session_routes(&self, pubkey: &str) -> Vec<String> {
+        self.session_routes.get(pubkey).cloned().unwrap_or_default()
     }
 
     pub(crate) fn backend_profiles_for_root(&self, root: Option<&str>) -> Vec<&Profile> {

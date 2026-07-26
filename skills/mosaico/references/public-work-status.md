@@ -16,6 +16,9 @@ dependencies, and route relevant context.
 - Keep it stable through implementation, tests, review, blockers, and ordinary
   progress.
 - Update it when the owned outcome materially changes.
+- Name the result another participant or the user will be able to observe.
+  “Inspecting files,” “running tests,” and “working on the branch” are activity,
+  not outcomes.
 
 ```bash
 mosaico my session status "Publish and merge rewritten Mosaico skill"
@@ -23,6 +26,21 @@ mosaico my session status "Publish and merge rewritten Mosaico skill"
 
 Mosaico owns the live activity beneath that title and may occasionally ask
 you to confirm whether a long-running title still fits.
+
+## Let The Branch Identify The Change
+
+When Mosaico can safely resolve the session workspace as a Git checkout, it
+derives the current branch and includes it in the injected `<self>` row. Do not
+copy the branch name into the public title. The two fields answer different
+questions:
+
+- `title` says what meaningful outcome you own.
+- `branch` says where that change is being developed.
+
+Keep the title stable when you move between implementation, tests, review, and
+merge on the same branch. Update it when the intended outcome changes. A
+detached HEAD, an unavailable checkout, or an unsafe lookup simply omits the
+branch; never invent one in the title to compensate.
 
 ## Interpret Session State
 

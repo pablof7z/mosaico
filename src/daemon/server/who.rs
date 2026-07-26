@@ -7,6 +7,8 @@ mod human_view;
 #[derive(serde::Deserialize, Default)]
 pub(in crate::daemon::server) struct WhoParams {
     #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
     workspace: Option<String>,
     #[serde(default)]
     all_workspaces: bool,
@@ -40,16 +42,20 @@ pub(in crate::daemon::server) fn rpc_who(
     let current_root = if p.all_workspaces {
         None
     } else {
-        Some(match p.workspace.clone() {
-            Some(workspace) => workspace,
-            None => {
-                let cwd = p
-                    .cwd
-                    .clone()
-                    .map(std::path::PathBuf::from)
-                    .map(Ok)
-                    .unwrap_or_else(std::env::current_dir)?;
-                crate::daemon::workspace_path::channel_for_path(&cwd)?
+        Some(if let Some(channel) = p.channel.as_deref() {
+            super::channel_membership_rpc::resolve_target_channel(state, channel)?
+        } else {
+            match p.workspace.clone() {
+                Some(workspace) => workspace,
+                None => {
+                    let cwd = p
+                        .cwd
+                        .clone()
+                        .map(std::path::PathBuf::from)
+                        .map(Ok)
+                        .unwrap_or_else(std::env::current_dir)?;
+                    crate::daemon::workspace_path::channel_for_path(&cwd)?
+                }
             }
         })
     };
@@ -59,14 +65,15 @@ pub(in crate::daemon::server) fn rpc_who(
     // the backend key never appears as a channel member (its kind:0 is absent on a
     // cold cache, so identity — not a fetched profile — is the reliable signal).
     let backend_pk = state.backend_pubkey().unwrap_or_default();
-    let snapshot = state.with_store(|s| {
+    let mut snapshot = state.with_store(|s| {
         crate::who_snapshot::load_who_snapshot(s, current_root.as_deref(), now, &host)
     })?;
+    state.with_store(|store| publicize_snapshot(store, &mut snapshot));
     let mut out = serde_json::to_value(&snapshot)?;
 
     if let Some(scope) = current_root.as_deref() {
         let human = state.with_store(|s| {
-            crate::fabric_context::render_fabric_context_human(
+            crate::fabric_context::render_fabric_context_human_scoped(
                 s,
                 crate::fabric_context::FabricContextInput {
                     session: None,
@@ -103,6 +110,36 @@ pub(in crate::daemon::server) fn rpc_who(
         out["fabric_human"] = serde_json::Value::String(human);
     }
     Ok(out)
+}
+
+fn publicize_snapshot(
+    store: &crate::state::Store,
+    snapshot: &mut crate::who_snapshot::WhoSnapshot,
+) {
+    let public = |channel: &str| {
+        if channel == "*" {
+            "*".to_string()
+        } else {
+            crate::channel_ref::full_channel_ref(store, channel)
+        }
+    };
+    snapshot.rows.retain_mut(|row| {
+        row.channel = public(&row.channel);
+        row.work_root = public(&row.work_root);
+        row.work_root_display = row.work_root.clone();
+        !row.channel.is_empty() && !row.work_root.is_empty()
+    });
+    snapshot.other_roots.retain_mut(|root| {
+        root.root = public(&root.root);
+        !root.root.is_empty()
+    });
+    snapshot.channel_parent = snapshot
+        .channel_parent
+        .take()
+        .map(|parent| public(&parent))
+        .filter(|parent| !parent.is_empty());
+    snapshot.root = public(&snapshot.root);
+    snapshot.root_display = snapshot.root.clone();
 }
 
 /// Top-level root channels (`parent` empty), non-archived — the set

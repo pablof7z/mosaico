@@ -3,7 +3,8 @@ use super::{
     unique_session, write_config,
 };
 use crate::daemon_harness::{
-    hook_session_start, pubkey_for_harness_session, rt, stop_daemon, wait_until, Home, ENV_LOCK,
+    hook_session_start, only_session_route, pubkey_for_harness_session, rt, stop_daemon,
+    wait_until, Home, ENV_LOCK,
 };
 use mosaico::daemon::client::Client;
 use mosaico::state::{Status, Store};
@@ -45,7 +46,7 @@ fn wait_for_channel_parent(home: &Home, channel: &str, parent: &str) {
 fn wait_for_channel_member(home: &Home, channel: &str, pubkey: &str) {
     assert!(
         wait_until(std::time::Duration::from_secs(25), || {
-            refresh_channel_members(channel);
+            refresh_channel_members(&format!("/{channel}"));
             Store::open(&home.store_path())
                 .map(|s| s.is_channel_member(channel, pubkey).unwrap_or(false))
                 .unwrap_or(false)
@@ -73,11 +74,8 @@ fn first_turn_injects_channel_context_block() {
         .expect("session_start");
         let store = Store::open(&home.store_path()).unwrap();
         let pubkey = pubkey_for_harness_session(&store, "claude-code", "sess-ctx-1").unwrap();
-        let rec = store
-            .get_session(&pubkey)
-            .unwrap()
-            .expect("session row");
-        (rec.channel_h, rec.pubkey)
+        let rec = store.get_session(&pubkey).unwrap().expect("session row");
+        (only_session_route(&store, &rec.pubkey), rec.pubkey)
     });
     wait_for_channel_parent(&home, &channel, "tmp");
     wait_for_channel_member(&home, &channel, &agent_pubkey);
@@ -110,10 +108,13 @@ fn first_turn_injects_channel_context_block() {
         "must not repeat the raw session id; context was: {ctx}"
     );
     assert!(ctx.contains("<channel "), "context was: {ctx}");
-    // Self identity should distinguish the stable agent from the session and backend.
+    // Self identity exposes the public handle, immutable launch workspace, and
+    // host without repeating internal session identifiers.
     assert!(
-        ctx.contains("Agent: coder · Session: @") && ctx.contains("-coder · Backend: test-host"),
-        "no self line: {ctx}"
+        ctx.contains("<self name=\"@")
+            && ctx.contains("host=\"test-host\"")
+            && ctx.contains("workspace=\"tmp\""),
+        "no canonical self block: {ctx}"
     );
 
     stop_daemon(&home);
@@ -159,6 +160,8 @@ fn first_turn_resolves_member_profiles_from_kind0() {
                 slug: String::new(),
                 title: "Reviewing".into(),
                 activity: String::new(),
+                workspace: String::new(),
+                branch: String::new(),
                 state: mosaico::session_state::SessionState::Idle,
                 state_since: now,
                 last_seen: now,
@@ -167,7 +170,7 @@ fn first_turn_resolves_member_profiles_from_kind0() {
             })
             .unwrap();
         let members = c
-            .call("channel_members", serde_json::json!({"channel": "tmp"}))
+            .call("channel_members", serde_json::json!({"channel": "/tmp"}))
             .await
             .expect("channel_members");
         assert!(
@@ -226,10 +229,11 @@ fn session_start_with_user_nsec_owns_group_and_adds_member() {
         .unwrap()
         .expect("session row");
     assert!(rec.is_running());
+    let channel_h = only_session_route(&store, &rec.pubkey);
     // The minted session room's parent is the work-root channel. (Parent
     // now lives in `relay_channels`; `session_room_parent` was renamed to
     // `channel_parent`.)
-    wait_for_channel_parent(&home, &rec.channel_h, "tmp");
+    wait_for_channel_parent(&home, &channel_h, "tmp");
 
     stop_daemon(&home);
 }
@@ -259,26 +263,26 @@ fn human_initiated_session_mints_per_session_room() {
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = pubkey_for_harness_session(&store, "claude-code", &sid).unwrap();
     let rec = store.get_session(&pubkey).unwrap().expect("session row");
+    let channel_h = only_session_route(&store, &rec.pubkey);
     assert_ne!(
-        rec.channel_h, "tmp",
+        channel_h, "tmp",
         "human-initiated session should mint a per-session room, not use the bare channel"
     );
     assert!(
-        rec.channel_h.starts_with("session-"),
+        channel_h.starts_with("session-"),
         "room id should be channel-agnostic: got {}",
-        rec.channel_h
+        channel_h
     );
     // removed: `channel_breadcrumb` no longer exists — channel hierarchy labels
     // are derived from `relay_channels` (name/parent), not a breadcrumb reader.
 
-    materialize_member_snapshot(&home, &rec.channel_h, &rec.pubkey);
+    materialize_member_snapshot(&home, &channel_h, &rec.pubkey);
     assert!(
         wait_until(std::time::Duration::from_secs(20), || Store::open(
             &home.store_path()
         )
         .map(|s| {
-            refresh_channel_members(&rec.channel_h);
-            s.is_channel_member(&rec.channel_h, &rec.pubkey)
+            s.is_channel_member(&channel_h, &rec.pubkey)
                 .unwrap_or(false)
         })
         .unwrap_or(false)),

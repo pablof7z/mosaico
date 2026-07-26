@@ -1,25 +1,13 @@
 //! `mosaico statusline` — the fabric, one line at a time.
 //!
 //! Renders the awareness floor for a host status bar:
-//!   amber-claude mosaico support [Refactoring the inbox] [writing tests]
-//!   └ identity ┘ └ root┘ └channel┘ └ session title ┘   └ live state ┘
-//!
-//! The channel segment is the channel's human NAME (kind:39000 `name`), falling
-//! back to its raw id only when no name is cached — the opaque id is never shown
-//! when a name exists.
+//!   amber-claude /mosaico /mosaico/support [Refactoring the inbox] [writing tests]
+//!   └ identity ┘ └ workspace ┘ └ joined channels ┘      └ live state ┘
 //!
 //! `agentName` is exactly what the session published in its kind:0 profile
-//! (the `name` field). `root-name` is the work-root channel the session room
-//! hangs under. `#session` is the
-//! channel the session is currently on (changes with `mosaico channels
-//! switch`). `[title]` is that channel's title on the relay (kind:39000 `name`
-//! tag for a task channel; the agent-supplied session title for a per-session
-//! room). `[status]` is what the agent last published in its kind:30315 — the
-//! live activity line when busy, or `idle` when not.
-//!
-//! Optional warning segments (kept per user request) append after `[status]`:
-//!   - `⚠ not in channel <name>` — citizenship problem (not a member of the
-//!     channel's NIP-29 group).
+//! (the `name` field). `work_root` is the immutable launch workspace and
+//! `channels` is the additive membership set. `[status]` is what the agent last
+//! published in kind:30315.
 //!
 //! Reads the harness's statusline JSON payload on stdin (Claude Code sends
 //! `session_id` + `workspace.current_dir`), asks the daemon for one pure-read
@@ -102,21 +90,10 @@ pub struct StatuslineView {
     /// itself; for a per-session room it's the parent root.
     #[serde(default)]
     work_root: String,
-    /// The NIP-29 channel the session is currently routing under — its
-    /// `channel` when set (the active channel was repointed), else its
-    /// per-session room `root`. The `#session-…` segment renders this id.
+    /// Full public paths for every joined channel. Opaque routing ids never
+    /// cross this surface.
     #[serde(default)]
-    channel: String,
-    /// The channel's display title on the relay (kind:39000 `name` tag for a
-    /// task channel; the agent-supplied session title for a per-session room).
-    /// Falls back to the session title when the local metadata
-    /// cache lags. Empty only when neither is known (brand-new session).
-    #[serde(default)]
-    channel_title: String,
-    #[serde(default)]
-    member_count: u64,
-    #[serde(default = "default_true")]
-    is_member: bool,
+    channels: Vec<String>,
     #[serde(default)]
     working: bool,
     /// The persistent agent-supplied session title (carried on kind:30315 as the
@@ -133,10 +110,6 @@ pub struct StatuslineView {
     /// can see WHY the status bar is broken instead of getting a blank bar.
     #[serde(default)]
     error: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 pub fn render_statusline(v: &StatuslineView, color: bool) -> String {
@@ -165,14 +138,10 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
         color,
     ));
 
-    // Session: the channel the session is currently on (its `channel` when set,
-    // else its per-session room). Rendered by its human NAME (kind:39000 `name`),
-    // falling back to the raw id only when no name is cached — the opaque id is
-    // never shown when a name exists. Reflects an active-channel repoint immediately.
-    let channel_disp = if v.channel_title.trim().is_empty() {
-        v.channel.clone()
+    let channel_disp = if v.channels.is_empty() {
+        "no channels".to_string()
     } else {
-        v.channel_title.clone()
+        v.channels.join(", ")
     };
     segs.push(paint(truncate_chars(&channel_disp, TITLE_MAX_CHARS), "2"));
 
@@ -198,17 +167,6 @@ fn render_statusline_inner(v: &StatuslineView, color: bool) -> String {
         "idle".to_string()
     };
     segs.push(paint(format!("[{status}]"), "2"));
-
-    // ── Optional warning segments (kept per user request) ──────────────────
-
-    // Citizenship problem beats cosmetics: surface the membership gap loudly.
-    // Only when the roster is non-empty (otherwise unknown, not a problem).
-    if !v.is_member && v.member_count > 0 {
-        segs.push(paint(
-            format!("⚠ not in channel {channel_disp}"),
-            "1;31", // bold red
-        ));
-    }
 
     // Daemon-reported error (e.g. stale session ID that wasn't found in the DB).
     // Short and visible — the user needs to know WHY the bar is broken.

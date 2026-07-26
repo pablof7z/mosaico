@@ -22,14 +22,16 @@ impl Store {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        let owns = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions
-             WHERE pubkey=?1 AND runtime_generation=?2 AND lifecycle_epoch=?3
-               AND runtime_state='running' AND recovery_state<>'revoked')",
-            params![pubkey, runtime_generation, lifecycle_epoch],
-            |row| row.get::<_, bool>(0),
-        )?;
-        if !owns {
+        let owning_lifecycle = transaction
+            .query_row(
+                "SELECT lifecycle_epoch FROM sessions
+                 WHERE pubkey=?1 AND runtime_generation=?2
+                   AND recovery_state<>'revoked'",
+                params![pubkey, runtime_generation],
+                |row| row.get::<_, u64>(0),
+            )
+            .optional()?;
+        let Some(owning_lifecycle) = owning_lifecycle else {
             let outcome = schedule_cleanup_in_transaction(
                 &transaction,
                 pubkey,
@@ -39,24 +41,26 @@ impl Store {
             )?;
             transaction.commit()?;
             return self.finish_admission_outcome(pubkey, channel_h, outcome);
-        }
+        };
         transaction.execute(
-            "INSERT INTO session_channels (pubkey, channel_h, granted_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(pubkey, channel_h) DO UPDATE SET granted_at=excluded.granted_at",
+            "INSERT INTO session_channels
+                 (pubkey, channel_h, joined_at, joined_event_seq)
+             VALUES (?1, ?2, ?3,
+                     (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))
+             ON CONFLICT(pubkey, channel_h) DO NOTHING",
             params![pubkey, channel_h, now],
         )?;
         transaction.execute(
             "INSERT INTO session_standing
-                 (pubkey, channel_h, state, retain_until, standing_epoch,
+                 (pubkey, channel_h, state, standing_epoch,
                   session_lifecycle_epoch, updated_at)
-             VALUES (?1, ?2, 'member', 0, 1, ?3, ?4)
+             VALUES (?1, ?2, 'member', 1, ?3, ?4)
              ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-                 state='member', retain_until=0,
+                 state='member',
                  standing_epoch=session_standing.standing_epoch+1,
                  session_lifecycle_epoch=excluded.session_lifecycle_epoch,
                  updated_at=excluded.updated_at",
-            params![pubkey, channel_h, lifecycle_epoch, now],
+            params![pubkey, channel_h, owning_lifecycle, now],
         )?;
         transaction.commit()?;
         Ok(ConfirmedAdmissionCommit::Committed)
@@ -83,13 +87,12 @@ impl Store {
                  JOIN session_channels route ON route.pubkey=session.pubkey
                  JOIN session_standing standing ON standing.pubkey=session.pubkey
                  WHERE session.pubkey=?1 AND session.runtime_generation=?2
-                   AND session.lifecycle_epoch=?3 AND session.runtime_state='running'
                    AND session.recovery_state<>'revoked'
-                   AND route.channel_h=?4 AND standing.channel_h=?4
+                   AND route.channel_h=?3 AND standing.channel_h=?3
                    AND standing.state='member'
-                   AND standing.session_lifecycle_epoch=?3
+                   AND standing.session_lifecycle_epoch=session.lifecycle_epoch
              )",
-            params![pubkey, runtime_generation, lifecycle_epoch, channel_h],
+            params![pubkey, runtime_generation, channel_h],
             |row| row.get::<_, bool>(0),
         )?;
         if committed {
@@ -131,45 +134,41 @@ impl Store {
             "DELETE FROM session_channels WHERE pubkey=?1 AND channel_h=?2",
             params![pubkey, channel_h],
         )? > 0;
-        transaction.execute(
-            "INSERT INTO session_standing
-                 (pubkey, channel_h, state, retain_until, standing_epoch,
-                  session_lifecycle_epoch, updated_at)
-             SELECT ?1, ?2, 'absent', 0, 1, lifecycle_epoch, ?3
-               FROM sessions WHERE pubkey=?1
-             ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-                 state='absent', retain_until=0,
-                 standing_epoch=session_standing.standing_epoch+1,
-                 session_lifecycle_epoch=excluded.session_lifecycle_epoch,
-                 updated_at=excluded.updated_at",
+        let updated = transaction.execute(
+            "UPDATE session_standing
+             SET state='absent',
+                 standing_epoch=standing_epoch+1,
+                 updated_at=?3
+             WHERE pubkey=?1 AND channel_h=?2",
             params![pubkey, channel_h, now],
         )?;
+        if updated == 0 {
+            transaction.execute(
+                "INSERT INTO session_standing
+                 (pubkey, channel_h, state, standing_epoch,
+                  session_lifecycle_epoch, updated_at)
+             SELECT ?1, ?2, 'absent', 1, lifecycle_epoch, ?3
+               FROM sessions WHERE pubkey=?1
+             ON CONFLICT(pubkey, channel_h) DO NOTHING",
+                params![pubkey, channel_h, now],
+            )?;
+        }
         transaction.commit()?;
         Ok(removed)
     }
 
-    pub fn grant_session_route(
-        &self,
-        pubkey: &str,
-        channel_h: &str,
-        granted_at: u64,
-    ) -> Result<()> {
+    pub fn grant_session_route(&self, pubkey: &str, channel_h: &str, joined_at: u64) -> Result<()> {
         if channel_h.trim().is_empty() {
             return Ok(());
         }
         self.conn.execute(
-            "INSERT OR IGNORE INTO session_channels (pubkey, channel_h, granted_at)
-             VALUES (?1, ?2, ?3)",
-            params![pubkey, channel_h, granted_at],
+            "INSERT OR IGNORE INTO session_channels
+                 (pubkey, channel_h, joined_at, joined_event_seq)
+             VALUES (?1, ?2, ?3,
+                     (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))",
+            params![pubkey, channel_h, joined_at],
         )?;
         Ok(())
-    }
-
-    pub fn revoke_session_route(&self, pubkey: &str, channel_h: &str) -> Result<bool> {
-        Ok(self.conn.execute(
-            "DELETE FROM session_channels WHERE pubkey=?1 AND channel_h=?2",
-            params![pubkey, channel_h],
-        )? > 0)
     }
 
     pub fn has_session_route(&self, pubkey: &str, channel_h: &str) -> Result<bool> {
@@ -182,10 +181,39 @@ impl Store {
         )?)
     }
 
+    /// Whether a stored event is eligible for automatic body delivery to this
+    /// exact session membership.
+    ///
+    /// Both fences are required: local arrival order prevents a future-dated
+    /// event observed before the join from replaying afterward, while signed
+    /// time rejects backdated events first observed after the join. A missing
+    /// event or membership row returns `false`.
+    pub fn session_membership_admits_event(
+        &self,
+        pubkey: &str,
+        channel_h: &str,
+        event_id: &str,
+    ) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1
+                   FROM session_channels membership
+                   JOIN relay_events event ON event.id=?3
+                  WHERE membership.pubkey=?1
+                    AND membership.channel_h=?2
+                    AND event.channel_h=?2
+                    AND event.rowid > membership.joined_event_seq
+                    AND event.created_at >= membership.joined_at
+             )",
+            params![pubkey, channel_h, event_id],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn list_session_routes(&self, pubkey: &str) -> Result<Vec<(String, u64)>> {
         let mut statement = self.conn.prepare(
-            "SELECT channel_h, granted_at FROM session_channels
-             WHERE pubkey=?1 ORDER BY granted_at, channel_h",
+            "SELECT channel_h, joined_at FROM session_channels
+             WHERE pubkey=?1 ORDER BY joined_at, channel_h",
         )?;
         let rows = statement.query_map([pubkey], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -217,11 +245,11 @@ fn schedule_cleanup_in_transaction(
     }
     transaction.execute(
         "INSERT INTO session_standing
-             (pubkey, channel_h, state, retain_until, standing_epoch,
+             (pubkey, channel_h, state, standing_epoch,
               session_lifecycle_epoch, updated_at)
-         VALUES (?1, ?2, 'retained', ?4, 1, ?3, ?4)
+         VALUES (?1, ?2, 'member', 1, ?3, ?4)
          ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-             state='retained', retain_until=excluded.retain_until,
+             state='member',
              standing_epoch=session_standing.standing_epoch+1,
              session_lifecycle_epoch=excluded.session_lifecycle_epoch,
              updated_at=excluded.updated_at",

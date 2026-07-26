@@ -1,5 +1,71 @@
 use super::*;
 
+fn reserve_running(state: &Arc<DaemonState>, pubkey: &str) -> Session {
+    state.with_store(|store| {
+        store
+            .reserve_session_with_facts(
+                &crate::state::RegisterSession {
+                    pubkey: pubkey.into(),
+                    observed_harness: "codex".into(),
+                    agent_slug: "codex".into(),
+                    launch_channel_h: "room".into(),
+                    work_root: "room".into(),
+                    child_pid: None,
+                    now: 1,
+                },
+                &crate::state::AdmittedRuntimeFacts {
+                    observed_harness: "codex".into(),
+                    claimed_harness: String::new(),
+                    bundle: "codex-pty".into(),
+                    transport: "pty".into(),
+                    endpoint_provenance: "launch".into(),
+                },
+            )
+            .unwrap();
+        store.get_session(pubkey).unwrap().unwrap()
+    })
+}
+
+#[tokio::test]
+async fn admission_revalidation_makes_explicit_absence_win_within_a_lifecycle() {
+    let state = DaemonState::new_for_test().await;
+    let session = reserve_running(&state, "membership-fence");
+    assert!(admission_is_current(
+        &state,
+        &session.pubkey,
+        "room",
+        session.runtime_generation,
+        session.lifecycle_epoch,
+        true,
+    ));
+
+    state.with_store(|store| {
+        store
+            .grant_session_route(&session.pubkey, "room", 1)
+            .unwrap();
+        store
+            .revoke_route_and_mark_absent(&session.pubkey, "room", 2)
+            .unwrap();
+    });
+
+    assert!(!admission_is_current(
+        &state,
+        &session.pubkey,
+        "room",
+        session.runtime_generation,
+        session.lifecycle_epoch,
+        true,
+    ));
+    assert!(!admission_is_current(
+        &state,
+        &session.pubkey,
+        "room",
+        session.runtime_generation,
+        session.lifecycle_epoch,
+        false,
+    ));
+}
+
 #[tokio::test]
 async fn replay_finalizes_reserved_idle_stop_once() {
     let home = tempfile::tempdir().unwrap();
@@ -13,7 +79,8 @@ async fn replay_finalizes_reserved_idle_stop_once() {
                     pubkey: "replay-idle".into(),
                     observed_harness: "codex".into(),
                     agent_slug: "codex".into(),
-                    channel_h: "room".into(),
+                    launch_channel_h: "room".into(),
+                    work_root: "room".into(),
                     child_pid: Some(42),
                     now: 1,
                 },

@@ -36,13 +36,14 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 17);
+    assert_eq!(version, 18);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
     assert!(!table_exists(&conn, "identities"));
     assert!(!table_exists(&conn, "durable_agent_sessions"));
     assert!(table_exists(&conn, "relay_reactions"));
+    assert!(table_exists(&conn, "relay_status_sets"));
     assert!(!table_exists(&conn, "project_roots"));
     assert_eq!(
         columns(&conn, "native_turn_attempts"),
@@ -91,7 +92,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(!table_exists(&conn, "session_claims"));
     assert_eq!(
         columns(&conn, "session_channels"),
-        ["pubkey", "channel_h", "granted_at"]
+        ["pubkey", "channel_h", "joined_at", "joined_event_seq"]
     );
     assert_eq!(
         columns(&conn, "session_standing"),
@@ -99,7 +100,6 @@ fn fresh_file_db_uses_only_canonical_schema() {
             "pubkey",
             "channel_h",
             "state",
-            "retain_until",
             "standing_epoch",
             "session_lifecycle_epoch",
             "updated_at"
@@ -120,6 +120,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(sess_cols.iter().any(|c| c == "runtime_generation"));
     assert!(sess_cols.iter().any(|c| c == "work_root"));
     assert!(sess_cols.iter().any(|c| c == "readiness_parent"));
+    assert!(!sess_cols.iter().any(|c| c == "channel_h"));
     for admitted in [
         "observed_harness",
         "claimed_harness",
@@ -172,6 +173,10 @@ fn fresh_file_db_uses_only_canonical_schema() {
             "sessions.{removed}"
         );
     }
+
+    let status = columns(&conn, "relay_status");
+    assert!(status.iter().any(|column| column == "workspace"));
+    assert!(status.iter().any(|column| column == "branch"));
 }
 
 #[test]
@@ -268,15 +273,16 @@ fn stamped_non_canonical_file_db_is_rejected() {
     .unwrap();
     conn.pragma_update(None, "user_version", 16u32).unwrap();
     drop(conn);
-
     let err = match Store::open(&path) {
         Ok(_) => panic!("non-canonical schema must be rejected"),
         Err(err) => err,
     };
     let text = format!("{err:#}");
-    assert!(text.contains("not the current canonical schema"), "{text}");
+    assert!(
+        text.contains("schema 17 is missing table `sessions`"),
+        "{text}"
+    );
 }
-
 #[test]
 fn unstamped_existing_file_db_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
@@ -285,7 +291,6 @@ fn unstamped_existing_file_db_is_rejected() {
     conn.execute("CREATE TABLE anything (id INTEGER)", [])
         .unwrap();
     drop(conn);
-
     let err = match Store::open(&path) {
         Ok(_) => panic!("unstamped db must be rejected"),
         Err(err) => err,

@@ -6,17 +6,18 @@ use anyhow::Result;
 pub(super) fn local_row(
     aggregation: &crate::who_aggregation::WhoAggregation,
     s: &Session,
+    channel: &str,
     local_host: &str,
     now: u64,
 ) -> Result<WhoRow> {
     let instance = local_instance(aggregation, s);
     let presence = aggregation.local_session_presence(s);
-    let work_root = work_root_for(aggregation, &s.channel_h)?;
+    let work_root = s.work_root.clone();
     Ok(WhoRow {
         source: WhoSource::Local,
         state: presence.state,
         slug: instance.display_slug(),
-        channel: s.channel_h.clone(),
+        channel: channel.to_string(),
         status: presence.title,
         activity: presence.activity,
         dormant: false,
@@ -98,6 +99,8 @@ mod tests {
             slug: "reviewer".into(),
             title: "Reviewing".into(),
             activity: "stale live activity".into(),
+            workspace: "mosaico".into(),
+            branch: "feat/context".into(),
             state: crate::session_state::SessionState::Working,
             state_since: 90,
             last_seen: 90,

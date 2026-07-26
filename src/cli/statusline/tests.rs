@@ -5,11 +5,8 @@ fn view() -> StatuslineView {
         agent: "amber-claude".into(),
         host: "Kubrick's Mac".into(),
         session_id: "some-long-uuid".into(),
-        work_root: "mosaico".into(),
-        channel: "41yh4c028b76a".into(),
-        channel_title: "support".into(),
-        member_count: 4,
-        is_member: true,
+        work_root: "/mosaico".into(),
+        channels: vec!["/mosaico/support".into()],
         working: true,
         title: "Refactoring the inbox".into(),
         activity: "writing tests".into(),
@@ -21,7 +18,7 @@ fn view() -> StatuslineView {
 fn renders_identity_root_session_title_status() {
     assert_eq!(
         render_statusline(&view(), false),
-        "amber-claude mosaico support [Refactoring the inbox] [writing tests]"
+        "amber-claude /mosaico /mosaico/support [Refactoring the inbox] [writing tests]"
     );
 }
 
@@ -40,27 +37,26 @@ fn idle_shows_idle() {
 }
 
 #[test]
-fn empty_channel_title_omits_title_segment() {
+fn zero_memberships_are_explicit() {
     let mut v = view();
-    v.channel_title.clear();
+    v.channels.clear();
     let rendered = render_statusline(&v, false);
-    assert!(!rendered.contains("[]"));
+    assert!(rendered.contains("no channels"));
     assert!(rendered.contains("[writing tests]"));
 }
 
 #[test]
-fn membership_gap_is_loud() {
+fn multiple_memberships_are_rendered_without_selecting_one() {
     let mut v = view();
-    v.is_member = false;
-    assert!(render_statusline(&v, false).contains("⚠ not in channel support"));
-    v.member_count = 0;
-    assert!(!render_statusline(&v, false).contains("not in channel"));
+    v.channels.push("/other/review".into());
+    let rendered = render_statusline(&v, false);
+    assert!(rendered.contains("/mosaico/support, /other/review"));
 }
 
 #[test]
-fn truncates_long_channel_title() {
+fn truncates_long_channel_memberships() {
     let mut v = view();
-    v.channel_title = "x".repeat(100);
+    v.channels = vec![format!("/mosaico/{}", "x".repeat(100))];
     assert!(render_statusline(&v, false).contains('…'));
 }
 

@@ -62,7 +62,8 @@ fn session_has_live_delivery_path_true_only_for_a_live_locator() {
             &crate::state::RegisterSession {
                 pubkey: "pk-probe".into(),
                 agent_slug: "probe-agent".into(),
-                channel_h: "proj".into(),
+                launch_channel_h: "proj".into(),
+                work_root: "proj".into(),
                 observed_harness: "claude-code".into(),
                 child_pid: None,
                 now: 1,
@@ -138,7 +139,8 @@ fn headless_mode_separates_output_visibility_from_reachability() {
             &crate::state::RegisterSession {
                 pubkey: "pk-output".into(),
                 agent_slug: "agent".into(),
-                channel_h: "root".into(),
+                launch_channel_h: "root".into(),
+                work_root: "root".into(),
                 observed_harness: "codex".into(),
                 child_pid: None,
                 now: 1,

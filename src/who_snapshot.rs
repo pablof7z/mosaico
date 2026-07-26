@@ -62,7 +62,7 @@ pub(crate) struct WhoRow {
     /// title while mid-turn; empty (and not rendered) when idle.
     #[serde(default)]
     pub(crate) activity: String,
-    /// A stopped local session whose relay membership is still retained.
+    /// A stopped local session whose relay membership remains active.
     #[serde(default)]
     pub(crate) dormant: bool,
     pub(crate) host: String,
@@ -123,27 +123,29 @@ pub(crate) fn build_who_snapshot(
 
     // ── local sessions on this machine (read failure must error, not go quiet) ──
     for s in &aggregation.local_sessions {
-        let scope = s.channel_h.clone();
-        if aggregation.channel(&scope).is_none() && aggregation.workspace_path(&scope).is_none() {
-            continue;
-        }
-        if is_archived_channel(aggregation, &scope) {
-            continue;
-        }
-        if current_root
-            .map(|p| scope_contains_channel(aggregation, p, &scope))
-            .transpose()?
-            .unwrap_or(true)
-        {
-            rows.push(local_row(aggregation, s, &local_host, now)?);
-        } else if is_root_channel(aggregation, &scope) {
-            other_agents
-                .entry(scope)
-                .or_default()
-                .insert(local_instance(aggregation, s).display_slug());
+        for scope in aggregation.session_routes(&s.pubkey) {
+            if aggregation.channel(&scope).is_none() && aggregation.workspace_path(&scope).is_none()
+            {
+                continue;
+            }
+            if is_archived_channel(aggregation, &scope) {
+                continue;
+            }
+            if current_root
+                .map(|p| scope_contains_channel(aggregation, p, &scope))
+                .transpose()?
+                .unwrap_or(true)
+            {
+                rows.push(local_row(aggregation, s, &scope, &local_host, now)?);
+            } else if is_root_channel(aggregation, &scope) {
+                other_agents
+                    .entry(scope)
+                    .or_default()
+                    .insert(local_instance(aggregation, s).display_slug());
+            }
         }
     }
-    dormant::push_retained_rows(
+    dormant::push_stopped_rows(
         aggregation,
         current_root,
         now,

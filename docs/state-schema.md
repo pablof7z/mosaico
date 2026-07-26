@@ -79,18 +79,26 @@ mutable agent or bundle configuration to rediscover a live runtime. A newly admi
 generation records its own fresh launch facts.
 
 `session_channels` stores durable channel affinity and recovery authority;
-`session_standing` separately stores whether the exact pubkey is currently a
-member, retained for one hour after stopping, or absent. Standing expiry never
-deletes a signer, route, or native resume locator. A confirmed relay admission
-is committed with the runtime generation and lifecycle epoch that requested it;
-stale or failed commits first persist immediately-due cleanup work so removal
-can be retried after a daemon or relay failure.
+`session_standing` separately stores whether the exact pubkey is a member or
+absent. Stopping a runtime does not change either record or remove relay
+membership. A confirmed relay admission is committed with the runtime
+generation and lifecycle epoch that requested it; stale or failed commits first
+persist immediately-due cleanup work so removal can be retried after a daemon
+or relay failure. Explicit leave or recovery revocation removes the route and
+changes standing to absent only after the corresponding relay cleanup.
 
 Runtime endpoint locators carry their owning generation. PTY supervisor
 attachment epochs and exit reports fence late callbacks, while persisted idle
 deadlines let restart reconciliation continue the same ten-minute headless-idle
 policy. Only explicit forget/revoke changes recovery to `revoked` and removes
 the local signer, routes, and locators after process termination is confirmed.
+
+The `inbox` is direct-recipient state, not ambient history. A relay-accepted
+event explicitly p-tagging a daemon-owned pubkey creates one pending inbox row
+and one recipient edge atomically. Claiming that row does not consult
+`session_channels`; it remains claimable when it predates registration or when
+the route is later removed. Ambient context reads continue to apply both the
+arrival-sequence and signed-time join fences.
 
 Completed offline-mention claims are compact durable tombstones keyed by event
 and exact recipient. Unlike ordinary completed operation ledgers, they do not

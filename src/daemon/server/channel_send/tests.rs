@@ -7,7 +7,8 @@ fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &s
             pubkey: pubkey.to_string(),
             observed_harness: "codex".to_string(),
             agent_slug: agent_slug.to_string(),
-            channel_h: channel_h.to_string(),
+            launch_channel_h: channel_h.to_string(),
+            work_root: channel_h.to_string(),
             child_pid: None,
             now: 1,
         })
@@ -36,7 +37,7 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
     let resolved = resolve_recipient(&store, "leaf-a", "local", &allocation.handle).unwrap();
 
     assert_eq!(resolved.pubkey, "helper-pubkey");
-    assert_eq!(resolved.channel, "leaf-b");
+    assert_eq!(resolved.channel, "leaf-a");
 }
 
 #[test]
@@ -131,6 +132,8 @@ fn dashed_session_handle_resolves_profile_cache() {
             slug: "willow-echo-042-codex".into(),
             title: String::new(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since: 1,
             last_seen: 1,
@@ -190,6 +193,8 @@ fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
             slug: "shared-codex".into(),
             title: String::new(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since: 1,
             last_seen: 1,
@@ -229,6 +234,8 @@ fn untyped_profile_with_status_is_not_a_session_handle() {
             slug: "shared-name".into(),
             title: String::new(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state: crate::session_state::SessionState::Idle,
             state_since: 1,
             last_seen: 1,

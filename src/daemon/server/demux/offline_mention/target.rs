@@ -1,5 +1,4 @@
 use crate::daemon::server::DaemonState;
-use crate::util::now_secs;
 use std::sync::Arc;
 
 pub(super) struct MentionTarget {
@@ -10,16 +9,12 @@ pub(super) struct MentionTarget {
 pub(super) enum Resolution {
     Ready(Box<MentionTarget>),
     Retry,
-    Reject,
 }
 
-pub(super) fn resolve_and_persist(
+pub(super) fn resolve(
     state: &Arc<DaemonState>,
-    event_id: &str,
     mentioned_pubkey: &str,
     channel: &str,
-    body: &str,
-    requester_pubkey: Option<&str>,
 ) -> Resolution {
     let session = match state.with_store(|store| store.get_session(mentioned_pubkey)) {
         Ok(session) => session,
@@ -46,66 +41,12 @@ pub(super) fn resolve_and_persist(
         .or(configured_slug)
     else {
         tracing::warn!(
-            event_id,
             pubkey = %mentioned_pubkey,
             channel,
             "exact mention target has no locally owned session or configured identity"
         );
-        return Resolution::Reject;
-    };
-
-    // A stopped session may no longer be a relay member after its retention
-    // window. The durable local channel affinity remains the authorization to
-    // resume that exact pubkey; current sender membership was already enforced
-    // by fabric admission.
-    let addressed_affinity = state.with_store(|store| match session.as_ref() {
-        Some(session) => store
-            .has_session_route(&session.pubkey, channel)
-            .unwrap_or(false),
-        None => store
-            .is_channel_member(channel, mentioned_pubkey)
-            .unwrap_or(false),
-    });
-    if !addressed_affinity {
-        tracing::warn!(
-            event_id,
-            pubkey = %mentioned_pubkey,
-            channel,
-            "exact mention target has no durable channel affinity; refusing recovery"
-        );
-        return Resolution::Reject;
-    }
-
-    let created_at = state.with_store(|store| {
-        store
-            .get_event(event_id)
-            .ok()
-            .flatten()
-            .map(|event| event.created_at)
-            .unwrap_or_else(now_secs)
-    });
-    let persisted = state.with_store(|store| {
-        store.enqueue_inbox(
-            event_id,
-            mentioned_pubkey,
-            requester_pubkey.unwrap_or_default(),
-            channel,
-            body,
-            created_at,
-        )?;
-        store.add_message_recipient(event_id, mentioned_pubkey, None)?;
-        Ok::<_, anyhow::Error>(())
-    });
-    if let Err(error) = persisted {
-        tracing::error!(
-            event_id,
-            pubkey = %mentioned_pubkey,
-            channel,
-            %error,
-            "exact mention could not be persisted before recovery; refusing launch"
-        );
         return Resolution::Retry;
-    }
+    };
     Resolution::Ready(Box::new(MentionTarget {
         agent_slug,
         session,

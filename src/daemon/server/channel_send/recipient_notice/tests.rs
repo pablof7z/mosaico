@@ -7,7 +7,8 @@ fn local_session(store: &Store) {
             pubkey: "local-pk".into(),
             observed_harness: "codex".into(),
             agent_slug: "local-codex".into(),
-            channel_h: "room".into(),
+            launch_channel_h: "room".into(),
+            work_root: "room".into(),
             child_pid: None,
             now: 10,
         })
@@ -22,6 +23,8 @@ fn remote_status(store: &Store, state: SessionState, expiration: u64) {
             slug: "remote-codex".into(),
             title: String::new(),
             activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
             state,
             state_since: 10,
             last_seen: 10,

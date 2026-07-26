@@ -57,23 +57,30 @@ pub(in crate::daemon::server) fn channel_reference_for(
     store: &crate::state::Store,
     channel_h: &str,
 ) -> anyhow::Result<String> {
-    let root = super::root_channel(store, channel_h)?;
+    let root = super::root_channel(store, channel_h).map_err(|error| {
+        tracing::debug!(
+            channel = %channel_h,
+            error = %format!("{error:#}"),
+            "channel path resolution withheld incomplete internal ancestry"
+        );
+        anyhow::anyhow!("channel has no complete agent-facing path")
+    })?;
     if root == channel_h {
-        return Ok(crate::channel_ref::full_channel_ref(store, channel_h));
+        let reference = crate::channel_ref::full_channel_ref(store, channel_h);
+        if reference.is_empty() {
+            anyhow::bail!("channel has no complete agent-facing path");
+        }
+        return Ok(reference);
     }
     let paths = subtree_paths(store, &root);
     let Some((_, segments)) = paths.iter().find(|(id, _)| id == channel_h) else {
-        return Ok(channel_id_reference(channel_h));
+        anyhow::bail!("channel has no complete agent-facing path");
     };
     Ok(canonical_channel_reference(&root, segments))
 }
 
 pub(super) fn canonical_channel_reference(root: &str, segs: &[String]) -> String {
     crate::channel_ref::format_channel_ref(root, segs)
-}
-
-fn channel_id_reference(id: &str) -> String {
-    format!("@{}", &id[..id.len().min(8)])
 }
 
 /// Every channel in `root`'s subtree (excluding root) as `(channel_h, name_path)`,

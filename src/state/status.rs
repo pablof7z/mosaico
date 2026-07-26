@@ -9,52 +9,117 @@ fn row_to_status(row: &rusqlite::Row) -> rusqlite::Result<Status> {
         slug: row.get(2)?,
         title: row.get(3)?,
         activity: row.get(4)?,
-        state: crate::session_state::SessionState::parse(&row.get::<_, String>(5)?).ok_or_else(
-            || rusqlite::Error::InvalidColumnType(5, "state".into(), rusqlite::types::Type::Text),
+        workspace: row.get(5)?,
+        branch: row.get(6)?,
+        state: crate::session_state::SessionState::parse(&row.get::<_, String>(7)?).ok_or_else(
+            || rusqlite::Error::InvalidColumnType(7, "state".into(), rusqlite::types::Type::Text),
         )?,
-        state_since: row.get(6)?,
-        last_seen: row.get(7)?,
-        updated_at: row.get(8)?,
-        expiration: row.get(9)?,
+        state_since: row.get(8)?,
+        last_seen: row.get(9)?,
+        updated_at: row.get(10)?,
+        expiration: row.get(11)?,
     })
 }
 
-const COLS: &str =
-    "pubkey, channel_h, slug, title, activity, state, state_since, last_seen, updated_at, expiration";
+const COLS: &str = "pubkey, channel_h, slug, title, activity, workspace, branch, state, \
+    state_since, last_seen, updated_at, expiration";
+const UPSERT: &str = "INSERT INTO relay_status
+        (pubkey, channel_h, slug, title, activity, workspace, branch,
+         state, state_since, last_seen, updated_at, expiration)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+    ON CONFLICT(pubkey, channel_h) DO UPDATE SET
+        slug=excluded.slug, title=excluded.title, activity=excluded.activity,
+        workspace=excluded.workspace, branch=excluded.branch,
+        state=excluded.state, state_since=excluded.state_since,
+        last_seen=excluded.last_seen,
+        updated_at=CASE
+            WHEN relay_status.slug <> excluded.slug
+              OR relay_status.title <> excluded.title
+              OR relay_status.activity <> excluded.activity
+              OR relay_status.workspace <> excluded.workspace
+              OR relay_status.branch <> excluded.branch
+              OR relay_status.state <> excluded.state
+            THEN excluded.updated_at ELSE relay_status.updated_at END,
+        expiration=excluded.expiration
+    WHERE excluded.updated_at >= relay_status.updated_at";
 
 impl Store {
     pub fn upsert_status(&self, status: &Status) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO relay_status
-                 (pubkey, channel_h, slug, title, activity, state, state_since,
-                  last_seen, updated_at, expiration)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(pubkey, channel_h) DO UPDATE SET
-                 slug=excluded.slug, title=excluded.title, activity=excluded.activity,
-                 state=excluded.state, state_since=excluded.state_since,
-                 last_seen=excluded.last_seen,
-                 updated_at=CASE
-                     WHEN relay_status.slug <> excluded.slug
-                       OR relay_status.title <> excluded.title
-                       OR relay_status.activity <> excluded.activity
-                       OR relay_status.state <> excluded.state
-                     THEN excluded.updated_at ELSE relay_status.updated_at END,
-                 expiration=excluded.expiration
-             WHERE excluded.updated_at >= relay_status.updated_at",
-            params![
-                status.pubkey,
-                status.channel_h,
-                status.slug,
-                status.title,
-                status.activity,
-                status.state.as_str(),
-                status.state_since,
-                status.last_seen,
-                status.updated_at,
-                status.expiration,
-            ],
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
         )?;
+        upsert_status_row(&transaction, status)?;
+        advance_status_set_watermark(&transaction, &status.pubkey, status.updated_at)?;
+        transaction.commit()?;
         Ok(())
+    }
+
+    /// Atomically apply one replacement status event for a pubkey.
+    ///
+    /// The per-pubkey watermark makes a zero-channel replacement durable and
+    /// prevents an older replacement from deleting or resurrecting rows.
+    /// Returns `false` when the replacement lost the timestamp race.
+    pub fn replace_status_channels(
+        &self,
+        pubkey: &str,
+        statuses: &[Status],
+        updated_at: u64,
+    ) -> Result<bool> {
+        anyhow::ensure!(!pubkey.trim().is_empty(), "status pubkey must not be empty");
+        let mut channels = std::collections::BTreeSet::new();
+        for status in statuses {
+            anyhow::ensure!(
+                status.pubkey == pubkey,
+                "replacement status pubkey {:?} does not match {pubkey:?}",
+                status.pubkey
+            );
+            anyhow::ensure!(
+                status.updated_at == updated_at,
+                "replacement status timestamp {} does not match {updated_at}",
+                status.updated_at
+            );
+            anyhow::ensure!(
+                channels.insert(status.channel_h.as_str()),
+                "replacement status repeats channel {:?}",
+                status.channel_h
+            );
+        }
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let watermark = transaction
+            .query_row(
+                "SELECT updated_at FROM relay_status_sets WHERE pubkey=?1",
+                [pubkey],
+                |row| row.get::<_, u64>(0),
+            )
+            .optional()?;
+        if watermark.is_some_and(|current| current > updated_at) {
+            transaction.rollback()?;
+            return Ok(false);
+        }
+        let existing_channels = {
+            let mut statement =
+                transaction.prepare("SELECT channel_h FROM relay_status WHERE pubkey=?1")?;
+            let rows = statement.query_map([pubkey], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for channel in existing_channels {
+            if !channels.contains(channel.as_str()) {
+                transaction.execute(
+                    "DELETE FROM relay_status WHERE pubkey=?1 AND channel_h=?2",
+                    params![pubkey, channel],
+                )?;
+            }
+        }
+        for status in statuses {
+            upsert_status_row(&transaction, status)?;
+        }
+        advance_status_set_watermark(&transaction, pubkey, updated_at)?;
+        transaction.commit()?;
+        Ok(true)
     }
 
     pub fn get_status(&self, pubkey: &str, channel_h: &str) -> Result<Option<Status>> {
@@ -98,87 +163,44 @@ impl Store {
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), row_to_status)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+}
 
-    pub fn active_channels_since(&self, cursor: u64) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT channel_h FROM relay_status WHERE updated_at >= ?1 ORDER BY channel_h",
-        )?;
-        let rows = stmt.query_map([cursor], |row| row.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
+fn upsert_status_row(conn: &rusqlite::Connection, status: &Status) -> Result<()> {
+    conn.execute(
+        UPSERT,
+        params![
+            status.pubkey,
+            status.channel_h,
+            status.slug,
+            status.title,
+            status.activity,
+            status.workspace,
+            status.branch,
+            status.state.as_str(),
+            status.state_since,
+            status.last_seen,
+            status.updated_at,
+            status.expiration,
+        ],
+    )?;
+    Ok(())
+}
+
+fn advance_status_set_watermark(
+    conn: &rusqlite::Connection,
+    pubkey: &str,
+    updated_at: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO relay_status_sets (pubkey, updated_at)
+         VALUES (?1, ?2)
+         ON CONFLICT(pubkey) DO UPDATE SET updated_at=excluded.updated_at
+         WHERE excluded.updated_at >= relay_status_sets.updated_at",
+        params![pubkey, updated_at],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::state::{Status, Store};
-
-    fn status(
-        activity: &str,
-        state: crate::session_state::SessionState,
-        updated_at: u64,
-    ) -> Status {
-        Status {
-            pubkey: "pk".into(),
-            channel_h: "h1".into(),
-            slug: "agent".into(),
-            title: "Task title".into(),
-            activity: activity.into(),
-            state,
-            state_since: 100,
-            last_seen: updated_at,
-            updated_at,
-            expiration: updated_at + 100,
-        }
-    }
-
-    #[test]
-    fn lease_renewal_refreshes_liveness_without_advancing_delta_clock() {
-        let store = Store::open_memory().unwrap();
-        store
-            .upsert_status(&status(
-                "reading",
-                crate::session_state::SessionState::Working,
-                100,
-            ))
-            .unwrap();
-        store
-            .upsert_status(&status(
-                "reading",
-                crate::session_state::SessionState::Working,
-                150,
-            ))
-            .unwrap();
-        let row = store.get_status("pk", "h1").unwrap().unwrap();
-        assert_eq!(
-            (
-                row.state_since,
-                row.last_seen,
-                row.expiration,
-                row.updated_at
-            ),
-            (100, 150, 250, 100)
-        );
-    }
-
-    #[test]
-    fn semantic_status_change_advances_delta_clock() {
-        let store = Store::open_memory().unwrap();
-        store
-            .upsert_status(&status(
-                "reading",
-                crate::session_state::SessionState::Working,
-                100,
-            ))
-            .unwrap();
-        store
-            .upsert_status(&status(
-                "writing",
-                crate::session_state::SessionState::Working,
-                150,
-            ))
-            .unwrap();
-        let row = store.get_status("pk", "h1").unwrap().unwrap();
-        assert_eq!((row.activity.as_str(), row.updated_at), ("writing", 150));
-        assert_eq!(row.state_since, 100);
-    }
-}
+#[path = "status/tests.rs"]
+mod tests;

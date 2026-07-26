@@ -49,19 +49,19 @@ recovery authority, and per-channel fabric standing:
   pending delivery. Ten minutes of that true inactivity conditionally stops
   the same runtime incarnation. Reattachment, a turn start, or accepted work
   cancels the old deadline.
-- A stopped runtime normally retains its current channel memberships for one
-  hour. A clean zero-status child exit while headed is treated as the user's
-  intentional exit and removes current memberships immediately.
-- Membership retention is fabric standing, while a session's recorded channel
-  routes are recovery authority. Expiring standing does not erase the route,
-  signer, or native conversation locator. An authorized exact p-tag re-admits
-  the same pubkey after standing expires. When a native locator exists it also
-  resumes that harness conversation; without one it starts a fresh harness
-  conversation under the same durable session identity.
+- A stopped, evicted, crashed, or resumed runtime retains its complete joined
+  channel set. Runtime lifecycle never means leave, including a clean child
+  exit. On restart the same durable session identity republishes and reconciles
+  standing for every recorded route.
+- Fabric standing and the recorded channel routes represent the same durable
+  membership intent at different layers. Only an explicit leave, revoke/forget,
+  archive removal, or failed-admission cleanup removes a route. When a native
+  locator exists, recovery also resumes that harness conversation; without one
+  it starts a fresh harness conversation under the same durable identity.
 - Explicit forget or revoke is the destructive boundary. It removes recovery
   authority locally in one transaction and makes every recorded standing
   removal immediately due; unconfirmed relay removals remain durable retry
-  work. Ordinary exit, eviction, and retention expiry do not revoke recovery.
+  work. Ordinary exit and eviction do not revoke recovery or membership.
 
 Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying

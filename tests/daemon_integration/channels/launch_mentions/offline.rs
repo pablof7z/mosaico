@@ -88,24 +88,6 @@ fn end_target(home: &Home, pubkey: &str) {
     .is_some_and(|session| !session.is_running())));
 }
 
-fn expire_local_standing(home: &Home, pubkey: &str, channel: &str) {
-    let store = Store::open(&home.store_path()).unwrap();
-    let standing = store
-        .get_session_standing(pubkey, channel)
-        .unwrap()
-        .unwrap();
-    assert!(store
-        .mark_session_standing_absent_if_epoch(
-            pubkey,
-            channel,
-            standing.state,
-            standing.standing_epoch,
-            standing.session_lifecycle_epoch,
-            standing.retain_until,
-        )
-        .unwrap());
-}
-
 #[test]
 fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -125,13 +107,17 @@ fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
     let (_, original) = launch_target(&home, agent, &channel, &work_dir);
     start_keeper(&home, &channel, &work_dir);
     end_target(&home, &original.pubkey);
-    expire_local_standing(&home, &original.pubkey, &channel);
 
     let body = format!("resume exact session {}", unique_session("body"));
     rt().block_on(publish_user_kind9(&channel, &body, &original.pubkey));
 
     let resumed = wait_for_alive_session(&home, agent, &channel);
     assert_eq!(resumed.pubkey, original.pubkey);
+    assert_eq!(resumed.runtime_generation, original.runtime_generation + 1);
+    assert!(Store::open(&home.store_path())
+        .unwrap()
+        .has_session_route(&resumed.pubkey, &channel)
+        .unwrap());
     wait_for_injected_log(&log, &body);
 
     let store = Store::open(&home.store_path()).unwrap();
@@ -139,6 +125,9 @@ fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
     kill_pty(&endpoint);
     stop_daemon(&home);
 }
+
+#[path = "offline/explicit_leave.rs"]
+mod explicit_leave;
 
 #[test]
 fn operator_kind9_to_zero_turn_session_without_native_resume_relaunches_exact_pubkey() {
@@ -285,22 +274,9 @@ fn operator_kind9_to_stable_agent_starts_the_same_pubkey() {
     let stable_pubkey = identity.pubkey_hex().expect("stable agent pubkey");
 
     start_keeper(&home, &channel, &work_dir);
-    rt().block_on(async {
-        let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
-        let added = client
-            .call(
-                "channel_add_member",
-                serde_json::json!({
-                    "channel": format!("/{channel}"),
-                    "pubkey": stable_pubkey,
-                    "cwd": work_dir,
-                }),
-            )
-            .await
-            .expect("channel_add_member stable agent");
-        assert_eq!(added["pubkey"], stable_pubkey);
-    });
-    wait_for_group_member(&home, &channel, &stable_pubkey);
+    let (_, original) = launch_target(&home, agent, &channel, &work_dir);
+    assert_eq!(original.pubkey, stable_pubkey);
+    end_target(&home, &stable_pubkey);
 
     let body = format!("start stable identity {}", unique_session("body"));
     rt().block_on(publish_user_kind9(&channel, &body, &stable_pubkey));

@@ -121,8 +121,8 @@ dim "  config=${A_CFG}"
 dim "  workspace_dir=${A_WORKSPACE_DIR}  workspace_slug=${E2E_WORKSPACE}"
 
 # ── 3. bootstrap: create the bare workspace group on the relay ──────────────────
-# A plain session-start (no MOSAICO_CHANNEL) in the workspace dir drives
-# the daemon opens the workspace root channel (kind:39000 d=slug)
+# A plain session-start in the workspace directory drives the daemon to open
+# the workspace root channel (kind:39000 d=slug)
 # and adds mosaico-a's management key as an admin.
 log "step 3: bootstrap session-start (creates room '${E2E_WORKSPACE}')"
 BOOT_SID="warm-boot-$(date +%s)"

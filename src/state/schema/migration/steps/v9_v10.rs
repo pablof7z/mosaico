@@ -65,6 +65,38 @@ pub(super) fn migrate(conn: &mut Connection, _path: &Path) -> Result<()> {
             role TEXT NOT NULL DEFAULT 'member', updated_at INTEGER NOT NULL,
             PRIMARY KEY (channel_h, pubkey)
         );
+        CREATE TABLE IF NOT EXISTS relay_channels (
+            channel_h TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            about TEXT NOT NULL DEFAULT '',
+            parent TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(parent, name)
+        );
+        CREATE TABLE IF NOT EXISTS relay_status (
+            pubkey TEXT NOT NULL,
+            channel_h TEXT NOT NULL,
+            slug TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            activity TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL,
+            state_since INTEGER NOT NULL DEFAULT 0,
+            last_seen INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            expiration INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (pubkey, channel_h)
+        );
+        CREATE TABLE IF NOT EXISTS relay_events (
+            id TEXT PRIMARY KEY,
+            kind INTEGER NOT NULL,
+            pubkey TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            channel_h TEXT NOT NULL DEFAULT '',
+            d_tag TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]'
+        );
 
         CREATE TABLE sessions (
             pubkey TEXT PRIMARY KEY, runtime_generation INTEGER NOT NULL,

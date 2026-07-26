@@ -2,6 +2,10 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+#[path = "migration_fixture/v17.rs"]
+mod v17;
+pub(super) use v17::downgrade_channel_context_to_v17;
+
 fn create_current(conn: &Connection) {
     for part in super::super::super::ddl::SCHEMA_PARTS {
         conn.execute_batch(part).unwrap();
@@ -32,6 +36,7 @@ pub(super) fn create_schema_four(path: &Path) {
         DROP TABLE IF EXISTS session_standing;
         DROP TABLE sessions;
         DROP TABLE relay_status;
+        DROP TABLE relay_status_sets;
 
         CREATE TABLE messages (
             message_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL DEFAULT '',
@@ -173,6 +178,7 @@ fn seed_schema_four(conn: &Connection) {
 pub(super) fn create_schema_seven(path: &Path) {
     let conn = Connection::open(path).unwrap();
     create_current(&conn);
+    downgrade_channel_context_to_v17(&conn);
     add_removed_v15_session_columns(&conn);
     conn.execute_batch(
         r#"
@@ -199,6 +205,7 @@ pub(super) fn create_schema_seven(path: &Path) {
 pub(super) fn create_schema_eight(path: &Path) {
     let conn = Connection::open(path).unwrap();
     create_current(&conn);
+    downgrade_channel_context_to_v17(&conn);
     add_removed_v15_session_columns(&conn);
     conn.execute_batch(
         r#"

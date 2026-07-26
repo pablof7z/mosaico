@@ -59,7 +59,8 @@ fn admitted_hosted_transport_remains_distinct_when_its_locator_is_missing() {
                     pubkey: pubkey.clone(),
                     observed_harness: "codex".into(),
                     agent_slug: "codex".into(),
-                    channel_h: "root".into(),
+                    launch_channel_h: "root".into(),
+                    work_root: "root".into(),
                     child_pid: Some(std::process::id() as i32),
                     now: 1,
                 },
@@ -94,7 +95,8 @@ fn hosted_locator_lookup_errors_are_not_collapsed_to_unhosted() {
                 pubkey: "pk-broken-locator-table".into(),
                 observed_harness: "codex".into(),
                 agent_slug: "codex".into(),
-                channel_h: "root".into(),
+                launch_channel_h: "root".into(),
+                work_root: "root".into(),
                 child_pid: Some(std::process::id() as i32),
                 now: 1,
             },
@@ -339,7 +341,6 @@ async fn pty_transport_reports_a_controlled_socket_live_and_delivers_to_it() {
         }
         panic!("PTY fixture did not receive delivery before deadline");
     });
-
     let endpoint = EndpointRef {
         kind: TransportKind::Pty,
         endpoint_id: socket.to_string_lossy().into_owned(),
@@ -349,7 +350,6 @@ async fn pty_transport_reports_a_controlled_socket_live_and_delivers_to_it() {
         .deliver(&endpoint, "positive PTY delivery", false)
         .await
         .unwrap();
-
     let delivered = delivered_rx
         .recv_timeout(std::time::Duration::from_secs(2))
         .expect("PTY fixture delivery");

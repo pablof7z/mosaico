@@ -77,7 +77,7 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         .expect("native locator owner");
     let session = store.get_session(&pubkey).unwrap().unwrap();
     assert_eq!(session.agent_slug, "opencode");
-    assert_eq!(session.channel_h, root);
+    assert!(store.has_session_route(&session.pubkey, &root).unwrap());
     let metadata = mosaico::pty::read_all_metadata()
         .into_iter()
         .find(|metadata| metadata.agent == "opencode" && metadata.root == root)

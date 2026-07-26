@@ -50,13 +50,22 @@ async fn my_session(caller: Option<&str>) -> Result<Value> {
 }
 
 async fn channel_list(args: &Value, caller: Option<&str>) -> Result<Value> {
-    let channel = match opt_string(args, "channel") {
-        Some(channel) => channel,
-        None => crate::daemon::workspace_path::channel_for_path_or_bail(
-            &std::env::current_dir().unwrap_or_default(),
-        )?,
-    };
-    daemon_identity("channel_list", json!({ "channel": channel }), caller).await
+    daemon_identity(
+        "channel_list",
+        with_session(
+            json!({
+                "workspace": opt_string(args, "workspace"),
+                "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
+                "recursive": args
+                    .get("recursive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            }),
+            args,
+        ),
+        caller,
+    )
+    .await
 }
 
 async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
@@ -137,17 +146,13 @@ async fn react(args: &Value, caller: Option<&str>) -> Result<Value> {
 }
 
 async fn channel_create(args: &Value, caller: Option<&str>) -> Result<Value> {
-    let name = required_string(args, "name")?;
-    let about = required_string(args, "about")?;
-    let agents = agent_specs(args)?;
     daemon_identity(
         "channel_create",
         with_session(
             json!({
-                "name": name,
-                "about": about,
-                "parent_channel": opt_string(args, "parent_channel"),
-                "agents": agents,
+                "channel": required_string(args, "channel")?,
+                "about": required_string(args, "about")?,
+                "agents": agent_specs(args)?,
             }),
             args,
         ),

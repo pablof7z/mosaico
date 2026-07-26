@@ -65,11 +65,13 @@ impl Store {
         Ok(())
     }
 
-    /// The opaque `channel_h` for a `name` within `parent`. The identity of a
-    /// channel is the `(parent, name)` pair; the `channel_h` is the durable key.
-    /// The schema enforces one row per `(parent, name)`. `None` when no channel by
-    /// that name exists under `parent`.
+    /// The opaque `channel_h` for a named child within `parent`. Named siblings
+    /// are unique; root and unnamed channels deliberately do not share this
+    /// namespace. `None` when no channel by that name exists under `parent`.
     pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
+        if parent.is_empty() || name.is_empty() {
+            return Ok(None);
+        }
         Ok(self
             .conn
             .query_row(

@@ -58,17 +58,23 @@ pub(in crate::daemon::server) async fn reconcile_subs_logged(
     }
 }
 
-pub(in crate::daemon::server) fn reconcile_after_admin_event(
+pub(in crate::daemon::server) fn reconcile_after_group_state_event(
     state: &Arc<DaemonState>,
     event: &nostr::Event,
     first_sight: bool,
 ) {
-    if !first_sight || event.kind.as_u16() != crate::fabric::nip29::wire::KIND_GROUP_ADMINS {
+    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
+    if !first_sight
+        || !matches!(
+            event.kind.as_u16(),
+            KIND_GROUP_METADATA | KIND_GROUP_ADMINS | KIND_GROUP_MEMBERS
+        )
+    {
         return;
     }
     let state = state.clone();
     tokio::spawn(async move {
-        reconcile_subs_logged(&state, "group admins changed").await;
+        reconcile_subs_logged(&state, "group state changed").await;
     });
 }
 
@@ -144,6 +150,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut pubkeys: BTreeSet<String> = BTreeSet::new();
     let mut profile_pubkeys: BTreeSet<String> = BTreeSet::new();
     let mut sessions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut group_state_channels = BTreeSet::new();
     let backend_pubkey = state.backend_pubkey();
 
     let archived = state.with_store(|s| {
@@ -164,7 +171,11 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
             }
         }
         for channel in s.list_channels().unwrap_or_default() {
-            if channel.is_archived() || !channel.parent.is_empty() {
+            if channel.is_archived() {
+                continue;
+            }
+            group_state_channels.insert(channel.channel_h.clone());
+            if !channel.parent.is_empty() {
                 continue;
             }
             profile_pubkeys.extend(
@@ -177,9 +188,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         }
         // Channels each live session listens to (active + passively joined).
         for sess in s.list_running_sessions().unwrap_or_default() {
-            let joined = s
-                .list_session_routes(&sess.pubkey)
-                .unwrap_or_else(|_| vec![(sess.channel_h.clone(), sess.created_at)]);
+            let joined = s.list_session_routes(&sess.pubkey).unwrap_or_default();
             sessions.insert(
                 sess.pubkey.clone(),
                 joined.into_iter().map(|(channel, _)| channel).collect(),
@@ -188,6 +197,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         // Archived channels are excluded from all #h/#d coverage. Compute the flag
         // over the union of every candidate channel so the reconciler can subtract.
         let mut candidates: BTreeSet<String> = daemon_channels.clone();
+        candidates.extend(group_state_channels.iter().cloned());
         for chans in sessions.values() {
             candidates.extend(chans.iter().cloned());
         }
@@ -199,6 +209,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
 
     CoverageSnapshot {
         daemon_channels,
+        group_state_channels,
         addressed_pubkeys: pubkeys,
         profile_pubkeys,
         archived_channels: archived,

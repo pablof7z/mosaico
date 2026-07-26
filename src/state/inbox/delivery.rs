@@ -36,9 +36,13 @@ impl Store {
         target_pubkey: &str,
         now: u64,
     ) -> Result<Vec<InboxRow>> {
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let mut out = Vec::new();
         for id in event_ids {
-            let mut stmt = self.conn.prepare(&format!(
+            let mut stmt = transaction.prepare(&format!(
                 "UPDATE inbox SET state='delivered', delivered_at=?3
                  WHERE event_id=?1 AND target_pubkey=?2 AND state='pending'
                  RETURNING {COLS}"
@@ -47,6 +51,7 @@ impl Store {
             out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
         out.sort_by_key(|r| r.created_at);
+        transaction.commit()?;
         Ok(out)
     }
 

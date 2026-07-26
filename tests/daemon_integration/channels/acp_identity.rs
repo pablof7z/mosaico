@@ -119,13 +119,15 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
         if harness == "goose" {
             let context_path = home.dir.path().join("captured-goose-context");
             assert!(
-                wait_until(Duration::from_secs(10), || context_path.exists()),
+                wait_until(Duration::from_secs(10), || std::fs::read_to_string(
+                    &context_path
+                )
+                .is_ok_and(|body| body.contains("<mosaico>"))),
                 "Goose ACP hook did not publish Top Of Mind; hook={}",
                 std::fs::read_to_string(home.dir.path().join("captured-goose-hook"))
                     .unwrap_or_default()
             );
             let context = std::fs::read_to_string(context_path).unwrap();
-            assert!(context.contains("<mosaico>"), "context={context:?}");
             assert!(context.contains(&channel), "context={context:?}");
         }
     }

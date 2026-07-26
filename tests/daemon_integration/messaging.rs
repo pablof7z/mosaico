@@ -9,151 +9,16 @@ mod inbox_rows;
 mod non_mention;
 #[path = "messaging/self_target.rs"]
 mod self_target;
+#[path = "messaging/session_start.rs"]
+mod session_start;
 #[path = "messaging/target_wire.rs"]
 mod target_wire;
 use inbox_rows::receiver_inbox_rows;
 #[test]
-fn session_start_runs_engine_and_records_alive_session() {
+fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
-
-    let pubkey = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v = c
-            .call(
-                "session_start",
-                hook_session_start(serde_json::json!({"agent": "coder", "harness_session": "sess-int-1", "cwd": "/tmp"}), "claude-code"),
-            )
-            .await
-            .expect("session_start");
-        v["pubkey"].as_str().unwrap().to_string()
-    });
-    // The public identity owns the row; the harness id is only a typed locator.
-    let store = Store::open(&home.store_path()).unwrap();
-    let rec = store
-        .get_session(&pubkey)
-        .unwrap()
-        .expect("session row by pubkey");
-    assert_eq!(rec.pubkey, pubkey);
-    assert_eq!(
-        store
-            .resolve_pubkey_by_locator("claude-code", "native_resume", "sess-int-1",)
-            .unwrap()
-            .as_deref(),
-        Some(pubkey.as_str())
-    );
-    assert!(rec.is_running());
-    assert_eq!(rec.agent_slug, "coder");
-
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.unwrap();
-        let v = c
-            .call(
-                "who",
-                serde_json::json!({"all": true, "all_workspaces": true}),
-            )
-            .await
-            .unwrap();
-        let rows = v["rows"].as_array().unwrap();
-        assert!(
-            rows.iter()
-                .any(|r| r["pubkey"] == pubkey.as_str() && r["source"] == "Local"),
-            "who rows: {rows:?}"
-        );
-    });
-
-    stop_daemon(&home);
-}
-
-#[test]
-fn session_start_replaces_prior_session_for_same_host_pid() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
-    let pid = std::process::id() as i32;
-
-    let (old_pubkey, new_pubkey) = rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v1 = c
-            .call(
-                "session_start",
-                hook_session_start(
-                    serde_json::json!({
-                        "agent": "claude",
-                        "harness_session": "old-session",
-                        "cwd": "/tmp",
-                        "watch_pid": pid
-                    }),
-                    "claude-code",
-                ),
-            )
-            .await
-            .expect("first session_start");
-        let v2 = c
-            .call(
-                "session_start",
-                hook_session_start(
-                    serde_json::json!({
-                        "agent": "claude",
-                        "harness_session": "new-session",
-                        "cwd": "/tmp",
-                        "watch_pid": pid
-                    }),
-                    "claude-code",
-                ),
-            )
-            .await
-            .expect("second session_start");
-        (
-            v1["pubkey"].as_str().unwrap().to_string(),
-            v2["pubkey"].as_str().unwrap().to_string(),
-        )
-    });
-
-    let store = Store::open(&home.store_path()).unwrap();
-    assert!(
-        !store
-            .get_session(&old_pubkey)
-            .unwrap()
-            .unwrap()
-            .is_running(),
-        "old session should be marked dead"
-    );
-    assert!(
-        store
-            .get_session(&new_pubkey)
-            .unwrap()
-            .unwrap()
-            .is_running(),
-        "new session should remain alive"
-    );
-
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.unwrap();
-        let v = c
-            .call(
-                "who",
-                serde_json::json!({"all": true, "all_workspaces": true}),
-            )
-            .await
-            .unwrap();
-        let rows = v["rows"].as_array().unwrap();
-        assert!(
-            !rows.iter().any(|r| r["pubkey"] == old_pubkey.as_str()),
-            "old session leaked into who rows: {rows:?}"
-        );
-        assert!(
-            rows.iter().any(|r| r["pubkey"] == new_pubkey.as_str()),
-            "new session missing from who rows: {rows:?}"
-        );
-    });
-
-    stop_daemon(&home);
-}
-
-#[test]
-fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
+    crate::channels::write_config(&home, false);
 
     let (sender_pubkey, receiver_pubkey) = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -174,12 +39,33 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
             r["pubkey"].as_str().unwrap().to_string(),
         )
     });
-    let receiver_row = Store::open(&home.store_path())
-        .unwrap()
+    let store = Store::open(&home.store_path()).unwrap();
+    let receiver_row = store
         .get_session(&receiver_pubkey)
         .unwrap()
         .expect("receiver session row");
-    let receiver_scope = format!("/{}", receiver_row.channel_h);
+    let receiver_scope = format!("/{}", only_session_route(&store, &receiver_row.pubkey));
+    let receiver_channel = receiver_scope.trim_start_matches('/').to_string();
+    drop(store);
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            crate::channels::refresh_channel_members(&receiver_scope);
+            Store::open(&home.store_path())
+                .map(|store| {
+                    store
+                        .has_channel_membership_snapshot(&receiver_channel)
+                        .unwrap_or(false)
+                        && store
+                            .is_channel_member(&receiver_channel, &sender_pubkey)
+                            .unwrap_or(false)
+                        && store
+                            .is_channel_member(&receiver_channel, &receiver_row.pubkey)
+                            .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        }),
+        "sender and receiver did not become relay-confirmed channel members"
+    );
     let receiver_pubkey = receiver_row.pubkey.clone();
     let receiver_handle = Store::open(&home.store_path())
         .unwrap()
@@ -219,6 +105,15 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    let immediately_parked = Store::open(&home.store_path()).unwrap();
+    assert!(
+        receiver_inbox_rows(&immediately_parked, &receiver_pubkey)
+            .iter()
+            .any(|row| row.body == wire_body),
+        "successful local send must park the direct inbox before any readback wait"
+    );
+    drop(immediately_parked);
+
     // Poll until the relay-materialized chat propagates to the readable store,
     // rather than asserting on a single racy read.
     let mut read_stdout = String::new();
@@ -253,6 +148,45 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         .unwrap()
         .expect("sender session row")
         .pubkey;
+    let original_channel = receiver_scope.trim_start_matches('/');
+    let original_event = Store::open(&home.store_path())
+        .unwrap()
+        .chat_for_channel(original_channel, 0, u32::MAX)
+        .unwrap()
+        .into_iter()
+        .find(|event| event.content == wire_body)
+        .expect("original chat event");
+    Store::open(&home.store_path())
+        .unwrap()
+        .revoke_route_and_mark_absent(&sender_pubkey, original_channel, now + 1)
+        .expect("remove reply target's local route");
+    let reply_text = "reply parked without relay echo";
+    rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_reply",
+                serde_json::json!({
+                    "session": &receiver_pubkey,
+                    "id": original_event.id,
+                    "message": reply_text
+                }),
+            )
+            .await
+            .expect("reply to route-less local author");
+    });
+    let reply_store = Store::open(&home.store_path()).unwrap();
+    assert!(!reply_store
+        .has_session_route(&sender_pubkey, original_channel)
+        .unwrap());
+    assert!(
+        receiver_inbox_rows(&reply_store, &sender_pubkey)
+            .iter()
+            .any(|row| row.body.contains(reply_text)),
+        "local reply must park under the owned author even without a target route"
+    );
+    drop(reply_store);
+
     assert!(
         wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
             .map(|store| receiver_inbox_rows(&store, &receiver_pubkey)
@@ -318,8 +252,9 @@ fn channel_send_stdin_enqueues_live_channel_chat_for_receiver() {
         store
             .peek_pending_for_pubkey(&sender_pubkey)
             .unwrap()
-            .is_empty(),
-        "sender should not receive its own chat row"
+            .iter()
+            .all(|row| row.body != wire_body),
+        "sender should not receive its own original chat row"
     );
 
     stop_daemon(&home);

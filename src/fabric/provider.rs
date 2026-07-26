@@ -7,11 +7,12 @@ mod group_topology;
 mod materialization;
 mod membership_confirmation;
 mod profiles;
+mod publish_gate;
 mod reactions;
 mod readiness;
 
 use crate::domain::DomainEvent;
-use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate, ChannelReadiness};
+use crate::fabric::nip29::readiness::ChannelReadiness;
 use crate::fabric::nip29::wire::Nip29WireCodec;
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use crate::nmp_host::NmpHost;
@@ -102,21 +103,27 @@ impl Nip29Provider {
             });
             return Ok(event_id);
         }
-        if let Some(ch) = ev.channel() {
-            let agent_pubkey = keys.public_key().to_hex();
-            let parent = readiness::stored_parent_hint(self, ch)?;
-            let ctx = ChannelCtx {
-                channel: ch,
-                expect_member: &agent_pubkey,
-                parent_hint: parent.as_deref(),
-                name: None,
-                repair_whitelisted_admins: true,
-            };
-            if matches!(self.ensure_channel_ready(ctx).await, ChannelGate::Degraded) {
-                anyhow::bail!(
-                    "publish: channel {ch} is not verified (ChannelGate::Degraded) — refusing to publish into an unverified channel"
+        let signer = keys.public_key().to_hex();
+        match ev {
+            DomainEvent::Status(status) => {
+                let expired = matches!(
+                    status.expires_at,
+                    Some(expires_at) if expires_at <= crate::util::now_secs()
                 );
+                for channel in &status.channels {
+                    self.verify_publish_scope(channel, &signer, !expired)
+                        .await?;
+                }
             }
+            DomainEvent::ChatMessage(message) => {
+                self.verify_publish_scope(&message.channel, &signer, true)
+                    .await?;
+            }
+            DomainEvent::Reaction(reaction) => {
+                self.verify_publish_scope(&reaction.channel, &signer, true)
+                    .await?;
+            }
+            DomainEvent::Profile(_) => unreachable!("profiles return above"),
         }
         let builder = self.wire.encode(ev)?;
         if matches!(ev, DomainEvent::Status(_)) {

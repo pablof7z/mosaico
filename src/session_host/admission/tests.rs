@@ -74,7 +74,7 @@ async fn unscoped_reservation_has_no_channel_route() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(session.channel_h, "");
+    assert_eq!(session.work_root, "");
     assert!(state
         .with_store(|store| store.list_session_routes(&reservation.pubkey))
         .unwrap()

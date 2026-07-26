@@ -4,8 +4,10 @@
 //! because a row exists. Direct-message rows start `pending` (parked for the next
 //! hook), become `delivered` when surfaced by turn context, or `injected` when
 //! submitted through a hosted PTY as a prompt awaiting echo suppression. Consumed echoes
-//! become `echo_consumed`. Runtime ids are locators and never enter this ledger;
-//! orchestration and management replay guards live in `event_claims`.
+//! become `echo_consumed`. Direct delivery belongs to the exact recipient
+//! identity and is independent of that identity's ambient channel membership.
+//! Runtime ids are locators and never enter this ledger; orchestration and
+//! management replay guards live in `event_claims`.
 use super::*;
 
 const COLS: &str = "event_id, target_pubkey, state, from_pubkey, channel_h, body, created_at, \
@@ -27,6 +29,53 @@ fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
 }
 
 impl Store {
+    /// Atomically park one direct mention and its recipient edge. The target
+    /// pubkey has already been classified as daemon-owned by the caller; no
+    /// runtime, route, or channel-membership fact participates in persistence.
+    pub fn park_direct_mention(
+        &self,
+        event_id: &str,
+        target_pubkey: &str,
+        from_pubkey: &str,
+        channel_h: &str,
+        body: &str,
+        created_at: u64,
+    ) -> Result<bool> {
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO inbox
+                 (event_id, target_pubkey, state, from_pubkey, channel_h, body, created_at)
+             VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6)",
+            params![
+                event_id,
+                target_pubkey,
+                from_pubkey,
+                channel_h,
+                body,
+                created_at
+            ],
+        )? > 0;
+        transaction.execute(
+            "INSERT INTO message_recipients
+                 (message_id, recipient_pubkey, delivered_at)
+             VALUES (?1, ?2, 0)
+             ON CONFLICT(message_id, recipient_pubkey) DO NOTHING",
+            params![event_id, target_pubkey],
+        )?;
+        if inserted {
+            transaction.execute(
+                "UPDATE sessions SET idle_since=0, idle_deadline=0
+                 WHERE pubkey=?1 AND runtime_state='running'",
+                [target_pubkey],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(inserted)
+    }
+
     /// Record an inbound event addressed to a local agent pubkey. Idempotent: a
     /// duplicate `(event_id, target_pubkey)` is ignored. Returns `true` if newly
     /// enqueued.
