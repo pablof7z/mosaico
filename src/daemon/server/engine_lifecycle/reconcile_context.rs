@@ -52,11 +52,12 @@ pub(super) async fn restore_routes(state: &Arc<DaemonState>, session: &Session, 
                 repair_whitelisted_admins: true,
             })
             .await;
-        if matches!(gate, ChannelGate::Degraded) {
+        if let ChannelGate::Degraded(error) = gate {
             tracing::warn!(
                 pubkey = %session.pubkey,
                 agent = %session.agent_slug,
                 %channel,
+                error = %error,
                 "channel not verified ready on reconcile; retaining live session and retrying later"
             );
             continue;

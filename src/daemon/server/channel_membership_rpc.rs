@@ -77,14 +77,10 @@ pub(in crate::daemon::server) async fn ensure_joinable(
             .provider
             .grant_member_confirmed(channel_h, &rec.pubkey)
             .await;
-        if !added.is_confirmed() {
-            anyhow::bail!(
-                "agent {} is not a member of channel {:?} and could not be confirmed as added \
-                 (is the management key an admin of that channel?)",
-                rec.agent_slug,
-                channel_ref
-            );
-        }
+        added.require_confirmed(format!(
+            "joining agent {} to channel {}",
+            rec.agent_slug, channel_ref
+        ))?;
         refresh_channel_members_cache(state, channel_h).await;
     }
 
@@ -153,13 +149,10 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
             .provider
             .remove_member_confirmed(&channel, &rec.pubkey)
             .await;
-        if !removed.is_confirmed() {
-            anyhow::bail!(
-                "agent {} could not be confirmed as removed from channel {:?}",
-                rec.agent_slug,
-                channel_ref
-            );
-        }
+        removed.require_confirmed(format!(
+            "leaving agent {} from channel {}",
+            rec.agent_slug, channel_ref
+        ))?;
         state.with_store(|s| {
             s.revoke_route_and_mark_absent(&rec.pubkey, &channel, now_secs())
                 .unwrap_or(false)

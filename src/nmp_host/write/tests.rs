@@ -1,6 +1,8 @@
+use super::background_receipts::BackgroundWriteTerminalStatus;
 use super::*;
 use nostr::{EventBuilder, Kind, Tag};
 use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 #[tokio::test]
 async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
@@ -79,17 +81,105 @@ fn accepted_and_signed_is_enough_for_a_durable_enqueue() {
 }
 
 #[test]
-fn duplicate_rejection_counts_as_already_converged() {
+fn accepted_signed_and_acked_is_a_healthy_checked_write() {
     let (tx, rx) = mpsc::channel();
-    let id = EventId::from_slice(&[8; 32]).unwrap();
+    let id = EventId::from_slice(&[6; 32]).unwrap();
     let relay = RelayUrl::parse("wss://relay.example.com").unwrap();
     tx.send(WriteStatus::Accepted).unwrap();
     tx.send(WriteStatus::Signed(id)).unwrap();
-    tx.send(WriteStatus::Rejected(
-        relay,
-        "duplicate: already have event".into(),
-    ))
-    .unwrap();
+    tx.send(WriteStatus::Acked(relay)).unwrap();
 
     assert_eq!(wait_for_write_blocking(vec![rx], None, true).unwrap(), id);
+}
+
+#[test]
+fn terminal_failure_after_acceptance_and_signing_keeps_exact_detail() {
+    let (tx, rx) = mpsc::channel();
+    let id = EventId::from_slice(&[8; 32]).unwrap();
+    let detail = "durable-store persistence failure [fault=latched durability=absent reopen=required]: Previous I/O error occurred";
+    tx.send(WriteStatus::Accepted).unwrap();
+    tx.send(WriteStatus::Signed(id)).unwrap();
+    tx.send(WriteStatus::Failed(detail.into())).unwrap();
+
+    let error = wait_for_write_blocking(vec![rx], None, true).unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains(detail), "{rendered}");
+}
+
+#[test]
+fn partial_background_submission_retains_prior_receipts_and_exact_error() {
+    fn targeted(index: usize) -> BackgroundIntent {
+        let relay =
+            RelayUrl::parse(&format!("wss://relay-{index}.example.com")).expect("test relay URL");
+        let keys = Keys::generate();
+        let template = GroupTemplate {
+            group: "room".into(),
+            author: keys.public_key(),
+            created_at: nostr::Timestamp::from(7),
+            kind: 1,
+            content: "test".into(),
+            extra_tags: Vec::new(),
+        };
+        BackgroundIntent {
+            target: format!("{index}:{relay}"),
+            intent: group_intent(relay, template).unwrap(),
+        }
+    }
+
+    let (first_sender, first_receiver) = mpsc::channel();
+    let mut first_receiver = Some(first_receiver);
+    let mut call = 0;
+    let submission = collect_background_receivers(vec![targeted(0), targeted(1)], |_intent| {
+        call += 1;
+        if call == 1 {
+            Ok(first_receiver.take().unwrap())
+        } else {
+            Err(anyhow::anyhow!("Previous I/O error occurred").context(
+                "intent 1 durable-store persistence failure \
+                     [fault=latched durability=absent reopen=required]",
+            ))
+        }
+    });
+    let error = submission.error.expect("the second submission must fail");
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("fault=latched"), "{rendered}");
+    assert!(
+        rendered.contains("Previous I/O error occurred"),
+        "{rendered}"
+    );
+    assert_eq!(submission.receivers.len(), 1);
+
+    let observer = BackgroundReceiptObserver::start_with(2, 1, Duration::from_secs(1)).unwrap();
+    let id = EventId::from_slice(&[9; 32]).unwrap();
+    let permit = observer.reserve("status", id, 2).unwrap();
+    observer.submission_failed("status", id, &error);
+    first_sender
+        .send(WriteStatus::Failed("prior receipt retained".into()))
+        .unwrap();
+    observer
+        .observe(permit, "status", id, submission.receivers, false)
+        .unwrap();
+    observer.wait_idle();
+
+    let snapshot = observer.snapshot();
+    let failure = snapshot.last_failure.unwrap();
+    assert_eq!(failure.source_ref, id.to_hex());
+    assert_eq!(
+        failure.status,
+        BackgroundWriteTerminalStatus::SubmissionFailed
+    );
+    assert!(
+        failure.detail.contains("fault=latched"),
+        "{}",
+        failure.detail
+    );
+    assert!(
+        failure.detail.contains("Previous I/O error occurred"),
+        "{}",
+        failure.detail
+    );
+    assert!(snapshot.recent_failures.iter().any(|evidence| {
+        evidence.status == BackgroundWriteTerminalStatus::Failed
+            && evidence.detail == "prior receipt retained"
+    }));
 }

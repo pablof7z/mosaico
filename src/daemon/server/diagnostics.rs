@@ -7,14 +7,14 @@ pub(in crate::daemon::server) async fn rpc_doctor(
     let probe = state
         .keys_for(&state.hosted_pubkeys().first().cloned().unwrap_or_default())
         .map(|k| k.public_key().to_hex());
-    // The probe's wire shape lives in the provider; readers only see strings.
-    let (publish, readback) = state.provider.doctor_probe().await;
+    let write_probe = state.provider.doctor_probe().await;
+    let background_writes = state.nmp.background_write_snapshot();
     Ok(serde_json::json!({
         "storage": crate::daemon::storage_paths::StoragePaths::current(),
         "relays": relays,
         "probe_pubkey": probe,
-        "publish": publish,
-        "readback": readback,
+        "write_probe": write_probe,
+        "background_writes": background_writes,
     }))
 }
 
@@ -89,6 +89,10 @@ pub(in crate::daemon::server) fn log_nip29_role_decision(
         "nip29 role decision"
     );
 }
+
+#[cfg(test)]
+#[path = "diagnostics/tests.rs"]
+mod tests;
 
 /// `explain <handle>`: resolve a `scheme:value` handle against the receipts
 /// ledger. The store is daemon-owned, so the CLI reaches the pure

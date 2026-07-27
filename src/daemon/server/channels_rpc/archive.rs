@@ -51,8 +51,12 @@ pub(in crate::daemon::server) async fn archive_channel(
             .provider
             .remove_member_confirmed(channel, pubkey)
             .await;
-        if !outcome.is_confirmed() {
-            failures.push(format!("{}:{outcome:?}", crate::util::pubkey_short(pubkey)));
+        if let Err(error) = outcome.require_confirmed(format!(
+            "removing {} while archiving {}",
+            crate::util::pubkey_short(pubkey),
+            channel_ref
+        )) {
+            failures.push(format!("{error:#}"));
         }
     }
     if !failures.is_empty() {

@@ -90,21 +90,20 @@ async fn ensure_session_room_ready(
     if let Some(prog) = progress {
         prog.emit("nip29", format!("minting per-session room {channel}"));
     }
-    let provisioned = matches!(
-        tokio::time::timeout(
-            START_CHANNEL_READY_TIMEOUT,
-            ensure_session_room(state, channel, channel, parent, agent_pubkey),
+    let gate = tokio::time::timeout(
+        START_CHANNEL_READY_TIMEOUT,
+        ensure_session_room(state, channel, channel, parent, agent_pubkey),
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "per-session room {channel} readiness timed out after {}s",
+            START_CHANNEL_READY_TIMEOUT.as_secs()
         )
-        .await,
-        Ok(true)
-    );
-    if !provisioned {
-        anyhow::bail!(
-            "per-session room {channel} (parent {parent}) was not provisioned on the relay; \
-             channel readiness remains pending"
-        );
-    }
-    Ok(())
+    })?;
+    gate.require_ready(format!(
+        "per-session room {channel} below {parent} was not provisioned"
+    ))
 }
 
 async fn ensure_existing_channel_ready(
@@ -126,26 +125,25 @@ async fn ensure_existing_channel_ready(
         state.provider.ensure_channel_ready(ctx).await
     };
 
-    match tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open).await {
-        Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded) => {
-            anyhow::bail!(
-                "channel {channel} was not verified ready on the relay; \
-                 channel readiness remains pending"
-            );
-        }
-        Ok(_) => Ok(()),
-        Err(_) => {
-            anyhow::bail!(
-                "ensure_channel_ready timed out for channel {channel}; \
-                 channel readiness remains pending"
-            );
-        }
-    }
+    let gate = tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open)
+        .await
+        .with_context(|| {
+            format!(
+                "ensure_channel_ready timed out for channel {channel} after {}s",
+                START_CHANNEL_READY_TIMEOUT.as_secs()
+            )
+        })?;
+    gate.require_ready(format!(
+        "session start could not verify channel {channel} readiness"
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const FAILURE: &str =
+        "fault=latched durability=absent reopen=required: Previous I/O error occurred";
 
     #[tokio::test]
     async fn pending_nested_channel_keeps_its_immediate_parent() {
@@ -190,6 +188,38 @@ mod tests {
             session_parent_hint(&state, "new-room", "workspace", None, Some(&old)).unwrap(),
             "workspace",
             "an old channel's pending parent must not leak into a new channel"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_start_readiness_keeps_exact_checked_publish_failure() {
+        let state =
+            DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
+        state.nmp.script_read_events(Vec::new());
+        state
+            .nmp
+            .script_write_statuses(vec![nmp::WriteStatus::Failed(FAILURE.into())]);
+        state.nmp.script_read_events(Vec::new());
+
+        let error = verify_start_channel_ready(
+            &state,
+            "missing-root",
+            None,
+            None,
+            None,
+            &nostr::Keys::generate().public_key().to_hex(),
+        )
+        .await
+        .expect_err("session readiness must fail");
+        let rendered = format!("{error:#}");
+        assert!(rendered.contains(FAILURE), "{rendered}");
+        assert!(
+            rendered.contains("9007 create-group NMP publish failed"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("readiness remains pending"),
+            "{rendered}"
         );
     }
 }

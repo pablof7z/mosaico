@@ -1,0 +1,94 @@
+use super::*;
+use crate::reconcile::{PresenceProjection, PresenceSnapshot};
+use crate::session_state::SessionState;
+use std::collections::BTreeSet;
+
+#[tokio::test]
+async fn status_receipt_reaches_actual_doctor_rpc_json() {
+    let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
+    let keys = Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let management = state.backend_pubkey().unwrap();
+    let mut relay_state = group_state("project", &management);
+    relay_state[2] = event(
+        KIND_GROUP_MEMBERS,
+        vec![
+            Tag::parse(["d", "project"]).unwrap(),
+            Tag::parse(["p", pubkey.as_str()]).unwrap(),
+        ],
+    );
+    state.nmp.script_read_events(relay_state);
+    state.nmp.script_write_statuses(vec![WriteStatus::Failed(
+        SCRIPTED_CLASSIFIED_FAILURE.into(),
+    )]);
+
+    let now = crate::util::now_secs();
+    crate::presence_publisher::drive(
+        &state.reconcilers.status,
+        &state.reconcilers.presence_publisher,
+        &keys,
+        crate::presence_publisher::DriveMeta {
+            trigger: "doctor-corpus",
+        },
+        |status| {
+            status.open(
+                &pubkey,
+                1,
+                PresenceSnapshot {
+                    host: "test-host".into(),
+                    workspace: "project".into(),
+                    slug: "status-corpus".into(),
+                    rel_cwd: ".".into(),
+                    dispatch_event: None,
+                    projection: PresenceProjection {
+                        channels: BTreeSet::from(["project".into()]),
+                        branch: "fix/701-operator-visibility".into(),
+                        state: SessionState::Working,
+                        state_since: now,
+                        title: "Proving status receipt provenance".into(),
+                    },
+                },
+                now,
+            )
+        },
+    );
+    let source_ref = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let artifact = state
+                .with_store(|store| store.latest_receipts_for_surface("status", 1))
+                .unwrap()
+                .into_iter()
+                .next()
+                .and_then(|receipt| receipt.artifact_ref);
+            if let Some(artifact) = artifact {
+                break artifact;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("presence publisher status receipt");
+    state.nmp.wait_background_receipts();
+
+    state.nmp.script_read_events(Vec::new());
+    let response = super::super::super::dispatch(
+        &state,
+        &Request {
+            id: 705,
+            method: "doctor".into(),
+            params: serde_json::json!({}),
+        },
+    )
+    .await;
+    let json = response.ok.expect("doctor RPC response");
+    let failure = &json["background_writes"]["last_failure"];
+    assert_eq!(failure["status"], "failed");
+    assert_eq!(failure["operation"], "status");
+    assert_eq!(failure["source_ref"], source_ref);
+    assert_eq!(failure["target"], format!("0:{RELAY}"));
+    assert_eq!(failure["detail"], SCRIPTED_CLASSIFIED_FAILURE);
+    eprintln!(
+        "CORPUS_STATUS_DOCTOR_JSON={}",
+        serde_json::to_string(&json).unwrap()
+    );
+}

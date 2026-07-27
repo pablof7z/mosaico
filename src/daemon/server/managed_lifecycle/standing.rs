@@ -244,7 +244,7 @@ async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) 
             ),
         )
         .await,
-        Ok(gate) if !matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded)
+        Ok(gate) if gate.is_ready()
     );
     if !confirmed {
         tracing::warn!(pubkey = %session.pubkey, %channel, "running session standing remains retryable");

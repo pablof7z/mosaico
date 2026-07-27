@@ -220,24 +220,24 @@ pub(super) async fn ensure_backend_admin(
             name: None,
             repair_whitelisted_admins: true,
         });
-    let gate = match tokio::time::timeout(BACKEND_ADMIN_READY_TIMEOUT, ready).await {
-        Ok(gate) => gate,
-        Err(_) => crate::fabric::nip29::readiness::ChannelGate::Degraded,
-    };
-    if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        anyhow::bail!("channel {channel} is not ready for remote invite");
-    }
+    let gate = tokio::time::timeout(BACKEND_ADMIN_READY_TIMEOUT, ready)
+        .await
+        .with_context(|| {
+            format!(
+                "channel {channel} readiness timed out after {}s",
+                BACKEND_ADMIN_READY_TIMEOUT.as_secs()
+            )
+        })?;
+    gate.require_ready(format!("preparing channel {channel} for remote invite"))?;
     let confirmed = state
         .provider
         .grant_admin_confirmed(channel_h, backend_pubkey)
         .await;
-    if confirmed.is_confirmed() {
-        return Ok(());
-    }
-    anyhow::bail!(
-        "backend {} was not confirmed as an admin of channel {channel}",
-        crate::util::pubkey_short(backend_pubkey)
-    )
+    confirmed.require_confirmed(format!(
+        "granting backend {} access to channel {}",
+        crate::util::pubkey_short(backend_pubkey),
+        channel
+    ))
 }
 
 async fn publish_invite_orchestration(

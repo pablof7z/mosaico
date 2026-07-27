@@ -59,16 +59,20 @@ pub(super) fn schedule_channel_ready(
                     }
                 }
             }
-            Err(e) => {
+            Err(error) => {
                 tracing::warn!(
                     pubkey,
                     channel = %check.channel_h,
-                    error = %e,
+                    error = %render_channel_ready_failure(&error),
                     "session_start channel readiness work failed"
                 );
             }
         }
     });
+}
+
+fn render_channel_ready_failure(error: &anyhow::Error) -> String {
+    format!("{error:#}")
 }
 
 async fn publish_host_profile_if_root(state: &Arc<DaemonState>, channel_h: &str) {
@@ -96,4 +100,48 @@ pub(super) fn schedule_replay_chat(state: Arc<DaemonState>, channel: String) {
     tokio::spawn(async move {
         replay_channel_chat(&state, &channel).await;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Scripted future-classified receipt matching newer NMP behavior. The
+    // pinned NMP revision cannot originate this classification itself.
+    const SCRIPTED_CLASSIFIED_FAILURE: &str =
+        "fault=latched durability=absent reopen=required: Previous I/O error occurred";
+
+    #[tokio::test]
+    async fn nonblocking_readiness_sink_renders_complete_failure_chain_once() {
+        let state =
+            DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
+        state.nmp.script_read_events(Vec::new());
+        state
+            .nmp
+            .script_write_statuses(vec![nmp::WriteStatus::Failed(
+                SCRIPTED_CLASSIFIED_FAILURE.into(),
+            )]);
+        state.nmp.script_read_events(Vec::new());
+
+        let error = channel_ready::verify_start_channel_ready(
+            &state,
+            "missing-root",
+            None,
+            None,
+            None,
+            &nostr::Keys::generate().public_key().to_hex(),
+        )
+        .await
+        .expect_err("background readiness work must fail");
+        let rendered = render_channel_ready_failure(&error);
+        assert_eq!(
+            rendered.matches(SCRIPTED_CLASSIFIED_FAILURE).count(),
+            1,
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("9007 create-group NMP publish failed"),
+            "{rendered}"
+        );
+    }
 }

@@ -24,9 +24,12 @@ use crate::reconcile::{SubEffect, SubscriptionQuery};
 mod auth;
 pub(crate) mod read;
 mod scrub;
+#[cfg(test)]
+mod test_io;
 mod write;
 
 use auth::IdentityRegistration;
+use write::BackgroundReceiptObserver;
 
 const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
@@ -40,6 +43,9 @@ pub(crate) struct NmpHost {
     subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
     materialization_tx: Mutex<Option<mpsc::Sender<nostr::Event>>>,
     materialization_rx: Mutex<Option<mpsc::Receiver<nostr::Event>>>,
+    background_receipts: BackgroundReceiptObserver,
+    #[cfg(test)]
+    test_io: test_io::TestIo,
 }
 
 impl NmpHost {
@@ -79,6 +85,7 @@ impl NmpHost {
         let engine = Engine::new(config).context("starting NMP engine")?;
         let (materialization_tx, materialization_rx) =
             mpsc::channel(MATERIALIZATION_QUEUE_CAPACITY);
+        let background_receipts = BackgroundReceiptObserver::start()?;
         let host = Self {
             engine,
             relays: parsed,
@@ -88,6 +95,9 @@ impl NmpHost {
             subscriptions: Mutex::new(BTreeMap::new()),
             materialization_tx: Mutex::new(Some(materialization_tx)),
             materialization_rx: Mutex::new(Some(materialization_rx)),
+            background_receipts,
+            #[cfg(test)]
+            test_io: test_io::TestIo::default(),
         };
         host.ensure_identity(backend_keys)
             .context("registering backend NIP-42 identity")?;
@@ -135,7 +145,9 @@ impl NmpHost {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take();
+        self.background_receipts.begin_shutdown();
         self.engine.shutdown();
+        self.background_receipts.shutdown();
     }
 
     pub(crate) fn apply(&self, effect: &SubEffect) -> Result<()> {

@@ -46,15 +46,15 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
             .provider
             .remove_member_confirmed(&channel, pubkey)
             .await;
-        if !outcome.is_confirmed() {
+        if let Err(error) =
+            outcome.require_confirmed(format!("removing revoked session from {}", public_channel))
+        {
             tracing::warn!(
                 channel = %channel,
-                ?outcome,
+                error = %format!("{error:#}"),
                 "revoked-session membership removal was not confirmed"
             );
-            failures.push(format!(
-                "{public_channel}: membership removal was not confirmed"
-            ));
+            failures.push(format!("{error:#}"));
         } else if let Some(standing) = standing {
             if let Err(error) = state.with_store(|store| {
                 store.mark_member_standing_absent_if_epoch(

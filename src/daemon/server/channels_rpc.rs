@@ -9,7 +9,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     name: &str,
     parent: &str,
     member_pubkey: &str,
-) -> bool {
+) -> crate::fabric::nip29::readiness::ChannelGate {
     // Provision the room through the SAME shared primitive every channel uses
     // (per-session rooms, orchestration task rooms, operator-created channels):
     // ensure the parent channel exists (recursively), create+lock the subgroup,
@@ -33,7 +33,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     // The channel `name` is set ONLY at create (or explicit edit) — never from a
     // session's agent-supplied title — so there is no room auto-rename here.
 
-    !matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded)
+    gate
 }
 
 pub(in crate::daemon::server) async fn rpc_channel_create(
@@ -153,27 +153,19 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             name: Some(&name),
             repair_whitelisted_admins: true,
         });
-    let gate = match tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready).await {
-        Ok(gate) => gate,
-        Err(_) => {
-            tracing::warn!(
-                channel = %child_h,
-                parent = %parent,
-                timeout_secs = CHANNEL_CREATE_READY_TIMEOUT.as_secs(),
-                "channel_create readiness timed out"
-            );
-            crate::fabric::nip29::readiness::ChannelGate::Degraded
-        }
-    };
-    if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        let parent_ref = state
-            .with_store(|store| super::channel_resolve::channel_reference_for(store, &parent))?;
-        anyhow::bail!(
-            "relay did not provision the new child of {parent_ref} within {}s; does the relay \
-             support NIP-29 subgroups and is the signing key an admin?",
-            CHANNEL_CREATE_READY_TIMEOUT.as_secs()
-        );
-    }
+    let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
+        .await
+        .with_context(|| {
+            format!(
+                "channel_create timed out provisioning {name:?} after {}s",
+                CHANNEL_CREATE_READY_TIMEOUT.as_secs()
+            )
+        })?;
+    let parent_ref =
+        state.with_store(|store| super::channel_resolve::channel_reference_for(store, &parent))?;
+    gate.require_ready(format!(
+        "channel_create could not provision {name:?} below {parent_ref}"
+    ))?;
     if let Some(rec) = creator_rec.as_ref() {
         let recorded = super::managed_lifecycle::commit_confirmed_admission(
             state,

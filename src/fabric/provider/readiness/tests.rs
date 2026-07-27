@@ -41,7 +41,7 @@ fn context<'a>(expect_member: &'a str, parent_hint: Option<&'a str>) -> ChannelC
 fn materialized_relay_cache_proves_existing_member_ready() {
     let (_dir, store) = ready_store("", &["admin"], &["member"]);
 
-    assert!(store_locally_materialized_ready(
+    assert!(local::store_ready(
         &store,
         &context("member", None),
         &["admin".to_string()]
@@ -52,7 +52,7 @@ fn materialized_relay_cache_proves_existing_member_ready() {
 fn materialized_relay_cache_does_not_prove_missing_member_ready() {
     let (_dir, store) = ready_store("", &["admin"], &["member"]);
 
-    assert!(!store_locally_materialized_ready(
+    assert!(!local::store_ready(
         &store,
         &context("other", None),
         &["admin".to_string()]
@@ -63,7 +63,7 @@ fn materialized_relay_cache_does_not_prove_missing_member_ready() {
 fn materialized_relay_cache_does_not_prove_missing_admin_ready() {
     let (_dir, store) = ready_store("", &["other-admin"], &["member"]);
 
-    assert!(!store_locally_materialized_ready(
+    assert!(!local::store_ready(
         &store,
         &context("member", None),
         &["admin".to_string()]
@@ -74,7 +74,7 @@ fn materialized_relay_cache_does_not_prove_missing_admin_ready() {
 fn materialized_subgroup_needs_relay_parent_consent_check() {
     let (_dir, store) = ready_store("parent", &["admin"], &["member"]);
 
-    assert!(!store_locally_materialized_ready(
+    assert!(!local::store_ready(
         &store,
         &context("member", Some("parent")),
         &["admin".to_string()]

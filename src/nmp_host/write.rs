@@ -11,7 +11,13 @@ use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
 use super::scrub::scrub_unsigned;
 use super::NmpHost;
 
+mod background_receipts;
+mod background_submit;
 mod receipt;
+pub(crate) use background_receipts::BackgroundReceiptObserver;
+pub(crate) use background_receipts::BackgroundWriteSnapshot;
+#[cfg(test)]
+use background_submit::{collect_background_receivers, BackgroundIntent};
 use receipt::wait_for_write;
 #[cfg(test)]
 use receipt::wait_for_write_blocking;
@@ -95,55 +101,6 @@ impl NmpHost {
         wait_for_write(receivers, Some(event.id), checked).await
     }
 
-    /// Persist a signed group event behind NMP's crash-atomic acceptance door.
-    /// Returns without waiting for signing, routing, relay I/O, or an ACK.
-    pub(crate) fn enqueue_group_event(&self, event: &Event) -> Result<EventId> {
-        drop(self.submit_signed_group(event)?);
-        Ok(event.id)
-    }
-
-    /// Persist a kind:0 copy for every configured app/indexer relay. Profile
-    /// Profile delivery has the same durable, independently-drained contract
-    /// as every group write.
-    pub(crate) fn enqueue_profile_event(&self, event: &Event) -> Result<EventId> {
-        if event.kind.as_u16() != 0 {
-            anyhow::bail!(
-                "profile enqueue requires kind:0, got {}",
-                event.kind.as_u16()
-            );
-        }
-        let intents = self
-            .profile_relays
-            .iter()
-            .cloned()
-            .map(|relay| WriteIntent {
-                payload: WritePayload::Signed(event.clone()),
-                durability: Durability::Durable,
-                routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(relay)),
-                identity_override: Some(event.pubkey),
-            })
-            .collect::<Vec<_>>();
-        drop(self.submit_intents(intents, "submitting profile NMP write")?);
-        Ok(event.id)
-    }
-
-    fn submit_signed_group(&self, event: &Event) -> Result<Vec<Receiver<WriteStatus>>> {
-        crate::relay_log::log_outgoing_event(event);
-        let template = event_template(event)?;
-        let intents = self
-            .relays
-            .iter()
-            .cloned()
-            .map(|relay| {
-                let mut intent = group_intent(relay, template.clone())?;
-                intent.payload = WritePayload::Signed(event.clone());
-                intent.identity_override = Some(event.pubkey);
-                Ok(intent)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        self.submit_intents(intents, "submitting signed NMP write")
-    }
-
     /// The sole Mosaico -> NMP publication choke-point. `Engine::publish`
     /// synchronously confirms local durable acceptance and leaves all relay
     /// effects to NMP's independent retrying worker.
@@ -154,10 +111,22 @@ impl NmpHost {
     ) -> Result<Vec<Receiver<WriteStatus>>> {
         let receivers = intents
             .into_iter()
-            .map(|intent| self.engine.publish(intent).context(context))
+            .map(|intent| self.publish_intent(intent, context))
             .collect::<Result<Vec<_>>>()?;
         require_configured_host(&receivers)?;
         Ok(receivers)
+    }
+
+    fn publish_intent(
+        &self,
+        intent: WriteIntent,
+        context: &'static str,
+    ) -> Result<Receiver<WriteStatus>> {
+        #[cfg(test)]
+        if let Some(result) = self.test_io.take_write() {
+            return result.context(context);
+        }
+        self.engine.publish(intent).context(context)
     }
 
     fn publish_group_unsigned(
