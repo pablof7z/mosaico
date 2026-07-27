@@ -42,6 +42,10 @@ impl NmpHost {
         max_rows: usize,
         timeout: Duration,
     ) -> Result<Vec<Event>> {
+        #[cfg(test)]
+        if let Some(result) = self.test_io.take_read() {
+            return result;
+        }
         let bound = NonZeroUsize::new(max_rows).context("NMP read bound must be non-zero")?;
         // The window owns the result bound. NMP rejects a competing NIP-01 limit.
         filter.limit = None;

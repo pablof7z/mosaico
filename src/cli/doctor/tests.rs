@@ -35,22 +35,31 @@ fn removed_debug_doctor_spelling_is_rejected() {
 }
 
 #[test]
-fn valid_readback_requires_at_least_one_event() {
-    assert!(readback_healthy("1 event(s) with #t=probe"));
-    assert!(!readback_healthy("0 event(s) with #t=probe"));
-    assert!(!readback_healthy("ERR relay unavailable"));
-}
-
-#[test]
 fn skipped_probe_is_an_onboarding_warning_without_repair() {
-    let check = relay_check(
+    let check = probe_check(
         "relay.publish",
-        "SKIP no authorized materialized group",
-        false,
+        &serde_json::json!({
+            "status": "skipped",
+            "summary": "no authorized materialized group"
+        }),
         "repair relay",
     );
     assert_eq!(check.status, CheckStatus::Warning);
     assert!(check.repair.is_none());
+}
+
+#[test]
+fn structured_failed_probe_is_an_error_without_display_parsing() {
+    let check = probe_check(
+        "relay.publish",
+        &serde_json::json!({
+            "status": "failed",
+            "summary": "Previous I/O error occurred"
+        }),
+        "repair relay",
+    );
+    assert_eq!(check.status, CheckStatus::Error);
+    assert_eq!(check.summary, "Previous I/O error occurred");
 }
 
 #[test]

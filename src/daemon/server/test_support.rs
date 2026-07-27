@@ -2,16 +2,23 @@ use super::*;
 
 impl DaemonState {
     pub(crate) async fn new_for_test() -> Arc<DaemonState> {
-        Self::new_for_test_with(Vec::new()).await
+        Self::new_for_test_with(Vec::new(), Vec::new()).await
     }
 
     pub(crate) async fn new_for_test_with_whitelisted(
         whitelisted_pubkeys: Vec<String>,
     ) -> Arc<DaemonState> {
-        Self::new_for_test_with(whitelisted_pubkeys).await
+        Self::new_for_test_with(whitelisted_pubkeys, Vec::new()).await
     }
 
-    async fn new_for_test_with(whitelisted_pubkeys: Vec<String>) -> Arc<DaemonState> {
+    pub(crate) async fn new_for_test_with_relays(relays: Vec<String>) -> Arc<DaemonState> {
+        Self::new_for_test_with(Vec::new(), relays).await
+    }
+
+    async fn new_for_test_with(
+        whitelisted_pubkeys: Vec<String>,
+        relays: Vec<String>,
+    ) -> Arc<DaemonState> {
         let backend_keys = Keys::generate();
         let backend_key = backend_keys.secret_key().to_secret_hex();
         let installed_harnesses = crate::harness::HarnessesConfig::load()
@@ -27,7 +34,7 @@ impl DaemonState {
             });
         let cfg = Config {
             whitelisted_pubkeys,
-            relays: Vec::new(),
+            relays: relays.clone(),
             indexer_relay: String::new(),
             host: "test-host".into(),
             user_nsec: None,
@@ -38,7 +45,7 @@ impl DaemonState {
         let owners = cfg.whitelisted_pubkeys.clone();
         let store = Arc::new(Mutex::new(Store::open_memory().expect("in-memory store")));
         let nmp = Arc::new(
-            crate::nmp_host::NmpHost::open(&[], None, None, &backend_keys)
+            crate::nmp_host::NmpHost::open(&relays, None, None, &backend_keys)
                 .expect("in-memory NMP engine"),
         );
         let provider = Arc::new(Nip29Provider::new(

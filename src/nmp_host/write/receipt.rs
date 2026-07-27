@@ -28,7 +28,7 @@ pub(super) fn wait_for_write_blocking(
     let mut accepted = vec![false; receivers.len()];
     let mut closed = vec![false; receivers.len()];
     let mut event_id = known_id;
-    let mut last_status = String::new();
+    let mut last_failure = None;
     loop {
         for (index, receiver) in receivers.iter().enumerate() {
             if closed[index] {
@@ -41,21 +41,32 @@ pub(super) fn wait_for_write_blocking(
                     return event_id.context("NMP acknowledged a write before reporting its id");
                 }
                 Ok(WriteStatus::Failed(reason)) => {
-                    last_status = format!("failed: {reason}");
-                    closed[index] = true;
+                    anyhow::bail!("NMP write failed: {reason}");
                 }
                 Ok(WriteStatus::Rejected(relay, reason)) => {
-                    if reason.to_ascii_lowercase().contains("duplicate") {
-                        return event_id.context("duplicate NMP write did not report its id");
-                    }
-                    last_status = format!("rejected by {relay}: {reason}");
+                    last_failure = Some(format!("rejected by {relay}: {reason}"));
                     closed[index] = true;
                 }
                 Ok(WriteStatus::GaveUp(relay)) => {
-                    last_status = format!("gave up delivering to {relay}");
+                    last_failure = Some(format!("gave up delivering to {relay}"));
                     closed[index] = true;
                 }
-                Ok(status) => last_status = format!("{status:?}"),
+                Ok(WriteStatus::PersistenceBlocked(relay)) => {
+                    last_failure = Some(format!("persistence blocked for {relay}"));
+                }
+                Ok(WriteStatus::RoutePersistenceBlocked(relay)) => {
+                    last_failure = Some(format!("route persistence blocked for {relay}"));
+                }
+                Ok(WriteStatus::OutcomeUnknown(relay)) => {
+                    last_failure = Some(format!("delivery outcome unknown for {relay}"));
+                    closed[index] = true;
+                }
+                Ok(WriteStatus::ReplaceableConflict { expected, actual }) => {
+                    anyhow::bail!(
+                        "NMP replaceable write conflicted (expected {expected:?}, actual {actual:?})"
+                    );
+                }
+                Ok(_) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => closed[index] = true,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             }
@@ -70,10 +81,14 @@ pub(super) fn wait_for_write_blocking(
             }
         }
         if closed.iter().all(|closed| *closed) {
-            anyhow::bail!("NMP write ended without a relay acknowledgement ({last_status})");
+            let detail = last_failure.as_deref().unwrap_or("receipt streams closed");
+            anyhow::bail!("NMP write ended without a relay acknowledgement ({detail})");
         }
         if Instant::now() >= deadline {
-            anyhow::bail!("timed out waiting for NMP write receipt ({last_status})");
+            let detail = last_failure
+                .as_deref()
+                .unwrap_or("no terminal failure observed");
+            anyhow::bail!("timed out waiting for NMP write receipt ({detail})");
         }
     }
 }

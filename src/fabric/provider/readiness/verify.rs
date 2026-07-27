@@ -1,9 +1,11 @@
-use super::{attempt, ChannelCtx, Nip29Provider};
+use super::{ChannelCtx, Nip29Provider};
+use crate::fabric::group_management::GroupMutationOutcome;
+use crate::fabric::nip29::readiness::ChannelReadinessError;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct Outcome {
     pub(super) repaired: bool,
-    pub(super) degraded_reason: Option<String>,
+    pub(super) degraded: Option<ChannelReadinessError>,
 }
 
 pub(super) async fn ensure_invariants(
@@ -15,7 +17,6 @@ pub(super) async fn ensure_invariants(
     members: &HashSet<String>,
 ) -> Outcome {
     let mut repaired = false;
-    let mut failures = Vec::new();
     let mut required_admins: Vec<String> = vec![mgmt_pubkey.to_string()];
     if ctx.repair_whitelisted_admins {
         required_admins.extend(provider.whitelisted_pubkeys.iter().cloned());
@@ -29,30 +30,23 @@ pub(super) async fn ensure_invariants(
         if roles.get(pk.as_str()).map(String::as_str) == Some("admin") {
             continue;
         }
-        if provider
-            .grant_admin_confirmed(ctx.channel, pk)
-            .await
-            .is_confirmed()
-        {
-            repaired = true;
-        } else {
-            eprintln!(
-                "[daemon] ensure_channel_ready: admin grant for {pk} in {:?} not confirmed on the relay",
-                ctx.channel
-            );
-            failures.push(format!("admin grant for {pk} not confirmed"));
+        match confirmed(
+            provider.grant_admin_confirmed(ctx.channel, pk).await,
+            format!("admin grant for {pk} in {}", ctx.channel),
+        ) {
+            Ok(()) => repaired = true,
+            Err(error) => {
+                return Outcome {
+                    repaired,
+                    degraded: Some(error),
+                };
+            }
         }
-    }
-    if !failures.is_empty() {
-        return Outcome {
-            repaired,
-            degraded_reason: Some(attempt::reason(&failures)),
-        };
     }
     if ctx.expect_member.is_empty() {
         return Outcome {
             repaired,
-            degraded_reason: None,
+            degraded: None,
         };
     }
 
@@ -66,28 +60,38 @@ pub(super) async fn ensure_invariants(
         && !members.contains(ctx.expect_member)
         && !roles.contains_key(ctx.expect_member)
     {
-        if provider
-            .grant_member_confirmed(ctx.channel, ctx.expect_member)
-            .await
-            .is_confirmed()
-        {
-            repaired = true;
-        } else {
-            eprintln!(
-                "[daemon] ensure_channel_ready: member add for {} in {:?} not confirmed on the relay",
-                ctx.expect_member, ctx.channel
-            );
-            failures.push(format!(
-                "member add for {} not confirmed",
-                ctx.expect_member
-            ));
+        match confirmed(
+            provider
+                .grant_member_confirmed(ctx.channel, ctx.expect_member)
+                .await,
+            format!("member grant for {} in {}", ctx.expect_member, ctx.channel),
+        ) {
+            Ok(()) => repaired = true,
+            Err(error) => {
+                return Outcome {
+                    repaired,
+                    degraded: Some(error),
+                };
+            }
         }
     } else {
         sync_local_member_mirror(provider, ctx, roles);
     }
     Outcome {
         repaired,
-        degraded_reason: (!failures.is_empty()).then(|| attempt::reason(&failures)),
+        degraded: None,
+    }
+}
+
+fn confirmed(outcome: GroupMutationOutcome, action: String) -> Result<(), ChannelReadinessError> {
+    match outcome {
+        GroupMutationOutcome::Confirmed => Ok(()),
+        GroupMutationOutcome::Unconfirmed { detail } => Err(ChannelReadinessError::reason(
+            format!("{action} was not confirmed: {detail}"),
+        )),
+        GroupMutationOutcome::Failed(error) => {
+            Err(ChannelReadinessError::from(error).context(action))
+        }
     }
 }
 

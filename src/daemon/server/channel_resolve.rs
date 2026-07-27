@@ -87,9 +87,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     // materialize), so there is no real id to hand back. Returning `child_h` here
     // would point callers at a channel with no `relay_channels` row — exactly the
     // phantom-state the relay-sourced rule forbids.
-    if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        anyhow::bail!("relay did not provision channel {name:?}; its metadata never materialized");
-    }
+    gate.require_ready(format!("relay did not provision channel {name:?}"))?;
     if let Err(e) = ensure_subscription(state, &child_h).await {
         tracing::warn!(
             channel = %child_h,

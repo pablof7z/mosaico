@@ -1,5 +1,6 @@
 //! Agent-usable health diagnosis and safe repair for a Mosaico installation.
 
+mod background;
 mod config;
 mod render;
 mod repair;
@@ -239,26 +240,23 @@ async fn inspect_daemon(checks: &mut Vec<Check>) {
         }
     };
     checks.push(Check::new(
-        "daemon",
+        "daemon.rpc",
         CheckStatus::Ok,
-        "daemon is running and compatible",
+        "daemon RPC is running and protocol-compatible",
     ));
     match client.call("doctor", serde_json::json!({})).await {
         Ok(probe) => {
-            let publish = probe["publish"].as_str().unwrap_or("missing result");
-            checks.push(relay_check(
+            checks.push(probe_check(
                 "relay.publish",
-                publish,
-                publish.starts_with("OK ("),
+                &probe["write_probe"]["publish"],
                 "verify relay reachability, authorization, and the relays in config.json",
             ));
-            let readback = probe["readback"].as_str().unwrap_or("missing result");
-            checks.push(relay_check(
+            checks.push(probe_check(
                 "relay.readback",
-                readback,
-                readback_healthy(readback),
+                &probe["write_probe"]["readback"],
                 "verify relay read access and retry after connectivity is restored",
             ));
+            background::inspect(&probe["background_writes"], checks);
         }
         Err(error) => checks.push(Check::new(
             "relay.probe",
@@ -268,13 +266,20 @@ async fn inspect_daemon(checks: &mut Vec<Check>) {
     }
 }
 
-fn relay_check(name: &str, summary: &str, healthy: bool, repair: &str) -> Check {
-    let status = if healthy {
-        CheckStatus::Ok
-    } else if summary.starts_with("SKIP ") {
-        CheckStatus::Warning
-    } else {
-        CheckStatus::Error
+fn probe_check(name: &str, step: &serde_json::Value, repair: &str) -> Check {
+    let summary = step["summary"].as_str().unwrap_or("missing probe summary");
+    let status = match step["status"].as_str() {
+        Some("verified") => CheckStatus::Ok,
+        Some("skipped") => CheckStatus::Warning,
+        Some("failed") | None => CheckStatus::Error,
+        Some(other) => {
+            return Check::new(
+                name,
+                CheckStatus::Error,
+                format!("unknown probe status {other:?}: {summary}"),
+            )
+            .repair(repair);
+        }
     };
     let check = Check::new(name, status, summary);
     if status == CheckStatus::Error {
@@ -282,14 +287,6 @@ fn relay_check(name: &str, summary: &str, healthy: bool, repair: &str) -> Check 
     } else {
         check
     }
-}
-
-fn readback_healthy(value: &str) -> bool {
-    value
-        .split_whitespace()
-        .next()
-        .and_then(|count| count.parse::<usize>().ok())
-        .is_some_and(|count| count > 0)
 }
 
 #[cfg(test)]

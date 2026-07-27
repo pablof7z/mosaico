@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
+
+use crate::fabric::group_management::GroupOperationError;
 
 /// How long a channel stays verified without a re-check (5 min). Lease renewals
 /// fire every 30 s; only the first one per window hits the relay.
@@ -30,7 +33,7 @@ pub struct ChannelCtx<'a> {
 
 /// Outcome of a readiness check.
 #[derive(Debug)]
-pub enum ChannelGate {
+pub(crate) enum ChannelGate {
     /// Channel was already ready; nothing touched.
     Ready,
     /// Channel was missing, incomplete, or needed repairs; corrected.
@@ -41,7 +44,69 @@ pub enum ChannelGate {
     /// the channel (no longer fail-open: publishing into an unverified channel
     /// would risk writing against a group whose existence/membership we could not
     /// confirm against relay truth).
-    Degraded,
+    Degraded(ChannelReadinessError),
+}
+
+#[derive(Debug)]
+pub(crate) enum ChannelReadinessError {
+    Reason(String),
+    Group(GroupOperationError),
+    Context {
+        context: String,
+        source: Box<ChannelReadinessError>,
+    },
+}
+
+impl ChannelReadinessError {
+    pub(crate) fn reason(reason: impl Into<String>) -> Self {
+        Self::Reason(reason.into())
+    }
+
+    pub(crate) fn context(self, context: impl Into<String>) -> Self {
+        Self::Context {
+            context: context.into(),
+            source: Box::new(self),
+        }
+    }
+}
+
+impl From<GroupOperationError> for ChannelReadinessError {
+    fn from(error: GroupOperationError) -> Self {
+        Self::Group(error)
+    }
+}
+
+impl fmt::Display for ChannelReadinessError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Reason(reason) => formatter.write_str(reason),
+            Self::Group(_) => formatter.write_str("channel readiness group operation failed"),
+            Self::Context { context, .. } => formatter.write_str(context),
+        }
+    }
+}
+
+impl std::error::Error for ChannelReadinessError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Group(error) => Some(error),
+            Self::Context { source, .. } => Some(source),
+            Self::Reason(_) => None,
+        }
+    }
+}
+
+impl ChannelGate {
+    pub(crate) fn require_ready(self, action: impl fmt::Display) -> anyhow::Result<()> {
+        match self {
+            Self::Ready | Self::Repaired => Ok(()),
+            Self::Degraded(error) => Err(anyhow::Error::new(error).context(action.to_string())),
+        }
+    }
+
+    pub(crate) fn is_ready(&self) -> bool {
+        !matches!(self, Self::Degraded(_))
+    }
 }
 
 /// Resolve a soft host-local parent hint without overriding relay truth.
@@ -143,92 +208,5 @@ impl ChannelReadiness {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_invalidation_clears_all_members_for_that_channel_only() {
-        let readiness = ChannelReadiness::default();
-        readiness.mark_ready("chan-a", "alice");
-        readiness.mark_ready("chan-a", "bob");
-        readiness.mark_ready("chan-b", "alice");
-
-        readiness.invalidate_channel("chan-a");
-
-        assert!(!readiness.check("chan-a", "alice").0);
-        assert!(!readiness.check("chan-a", "bob").0);
-        assert!(readiness.check("chan-b", "alice").0);
-    }
-
-    #[test]
-    fn relay_parent_state_precedes_pending_host_context() {
-        assert_eq!(
-            effective_parent_hint(Some("relay-parent".into()), Some("host-parent"), "room"),
-            Some("relay-parent".into())
-        );
-        assert_eq!(
-            effective_parent_hint(Some(String::new()), Some("host-parent"), "room"),
-            None,
-            "an observed relay root must suppress the fallback"
-        );
-        assert_eq!(
-            effective_parent_hint(None, Some("host-parent"), "room"),
-            Some("host-parent".into())
-        );
-    }
-
-    /// The invite RPC's `ensure_backend_admin` wraps its readiness future in a
-    /// bounded `tokio::time::timeout`, mapping an elapsed timeout to
-    /// `ChannelGate::Degraded` (then a bail) so an unreachable relay can never
-    /// wedge the invite call — and the client connection with it — forever.
-    ///
-    /// The full function needs an `Arc<DaemonState>` + a live/fake relay provider,
-    /// so it is exercised end-to-end only by an integration test. This isolates
-    /// the timeout-wrapping contract it depends on: a never-ready readiness future
-    /// must ELAPSE into `Degraded` rather than hang, and `Degraded` must produce a
-    /// bounded error rather than a stall.
-    #[tokio::test]
-    async fn timeout_wrapping_maps_stalled_readiness_to_degraded_bail() {
-        use std::time::Duration;
-
-        // Mirror the production wrapper exactly: run a readiness future under a
-        // bounded timeout, map an elapsed timeout to Degraded, then bail on it.
-        async fn ensure_ready_bounded(
-            timeout: Duration,
-            ready: impl std::future::Future<Output = ChannelGate>,
-        ) -> anyhow::Result<()> {
-            let gate = match tokio::time::timeout(timeout, ready).await {
-                Ok(gate) => gate,
-                Err(_) => ChannelGate::Degraded,
-            };
-            if matches!(gate, ChannelGate::Degraded) {
-                anyhow::bail!("channel is not ready for remote invite");
-            }
-            Ok(())
-        }
-
-        // A readiness probe that never resolves (a wedged relay). Bounded by the
-        // timeout, this returns promptly with an error instead of hanging.
-        let stalled = std::future::pending::<ChannelGate>();
-        let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            ensure_ready_bounded(Duration::from_millis(10), stalled),
-        )
-        .await
-        .expect("the bounded wrapper must not hang past its own timeout");
-
-        let err = result.expect_err("a stalled readiness probe must surface an error");
-        assert!(
-            err.to_string().contains("not ready for remote invite"),
-            "unexpected error: {err}"
-        );
-
-        // And a Ready gate that resolves in time passes through cleanly.
-        let ok =
-            ensure_ready_bounded(Duration::from_millis(10), async { ChannelGate::Ready }).await;
-        assert!(
-            ok.is_ok(),
-            "a ready channel must not be treated as degraded"
-        );
-    }
-}
+#[path = "readiness/tests.rs"]
+mod tests;

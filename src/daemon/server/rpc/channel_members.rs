@@ -130,17 +130,19 @@ pub async fn rpc_channel_add_member(
             name: None,
             repair_whitelisted_admins: true,
         });
-    let gate = match tokio::time::timeout(CHANNEL_MEMBER_READY_TIMEOUT, ready).await {
-        Ok(gate) => gate,
-        Err(_) => crate::fabric::nip29::readiness::ChannelGate::Degraded,
-    };
-    if matches!(gate, crate::fabric::nip29::readiness::ChannelGate::Degraded) {
-        anyhow::bail!(
-            "channel_add_member could not verify channel {} readiness within {}s",
-            channel,
-            CHANNEL_MEMBER_READY_TIMEOUT.as_secs()
-        );
-    }
+    let gate = tokio::time::timeout(CHANNEL_MEMBER_READY_TIMEOUT, ready)
+        .await
+        .with_context(|| {
+            format!(
+                "channel_add_member timed out verifying channel {} after {}s",
+                channel,
+                CHANNEL_MEMBER_READY_TIMEOUT.as_secs()
+            )
+        })?;
+    gate.require_ready(format!(
+        "channel_add_member could not verify channel {}",
+        channel
+    ))?;
 
     // Explicit grant of the requested role. `ensure_channel_ready` above only
     // guarantees the management key is admin; the member/admin put-user is
@@ -156,12 +158,11 @@ pub async fn rpc_channel_add_member(
             .grant_member_confirmed(&channel_h, &pubkey_hex)
             .await
     };
-    if !outcome.is_confirmed() {
-        anyhow::bail!(
-            "could not confirm {} as {role} of channel {channel}",
-            crate::util::pubkey_short(&pubkey_hex)
-        );
-    }
+    outcome.require_confirmed(format!(
+        "updating channel {} participant {}",
+        channel,
+        crate::util::pubkey_short(&pubkey_hex)
+    ))?;
 
     Ok(serde_json::json!({
         "channel": channel,
@@ -228,17 +229,16 @@ pub async fn rpc_channel_remove_member(
         .provider
         .remove_member_confirmed(&channel_h, &pubkey_hex)
         .await;
-    if outcome.is_rejected() {
-        anyhow::bail!(
-            "channel_remove_member rejected for {} in {}",
-            crate::util::pubkey_short(&pubkey_hex),
-            p.channel
-        );
-    }
+    let confirmed = outcome.is_confirmed();
+    outcome.require_confirmed(format!(
+        "removing channel {} participant {}",
+        p.channel,
+        crate::util::pubkey_short(&pubkey_hex)
+    ))?;
 
     Ok(serde_json::json!({
         "channel": p.channel,
         "pubkey": pubkey_hex,
-        "confirmed": outcome.is_confirmed(),
+        "confirmed": confirmed,
     }))
 }

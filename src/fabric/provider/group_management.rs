@@ -1,8 +1,11 @@
 use super::Nip29Provider;
 use crate::fabric::group_management::{
-    classify_group_publish_error, GroupMutationOutcome, GroupPublishOutcome,
+    GroupMutationOutcome, GroupOperationError, GroupOperationStage, GroupPublishOutcome,
 };
 use nostr::{prelude::Keys, EventBuilder};
+
+mod roles;
+mod topology;
 
 impl Nip29Provider {
     pub(in crate::fabric::provider) async fn try_grant_mgmt_admin_via_user_nsec(
@@ -14,14 +17,22 @@ impl Nip29Provider {
             Some(n) => n.clone(),
             None => {
                 eprintln!("[daemon] try_grant_mgmt_admin: no userNsec configured");
-                return GroupMutationOutcome::Rejected;
+                return GroupMutationOutcome::Failed(GroupOperationError::new(
+                    "management self-grant",
+                    GroupOperationStage::Configuration,
+                    "no userNsec configured",
+                ));
             }
         };
         let user_keys = match Keys::parse(&nsec) {
             Ok(k) => k,
             Err(e) => {
                 eprintln!("[daemon] try_grant_mgmt_admin: userNsec parse failed: {e}");
-                return GroupMutationOutcome::Rejected;
+                return GroupMutationOutcome::Failed(GroupOperationError::new(
+                    "management self-grant",
+                    GroupOperationStage::Configuration,
+                    e,
+                ));
             }
         };
 
@@ -38,7 +49,11 @@ impl Nip29Provider {
                 }
                 Err(e) => {
                     eprintln!("[daemon] try_grant_mgmt_admin: build event failed: {e}");
-                    return GroupMutationOutcome::Rejected;
+                    return GroupMutationOutcome::Failed(GroupOperationError::new(
+                        "9000 put-admin (self-grant via userNsec)",
+                        GroupOperationStage::Build,
+                        e,
+                    ));
                 }
             };
             match self.fetch_group_state(group).await {
@@ -72,12 +87,14 @@ impl Nip29Provider {
                     );
                 }
             }
-            if outcome.is_rejected() {
-                return GroupMutationOutcome::Rejected;
+            if let GroupPublishOutcome::Failed(error) = outcome {
+                return GroupMutationOutcome::Failed(error);
             }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
         }
-        GroupMutationOutcome::Unconfirmed
+        GroupMutationOutcome::Unconfirmed {
+            detail: "relay read-back never showed the management admin grant".into(),
+        }
     }
 
     pub(in crate::fabric::provider) async fn publish_group_management(
@@ -85,10 +102,9 @@ impl Nip29Provider {
         builder: EventBuilder,
         keys: &nostr::Keys,
         label: &str,
-    ) -> bool {
+    ) -> GroupPublishOutcome {
         self.publish_group_management_outcome(builder, keys, label)
             .await
-            .is_applied()
     }
 
     async fn publish_group_management_outcome(
@@ -100,8 +116,11 @@ impl Nip29Provider {
         match self.nmp.publish_group_builder(builder, keys, true).await {
             Ok(_) => GroupPublishOutcome::Applied,
             Err(e) => {
-                let s = e.to_string();
-                let outcome = classify_group_publish_error(&s);
+                let outcome = GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
+                    label,
+                    GroupOperationStage::Publish,
+                    &e,
+                ));
                 let log_dir = crate::config::mosaico_home().join("logs");
                 let _ = crate::config::ensure_dir(&log_dir);
                 let path = log_dir.join("group-mgmt.log");
@@ -173,160 +192,5 @@ impl Nip29Provider {
     pub(crate) fn management_pubkey(&self) -> Option<String> {
         self.management_keys()
             .map(|keys| keys.public_key().to_hex())
-    }
-
-    fn log_group_role_decision(channel: &str, pubkey: &str, role: &str, reason: &str) {
-        eprintln!(
-            "[daemon] nip29-role-decision channel={channel} target={} role={role} reason={reason}",
-            crate::util::pubkey_short(pubkey)
-        );
-    }
-
-    pub(crate) async fn nip29_add_member_outcome(
-        &self,
-        channel: &str,
-        pubkey_hex: &str,
-    ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return GroupPublishOutcome::Rejected;
-        };
-        Self::log_group_role_decision(channel, pubkey_hex, "member", "add member");
-        match crate::fabric::nip29::lifecycle::group_put_user(channel, pubkey_hex) {
-            Ok(b) => {
-                self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (session)")
-                    .await
-            }
-            Err(e) => {
-                tracing::error!(
-                    group = channel,
-                    pubkey = pubkey_hex,
-                    error = %format!("{e:#}"),
-                    "nip29_add_member: group_put_user build failed — failing closed"
-                );
-                GroupPublishOutcome::Rejected
-            }
-        }
-    }
-
-    /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
-    pub async fn nip29_set_group_name(&self, group: &str, name: &str) -> bool {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return false;
-        };
-        eprintln!("[daemon] nip29 set-name h={group} name={name:?}");
-        match crate::fabric::nip29::lifecycle::group_edit_name(group, name) {
-            Ok(b) => {
-                self.publish_group_management(b, &mgmt_keys, "9002 edit-metadata (name)")
-                    .await
-            }
-            Err(e) => {
-                tracing::error!(
-                    group,
-                    name,
-                    error = %format!("{e:#}"),
-                    "nip29_set_group_name: group_edit_name build failed — failing closed"
-                );
-                false
-            }
-        }
-    }
-
-    pub(crate) async fn nip29_add_admin_outcome(
-        &self,
-        channel: &str,
-        pubkey_hex: &str,
-    ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return GroupPublishOutcome::Rejected;
-        };
-        Self::log_group_role_decision(channel, pubkey_hex, "admin", "add admin");
-        match crate::fabric::nip29::lifecycle::group_put_admin(channel, pubkey_hex) {
-            Ok(b) => {
-                self.publish_group_management_outcome(b, &mgmt_keys, "9000 put-user (admin)")
-                    .await
-            }
-            Err(e) => {
-                tracing::error!(
-                    group = channel,
-                    pubkey = pubkey_hex,
-                    error = %format!("{e:#}"),
-                    "nip29_add_admin: group_put_admin build failed — failing closed"
-                );
-                GroupPublishOutcome::Rejected
-            }
-        }
-    }
-
-    /// Create + lock a NIP-29 subgroup.
-    pub async fn nip29_create_subgroup(&self, child_h: &str, name: &str, parent_h: &str) -> bool {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return false;
-        };
-        eprintln!("[daemon] nip29 create-subgroup h={child_h} name={name:?} parent={parent_h}");
-        let created =
-            match crate::fabric::nip29::lifecycle::group_create_subgroup(child_h, parent_h) {
-                Ok(b) => {
-                    self.publish_group_management(b, &mgmt_keys, "9007 create-subgroup")
-                        .await
-                }
-                Err(e) => {
-                    tracing::error!(
-                        child = child_h,
-                        parent = parent_h,
-                        error = %format!("{e:#}"),
-                        "nip29_create_subgroup: group_create_subgroup build failed — failing closed"
-                    );
-                    false
-                }
-            };
-        if !created {
-            return false;
-        }
-        match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(
-            child_h, name, parent_h,
-        ) {
-            Ok(b) => {
-                self.publish_group_management(b, &mgmt_keys, "9002 lock-with-parent")
-                    .await
-            }
-            Err(e) => {
-                tracing::error!(
-                    child = child_h,
-                    parent = parent_h,
-                    error = %format!("{e:#}"),
-                    "nip29_create_subgroup: group_lock_closed_with_parent build failed — failing closed"
-                );
-                false
-            }
-        }
-    }
-
-    pub(crate) async fn nip29_remove_member_outcome(
-        &self,
-        channel: &str,
-        pubkey_hex: &str,
-    ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return GroupPublishOutcome::Rejected;
-        };
-        eprintln!(
-            "[daemon] nip29 remove-member h={channel} p={}",
-            crate::util::pubkey_short(pubkey_hex)
-        );
-        match crate::fabric::nip29::lifecycle::group_remove_user(channel, pubkey_hex) {
-            Ok(b) => {
-                self.publish_group_management_outcome(b, &mgmt_keys, "9001 remove-user (session)")
-                    .await
-            }
-            Err(e) => {
-                tracing::error!(
-                    group = channel,
-                    pubkey = pubkey_hex,
-                    error = %format!("{e:#}"),
-                    "nip29_remove_member: group_remove_user build failed — failing closed"
-                );
-                GroupPublishOutcome::Rejected
-            }
-        }
     }
 }

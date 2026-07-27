@@ -46,14 +46,9 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
     let ready = tokio::time::timeout(READY_TIMEOUT, readiness)
         .await
         .context("root channel readiness timed out")?;
-    if matches!(
-        ready,
-        crate::fabric::nip29::readiness::ChannelGate::Degraded
-    ) {
-        anyhow::bail!(
-            "workspace root /{channel} was registered locally but was not provisioned on the relay"
-        );
-    }
+    ready.require_ready(format!(
+        "workspace root /{channel} was registered locally but was not provisioned"
+    ))?;
 
     ensure_subscription(state, &channel).await?;
     publish_backend_profile(state).await?;

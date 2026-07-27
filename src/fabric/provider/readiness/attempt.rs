@@ -1,11 +1,21 @@
 use super::{ChannelCtx, ChannelGate, Nip29Provider};
+use crate::fabric::nip29::readiness::ChannelReadinessError;
 
 pub(super) fn degraded(
     provider: &Nip29Provider,
     ctx: &ChannelCtx<'_>,
     reason: impl Into<String>,
 ) -> ChannelGate {
-    finish(provider, ctx, ChannelGate::Degraded, reason)
+    degraded_error(provider, ctx, ChannelReadinessError::reason(reason))
+}
+
+pub(super) fn degraded_error(
+    provider: &Nip29Provider,
+    ctx: &ChannelCtx<'_>,
+    error: ChannelReadinessError,
+) -> ChannelGate {
+    record(provider, ctx, "degraded", error.to_string());
+    ChannelGate::Degraded(error)
 }
 
 pub(super) fn finish(
@@ -17,7 +27,7 @@ pub(super) fn finish(
     let outcome = match &gate {
         ChannelGate::Ready => "ready",
         ChannelGate::Repaired => "repaired",
-        ChannelGate::Degraded => "degraded",
+        ChannelGate::Degraded(_) => "degraded",
     };
     record(provider, ctx, outcome, reason);
     gate
@@ -41,12 +51,4 @@ pub(super) fn record(
             created_at: crate::util::now_secs(),
         });
     });
-}
-
-pub(super) fn reason(failures: &[String]) -> String {
-    if failures.is_empty() {
-        "required admin/member invariant was not confirmed".to_string()
-    } else {
-        failures.join("; ")
-    }
 }

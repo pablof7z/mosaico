@@ -1,111 +1,150 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GroupPublishOutcome {
-    Applied,
-    Retryable,
-    Rejected,
-}
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroupOperationStage {
+    Configuration,
+    Build,
+    Publish,
+}
+
+impl fmt::Display for GroupOperationStage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Configuration => "configuration",
+            Self::Build => "event construction",
+            Self::Publish => "NMP publish",
+        };
+        formatter.write_str(label)
+    }
+}
+
+/// Exact provenance for a group-management operation that could not be
+/// submitted. The detail is captured at the failing boundary and is never
+/// reclassified from display text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GroupOperationError {
+    operation: String,
+    stage: GroupOperationStage,
+    detail: String,
+}
+
+impl GroupOperationError {
+    pub(crate) fn new(
+        operation: impl Into<String>,
+        stage: GroupOperationStage,
+        error: impl fmt::Display,
+    ) -> Self {
+        Self {
+            operation: operation.into(),
+            stage,
+            detail: error.to_string(),
+        }
+    }
+
+    pub(crate) fn from_anyhow(
+        operation: impl Into<String>,
+        stage: GroupOperationStage,
+        error: &anyhow::Error,
+    ) -> Self {
+        Self {
+            operation: operation.into(),
+            stage,
+            detail: format!("{error:#}"),
+        }
+    }
+}
+
+impl fmt::Display for GroupOperationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} {} failed: {}",
+            self.operation, self.stage, self.detail
+        )
+    }
+}
+
+impl std::error::Error for GroupOperationError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GroupPublishOutcome {
+    Applied,
+    Failed(GroupOperationError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GroupMutationOutcome {
     Confirmed,
-    Unconfirmed,
-    Rejected,
+    Unconfirmed { detail: String },
+    Failed(GroupOperationError),
 }
 
 impl GroupPublishOutcome {
-    pub(crate) fn is_applied(self) -> bool {
+    pub(crate) fn is_applied(&self) -> bool {
         matches!(self, Self::Applied)
-    }
-
-    pub(crate) fn is_rejected(self) -> bool {
-        matches!(self, Self::Rejected)
     }
 }
 
 impl GroupMutationOutcome {
-    pub(crate) fn is_confirmed(self) -> bool {
+    pub(crate) fn is_confirmed(&self) -> bool {
         matches!(self, Self::Confirmed)
     }
 
-    pub(crate) fn is_rejected(self) -> bool {
-        matches!(self, Self::Rejected)
+    pub(crate) fn require_confirmed(self, action: impl fmt::Display) -> anyhow::Result<()> {
+        match self {
+            Self::Confirmed => Ok(()),
+            Self::Unconfirmed { detail } => {
+                anyhow::bail!("{action} was not confirmed: {detail}")
+            }
+            Self::Failed(error) => Err(anyhow::Error::new(error).context(action.to_string())),
+        }
     }
-}
-
-pub(crate) fn classify_group_publish_error(reason: &str) -> GroupPublishOutcome {
-    let lower = reason.to_ascii_lowercase();
-    if is_benign_duplicate(&lower) {
-        return GroupPublishOutcome::Applied;
-    }
-    if is_permanent_rejection(&lower) {
-        return GroupPublishOutcome::Rejected;
-    }
-    if is_retryable_rejection(&lower) {
-        return GroupPublishOutcome::Retryable;
-    }
-    GroupPublishOutcome::Rejected
-}
-
-fn is_benign_duplicate(lower: &str) -> bool {
-    // "group already exists" is a 9007-specific rejection meaning the group
-    // pre-existed on the relay. It is NOT treated as Applied here: the readiness
-    // caller re-fetches relay state and falls through to membership checks when
-    // the create is rejected, so classifying it as Applied would cause a redundant
-    // lock-closed 9002 on a group we didn't create.
-    if lower.contains("group already exists") {
-        return false;
-    }
-    lower.contains("already exists")
-        || lower.contains("duplicate")
-        || lower.contains("members already")
-        || lower.contains("already a member")
-        || lower.contains("all targets are members already")
-}
-
-fn is_permanent_rejection(lower: &str) -> bool {
-    lower.contains("kind 9000 is not allowed")
-        || lower.contains("kind 9001 is not allowed")
-        || lower.contains("kind 9002 is not allowed")
-        || lower.contains("kind 9007 is not allowed")
-        || lower.contains("invalid moderation action")
-        || lower.contains("missing metadata tags")
-}
-
-fn is_retryable_rejection(lower: &str) -> bool {
-    lower.contains("timeout")
-        || lower.contains("relay not connected")
-        || lower.contains("not connected")
-        || lower.contains("can't send message to the 'nostr' channel")
-        || lower.contains("cannot send message to the 'nostr' channel")
-        || lower.contains("doesn't exist")
-        || lower.contains("does not exist")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_group_publish_error, GroupPublishOutcome};
+    use super::{
+        GroupMutationOutcome, GroupOperationError, GroupOperationStage, GroupPublishOutcome,
+    };
 
     #[test]
-    fn benign_member_duplicate_counts_as_applied() {
-        let outcome = classify_group_publish_error(
-            "relay rejected event: blocked: all targets are members already",
+    fn publish_failure_provenance_survives_mutation_and_operator_rendering() {
+        let receipt_error = anyhow::anyhow!("Previous I/O error occurred").context(
+            "durable-store persistence failure [fault=latched durability=absent reopen=required]",
         );
-        assert_eq!(outcome, GroupPublishOutcome::Applied);
-    }
+        let publish = GroupPublishOutcome::Failed(GroupOperationError::new(
+            "9000 put-user",
+            GroupOperationStage::Publish,
+            format!("{receipt_error:#}"),
+        ));
+        let mutation = match publish {
+            GroupPublishOutcome::Applied => GroupMutationOutcome::Confirmed,
+            GroupPublishOutcome::Failed(error) => GroupMutationOutcome::Failed(error),
+        };
 
-    #[test]
-    fn permanent_rejection_wins_over_timeout() {
-        let outcome = classify_group_publish_error(
-            "relay rejected event: timeout; blocked: kind 9002 is not allowed",
+        let error = mutation
+            .require_confirmed("joining /mosaico/dev")
+            .unwrap_err();
+        let rendered = format!("{error:#}");
+        assert!(
+            rendered.contains("Previous I/O error occurred"),
+            "{rendered}"
         );
-        assert_eq!(outcome, GroupPublishOutcome::Rejected);
-    }
-
-    #[test]
-    fn transport_failures_are_retryable() {
-        let outcome = classify_group_publish_error(
-            "relay rejected event: can't send message to the 'nostr' channel; timeout",
+        assert!(
+            rendered.contains("fault=latched durability=absent reopen=required"),
+            "{rendered}"
         );
-        assert_eq!(outcome, GroupPublishOutcome::Retryable);
+        assert!(
+            rendered.contains("9000 put-user NMP publish failed"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.to_ascii_lowercase().contains("membership"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.to_ascii_lowercase().contains("admin"),
+            "{rendered}"
+        );
     }
 }

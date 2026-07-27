@@ -24,6 +24,7 @@ impl Nip29Provider {
         channel: &str,
         pubkey: &str,
     ) -> GroupMutationOutcome {
+        let mut last_readback_error = None;
         for attempt in 0..6u32 {
             let outcome = self.nip29_remove_member_outcome(channel, pubkey).await;
             match self.fetch_group_state(channel).await {
@@ -43,6 +44,7 @@ impl Nip29Provider {
                     }
                 }
                 Err(e) => {
+                    last_readback_error = Some(format!("{e:#}"));
                     tracing::error!(
                         channel,
                         pubkey,
@@ -52,12 +54,16 @@ impl Nip29Provider {
                     );
                 }
             }
-            if outcome.is_rejected() {
-                return GroupMutationOutcome::Rejected;
+            if let crate::fabric::group_management::GroupPublishOutcome::Failed(error) = outcome {
+                return GroupMutationOutcome::Failed(error);
             }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
         }
-        GroupMutationOutcome::Unconfirmed
+        GroupMutationOutcome::Unconfirmed {
+            detail: last_readback_error
+                .map(|error| format!("relay read-back failed: {error}"))
+                .unwrap_or_else(|| "relay read-back still showed the member present".into()),
+        }
     }
 
     async fn confirm_role_grant(
@@ -66,6 +72,7 @@ impl Nip29Provider {
         pubkey: &str,
         want_admin: bool,
     ) -> GroupMutationOutcome {
+        let mut last_readback_error = None;
         for attempt in 0..6u32 {
             let outcome = if want_admin {
                 self.nip29_add_admin_outcome(channel, pubkey).await
@@ -99,6 +106,7 @@ impl Nip29Provider {
                     }
                 }
                 Err(e) => {
+                    last_readback_error = Some(format!("{e:#}"));
                     tracing::error!(
                         channel,
                         pubkey,
@@ -108,11 +116,15 @@ impl Nip29Provider {
                     );
                 }
             }
-            if outcome.is_rejected() {
-                return GroupMutationOutcome::Rejected;
+            if let crate::fabric::group_management::GroupPublishOutcome::Failed(error) = outcome {
+                return GroupMutationOutcome::Failed(error);
             }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
         }
-        GroupMutationOutcome::Unconfirmed
+        GroupMutationOutcome::Unconfirmed {
+            detail: last_readback_error
+                .map(|error| format!("relay read-back failed: {error}"))
+                .unwrap_or_else(|| "relay read-back did not show the requested role".into()),
+        }
     }
 }

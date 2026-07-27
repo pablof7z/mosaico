@@ -1,6 +1,7 @@
 //! `Nip29Provider` — concrete NIP-29 wire, materializer, and lifecycle boundary.
 
 pub(crate) mod chat;
+mod doctor;
 mod group_management;
 mod group_state;
 mod group_topology;
@@ -19,7 +20,6 @@ use crate::nmp_host::NmpHost;
 use crate::state::Store;
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 // Fabric identifier used in all canonical origin rows.
 pub const FABRIC: &str = "nip29";
@@ -133,117 +133,8 @@ impl Nip29Provider {
         self.nmp.publish_group_builder(builder, keys, false).await
     }
 
-    /// Connectivity probe: publish a uniquely-tagged note to an existing group
-    /// this management identity belongs to, then read that exact marker back.
-    pub async fn doctor_probe(&self) -> (String, String) {
-        let marker = format!("mosaico-doctor-{}", crate::util::opaque_group_id());
-        let group = match self.doctor_probe_group().await {
-            Ok(Some(group)) => group,
-            Ok(None) => return self.doctor_read_only().await,
-            Err(error) => {
-                let error = format!("ERR {error:#}");
-                return (error.clone(), error);
-            }
-        };
-        let keys = match self.management_keys() {
-            Some(keys) => keys,
-            None => {
-                let error = "ERR management signing identity is unavailable".to_string();
-                return (error.clone(), error);
-            }
-        };
-        let publish = self
-            .nmp
-            .publish_group_builder(doctor_probe_builder(&group, &marker), &keys, true)
-            .await;
-        let publish = match publish {
-            Ok(id) => format!("OK ({})", crate::util::pubkey_short(&id.to_hex())),
-            Err(e) => format!("ERR {e:#}"),
-        };
-        let f = doctor_probe_filter(&group, &marker);
-        let readback = match self.nmp.fetch_group(f, 5, Duration::from_secs(5)).await {
-            Ok(evs) => format!("{} event(s) with #h={group} #t={marker}", evs.len()),
-            Err(e) => format!("ERR {e:#}"),
-        };
-        (publish, readback)
-    }
-
-    async fn doctor_probe_group(&self) -> Result<Option<String>> {
-        let pubkey = self
-            .management_pubkey()
-            .ok_or_else(|| anyhow::anyhow!("management signing identity is unavailable"))?;
-        let candidates = self.with_store(|store| store.list_channels_where_member(&pubkey))?;
-        if candidates.is_empty() {
-            return Ok(None);
-        }
-
-        let mut fetch_errors = Vec::new();
-        for group in candidates {
-            match self.fetch_group_state(&group).await {
-                Ok((true, roles, members))
-                    if roles.contains_key(&pubkey) || members.contains(&pubkey) =>
-                {
-                    return Ok(Some(group));
-                }
-                Ok(_) => {}
-                Err(error) => fetch_errors.push(format!("{group}: {error:#}")),
-            }
-        }
-        if !fetch_errors.is_empty() {
-            anyhow::bail!(
-                "could not verify an existing authorized NIP-29 group: {}",
-                fetch_errors.join("; ")
-            );
-        }
-        Ok(None)
-    }
-
-    async fn doctor_read_only(&self) -> (String, String) {
-        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let reason = "SKIP no existing materialized NIP-29 group authorizes the management identity; publish probe not attempted";
-        let filter = crate::nmp_host::read::filter(&[KIND_GROUP_METADATA], &[], &[])
-            .expect("static NMP metadata filter");
-        let read = self
-            .nmp
-            .fetch_group(filter, 1, Duration::from_secs(5))
-            .await;
-        let read = match read {
-            Ok(events) => format!(
-                "SKIP publish readback; relay read OK ({} metadata event(s))",
-                events.len()
-            ),
-            Err(error) => format!("ERR relay read failed: {error:#}"),
-        };
-        (reason.to_string(), read)
-    }
-
     pub(in crate::fabric::provider) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {
         let g = self.store.lock().expect("store mutex poisoned");
         f(&g)
-    }
-}
-
-fn doctor_probe_builder(group: &str, marker: &str) -> nostr::EventBuilder {
-    nostr::EventBuilder::new(nostr::Kind::from(1u16), format!("mosaico doctor {marker}")).tags([
-        nostr::Tag::parse(["h", group]).expect("static h tag"),
-        nostr::Tag::parse(["t", marker]).expect("static t tag"),
-    ])
-}
-
-fn doctor_probe_filter(group: &str, marker: &str) -> nmp::Filter {
-    crate::nmp_host::read::filter(
-        &[1],
-        &[],
-        &[('h', group.to_string()), ('t', marker.to_string())],
-    )
-    .expect("static NMP doctor filter")
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn doctor_readback_is_scoped_to_existing_group_and_unique_marker() {
-        let filter = super::doctor_probe_filter("existing-workspace", "mosaico-doctor-test");
-        assert_eq!(filter.tags.len(), 2);
     }
 }

@@ -148,14 +148,10 @@ async fn ensure_live_session_member(
         .provider
         .grant_member_confirmed(channel_h, &rec.pubkey)
         .await;
-    if !added.is_confirmed() {
-        anyhow::bail!(
-            "session {} is not a member of channel {:?} and could not be confirmed as added \
-             (is the management key an admin of that channel?)",
-            rec.pubkey,
-            channel
-        );
-    }
+    added.require_confirmed(format!(
+        "joining session {} to channel {}",
+        rec.pubkey, channel
+    ))?;
     refresh_channel_members_cache(state, channel_h).await;
     Ok(())
 }

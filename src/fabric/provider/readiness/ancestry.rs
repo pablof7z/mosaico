@@ -1,4 +1,5 @@
 use super::{ensure_channel_ready_inner, ChannelCtx, ChannelGate, Nip29Provider};
+use crate::fabric::nip29::readiness::ChannelReadinessError;
 
 pub(in crate::fabric::provider) fn stored_parent_hint(
     provider: &Nip29Provider,
@@ -37,9 +38,10 @@ pub(super) async fn ensure_parent(
     child: &ChannelCtx<'_>,
     parent: &str,
     management_pubkey: &str,
-) -> anyhow::Result<Vec<String>> {
+) -> Result<Vec<String>, ChannelReadinessError> {
     let grandparent = stored_parent_hint(provider, parent).map_err(|error| {
-        anyhow::anyhow!("reading pending ancestry for {parent} failed: {error:#}")
+        ChannelReadinessError::reason(format!("{error:#}"))
+            .context(format!("reading pending ancestry for {parent} failed"))
     })?;
     let parent_ctx = ChannelCtx {
         channel: parent,
@@ -48,11 +50,8 @@ pub(super) async fn ensure_parent(
         name: None,
         repair_whitelisted_admins: child.repair_whitelisted_admins,
     };
-    if matches!(
-        ensure_channel_ready_inner(provider, parent_ctx).await,
-        ChannelGate::Degraded
-    ) {
-        anyhow::bail!("parent channel {parent} readiness degraded");
+    if let ChannelGate::Degraded(error) = ensure_channel_ready_inner(provider, parent_ctx).await {
+        return Err(error.context(format!("parent channel {parent} readiness failed")));
     }
     Ok(provider.with_store(|store| {
         store
