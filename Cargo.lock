@@ -1916,7 +1916,7 @@ dependencies = [
 [[package]]
 name = "nmp"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -1929,6 +1929,7 @@ dependencies = [
  "nmp-grammar",
  "nmp-local-signer",
  "nmp-network-policy",
+ "nmp-nip29",
  "nmp-resolver",
  "nmp-router",
  "nmp-signer",
@@ -1944,12 +1945,12 @@ dependencies = [
 [[package]]
 name = "nmp-executor"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 
 [[package]]
 name = "nmp-grammar"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "blake3",
  "nmp-network-policy",
@@ -1960,7 +1961,7 @@ dependencies = [
 [[package]]
 name = "nmp-local-signer"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "base64",
  "bech32",
@@ -1974,12 +1975,12 @@ dependencies = [
 [[package]]
 name = "nmp-network-policy"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 
 [[package]]
 name = "nmp-nip29"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "nmp-grammar",
  "nostr",
@@ -1988,7 +1989,7 @@ dependencies = [
 [[package]]
 name = "nmp-resolver"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "nmp-grammar",
  "nmp-store",
@@ -1998,7 +1999,7 @@ dependencies = [
 [[package]]
 name = "nmp-router"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "nmp-grammar",
  "nmp-store",
@@ -2008,12 +2009,12 @@ dependencies = [
 [[package]]
 name = "nmp-signer"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 
 [[package]]
 name = "nmp-store"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "blake3",
  "nmp-grammar",
@@ -2026,7 +2027,7 @@ dependencies = [
 [[package]]
 name = "nmp-transport"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=cab6707327d6d45f6c15f1fefc559893e1bf58af#cab6707327d6d45f6c15f1fefc559893e1bf58af"
+source = "git+https://github.com/pablof7z/nmp.git?rev=9b3d2d252fdd328fb28a3318e53621bd7ce0cb49#9b3d2d252fdd328fb28a3318e53621bd7ce0cb49"
 dependencies = [
  "blake3",
  "mio",
