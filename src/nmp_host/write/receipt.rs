@@ -1,16 +1,15 @@
 //! Interpretation of NMP's durable write receipt stream.
 
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use nmp::WriteStatus;
+use nmp::{FifoReceiver, FifoRecvTimeoutError, WriteStatus};
 use nostr::EventId;
 
 const WRITE_RECEIPT_TIMEOUT: Duration = Duration::from_secs(12);
 
 pub(super) async fn wait_for_write(
-    receivers: Vec<Receiver<WriteStatus>>,
+    receivers: Vec<FifoReceiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -20,7 +19,7 @@ pub(super) async fn wait_for_write(
 }
 
 pub(super) fn wait_for_write_blocking(
-    receivers: Vec<Receiver<WriteStatus>>,
+    receivers: Vec<FifoReceiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -42,6 +41,9 @@ pub(super) fn wait_for_write_blocking(
                 }
                 Ok(WriteStatus::Failed(reason)) => {
                     anyhow::bail!("NMP write failed: {reason}");
+                }
+                Ok(WriteStatus::Cancelled) => {
+                    anyhow::bail!("NMP write was cancelled");
                 }
                 Ok(WriteStatus::Rejected(relay, reason)) => {
                     last_failure = Some(format!("rejected by {relay}: {reason}"));
@@ -67,8 +69,11 @@ pub(super) fn wait_for_write_blocking(
                     );
                 }
                 Ok(_) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => closed[index] = true,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(FifoRecvTimeoutError::Closed) => closed[index] = true,
+                Err(FifoRecvTimeoutError::Timeout) => {}
+                Err(FifoRecvTimeoutError::Lagged) => {
+                    anyhow::bail!("NMP write receipt stream lagged");
+                }
             }
         }
         let settled = accepted

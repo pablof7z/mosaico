@@ -1,12 +1,10 @@
 //! Durable NIP-29 write and account lifecycle behind the NMP facade.
 
-use std::collections::BTreeSet;
-use std::sync::mpsc::Receiver;
-
 use anyhow::{Context, Result};
-use nmp::{RelayUrl, SignEventRequest, WriteStatus};
+use nmp::{FifoReceiver, RelayUrl, SignEventRequest, WriteStatus};
 use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
+use std::collections::BTreeSet;
 
 use super::scrub::scrub_unsigned;
 use super::NmpHost;
@@ -108,7 +106,7 @@ impl NmpHost {
         &self,
         intents: Vec<WriteIntent>,
         context: &'static str,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let receivers = intents
             .into_iter()
             .map(|intent| self.publish_intent(intent, context))
@@ -121,7 +119,7 @@ impl NmpHost {
         &self,
         intent: WriteIntent,
         context: &'static str,
-    ) -> Result<Receiver<WriteStatus>> {
+    ) -> Result<FifoReceiver<WriteStatus>> {
         #[cfg(test)]
         if let Some(result) = self.test_io.take_write() {
             return result.context(context);
@@ -133,7 +131,7 @@ impl NmpHost {
         &self,
         unsigned: UnsignedEvent,
         identity_override: Option<PublicKey>,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let groups = group_values(unsigned.tags.iter());
         if groups.len() != 1 {
             anyhow::bail!(
@@ -238,7 +236,7 @@ fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIn
     .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
 }
 
-fn require_configured_host(receivers: &[Receiver<WriteStatus>]) -> Result<()> {
+fn require_configured_host(receivers: &[FifoReceiver<WriteStatus>]) -> Result<()> {
     if receivers.is_empty() {
         anyhow::bail!("cannot publish a NIP-29 event without a configured group host");
     }

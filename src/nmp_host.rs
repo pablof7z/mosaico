@@ -252,12 +252,9 @@ fn pinned_query(
 fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {
     relays
         .into_iter()
-        .filter(|relay| !nmp::admits_network_relay_hint(relay))
-        .filter_map(|relay| {
-            url::Url::parse(relay.as_str())
-                .ok()?
-                .host_str()
-                .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
+        .filter_map(nmp_grammar::relay::relay_host_key)
+        .filter(|host| {
+            nmp_network_policy::classify_bare_host(host) == nmp_network_policy::HostClass::Local
         })
         // Onion routing is local in transport terms but not a local-network
         // SSRF opt-in. NMP handles it as a separate trust class.

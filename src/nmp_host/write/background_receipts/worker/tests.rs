@@ -14,6 +14,16 @@ fn accepted_and_signed_are_not_classified_as_terminal() {
 }
 
 #[test]
+fn cancelled_is_terminal_and_explicit() {
+    match classify(WriteStatus::Cancelled) {
+        ReceiptProgress::Failure(BackgroundWriteTerminalStatus::Cancelled, detail) => {
+            assert_eq!(detail, "write was cancelled before signature promotion")
+        }
+        _ => panic!("cancelled receipt must be terminal"),
+    }
+}
+
+#[test]
 fn failed_is_immediately_terminal_and_keeps_exact_detail() {
     let detail = "fault=latched: Previous I/O error occurred";
     match classify(WriteStatus::Failed(detail.into())) {

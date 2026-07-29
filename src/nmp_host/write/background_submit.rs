@@ -36,6 +36,7 @@ impl NmpHost {
                         relay.clone(),
                     )),
                     identity_override: Some(event.pubkey),
+                    correlation: None,
                 },
             })
             .collect::<Vec<_>>();
@@ -43,7 +44,10 @@ impl NmpHost {
         Ok(event.id)
     }
 
-    pub(super) fn submit_signed_group(&self, event: &Event) -> Result<Vec<Receiver<WriteStatus>>> {
+    pub(super) fn submit_signed_group(
+        &self,
+        event: &Event,
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         crate::relay_log::log_outgoing_event(event);
         let intents = self
             .signed_group_intents(event)?
@@ -119,13 +123,13 @@ pub(super) struct BackgroundIntent {
 }
 
 pub(super) struct BackgroundSubmission {
-    pub(super) receivers: Vec<(String, Receiver<WriteStatus>)>,
+    pub(super) receivers: Vec<(String, FifoReceiver<WriteStatus>)>,
     pub(super) error: Option<anyhow::Error>,
 }
 
 pub(super) fn collect_background_receivers(
     intents: Vec<BackgroundIntent>,
-    mut publish: impl FnMut(WriteIntent) -> Result<Receiver<WriteStatus>>,
+    mut publish: impl FnMut(WriteIntent) -> Result<FifoReceiver<WriteStatus>>,
 ) -> BackgroundSubmission {
     let mut receivers = Vec::with_capacity(intents.len());
     for targeted in intents {

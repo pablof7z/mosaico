@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
-use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 
 use anyhow::Result;
-use nmp::WriteStatus;
+use nmp::{fifo_channel, FifoReceiver, WriteStatus};
 use nostr::Event;
 
 use super::NmpHost;
@@ -29,13 +28,13 @@ pub(super) struct TestIo {
 }
 
 impl TestIo {
-    pub(super) fn take_write(&self) -> Option<Result<Receiver<WriteStatus>>> {
+    pub(super) fn take_write(&self) -> Option<Result<FifoReceiver<WriteStatus>>> {
         let scripted = self.writes.lock().unwrap().pop_front()?;
         Some(match scripted {
             WriteResult::Statuses(statuses) => {
-                let (sender, receiver) = mpsc::channel();
+                let (sender, receiver) = fifo_channel();
                 for status in statuses {
-                    sender.send(status).expect("scripted receipt receiver");
+                    assert!(sender.send(status), "scripted receipt receiver");
                 }
                 Ok(receiver)
             }
