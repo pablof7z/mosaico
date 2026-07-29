@@ -8,7 +8,7 @@ use nmp::{
     AuthPolicyRequest, Engine, EngineConfig, FifoReceiver, FifoRecvTimeoutError, RelayUrl, Window,
     WriteStatus,
 };
-use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
+use nmp_grammar::{Durability, Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Filter, Keys};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -120,10 +120,8 @@ impl NmpRelayClient {
             .publish(WriteIntent {
                 payload: WritePayload::Signed(event.clone()),
                 durability: Durability::Durable,
-                routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(
-                    self.relay.clone(),
-                )),
-                identity_override: Some(event.pubkey),
+                routing: WriteRouting::Explicit(vec![self.relay.clone()]),
+                identity: Identity::Explicit(event.pubkey),
                 correlation: None,
             })
             .context("submit NMP test write")?;

@@ -232,13 +232,19 @@ fn group_values<'a>(tags: impl IntoIterator<Item = &'a Tag>) -> BTreeSet<String>
 /// caller-supplied `h` or `previous` row, so `group_template` strips both
 /// before we get here.
 fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIntent> {
-    let mut builder = EventBuilder::new(nostr::Kind::from(template.kind), template.content)
-        .custom_created_at(template.created_at);
-    for row in template.extra_tags {
-        builder = builder.tag(
-            Tag::parse(row).map_err(|error| anyhow::anyhow!("invalid NIP-29 tag: {error:?}"))?,
-        );
-    }
+    let tags = template
+        .extra_tags
+        .into_iter()
+        .map(|row| {
+            Tag::parse(row).map_err(|error| anyhow::anyhow!("invalid NIP-29 tag: {error:?}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let builder = nmp::EventBuilder {
+        kind: nostr::Kind::from(template.kind),
+        tags,
+        content: template.content,
+        created_at: Some(template.created_at),
+    };
     nmp_nip29::Group::new(relay, template.group)
         .write_intent(builder)
         .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))

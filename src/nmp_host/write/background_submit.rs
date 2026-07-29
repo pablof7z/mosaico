@@ -32,10 +32,8 @@ impl NmpHost {
                 intent: WriteIntent {
                     payload: WritePayload::Signed(event.clone()),
                     durability: Durability::Durable,
-                    routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(
-                        relay.clone(),
-                    )),
-                    identity_override: Some(event.pubkey),
+                    routing: WriteRouting::Explicit(vec![relay.clone()]),
+                    identity: super::identity_of(Some(event.pubkey)),
                     correlation: None,
                 },
             })
@@ -65,7 +63,7 @@ impl NmpHost {
             .map(|(index, relay)| {
                 let mut intent = group_intent(relay.clone(), template.clone())?;
                 intent.payload = WritePayload::Signed(event.clone());
-                intent.identity_override = Some(event.pubkey);
+                intent.identity = super::identity_of(Some(event.pubkey));
                 Ok(BackgroundIntent {
                     target: format!("{index}:{relay}"),
                     intent,

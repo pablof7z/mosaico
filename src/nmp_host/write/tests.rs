@@ -27,7 +27,6 @@ async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
 
 #[test]
 fn group_template_keeps_product_tags_and_reserves_routing_tags() {
-    let keys = Keys::generate();
     let tags = [
         Tag::parse(["p", &"a".repeat(64)]).unwrap(),
         Tag::parse(["h", "room-b"]).unwrap(),
@@ -35,7 +34,6 @@ fn group_template_keeps_product_tags_and_reserves_routing_tags() {
         Tag::parse(["previous", "deadbeef"]).unwrap(),
     ];
     let template = group_template(
-        keys.public_key(),
         nostr::Timestamp::from(7),
         Kind::TextNote.as_u16(),
         "hello".into(),
@@ -122,10 +120,8 @@ fn partial_background_submission_retains_prior_receipts_and_exact_error() {
     fn targeted(index: usize) -> BackgroundIntent {
         let relay =
             RelayUrl::parse(&format!("wss://relay-{index}.example.com")).expect("test relay URL");
-        let keys = Keys::generate();
         let template = GroupTemplate {
             group: "room".into(),
-            author: keys.public_key(),
             created_at: nostr::Timestamp::from(7),
             kind: 1,
             content: "test".into(),
