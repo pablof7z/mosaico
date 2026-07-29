@@ -32,10 +32,9 @@ impl NmpHost {
                 intent: WriteIntent {
                     payload: WritePayload::Signed(event.clone()),
                     durability: Durability::Durable,
-                    routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(
-                        relay.clone(),
-                    )),
-                    identity_override: Some(event.pubkey),
+                    routing: WriteRouting::Explicit(vec![relay.clone()]),
+                    identity: super::identity_of(Some(event.pubkey)),
+                    correlation: None,
                 },
             })
             .collect::<Vec<_>>();
@@ -43,7 +42,10 @@ impl NmpHost {
         Ok(event.id)
     }
 
-    pub(super) fn submit_signed_group(&self, event: &Event) -> Result<Vec<Receiver<WriteStatus>>> {
+    pub(super) fn submit_signed_group(
+        &self,
+        event: &Event,
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         crate::relay_log::log_outgoing_event(event);
         let intents = self
             .signed_group_intents(event)?
@@ -61,7 +63,7 @@ impl NmpHost {
             .map(|(index, relay)| {
                 let mut intent = group_intent(relay.clone(), template.clone())?;
                 intent.payload = WritePayload::Signed(event.clone());
-                intent.identity_override = Some(event.pubkey);
+                intent.identity = super::identity_of(Some(event.pubkey));
                 Ok(BackgroundIntent {
                     target: format!("{index}:{relay}"),
                     intent,
@@ -119,13 +121,13 @@ pub(super) struct BackgroundIntent {
 }
 
 pub(super) struct BackgroundSubmission {
-    pub(super) receivers: Vec<(String, Receiver<WriteStatus>)>,
+    pub(super) receivers: Vec<(String, FifoReceiver<WriteStatus>)>,
     pub(super) error: Option<anyhow::Error>,
 }
 
 pub(super) fn collect_background_receivers(
     intents: Vec<BackgroundIntent>,
-    mut publish: impl FnMut(WriteIntent) -> Result<Receiver<WriteStatus>>,
+    mut publish: impl FnMut(WriteIntent) -> Result<FifoReceiver<WriteStatus>>,
 ) -> BackgroundSubmission {
     let mut receivers = Vec::with_capacity(intents.len());
     for targeted in intents {

@@ -1,16 +1,15 @@
 //! Interpretation of NMP's durable write receipt stream.
 
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use nmp::WriteStatus;
+use nmp::{FifoReceiver, FifoRecvTimeoutError, WriteStatus};
 use nostr::EventId;
 
 const WRITE_RECEIPT_TIMEOUT: Duration = Duration::from_secs(12);
 
 pub(super) async fn wait_for_write(
-    receivers: Vec<Receiver<WriteStatus>>,
+    receivers: Vec<FifoReceiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -20,7 +19,7 @@ pub(super) async fn wait_for_write(
 }
 
 pub(super) fn wait_for_write_blocking(
-    receivers: Vec<Receiver<WriteStatus>>,
+    receivers: Vec<FifoReceiver<WriteStatus>>,
     known_id: Option<EventId>,
     checked: bool,
 ) -> Result<EventId> {
@@ -42,6 +41,9 @@ pub(super) fn wait_for_write_blocking(
                 }
                 Ok(WriteStatus::Failed(reason)) => {
                     anyhow::bail!("NMP write failed: {reason}");
+                }
+                Ok(WriteStatus::Cancelled) => {
+                    anyhow::bail!("NMP write was cancelled");
                 }
                 Ok(WriteStatus::Rejected(relay, reason)) => {
                     last_failure = Some(format!("rejected by {relay}: {reason}"));
@@ -67,8 +69,20 @@ pub(super) fn wait_for_write_blocking(
                     );
                 }
                 Ok(_) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => closed[index] = true,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(FifoRecvTimeoutError::Closed) => closed[index] = true,
+                Err(FifoRecvTimeoutError::Timeout) => {}
+                // A lagged stream means we lost RECEIPTS, not that the write
+                // failed -- `background_receipts::worker` classifies exactly
+                // this condition as an observation gap, not a failure. Losing
+                // visibility of one lane must not abort a multi-relay write
+                // whose other lanes may already have been acknowledged, so
+                // this closes the one lane like every other per-lane loss.
+                Err(FifoRecvTimeoutError::Lagged) => {
+                    last_failure = Some(format!(
+                        "receipt stream for lane {index} exceeded its bounded delivery capacity"
+                    ));
+                    closed[index] = true;
+                }
             }
         }
         let settled = accepted
@@ -90,5 +104,34 @@ pub(super) fn wait_for_write_blocking(
                 .unwrap_or("no terminal failure observed");
             anyhow::bail!("timed out waiting for NMP write receipt ({detail})");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nmp::fifo_channel;
+
+    /// A lagged lane is a loss of RECEIPTS, not a failed write. Regression
+    /// guard: this used to `bail!` and abort the whole multi-relay write even
+    /// when another lane had already acknowledged it.
+    #[test]
+    fn a_lagged_lane_does_not_abort_a_write_another_lane_acknowledged() {
+        let id = EventId::from_slice(&[3; 32]).unwrap();
+
+        let (lagged_sender, lagged_receiver) = fifo_channel();
+        for _ in 0..nmp::FACT_CHANNEL_CAPACITY {
+            assert!(lagged_sender.send(WriteStatus::Accepted));
+        }
+        assert!(!lagged_sender.send(WriteStatus::Accepted));
+
+        let (live_sender, live_receiver) = fifo_channel();
+        assert!(live_sender.send(WriteStatus::Accepted));
+        assert!(live_sender.send(WriteStatus::Signed(id)));
+
+        assert_eq!(
+            wait_for_write_blocking(vec![lagged_receiver, live_receiver], None, false).unwrap(),
+            id
+        );
     }
 }

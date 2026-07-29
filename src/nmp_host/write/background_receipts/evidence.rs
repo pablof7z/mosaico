@@ -7,6 +7,7 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum BackgroundWriteTerminalStatus {
     Acked,
+    Cancelled,
     Failed,
     Rejected,
     GaveUp,
@@ -23,6 +24,7 @@ pub(crate) enum BackgroundWriteGapStatus {
     ObserverClosed,
     ReceiptTimeout,
     ReceiptDisconnected,
+    ReceiptLagged,
     OutcomeUnknown,
     Shutdown,
     WorkerLost,

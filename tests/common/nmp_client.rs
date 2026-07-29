@@ -5,9 +5,10 @@
 use anyhow::{Context, Result};
 use nmp::{
     AccessContext, AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration,
-    AuthPolicyRequest, Engine, EngineConfig, RelayUrl, Window, WriteStatus,
+    AuthPolicyRequest, Engine, EngineConfig, FifoReceiver, FifoRecvTimeoutError, RelayUrl, Window,
+    WriteStatus,
 };
-use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
+use nmp_grammar::{Durability, Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Filter, Keys};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -57,11 +58,11 @@ impl NmpRelayClient {
             app_relays: vec![relay.to_string()],
             ..EngineConfig::default()
         };
-        if let Ok(url) = url::Url::parse(relay.as_str()) {
-            if let Some(host) = url.host_str() {
-                if !nmp::admits_network_relay_hint(&relay) {
-                    config.allowed_local_relay_hosts.push(host.to_string());
-                }
+        if let Some(host) = nmp_grammar::relay::relay_host_key(&relay) {
+            if nmp_network_policy::classify_bare_host(&host) == nmp_network_policy::HostClass::Local
+                && !host.ends_with(".onion")
+            {
+                config.allowed_local_relay_hosts.push(host);
             }
         }
         let engine = Engine::new(config).context("start NMP test client")?;
@@ -119,10 +120,9 @@ impl NmpRelayClient {
             .publish(WriteIntent {
                 payload: WritePayload::Signed(event.clone()),
                 durability: Durability::Durable,
-                routing: WriteRouting::PinnedHost(HostAuthority::from_selected_host(
-                    self.relay.clone(),
-                )),
-                identity_override: Some(event.pubkey),
+                routing: WriteRouting::Explicit(vec![self.relay.clone()]),
+                identity: Identity::Explicit(event.pubkey),
+                correlation: None,
             })
             .context("submit NMP test write")?;
         let relay = self.relay.clone();
@@ -166,7 +166,7 @@ impl NmpRelayClient {
 }
 
 fn wait_for_write(
-    receiver: std::sync::mpsc::Receiver<WriteStatus>,
+    receiver: FifoReceiver<WriteStatus>,
     relay: RelayUrl,
     event_id: EventId,
 ) -> Result<WriteOutcome> {
@@ -202,12 +202,16 @@ fn wait_for_write(
                 })
             }
             Ok(WriteStatus::Failed(reason)) => anyhow::bail!("NMP test write failed: {reason}"),
+            Ok(WriteStatus::Cancelled) => anyhow::bail!("NMP test write was cancelled"),
             Ok(_) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err(FifoRecvTimeoutError::Timeout) => {
                 anyhow::bail!("timed out waiting for NMP test write receipt")
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(FifoRecvTimeoutError::Closed) => {
                 anyhow::bail!("NMP test write receipt disconnected for {relay}")
+            }
+            Err(FifoRecvTimeoutError::Lagged) => {
+                anyhow::bail!("NMP test write receipt lagged for {relay}")
             }
         }
     }

@@ -1,12 +1,10 @@
 //! Durable NIP-29 write and account lifecycle behind the NMP facade.
 
-use std::collections::BTreeSet;
-use std::sync::mpsc::Receiver;
-
 use anyhow::{Context, Result};
-use nmp::{RelayUrl, SignEventRequest, WriteStatus};
-use nmp_grammar::{Durability, HostAuthority, WriteIntent, WritePayload, WriteRouting};
+use nmp::{FifoReceiver, RelayUrl, SignEventRequest, WriteStatus};
+use nmp_grammar::{Durability, Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, Tag, UnsignedEvent};
+use std::collections::BTreeSet;
 
 use super::scrub::scrub_unsigned;
 use super::NmpHost;
@@ -108,7 +106,7 @@ impl NmpHost {
         &self,
         intents: Vec<WriteIntent>,
         context: &'static str,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let receivers = intents
             .into_iter()
             .map(|intent| self.publish_intent(intent, context))
@@ -121,7 +119,7 @@ impl NmpHost {
         &self,
         intent: WriteIntent,
         context: &'static str,
-    ) -> Result<Receiver<WriteStatus>> {
+    ) -> Result<FifoReceiver<WriteStatus>> {
         #[cfg(test)]
         if let Some(result) = self.test_io.take_write() {
             return result.context(context);
@@ -133,7 +131,7 @@ impl NmpHost {
         &self,
         unsigned: UnsignedEvent,
         identity_override: Option<PublicKey>,
-    ) -> Result<Vec<Receiver<WriteStatus>>> {
+    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
         let groups = group_values(unsigned.tags.iter());
         if groups.len() != 1 {
             anyhow::bail!(
@@ -144,17 +142,26 @@ impl NmpHost {
         let mut intents = Vec::with_capacity(self.relays.len());
         for relay in &self.relays {
             let mut intent = group_intent(relay.clone(), template.clone())?;
-            intent.identity_override = identity_override;
+            intent.identity = identity_of(identity_override);
             intents.push(intent);
         }
         self.submit_intents(intents, "submitting unsigned NMP write")
     }
 }
 
+/// `None` restates NMP's own default: publish as whoever is active at
+/// acceptance. `Some(pk)` names the key explicitly, which is what the signed
+/// paths do — the author is already frozen in the bytes there.
+pub(crate) fn identity_of(identity_override: Option<PublicKey>) -> Identity {
+    match identity_override {
+        Some(pubkey) => Identity::Explicit(pubkey),
+        None => Identity::Active,
+    }
+}
+
 #[derive(Clone)]
 struct GroupTemplate {
     group: String,
-    author: PublicKey,
     created_at: nostr::Timestamp,
     kind: u16,
     content: String,
@@ -163,7 +170,6 @@ struct GroupTemplate {
 
 fn unsigned_template(unsigned: &UnsignedEvent) -> Result<GroupTemplate> {
     group_template(
-        unsigned.pubkey,
         unsigned.created_at,
         unsigned.kind.as_u16(),
         unsigned.content.clone(),
@@ -173,7 +179,6 @@ fn unsigned_template(unsigned: &UnsignedEvent) -> Result<GroupTemplate> {
 
 fn event_template(event: &Event) -> Result<GroupTemplate> {
     group_template(
-        event.pubkey,
         event.created_at,
         event.kind.as_u16(),
         event.content.clone(),
@@ -182,7 +187,6 @@ fn event_template(event: &Event) -> Result<GroupTemplate> {
 }
 
 fn group_template(
-    author: PublicKey,
     created_at: nostr::Timestamp,
     kind: u16,
     content: String,
@@ -205,7 +209,6 @@ fn group_template(
         .collect();
     Ok(GroupTemplate {
         group,
-        author,
         created_at,
         kind,
         content,
@@ -224,21 +227,30 @@ fn group_values<'a>(tags: impl IntoIterator<Item = &'a Tag>) -> BTreeSet<String>
         .collect()
 }
 
+/// Mint the group write through NMP's `Group`, which owns the `#h` scoping
+/// and pins the route to the host itself. `Group::write_intent` refuses a
+/// caller-supplied `h` or `previous` row, so `group_template` strips both
+/// before we get here.
 fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIntent> {
-    nmp_nip29::compose_group_send(
-        relay,
-        &template.group,
-        template.author,
-        template.created_at,
-        template.kind,
-        template.content,
-        template.extra_tags,
-        &nmp_nip29::GroupTimelineEvidence::none(),
-    )
-    .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
+    let tags = template
+        .extra_tags
+        .into_iter()
+        .map(|row| {
+            Tag::parse(row).map_err(|error| anyhow::anyhow!("invalid NIP-29 tag: {error:?}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let builder = nmp::EventBuilder {
+        kind: nostr::Kind::from(template.kind),
+        tags,
+        content: template.content,
+        created_at: Some(template.created_at),
+    };
+    nmp_nip29::Group::new(relay, template.group)
+        .write_intent(builder)
+        .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
 }
 
-fn require_configured_host(receivers: &[Receiver<WriteStatus>]) -> Result<()> {
+fn require_configured_host(receivers: &[FifoReceiver<WriteStatus>]) -> Result<()> {
     if receivers.is_empty() {
         anyhow::bail!("cannot publish a NIP-29 event without a configured group host");
     }

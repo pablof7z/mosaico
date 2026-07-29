@@ -1,7 +1,8 @@
 use super::background_receipts::BackgroundWriteTerminalStatus;
 use super::*;
+use nmp::fifo_channel;
 use nostr::{EventBuilder, Kind, Tag};
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::test]
@@ -26,7 +27,6 @@ async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
 
 #[test]
 fn group_template_keeps_product_tags_and_reserves_routing_tags() {
-    let keys = Keys::generate();
     let tags = [
         Tag::parse(["p", &"a".repeat(64)]).unwrap(),
         Tag::parse(["h", "room-b"]).unwrap(),
@@ -34,7 +34,6 @@ fn group_template_keeps_product_tags_and_reserves_routing_tags() {
         Tag::parse(["previous", "deadbeef"]).unwrap(),
     ];
     let template = group_template(
-        keys.public_key(),
         nostr::Timestamp::from(7),
         Kind::TextNote.as_u16(),
         "hello".into(),
@@ -66,40 +65,41 @@ fn unsigned_multi_group_event_is_rejected_instead_of_losing_scope() {
 
     let error = host
         .publish_group_unsigned(unsigned, Some(keys.public_key()))
-        .unwrap_err();
+        .err()
+        .expect("multi-group publication must fail");
     assert!(error.to_string().contains("exactly one h tag"));
 }
 
 #[test]
 fn accepted_and_signed_is_enough_for_a_durable_enqueue() {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = fifo_channel();
     let id = EventId::from_slice(&[7; 32]).unwrap();
-    tx.send(WriteStatus::Accepted).unwrap();
-    tx.send(WriteStatus::Signed(id)).unwrap();
+    assert!(tx.send(WriteStatus::Accepted));
+    assert!(tx.send(WriteStatus::Signed(id)));
 
     assert_eq!(wait_for_write_blocking(vec![rx], None, false).unwrap(), id);
 }
 
 #[test]
 fn accepted_signed_and_acked_is_a_healthy_checked_write() {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = fifo_channel();
     let id = EventId::from_slice(&[6; 32]).unwrap();
     let relay = RelayUrl::parse("wss://relay.example.com").unwrap();
-    tx.send(WriteStatus::Accepted).unwrap();
-    tx.send(WriteStatus::Signed(id)).unwrap();
-    tx.send(WriteStatus::Acked(relay)).unwrap();
+    assert!(tx.send(WriteStatus::Accepted));
+    assert!(tx.send(WriteStatus::Signed(id)));
+    assert!(tx.send(WriteStatus::Acked(relay)));
 
     assert_eq!(wait_for_write_blocking(vec![rx], None, true).unwrap(), id);
 }
 
 #[test]
 fn terminal_failure_after_acceptance_and_signing_keeps_exact_detail() {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = fifo_channel();
     let id = EventId::from_slice(&[8; 32]).unwrap();
     let detail = "durable-store persistence failure [fault=latched durability=absent reopen=required]: Previous I/O error occurred";
-    tx.send(WriteStatus::Accepted).unwrap();
-    tx.send(WriteStatus::Signed(id)).unwrap();
-    tx.send(WriteStatus::Failed(detail.into())).unwrap();
+    assert!(tx.send(WriteStatus::Accepted));
+    assert!(tx.send(WriteStatus::Signed(id)));
+    assert!(tx.send(WriteStatus::Failed(detail.into())));
 
     let error = wait_for_write_blocking(vec![rx], None, true).unwrap_err();
     let rendered = format!("{error:#}");
@@ -107,14 +107,21 @@ fn terminal_failure_after_acceptance_and_signing_keeps_exact_detail() {
 }
 
 #[test]
+fn cancellation_is_a_terminal_write_failure() {
+    let (tx, rx) = fifo_channel();
+    assert!(tx.send(WriteStatus::Cancelled));
+
+    let error = wait_for_write_blocking(vec![rx], None, true).unwrap_err();
+    assert!(error.to_string().contains("cancelled"));
+}
+
+#[test]
 fn partial_background_submission_retains_prior_receipts_and_exact_error() {
     fn targeted(index: usize) -> BackgroundIntent {
         let relay =
             RelayUrl::parse(&format!("wss://relay-{index}.example.com")).expect("test relay URL");
-        let keys = Keys::generate();
         let template = GroupTemplate {
             group: "room".into(),
-            author: keys.public_key(),
             created_at: nostr::Timestamp::from(7),
             kind: 1,
             content: "test".into(),
@@ -126,7 +133,7 @@ fn partial_background_submission_retains_prior_receipts_and_exact_error() {
         }
     }
 
-    let (first_sender, first_receiver) = mpsc::channel();
+    let (first_sender, first_receiver) = fifo_channel();
     let mut first_receiver = Some(first_receiver);
     let mut call = 0;
     let submission = collect_background_receivers(vec![targeted(0), targeted(1)], |_intent| {
@@ -153,9 +160,7 @@ fn partial_background_submission_retains_prior_receipts_and_exact_error() {
     let id = EventId::from_slice(&[9; 32]).unwrap();
     let permit = observer.reserve("status", id, 2).unwrap();
     observer.submission_failed("status", id, &error);
-    first_sender
-        .send(WriteStatus::Failed("prior receipt retained".into()))
-        .unwrap();
+    assert!(first_sender.send(WriteStatus::Failed("prior receipt retained".into())));
     observer
         .observe(permit, "status", id, submission.receivers, false)
         .unwrap();

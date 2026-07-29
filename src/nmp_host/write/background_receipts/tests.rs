@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::mpsc;
+use nmp::fifo_channel;
 
 fn event_id(byte: u8) -> EventId {
     EventId::from_slice(&[byte; 32]).unwrap()
@@ -16,8 +16,8 @@ fn accepted_is_not_terminal_and_acked_records_success() {
     let observer = BackgroundReceiptObserver::start_with(4, 2, Duration::from_secs(1)).unwrap();
     let id = event_id(1);
     let permit = observer.reserve("profile", id, 1).unwrap();
-    let (sender, receiver) = mpsc::channel();
-    sender.send(WriteStatus::Accepted).unwrap();
+    let (sender, receiver) = fifo_channel();
+    assert!(sender.send(WriteStatus::Accepted));
     observer
         .observe(
             permit,
@@ -29,12 +29,10 @@ fn accepted_is_not_terminal_and_acked_records_success() {
         .unwrap();
     assert!(observer.snapshot().last_success.is_none());
 
-    sender.send(WriteStatus::Signed(id)).unwrap();
-    sender
-        .send(WriteStatus::Acked(
-            nmp::RelayUrl::parse("wss://relay.example.com").unwrap(),
-        ))
-        .unwrap();
+    assert!(sender.send(WriteStatus::Signed(id)));
+    assert!(sender.send(WriteStatus::Acked(
+        nmp::RelayUrl::parse("wss://relay.example.com").unwrap(),
+    )));
     observer.wait_idle();
     let snapshot = observer.snapshot();
     assert_eq!(
@@ -49,11 +47,11 @@ fn exact_terminal_failure_is_correlated_after_acceptance() {
     let observer = BackgroundReceiptObserver::start_with(4, 2, Duration::from_secs(1)).unwrap();
     let id = event_id(2);
     let permit = observer.reserve("status", id, 1).unwrap();
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = fifo_channel();
     let detail = "durable-store persistence failure [fault=latched durability=absent reopen=required]: Previous I/O error occurred";
-    sender.send(WriteStatus::Accepted).unwrap();
-    sender.send(WriteStatus::Signed(id)).unwrap();
-    sender.send(WriteStatus::Failed(detail.into())).unwrap();
+    assert!(sender.send(WriteStatus::Accepted));
+    assert!(sender.send(WriteStatus::Signed(id)));
+    assert!(sender.send(WriteStatus::Failed(detail.into())));
     observer
         .observe(
             permit,
@@ -81,12 +79,10 @@ fn persistence_blockage_remains_visible_after_later_ack() {
     let observer = BackgroundReceiptObserver::start_with(2, 1, Duration::from_secs(1)).unwrap();
     let id = event_id(10);
     let permit = observer.reserve("profile", id, 1).unwrap();
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = fifo_channel();
     let relay = nmp::RelayUrl::parse("wss://relay.example.com").unwrap();
-    sender
-        .send(WriteStatus::PersistenceBlocked(relay.clone()))
-        .unwrap();
-    sender.send(WriteStatus::Acked(relay)).unwrap();
+    assert!(sender.send(WriteStatus::PersistenceBlocked(relay.clone())));
+    assert!(sender.send(WriteStatus::Acked(relay)));
     observer
         .observe(
             permit,
@@ -114,11 +110,9 @@ fn silent_first_stream_does_not_hide_later_failure_for_the_same_event() {
     let observer = BackgroundReceiptObserver::start_with(4, 2, Duration::from_secs(2)).unwrap();
     let id = event_id(3);
     let permit = observer.reserve("profile", id, 2).unwrap();
-    let (_held_sender, held_receiver) = mpsc::channel();
-    let (failed_sender, failed_receiver) = mpsc::channel();
-    failed_sender
-        .send(WriteStatus::Failed("second write failed".into()))
-        .unwrap();
+    let (_held_sender, held_receiver) = fifo_channel();
+    let (failed_sender, failed_receiver) = fifo_channel();
+    assert!(failed_sender.send(WriteStatus::Failed("second write failed".into())));
     let started = Instant::now();
     observer
         .observe(
@@ -148,16 +142,14 @@ fn four_silent_streams_do_not_hide_immediate_fifth_stream_failure() {
     let mut held_senders = Vec::new();
     let mut receivers = Vec::new();
     for index in 0..4 {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = fifo_channel();
         held_senders.push(sender);
         receivers.push((format!("{index}:silent"), receiver));
     }
-    let (failed_sender, failed_receiver) = mpsc::channel();
-    failed_sender
-        .send(WriteStatus::Failed(
-            "fifth stream failed immediately".into(),
-        ))
-        .unwrap();
+    let (failed_sender, failed_receiver) = fifo_channel();
+    assert!(failed_sender.send(WriteStatus::Failed(
+        "fifth stream failed immediately".into(),
+    )));
     receivers.push(("4:failed".into(), failed_receiver));
 
     let started = Instant::now();
@@ -178,7 +170,7 @@ fn worker_panic_records_distinct_gap_and_releases_capacity() {
     let observer = BackgroundReceiptObserver::start_with(1, 1, Duration::from_secs(1)).unwrap();
     let id = event_id(12);
     let permit = observer.reserve("profile", id, 1).unwrap();
-    let (_sender, receiver) = mpsc::channel();
+    let (_sender, receiver) = fifo_channel();
     observer
         .observe(
             permit,
@@ -235,7 +227,7 @@ fn receipt_timeout_is_a_gap_not_a_write_failure() {
     let observer = BackgroundReceiptObserver::start_with(2, 1, Duration::from_millis(30)).unwrap();
     let id = event_id(8);
     let permit = observer.reserve("status", id, 1).unwrap();
-    let (_sender, receiver) = mpsc::channel();
+    let (_sender, receiver) = fifo_channel();
     observer
         .observe(
             permit,
@@ -256,6 +248,35 @@ fn receipt_timeout_is_a_gap_not_a_write_failure() {
 }
 
 #[test]
+fn lagged_receipt_is_an_explicit_observation_gap() {
+    let observer = BackgroundReceiptObserver::start_with(1, 1, Duration::from_secs(1)).unwrap();
+    let id = event_id(14);
+    let permit = observer.reserve("status", id, 1).unwrap();
+    let (sender, receiver) = fifo_channel();
+    for _ in 0..nmp::FACT_CHANNEL_CAPACITY {
+        assert!(sender.send(WriteStatus::Accepted));
+    }
+    assert!(!sender.send(WriteStatus::Accepted));
+    observer
+        .observe(
+            permit,
+            "status",
+            id,
+            vec![("0:lagged".into(), receiver)],
+            true,
+        )
+        .unwrap();
+    observer.wait_idle();
+
+    let snapshot = observer.snapshot();
+    assert!(snapshot.last_failure.is_none());
+    assert_eq!(
+        snapshot.last_gap.unwrap().status,
+        BackgroundWriteGapStatus::ReceiptLagged
+    );
+}
+
+#[test]
 fn shutdown_wakes_128_held_receipts_and_joins_under_one_second() {
     let observer = BackgroundReceiptObserver::start_with(128, 4, Duration::from_secs(30)).unwrap();
     let id = event_id(9);
@@ -263,7 +284,7 @@ fn shutdown_wakes_128_held_receipts_and_joins_under_one_second() {
     let mut senders = Vec::new();
     let mut receivers = Vec::new();
     for index in 0..128 {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = fifo_channel();
         senders.push(sender);
         receivers.push((format!("{index}:held"), receiver));
     }

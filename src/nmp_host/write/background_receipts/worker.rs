@@ -4,7 +4,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use nmp::WriteStatus;
+use nmp::{FifoReceiver, FifoRecvTimeoutError, WriteStatus};
 
 use super::admission::ReceiptSlot;
 use super::evidence::{BackgroundWriteGapStatus, BackgroundWriteTerminalStatus, Evidence};
@@ -12,7 +12,7 @@ use super::evidence::{BackgroundWriteGapStatus, BackgroundWriteTerminalStatus, E
 const SHUTDOWN_WAKE_CADENCE: Duration = Duration::from_millis(100);
 
 pub(super) struct ReceiptJob {
-    pub(super) receiver: Receiver<WriteStatus>,
+    pub(super) receiver: FifoReceiver<WriteStatus>,
     pub(super) target: String,
     pub(super) deadline: Instant,
     pub(super) tracker: Arc<Tracker>,
@@ -212,11 +212,11 @@ fn poll_stream(job: &ReceiptJob, shutdown: &AtomicBool) -> PollOutcome {
                 PollOutcome::Terminal(StreamOutcome::Gap(status, detail))
             }
         },
-        Err(RecvTimeoutError::Disconnected) => PollOutcome::Terminal(StreamOutcome::Gap(
+        Err(FifoRecvTimeoutError::Closed) => PollOutcome::Terminal(StreamOutcome::Gap(
             BackgroundWriteGapStatus::ReceiptDisconnected,
             "receipt stream closed before a terminal receipt".into(),
         )),
-        Err(RecvTimeoutError::Timeout) => {
+        Err(FifoRecvTimeoutError::Timeout) => {
             if Instant::now() >= job.deadline {
                 PollOutcome::Terminal(StreamOutcome::Gap(
                     BackgroundWriteGapStatus::ReceiptTimeout,
@@ -226,6 +226,10 @@ fn poll_stream(job: &ReceiptJob, shutdown: &AtomicBool) -> PollOutcome {
                 PollOutcome::Pending
             }
         }
+        Err(FifoRecvTimeoutError::Lagged) => PollOutcome::Terminal(StreamOutcome::Gap(
+            BackgroundWriteGapStatus::ReceiptLagged,
+            "receipt stream exceeded its bounded delivery capacity".into(),
+        )),
     }
 }
 
@@ -249,6 +253,10 @@ fn classify(status: WriteStatus) -> ReceiptProgress {
         | WriteStatus::HandoffAmbiguous { .. }
         | WriteStatus::Sent { .. } => ReceiptProgress::Intermediate,
         WriteStatus::Acked(_) => ReceiptProgress::Acked,
+        WriteStatus::Cancelled => ReceiptProgress::Failure(
+            BackgroundWriteTerminalStatus::Cancelled,
+            "write was cancelled before signature promotion".into(),
+        ),
         WriteStatus::Failed(reason) => {
             ReceiptProgress::Failure(BackgroundWriteTerminalStatus::Failed, reason)
         }
