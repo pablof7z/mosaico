@@ -53,6 +53,8 @@ coordination overhead.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
   secret-bearing environment affects the work.
+- Read [Message Search](references/message-search.md) when recovering prior
+  channel context by author, recipient, content, time, or channel subtree.
 - If local CLI and MCP fabric tools are both available, resolve **self** from
   the local CLI session (`mosaico my session` / `MOSAICO_PUBKEY`). A remote
   MCP actor (for example a grok.com OAuth `mcp-grok` session) is a separate
@@ -96,9 +98,11 @@ The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
   `--json`, `--state`, `--resumable`, and `--since`. Treat the displayed
   `busy ~...` duration as a broad triage hint only: old sessions begin at zero,
   and the counter approximates net time spent in the working state.
-- Use `channel read`, `send`, `reply`, `react`, and `wait` for conversation and
-  attention; read [Coordination Guide](references/coordination-guide.md) before
-  directing another participant or attaching a file.
+- Use `channel read`, `search`, `send`, `reply`, `react`, and `wait` for
+  conversation and attention. Read [Message Search](references/message-search.md)
+  for local-cache search scope, filter algebra, output, and pagination; read
+  [Coordination Guide](references/coordination-guide.md) before directing
+  another participant or attaching a file.
 - Use `channel list`, `join`, `create`, `add`, `edit`, `leave`,
   `archive`, and `init` only as described in [Channel
   Creation](references/channel-creation.md).

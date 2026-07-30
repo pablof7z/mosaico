@@ -37,6 +37,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             })
             .await?;
         }
+        ChannelAction::Search(args) => crate::cli::search::channel_search(args).await?,
         ChannelAction::Send {
             message,
             message_flag,

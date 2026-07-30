@@ -55,6 +55,23 @@ fn channel_list_schema_uses_the_shared_path_projection_modes() {
 }
 
 #[test]
+fn channel_search_schema_is_read_only_and_has_no_workspace_filter() {
+    let tools = list();
+    let search = tool(&tools, "mosaico.channel_search");
+    let properties = &search["inputSchema"]["properties"];
+    for property in [
+        "from", "to", "contains", "channels", "since", "until", "limit", "cursor",
+    ] {
+        assert!(properties.get(property).is_some(), "missing {property}");
+    }
+    assert!(properties.get("workspace").is_none());
+    assert!(properties.get("channel").is_none());
+    assert_eq!(properties["channels"]["type"], "array");
+    assert_eq!(search["annotations"]["readOnlyHint"], true);
+    assert_eq!(search["annotations"]["destructiveHint"], false);
+}
+
+#[test]
 fn channel_create_uses_one_absolute_path_contract() {
     let tools = list();
     let create = tool(&tools, "mosaico.channel_create");
