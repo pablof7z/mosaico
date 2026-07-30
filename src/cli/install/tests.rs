@@ -1,5 +1,7 @@
 use super::*;
 
+mod context_contracts;
+
 fn harness(id: &'static str, path: std::path::PathBuf) -> Harness {
     Harness {
         id,
@@ -92,16 +94,6 @@ fn native_pre_tool_hook_is_installed_only_for_confirmed_json_hosts() {
         .iter()
         .all(|(event, _)| *event != "PreToolUse"));
     assert!(config::hook_entries(&goose).is_empty());
-}
-
-#[test]
-fn opencode_bridge_blocks_denials_and_queues_warnings_for_the_model() {
-    let source = config::OPENCODE_PLUGIN_TS;
-    assert!(source.contains("\"tool.execute.before\""));
-    assert!(source.contains("\"pre-tool-use\""));
-    assert!(source.contains("throw new Error(result.message)"));
-    assert!(source.contains("pendingBoundaryWarnings.push(result.message)"));
-    assert!(source.contains("pendingBoundaryWarnings.splice(0)"));
 }
 
 #[test]
@@ -241,37 +233,6 @@ fn uninstall_removes_ours_and_empty_events_only() {
 }
 
 #[test]
-fn codex_root_events_are_migrated_under_hooks() {
-    let mut root = serde_json::json!({
-        "Stop": [{
-            "hooks": [{
-                "type": "command",
-                "command": "foreign stop",
-                "timeout": 1
-            }]
-        }],
-        "hooks": {
-            "Stop": [{
-                "hooks": [{
-                    "type": "command",
-                    "command": "existing stop",
-                    "timeout": 1
-                }]
-            }]
-        }
-    });
-
-    migrate_codex_root_events(&mut root);
-
-    assert!(root.get("Stop").is_none());
-    let groups = root
-        .pointer("/hooks/Stop")
-        .and_then(|v| v.as_array())
-        .unwrap();
-    assert_eq!(groups.len(), 2);
-}
-
-#[test]
 fn write_json_creates_parent_directories() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("a/b/hooks.json");
@@ -289,6 +250,23 @@ fn status_detects_installed_codex_hooks() {
 
     assert!(is_installed(&h));
     assert!(is_present(&h));
+}
+
+#[test]
+fn removed_codex_root_hook_shape_is_not_recognized() {
+    let temp = tempfile::tempdir().unwrap();
+    let h = harness("codex", temp.path().join("hooks.json"));
+    write_json(
+        &h.config_path,
+        &serde_json::json!({
+            "SessionStart": [config::codex_hook_entries()[0].1.clone()],
+            "UserPromptSubmit": [config::codex_hook_entries()[1].1.clone()],
+        }),
+    )
+    .unwrap();
+
+    assert!(!is_present(&h));
+    assert!(!is_installed(&h));
 }
 
 #[test]

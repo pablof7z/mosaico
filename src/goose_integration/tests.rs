@@ -63,7 +63,7 @@ fn launch_requires_enabled_plugin_and_binds_unique_file() {
 }
 
 #[test]
-fn hook_retains_baseline_and_prepends_nonempty_deltas() {
+fn hook_merges_only_same_turn_deltas_and_replaces_next_turn() {
     let home = tempfile::tempdir().unwrap();
     let mosaico = home.path().join("mosaico");
     let mut env = crate::test_env::EnvGuard::set("MOSAICO_HOME", &mosaico);
@@ -81,12 +81,14 @@ fn hook_retains_baseline_and_prepends_nonempty_deltas() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "delta\n\nsnapshot");
 
     sync_hook_context("user-prompt-submit", None).unwrap();
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "delta\n\nsnapshot");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
 
     sync_hook_context("user-prompt-submit", Some("next turn")).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "next turn");
+    sync_hook_context("post-tool-use", Some("same turn delta")).unwrap();
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
-        "next turn\n\ndelta\n\nsnapshot"
+        "same turn delta\n\nnext turn"
     );
 }
 

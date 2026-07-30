@@ -79,8 +79,7 @@ pub struct DaemonState {
     dedup: DedupState,
 }
 impl DaemonState {
-    /// Hex pubkey of this backend's identity key. Ensures the daemon-owned
-    /// management key exists before deriving the pubkey.
+    /// Hex pubkey of the daemon-owned management identity.
     fn backend_pubkey(&self) -> Option<String> {
         self.provider.management_pubkey()
     }
@@ -163,6 +162,7 @@ mod channel_send;
 mod channel_wait;
 mod channels_rpc;
 mod chat_target;
+mod coordination_reminder;
 mod cross_project_boundary;
 mod cursor;
 mod diagnostics;

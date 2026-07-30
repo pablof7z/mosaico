@@ -52,6 +52,7 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .provider
         .publish_reaction_checked(&reaction, &keys)
         .await?;
+    state.record_coordination_action(&rec);
     let channel_ref = state
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
 

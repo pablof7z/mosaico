@@ -80,7 +80,7 @@ fn render_notice(store: &Store, channel_ref: &str, events: &[RelayEvent], now: u
     };
     format!(
         "{summary} To inspect earlier conversation, read \
-         `mosaico://skill/coordination-guide` and use an explicit channel read."
+         `~/.agents/skills/mosaico/references/coordination-guide.md` and use an explicit channel read."
     )
 }
 
@@ -186,5 +186,17 @@ mod tests {
         assert_eq!(relative_duration(1), "1 min");
         assert_eq!(relative_duration(3_601), "2 hr");
         assert_eq!(relative_duration(86_401), "2 days");
+    }
+
+    #[test]
+    fn notice_uses_the_installed_coordination_guide_path() {
+        let store = Store::open_memory().unwrap();
+        let events = vec![event("a", 10_000)];
+        let notice = render_notice(&store, "#room", &events, 10_000);
+        assert!(
+            notice.contains("`~/.agents/skills/mosaico/references/coordination-guide.md`"),
+            "{notice}"
+        );
+        assert!(!notice.contains("mosaico://"), "{notice}");
     }
 }

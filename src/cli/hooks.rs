@@ -1,4 +1,4 @@
-use super::turn::{turn_check, turn_end, turn_start, EmitFormat};
+use super::turn::{turn_check, turn_end, turn_start};
 use super::*;
 use std::path::PathBuf;
 
@@ -11,7 +11,7 @@ mod registry;
 use observation::{
     find_ancestor_harness, find_direct_agent_invocation, harness_for_process, report_observation,
 };
-use registry::{find_hook_host, HookOutputFormat, HostDef};
+use registry::{find_hook_host, HostDef};
 
 // ── hook adapter registry ─────────────────────────────────────────────────────
 //
@@ -75,20 +75,7 @@ async fn hook_dispatch(
     // How context is emitted depends on host AND hook type. Claude Code's
     // PostToolUse and Codex turn hooks read model-visible context from the
     // `hookSpecificOutput.additionalContext` envelope.
-    let emit = match (host.name, hook_type.as_str()) {
-        ("claude-code", "post-tool-use") => EmitFormat::HookSpecificAdditionalContext {
-            hook_event_name: "PostToolUse",
-        },
-        _ => match host.output_format {
-            HookOutputFormat::PlainText => EmitFormat::PlainText,
-            HookOutputFormat::HookSpecificAdditionalContext => {
-                EmitFormat::HookSpecificAdditionalContext {
-                    hook_event_name: hook_event_name(&hook_type),
-                }
-            }
-            HookOutputFormat::ContextObject => EmitFormat::ContextObject,
-        },
-    };
+    let emit = registry::emit_format(host, &hook_type);
     // Parse stdin — fail open if JSON is absent or malformed.
     let obj = raw.as_object();
 
@@ -389,16 +376,4 @@ async fn hook_dispatch(
         }
     }
     Ok(())
-}
-
-fn hook_event_name(hook_type: &str) -> &'static str {
-    match hook_type {
-        "session-start" => "SessionStart",
-        "session-end" => "SessionEnd",
-        "user-prompt-submit" => "UserPromptSubmit",
-        "post-tool-use" => "PostToolUse",
-        "pre-tool-use" => "PreToolUse",
-        "stop" => "Stop",
-        _ => "Unknown",
-    }
 }

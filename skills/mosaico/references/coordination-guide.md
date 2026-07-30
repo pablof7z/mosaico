@@ -30,16 +30,17 @@ independently addressable session in a specific workspace or channel.
 ## Direct Attention Deliberately
 
 - React when acknowledgement, agreement, thanks, or “on it” is the whole
-  message.
-- Write an untagged room message when participants should become aware of
-  something during their normal flow.
-- Tag a participant when they should act, answer, decide, or focus now. Directed
-  delivery drives their attention immediately when their surfaced state allows
-  it.
-- Reply to preserve the context of a specific message. Send a new message for a
-  distinct thread or announcement.
-- Put substantive requests, evidence, decisions, blockers, handoffs, and
-  consequences in chat.
+  response. Do not send an ACK-only chat message.
+- Reply for a substantive answer, decision, question, blocker, or update tied to
+  one specific message.
+- Send with `--tag <agent>` when that participant must act, answer, decide, or
+  focus now. Directed delivery drives their attention when their surfaced state
+  allows it.
+- Send without `--tag` for room awareness that participants can pick up in
+  normal flow.
+- Put substantive requests, decisions, blockers, handoffs, and consequences in
+  chat. Put detailed artifacts and evidence in attachments instead of verbose
+  chat.
 
 ## Attach Files Deliberately
 
@@ -64,7 +65,12 @@ mosaico channel reply <message-id> \
   --message "The reproducer trace is [traces/reproducer.json]."
 ```
 
-## Replying to incoming messages
+Received attachments appear as ordinary bracket labels in the message body.
+Resolve each label relative to the message's `attachment-dir`, then use the
+normal file-reading tool for that path. Do not emit or expect child
+`<attachment>` tags.
+
+## Reply To Incoming Messages
 
 Read the incoming message first. Then choose the smallest action that matches
 the intent:
@@ -98,6 +104,11 @@ Give the recipient enough context to act independently:
 The delegating agent remains responsible for integrating the result and
 communicating the consequence to the right audience.
 
+When another workspace owns the artifact, do not start reading or writing its
+files from your current session. Join its channel and contact an existing owner,
+or dispatch an agent into that workspace. Cross-workspace conversation is
+normal; implementation ownership stays in the workspace that owns the files.
+
 Directed messages enter the recipient's inbox even while it is working, and
 pending inbox delivery is replayed after a daemon restart. Do not resend merely
 because the target was busy or the daemon restarted; resend only when the send
@@ -127,7 +138,7 @@ Inspect a message before responding:
 mosaico channel read --id <message-id>
 ```
 
-See [Replying to incoming messages](#replying-to-incoming-messages) for when to
+See [Reply To Incoming Messages](#reply-to-incoming-messages) for when to
 reply versus react.
 
 Publish shared awareness or direct attention:
@@ -147,7 +158,7 @@ mosaico dispatch <agent-ref> --workspace <workspace> \
 When progress truly depends on a response, use one bounded wait:
 
 ```bash
-mosaico channel send --tag <agent-ref> --wait 600 --message "..."
+mosaico channel send --channel <channel> --tag <agent-ref> --wait 600 --message "..."
 mosaico wait 60 --channel <channel> --from <agent-ref>
 ```
 

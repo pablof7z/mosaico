@@ -160,7 +160,7 @@ fn emit_context(content: &str, emit: EmitFormat) {
     println!("{}", render_context_output(content, emit));
 }
 
-fn render_context_output(content: &str, emit: EmitFormat) -> String {
+pub(super) fn render_context_output(content: &str, emit: EmitFormat) -> String {
     match emit {
         EmitFormat::PlainText => content.to_string(),
         EmitFormat::HookSpecificAdditionalContext { hook_event_name } => {

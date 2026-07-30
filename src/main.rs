@@ -28,7 +28,7 @@ fn main() {
     }
 
     // Explicit top-level help stays context-sensitive. Only intercept top-level
-    // help so subcommand help (`mosaico who --help`, etc.) still goes through
+    // help so subcommand help (`mosaico channel --help`, etc.) still goes through
     // clap normally.
     if matches!(argv.get(1).map(String::as_str), Some("--help" | "-h")) {
         cli::print_help_contextual();

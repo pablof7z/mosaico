@@ -18,6 +18,16 @@ Keep implementation ownership near the workspace that owns the affected
 artifact. Carry consequential decisions, dependencies, and handoffs back to
 every workspace whose work they change.
 
+Talking in or joining another workspace's channel is normal. Reading or writing
+files under a known different workspace is not normal ownership: contact an
+agent there or dispatch one into that workspace instead.
+
+Mosaico's cross-project guard is a cooperative heuristic for direct,
+structured tool paths. It warns or denies only when a path clearly belongs to a
+known different workspace. It is not a security boundary or complete
+enforcement: unknown paths, home directories, `/tmp`, shell indirection, and
+other clever paths remain uninspected so normal work is not disrupted.
+
 ## Orient Before Acting
 
 Injected deltas may already contain the relevant workspace, channels, agents,

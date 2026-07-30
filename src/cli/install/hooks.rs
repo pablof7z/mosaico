@@ -1,14 +1,6 @@
-//! Hook merging, Codex migration, and installation detection.
+//! Hook merging and installation detection.
 
 use super::config::{self, Harness};
-
-const CODEX_ROOT_HOOK_EVENTS: &[&str] = &[
-    "SessionStart",
-    "UserPromptSubmit",
-    "PreToolUse",
-    "PostToolUse",
-    "Stop",
-];
 
 /// Does a hook group contain a mosaico command for `host`?
 fn group_is_ours(group: &serde_json::Value, host: &str) -> bool {
@@ -46,37 +38,6 @@ pub fn ensure_hooks_object(
     hooks.as_object_mut().expect("hooks forced to object")
 }
 
-/// Codex used both root event keys and nested `hooks` JSON during the transition
-/// away from TOML. Keep user hooks by moving root event arrays under `hooks`.
-pub fn migrate_codex_root_events(root: &mut serde_json::Value) {
-    ensure_object(root);
-    let Some(root_obj) = root.as_object_mut() else {
-        return;
-    };
-    let mut moved = Vec::new();
-    for event in CODEX_ROOT_HOOK_EVENTS {
-        if let Some(value) = root_obj.remove(*event) {
-            moved.push(((*event).to_string(), value));
-        }
-    }
-    if moved.is_empty() {
-        return;
-    }
-
-    let hooks = ensure_hooks_object(root);
-    for (event, incoming) in moved {
-        match (hooks.get_mut(&event), incoming) {
-            (Some(serde_json::Value::Array(existing)), serde_json::Value::Array(mut incoming)) => {
-                existing.append(&mut incoming);
-            }
-            (None, value) => {
-                hooks.insert(event, value);
-            }
-            _ => {}
-        }
-    }
-}
-
 /// Merge our hook entries into a `{"hooks": {<Event>: [...]}}` JSON object,
 /// replacing any existing groups that match our signature.
 pub fn merge_hooks(
@@ -110,12 +71,9 @@ fn is_json_harness_installed(h: &Harness) -> bool {
     let Ok(content) = std::fs::read_to_string(&h.config_path) else {
         return false;
     };
-    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&content) else {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else {
         return false;
     };
-    if h.id == "codex" {
-        migrate_codex_root_events(&mut v);
-    }
     let host = config::host_for_harness(h);
     config::hook_entries(h).iter().all(|(evt, _)| {
         v.get("hooks")
@@ -129,12 +87,9 @@ fn is_json_harness_present(h: &Harness) -> bool {
     let Ok(content) = std::fs::read_to_string(&h.config_path) else {
         return false;
     };
-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&content) else {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
         return false;
     };
-    if h.id == "codex" {
-        migrate_codex_root_events(&mut value);
-    }
     let host = config::host_for_harness(h);
     value
         .get("hooks")

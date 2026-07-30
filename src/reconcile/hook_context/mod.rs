@@ -10,6 +10,11 @@ pub use receipt::{FrameKind, HookContextReceipt, Shape};
 
 use crate::fabric_context::{assemble::assemble_view, render_view_text, FabricView, ViewInputs};
 
+pub(crate) const COORDINATION_GUIDE_REMINDER: &str = "Read Mosaico's skill resource \
+`~/.agents/skills/mosaico/references/coordination-guide.md` before you continue; \
+it defines the rules of engagement.";
+const COORDINATION_REMINDER_COOLDOWN_TURNS: u64 = 8;
+
 pub struct HookContextOutcome {
     pub text: Option<String>,
     pub receipt: HookContextReceipt,
@@ -24,6 +29,7 @@ pub struct HookContextState {
     last_cursor: Option<i64>,
     last_now: Option<i64>,
     last_headless_mode: Option<bool>,
+    coordination_cooldown_from_turn: Option<u64>,
     revision: i64,
 }
 
@@ -64,9 +70,18 @@ impl HookContextState {
         } else {
             FrameKind::Unchanged
         };
+        let turn_count = inputs.turn_count().max(1);
+        let mut presentation = view.clone();
+        if presentation.has_unresolved_coordination() && self.coordination_reminder_due(turn_count)
+        {
+            presentation.show_coordination_guide_reminder();
+        }
         let text = (force || changed)
-            .then(|| (force || !view.is_empty()).then(|| render_view_text(&view)))
+            .then(|| (force || !presentation.is_empty()).then(|| render_view_text(&presentation)))
             .flatten();
+        if text.is_some() && presentation.coordination_guide_reminder_is_shown() {
+            self.record_coordination_reminder(turn_count);
+        }
         let input_causes = if changed {
             self.changed_inputs(cursor, now, &inputs)
         } else {
@@ -101,6 +116,28 @@ impl HookContextState {
             Some(last) => last != headless,
             None => announce_initial,
         }
+    }
+
+    pub(crate) fn coordination_reminder_due(&self, turn_count: u64) -> bool {
+        self.coordination_cooldown_from_turn.is_none_or(|last| {
+            turn_count >= last.saturating_add(COORDINATION_REMINDER_COOLDOWN_TURNS)
+        })
+    }
+
+    pub(crate) fn record_coordination_reminder(&mut self, turn_count: u64) {
+        self.coordination_cooldown_from_turn = Some(
+            self.coordination_cooldown_from_turn
+                .unwrap_or_default()
+                .max(turn_count),
+        );
+    }
+
+    pub(crate) fn record_coordination_action(&mut self, turn_count: u64) {
+        self.coordination_cooldown_from_turn = Some(
+            self.coordination_cooldown_from_turn
+                .unwrap_or_default()
+                .max(turn_count),
+        );
     }
 
     fn changed_inputs(&self, cursor: i64, now: i64, inputs: &ViewInputs) -> Vec<String> {

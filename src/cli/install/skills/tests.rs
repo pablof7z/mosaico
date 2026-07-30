@@ -32,6 +32,32 @@ fn install_writes_complete_bundled_agents_skill() {
         std::fs::read_to_string(installed.join("agents/openai.yaml")).unwrap(),
         include_str!("../../../../skills/mosaico/agents/openai.yaml")
     );
+    for (page, relative) in [
+        ("skill", "SKILL.md"),
+        ("channel-creation", "references/channel-creation.md"),
+        ("coordination-guide", "references/coordination-guide.md"),
+        ("cross-workspace", "references/cross-workspace.md"),
+        ("headless-mode", "references/headless-mode.md"),
+        (
+            "identity-and-capabilities",
+            "references/identity-and-capabilities.md",
+        ),
+        ("mcp-chatbot-setup", "references/mcp-chatbot-setup.md"),
+        ("message-search", "references/message-search.md"),
+        ("public-work-status", "references/public-work-status.md"),
+    ] {
+        assert_eq!(
+            std::fs::read_to_string(installed.join(relative)).unwrap(),
+            crate::cli::mcp::embedded_skill_content(page),
+            "installed and MCP skill page drifted: {page}"
+        );
+    }
+    let guide =
+        std::fs::read_to_string(installed.join("references/coordination-guide.md")).unwrap();
+    assert!(guide.contains("mosaico channel react"));
+    assert!(guide.contains("--attach"));
+    assert!(!guide.contains("mosaico who"));
+    assert!(!guide.contains("--long-message"));
 }
 
 #[test]

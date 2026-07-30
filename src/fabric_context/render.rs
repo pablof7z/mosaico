@@ -16,6 +16,13 @@ pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     render_reactions(&mut out, &view.reactions, view.reactions_omitted);
     render_warnings(&mut out, &view.warnings);
     render_notices(&mut out, &view.notices);
+    if view.coordination_guide_reminder {
+        let _ = write!(
+            out,
+            "\n  <notice>{}</notice>",
+            text(crate::reconcile::COORDINATION_GUIDE_REMINDER)
+        );
+    }
     out.push_str("\n</mosaico>");
     out
 }

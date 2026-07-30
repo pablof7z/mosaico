@@ -19,6 +19,8 @@ pub(crate) struct FabricView {
     pub(in crate::fabric_context) reactions_omitted: usize,
     pub(in crate::fabric_context) warnings: Vec<WarningRow>,
     pub(in crate::fabric_context) notices: Vec<NoticeRow>,
+    /// Presentation-only reminder selected by the per-session cooldown cache.
+    pub(in crate::fabric_context) coordination_guide_reminder: bool,
 }
 
 impl FabricView {
@@ -42,6 +44,30 @@ impl FabricView {
             || !self.important.is_empty()
             || !self.reactions.is_empty()
             || !self.warnings.is_empty()
+    }
+
+    pub(crate) fn has_unresolved_coordination(&self) -> bool {
+        fn channel_has_unresolved(channel: &ChannelBlock) -> bool {
+            channel
+                .messages
+                .iter()
+                .any(|message| message.mention && message.needs_reply_nudge)
+                || channel.children.iter().any(channel_has_unresolved)
+        }
+        self.workspaces.as_ref().is_some_and(|workspaces| {
+            workspaces.iter().any(|workspace| {
+                workspace.root.as_ref().is_some_and(channel_has_unresolved)
+                    || workspace.channels.iter().any(channel_has_unresolved)
+            })
+        })
+    }
+
+    pub(crate) fn show_coordination_guide_reminder(&mut self) {
+        self.coordination_guide_reminder = true;
+    }
+
+    pub(crate) fn coordination_guide_reminder_is_shown(&self) -> bool {
+        self.coordination_guide_reminder
     }
 }
 

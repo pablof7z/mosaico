@@ -65,9 +65,7 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     assert!(!text.contains("<channel name=\"/root\" id=\""));
     assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\""));
     assert!(text.contains("age=\"1m\""));
-    assert!(
-        !text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
-    );
+    assert!(!text.contains("Follow up on mentio:"));
     assert!(!text.contains("mention=\"true\""));
     assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("[message truncated; run `mosaico channel read --id mentio`]"));
@@ -77,7 +75,7 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
 }
 
 #[test]
-fn mention_rows_without_followup_show_coordination_guide_nudge() {
+fn mention_rows_without_followup_show_compact_affordance() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
@@ -94,7 +92,11 @@ fn mention_rows_without_followup_show_coordination_guide_nudge() {
         .expect("mention should render");
 
     assert!(
-        text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
+        text.contains("Follow up on mentio: reply for substantive context or react for an ACK."),
+        "got: {text}"
+    );
+    assert!(
+        !text.contains("references/coordination-guide.md"),
         "got: {text}"
     );
 }

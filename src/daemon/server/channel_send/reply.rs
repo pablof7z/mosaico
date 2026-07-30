@@ -71,6 +71,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             },
         )
         .await?;
+    state.record_coordination_action(&rec);
     let local_directory = match crate::attachment_receive::copy_local(
         &state.cfg.attachment_receive_directory,
         &published.event_id,

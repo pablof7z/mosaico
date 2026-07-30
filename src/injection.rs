@@ -13,7 +13,8 @@
 //!
 //! Publishing no longer happens automatically on the agent's behalf — when the
 //! target has not already been answered or acknowledged, the envelope carries a
-//! brief reminder to consult `skills/mosaico/references/coordination-guide.md`.
+//! compact reply/react affordance and, when its per-session cooldown allows, a
+//! reminder pointing to the installed coordination guide.
 //!
 //! Hook-delivered mentions and ambient channel activity are rendered by the
 //! unified fabric context view, not by this envelope module.
@@ -43,6 +44,7 @@ pub(crate) fn render_terminal_mention(
     rows: &[InboxRow],
     _whitelisted: &[String],
     now: u64,
+    show_coordination_guide: bool,
 ) -> Option<String> {
     if rows.is_empty() {
         return None;
@@ -73,15 +75,21 @@ pub(crate) fn render_terminal_mention(
                 now,
             },
         );
-        out.push_str("\n  </channel>");
-    }
-    if let Some(row) = rows.last() {
         if should_render_reply_nudge(store, row) {
-            out.push_str(
-                "\n\n  Need a follow-up? Read \
-                 `skills/mosaico/references/coordination-guide.md`.",
+            let _ = write!(
+                out,
+                "\n    Follow up on {}: reply for substantive context or react for an ACK.",
+                crate::util::short_id(&row.event_id)
             );
         }
+        out.push_str("\n  </channel>");
+    }
+    if show_coordination_guide {
+        let _ = write!(
+            out,
+            "\n  <notice>{}</notice>",
+            crate::agent_xml::text(crate::reconcile::COORDINATION_GUIDE_REMINDER)
+        );
     }
     out.push_str("\n</mosaico>");
     Some(out)
@@ -114,4 +122,8 @@ fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
             row.created_at,
         )
         .unwrap_or(true)
+}
+
+pub(crate) fn has_unresolved_terminal_mention(store: &Store, rows: &[InboxRow]) -> bool {
+    rows.iter().any(|row| should_render_reply_nudge(store, row))
 }

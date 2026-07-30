@@ -44,6 +44,7 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
             .map(|text| WarningRow { text })
             .collect(),
         notices: Vec::new(),
+        coordination_guide_reminder: false,
     };
     collect_important(&mut view);
     if !full && !view.has_activity() && inputs.force() {
@@ -56,11 +57,12 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
 
 fn self_row(row: &super::capture::SelfCap) -> SelfRow {
     let hint = if row.title.is_empty() {
-        "No session status set. Read mosaico://skill/public-work-status before \
-         publishing a concise outcome that helps peers understand your work."
+        "No session status set. Read \
+         ~/.agents/skills/mosaico/references/public-work-status.md before publishing \
+         a concise outcome that helps peers understand your work."
     } else if row.turn_count > 0 && row.turn_count.is_multiple_of(12) {
         "Is this session status still the meaningful outcome you own? Read \
-         mosaico://skill/public-work-status before updating it."
+         ~/.agents/skills/mosaico/references/public-work-status.md before updating it."
     } else {
         ""
     };
