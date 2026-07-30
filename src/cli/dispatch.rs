@@ -12,7 +12,8 @@ pub(in crate::cli) struct DispatchArgs {
     /// Fully-qualified channel to join. Repeat to join several channels.
     #[arg(long = "channel")]
     channels: Vec<String>,
-    /// Message to send after the new session ACKs. Use "-" to read stdin.
+    /// Message to send after the new session ACKs. Literal `\n` sequences
+    /// become line breaks. Use "-" to read stdin verbatim.
     #[arg(long)]
     message: Option<String>,
 }

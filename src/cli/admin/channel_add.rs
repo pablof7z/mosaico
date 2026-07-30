@@ -50,6 +50,7 @@ async fn session_add(channel: Option<String>, handle: &str, message: Option<Stri
         anyhow::bail!("channel add --session <npub|hex|current-handle> <channel>");
     };
     super::args::parse_channel_path(&channel).map_err(anyhow::Error::msg)?;
+    let message = message.map(crate::cli::messaging::expand_message_argument_newlines);
     // Strip the mention sigil before sending the canonical handle to the daemon.
     let selector = handle.strip_prefix('@').unwrap_or(handle);
     let v = invite_call(

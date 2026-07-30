@@ -39,7 +39,8 @@ pub(in crate::cli) struct AddArgs {
     #[arg(long)]
     pub(in crate::cli::admin) admin: bool,
     /// Also post a chat line into the channel mentioning the brought-online
-    /// session. Valid only with `--session`.
+    /// session. Literal `\n` sequences become line breaks. Valid only with
+    /// `--session`.
     #[arg(long, value_name = "TEXT")]
     pub(in crate::cli::admin) message: Option<String>,
 }
@@ -86,7 +87,8 @@ pub(in crate::cli) enum ChannelAction {
     Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {
-        /// Message body. Positional, or via --message, or piped on stdin.
+        /// Message body. Positional or --message text expands literal `\n`;
+        /// piped stdin is used verbatim.
         #[arg(value_name = "MESSAGE")]
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
@@ -126,7 +128,8 @@ pub(in crate::cli) enum ChannelAction {
     Reply {
         /// Short or full message/event id from a mention envelope.
         id: String,
-        /// Reply body. Positional, or via --message, or piped on stdin.
+        /// Reply body. Positional or --message text expands literal `\n`;
+        /// piped stdin is used verbatim.
         #[arg(value_name = "MESSAGE")]
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]

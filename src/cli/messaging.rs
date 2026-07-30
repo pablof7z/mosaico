@@ -133,7 +133,7 @@ pub(super) fn resolve_send_message_body(raw: Option<String>) -> Result<String> {
     match raw {
         Some(message) if message == "-" => read_stdin_message(),
         Some(message) if message.is_empty() => bail!("message must not be empty"),
-        Some(message) => Ok(message),
+        Some(message) => Ok(expand_message_argument_newlines(message)),
         None => {
             if io::stdin().is_terminal() {
                 bail!(
@@ -144,6 +144,10 @@ pub(super) fn resolve_send_message_body(raw: Option<String>) -> Result<String> {
             read_stdin_message()
         }
     }
+}
+
+pub(super) fn expand_message_argument_newlines(message: String) -> String {
+    message.replace("\\n", "\n")
 }
 
 fn read_stdin_message() -> Result<String> {
