@@ -43,12 +43,16 @@ export const Mosaico: Plugin = async ({ directory }) => {
   // reading stdout back. mosaico has no per-step subcommands anymore; `harness
   // hook opencode --type <t>` parses this payload and drives the lifecycle.
   // (Peer queries — `who`, `chat` — stay plain subcommands.)
-  function runHook(type: string, payload: Record<string, unknown>): Promise<string> {
+  function runHook(
+    type: string,
+    payload: Record<string, unknown>,
+    timeout = 60_000,
+  ): Promise<string> {
     return new Promise((resolve) => {
       const child = execFile(
         BIN,
         ["harness", "hook", "opencode", "--type", type],
-        { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
+        { timeout, maxBuffer: 8 * 1024 * 1024 },
         (_e, out) => resolve(out ?? ""),
       )
       child.stdin?.end(JSON.stringify(payload))
@@ -69,8 +73,36 @@ export const Mosaico: Plugin = async ({ directory }) => {
   // opencode session id so session.idle can close the current turn.
   let lastTurnMsgID = ""
   let ocSessionForTurn = ""
+  const pendingBoundaryWarnings: string[] = []
 
   return {
+    // Cooperative cross-project guard: only Rust recognizes known direct-path
+    // tools. Empty, malformed, unavailable, and unsupported results allow.
+    "tool.execute.before": async (input, output) => {
+      const raw = await runHook(
+        "pre-tool-use",
+        {
+          session_id: input.sessionID,
+          cwd: directory,
+          tool_name: input.tool,
+          tool_input: output.args,
+        },
+        5_000,
+      )
+      let result: { decision?: string; message?: string } = {}
+      try {
+        result = JSON.parse(raw)
+      } catch {
+        return
+      }
+      if (result.decision === "deny" && result.message) {
+        throw new Error(result.message)
+      }
+      if (result.decision === "warn" && result.message) {
+        pendingBoundaryWarnings.push(result.message)
+      }
+    },
+
     // Inject peer mentions before the model sees the turn, and (once per user
     // message) mark the turn "working".
     "experimental.chat.messages.transform": async (_input, output) => {
@@ -108,6 +140,10 @@ export const Mosaico: Plugin = async ({ directory }) => {
         ).trim()
       } else if (ocSessionID) {
         context = (await runHook("post-tool-use", { session_id: ocSessionID })).trim()
+      }
+      if (pendingBoundaryWarnings.length) {
+        const warnings = pendingBoundaryWarnings.splice(0).join("\n\n")
+        context = context ? `${warnings}\n\n${context}` : warnings
       }
 
       if (context) {

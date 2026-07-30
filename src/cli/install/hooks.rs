@@ -2,8 +2,13 @@
 
 use super::config::{self, Harness};
 
-const CODEX_ROOT_HOOK_EVENTS: &[&str] =
-    &["SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"];
+const CODEX_ROOT_HOOK_EVENTS: &[&str] = &[
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "Stop",
+];
 
 /// Does a hook group contain a mosaico command for `host`?
 fn group_is_ours(group: &serde_json::Value, host: &str) -> bool {

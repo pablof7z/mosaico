@@ -40,6 +40,7 @@ impl DaemonState {
             user_nsec: None,
             mosaico_private_key: Some(backend_key.clone()),
             per_session_rooms: false,
+            cross_project_boundary: crate::config::CrossProjectBoundary::default(),
         };
         let host = cfg.host.clone();
         let owners = cfg.whitelisted_pubkeys.clone();

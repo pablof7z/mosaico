@@ -9,7 +9,9 @@ use serde::Deserialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+mod behavior;
 mod management_key;
+pub use behavior::{BoundaryAction, CrossProjectBoundary};
 pub use harness_detection::detect as detect_available_harnesses;
 #[path = "config/harness_detection.rs"]
 mod harness_detection;
@@ -50,6 +52,8 @@ pub struct Config {
     /// uses that root instead of minting a room.
     /// When `true`, per-session rooms are enabled (mint a per-session room).
     pub per_session_rooms: bool,
+    /// Cooperative guardrails for explicit structured file-tool paths.
+    pub cross_project_boundary: CrossProjectBoundary,
 }
 
 impl Config {
@@ -109,6 +113,8 @@ struct RawConfig {
     /// Defaults to `false` (use the root channel; `launch` opens the picker).
     #[serde(default, rename = "perSessionRooms")]
     per_session_rooms: bool,
+    #[serde(default)]
+    agents: behavior::RawAgents,
 }
 
 impl Config {
@@ -131,6 +137,7 @@ impl Config {
             user_nsec: raw.user_nsec,
             mosaico_private_key: raw.mosaico_private_key,
             per_session_rooms: raw.per_session_rooms,
+            cross_project_boundary: raw.agents.behavior.cross_project_boundary,
         })
     }
 

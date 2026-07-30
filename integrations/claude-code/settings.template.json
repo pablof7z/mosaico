@@ -9,6 +9,12 @@
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "mosaico harness hook claude-code --type user-prompt-submit" }] }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep",
+        "hooks": [{ "type": "command", "command": "mosaico harness hook claude-code --type pre-tool-use", "timeout": 5 }]
+      }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "mosaico harness hook claude-code --type stop" }] }
     ]

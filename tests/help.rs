@@ -33,6 +33,7 @@ fn installed_codex_home() -> tempfile::TempDir {
             "hooks": {
                 "SessionStart": group("session-start"),
                 "UserPromptSubmit": group("user-prompt-submit"),
+                "PreToolUse": group("pre-tool-use"),
                 "PostToolUse": group("post-tool-use"),
                 "Stop": group("stop")
             }

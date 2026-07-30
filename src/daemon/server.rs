@@ -161,6 +161,7 @@ mod channel_send;
 mod channel_wait;
 mod channels_rpc;
 mod chat_target;
+mod cross_project_boundary;
 mod cursor;
 mod diagnostics;
 mod engine_lifecycle;
@@ -235,6 +236,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "turn_start" => rpc_turn_start(state, &req.params).await,
         "turn_check" => rpc_turn_check(state, &req.params).await,
         "turn_end" => rpc_turn_end(state, &req.params).await,
+        "cross_project_path_classify" => cross_project_boundary::rpc_classify(state, &req.params),
         "doctor" => rpc_doctor(state).await,
         "explain" => rpc_explain(state, &req.params),
         "local_backend" => rpc_local_backend(state),

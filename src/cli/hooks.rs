@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod applicability;
 mod hook_forensics;
 mod observation;
+mod pre_tool;
 mod registry;
 
 use observation::{
@@ -371,6 +372,11 @@ async fn hook_dispatch(
                 result.context.as_deref(),
             );
         }
+        "pre-tool-use" => {
+            if let Some(output) = pre_tool::check(host, &sid, &cwd, &raw).await {
+                println!("{output}");
+            }
+        }
         "stop" => {
             if !sid.is_empty() {
                 turn_end(sid).await?;
@@ -391,6 +397,7 @@ fn hook_event_name(hook_type: &str) -> &'static str {
         "session-end" => "SessionEnd",
         "user-prompt-submit" => "UserPromptSubmit",
         "post-tool-use" => "PostToolUse",
+        "pre-tool-use" => "PreToolUse",
         "stop" => "Stop",
         _ => "Unknown",
     }

@@ -9,11 +9,15 @@ from typing import Any, Callable
 
 
 def _payload(kwargs: dict[str, Any]) -> dict[str, Any]:
-    return {
+    payload = {
         "session_id": kwargs.get("session_id") or "",
         "cwd": os.getcwd(),
         "pid": os.getpid(),
     }
+    if "tool_name" in kwargs:
+        payload["tool_name"] = kwargs.get("tool_name") or ""
+        payload["tool_input"] = kwargs.get("args") or {}
+    return payload
 
 
 def _invoke(hook_type: str, kwargs: dict[str, Any]) -> dict[str, Any] | None:
@@ -62,6 +66,21 @@ def on_session_finalize(**kwargs: Any) -> None:
 
 
 def register(ctx: Any) -> None:
+    def on_pre_tool_call(**kwargs: Any) -> dict[str, str] | None:
+        result = _invoke("pre-tool-use", kwargs)
+        if not result:
+            return None
+        decision = result.get("decision")
+        message = result.get("message")
+        if not isinstance(message, str) or not message:
+            return None
+        if decision == "deny":
+            return {"action": "block", "message": message}
+        if decision == "warn":
+            inject: Callable[[str], bool] = ctx.inject_message
+            inject(message)
+        return None
+
     def on_post_tool_call(**kwargs: Any) -> None:
         content = _context(_invoke("post-tool-use", kwargs))
         if content:
@@ -70,6 +89,7 @@ def register(ctx: Any) -> None:
 
     ctx.register_hook("on_session_start", on_session_start)
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
+    ctx.register_hook("pre_tool_call", on_pre_tool_call)
     ctx.register_hook("post_tool_call", on_post_tool_call)
     ctx.register_hook("on_session_end", on_session_end)
     ctx.register_hook("on_session_finalize", on_session_finalize)

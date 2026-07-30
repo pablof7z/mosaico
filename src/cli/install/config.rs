@@ -126,6 +126,13 @@ fn claude_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
         ("SessionStart", mk("session-start", 5)),
         ("SessionEnd", mk("session-end", 5)),
         ("UserPromptSubmit", mk("user-prompt-submit", 5)),
+        (
+            "PreToolUse",
+            with_matcher(
+                mk("pre-tool-use", 5),
+                "Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep",
+            ),
+        ),
         ("PostToolUse", mk("post-tool-use", 5)),
         ("Stop", mk("stop", 5)),
     ]
@@ -151,9 +158,22 @@ pub fn codex_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
             mk("session-start", 5, Some("startup|resume")),
         ),
         ("UserPromptSubmit", mk("user-prompt-submit", 5, None)),
+        (
+            "PreToolUse",
+            mk(
+                "pre-tool-use",
+                5,
+                Some("Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|view_image"),
+            ),
+        ),
         ("PostToolUse", mk("post-tool-use", 5, None)),
         ("Stop", mk("stop", 5, None)),
     ]
+}
+
+fn with_matcher(mut entry: serde_json::Value, matcher: &str) -> serde_json::Value {
+    entry["matcher"] = matcher.into();
+    entry
 }
 
 fn grok_hook_entries() -> Vec<(&'static str, serde_json::Value)> {
