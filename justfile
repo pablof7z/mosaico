@@ -75,3 +75,4 @@ helper-import-check:
 loc-check:
     bash scripts/check_loc.sh
     bash scripts/check_integration_helpers.sh
+    bash scripts/check_hosted_open_seam.sh

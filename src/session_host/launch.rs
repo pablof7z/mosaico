@@ -1,10 +1,9 @@
 use super::admission;
-use crate::agent_catalog::NativeAgentActivation;
 use crate::daemon::server::DaemonState;
-use crate::session_host::transport::{LaunchSpec, PreparedLaunch, SessionEndpoint, TransportImpl};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
+mod hosted;
 mod resume;
 mod resume_request;
 mod source;
@@ -22,17 +21,6 @@ pub(crate) enum LaunchIntent {
     Interactive,
     /// Fabric provisioning prefers the harness's hosted RPC transport.
     Managed,
-}
-
-/// Kill a just-opened endpoint through its transport (PTY supervisor or ACP
-/// child) — used to roll back a session whose registration failed.
-async fn kill_endpoint(transport: &TransportImpl, endpoint_id: &str) {
-    use crate::session_host::transport::EndpointRef;
-    let ep = EndpointRef {
-        kind: transport.kind(),
-        endpoint_id: endpoint_id.to_string(),
-    };
-    let _ = transport.kill(&ep).await;
 }
 
 pub(super) fn workspace_abs_path(
@@ -72,35 +60,4 @@ pub(super) fn workspace_abs_path(
     abs.ok_or_else(|| {
         anyhow::anyhow!("cannot resolve workspace path for {channel:?} (no recorded path)")
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn open_agent_session(
-    transport: &TransportImpl,
-    slug: &str,
-    root: &str,
-    abs_path: &str,
-    command: &[String],
-    group: Option<&str>,
-    session_name: Option<&str>,
-    ephemeral: bool,
-    pubkey: &str,
-    agent_nsec: &str,
-    native_agent: Option<&NativeAgentActivation>,
-    prepared_launch: PreparedLaunch,
-) -> Result<SessionEndpoint> {
-    let spec = LaunchSpec {
-        slug: slug.to_string(),
-        native_agent: native_agent.cloned(),
-        root: root.to_string(),
-        abs_path: abs_path.to_string(),
-        group: group.map(str::to_string),
-        ephemeral,
-        session_name: session_name.map(str::to_string),
-        base_command: command.to_vec(),
-        pubkey: pubkey.to_string(),
-        agent_nsec: agent_nsec.to_string(),
-        prepared: prepared_launch,
-    };
-    transport.launch(&spec).await
 }

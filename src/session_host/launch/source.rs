@@ -1,6 +1,8 @@
 use super::*;
+use crate::agent_catalog::NativeAgentActivation;
 use crate::agent_inventory::AgentSource;
 use crate::harness::{HarnessesConfig, ResumeMechanism, Transport};
+use crate::session_host::transport::TransportImpl;
 
 pub(super) struct ResolvedSource {
     pub(super) transport: TransportImpl,

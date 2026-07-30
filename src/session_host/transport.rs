@@ -130,6 +130,11 @@ impl TransportImpl {
         Self(Box::new(transport))
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(transport: impl SessionTransport + 'static) -> Self {
+        Self::new(transport)
+    }
+
     pub fn kind(&self) -> TransportKind {
         self.0.kind()
     }
