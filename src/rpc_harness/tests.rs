@@ -71,6 +71,23 @@ fn permission_allow_all_falls_back_to_first() {
 }
 
 #[test]
+fn cross_project_behavior_guard_does_not_repurpose_acp_permissions() {
+    let policy = PermissionPolicy::AllowAll;
+    let params = serde_json::json!({
+        "toolCall": {
+            "title": "write another workspace",
+            "rawInput": {"file_path": "/work/other/file"}
+        },
+        "options": [
+            { "optionId": "reject", "kind": "reject" },
+            { "optionId": "yes", "kind": "allow_once" }
+        ]
+    });
+
+    assert_eq!(policy.choose(&params).as_deref(), Some("yes"));
+}
+
+#[test]
 fn stop_reason_mapping() {
     assert_eq!(StopReason::from_wire("end_turn"), StopReason::EndTurn);
     assert_eq!(StopReason::from_wire("cancelled"), StopReason::Cancelled);

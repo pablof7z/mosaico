@@ -2,6 +2,8 @@ use crate::daemon_harness::*;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 
+#[path = "process/cross_project_guard.rs"]
+mod cross_project_guard;
 #[path = "process/hooks.rs"]
 mod hooks;
 #[path = "process/statusline.rs"]

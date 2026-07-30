@@ -21,6 +21,7 @@ mod channel_ref;
 pub mod command_forensics;
 pub mod config;
 pub(crate) mod console_style;
+mod cross_project_boundary;
 pub(crate) mod delivery_seam;
 pub mod domain;
 pub mod explain;

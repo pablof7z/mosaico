@@ -63,6 +63,93 @@ fn installer_lists_every_supported_harness() {
 }
 
 #[test]
+fn native_pre_tool_hook_is_installed_only_for_confirmed_json_hosts() {
+    let claude = harness("claude-code", "claude.json".into());
+    let codex = harness("codex", "codex.json".into());
+    let grok = harness("grok", "grok.json".into());
+    let goose = harness("goose", "goose".into());
+
+    for host in [&claude, &codex] {
+        let entries = config::hook_entries(host);
+        let pre_tool = entries
+            .iter()
+            .find(|(event, _)| *event == "PreToolUse")
+            .unwrap();
+        assert_eq!(
+            pre_tool
+                .1
+                .pointer("/hooks/0/command")
+                .and_then(|v| v.as_str()),
+            Some(if host.id == "codex" {
+                "mosaico harness hook codex --type pre-tool-use"
+            } else {
+                "mosaico harness hook claude-code --type pre-tool-use"
+            })
+        );
+        assert!(pre_tool.1.get("matcher").is_some());
+    }
+    assert!(config::hook_entries(&grok)
+        .iter()
+        .all(|(event, _)| *event != "PreToolUse"));
+    assert!(config::hook_entries(&goose).is_empty());
+}
+
+#[test]
+fn opencode_bridge_blocks_denials_and_queues_warnings_for_the_model() {
+    let source = config::OPENCODE_PLUGIN_TS;
+    assert!(source.contains("\"tool.execute.before\""));
+    assert!(source.contains("\"pre-tool-use\""));
+    assert!(source.contains("throw new Error(result.message)"));
+    assert!(source.contains("pendingBoundaryWarnings.push(result.message)"));
+    assert!(source.contains("pendingBoundaryWarnings.splice(0)"));
+}
+
+#[test]
+fn hermes_pre_tool_bridge_injects_warnings_and_returns_native_blocks() {
+    let module =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("integrations/hermes/__init__.py");
+    let script = r#"
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("mosaico_hermes", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class Context:
+    def __init__(self):
+        self.hooks = {}
+        self.messages = []
+    def register_hook(self, name, callback):
+        self.hooks[name] = callback
+    def inject_message(self, message):
+        self.messages.append(message)
+        return True
+
+ctx = Context()
+module.register(ctx)
+assert "pre_tool_call" in ctx.hooks
+module._invoke = lambda *_: {"decision": "warn", "message": "WARN: /beta"}
+assert ctx.hooks["pre_tool_call"](tool_name="read_file", args={"path": "/beta/x"}) is None
+assert ctx.messages == ["WARN: /beta"]
+module._invoke = lambda *_: {"decision": "deny", "message": "DENIED: /beta"}
+assert ctx.hooks["pre_tool_call"](tool_name="write_file", args={"path": "/beta/x"}) == {
+    "action": "block", "message": "DENIED: /beta"
+}
+"#;
+    // Installer tests intentionally mutate PATH in parallel. Use the system
+    // interpreter directly so this contract test remains isolated from them.
+    let output = std::process::Command::new("/usr/bin/python3")
+        .args(["-c", script])
+        .arg(module)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn merge_hooks_preserves_foreign_groups_and_replaces_ours() {
     let mut root = serde_json::json!({
         "hooks": {

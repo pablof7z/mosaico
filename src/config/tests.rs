@@ -83,6 +83,55 @@ fn per_session_rooms_defaults_off_and_parses_when_set() {
 }
 
 #[test]
+fn cross_project_boundary_defaults_to_warn_reads_and_deny_writes() {
+    let config = Config::from_json_str(r#"{"relays":["wss://relay.example"]}"#, "host").unwrap();
+
+    assert_eq!(
+        config.cross_project_boundary,
+        CrossProjectBoundary {
+            read: BoundaryAction::Warn,
+            write: BoundaryAction::Deny,
+        }
+    );
+}
+
+#[test]
+fn cross_project_boundary_accepts_every_configured_action() {
+    for (value, expected) in [
+        ("allow", BoundaryAction::Allow),
+        ("warn", BoundaryAction::Warn),
+        ("deny", BoundaryAction::Deny),
+    ] {
+        let body = format!(
+            r#"{{
+              "relays":["wss://relay.example"],
+              "agents":{{"behavior":{{"crossProjectBoundary":{{
+                "read":"{value}",
+                "write":"{value}"
+              }}}}}}
+            }}"#
+        );
+        let config = Config::from_json_str(&body, "host").unwrap();
+        assert_eq!(config.cross_project_boundary.read, expected);
+        assert_eq!(config.cross_project_boundary.write, expected);
+    }
+}
+
+#[test]
+fn cross_project_boundary_rejects_unknown_actions() {
+    let error = Config::from_json_str(
+        r#"{
+          "relays":["wss://relay.example"],
+          "agents":{"behavior":{"crossProjectBoundary":{"read":"prompt"}}}
+        }"#,
+        "host",
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("parsing mosaico config json"));
+}
+
+#[test]
 fn mosaico_home_selection_uses_default_home_without_override() {
     let selected = select_mosaico_home(None, Some(OsString::from("/home/alice"))).unwrap();
     assert_eq!(selected.mosaico_home, PathBuf::from("/home/alice/.mosaico"));
