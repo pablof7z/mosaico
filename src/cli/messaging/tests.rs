@@ -31,3 +31,19 @@ fn channel_read_row_renders_hostless_sender_bare_not_with_question_mark() {
     assert!(text.starts_with("<@Pablo> hi"), "got: {text}");
     assert!(!text.contains('?'), "got: {text}");
 }
+
+#[test]
+fn channel_read_row_renders_materialized_attachment_directory() {
+    let item = serde_json::json!({
+        "event_id": "event-files",
+        "from_pubkey": "pubkey-3",
+        "from_slug": "writer",
+        "host": "laptop",
+        "body": "the files are ready",
+        "attachment_dir": "/home/alice/.mosaico/tmp/attachments/abcdef",
+        "created_at": 1_000,
+    });
+
+    let text = render_channel_read_row(&item, false);
+    assert!(text.contains("\n[attachments: /home/alice/.mosaico/tmp/attachments/abcdef]"));
+}

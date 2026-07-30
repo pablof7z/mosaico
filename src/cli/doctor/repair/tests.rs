@@ -52,3 +52,37 @@ fn selected_stale_harness_is_repaired_and_reported() {
         .unwrap();
     assert!(super::super::super::install::is_installed(&harness));
 }
+
+#[test]
+fn doctor_config_fix_upserts_and_creates_attachment_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join(".mosaico");
+    std::fs::create_dir_all(&home).unwrap();
+    let path = home.join("config.json");
+    std::fs::write(
+        &path,
+        serde_json::json!({
+            "relays": ["wss://relay.example"],
+            "mosaicoPrivateKey": crate::config::generate_mosaico_private_key(),
+            "unknown": "keep",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut env = EnvGuard::set("MOSAICO_HOME", &home);
+    env.set_var("MOSAICO_CONFIG", &path);
+    let mut actions = Vec::new();
+
+    repair_config(&mut actions).unwrap();
+
+    let persisted: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let attachments = home.join("tmp/attachments");
+    assert!(attachments.is_dir());
+    assert_eq!(persisted["unknown"], "keep");
+    assert_eq!(
+        persisted["attachmentReceiveDirectory"],
+        attachments.display().to_string()
+    );
+    assert_eq!(actions.len(), 1);
+}

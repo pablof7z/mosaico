@@ -45,6 +45,7 @@ fn pending_message_prompt_contains_the_actual_message_body() {
         body: "please review the PTY delivery path".into(),
         created_at: 100,
         delivered_at: 0,
+        attachment_dir: String::new(),
     };
 
     // No whitelist → the sender is treated as another agent. With no cached slug
@@ -67,6 +68,30 @@ fn pending_message_prompt_contains_the_actual_message_body() {
 }
 
 #[test]
+fn attachment_prompt_uses_one_directory_attribute_and_ordinary_bracket_labels() {
+    let rec = sample_session();
+    let row = crate::state::InboxRow {
+        event_id: "abcdef123456".into(),
+        target_pubkey: rec.pubkey,
+        state: "pending".into(),
+        from_pubkey: "pk-sender".into(),
+        channel_h: "proj".into(),
+        body: "Review [plan/report.md]".into(),
+        created_at: 100,
+        delivered_at: 0,
+        attachment_dir: "/tmp/mosaico-files/abcdef".into(),
+    };
+    let store = crate::state::Store::open_memory().unwrap();
+    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
+
+    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
+
+    assert!(prompt.contains("attachment-dir=\"/tmp/mosaico-files/abcdef\""));
+    assert!(prompt.contains("Review [plan/report.md]"));
+    assert!(!prompt.contains("<attachment"));
+}
+
+#[test]
 fn whitelisted_human_mention_renders_bare_with_provenance() {
     let rec = sample_session();
     let row = crate::state::InboxRow {
@@ -78,6 +103,7 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
         body: "@developer hey there".into(),
         created_at: 100,
         delivered_at: 0,
+        attachment_dir: String::new(),
     };
     let store = crate::state::Store::open_memory().unwrap();
     store
@@ -122,6 +148,7 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
         body: "please review the PTY delivery path".into(),
         created_at: 100,
         delivered_at: 0,
+        attachment_dir: String::new(),
     };
 
     let store = crate::state::Store::open_memory().unwrap();
@@ -162,6 +189,7 @@ fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
                 body: (*token).into(),
                 created_at: 100,
                 delivered_at: 0,
+                attachment_dir: String::new(),
             }
         })
         .collect::<Vec<_>>();

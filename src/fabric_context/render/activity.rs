@@ -22,6 +22,7 @@ pub(super) fn render_messages(out: &mut String, channel: &ChannelBlock, indent: 
                 event_id: &message.id,
                 from: &message.from,
                 recipients: &message.recipients,
+                attachment_dir: &message.attachment_dir,
                 body: &message.body,
                 created_at: message.created_at,
                 now,

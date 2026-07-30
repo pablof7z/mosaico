@@ -80,6 +80,7 @@ pub(crate) struct FabricMessageSeed {
     pub(crate) body: String,
     pub(crate) created_at: u64,
     pub(crate) mention: bool,
+    pub(crate) attachment_dir: String,
 }
 
 #[cfg(test)]
@@ -215,5 +216,6 @@ pub(crate) fn inbox_seed(row: &InboxRow) -> FabricMessageSeed {
         body: row.body.clone(),
         created_at: row.created_at,
         mention: true,
+        attachment_dir: row.attachment_dir.clone(),
     }
 }

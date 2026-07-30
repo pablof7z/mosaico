@@ -13,15 +13,33 @@ impl Store {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        let mut stmt = transaction.prepare(&format!(
-            "UPDATE inbox SET state='delivered', delivered_at=?2
-             WHERE target_pubkey=?1 AND state='pending'
-             RETURNING {COLS}"
-        ))?;
-        let rows = stmt.query_map(params![target_pubkey, now], row_to_inbox)?;
-        let mut out = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let event_ids = {
+            let mut stmt = transaction.prepare(
+                "SELECT event_id FROM inbox
+                 WHERE target_pubkey=?1 AND state='pending'",
+            )?;
+            let rows = stmt.query_map([target_pubkey], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut out = Vec::new();
+        for event_id in event_ids {
+            let changed = transaction.execute(
+                "UPDATE inbox SET state='delivered', delivered_at=?3
+                 WHERE event_id=?1 AND target_pubkey=?2 AND state='pending'",
+                params![event_id, target_pubkey, now],
+            )?;
+            if changed == 0 {
+                continue;
+            }
+            let mut stmt = transaction.prepare(&format!(
+                "SELECT {COLS} FROM inbox
+                 LEFT JOIN messages ON messages.message_id=inbox.event_id
+                 WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2"
+            ))?;
+            let rows = stmt.query_map(params![event_id, target_pubkey], row_to_inbox)?;
+            out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        }
         out.sort_by_key(|r| r.created_at);
-        drop(stmt);
         crate::state::work_start::stage_from_inbox_tx(&transaction, &out, now)?;
         transaction.commit()?;
         Ok(out)
@@ -42,13 +60,20 @@ impl Store {
         )?;
         let mut out = Vec::new();
         for id in event_ids {
-            let mut stmt = transaction.prepare(&format!(
+            let changed = transaction.execute(
                 "UPDATE inbox SET state='delivered', delivered_at=?3
-                 WHERE event_id=?1 AND target_pubkey=?2 AND state='pending'
-                 RETURNING {COLS}"
-            ))?;
-            let rows = stmt.query_map(params![id, target_pubkey, now], row_to_inbox)?;
-            out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+                 WHERE event_id=?1 AND target_pubkey=?2 AND state='pending'",
+                params![id, target_pubkey, now],
+            )?;
+            if changed > 0 {
+                let mut stmt = transaction.prepare(&format!(
+                    "SELECT {COLS} FROM inbox
+                     LEFT JOIN messages ON messages.message_id=inbox.event_id
+                     WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2"
+                ))?;
+                let rows = stmt.query_map(params![id, target_pubkey], row_to_inbox)?;
+                out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+            }
         }
         out.sort_by_key(|r| r.created_at);
         transaction.commit()?;
@@ -77,10 +102,11 @@ impl Store {
     ) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE target_pubkey=?1
-               AND state IN ('delivered', 'injected', 'echo_consumed')
-               AND delivered_at>=?2
-             ORDER BY created_at ASC"
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.target_pubkey=?1
+               AND inbox.state IN ('delivered', 'injected', 'echo_consumed')
+               AND inbox.delivered_at>=?2
+             ORDER BY inbox.created_at ASC"
         ))?;
         let rows = stmt.query_map(params![target_pubkey, since], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -109,7 +135,9 @@ impl Store {
         for id in event_ids {
             let mut stmt = transaction.prepare(&format!(
                 "SELECT {COLS} FROM inbox
-                 WHERE event_id=?1 AND target_pubkey=?2 AND state='injected'"
+                 LEFT JOIN messages ON messages.message_id=inbox.event_id
+                 WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2
+                   AND inbox.state='injected'"
             ))?;
             let claimed = stmt.query_map(params![id, target_pubkey], row_to_inbox)?;
             rows.extend(claimed.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -122,8 +150,9 @@ impl Store {
     pub fn injected_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE target_pubkey=?1 AND state='injected'
-             ORDER BY delivered_at ASC, created_at ASC"
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.target_pubkey=?1 AND inbox.state='injected'
+             ORDER BY inbox.delivered_at ASC, inbox.created_at ASC"
         ))?;
         let rows = stmt.query_map(params![target_pubkey], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

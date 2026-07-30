@@ -3,6 +3,8 @@ use anyhow::{bail, Result};
 use std::path::{Component, Path};
 use url::Url;
 
+pub(crate) const EVENT_MARKER: &str = ".event-id";
+
 pub(crate) fn validate_label(label: &str) -> Result<()> {
     if label.is_empty() {
         bail!("attachment label must not be empty");
@@ -22,6 +24,17 @@ pub(crate) fn validate_label(label: &str) -> Result<()> {
     {
         bail!("attachment label must be a safe relative path");
     }
+    if path
+        .components()
+        .next()
+        .and_then(|part| match part {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .is_some_and(|name| name.eq_ignore_ascii_case(EVENT_MARKER))
+    {
+        bail!("attachment label uses reserved path component [{EVENT_MARKER}]");
+    }
     Ok(())
 }
 
@@ -30,7 +43,7 @@ pub(crate) fn validate_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> 
     for (index, label) in labels.iter().enumerate() {
         validate_label(label)?;
         for earlier in &labels[..index] {
-            if label == earlier {
+            if normalized_components(label) == normalized_components(earlier) {
                 bail!("duplicate attachment label [{label}]");
             }
             if overlaps(label, earlier) {
@@ -72,5 +85,14 @@ pub(crate) fn try_push(accepted: &mut Vec<ChatAttachment>, candidate: ChatAttach
 }
 
 fn overlaps(left: &str, right: &str) -> bool {
-    Path::new(left).starts_with(Path::new(right)) || Path::new(right).starts_with(Path::new(left))
+    let left = normalized_components(left);
+    let right = normalized_components(right);
+    left.starts_with(&right) || right.starts_with(&left)
+}
+
+fn normalized_components(label: &str) -> Vec<String> {
+    Path::new(label)
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().to_lowercase())
+        .collect()
 }

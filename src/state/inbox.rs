@@ -10,8 +10,9 @@
 //! management replay guards live in `event_claims`.
 use super::*;
 
-const COLS: &str = "event_id, target_pubkey, state, from_pubkey, channel_h, body, created_at, \
-     delivered_at";
+const COLS: &str = "inbox.event_id, inbox.target_pubkey, inbox.state, inbox.from_pubkey, \
+     inbox.channel_h, inbox.body, inbox.created_at, inbox.delivered_at, \
+     COALESCE(messages.attachment_dir, '')";
 mod delivery;
 mod prefix_lookup;
 
@@ -25,6 +26,7 @@ fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
         body: row.get(5)?,
         created_at: row.get(6)?,
         delivered_at: row.get(7)?,
+        attachment_dir: row.get(8)?,
     })
 }
 
@@ -139,7 +141,9 @@ impl Store {
     pub fn peek_pending_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE target_pubkey=?1 AND state='pending' ORDER BY created_at ASC"
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.target_pubkey=?1 AND inbox.state='pending'
+             ORDER BY inbox.created_at ASC"
         ))?;
         let rows = stmt.query_map(params![target_pubkey], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

@@ -60,6 +60,7 @@ fn agent_native_wait_renderers_use_one_mosaico_envelope() {
             "recipient_refs": ["reviewer"],
             "event_id": "abcdef123",
             "body": "done",
+            "attachment_dir": "/tmp/mosaico-files/abcdef",
             "created_at": 100,
         }),
         160,
@@ -67,7 +68,7 @@ fn agent_native_wait_renderers_use_one_mosaico_envelope() {
     assert!(message.starts_with("<mosaico>"));
     assert!(message.contains("<channel ref=\"/root/x\">"));
     assert!(message.contains(
-        "<message from=\"@agent5\" id=\"abcdef\" for=\"@reviewer\" age=\"1m\">done</message>"
+        "<message from=\"@agent5\" id=\"abcdef\" for=\"@reviewer\" attachment-dir=\"/tmp/mosaico-files/abcdef\" age=\"1m\">done</message>"
     ));
 
     let timeout = crate::injection::render_agent_wait_timeout(60, &["/root/x", "/root/y"]);
@@ -89,6 +90,7 @@ fn direct_delivery_and_wait_share_the_exact_message_element() {
         body: "done & checked".into(),
         created_at: 100,
         delivered_at: 0,
+        attachment_dir: "/tmp/mosaico-files/abcdef".into(),
     };
     let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160).unwrap();
     let waited = render_wait_message(
@@ -98,6 +100,7 @@ fn direct_delivery_and_wait_share_the_exact_message_element() {
             "recipient_refs": ["pk-targe"],
             "event_id": "abcdef123",
             "body": "done & checked",
+            "attachment_dir": "/tmp/mosaico-files/abcdef",
             "created_at": 100,
         }),
         160,

@@ -26,6 +26,7 @@ mod agent_discovery;
 mod agent_usage;
 mod backend_profile;
 mod background;
+mod chat_rows;
 mod delivery_drive;
 mod demux;
 mod direct_mentions;
@@ -44,6 +45,7 @@ mod session_dispatch_handler;
 mod session_records;
 mod state;
 use background::spawn_pruner;
+use chat_rows::chat_rows_to_json;
 use demux::{spawn_demux, warm_profiles};
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
@@ -315,33 +317,6 @@ impl DaemonState {
     fn emit_tail(&self, ev: TailEvent) {
         let _ = self.connections.tail_tx.send(ev);
     }
-}
-fn chat_rows_to_json(store: &Store, rows: &[InboxRow]) -> Vec<serde_json::Value> {
-    rows.iter()
-        .filter_map(|r| {
-            // Sender slug is no longer stored on the row; resolve it from the
-            // profile cache (empty -> host falls back to the short pubkey).
-            let from_slug = store
-                .resolve_slug_for_pubkey(&r.from_pubkey)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let channel = crate::channel_ref::full_channel_ref(store, &r.channel_h);
-            if channel.is_empty() {
-                return None;
-            }
-            Some(serde_json::json!({
-                "from_slug": from_slug,
-                "channel": channel,
-                "host": "",
-                "subject": "",
-                "created_at": r.created_at,
-                "id": crate::idref::event_short_id(&r.event_id),
-                "mention_event_id": r.event_id,
-                "body": r.body,
-            }))
-        })
-        .collect()
 }
 fn sort_message_json(rows: &mut [serde_json::Value]) {
     rows.sort_by_key(|row| row["created_at"].as_i64().unwrap_or_default());

@@ -20,7 +20,7 @@ use prompt::edit_interactively;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::cli) enum ConfigRepair {
     Unchanged,
-    GeneratedManagementKey,
+    Updated,
 }
 
 pub(super) fn repair_non_interactive() -> Result<ConfigRepair> {
@@ -32,8 +32,9 @@ pub(super) fn repair_non_interactive() -> Result<ConfigRepair> {
         );
     }
     let mut doc = read_document(&path)?;
+    let before = doc.clone();
     match doc.get("mosaicoPrivateKey").and_then(Value::as_str) {
-        Some(secret) if Keys::parse(secret.trim()).is_ok() => Ok(ConfigRepair::Unchanged),
+        Some(secret) if Keys::parse(secret.trim()).is_ok() => {}
         Some(_) => bail!(
             "{} contains an invalid mosaicoPrivateKey; refusing to rotate backend identity automatically",
             path.display()
@@ -43,10 +44,23 @@ pub(super) fn repair_non_interactive() -> Result<ConfigRepair> {
                 "mosaicoPrivateKey".into(),
                 json!(crate::config::generate_mosaico_private_key()),
             );
-            super::write_json(&path, &doc)?;
-            Ok(ConfigRepair::GeneratedManagementKey)
         }
     }
+    ensure_complete(&mut doc)?;
+    let directory =
+        crate::config::Config::from_json_str(&doc.to_string(), &crate::config::hostname())?
+            .attachment_receive_directory;
+    let directory_missing = !directory.is_dir();
+    crate::config::ensure_dir(&directory)?;
+    if doc == before {
+        return Ok(if directory_missing {
+            ConfigRepair::Updated
+        } else {
+            ConfigRepair::Unchanged
+        });
+    }
+    super::write_json(&path, &doc)?;
+    Ok(ConfigRepair::Updated)
 }
 
 /// Configure a missing device or update the supported fields of an existing
@@ -80,6 +94,7 @@ pub(super) fn configure(opts: &InstallOpts) -> Result<()> {
             apply_overrides(&mut doc, opts)?;
         }
     }
+    let before_complete = doc.clone();
     ensure_complete(&mut doc)?;
     if opts.dry_run {
         let action = if existed { "update" } else { "create" };
@@ -92,7 +107,7 @@ pub(super) fn configure(opts: &InstallOpts) -> Result<()> {
         return Ok(());
     }
 
-    if !existed || should_edit || missing_management_key(&path)? {
+    if !existed || should_edit || missing_management_key(&path)? || doc != before_complete {
         super::write_json(&path, &doc)?;
         println!("wrote {}", path.display());
     } else {

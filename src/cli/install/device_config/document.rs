@@ -12,6 +12,8 @@ pub(super) fn baseline_document() -> Value {
         "backendName": crate::config::hostname(),
         "mosaicoPrivateKey": crate::config::generate_mosaico_private_key(),
         "perSessionRooms": false,
+        "attachmentReceiveDirectory":
+            crate::config::mosaico_home().join("tmp/attachments").display().to_string(),
     })
 }
 
@@ -85,6 +87,10 @@ pub(super) fn ensure_complete(doc: &mut Value) -> Result<()> {
     object.insert("backendName".into(), json!(host));
     object.insert("whitelistedPubkeys".into(), json!(operators));
     object.insert("perSessionRooms".into(), json!(config.per_session_rooms));
+    object.insert(
+        "attachmentReceiveDirectory".into(),
+        json!(config.attachment_receive_directory.display().to_string()),
+    );
     if let Some(secret) = config.backend_nsec() {
         Keys::parse(secret.trim()).context(
             "config contains an invalid mosaicoPrivateKey; refusing to rotate backend identity",

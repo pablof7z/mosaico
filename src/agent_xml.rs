@@ -12,6 +12,7 @@ pub(crate) struct MessageElement<'a> {
     pub(crate) event_id: &'a str,
     pub(crate) from: &'a str,
     pub(crate) recipients: &'a [String],
+    pub(crate) attachment_dir: &'a str,
     pub(crate) body: &'a str,
     pub(crate) created_at: u64,
     pub(crate) now: u64,
@@ -32,6 +33,9 @@ pub(crate) fn write_message(out: &mut String, indent: usize, message: &MessageEl
             .collect::<Vec<_>>()
             .join(" ");
         let _ = write!(out, " for=\"{}\"", attr(&recipients));
+    }
+    if !message.attachment_dir.is_empty() {
+        let _ = write!(out, " attachment-dir=\"{}\"", attr(message.attachment_dir));
     }
     write_time(out, message.created_at, message.now);
 
@@ -87,6 +91,7 @@ mod tests {
                 event_id: "abcdef123456",
                 from: "@Pablo",
                 recipients: &["reviewer".to_string()],
+                attachment_dir: "",
                 body: "ship it",
                 created_at,
                 now,
@@ -131,6 +136,7 @@ mod tests {
                 event_id: "abcdef123456",
                 from: "Pablo\"",
                 recipients: &["reviewer&one".to_string(), "@chief".to_string()],
+                attachment_dir: "/tmp/mosaico files/abcdef",
                 body: &body,
                 created_at: 1_000,
                 now: 5_000,
@@ -139,6 +145,7 @@ mod tests {
 
         assert!(out.contains("from=\"@Pablo&quot;\" id=\"abcdef\""));
         assert!(out.contains("for=\"@reviewer&amp;one @chief\""));
+        assert!(out.contains("attachment-dir=\"/tmp/mosaico files/abcdef\""));
         assert!(out.contains("&lt;first&amp;&gt;"));
         assert!(out.contains("time=\"1000\""));
         assert!(out.contains("mosaico channel read --id abcdef"));

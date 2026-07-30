@@ -14,13 +14,13 @@ pub(crate) fn ensure_mosaico_private_key() -> Result<String> {
 }
 
 fn ensure_mosaico_private_key_at(path: &Path, generate: impl FnOnce() -> String) -> Result<String> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let mut root: Value =
-        serde_json::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
-    let (key, changed) = ensure_mosaico_private_key_value(&mut root, generate)?;
+    let mut key = String::new();
+    let changed = super::document::update(path, |root| {
+        let (resolved, _) = ensure_mosaico_private_key_value(root, generate)?;
+        key = resolved;
+        Ok(())
+    })?;
     if changed {
-        write_pretty(path, &root)?;
         tracing::info!(
             config = %path.display(),
             "generated missing mosaicoPrivateKey for daemon management"
@@ -51,14 +51,6 @@ fn ensure_mosaico_private_key_value(
         Value::String(generated.clone()),
     );
     Ok((generated, true))
-}
-
-fn write_pretty(path: &Path, root: &Value) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        super::ensure_dir(parent)?;
-    }
-    let pretty = serde_json::to_string_pretty(root).context("serializing config json")?;
-    std::fs::write(path, pretty).with_context(|| format!("writing {}", path.display()))
 }
 
 #[cfg(test)]

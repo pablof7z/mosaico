@@ -9,8 +9,9 @@ impl Store {
         let pattern = format!("{}%", prefix.replace(['%', '_'], ""));
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE event_id LIKE ?1
-             ORDER BY created_at DESC, target_pubkey ASC"
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.event_id LIKE ?1
+             ORDER BY inbox.created_at DESC, inbox.target_pubkey ASC"
         ))?;
         let rows = stmt.query_map(params![pattern], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -25,8 +26,9 @@ impl Store {
         let pattern = format!("{}%", prefix.replace(['%', '_'], ""));
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             WHERE event_id LIKE ?1 AND target_pubkey=?2
-             ORDER BY created_at DESC"
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.event_id LIKE ?1 AND inbox.target_pubkey=?2
+             ORDER BY inbox.created_at DESC"
         ))?;
         let rows = stmt.query_map(params![pattern, target_pubkey], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

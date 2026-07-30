@@ -153,6 +153,7 @@ pub(in crate::fabric_context) struct MessageRow {
     pub(in crate::fabric_context) recipients: Vec<String>,
     pub(in crate::fabric_context) created_at: u64,
     pub(in crate::fabric_context) body: String,
+    pub(in crate::fabric_context) attachment_dir: String,
     pub(in crate::fabric_context) mention: bool,
     pub(in crate::fabric_context) needs_reply_nudge: bool,
 }

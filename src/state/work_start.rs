@@ -138,6 +138,7 @@ mod tests {
             body: String::new(),
             created_at: 1,
             delivered_at: 2,
+            attachment_dir: String::new(),
         };
         let mut b = a.clone();
         b.target_pubkey = "agent-b".into();
@@ -170,6 +171,7 @@ mod tests {
             body: String::new(),
             created_at: 1,
             delivered_at: 2,
+            attachment_dir: String::new(),
         });
         stage(&store, &rows, 3);
 

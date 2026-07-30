@@ -115,6 +115,14 @@ async fn identity_recipient_text_and_time_filters_combine_without_membership_che
         .with_store(|store| store.add_message_recipient("match", &f.agent, None))
         .unwrap();
     f.state
+        .with_store(|store| {
+            store.set_message_attachment_dir(
+                "match",
+                std::path::Path::new("/tmp/mosaico-files/match0"),
+            )
+        })
+        .unwrap();
+    f.state
         .with_store(|store| store.add_message_recipient("wrong-body", &f.agent, None))
         .unwrap();
 
@@ -130,6 +138,7 @@ async fn identity_recipient_text_and_time_filters_combine_without_membership_che
     let message = &result["channels"][0]["messages"][0];
     assert_eq!(message["from"], "Pablo");
     assert_eq!(message["recipients"], serde_json::json!(["mist-codex"]));
+    assert_eq!(message["attachment_dir"], "/tmp/mosaico-files/match0");
     assert!(message.get("from_pubkey").is_none());
 }
 

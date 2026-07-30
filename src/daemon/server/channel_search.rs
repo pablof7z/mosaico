@@ -44,6 +44,7 @@ struct SearchMessage {
     recipients: Vec<String>,
     body: String,
     created_at: u64,
+    attachment_dir: String,
 }
 
 pub(in crate::daemon::server) fn rpc_channel_search(
@@ -245,6 +246,7 @@ fn render_groups(
                 recipients,
                 body: crate::profile::rewrite_body_mentions(store, &hit.message.body),
                 created_at: hit.message.created_at,
+                attachment_dir: hit.message.attachment_dir,
             });
         }
         Ok(groups)

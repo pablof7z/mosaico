@@ -190,8 +190,7 @@ fn channel_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
     state.with_store(|s| channel_read_scopes_for_store(s, scope))
 }
 
-/// Render a canonical chat message into the CLI's chat-line JSON, resolving the
-/// author's slug from the materialized profile/session caches and rewriting any
+/// Render chat JSON, resolving the author from materialized caches and rewriting
 /// `nostr:npub1…`/`nostr:nprofile1…` mentions in the body to `@name`, matching
 /// the hook-injected fabric snapshot (`fabric_context::capture`).
 pub(in crate::daemon::server) fn chat_row_to_json(
@@ -251,6 +250,7 @@ pub(in crate::daemon::server) fn chat_log_row_to_json(
         "body": body,
         "truncated": truncated,
         "created_at": row.created_at,
+        "attachment_dir": &row.attachment_dir,
     })
 }
 

@@ -21,6 +21,10 @@ impl DaemonState {
     ) -> Arc<DaemonState> {
         let backend_keys = Keys::generate();
         let backend_key = backend_keys.secret_key().to_secret_hex();
+        let attachment_receive_directory = std::env::temp_dir().join(format!(
+            "mosaico-test-attachments-{}",
+            backend_keys.public_key().to_hex()
+        ));
         let installed_harnesses = crate::harness::HarnessesConfig::load()
             .unwrap_or_default()
             .bundles
@@ -41,6 +45,7 @@ impl DaemonState {
             mosaico_private_key: Some(backend_key.clone()),
             per_session_rooms: false,
             cross_project_boundary: crate::config::CrossProjectBoundary::default(),
+            attachment_receive_directory,
         };
         let host = cfg.host.clone();
         let owners = cfg.whitelisted_pubkeys.clone();

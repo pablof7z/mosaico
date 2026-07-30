@@ -83,6 +83,69 @@ fn per_session_rooms_defaults_off_and_parses_when_set() {
 }
 
 #[test]
+fn attachment_directory_defaults_under_mosaico_home_and_resolves_relative_values() {
+    let home = Path::new("/home/alice/.mosaico");
+    assert_eq!(
+        attachment_directory::resolve(None, home).unwrap(),
+        home.join("tmp/attachments")
+    );
+    assert_eq!(
+        attachment_directory::resolve(Some("shared/files".into()), home).unwrap(),
+        home.join("shared/files")
+    );
+    assert_eq!(
+        attachment_directory::resolve(Some("/var/tmp/mosaico".into()), home).unwrap(),
+        PathBuf::from("/var/tmp/mosaico")
+    );
+}
+
+#[test]
+fn attachment_directory_absolutizes_relative_home_and_configured_value() {
+    let current = std::env::current_dir().unwrap();
+    assert_eq!(
+        attachment_directory::resolve(
+            Some("shared/../received".into()),
+            Path::new("relative-mosaico-home"),
+        )
+        .unwrap(),
+        current.join("relative-mosaico-home/received")
+    );
+    assert_eq!(
+        attachment_directory::resolve(None, Path::new("relative-mosaico-home")).unwrap(),
+        current.join("relative-mosaico-home/tmp/attachments")
+    );
+}
+
+#[test]
+fn daemon_upsert_persists_absolute_attachment_directory_and_unknown_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("mosaico-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let path = home.join("config.json");
+    std::fs::write(
+        &path,
+        r#"{"relays":["wss://relay.example"],"unknown":{"keep":true}}"#,
+    )
+    .unwrap();
+    let mut env = crate::test_env::EnvGuard::set("MOSAICO_HOME", &home);
+    env.set_var("MOSAICO_CONFIG", &path);
+
+    let directory = ensure_attachment_receive_directory().unwrap();
+    let first = std::fs::read_to_string(&path).unwrap();
+    ensure_attachment_receive_directory().unwrap();
+    let second = std::fs::read_to_string(&path).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&second).unwrap();
+
+    assert_eq!(directory, home.join("tmp/attachments"));
+    assert_eq!(
+        json["attachmentReceiveDirectory"],
+        directory.display().to_string()
+    );
+    assert_eq!(json["unknown"]["keep"], true);
+    assert_eq!(first, second);
+}
+
+#[test]
 fn cross_project_boundary_defaults_to_warn_reads_and_deny_writes() {
     let config = Config::from_json_str(r#"{"relays":["wss://relay.example"]}"#, "host").unwrap();
 

@@ -14,6 +14,7 @@ fn row_to_message_with_rowid(row: &rusqlite::Row) -> rusqlite::Result<(i64, Mess
             sync_state: row.get(8)?,
             native_event_id: opt_text(row.get(9)?),
             error: opt_text(row.get(10)?),
+            attachment_dir: row.get(11)?,
         },
     ))
 }

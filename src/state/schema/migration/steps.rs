@@ -272,7 +272,7 @@ fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .context("collecting schema-7 pending writes")
 }
-fn require_shape(
+pub(super) fn require_shape(
     conn: &Connection,
     version: u32,
     table: &str,

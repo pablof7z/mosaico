@@ -102,7 +102,14 @@ fn render_channel_read_row(item: &serde_json::Value, use_color: bool) -> String 
             ));
         }
     }
-    format!("{text} [{}]", format_local_datetime(ts))
+    let mut rendered = format!("{text} [{}]", format_local_datetime(ts));
+    if let Some(directory) = item["attachment_dir"]
+        .as_str()
+        .filter(|directory| !directory.is_empty())
+    {
+        rendered.push_str(&format!("\n[attachments: {directory}]"));
+    }
+    rendered
 }
 
 fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {

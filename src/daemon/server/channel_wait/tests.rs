@@ -220,6 +220,7 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
         sync_state: "accepted".into(),
         native_event_id: Some("human-message".into()),
         error: None,
+        attachment_dir: String::new(),
     };
 
     assert!(filter.matches(&state, &message));

@@ -179,6 +179,7 @@ pub(super) fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<Me
             from: event.from_ref,
             recipients: event.recipient_refs,
             body: event.body,
+            attachment_dir: event.attachment_dir,
             needs_reply_nudge: event.needs_reply_nudge,
         })
         .collect();

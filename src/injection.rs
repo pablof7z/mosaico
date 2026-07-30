@@ -67,6 +67,7 @@ pub(crate) fn render_terminal_mention(
                 event_id: &row.event_id,
                 from: &from,
                 recipients: &recipients,
+                attachment_dir: &row.attachment_dir,
                 body: &row.body,
                 created_at: row.created_at,
                 now,
