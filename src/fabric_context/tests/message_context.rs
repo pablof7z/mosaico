@@ -63,7 +63,8 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     assert!(!text.contains("<workspace"));
     assert!(text.contains("<channel name=\"/root\""));
     assert!(!text.contains("<channel name=\"/root\" id=\""));
-    assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\">"));
+    assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\""));
+    assert!(text.contains("age=\"1m\""));
     assert!(
         !text.contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
     );

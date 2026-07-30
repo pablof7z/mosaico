@@ -53,13 +53,61 @@ fn wait_has_no_json_mode() {
 
 #[test]
 fn agent_native_wait_renderers_use_one_mosaico_envelope() {
-    let message = crate::injection::render_agent_message("/root/x", "agent5", "abcdef123", "done");
+    let message = render_wait_message(
+        &serde_json::json!({
+            "channel": "/root/x",
+            "from_ref": "agent5",
+            "recipient_refs": ["reviewer"],
+            "event_id": "abcdef123",
+            "body": "done",
+            "created_at": 100,
+        }),
+        160,
+    );
     assert!(message.starts_with("<mosaico>"));
     assert!(message.contains("<channel ref=\"/root/x\">"));
-    assert!(message.contains("<message from=\"@agent5\" id=\"abcdef\">done</message>"));
+    assert!(message.contains(
+        "<message from=\"@agent5\" id=\"abcdef\" for=\"@reviewer\" age=\"1m\">done</message>"
+    ));
 
     let timeout = crate::injection::render_agent_wait_timeout(60, &["/root/x", "/root/y"]);
     assert!(timeout.starts_with("<mosaico>"));
     assert!(timeout.contains("<wait outcome=\"timeout\" after=\"60s\">"));
     assert!(timeout.contains("<channel ref=\"/root/y\" />"));
+}
+
+#[test]
+fn direct_delivery_and_wait_share_the_exact_message_element() {
+    let store = crate::state::Store::open_memory().unwrap();
+    store.upsert_channel("x", "x", "", "", 1).unwrap();
+    let row = crate::state::InboxRow {
+        event_id: "abcdef123".into(),
+        target_pubkey: "pk-target".into(),
+        state: "pending".into(),
+        from_pubkey: "pk-sender".into(),
+        channel_h: "x".into(),
+        body: "done & checked".into(),
+        created_at: 100,
+        delivered_at: 0,
+    };
+    let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160).unwrap();
+    let waited = render_wait_message(
+        &serde_json::json!({
+            "channel": "/x",
+            "from_ref": "pk-sende",
+            "recipient_refs": ["pk-targe"],
+            "event_id": "abcdef123",
+            "body": "done & checked",
+            "created_at": 100,
+        }),
+        160,
+    );
+
+    assert_eq!(message_element(&direct), message_element(&waited));
+}
+
+fn message_element(document: &str) -> &str {
+    let start = document.find("<message").expect("message start");
+    let end = document.find("</message>").expect("message end") + "</message>".len();
+    &document[start..end]
 }

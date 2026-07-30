@@ -5,6 +5,7 @@
 
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct FabricView {
+    pub(in crate::fabric_context) now: u64,
     pub(in crate::fabric_context) self_row: Option<SelfRow>,
     /// `Some` means the canonical `<hosts>` node is present, including when its
     /// full-state value is empty. Delta assembly uses `None` when it is unchanged.
@@ -150,10 +151,9 @@ pub(in crate::fabric_context) struct MessageRow {
     pub(in crate::fabric_context) channel_ref: String,
     pub(in crate::fabric_context) from: String,
     pub(in crate::fabric_context) recipients: Vec<String>,
-    pub(in crate::fabric_context) age: String,
+    pub(in crate::fabric_context) created_at: u64,
     pub(in crate::fabric_context) body: String,
     pub(in crate::fabric_context) mention: bool,
-    pub(in crate::fabric_context) truncated: bool,
     pub(in crate::fabric_context) needs_reply_nudge: bool,
 }
 

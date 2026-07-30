@@ -5,7 +5,8 @@
 //! ```text
 //! <mosaico>
 //!   <channel ref="/workspace/channel/qa">
-//!     <message from="@mist-ridge-204-developer" id="abc123">hello</message>
+//!     <message from="@mist-ridge-204-developer" id="abc123"
+//!              for="@reviewer" age="1m">hello</message>
 //!   </channel>
 //! </mosaico>
 //! ```
@@ -24,6 +25,7 @@
 
 use crate::state::{InboxRow, Store};
 use crate::util::pubkey_short;
+use std::fmt::Write as _;
 
 /// Display name for a pubkey: its cached `kind:0` slug, else a short hex form.
 fn speaker_label(store: &Store, pubkey: &str) -> String {
@@ -40,49 +42,48 @@ pub(crate) fn render_terminal_mention(
     store: &Store,
     rows: &[InboxRow],
     _whitelisted: &[String],
-    _now: u64,
+    now: u64,
 ) -> Option<String> {
     if rows.is_empty() {
         return None;
     }
-    let mut lines: Vec<String> = Vec::with_capacity(rows.len() * 3 + 4);
-    lines.push("<mosaico>".to_string());
+    let mut out = String::from("<mosaico>");
     for row in rows {
         let channel_ref = crate::channel_ref::full_channel_ref(store, &row.channel_h);
         if channel_ref.is_empty() {
             return None;
         }
-        push_agent_message(
-            &mut lines,
-            &channel_ref,
-            &speaker_label(store, &row.from_pubkey),
-            &row.event_id,
-            &row.body,
+        let from = speaker_label(store, &row.from_pubkey);
+        let recipients = vec![speaker_label(store, &row.target_pubkey)];
+        let _ = write!(
+            out,
+            "\n  <channel ref=\"{}\">",
+            crate::agent_xml::attr(&channel_ref)
         );
+        crate::agent_xml::write_message(
+            &mut out,
+            4,
+            &crate::agent_xml::MessageElement {
+                event_id: &row.event_id,
+                from: &from,
+                recipients: &recipients,
+                body: &row.body,
+                created_at: row.created_at,
+                now,
+            },
+        );
+        out.push_str("\n  </channel>");
     }
     if let Some(row) = rows.last() {
         if should_render_reply_nudge(store, row) {
-            lines.push(String::new());
-            push_reply_hint(&mut lines);
+            out.push_str(
+                "\n\n  Need a follow-up? Read \
+                 `skills/mosaico/references/coordination-guide.md`.",
+            );
         }
     }
-    lines.push("</mosaico>".to_string());
-    Some(lines.join("\n"))
-}
-
-/// Render one blocking-wait success in the same agent-native envelope used for
-/// direct terminal delivery. The wait command intentionally has no alternate
-/// human or JSON renderer.
-pub(crate) fn render_agent_message(
-    channel_ref: &str,
-    from: &str,
-    event_id: &str,
-    body: &str,
-) -> String {
-    let mut lines = vec!["<mosaico>".to_string()];
-    push_agent_message(&mut lines, channel_ref, from, event_id, body);
-    lines.push("</mosaico>".to_string());
-    lines.join("\n")
+    out.push_str("\n</mosaico>");
+    Some(out)
 }
 
 /// Render the expected timeout outcome without switching to a second output
@@ -92,37 +93,15 @@ pub(crate) fn render_agent_wait_timeout(seconds: u64, channels: &[&str]) -> Stri
         "<mosaico>".to_string(),
         format!("  <wait outcome=\"timeout\" after=\"{seconds}s\">"),
     ];
-    lines.extend(
-        channels
-            .iter()
-            .map(|channel| format!("    <channel ref=\"{}\" />", esc_attr(channel))),
-    );
+    lines.extend(channels.iter().map(|channel| {
+        format!(
+            "    <channel ref=\"{}\" />",
+            crate::agent_xml::attr(channel)
+        )
+    }));
     lines.push("  </wait>".to_string());
     lines.push("</mosaico>".to_string());
     lines.join("\n")
-}
-
-fn push_agent_message(
-    lines: &mut Vec<String>,
-    channel_ref: &str,
-    from: &str,
-    event_id: &str,
-    body: &str,
-) {
-    lines.push(format!("  <channel ref=\"{}\">", esc_attr(channel_ref)));
-    lines.push(format!(
-        "    <message from=\"@{}\" id=\"{}\">{}</message>",
-        esc_attr(from.trim_start_matches('@')),
-        esc_attr(&crate::util::short_id(event_id)),
-        esc_text(body)
-    ));
-    lines.push("  </channel>".to_string());
-}
-
-fn push_reply_hint(lines: &mut Vec<String>) {
-    lines.push(
-        "  Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`.".to_string(),
-    );
 }
 
 fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
@@ -134,15 +113,4 @@ fn should_render_reply_nudge(store: &Store, row: &InboxRow) -> bool {
             row.created_at,
         )
         .unwrap_or(true)
-}
-
-fn esc_attr(input: &str) -> String {
-    esc_text(input).replace('"', "&quot;")
-}
-
-fn esc_text(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }

@@ -1,11 +1,9 @@
 use crate::fabric_context::model::*;
+use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
+use channel::render_channel;
 use owo_colors::OwoColorize as _;
 use std::fmt::Write as _;
-
 mod channel;
-
-use channel::render_channel;
-
 pub(in crate::fabric_context) fn render_human_view(view: &FabricView, color: bool) -> String {
     let mut out = String::new();
     let agents = view
@@ -191,6 +189,7 @@ fn render_messages(out: &mut String, channel: &ChannelBlock, color: bool) {
         );
     }
     for m in &channel.messages {
+        let (body, truncated) = truncate_words(&m.body, CHAT_RENDER_WORD_LIMIT);
         let from = format!("@{}", m.from);
         let marker = if m.mention {
             format!("{} ", style("mention", color, Style::Warning))
@@ -202,9 +201,9 @@ fn render_messages(out: &mut String, channel: &ChannelBlock, color: bool) {
             "    {} {}{}",
             style(&from, color, Style::Agent),
             marker,
-            m.body
+            body
         );
-        if m.truncated {
+        if truncated {
             let _ = writeln!(
                 out,
                 "      {}",
