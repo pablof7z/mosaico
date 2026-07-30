@@ -1,30 +1,11 @@
 use super::{
-    admission, kill_endpoint, source::resolve_harness_source, workspace_abs_path, LaunchIntent,
+    admission, kill_endpoint, source::resolve_harness_source, workspace_abs_path, ResumeRequest,
 };
 use crate::daemon::server::DaemonState;
 use crate::harness::ResumeMechanism;
 use crate::session_host::transport::{LaunchSpec, ResumeSpec};
 use anyhow::{Context, Result};
 use std::sync::Arc;
-
-#[derive(Clone, Copy)]
-pub(crate) struct ResumeRequest<'a> {
-    intent: LaunchIntent,
-    extra_args: &'a [String],
-}
-
-impl<'a> ResumeRequest<'a> {
-    pub(crate) fn with_args(intent: LaunchIntent, extra_args: &'a [String]) -> Self {
-        Self { intent, extra_args }
-    }
-
-    pub(crate) fn without_args(intent: LaunchIntent) -> Self {
-        Self {
-            intent,
-            extra_args: &[],
-        }
-    }
-}
 
 /// Resume one exact persisted Mosaico session with its harness-native token.
 pub(crate) async fn resume_agent(
