@@ -69,7 +69,7 @@ pub(in crate::cli) async fn home() -> Result<()> {
                 return take_over(choice, interrupt_turn).await;
             }
             picker::PickerAction::Resume(choice) => {
-                return crate::cli::launch_cli::attach_or_resume(&choice.row.npub)
+                return crate::cli::launch_cli::attach_or_resume(&choice.row.npub, &[])
                     .await
                     .and_then(|found| {
                         found.then_some(()).ok_or_else(|| {

@@ -124,7 +124,9 @@ pub(super) async fn rpc_pty_resume(
         state,
         &rec,
         &resume_id,
-        crate::session_host::LaunchIntent::Interactive,
+        crate::session_host::ResumeRequest::without_args(
+            crate::session_host::LaunchIntent::Interactive,
+        ),
     )
     .await
     {

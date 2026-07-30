@@ -2,6 +2,8 @@ use super::*;
 use std::path::Path;
 use std::time::Duration;
 
+#[path = "pty_bootstrap/deleted_binary.rs"]
+mod deleted_binary;
 #[path = "pty_bootstrap/launch.rs"]
 mod launch;
 #[path = "pty_bootstrap/named.rs"]

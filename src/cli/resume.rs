@@ -12,6 +12,7 @@ pub(super) async fn resume(args: super::args::ResumeArgs) -> Result<()> {
         serde_json::json!({
             "native_id": args.harness_id,
             "workspace": workspace,
+            "extra_args": args.extra_args,
         }),
     )
     .await

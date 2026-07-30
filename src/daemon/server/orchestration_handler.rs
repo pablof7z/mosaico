@@ -225,7 +225,9 @@ async fn resume_target(
         &work_root,
         &op.child_h,
         &resume_id,
-        crate::session_host::LaunchIntent::Managed,
+        crate::session_host::ResumeRequest::without_args(
+            crate::session_host::LaunchIntent::Managed,
+        ),
     )
     .await
     {

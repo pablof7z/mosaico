@@ -5,6 +5,8 @@ struct NativeResumeParams {
     native_id: String,
     #[serde(default)]
     workspace: Option<String>,
+    #[serde(default)]
+    extra_args: Vec<String>,
 }
 
 pub(in crate::daemon::server) async fn rpc_pty_resume_native(
@@ -42,7 +44,7 @@ pub(in crate::daemon::server) async fn rpc_pty_resume_native(
                     locator.pubkey
                 )
             })?;
-        return resume_mapped(state, &rec, native_id).await;
+        return resume_mapped(state, &rec, native_id, &params.extra_args).await;
     }
 
     let matches = crate::session_host::discover_native_session(native_id)?;
@@ -84,6 +86,10 @@ pub(in crate::daemon::server) async fn rpc_pty_resume_native(
         &cwd,
         &root,
         native_id,
+        crate::session_host::ResumeRequest::with_args(
+            crate::session_host::LaunchIntent::Interactive,
+            &params.extra_args,
+        ),
     )
     .await?;
     let handle = state
@@ -104,11 +110,16 @@ async fn resume_mapped(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     native_id: &str,
+    extra_args: &[String],
 ) -> Result<serde_json::Value> {
     let handle = state
         .with_store(|store| store.handle_for_pubkey(&rec.pubkey))?
         .unwrap_or_else(|| rec.agent_slug.clone());
     if let Some(pty_id) = super::existing::live_pty_for_session(state, rec).await {
+        anyhow::ensure!(
+            extra_args.is_empty(),
+            "cannot apply launch arguments to @{handle}: its harness is already running"
+        );
         return Ok(response("attached", &pty_id, &handle, rec));
     }
     anyhow::ensure!(
@@ -119,7 +130,10 @@ async fn resume_mapped(
         state,
         rec,
         native_id,
-        crate::session_host::LaunchIntent::Interactive,
+        crate::session_host::ResumeRequest::with_args(
+            crate::session_host::LaunchIntent::Interactive,
+            extra_args,
+        ),
     )
     .await?;
     Ok(response("resumed", &pty_id, &handle, rec))

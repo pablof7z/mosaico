@@ -22,8 +22,23 @@ pub struct SpawnSessionArgs {
 }
 
 pub fn spawn_session(args: SpawnSessionArgs) -> Result<LaunchMetadata> {
-    let bin = std::env::current_exe().context("locating current mosaico executable")?;
+    let current_exe = std::env::current_exe().context("locating current mosaico executable")?;
+    let bin = supervisor_executable(current_exe);
     spawn_session_with_executable(args, bin)
+}
+
+fn supervisor_executable(current_exe: PathBuf) -> PathBuf {
+    if current_exe.is_file() {
+        return current_exe;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let proc_self_exe = PathBuf::from("/proc/self/exe");
+        if proc_self_exe.is_file() {
+            return proc_self_exe;
+        }
+    }
+    current_exe
 }
 
 fn spawn_session_with_executable(

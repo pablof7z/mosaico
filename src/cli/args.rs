@@ -182,6 +182,9 @@ pub(super) struct ResumeArgs {
     /// Existing workspace path when native metadata has no usable cwd.
     #[arg(long, value_name = "PATH")]
     pub(super) workspace: Option<std::path::PathBuf>,
+    /// Arguments appended to the resumed harness command.
+    #[arg(last = true, value_name = "ARG")]
+    pub(super) extra_args: Vec<String>,
 }
 
 #[derive(Args)]

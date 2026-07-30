@@ -7,6 +7,7 @@ fn claude_resume_appends_the_native_id_after_bundle_args() {
         ResumeMechanism::AppendFlag("--resume"),
         "02ff0867-a7bb-4254-a36e-37081ccc3b51",
         "developer",
+        &["--model".into(), "sonnet".into()],
     )
     .unwrap();
 
@@ -17,6 +18,8 @@ fn claude_resume_appends_the_native_id_after_bundle_args() {
             "--dangerously-skip-permissions",
             "--resume",
             "02ff0867-a7bb-4254-a36e-37081ccc3b51",
+            "--model",
+            "sonnet",
         ]
     );
 }
@@ -28,22 +31,31 @@ fn goose_resume_appends_both_required_flags() {
         ResumeMechanism::AppendFlags(&["--resume", "--session-id"]),
         "20260721_9",
         "goose",
+        &["--debug".into()],
     )
     .unwrap();
 
     assert_eq!(
         command,
-        ["goose", "session", "--resume", "--session-id", "20260721_9"]
+        [
+            "goose",
+            "session",
+            "--resume",
+            "--session-id",
+            "20260721_9",
+            "--debug",
+        ]
     );
 }
 
 #[test]
 fn codex_resume_inserts_the_subcommand_before_bundle_args() {
     let command = build_driver_resume_command(
-        &["codex".into(), "--yolo".into()],
+        &["codex".into(), "--profile".into(), "writer".into()],
         ResumeMechanism::Subcommand("resume"),
         "019f7f5c-575d-7640-958d-e7428d4d77b0",
         "codex",
+        &["--yolo".into()],
     )
     .unwrap();
 
@@ -53,6 +65,8 @@ fn codex_resume_inserts_the_subcommand_before_bundle_args() {
             "codex",
             "resume",
             "019f7f5c-575d-7640-958d-e7428d4d77b0",
+            "--profile",
+            "writer",
             "--yolo",
         ]
     );
