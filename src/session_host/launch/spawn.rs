@@ -1,5 +1,7 @@
-use super::source::ResolvedSource;
 use super::*;
+use crate::session_host::launch::hosted::{
+    ConversationOpen, HostedOpenRequest, HostedPlacement, HostedPresentation,
+};
 
 pub struct DispatchedSpawn {
     pub endpoint: crate::session_host::transport::EndpointRef,
@@ -168,10 +170,7 @@ async fn spawn_agent_inner_full(
     expected_pubkey: Option<&str>,
 ) -> Result<(crate::session_host::transport::SessionEndpoint, String)> {
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
-    let mut resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
-    append_extra_args(&mut resolved, extra_args);
-    let agent_slug = resolved.identity.slug.clone();
-    let agent_command = resolved.command.clone();
+    let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
     let harness = resolved.harness;
     let reservation = match expected_pubkey {
         Some(pubkey) => admission::reserve_fresh_for_pubkey(
@@ -195,78 +194,28 @@ async fn spawn_agent_inner_full(
             session_name,
         )?,
     };
-    let endpoint = match open_agent_session(
-        &resolved.transport,
-        &agent_slug,
-        root,
-        &abs_path,
-        &agent_command,
-        group,
-        session_name,
-        ephemeral,
-        &reservation.pubkey,
-        &reservation.agent_nsec,
-        resolved.native_agent.as_ref(),
-        resolved.prepared_launch,
-    )
-    .await
-    {
-        Ok(meta) => meta,
-        Err(error) => {
-            admission::release(state, &reservation);
-            return Err(error);
-        }
-    };
     let channels = joined_channels.unwrap_or(&[]);
-    let pubkey = match crate::daemon::server::session_start::bootstrap_hosted_session_start(
+    let opened = super::hosted::open(
         state,
-        &endpoint,
-        crate::daemon::server::session_start::bootstrap::HostedSessionStart {
-            pubkey: &reservation.pubkey,
-            reclaimed_pubkey: reservation.reclaimed_pubkey.as_deref(),
-            channel: group,
-            channels,
-            resume_id: None,
-            dispatch_event,
-            session_name,
-            observed_harness: harness,
-            admitted_bundle: &resolved.bundle,
-            admitted_transport: resolved.transport.kind(),
+        HostedOpenRequest {
+            source: resolved,
+            reservation,
+            conversation: ConversationOpen::Fresh,
+            placement: HostedPlacement {
+                root,
+                abs_path: &abs_path,
+                group,
+                channels,
+            },
+            presentation: HostedPresentation {
+                ephemeral,
+                session_name,
+                dispatch_event,
+            },
+            extra_args,
         },
     )
-    .await
-    {
-        Ok(pubkey) => pubkey,
-        Err(e) => {
-            kill_endpoint(&resolved.transport, &endpoint.endpoint_id).await;
-            admission::release(state, &reservation);
-            return Err(e.context("registering hosted session"));
-        }
-    };
+    .await?;
     state.schedule_backend_profile_refresh();
-    Ok((endpoint, pubkey))
+    Ok((opened.endpoint, opened.pubkey))
 }
-
-fn append_extra_args(resolved: &mut ResolvedSource, extra_args: &[String]) {
-    let rpc_argv = resolved
-        .prepared_launch
-        .rpc
-        .as_mut()
-        .map(|rpc| &mut rpc.argv);
-    append_command_args(&mut resolved.command, rpc_argv, extra_args);
-}
-
-fn append_command_args(
-    command: &mut Vec<String>,
-    rpc_argv: Option<&mut Vec<String>>,
-    extra_args: &[String],
-) {
-    command.extend_from_slice(extra_args);
-    if let Some(argv) = rpc_argv {
-        argv.extend_from_slice(extra_args);
-    }
-}
-
-#[cfg(test)]
-#[path = "spawn/tests.rs"]
-mod tests;

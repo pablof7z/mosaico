@@ -31,6 +31,16 @@ when a dead row is reasserted. Endpoint access always uses the session's exact
 explicit matching `endpoint_kind`; missing or mismatched kinds fail before
 locator resolution or persistence.
 
+Fresh creation and exact resume keep separate resolution and admission policy.
+Fresh creation selects an agent source and may mint an identity; resume loads
+the persisted identity, native conversation locator, workspace, and full route
+set. Both then enter one hosted-open transaction that applies one-launch
+arguments, constructs the transport launch specification, selects fresh versus
+native reopen, starts the fabric runtime, and compensates a failed start by
+terminating the opened endpoint and releasing its runtime reservation. PTY,
+ACP, and app-server retain their distinct native open protocols behind the
+transport boundary.
+
 The workspace and root channel are one entity with the public address
 `<workspace>`. There is no local agent allow/block file in the NIP-29 path.
 
