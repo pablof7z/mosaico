@@ -87,3 +87,45 @@ jobs:
 
       - name: Local relay integration tests (just test-local-relay)
         run: just test-local-relay
+
+  bdd-acceptance:
+    name: BDD acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the pinned Croissant fixture
+        uses: actions/checkout@v4
+        with:
+          repository: pablof7z/croissant
+          ref: 9c4c93e84852bd9aa6824060b74c56ab2ce812c2
+          path: croissant-fixture
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.12'
+
+      - name: Pin nak
+        run: go install github.com/fiatjaf/nak@v0.20.0
+
+      - name: Build the pinned Croissant fixture
+        working-directory: croissant-fixture
+        env:
+          NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
+        run: go build -o "$NIP29_RELAY_BIN" .
+
+      - name: Executable product contracts (just test-bdd)
+        env:
+          NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
+        run: just test-bdd
