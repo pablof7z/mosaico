@@ -1,6 +1,7 @@
 //! Isolated backend filesystem and exact binary invocation.
 
 mod fixtures;
+mod teardown;
 
 use std::fs::File;
 use std::io::Write as _;
@@ -195,18 +196,8 @@ impl Backend {
             let _ = child.wait();
         }
         self.keepalives.clear();
+        self.stop_pty_supervisors();
         self.stop_daemon();
-    }
-
-    fn stop_daemon(&self) {
-        if !self.socket().exists() {
-            return;
-        }
-        let _ = self.run(&["daemon", "stop"], None, Duration::from_secs(10));
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while self.socket().exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(25));
-        }
     }
 
     fn command(&self, args: &[&str]) -> Command {

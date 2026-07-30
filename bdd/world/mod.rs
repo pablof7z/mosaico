@@ -156,12 +156,29 @@ impl MosaicoWorld {
             .get_mut(&name)
             .expect("selected backend exists")
     }
+
+    pub fn teardown(&mut self) -> Result<()> {
+        for backend in self.backends.values_mut() {
+            backend.stop();
+        }
+        self.relay.take();
+        let leaked = self
+            .backends
+            .values()
+            .flat_map(Backend::live_resources)
+            .collect::<Vec<_>>();
+        if !leaked.is_empty() {
+            anyhow::bail!(
+                "scenario-owned resources survived teardown: {}",
+                leaked.join(", ")
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Drop for MosaicoWorld {
     fn drop(&mut self) {
-        for backend in self.backends.values_mut() {
-            backend.stop();
-        }
+        let _ = self.teardown();
     }
 }

@@ -19,10 +19,17 @@ async fn main() {
             Box::pin(async move {
                 match finished {
                     cucumber::event::ScenarioFinished::StepPassed => {
+                        if let Some(world) = world {
+                            if let Err(error) = world.teardown() {
+                                world.retain_failure_artifacts(&scenario.name);
+                                panic!("BDD teardown for {:?}: {error:#}", scenario.name);
+                            }
+                        }
                         MosaicoWorld::remove_failure_artifacts(&scenario.name);
                     }
                     _ => {
                         if let Some(world) = world {
+                            let _ = world.teardown();
                             world.retain_failure_artifacts(&scenario.name);
                         }
                     }
