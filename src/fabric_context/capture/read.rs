@@ -10,7 +10,6 @@ pub(super) use crate::fabric_context::refs::profile_host;
 use crate::fabric_context::refs::pubkey_ref;
 use crate::fabric_context::{FabricContextInput, FabricMessageSeed};
 use crate::state::{Session, Store};
-use crate::util::{truncate_words, CHAT_RENDER_WORD_LIMIT};
 
 /// Widest chat capture cap; assemble re-applies the real per-window limit.
 const CHAT_CAPTURE_CAP: u32 = 10_000;
@@ -167,15 +166,13 @@ pub(super) fn capture_messages(
                 return None;
             }
             let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
-            let (body, truncated) = truncate_words(&resolved_body, CHAT_RENDER_WORD_LIMIT);
             Some(EvCap {
                 id: ev.id.clone(),
                 channel_ref,
                 from_ref: pubkey_ref(store, &ev.pubkey, input.local_host),
                 recipient_refs: p_tag_refs(store, &ev.tags_json, input.local_host),
                 created_at: ev.created_at,
-                body,
-                truncated,
+                body: resolved_body,
                 mentions_self: mentions_pubkey(&ev.tags_json, input.self_pubkey),
                 forced_mention: false,
                 needs_reply_nudge: reply_nudge_for_message(
@@ -196,15 +193,13 @@ pub(super) fn capture_messages(
             if channel_ref.is_empty() {
                 return None;
             }
-            let (body, truncated) = truncate_words(&row.body, CHAT_RENDER_WORD_LIMIT);
             Some(EvCap {
                 id: row.id.clone(),
                 channel_ref,
                 from_ref: pubkey_ref(store, &row.from_pubkey, input.local_host),
                 recipient_refs: forced_recipient_refs(store, input, row.mention),
                 created_at: row.created_at,
-                body,
-                truncated,
+                body: row.body.clone(),
                 mentions_self: false,
                 forced_mention: row.mention,
                 needs_reply_nudge: reply_nudge_for_message(

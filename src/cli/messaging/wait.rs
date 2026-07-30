@@ -57,15 +57,7 @@ fn print_result(result: &serde_json::Value) -> Result<()> {
     match result["outcome"].as_str() {
         Some("message") => {
             let message = &result["message"];
-            println!(
-                "{}",
-                crate::injection::render_agent_message(
-                    message["channel"].as_str().unwrap_or_default(),
-                    message["from_slug"].as_str().unwrap_or_default(),
-                    message["event_id"].as_str().unwrap_or_default(),
-                    message["body"].as_str().unwrap_or_default(),
-                )
-            );
+            println!("{}", render_wait_message(message, crate::util::now_secs()));
             Ok(())
         }
         Some("timeout") => {
@@ -84,6 +76,40 @@ fn print_result(result: &serde_json::Value) -> Result<()> {
         }
         other => bail!("daemon returned invalid channel wait outcome {other:?}"),
     }
+}
+
+fn render_wait_message(message: &serde_json::Value, now: u64) -> String {
+    let channel = message["channel"].as_str().unwrap_or_default();
+    let from = message["from_ref"]
+        .as_str()
+        .or_else(|| message["from_slug"].as_str())
+        .unwrap_or_default();
+    let recipients = message["recipient_refs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|recipient| recipient.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let mut out = String::from("<mosaico>");
+    let _ = write!(
+        out,
+        "\n  <channel ref=\"{}\">",
+        crate::agent_xml::attr(channel)
+    );
+    crate::agent_xml::write_message(
+        &mut out,
+        4,
+        &crate::agent_xml::MessageElement {
+            event_id: message["event_id"].as_str().unwrap_or_default(),
+            from,
+            recipients: &recipients,
+            body: message["body"].as_str().unwrap_or_default(),
+            created_at: message["created_at"].as_u64().unwrap_or_default(),
+            now,
+        },
+    );
+    out.push_str("\n  </channel>\n</mosaico>");
+    out
 }
 
 #[cfg(test)]

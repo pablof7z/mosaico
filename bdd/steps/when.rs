@@ -81,3 +81,8 @@ async fn stop_exact_session(world: &mut MosaicoWorld) {
 async fn explicit_session_send(world: &mut MosaicoWorld, body: String) {
     world.send_with_explicit_session_anchor(&body);
 }
+
+#[when(regex = r#"^I search all cached channels for "([^"]+)"$"#)]
+async fn search_cached_channels(world: &mut MosaicoWorld, text: String) {
+    world.search_cached_messages(&text);
+}

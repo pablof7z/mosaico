@@ -35,6 +35,7 @@ mod messaging;
 mod my;
 mod pty;
 mod resume;
+mod search;
 mod session;
 mod session_catalog;
 mod statusline;

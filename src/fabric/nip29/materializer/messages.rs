@@ -29,6 +29,22 @@ impl Nip29Materializer {
                 error = %e,
                 "materialize_chat_message: messages upsert failed — channel read model may miss this line"
             );
+            return;
+        }
+        for recipient in &chat.mentioned_pubkeys {
+            if let Err(e) = store.add_message_recipient(&event_id, recipient, None) {
+                tracing::error!(
+                    channel = channel_h,
+                    event_id = %event_id,
+                    recipient,
+                    error = %e,
+                    "materialize_chat_message: recipient projection failed"
+                );
+            }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "messages/tests.rs"]
+mod tests;

@@ -2,6 +2,7 @@ use super::protocol::required_string;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
+mod search;
 mod wait;
 
 pub(super) fn list() -> Value {
@@ -25,6 +26,12 @@ pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Valu
                 Err(err) => tool_error(format!("{err:#}")),
             },
         );
+    }
+    if name == "mosaico.channel_search" {
+        return Ok(match search::call(&args, caller).await {
+            Ok(value) => value,
+            Err(err) => tool_error(format!("{err:#}")),
+        });
     }
     let result = match name.as_str() {
         "mosaico.my_session" => my_session(caller).await,

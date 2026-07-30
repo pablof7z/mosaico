@@ -206,9 +206,27 @@ pub(in crate::daemon::server) fn chat_row_to_json(
         ..row.clone()
     };
     let mut json = chat_log_row_to_json(&resolved_row, &from_slug, &host, truncate);
-    json["channel"] = serde_json::Value::String(
-        state.with_store(|store| crate::channel_ref::full_channel_ref(store, &row.channel_h)),
-    );
+    let (channel, from_ref, recipient_refs) = state.with_store(|store| {
+        let channel = crate::channel_ref::full_channel_ref(store, &row.channel_h);
+        let from_ref =
+            crate::fabric_context::refs::pubkey_ref(store, &row.author_pubkey, &state.host);
+        let recipient_refs = store
+            .message_recipients(&row.message_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|recipient| {
+                crate::fabric_context::refs::pubkey_ref(
+                    store,
+                    &recipient.recipient_pubkey,
+                    &state.host,
+                )
+            })
+            .collect::<Vec<_>>();
+        (channel, from_ref, recipient_refs)
+    });
+    json["channel"] = serde_json::Value::String(channel);
+    json["from_ref"] = serde_json::Value::String(from_ref);
+    json["recipient_refs"] = serde_json::json!(recipient_refs);
     json
 }
 

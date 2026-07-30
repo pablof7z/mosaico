@@ -7,6 +7,7 @@ mod channels;
 mod tail;
 
 // Re-exports for cli.rs callers
+pub(in crate::cli) use args::parse_channel_path;
 pub(super) use args::ChannelAction;
 pub use channels::channels;
 pub use tail::parse_since;

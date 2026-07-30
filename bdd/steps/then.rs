@@ -191,3 +191,18 @@ async fn explicit_session_authored_message(world: &mut MosaicoWorld, body: Strin
         "relay never exposed {body:?} under the explicitly selected signer"
     );
 }
+
+#[then(regex = r#"^the search output groups "([^"]+)" under channel "([^"]+)"$"#)]
+async fn search_groups_message(world: &mut MosaicoWorld, body: String, channel: String) {
+    let output = &world.last_run().stdout;
+    let opening = format!(r#"<channel ref="{channel}">"#);
+    let group = output
+        .split_once(&opening)
+        .and_then(|(_, rest)| rest.split_once("</channel>"))
+        .map(|(group, _)| group)
+        .unwrap_or_else(|| panic!("search output has no {channel:?} group:\n{output}"));
+    assert!(
+        group.contains(&body),
+        "channel {channel:?} does not contain {body:?}:\n{output}"
+    );
+}

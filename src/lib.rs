@@ -12,6 +12,7 @@ mod agent_about;
 pub mod agent_catalog;
 mod agent_count;
 pub(crate) mod agent_inventory;
+pub(crate) mod agent_xml;
 mod attachment;
 mod channel_about;
 mod channel_name;

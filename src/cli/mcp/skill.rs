@@ -61,6 +61,12 @@ const PAGES: &[Page] = &[
         content: include_str!("../../../skills/mosaico/references/mcp-chatbot-setup.md"),
     },
     Page {
+        name: "message-search",
+        title: "Message search",
+        description: "Local-cache search scope, filters, XML output, and pagination.",
+        content: include_str!("../../../skills/mosaico/references/message-search.md"),
+    },
+    Page {
         name: "public-work-status",
         title: "Public work status",
         description: "Session titles, lifecycle states, and self-only lifecycle commands.",
@@ -171,6 +177,9 @@ mod tests {
         assert!(entry.contains("Prime Directive"));
         let (_, _, identity) = content(Some("identity-and-capabilities")).unwrap();
         assert!(identity.contains("CLI wins"));
+        let (_, _, search) = content(Some("message-search")).unwrap();
+        assert!(search.contains("Omitting `--channel`"));
+        assert!(search.contains("mosaico.channel_search"));
     }
 
     #[test]

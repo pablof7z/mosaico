@@ -71,6 +71,22 @@ intentional one-launch override.
   agent `secret_key` and `public_key`.
 - Never print provider credentials, Nostr secrets, or private-key fields.
 
+## Fabric authority and local search
+
+- Do not invent local permission segregation between channels or workspaces.
+  NIP-29 relay policy owns admission and authorization. An agent admitted on a
+  backend may join, read, search, and write any channel the relay accepts;
+  channel membership is fabric state, not an extra application permission to
+  ask the user to grant.
+- Treat channel and workspace paths as organization and query scope, not local
+  visibility boundaries. Let a rejected relay operation report the
+  authoritative denial instead of pre-emptively asking a permission-scoping
+  question.
+- Message search is local-cache-only: never query the relay to satisfy it.
+  An omitted channel and `--channel /` both mean every channel currently
+  represented in the local database. A narrower channel includes its
+  descendants. Do not add a separate workspace search filter.
+
 ## Non-negotiables
 
 - Use real host AI auth. The container runner defaults to

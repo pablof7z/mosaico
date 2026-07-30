@@ -22,5 +22,7 @@ mod my_session;
 mod nmp_client;
 #[path = "daemon_integration/process.rs"]
 mod process;
+#[path = "daemon_integration/search.rs"]
+mod search;
 #[path = "daemon_integration/signers.rs"]
 mod signers;

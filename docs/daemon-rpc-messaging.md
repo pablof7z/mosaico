@@ -24,6 +24,43 @@ Normal history reads use the shared 100-word render limit and set
 message body. Explicit history reads are deliberate inspection and are not
 subject to automatic-context join cutoffs.
 
+## `channel_search`
+
+```jsonc
+params: {"from": ["identity", …], "to": ["identity", …],
+         "contains": ["literal", …], "channels": ["/root/child", …],
+         "since": u64|null, "until": u64|null, "limit": u64|null,
+         "cursor": "opaque"|null}
+result: {
+  "channels": [{
+    "ref": "/root/child",
+    "messages": [{
+      "event_id": "hex", "from": "public-ref",
+      "recipients": ["public-ref", …], "body": "…", "created_at": 123
+    }, …]
+  }, …],
+  "next_cursor": "opaque"|null
+}
+```
+
+Search is a one-shot query over messages already materialized in the daemon's
+local database; it never queries or backfills from the relay. An empty
+`channels` list and `["/"]` both search every cached channel. Any narrower
+channel includes its descendants. There is no workspace selector: a root
+channel path already scopes its workspace subtree.
+
+Repeated values within one filter are OR alternatives; non-empty filter kinds
+combine with AND. `contains` is a case-insensitive literal body match. Results
+are selected and paginated globally newest-first, then each page is grouped by
+channel without changing message order. Cursors are opaque and bound to the
+normalized query. A continuation request passes `cursor` alone; the cursor
+contains the filters, page size, and last selected position.
+
+NIP-29 relay policy owns admission and authorization. The local daemon does not
+invent an additional channel/workspace permission layer for cached search.
+Every agent-facing text result uses the canonical XML message renderer; MCP
+also returns the grouped result as structured content.
+
 ## `channel_send`
 
 ```jsonc

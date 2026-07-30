@@ -118,7 +118,6 @@ pub(crate) struct EvCap {
     pub(in crate::fabric_context) recipient_refs: Vec<String>,
     pub(in crate::fabric_context) created_at: u64,
     pub(in crate::fabric_context) body: String,
-    pub(in crate::fabric_context) truncated: bool,
     /// Self-mention derived from the event's OWN `p` tags (always false for a
     /// forced seed, whose mention intent is carried by `forced_mention`).
     pub(in crate::fabric_context) mentions_self: bool,
