@@ -1,9 +1,8 @@
 build:
     cargo build --release
 
-install: build
-    rm -f ~/.local/bin/mosaico
-    cp target/release/mosaico ~/.local/bin/mosaico
+install:
+    cargo install --path . --bin mosaico --root ~/.local --locked --force
     xattr -cr ~/.local/bin/mosaico
     codesign --force --sign - ~/.local/bin/mosaico
 
