@@ -13,6 +13,14 @@ Feature: Channel speech and addressed work have distinct delivery semantics
     When I send "explicit anchor wins" with the second session explicitly selected
     Then the relay message "explicit anchor wins" is authored by the explicitly selected session
 
+  @croissant
+  Scenario: An agent searches locally cached messages across its backend
+    Given an isolated configured Mosaico home using a fresh NIP-29 relay
+    And Claude agent "reviewer" is live in workspace "search-demo"
+    When the operator addresses that agent with "land the searchable commit"
+    And I search all cached channels for "searchable commit"
+    Then the search output groups "land the searchable commit" under channel "/search-demo"
+
   @croissant @designed @issue-704
   Scenario: An addressed message reaches one live session exactly once
     Given two agents are live in the same channel
