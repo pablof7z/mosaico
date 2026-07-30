@@ -6,6 +6,7 @@ use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::bail;
 
 mod body;
+mod coaching;
 mod mention_guard;
 mod params;
 mod react;
@@ -140,6 +141,27 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         pinned_destination.as_deref(),
         tagged.first().map(|target| target.channel.as_str()),
     );
+    let ambient_prefix_notice = if p.tags.is_empty() && !p.force {
+        let backend_pubkey = state.backend_pubkey().unwrap_or_default();
+        match state.with_store(|store| {
+            coaching::untagged_agent_prefix(
+                store,
+                &p.message,
+                &publish_scope,
+                &rec.pubkey,
+                &backend_pubkey,
+                now_secs(),
+            )
+        }) {
+            Ok(notice) => notice,
+            Err(error) => {
+                tracing::debug!(%error, "optional untagged-recipient coaching unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // The authored text limit and every label check have passed before the
     // first upload, so an overlong/unsafe request cannot orphan a Blossom blob.
@@ -149,7 +171,8 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let uploaded_attachments =
         crate::attachment::upload_all(&p.attachments, &state.cfg.relays, &chat_signing_keys)
             .await?;
-    let body_to_send = body::format_tagged_body(&prepared_message, &tagged)?;
+    let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
+    let body_to_send = formatted.wire;
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
     // with the locally-seeded row and the primary-key de-dupe preserves the wrong
@@ -211,11 +234,22 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 
     let channel_ref = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
+    let mut coaching = Vec::new();
+    if let Some(label) = formatted.stripped_label {
+        coaching.push(coaching::redundant_prefix(label));
+    }
+    if let Some(notice) = coaching::ack_like(&formatted.message) {
+        coaching.push(notice);
+    }
+    if let Some(notice) = ambient_prefix_notice {
+        coaching.push(notice);
+    }
     Ok(serde_json::json!({
         "event_id": event_id,
         "channel": channel_ref,
         "mentioned_pubkeys": mentioned_pubkeys,
         "mentioned_labels": mentioned_labels,
         "recipient_reminders": recipient_reminders,
+        "coaching": coaching,
     }))
 }

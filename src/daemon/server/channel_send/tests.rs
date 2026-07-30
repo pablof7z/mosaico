@@ -1,6 +1,9 @@
 use super::*;
 use crate::state::{RegisterSession, Store};
 
+#[path = "tests/attachment_coaching.rs"]
+mod attachment_coaching;
+
 fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &str) {
     store
         .reserve_hook_session_for_test(&RegisterSession {

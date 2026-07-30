@@ -2,9 +2,22 @@ use super::TaggedRecipient;
 use anyhow::{Context, Result};
 use nostr::{PublicKey, ToBech32};
 
-pub(super) fn format_tagged_body(message: &str, tagged: &[TaggedRecipient]) -> Result<String> {
+pub(super) struct FormattedBody {
+    pub(super) wire: String,
+    pub(super) message: String,
+    pub(super) stripped_label: Option<String>,
+}
+
+pub(super) fn format_tagged_body(
+    message: &str,
+    tagged: &[TaggedRecipient],
+) -> Result<FormattedBody> {
     if tagged.is_empty() {
-        return Ok(message.to_string());
+        return Ok(FormattedBody {
+            wire: message.to_string(),
+            message: message.to_string(),
+            stripped_label: None,
+        });
     }
     let addresses = tagged
         .iter()
@@ -14,32 +27,57 @@ pub(super) fn format_tagged_body(message: &str, tagged: &[TaggedRecipient]) -> R
             Ok(format!("nostr:{}", public_key.to_bech32()?))
         })
         .collect::<Result<Vec<_>>>()?;
-    let message = strip_existing_tag_prefix(message, tagged);
-    Ok(format!("{}: {message}", addresses.join(", ")))
+    let (message, stripped_label) = strip_existing_tag_prefix(message, tagged);
+    Ok(FormattedBody {
+        wire: format!("{}: {message}", addresses.join(", ")),
+        message: message.to_string(),
+        stripped_label,
+    })
 }
 
-fn strip_existing_tag_prefix<'a>(message: &'a str, tagged: &[TaggedRecipient]) -> &'a str {
+fn strip_existing_tag_prefix<'a>(
+    message: &'a str,
+    tagged: &[TaggedRecipient],
+) -> (&'a str, Option<String>) {
     let trimmed = message.trim_start();
-    let Some(rest) = trimmed.strip_prefix('@') else {
-        return message;
+    if let Some(rest) = trimmed.strip_prefix('@') {
+        let label_end = rest
+            .find(|ch: char| ch.is_whitespace() || matches!(ch, ':' | ','))
+            .unwrap_or(rest.len());
+        let (label, suffix) = rest.split_at(label_end);
+        let Some(tagged_label) = matching_label(label, tagged) else {
+            return (message, None);
+        };
+        let remainder = match suffix.chars().next() {
+            Some(':') | Some(',') => suffix[1..].trim_start(),
+            Some(ch) if ch.is_whitespace() => suffix.trim_start(),
+            None => "",
+            _ => return (message, None),
+        };
+        return (remainder, Some(tagged_label.to_string()));
+    }
+
+    let Some((label, suffix)) = trimmed.split_once(':') else {
+        return (message, None);
     };
-    let label_end = rest
-        .find(|ch: char| ch.is_whitespace() || matches!(ch, ':' | ','))
-        .unwrap_or(rest.len());
-    let (label, suffix) = rest.split_at(label_end);
-    let matches_tag = !label.is_empty()
-        && tagged
-            .iter()
-            .any(|target| target.label.eq_ignore_ascii_case(label));
-    if !matches_tag {
-        return message;
+    if label.is_empty() || label.chars().any(char::is_whitespace) {
+        return (message, None);
     }
-    match suffix.chars().next() {
-        Some(':') | Some(',') => suffix[1..].trim_start(),
-        Some(ch) if ch.is_whitespace() => suffix.trim_start(),
-        None => "",
-        _ => message,
-    }
+    let Some(tagged_label) = matching_label(label, tagged) else {
+        return (message, None);
+    };
+    (suffix.trim_start(), Some(tagged_label.to_string()))
+}
+
+fn matching_label<'a>(label: &str, tagged: &'a [TaggedRecipient]) -> Option<&'a str> {
+    (!label.is_empty())
+        .then(|| {
+            tagged
+                .iter()
+                .find(|target| target.label.eq_ignore_ascii_case(label))
+                .map(|target| target.label.as_str())
+        })
+        .flatten()
 }
 
 #[cfg(test)]
@@ -61,8 +99,10 @@ mod tests {
     fn adds_one_nostr_address_prefix() {
         let body = format_tagged_body("hello", &[recipient("agent1", FIRST_PK)]).unwrap();
 
-        assert!(body.starts_with("nostr:npub1"));
-        assert!(body.ends_with(": hello"));
+        assert!(body.wire.starts_with("nostr:npub1"));
+        assert!(body.wire.ends_with(": hello"));
+        assert_eq!(body.message, "hello");
+        assert_eq!(body.stripped_label, None);
     }
 
     #[test]
@@ -76,9 +116,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(body.matches("nostr:npub1").count(), 2);
-        assert!(body.contains(", nostr:npub1"));
-        assert!(body.ends_with(": hello"));
+        assert_eq!(body.wire.matches("nostr:npub1").count(), 2);
+        assert!(body.wire.contains(", nostr:npub1"));
+        assert!(body.wire.ends_with(": hello"));
     }
 
     #[test]
@@ -86,28 +126,42 @@ mod tests {
         let body = format_tagged_body("@agent1: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
 
         assert_eq!(
-            body.matches(':').count(),
+            body.wire.matches(':').count(),
             2,
             "one in nostr and one separator"
         );
-        assert!(body.ends_with(": hello"));
-        assert!(!body.contains("@agent1"));
+        assert!(body.wire.ends_with(": hello"));
+        assert!(!body.wire.contains("@agent1"));
+        assert_eq!(body.stripped_label.as_deref(), Some("agent1"));
     }
 
     #[test]
     fn strips_supported_leading_tag_forms_case_insensitively() {
         for message in ["@agent1 hello", "@agent1, hello", "@Agent1: hello"] {
             let body = format_tagged_body(message, &[recipient("agent1", FIRST_PK)]).unwrap();
-            assert!(body.ends_with(": hello"), "got {body}");
-            assert!(!body.to_ascii_lowercase().contains("@agent1"), "got {body}");
+            assert!(body.wire.ends_with(": hello"), "got {}", body.wire);
+            assert!(
+                !body.wire.to_ascii_lowercase().contains("@agent1"),
+                "got {}",
+                body.wire
+            );
         }
     }
 
     #[test]
-    fn strips_a_bare_matching_tag() {
+    fn strips_a_bare_at_matching_tag() {
         let body = format_tagged_body("@agent1", &[recipient("agent1", FIRST_PK)]).unwrap();
-        assert!(body.ends_with(": "), "got {body}");
-        assert!(!body.contains("@agent1"), "got {body}");
+        assert!(body.wire.ends_with(": "), "got {}", body.wire);
+        assert!(!body.wire.contains("@agent1"), "got {}", body.wire);
+    }
+
+    #[test]
+    fn strips_a_bare_label_and_colon_case_insensitively() {
+        let body = format_tagged_body("Agent1: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
+
+        assert!(body.wire.ends_with(": hello"), "got {}", body.wire);
+        assert_eq!(body.message, "hello");
+        assert_eq!(body.stripped_label.as_deref(), Some("agent1"));
     }
 
     #[test]
@@ -115,14 +169,23 @@ mod tests {
         let body = format_tagged_body("@agent1: @agent1: hello", &[recipient("agent1", FIRST_PK)])
             .unwrap();
 
-        assert!(body.ends_with(": @agent1: hello"), "got {body}");
+        assert!(body.wire.ends_with(": @agent1: hello"), "got {}", body.wire);
     }
 
     #[test]
     fn preserves_unrelated_leading_address_text() {
         let body = format_tagged_body("@human: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
 
-        assert!(body.ends_with(": @human: hello"));
+        assert!(body.wire.ends_with(": @human: hello"));
+        assert_eq!(body.stripped_label, None);
+    }
+
+    #[test]
+    fn preserves_unrelated_bare_label_text() {
+        let body = format_tagged_body("human: hello", &[recipient("agent1", FIRST_PK)]).unwrap();
+
+        assert!(body.wire.ends_with(": human: hello"));
+        assert_eq!(body.stripped_label, None);
     }
 
     #[test]
@@ -133,7 +196,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(body.starts_with("nostr:npub1"));
-        assert!(body.ends_with(": hello, @a2 keeps ignoring me today"));
+        assert!(body.wire.starts_with("nostr:npub1"));
+        assert!(body.wire.ends_with(": hello, @a2 keeps ignoring me today"));
     }
 }

@@ -100,10 +100,11 @@ pub(in crate::cli) enum ChannelAction {
         )]
         attachments: Vec<crate::attachment::Attachment>,
         /// Agent to tag in the message. Repeat to tag multiple agents. The
-        /// visible `nostr:npub...` address prefix is added automatically.
+        /// visible `nostr:npub...` address prefix is added automatically; do
+        /// not repeat the agent label at the start of the message.
         #[arg(long = "tag", value_name = "AGENT")]
         tags: Vec<String>,
-        /// Publish mention-like `@agent` text literally when no --tag is used.
+        /// Publish intentional mention-like or `Name:` text without coaching.
         #[arg(long)]
         force: bool,
         /// Full channel path (e.g. /workspace/child).
