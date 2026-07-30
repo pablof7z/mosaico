@@ -82,17 +82,24 @@ exactly-once processing across crashes, retries, or all future time.
 
 ## Current scope
 
-The admitted suite covers:
+The current eight scenarios passed admission independently:
 
-- relay-backed peer awareness without backend-authority leakage;
-- backend-addressed management replies;
-- one harness-visible addressed PTY delivery during controlled execution;
-- explicit sender-session authority;
-- local cached message search through the public CLI;
-- relay-only cross-backend workspace discovery;
-- hook fail-open without backend startup;
-- stopped-session recovery under the same public identity;
-- offline stable-agent activation under its configured identity.
+| Product contract | Why Cucumber earns its cost | Public or independent witness |
+|---|---|---|
+| Relay membership warms peer identity without exposing backend authority | Joins relay materialization, profile warming, roster rendering, and the management-identity boundary | Rendered roster plus relay-only peer |
+| A backend-addressed management request produces a public result | Joins operator-authored relay input, backend routing, command execution, and reply publication | Independently queried relay reply |
+| Addressed work produces one harness-visible delivery during controlled execution | Joins operator addressing, relay delivery, daemon routing, PTY injection, and bounded duplicate observation | Deterministic native-harness capture |
+| An explicit sender session overrides ambient process hints | Protects signer authority across CLI selection, ambient state, and relay publication | Relay event author |
+| Isolated backends discover a workspace only through the relay | Proves cross-backend convergence without shared homes, stores, sockets, or workspaces | Second backend's public channel listing plus filesystem isolation |
+| Lifecycle hooks fail open without starting backend infrastructure | Protects a load-bearing authority and latency boundary at the exact hook entry point | Hook result, elapsed time, and absent daemon socket |
+| Addressed work resumes a stopped session without minting a sibling identity | Joins offline delivery, native resume, stable public identity, and user-visible injection | Public session identity plus harness capture |
+| Addressed work starts an offline stable agent under its configured identity | Joins configured durable identity, offline activation, relay delivery, and user-visible injection | Public session identity plus harness capture |
+
+Cached-message search was reviewed and moved out of Cucumber. The existing
+real-binary integration test in
+`tests/daemon_integration/search.rs` already proves local-cache operation while
+the relay is wedged, public CLI grouping, subtree scope, and MCP output. The
+Gherkin scenario added no separate load-bearing contract.
 
 When a scenario stops earning admission, move any still-current claim to its
 proper Rust, fault, evaluation, or live layer and delete its exclusive glue.

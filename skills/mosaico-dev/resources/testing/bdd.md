@@ -24,6 +24,8 @@ feature.
 - Local rules and input spaces: unit/property tests.
 - Harness, relay, PTY, ACP, and provider equivalence: typed adapter suites.
 - Exact selector and argv matrices: adapter/process contracts.
+- Cached-message search: exact-binary daemon integration, including relay
+  independence, channel grouping, subtree scope, and MCP output.
 - Races and restart permutations: seeded fault/schedule tests.
 - Emergent awareness and coordination: repeated agent evaluations.
 - Real providers and public relays: `mosaico-dev` live labs and probes.

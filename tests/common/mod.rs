@@ -8,12 +8,8 @@ use std::time::{Duration, Instant};
 pub struct TestRelay {
     child: Child,
     pub url: String,
-    /// Data dir to remove on drop (NIP-29 relay only). `nak serve` is in-memory
-    /// and leaves nothing behind, so it stays `None`. Without this, every
-    /// `start_nip29_relay` leaked its `nip29-relay-test-<port>` dir — thousands
-    /// accumulated across runs and, combined with the relay's 100 GB LMDB map
-    /// reservation, eventually starved the temp filesystem.
-    data_dir: Option<PathBuf>,
+    /// Relay data or diagnostic scratch directory removed on drop.
+    cleanup_dir: Option<PathBuf>,
 }
 
 pub(crate) fn nak_bin() -> PathBuf {
@@ -47,7 +43,8 @@ fn tail_file(path: &Path) -> String {
     lines.join("\n")
 }
 
-fn nip29_failure_message(
+fn relay_failure_message(
+    label: &str,
     bin: &Path,
     port: u16,
     data: &Path,
@@ -56,7 +53,7 @@ fn nip29_failure_message(
     stderr_path: &Path,
 ) -> String {
     format!(
-        "NIP-29 relay did not come up on port {port}\n\
+        "{label} did not come up on port {port}\n\
          binary: {}\n\
          data: {}\n\
          status: {status}\n\
@@ -149,7 +146,8 @@ impl TestRelay {
             // so `Drop` can't reclaim the data dir. Build the message (it reads
             // the log files under `data`) BEFORE removing the dir, then panic.
             if let Some(status) = child.try_wait().expect("poll NIP-29 relay") {
-                let msg = nip29_failure_message(
+                let msg = relay_failure_message(
+                    "NIP-29 relay",
                     &bin,
                     port,
                     &data,
@@ -161,7 +159,8 @@ impl TestRelay {
                 panic!("{msg}");
             }
             if Instant::now() > deadline {
-                let msg = nip29_failure_message(
+                let msg = relay_failure_message(
+                    "NIP-29 relay",
                     &bin,
                     port,
                     &data,
@@ -180,43 +179,100 @@ impl TestRelay {
         TestRelay {
             child,
             url: format!("ws://127.0.0.1:{port}"),
-            data_dir: Some(data),
+            cleanup_dir: Some(data),
         }
     }
 }
 
 impl TestRelay {
     pub fn start() -> Self {
+        const MAX_BIND_ATTEMPTS: usize = 4;
+
+        for attempt in 1..=MAX_BIND_ATTEMPTS {
+            match Self::start_nak_attempt(attempt) {
+                Ok(relay) => return relay,
+                Err(message)
+                    if attempt < MAX_BIND_ATTEMPTS
+                        && message
+                            .to_ascii_lowercase()
+                            .contains("address already in use") =>
+                {
+                    continue;
+                }
+                Err(message) => panic!("{message}"),
+            }
+        }
+        unreachable!("the final nak startup attempt returns or panics")
+    }
+
+    fn start_nak_attempt(attempt: usize) -> Result<Self, String> {
         let port = free_port();
-        let child = Command::new(nak_bin())
+        let bin = nak_bin();
+        let scratch = std::env::temp_dir().join(format!(
+            "nak-relay-test-{}-{port}-{attempt}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("create nak relay diagnostic directory");
+        let stdout_path = scratch.join("relay.stdout.log");
+        let stderr_path = scratch.join("relay.stderr.log");
+        let stdout = std::fs::File::create(&stdout_path).expect("create nak relay stdout log");
+        let stderr = std::fs::File::create(&stderr_path).expect("create nak relay stderr log");
+        let mut child = Command::new(&bin)
             .arg("serve")
             .arg("--port")
             .arg(port.to_string())
             .arg("--quiet")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
             .spawn()
             .expect("spawn `nak serve` (is nak installed?)");
 
-        // Wait for the relay to accept TCP connections.
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                break;
+                // The shared relay is held in a process-lifetime `OnceLock`, so
+                // its destructor does not run. Startup logs have served their
+                // purpose once readiness succeeds; remove their directory now.
+                let _ = std::fs::remove_dir_all(&scratch);
+                return Ok(TestRelay {
+                    child,
+                    url: format!("ws://127.0.0.1:{port}"),
+                    cleanup_dir: None,
+                });
+            }
+            if let Some(status) = child.try_wait().expect("poll nak relay") {
+                let message = relay_failure_message(
+                    "nak serve",
+                    &bin,
+                    port,
+                    &scratch,
+                    &status.to_string(),
+                    &stdout_path,
+                    &stderr_path,
+                );
+                let _ = std::fs::remove_dir_all(&scratch);
+                return Err(message);
             }
             if Instant::now() > deadline {
-                panic!("nak serve did not come up on port {port}");
+                let _ = child.kill();
+                let status = child
+                    .wait()
+                    .map(|status| status.to_string())
+                    .unwrap_or_else(|error| format!("wait failed: {error}"));
+                let message = relay_failure_message(
+                    "nak serve",
+                    &bin,
+                    port,
+                    &scratch,
+                    &status,
+                    &stdout_path,
+                    &stderr_path,
+                );
+                let _ = std::fs::remove_dir_all(&scratch);
+                return Err(message);
             }
             std::thread::sleep(Duration::from_millis(50));
-        }
-
-        TestRelay {
-            child,
-            // Match the address used by the readiness probe. Keeping the URL
-            // numeric avoids an IPv6 localhost resolution when the relay is
-            // listening only on 127.0.0.1.
-            url: format!("ws://127.0.0.1:{port}"),
-            data_dir: None,
         }
     }
 }
@@ -225,9 +281,7 @@ impl Drop for TestRelay {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        // Reclaim the relay's data dir so repeated runs don't leak thousands of
-        // `nip29-relay-test-<port>` trees (each with a large sparse LMDB map).
-        if let Some(dir) = &self.data_dir {
+        if let Some(dir) = &self.cleanup_dir {
             let _ = std::fs::remove_dir_all(dir);
         }
     }

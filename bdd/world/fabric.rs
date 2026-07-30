@@ -142,21 +142,6 @@ impl MosaicoWorld {
         false
     }
 
-    pub fn search_cached_messages(&mut self, text: &str) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(25);
-        while std::time::Instant::now() < deadline {
-            self.run(&["channel", "search", "--contains", text]);
-            if self.last_run().success() && self.last_run().stdout.contains(text) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        panic!(
-            "local message search never returned {text:?}\n{}",
-            self.last_run().combined()
-        );
-    }
-
     pub fn send_management_command(&self, body: &str) {
         let workspace = self.active_workspace();
         let backend = self.current_backend();
