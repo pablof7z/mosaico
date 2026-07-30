@@ -1,42 +1,75 @@
-use super::clients::{snapshot, Clients};
+use super::clients::{fanout, snapshot, Clients};
 use crate::pty::PresentationSnapshot;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 pub(super) struct SessionExitGuard {
     pty_id: String,
     clients: Clients,
+    command: Vec<String>,
+    backlog: Arc<Mutex<VecDeque<u8>>>,
     child_success: Option<bool>,
     child_exit_code: Option<u32>,
+    diagnostic_tail: Option<String>,
     presentation: Option<PresentationSnapshot>,
 }
 
 impl SessionExitGuard {
-    pub(super) fn new(pty_id: String, clients: Clients) -> Self {
+    pub(super) fn new(
+        pty_id: String,
+        clients: Clients,
+        command: Vec<String>,
+        backlog: Arc<Mutex<VecDeque<u8>>>,
+    ) -> Self {
         Self {
             pty_id,
             clients,
+            command,
+            backlog,
             child_success: None,
             child_exit_code: None,
+            diagnostic_tail: None,
             presentation: None,
         }
     }
 
     pub(super) fn record_child_exit(
         &mut self,
+        agent: &str,
         status: &portable_pty::ExitStatus,
-        presentation: PresentationSnapshot,
+        output_pump: &mut Option<std::thread::JoinHandle<()>>,
     ) {
+        if let Some(output_pump) = output_pump.take() {
+            let _ = output_pump.join();
+        }
+        let diagnostic_tail = {
+            let backlog = self.backlog.lock().unwrap();
+            crate::pty::diagnostic::plain_tail(&backlog)
+        };
+        if let Some(footer) =
+            crate::pty::diagnostic::failure_footer(agent, &self.command, status, &diagnostic_tail)
+        {
+            fanout(&self.clients, &footer);
+        }
         self.child_success = Some(status.success());
         self.child_exit_code = Some(status.exit_code());
-        self.presentation = Some(presentation);
+        self.diagnostic_tail = Some(diagnostic_tail);
+        self.presentation = Some(snapshot(&self.clients));
     }
 }
 
 impl Drop for SessionExitGuard {
     fn drop(&mut self) {
+        let diagnostic_tail = self.diagnostic_tail.clone().unwrap_or_else(|| {
+            let backlog = self.backlog.lock().unwrap();
+            crate::pty::diagnostic::plain_tail(&backlog)
+        });
         let report = crate::pty::SupervisorExitReport {
             pty_id: self.pty_id.clone(),
             child_success: self.child_success,
             child_exit_code: self.child_exit_code,
+            command: self.command.clone(),
+            diagnostic_tail,
             presentation: self.presentation.unwrap_or_else(|| snapshot(&self.clients)),
             recorded_at: crate::util::now_secs(),
         };
@@ -86,6 +119,8 @@ mod tests {
             pty_id: "pty-1".into(),
             child_success: Some(false),
             child_exit_code: Some(17),
+            command: vec!["codex".into(), "--bad".into()],
+            diagnostic_tail: "unexpected argument".into(),
             presentation: PresentationSnapshot {
                 attached_clients: 2,
                 attachment_epoch: 9,
@@ -96,6 +131,8 @@ mod tests {
         assert_eq!(params["pty_id"], "pty-1");
         assert_eq!(params["child_success"], false);
         assert_eq!(params["child_exit_code"], 17);
+        assert_eq!(params["command"], serde_json::json!(["codex", "--bad"]));
+        assert_eq!(params["diagnostic_tail"], "unexpected argument");
         assert_eq!(params["presentation"]["attached_clients"], 2);
         assert_eq!(params["presentation"]["attachment_epoch"], 9);
         assert_eq!(params["presentation"]["changed_at"], 8);

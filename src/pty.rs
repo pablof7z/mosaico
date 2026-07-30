@@ -1,6 +1,7 @@
 //! Portable PTY supervisor and client surface for reattachable agent sessions.
 
 mod client;
+mod diagnostic;
 mod exit_record;
 mod launch;
 mod meta;

@@ -34,8 +34,13 @@ pub struct SupervisorArgs {
 
 pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     let clients = clients::new(args.id.clone());
-    let mut session_exit_guard =
-        session_exit::SessionExitGuard::new(args.id.clone(), clients.clone());
+    let backlog = Arc::new(Mutex::new(VecDeque::with_capacity(BACKLOG_LIMIT)));
+    let mut session_exit_guard = session_exit::SessionExitGuard::new(
+        args.id.clone(),
+        clients.clone(),
+        args.command.clone(),
+        backlog.clone(),
+    );
     if args.command.is_empty() {
         bail!("pty supervisor command must not be empty");
     }
@@ -94,15 +99,15 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
     cmd.env_remove("CLAUDE_CODE_CHILD_SESSION");
 
     let mut child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
     if let Err(error) =
         super::meta::record_child_pid(&args.id, &args.instance_token, child.process_id())
     {
         eprintln!("[mosaico pty supervisor] could not persist child identity: {error:#}");
     }
     let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
-    let backlog = Arc::new(Mutex::new(VecDeque::with_capacity(BACKLOG_LIMIT)));
 
-    {
+    let mut output_pump = Some({
         let mut reader = pair.master.try_clone_reader()?;
         let clients = clients.clone();
         let backlog = backlog.clone();
@@ -115,8 +120,8 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
                 remember(&backlog, &buf[..n]);
                 fanout(&clients, &buf[..n]);
             }
-        });
-    }
+        })
+    });
 
     // Binding is the public readiness boundary. Do it only after the harness
     // child exists and the output pump is installed; otherwise launchers can
@@ -128,7 +133,7 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
 
     loop {
         if let Some(status) = child.try_wait()? {
-            session_exit_guard.record_child_exit(&status, snapshot(&clients));
+            session_exit_guard.record_child_exit(&args.agent, &status, &mut output_pump);
             break;
         }
         match listener.accept() {
@@ -144,8 +149,12 @@ pub fn run_supervisor(args: SupervisorArgs) -> Result<()> {
                     &clients,
                     &backlog,
                 ) {
-                    Ok(Some((status, presentation))) => {
-                        session_exit_guard.record_child_exit(&status, presentation);
+                    Ok(Some((status, _presentation))) => {
+                        session_exit_guard.record_child_exit(
+                            &args.agent,
+                            &status,
+                            &mut output_pump,
+                        );
                         break;
                     }
                     Ok(None) => {}

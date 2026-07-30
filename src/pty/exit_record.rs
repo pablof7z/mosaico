@@ -6,6 +6,10 @@ pub(crate) struct SupervisorExitReport {
     pub(crate) pty_id: String,
     pub(crate) child_success: Option<bool>,
     pub(crate) child_exit_code: Option<u32>,
+    #[serde(default)]
+    pub(crate) command: Vec<String>,
+    #[serde(default)]
+    pub(crate) diagnostic_tail: String,
     pub(crate) presentation: PresentationSnapshot,
     pub(crate) recorded_at: u64,
 }
