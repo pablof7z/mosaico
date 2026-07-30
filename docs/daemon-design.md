@@ -247,6 +247,7 @@ Walking each verb's true I/O shape:
 | `turn_end`         | one-shot             | flip turn state                                      |
 | `channel_send`       | one-shot             | daemon publishes kind:9 chat event on the relay      |
 | `channel_read`        | one-shot             | daemon returns chat history for the session/project  |
+| `channel_search`      | one-shot             | daemon searches its local materialized message cache |
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
 | `doctor`           | one-shot             | daemon does the relay round-trip, returns result     |

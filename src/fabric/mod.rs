@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_materialization_stays_transport_only() {
+    fn chat_materialization_projects_recipients_without_executing_delivery() {
         let store = Store::open_memory().unwrap();
         let sender_keys = Keys::generate();
         let receiver_keys = Keys::generate();
@@ -187,8 +187,9 @@ mod tests {
             .is_empty());
         assert!(store.has_event(&ambient.id.to_hex()).unwrap());
 
-        // Mention execution belongs to the daemon ownership router, not this
-        // transport projection.
+        // Mention execution belongs to the daemon ownership router. The
+        // transport projection preserves the explicit recipient edge for
+        // cached reads and search without parking an executable inbox row.
         let mention = build_event(
             &sender_keys,
             9,
@@ -201,10 +202,10 @@ mod tests {
         materialize(&RawEnvelope::Nostr(mention.clone()), &store);
         let receiver_rows = store.peek_pending_for_pubkey(&receiver_pk).unwrap();
         assert!(receiver_rows.is_empty());
-        assert!(store
-            .message_recipients(&mention.id.to_hex())
-            .unwrap()
-            .is_empty());
+        assert_eq!(
+            store.message_recipients(&mention.id.to_hex()).unwrap()[0].recipient_pubkey,
+            receiver_pk
+        );
         assert!(
             store
                 .peek_pending_for_pubkey(&sender_pk)

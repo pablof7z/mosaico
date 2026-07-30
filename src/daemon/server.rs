@@ -156,6 +156,7 @@ mod channel_membership_rpc;
 mod channel_move;
 mod channel_read_tail;
 mod channel_resolve;
+mod channel_search;
 mod channel_send;
 mod channel_wait;
 mod channels_rpc;
@@ -227,6 +228,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "session_kill" => rpc_session_kill(state, &req.params).await,
         "session_pty_wrap" => rpc_session_pty_wrap(state, &req.params).await,
         "channel_send" => rpc_channel_send(state, &req.params).await,
+        "channel_search" => channel_search::rpc_channel_search(state, &req.params),
         "channel_wait" => channel_wait::rpc_channel_wait(state, &req.params).await,
         "channel_reply" => channel_send::rpc_channel_reply(state, &req.params).await,
         "channel_react" => channel_send::rpc_channel_react(state, &req.params).await,

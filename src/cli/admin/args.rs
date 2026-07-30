@@ -1,9 +1,10 @@
+use super::super::search::ChannelSearchArgs;
 use clap::{Args, Subcommand};
 
 /// Every channel-taking argument requires a full absolute path
 /// (`/workspace/child`) — never a bare name or opaque channel id.
 /// Fast, same-process rejection instead of a daemon round trip.
-pub(in crate::cli::admin) fn parse_channel_path(raw: &str) -> Result<String, String> {
+pub(in crate::cli) fn parse_channel_path(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err("channel must not be empty".to_string());
@@ -81,6 +82,8 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
+    /// Search messages already present in the local database.
+    Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {
         /// Message body. Positional, or via --message, or piped on stdin.

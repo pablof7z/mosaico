@@ -4,14 +4,14 @@
 mod activity;
 use activity::{render_important, render_messages, render_reactions};
 
+use crate::agent_xml::{attr, text};
 use crate::fabric_context::model::*;
-use crate::fabric_context::xml::{attr, text};
 use std::fmt::Write as _;
 pub(in crate::fabric_context) fn render_view(view: &FabricView) -> String {
     let mut out = String::from("<mosaico>");
     render_self(&mut out, view.self_row.as_ref());
     render_hosts(&mut out, view.hosts.as_deref());
-    render_channels(&mut out, view.workspaces.as_deref());
+    render_channels(&mut out, view.workspaces.as_deref(), view.now);
     render_important(&mut out, &view.important);
     render_reactions(&mut out, &view.reactions, view.reactions_omitted);
     render_warnings(&mut out, &view.warnings);
@@ -75,7 +75,7 @@ fn render_hosts(out: &mut String, hosts: Option<&[HostRow]>) {
     }
     out.push_str("\n  </hosts>");
 }
-fn render_channels(out: &mut String, workspaces: Option<&[WorkspaceView]>) {
+fn render_channels(out: &mut String, workspaces: Option<&[WorkspaceView]>, now: u64) {
     let Some(workspaces) = workspaces else {
         return;
     };
@@ -88,15 +88,15 @@ fn render_channels(out: &mut String, workspaces: Option<&[WorkspaceView]>) {
     out.push_str("\n  <channels>");
     for workspace in workspaces {
         if let Some(root) = &workspace.root {
-            render_channel(out, root, 4);
+            render_channel(out, root, 4, now);
         }
         for channel in &workspace.channels {
-            render_channel(out, channel, 4);
+            render_channel(out, channel, 4, now);
         }
     }
     out.push_str("\n  </channels>");
 }
-fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize) {
+fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize, now: u64) {
     let pad = " ".repeat(indent);
     let name = attr(&channel.path);
     let _ = write!(out, "\n{pad}<channel name=\"{name}\"");
@@ -121,9 +121,9 @@ fn render_channel(out: &mut String, channel: &ChannelBlock, indent: usize) {
         &channel.departures,
         indent + 2,
     );
-    render_messages(out, channel, indent + 2);
+    render_messages(out, channel, indent + 2, now);
     for child in &channel.children {
-        render_channel(out, child, indent + 2);
+        render_channel(out, child, indent + 2, now);
     }
     let _ = write!(out, "\n{pad}</channel>");
 }

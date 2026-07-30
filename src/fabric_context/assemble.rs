@@ -29,6 +29,7 @@ pub(crate) fn assemble_view(inputs: &ViewInputs, cursor: u64, now: u64) -> Fabri
     let (reactions, reactions_omitted) =
         super::reactions::group_reactions(&inputs.reactions.rows, cursor, now);
     let mut view = FabricView {
+        now,
         self_row: inputs.meta.self_row.as_ref().map(self_row),
         hosts: host_rows(inputs, cursor, now, full),
         workspaces: topology::workspace_rows(inputs, cursor, now, full),
@@ -172,13 +173,12 @@ pub(super) fn message_rows(bundle: &MsgBundle, cursor: u64, now: u64) -> (Vec<Me
         .into_iter()
         .map(|event| MessageRow {
             mention: event.mentions_self || forced_mentions.contains(event.id.as_str()),
-            age: relative_time(event.created_at, now),
+            created_at: event.created_at,
             id: event.id,
             channel_ref: event.channel_ref,
             from: event.from_ref,
             recipients: event.recipient_refs,
             body: event.body,
-            truncated: event.truncated,
             needs_reply_nudge: event.needs_reply_nudge,
         })
         .collect();

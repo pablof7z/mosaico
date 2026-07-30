@@ -12,7 +12,6 @@ mod render;
 #[cfg(test)]
 mod tests;
 mod tree;
-mod xml;
 
 pub(crate) use assemble::missing_profile_pubkeys;
 pub(crate) use capture::{capture_inputs, ViewInputs};

@@ -228,6 +228,81 @@ fn channel_read_channel_still_parses() {
 }
 
 #[test]
+fn channel_search_parses_repeatable_filters_without_workspace() {
+    let cli = crate::cli::args::Cli::try_parse_from([
+        "mosaico",
+        "channel",
+        "search",
+        "--from",
+        "@Pablo",
+        "--from",
+        "@reviewer",
+        "--to",
+        "@chief-of-staff",
+        "--contains",
+        "commit",
+        "--channel",
+        "/nmp/research",
+        "--channel",
+        "/",
+        "--since",
+        "1785348600",
+        "--until",
+        "1785404520",
+        "--limit",
+        "40",
+    ])
+    .expect("channel search parses");
+
+    match cli.cmd.expect("expected channel command") {
+        crate::cli::args::Cmd::Channel {
+            action: ChannelAction::Search(args),
+        } => {
+            assert_eq!(args.from, ["@Pablo", "@reviewer"]);
+            assert_eq!(args.to, ["@chief-of-staff"]);
+            assert_eq!(args.contains, ["commit"]);
+            assert_eq!(args.channel, ["/nmp/research", "/"]);
+            assert_eq!(args.since, Some(1_785_348_600));
+            assert_eq!(args.until, Some(1_785_404_520));
+            assert_eq!(args.limit, Some(40));
+            assert_eq!(args.cursor, None);
+        }
+        _ => panic!("expected channel search command"),
+    }
+
+    let cursor = crate::cli::args::Cli::try_parse_from([
+        "mosaico", "channel", "search", "--cursor", "opaque",
+    ])
+    .expect("cursor-only continuation parses");
+    match cursor.cmd.expect("expected channel command") {
+        crate::cli::args::Cmd::Channel {
+            action: ChannelAction::Search(args),
+        } => assert_eq!(args.cursor.as_deref(), Some("opaque")),
+        _ => panic!("expected channel search command"),
+    }
+}
+
+#[test]
+fn channel_search_rejects_workspace_and_non_absolute_channel() {
+    let workspace = parse_err(&["mosaico", "channel", "search", "--workspace", "nmp"]);
+    assert_eq!(workspace.kind(), ErrorKind::UnknownArgument);
+
+    let channel = parse_err(&["mosaico", "channel", "search", "--channel", "nmp"]);
+    assert_eq!(channel.kind(), ErrorKind::ValueValidation);
+
+    let cursor_with_filter = parse_err(&[
+        "mosaico",
+        "channel",
+        "search",
+        "--cursor",
+        "opaque",
+        "--contains",
+        "commit",
+    ]);
+    assert_eq!(cursor_with_filter.kind(), ErrorKind::ArgumentConflict);
+}
+
+#[test]
 fn channel_reply_parses_short_id_and_message_flag() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "mosaico",

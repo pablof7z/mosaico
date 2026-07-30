@@ -14,7 +14,7 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
     );
     assert!(agent.contains("<chatter>"));
     assert!(
-        agent.contains("<message from=\"@reviewer\" id=\"m1\" age=\"1 min ago\">post join context"),
+        agent.contains("<message from=\"@reviewer\" id=\"m1\" age=\"1m\">post join context"),
         "every agent-visible message must expose its reaction/reply id: {agent}"
     );
     assert!(agent.contains("<channels>"));

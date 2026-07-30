@@ -241,6 +241,11 @@ mod members;
 mod session_signers;
 pub use members::ChannelMemberSet;
 mod mcp_actors;
+mod message_search;
+pub(crate) use message_search::{
+    MessageSearchHit, MessageSearchPosition, MessageSearchQuery, MESSAGE_SEARCH_DEFAULT_LIMIT,
+    MESSAGE_SEARCH_MAX_LIMIT,
+};
 mod messages;
 mod native_turn_attempts;
 pub use native_turn_attempts::{

@@ -174,7 +174,8 @@ and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
 `channel_archive` — live in [daemon-rpc-channels.md](daemon-rpc-channels.md).
 
 ### Channel messaging
-The streaming read, send, reply, and blocking wait contracts live in
+The streaming read, local-cache search, send, reply, and blocking wait
+contracts live in
 [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 
 ### `statusline`
