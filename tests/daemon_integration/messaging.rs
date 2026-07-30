@@ -5,6 +5,8 @@ use std::time::Duration;
 mod explicit_destination;
 #[path = "messaging/inbox_rows.rs"]
 mod inbox_rows;
+#[path = "messaging/message_coaching.rs"]
+mod message_coaching;
 #[path = "messaging/non_mention.rs"]
 mod non_mention;
 #[path = "messaging/self_target.rs"]

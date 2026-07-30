@@ -81,6 +81,11 @@ the intent:
 Replying keeps the conversation attached to the original message. Reacting is
 passive and never interrupts.
 
+When using `channel send --tag <agent>`, write only the message body.
+Mosaico adds the agent mention automatically; do not repeat `<agent>:` or
+`@<agent>:` at the start of the message. An untagged `Name: message` remains
+ambient channel chat and does not start that agent's turn.
+
 ## Form A Useful Request
 
 Give the recipient enough context to act independently:

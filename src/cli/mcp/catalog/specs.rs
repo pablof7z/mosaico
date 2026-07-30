@@ -121,11 +121,15 @@ pub(super) const SPECS: &[ToolSpec] = &[
         description: "Send a message to a channel.",
         props: &[
             Prop::new("message", "string", "Message body."),
-            Prop::new("tags", "array", "Agent names to tag."),
+            Prop::new(
+                "tags",
+                "array",
+                "Agent names to tag. Mosaico adds each mention; do not prefix the message with the agent name.",
+            ),
             Prop::new(
                 "force",
                 "boolean",
-                "Allow literal mention-like text without tags.",
+                "Publish intentional mention-like or Name: text without coaching.",
             ),
             Prop::new(
                 "channel",
