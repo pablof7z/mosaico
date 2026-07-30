@@ -80,5 +80,28 @@ fn channel_search_reads_cached_messages_across_channels_while_relay_is_wedged() 
     assert!(subtree.contains("research commit"), "{subtree}");
     assert!(!subtree.contains("beta commit"), "{subtree}");
 
+    let mcp = run_cli_stdin(
+        &home,
+        &["mcp"],
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mosaico.channel_search","arguments":{"contains":["commit"]}}}"#,
+    );
+    assert!(
+        mcp.status.success(),
+        "MCP search failed: {}",
+        String::from_utf8_lossy(&mcp.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&mcp.stdout).unwrap();
+    let result = &response["result"];
+    let xml = result["content"][0]["text"].as_str().unwrap();
+    assert!(xml.contains("<channel ref=\"/alpha/research\">"), "{xml}");
+    assert!(xml.contains("<channel ref=\"/beta\">"), "{xml}");
+    assert_eq!(
+        result["structuredContent"]["channels"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
     stop_daemon(&home);
 }
