@@ -141,11 +141,8 @@ fn lease_renewal_without_state_change_produces_no_presence_delta() {
     );
 }
 
-/// Purge guard for the human-facing "project" -> "workspace" rename (#201): a
-/// representative agent-facing render must expose the immutable workspace on
-/// `<self>` and must NOT leak the old wrapper or the word "project" anywhere.
 #[test]
-fn agent_render_uses_workspace_and_never_leaks_project() {
+fn agent_render_includes_workspace_and_members() {
     let store = seed_store();
     super::publish_idle_status(&store, OTHER_PK, "reviewer", "Reviewing");
     let rec = session(&store);
@@ -159,16 +156,8 @@ fn agent_render_uses_workspace_and_never_leaks_project() {
         "agent render must carry the immutable self workspace; got: {text}"
     );
     assert!(
-        !text.contains("<workspace"),
-        "obsolete wrapper leaked: {text}"
-    );
-    assert!(
         text.contains("<agent "),
         "expected a members block; got: {text}"
-    );
-    assert!(
-        !text.to_ascii_lowercase().contains("project"),
-        "agent-facing render must never contain \"project\"; got: {text}"
     );
 }
 

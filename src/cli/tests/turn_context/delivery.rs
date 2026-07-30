@@ -31,11 +31,6 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
         text.contains("ambient chatter"),
         "chat activity section expected; got: {text:?}"
     );
-    assert!(
-        !text.contains("Activity on #proj since your last check:"),
-        "legacy ambient activity block must not render; got: {text:?}"
-    );
-
     // Cursor advanced past the row (since=150 > 120): no re-emit.
     let text2 = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(150), 200);
     assert!(

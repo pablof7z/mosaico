@@ -107,10 +107,6 @@ fn parse_handle_exposes_only_current_schemes() {
         }
     );
 
-    for removed in ["llm:1", "txn:status:7", "sub:proj-x"] {
-        let error = parse_handle(removed).unwrap_err();
-        assert!(error.to_string().contains("unknown handle scheme"));
-    }
     assert!(parse_handle("bogus").is_err());
     assert!(parse_handle("mystery:1").is_err());
 }

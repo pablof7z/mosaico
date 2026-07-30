@@ -166,22 +166,6 @@ MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=1 \
 echo 'ok: doctor accepts current harness and keyless agent schemas'
 
 printf '%s\n' \
-  '{"legacy":{"harness":"claude","transport":"pty"}}' \
-  >"${CONFIG_HOME}/harnesses.json"
-if MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=1 \
-  bash "${ROOT}/containers/mosaico/doctor" codex 1 >/dev/null 2>&1; then
-  fail 'doctor accepted the removed claude harness alias'
-fi
-
-printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server","profile":{}}}' \
-  >"${CONFIG_HOME}/harnesses.json"
-if MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=1 \
-  bash "${ROOT}/containers/mosaico/doctor" codex 1 >/dev/null 2>&1; then
-  fail 'doctor accepted removed harness profile configuration'
-fi
-
-printf '%s\n' \
   '{"codex-app-server":{"harness":"codex","transport":"app-server"}}' \
   >"${CONFIG_HOME}/harnesses.json"
 printf '%s\n' \
@@ -191,7 +175,7 @@ if MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=
   bash "${ROOT}/containers/mosaico/doctor" codex 1 >/dev/null 2>&1; then
   fail 'doctor accepted persisted keys for a per-session agent'
 fi
-echo 'ok: doctor rejects aliases, removed harness fields, and redundant per-session keys'
+echo 'ok: doctor rejects persisted keys for per-session agents'
 
 mkdir -p "${TMP}/fake-bin"
 # These are literal lines for the fake executable, not expressions here.

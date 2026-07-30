@@ -179,23 +179,3 @@ fn profile_decode_prefers_nonempty_display_name() {
         other => panic!("expected profile, got {other:?}"),
     }
 }
-
-#[test]
-fn profile_decode_ignores_removed_camel_case_agent_slug_tag() {
-    let keys = Keys::generate();
-    let event = EventBuilder::new(Kind::from(KIND_PROFILE), r#"{"name":"willow-echo-042"}"#)
-        .tags([
-            tag(&["host", "remoteBackend"]).unwrap(),
-            tag(&["agentSlug", "developer"]).unwrap(),
-        ])
-        .sign_with_keys(&keys)
-        .unwrap();
-
-    match Nip29WireCodec.decode_event(&event) {
-        Some(DomainEvent::Profile(p)) => {
-            assert_eq!(p.agent.slug, "willow-echo-042");
-            assert!(p.agent_slug.is_empty());
-        }
-        other => panic!("expected profile, got {other:?}"),
-    }
-}

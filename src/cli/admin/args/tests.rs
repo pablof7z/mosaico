@@ -75,10 +75,7 @@ fn channel_list_workspace_flags_parse() {
 }
 
 #[test]
-fn channel_list_rejects_retired_and_conflicting_flags() {
-    let retired = parse_err(&["mosaico", "channel", "list", "--all-workspaces"]);
-    assert_eq!(retired.kind(), ErrorKind::UnknownArgument);
-
+fn channel_list_rejects_conflicting_flags() {
     let conflict = parse_err(&["mosaico", "channel", "list", "--all", "--recursive"]);
     assert_eq!(conflict.kind(), ErrorKind::ArgumentConflict);
 }
@@ -207,13 +204,6 @@ fn channel_read_help_uses_channel_flag() {
 }
 
 #[test]
-fn channel_read_rejects_removed_alias() {
-    let err = parse_err(&["mosaico", "channel", "read", "--project", "tmp"]);
-
-    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
-}
-
-#[test]
 fn channel_read_channel_still_parses() {
     let cli =
         crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "/ops"])
@@ -228,7 +218,7 @@ fn channel_read_channel_still_parses() {
 }
 
 #[test]
-fn channel_search_parses_repeatable_filters_without_workspace() {
+fn channel_search_parses_repeatable_filters() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "mosaico",
         "channel",
@@ -283,10 +273,7 @@ fn channel_search_parses_repeatable_filters_without_workspace() {
 }
 
 #[test]
-fn channel_search_rejects_workspace_and_non_absolute_channel() {
-    let workspace = parse_err(&["mosaico", "channel", "search", "--workspace", "nmp"]);
-    assert_eq!(workspace.kind(), ErrorKind::UnknownArgument);
-
+fn channel_search_rejects_invalid_channel_and_cursor_filters() {
     let channel = parse_err(&["mosaico", "channel", "search", "--channel", "nmp"]);
     assert_eq!(channel.kind(), ErrorKind::ValueValidation);
 

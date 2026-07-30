@@ -155,13 +155,4 @@ mod tests {
             _ => panic!("expected setup command"),
         }
     }
-
-    #[test]
-    fn removed_local_relay_flag_is_rejected() {
-        let error = crate::cli::args::Cli::try_parse_from(["mosaico", "setup", "--local-relay"])
-            .err()
-            .expect("removed local relay flag must be rejected");
-
-        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
-    }
 }

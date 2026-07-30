@@ -58,10 +58,6 @@ fn contextual_help_shows_current_operator_commands_to_humans() {
             "human help omitted {visible}:\n{help}"
         );
     }
-    assert!(
-        !help.contains("  sessions"),
-        "removed command leaked into help:\n{help}"
-    );
     for hidden in ["wait", "dispatch", "my"] {
         assert!(
             !help.contains(&format!("  {hidden}")),

@@ -119,10 +119,8 @@ impl DeploySession {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.option_cursor = self.option_cursor.saturating_sub(1);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.option_cursor + 1 < count {
-                    self.option_cursor += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.option_cursor + 1 < count => {
+                self.option_cursor += 1;
             }
             KeyCode::Enter => self.answer(true),
             KeyCode::Esc | KeyCode::Char('n') => self.answer(false),

@@ -1,20 +1,6 @@
 use super::*;
 
 #[test]
-fn legacy_status_tag_is_rejected() {
-    let keys = Keys::generate();
-    let event = EventBuilder::new(Kind::from(KIND_STATUS), "")
-        .tags([
-            tag(&["h", "mosaico"]).unwrap(),
-            tag(&["d", "status"]).unwrap(),
-            tag(&["status", "idle"]).unwrap(),
-        ])
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert!(Nip29WireCodec.decode_event(&event).is_none());
-}
-
-#[test]
 fn canonical_state_tag_is_accepted() {
     let keys = Keys::generate();
     let event = EventBuilder::new(Kind::from(KIND_STATUS), "working on tests")

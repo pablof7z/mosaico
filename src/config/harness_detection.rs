@@ -13,6 +13,10 @@ pub fn detect() -> Result<Vec<Harness>> {
 }
 
 fn detect_with(home: &Path, path: Option<&std::ffi::OsStr>) -> Vec<Harness> {
+    detect_matching(|bin| crate::host_env::resolve_executable(home, path, bin).is_some())
+}
+
+fn detect_matching(mut is_launchable: impl FnMut(&str) -> bool) -> Vec<Harness> {
     let candidates = [
         (Harness::ClaudeCode, "claude"),
         (Harness::Codex, "codex"),
@@ -23,7 +27,7 @@ fn detect_with(home: &Path, path: Option<&std::ffi::OsStr>) -> Vec<Harness> {
     ];
     candidates
         .into_iter()
-        .filter(|(_, bin)| crate::host_env::resolve_executable(home, path, bin).is_some())
+        .filter(|(_, bin)| is_launchable(bin))
         .map(|(harness, _)| harness)
         .collect()
 }
@@ -31,6 +35,13 @@ fn detect_with(home: &Path, path: Option<&std::ffi::OsStr>) -> Vec<Harness> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn launchable_in(directory: &Path, executable: &str) -> bool {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::metadata(directory.join(executable))
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+    }
 
     #[test]
     fn detects_only_launchable_binaries_in_stable_order() {
@@ -47,7 +58,7 @@ mod tests {
         }
 
         assert_eq!(
-            detect_with(root.path(), Some(bin.as_os_str())),
+            detect_matching(|executable| launchable_in(&bin, executable)),
             [
                 Harness::Codex,
                 Harness::Opencode,
@@ -61,7 +72,9 @@ mod tests {
     fn config_directory_without_launchable_binary_is_not_advertised() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join(".codex")).unwrap();
+        let bin = root.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
 
-        assert!(detect_with(root.path(), Some(std::ffi::OsStr::new("/usr/bin:/bin"))).is_empty());
+        assert!(detect_matching(|executable| launchable_in(&bin, executable)).is_empty());
     }
 }

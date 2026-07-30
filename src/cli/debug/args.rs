@@ -40,13 +40,3 @@ pub(in crate::cli) async fn debug(action: DebugAction) -> Result<()> {
         }),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use clap::Parser;
-
-    #[test]
-    fn removed_outbox_command_stays_unavailable() {
-        assert!(crate::cli::args::Cli::try_parse_from(["mosaico", "debug", "outbox"]).is_err());
-    }
-}

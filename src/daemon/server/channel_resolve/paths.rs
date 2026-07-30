@@ -20,7 +20,7 @@ pub(super) fn canonical_segments(root: &str, reference: &str) -> Option<Vec<Stri
         return None;
     }
     if absolute {
-        if !segments.first().is_some_and(|segment| segment == root) {
+        if segments.first().is_none_or(|segment| segment != root) {
             return None;
         }
         segments.remove(0);

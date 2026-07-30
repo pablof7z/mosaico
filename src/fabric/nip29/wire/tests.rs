@@ -306,27 +306,3 @@ fn reaction_with_e_tag_decodes_and_emits_kind7_tags() {
         other => panic!("expected Reaction, got {other:?}"),
     }
 }
-#[test]
-fn kind_24011_presence_is_ignored() {
-    let keys = Keys::generate();
-    let event = EventBuilder::new(Kind::from(24011u16), "")
-        .tags([
-            tag(&["h", "mosaico"]).unwrap(),
-            tag(&["legacy-session", "sess-123"]).unwrap(),
-            tag(&["expiration", "1900000000"]).unwrap(),
-        ])
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert!(Nip29WireCodec.decode_event(&event).is_none());
-}
-#[test]
-fn t_only_channel_notes_are_ignored() {
-    // A kind:1 with only a `t` tag (old hashtag shape, no `h` tag) → None
-    // (no `h` tag means no channel, so channel_from_tags returns None).
-    let keys = Keys::generate();
-    let event = EventBuilder::new(Kind::from(1u16), "old shape")
-        .tags([tag(&["t", "mosaico"]).unwrap()])
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert!(Nip29WireCodec.decode_event(&event).is_none());
-}

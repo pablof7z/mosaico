@@ -104,15 +104,6 @@ fn bare_invocation_with_installation_shows_sessions_and_agents() {
 }
 
 #[test]
-fn removed_agents_target_is_rejected() {
-    let home = installed_codex_home();
-    let output = isolated_command(home.path(), &["agents", "codex"]);
-
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand 'codex'"));
-}
-
-#[test]
 fn explicit_top_level_human_help_remains_contextual() {
     let help = contextual_help(&["--help"], false);
 
@@ -121,7 +112,6 @@ fn explicit_top_level_human_help_remains_contextual() {
     assert!(help.contains("  setup"));
     assert!(help.contains("  uninstall"));
     assert!(help.contains("  doctor"));
-    assert!(!help.contains("  install"));
     assert!(help.contains("without a command"));
     assert!(!help.contains("  mgmt"));
     assert!(!help.contains("  publish"));

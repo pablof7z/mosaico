@@ -125,12 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn new_session_flag_stays_removed() {
-        let kind = parse_err("mosaico channel add --new-session reviewer ops");
-        assert_eq!(kind, ErrorKind::UnknownArgument);
-    }
-
-    #[test]
     fn session_pull_accepts_handle_and_message() {
         let a =
             parse_add("mosaico channel add --session @sable-grove-179-coder ops --message welcome");

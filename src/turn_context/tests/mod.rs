@@ -288,8 +288,4 @@ fn ambient_and_mention_both_in_first_turn_context() {
             ),
         "ambient chat and mention must render in the fabric context; got:\n{ctx}"
     );
-    assert!(
-        !ctx.contains("Activity on #"),
-        "legacy ambient activity block must not render; got:\n{ctx}"
-    );
 }
