@@ -2,8 +2,17 @@ use std::process::Command;
 
 fn installed_codex_home() -> tempfile::TempDir {
     let home = tempfile::tempdir().unwrap();
+    let bin_dir = home.path().join("bin");
     let mosaico_home = home.path().join(".mosaico");
+    std::fs::create_dir_all(&bin_dir).unwrap();
     std::fs::create_dir_all(&mosaico_home).unwrap();
+    let codex = bin_dir.join("codex");
+    std::fs::write(&codex, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     std::fs::write(
         mosaico_home.join("config.json"),
         r#"{"availableHarnesses":[],"relays":["ws://127.0.0.1:1"]}"#,
@@ -40,6 +49,10 @@ fn isolated_command(home: &std::path::Path, args: &[&str]) -> std::process::Outp
         .env("HOME", home)
         .env("MOSAICO_HOME", home.join(".mosaico"))
         .env("MOSAICO_ISOLATED_HOME_OK", "1")
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", home.join("bin").display()),
+        )
         .env_remove("MOSAICO_AGENT")
         .output()
         .expect("run isolated mosaico")
