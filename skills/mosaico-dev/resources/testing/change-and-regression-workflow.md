@@ -1,6 +1,6 @@
 # Change and regression workflow
 
-Mosaico changes begin with behavior contracts and authoritative oracles.
+Mosaico changes begin with behavior contracts and admitted oracles.
 Production code follows.
 
 ## Default agent handoff
@@ -45,6 +45,17 @@ The challenge must include concrete source/runtime evidence and a replacement
 claim or oracle. Do not silently loosen equality, remove a negative assertion,
 add a sleep, or exclude a failing contract.
 
+## Oracle authority and reopening
+
+Discovery is allowed to show that a proposed contract is wrong, incomplete, or
+conceptually confused. Once admitted, the oracle is authoritative for the
+implementation pass, not permanently frozen.
+
+Reopening requires explicit contract discussion with the new evidence and the
+consequence for the product claim. The implementation agent may initiate that
+discussion, but does not edit the oracle first and present the weaker result as
+success.
+
 ## New product behavior
 
 Start with examples that distinguish the rule:
@@ -58,6 +69,11 @@ Use Cucumber only if the stable deterministic product promise passes every
 admission rule. Add unit/property and adapter tests for local policies and
 technical semantics. Define evaluation datasets instead when the desired
 behavior depends on a model choosing among several valid trajectories.
+
+Evaluate every proposed scenario independently. Inclusion in an issue,
+inventory, or initial-suite list is not admission. If Gherkin does not
+materially clarify the claim, keep the same public behavior in an ordinary
+real-binary integration test.
 
 ## Bug fix
 

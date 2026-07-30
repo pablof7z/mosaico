@@ -45,6 +45,7 @@ fn unreachable_supervisor_control_does_not_implicitly_terminate_the_harness() {
         child_pid.is_some()
     }));
     let metadata = pty_meta(&pty_id);
+    let supervisor_pid = i32::try_from(metadata.supervisor_pid).unwrap();
     std::fs::remove_file(&metadata.socket).unwrap();
 
     assert!(
@@ -71,4 +72,34 @@ fn unreachable_supervisor_control_does_not_implicitly_terminate_the_harness() {
         "presentation loss implicitly terminated the harness"
     );
     stop_daemon(&home);
+
+    // The missing control socket is the condition under test. Once the
+    // assertion is complete, reclaim the exact scenario-owned processes by
+    // PID so the test cannot pollute later relay/process checks.
+    for pid in [supervisor_pid, child_pid] {
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(pid),
+            nix::sys::signal::Signal::SIGTERM,
+        );
+    }
+    if !wait_until(Duration::from_secs(5), || {
+        [supervisor_pid, child_pid]
+            .into_iter()
+            .all(|pid| nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_err())
+    }) {
+        for pid in [supervisor_pid, child_pid] {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
+    assert!(
+        wait_until(Duration::from_secs(5), || {
+            [supervisor_pid, child_pid]
+                .into_iter()
+                .all(|pid| nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_err())
+        }),
+        "scenario-owned unreachable supervisor or child survived cleanup"
+    );
 }

@@ -54,9 +54,8 @@ jobs:
       - name: Clippy (just lint)
         run: just lint
 
-      # Unit tests only. Local relay-backed integration tests run through
-      # `just test-local-relay`, `just test-local-nip29`, or aggregate
-      # `just test` when the external test dependencies are available. Ignored
+      # Keep credential-free unit and real-binary checks here. Relay-backed
+      # integration tests run through dedicated jobs or local recipes. Ignored
       # public-relay probes stay behind explicit live-probe recipes.
       - name: Unit tests (just test-unit)
         run: just test-unit

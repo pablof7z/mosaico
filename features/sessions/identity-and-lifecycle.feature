@@ -6,7 +6,7 @@ Feature: Addressed activation preserves one durable public identity
     When the operator stops that exact session
     And the operator addresses that agent with "resume this identity"
     Then agent "reviewer" is live under the same public identity with no sibling
-    And the native harness receives "resume this identity" exactly once
+    And the native harness observes one user-visible delivery of "resume this identity" during the controlled execution
 
   @croissant
   Scenario: Addressed work starts an offline stable agent under its configured identity
@@ -14,4 +14,4 @@ Feature: Addressed activation preserves one durable public identity
     And stable Claude agent "durable-reviewer" is configured but offline in workspace "stable-demo"
     When the operator addresses that configured identity with "start the stable identity"
     Then agent "durable-reviewer" is live under the same public identity with no sibling
-    And the native harness receives "start the stable identity" exactly once
+    And the native harness observes one user-visible delivery of "start the stable identity" during the controlled execution

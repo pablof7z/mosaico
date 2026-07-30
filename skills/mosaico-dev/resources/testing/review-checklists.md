@@ -18,6 +18,8 @@ declaring the change complete.
 
 ## Cucumber admission and BDD
 
+- [ ] This scenario passes admission independently; its presence in an issue
+      or suite inventory is not the reason it exists.
 - [ ] Examples and counterexamples were discovered before implementation.
 - [ ] The claim is a stable deterministic product promise.
 - [ ] Lower-level evidence can pass while the outward promise remains broken.
@@ -25,6 +27,8 @@ declaring the change complete.
 - [ ] The failure consequence justifies step-glue maintenance.
 - [ ] The claim is not an adapter matrix, timing schedule, model capability,
       live check, future plan, known failure, or tombstone.
+- [ ] Delivery-count language names the observable boundary and does not imply
+      stronger crash/retry semantics than the oracle proves.
 - [ ] Feature prose uses operator/agent Mosaico language.
 - [ ] The scenario distinguishes one coherent behavior.
 - [ ] `Given` contains only relevant state.
@@ -79,6 +83,8 @@ declaring the change complete.
 - [ ] Scoring permits multiple valid trajectories.
 - [ ] Outcomes, transcripts, diffs, latency, and cost are retained.
 - [ ] The implementation agent is not the sole evaluator.
+- [ ] No result is promoted into deterministic CI solely because repeated
+      capability runs happened to pass.
 
 ## Process, relay, and harness
 

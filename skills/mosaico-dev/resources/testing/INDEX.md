@@ -9,7 +9,7 @@ Mosaico uses **Behavior-Contract-Driven Development**:
 
 1. State the current behavior, examples, counterexamples, and must-never
    consequences before production implementation.
-2. Give the claim an authoritative oracle that can falsify it.
+2. Admit an oracle that can falsify the claim before implementation begins.
 3. Normally separate oracle authorship from implementation.
 4. Run an adversarial pass against shortcuts and missing contrast cases.
 5. Keep the smallest evidence portfolio that proves the current product.
@@ -75,6 +75,12 @@ then asks:
 
 The oracle need not be hidden. Independence comes from authorship/review
 separation and explicit contract changes.
+
+Oracle authority begins after discovery and admission. It means the
+implementation must satisfy the admitted claim; it does not make the oracle
+immune to correction. New evidence may reopen the claim through explicit
+contract discussion. Until that discussion resolves, the implementation agent
+does not rewrite the oracle around its code.
 
 ## Product lifetime
 

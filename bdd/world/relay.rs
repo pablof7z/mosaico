@@ -25,19 +25,38 @@ impl std::fmt::Debug for RelayFixture {
 
 impl RelayFixture {
     pub fn start_nak(sandbox: &Path) -> Result<Self> {
-        let port = free_port()?;
-        let data_dir = sandbox.join(format!("nak-{port}"));
-        std::fs::create_dir_all(&data_dir)?;
-        let child = Command::new(nak_bin())
-            .arg("serve")
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--quiet")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("spawn external nak relay")?;
-        wait_ready(child, port, data_dir)
+        const MAX_BIND_ATTEMPTS: usize = 4;
+
+        for attempt in 1..=MAX_BIND_ATTEMPTS {
+            let port = free_port()?;
+            let data_dir = sandbox.join(format!("nak-{port}-{attempt}"));
+            std::fs::create_dir_all(&data_dir)?;
+            let stdout = File::create(data_dir.join("stdout.log"))?;
+            let stderr = File::create(data_dir.join("stderr.log"))?;
+            let child = Command::new(nak_bin())
+                .arg("serve")
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--quiet")
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr))
+                .spawn()
+                .context("spawn external nak relay")?;
+            match wait_ready(child, port, data_dir) {
+                Ok(relay) => return Ok(relay),
+                Err(error)
+                    if attempt < MAX_BIND_ATTEMPTS
+                        && error
+                            .to_string()
+                            .to_ascii_lowercase()
+                            .contains("address already in use") =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!("the final nak startup attempt returns a relay or an error")
     }
 
     pub fn start_croissant(sandbox: &Path) -> Result<Self> {
@@ -88,15 +107,35 @@ fn wait_ready(mut child: Child, port: u16, data_dir: PathBuf) -> Result<RelayFix
             });
         }
         if let Some(status) = child.try_wait()? {
-            anyhow::bail!("relay exited before readiness with {status}");
+            anyhow::bail!(
+                "relay exited before readiness with {status}\n{}",
+                relay_logs(&data_dir)
+            );
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
-            let _ = child.wait();
-            anyhow::bail!("relay did not listen on port {port} before deadline");
+            let status = child
+                .wait()
+                .map(|status| status.to_string())
+                .unwrap_or_else(|error| format!("wait failed: {error}"));
+            anyhow::bail!(
+                "relay did not listen on port {port} before deadline; status={status}\n{}",
+                relay_logs(&data_dir)
+            );
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+fn relay_logs(data_dir: &Path) -> String {
+    ["stdout.log", "stderr.log"]
+        .into_iter()
+        .map(|name| {
+            let body = std::fs::read_to_string(data_dir.join(name)).unwrap_or_default();
+            format!("{name}:\n{body}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn free_port() -> Result<u16> {

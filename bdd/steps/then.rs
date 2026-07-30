@@ -71,11 +71,13 @@ async fn management_identity_absent(world: &mut MosaicoWorld) {
     );
 }
 
-#[then(regex = r#"^the native harness receives "([^"]+)" exactly once$"#)]
-async fn harness_receives_once(world: &mut MosaicoWorld, body: String) {
+#[then(
+    regex = r#"^the native harness observes one user-visible delivery of "([^"]+)" during the controlled execution$"#
+)]
+async fn harness_observes_one_delivery(world: &mut MosaicoWorld, body: String) {
     assert!(
-        world.wait_until_harness_receives_once(&body),
-        "native harness input did not contain exactly one {body:?}"
+        world.wait_until_harness_observes_one_delivery(&body),
+        "native harness did not retain one {body:?} delivery through the observation window"
     );
 }
 
@@ -101,20 +103,5 @@ async fn explicit_session_authored_message(world: &mut MosaicoWorld, body: Strin
     assert!(
         world.relay_message_was_authored_by_explicit_session(&body),
         "relay never exposed {body:?} under the explicitly selected signer"
-    );
-}
-
-#[then(regex = r#"^the search output groups "([^"]+)" under channel "([^"]+)"$"#)]
-async fn search_groups_message(world: &mut MosaicoWorld, body: String, channel: String) {
-    let output = &world.last_run().stdout;
-    let opening = format!(r#"<channel ref="{channel}">"#);
-    let group = output
-        .split_once(&opening)
-        .and_then(|(_, rest)| rest.split_once("</channel>"))
-        .map(|(group, _)| group)
-        .unwrap_or_else(|| panic!("search output has no {channel:?} group:\n{output}"));
-    assert!(
-        group.contains(&body),
-        "channel {channel:?} does not contain {body:?}:\n{output}"
     );
 }
