@@ -65,20 +65,3 @@ fn ctrl_o_expands_history_progressively_and_ctrl_u_narrows_it() {
     state.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL), 10);
     assert_eq!(state.range, HistoryRange::Days30);
 }
-
-#[test]
-fn removed_symbol_shortcuts_and_tab_do_not_change_history_range() {
-    let mut state = PickerState::new(vec![choice("live", true, 0)], None);
-
-    state.handle_key(
-        KeyEvent::new(
-            KeyCode::Char('+'),
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        ),
-        10,
-    );
-    state.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::CONTROL), 10);
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), 10);
-
-    assert_eq!(state.range, HistoryRange::Live);
-}

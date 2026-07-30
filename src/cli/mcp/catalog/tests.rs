@@ -8,7 +8,7 @@ fn tool<'a>(tools: &'a [Value], name: &str) -> &'a Value {
 }
 
 #[test]
-fn catalog_contains_agent_coordination_tools_without_legacy_names() {
+fn catalog_contains_agent_coordination_tools() {
     let tools = list();
     for name in [
         "mosaico.skill",
@@ -19,9 +19,6 @@ fn catalog_contains_agent_coordination_tools_without_legacy_names() {
         "mosaico.my_session",
     ] {
         tool(&tools, name);
-    }
-    for name in ["mosaico.who", "mosaico.channels_join", "mosaico.chat_write"] {
-        assert!(tools.iter().all(|candidate| candidate["name"] != name));
     }
 }
 
@@ -55,7 +52,7 @@ fn channel_list_schema_uses_the_shared_path_projection_modes() {
 }
 
 #[test]
-fn channel_search_schema_is_read_only_and_has_no_workspace_filter() {
+fn channel_search_schema_is_read_only_and_uses_channel_arrays() {
     let tools = list();
     let search = tool(&tools, "mosaico.channel_search");
     let properties = &search["inputSchema"]["properties"];
@@ -64,8 +61,6 @@ fn channel_search_schema_is_read_only_and_has_no_workspace_filter() {
     ] {
         assert!(properties.get(property).is_some(), "missing {property}");
     }
-    assert!(properties.get("workspace").is_none());
-    assert!(properties.get("channel").is_none());
     assert_eq!(properties["channels"]["type"], "array");
     assert_eq!(search["annotations"]["readOnlyHint"], true);
     assert_eq!(search["annotations"]["destructiveHint"], false);

@@ -48,17 +48,6 @@ mod tests {
             _ => panic!("expected who command"),
         }
     }
-
-    #[test]
-    fn removed_who_all_roots_alias_stays_unavailable() {
-        let err = match crate::cli::args::Cli::try_parse_from(["mosaico", "who", "--all-roots"]) {
-            Ok(_) => panic!("legacy who alias must stay removed"),
-            Err(err) => err,
-        };
-
-        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
-    }
-
     #[test]
     fn who_expired_parses() {
         let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "who", "--expired"])

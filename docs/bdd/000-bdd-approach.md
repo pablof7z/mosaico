@@ -1,123 +1,93 @@
-# Executable BDD approach
+# BDD and the Cucumber behavior-contract suite
 
-Mosaico's acceptance contract is the Gherkin tree under `features/`. The
-custom Cargo target in `bdd/` parses that tree and drives the exact Mosaico
-binary Cargo just built.
+Mosaico uses BDD as a discovery and specification discipline. Concrete
+examples, counterexamples, public observables, and must-never consequences are
+chosen before implementation.
 
-This layer owns stable product behavior. Unit and integration tests continue
-to own parsers, codecs, migrations, state machines, storage mechanics, and
-narrow races.
+Cucumber is not the foundation or complete product catalog. The custom target
+under `bdd/` executes only a small set of critical, deterministic,
+cross-boundary fabric contracts from `features/`. Most executable behavior
+belongs in ordinary Rust tests.
 
-## Run the suite
+The canonical agent guidance starts at
+[`skills/mosaico-dev/resources/testing/INDEX.md`](../../skills/mosaico-dev/resources/testing/INDEX.md).
 
-The deterministic suite requires `nak` on `PATH` and an external Croissant
-executable:
+## Admission
+
+A `.feature` scenario must be:
+
+- a stable operator/agent-visible promise;
+- deterministic with controlled local fixtures;
+- vulnerable to passing lower-level tests while the product remains broken;
+- load-bearing enough to justify step-glue maintenance;
+- clearer as a concrete product-language example;
+- observable through a public or independent oracle.
+
+Adapter matrices, parser cases, future plans, known failures, timing
+permutations, emergent model behavior, live-provider checks, and removed
+feature tombstones are not admitted.
+
+Every committed scenario executes. The suite has no `@designed`, `@wip`,
+`@live`, historical migration, or issue tag semantics. GitHub owns plans,
+seeded fault tests own schedules, evaluation datasets own model-dependent
+capabilities, and `mosaico-dev` live labs own real-provider compatibility.
+
+## Run
+
+The suite requires `nak` on `PATH` and an external Croissant executable:
 
 ```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd
-```
-
-The opt-in provider tier is:
-
-```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd-live
+NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
 CI checks out Croissant commit
 `9c4c93e84852bd9aa6824060b74c56ab2ce812c2`, builds it with Go 1.25.12, pins
-`nak` 0.20.0, and runs the same `just test-bdd` recipe.
+`nak` 0.20.0, and runs the same recipe.
 
-## Architecture
+## Runner
 
-`Cargo.toml` declares a root-package integration target with
-`harness = false`. Keeping the target in the package that owns the binary gives
-the runner `CARGO_BIN_EXE_mosaico`; scenarios never search `PATH`, invoke nested
-Cargo, or fall back to an installed Mosaico.
+`Cargo.toml` declares `bdd/main.rs` as a custom integration target with
+`harness = false`. The target receives `CARGO_BIN_EXE_mosaico`; scenarios never
+search `PATH`, invoke nested Cargo, or fall back to an installed Mosaico.
 
 Each scenario receives a fresh `MosaicoWorld` containing:
 
-- one temporary root;
 - isolated backend homes, configs, workspaces, sockets, and identities;
-- a scenario-owned `nak` or Croissant relay;
-- deterministic PTY/harness shims;
+- scenario-owned `nak` or external Croissant;
+- deterministic native harness shims;
 - exact child-process handles and bounded cleanup;
-- the most recent public command result and external witness state.
+- public command results and independent relay/harness witnesses.
 
-Scenarios are serialized. Every asynchronous assertion polls observable
-evidence until a deadline. Fixed sleeps are not scenario semantics.
-
-Successful worlds are removed. A failed world's logs, captures, configs, and
-relay data are copied to `target/bdd-artifacts/<scenario>/` before teardown.
+Scenarios are serialized. Eventual assertions poll observable evidence to a
+deadline. Failed worlds are copied to
+`target/bdd-artifacts/<scenario>/` before teardown.
 
 ## Observables
 
-Acceptance steps may use:
+The suite may inspect:
 
 - CLI and hook exit status, stdout, and stderr;
 - relay events queried independently with `nak`;
 - daemon sockets and exact child-process liveness;
-- native harness argv, identity, and delivered-input captures;
-- stable diagnostic JSON.
+- native harness delivery captures;
+- stable public identities.
 
-BDD steps do not inspect SQLite tables. A behavior without a supported public
-witness belongs in a lower-level test until the product exposes one.
+It does not inspect SQLite. Exact adapter argv and protocol matrices belong in
+typed Rust conformance/process tests.
 
-## Tags
+## Current scope
 
-- Untagged scenarios are built, deterministic behavior and run by default.
-- `@must-never` marks a deterministic safety invariant and still runs by
-  default.
-- `@croissant` documents that the scenario requires the real local NIP-29
-  fixture; it does not skip CI.
-- `@live` requires real provider authentication or public infrastructure and
-  runs only in the live tier.
-- `@designed @issue-N` is agreed acceptance for behavior that is not built.
-- `@wip @issue-N` is built behavior with a known failing contract.
+The admitted suite covers:
 
-The runner always excludes `@designed` and `@wip`, and rejects either tag
-without an issue tag. A skipped scenario must never look like passing evidence.
+- relay-backed peer awareness without backend-authority leakage;
+- backend-addressed management replies;
+- addressed PTY delivery exactly once;
+- explicit sender-session authority;
+- local cached message search through the public CLI;
+- relay-only cross-backend workspace discovery;
+- hook fail-open without backend startup;
+- stopped-session recovery under the same public identity;
+- offline stable-agent activation under its configured identity.
 
-Numbered `@bdd-N` tags preserve traceability for contracts migrated from the
-former prose matrix. The tag is historical metadata; the feature sentence is
-the canonical description.
-
-## Authoring discipline
-
-Feature prose names people, operators, agents, sessions, workspaces, channels,
-messages, visible outcomes, and failures. Rust modules, tables, and internal
-RPC names stay out of scenarios unless that protocol surface is itself the
-contract.
-
-A new built scenario must:
-
-1. use the exact binary through the existing world;
-2. create all state in its own scenario root;
-3. assert at least one public or independent witness;
-4. bound every wait;
-5. leave no child process or socket behind;
-6. run without credentials unless tagged `@live`.
-
-Do not add a second shell or prose acceptance catalog. Extend the feature tree,
-closed step vocabulary, and world fixtures instead.
-
-## Coverage shape
-
-The feature tree covers setup, agent discovery, workspace scope, channels,
-sessions, awareness, messaging, coordination, native harnesses, daemon
-ownership, diagnostics, multi-backend behavior, and safety boundaries.
-
-Built deterministic scenarios include the migrated relay and launch contracts:
-
-- relay-only workspace discovery across isolated backends;
-- exact native profile argv;
-- addressed PTY delivery;
-- stopped-session recovery without a sibling identity;
-- stable-agent activation under its configured key;
-- explicit sender-session precedence;
-- backend-addressed management routing;
-- portable PTY launch without the retired terminal host;
-- relay-only profile warming;
-- backend management-key roster exclusion.
-
-Issue-linked designed scenarios make remaining product gaps visible without
-claiming they pass.
+When a scenario stops earning admission, move any still-current claim to its
+proper Rust, fault, evaluation, or live layer and delete its exclusive glue.

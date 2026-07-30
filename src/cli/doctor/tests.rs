@@ -1,5 +1,5 @@
 use super::*;
-use clap::{error::ErrorKind, Parser};
+use clap::Parser;
 
 #[test]
 fn top_level_doctor_flags_parse() {
@@ -24,14 +24,6 @@ fn fix_and_json_parse_as_one_agent_repair_invocation() {
         }
         _ => panic!("expected doctor command"),
     }
-}
-
-#[test]
-fn removed_debug_doctor_spelling_is_rejected() {
-    let error = crate::cli::args::Cli::try_parse_from(["mosaico", "debug", "doctor"])
-        .err()
-        .expect("old command must be gone");
-    assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
 }
 
 #[test]

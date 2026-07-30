@@ -150,5 +150,5 @@ assert_bad_args_rejected() {
   [[ "${status}" -eq 2 ]] || fail 'non-array bundle args unexpectedly passed'
   grep -Fq 'expected an array of strings' <<<"${output}" \
     || fail 'invalid args JSON did not report the current contract'
-  echo 'ok: profile writer rejects obsolete object-shaped bundle config'
+  echo 'ok: profile writer requires bundle args to be an array of strings'
 }

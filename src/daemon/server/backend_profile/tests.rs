@@ -51,6 +51,7 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
             .unwrap();
     });
     state.refresh_agent_catalog().unwrap();
+    *state.catalog.harnesses.lock().unwrap() = vec![crate::session::Harness::Codex];
 
     let snapshot = backend_profile_snapshot(&state).unwrap();
 

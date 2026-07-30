@@ -216,19 +216,6 @@ fn my_session_without_action_parses_as_briefing() {
 }
 
 #[test]
-fn removed_my_status_stays_unavailable() {
-    let err = parse_err(&[
-        "mosaico",
-        "my",
-        "status",
-        "--topic",
-        "Researching MCP improvements",
-    ]);
-
-    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
-}
-
-#[test]
 fn mcp_command_parses() {
     let cli = Cli::try_parse_from(["mosaico", "mcp"]).unwrap();
     assert!(matches!(cli.cmd, Some(Cmd::Mcp(_))));
@@ -241,19 +228,7 @@ fn mcp_http_command_parses() {
 }
 
 #[test]
-fn removed_relay_command_routes_to_direct_fallback() {
-    let cli = Cli::try_parse_from(["mosaico", "relay"]).unwrap();
-    assert!(matches!(cli.cmd, Some(Cmd::Fallback(_))));
-}
-
-#[test]
 fn bare_invocation_has_no_subcommand() {
     let cli = Cli::try_parse_from(["mosaico"]).unwrap();
     assert!(cli.cmd.is_none());
-}
-
-#[test]
-fn removed_install_command_is_not_a_setup_alias() {
-    let cli = Cli::try_parse_from(["mosaico", "install", "--status"]).unwrap();
-    assert!(matches!(cli.cmd, Some(Cmd::Fallback(_))));
 }

@@ -40,9 +40,4 @@ mod tests {
         let args = agents(&["mosaico", "agents", "list"]);
         assert!(matches!(args.action, Some(AgentAction::List)));
     }
-
-    #[test]
-    fn removed_agents_target_is_rejected() {
-        assert!(crate::cli::args::Cli::try_parse_from(["mosaico", "agents", "codex"]).is_err());
-    }
 }

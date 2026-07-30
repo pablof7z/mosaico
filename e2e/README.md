@@ -1,13 +1,16 @@
-# Acceptance harness moved
+# Deterministic behavior contracts
 
-The former shell E2E rig and prose BDD matrix have been replaced by the
-executable Gherkin suite under `features/`.
+The former shell E2E rig was replaced by ordinary Rust integration tests plus a
+small Cucumber suite for admitted cross-boundary product contracts.
 
-Run it with:
+Run the Cucumber contracts with:
 
 ```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd
+NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
 See [`docs/bdd/000-bdd-approach.md`](../docs/bdd/000-bdd-approach.md) for the
-runner architecture, tags, fixture contract, and authoring rules.
+admission rule and runner mechanics. See
+[`skills/mosaico-dev/resources/testing/INDEX.md`](../skills/mosaico-dev/resources/testing/INDEX.md)
+for the complete evidence architecture, including ordinary tests, adapter
+conformance, seeded fault schedules, agent evaluations, and live probes.

@@ -128,20 +128,8 @@ fn config_accepts_only_harness_transport_and_args() {
     assert_eq!(cfg.get("yolo-claude").unwrap().harness, Harness::ClaudeCode);
     assert_eq!(cfg.get("yolo-claude").unwrap().transport, Transport::Pty);
 
-    for removed in [
-        r#"{"x":{"harness":"claude-code","transport":"pty","profile":"reviewer"}}"#,
-        r#"{"x":{"harness":"codex","transport":"app-server","codex_config_profile":"planner"}}"#,
-        r#"{"x":{"harness":"claude-code","transport":"pty","commands":["claude"]}}"#,
-    ] {
-        assert!(serde_json::from_str::<HarnessesConfig>(removed).is_err());
-    }
-}
-
-#[test]
-fn removed_claude_alias_is_rejected() {
-    assert_eq!(Harness::from_str("claude"), Harness::Unknown);
     assert!(serde_json::from_str::<HarnessesConfig>(
-        r#"{"legacy":{"harness":"claude","transport":"pty"}}"#
+        r#"{"x":{"harness":"codex","transport":"app-server","unexpected":true}}"#
     )
     .is_err());
 }

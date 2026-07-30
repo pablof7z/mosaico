@@ -68,10 +68,6 @@ ACP_OUTPUT="$(
 ACP_TAIL="$(printf '%s\n' "${ACP_OUTPUT}" | launch_tail | sed -n '1,2p')"
 assert_eq $'<claude>\n<prompt with spaces>' "${ACP_TAIL}" \
   'ACP launch uses the direct fallback prompt contract'
-if printf '%s\n' "${ACP_OUTPUT}" | grep -Eq '^<--(prompt|headless)>$'; then
-  fail 'ACP launch emits a removed launch flag'
-fi
-echo 'ok: ACP launch emits no removed flags'
 
 PTY_STATE="${TMP}/claude-state"
 PTY_ENV="${TMP}/claude.env"
