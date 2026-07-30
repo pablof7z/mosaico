@@ -40,7 +40,7 @@ Compare at least:
 - agents working without Mosaico;
 - Mosaico awareness only;
 - awareness plus messaging/coordination;
-- relevant model/harness combinations.
+- more than one relevant model/harness combination where practical.
 
 Use the same tasks, budgets, environment, and scoring policy across conditions.
 Without a baseline, a successful run cannot show that Mosaico caused the
@@ -101,3 +101,7 @@ An emergent finding becomes a deterministic test only when it reveals a stable
 software invariant. For example, “the peer never received the event” may
 produce a relay/delivery regression; “the peer received it but chose not to
 respond” remains capability evidence.
+
+Never promote a capability result into deterministic CI because one run—or a
+small set of runs—succeeded. Promotion requires a stable software invariant
+with a deterministic oracle independent of model choice.

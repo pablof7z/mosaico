@@ -50,6 +50,19 @@ Allowed observables include CLI/hook results, relay events queried
 independently, exact process state, harness delivery captures, and public
 identity. SQLite is not a Cucumber observable.
 
+## Delivery-count language
+
+State delivery claims at the boundary the scenario can actually observe. The
+current addressed-delivery scenario means the deterministic harness capture
+contains one user-visible delivery throughout a bounded controlled execution.
+It does not claim global exactly-once processing across crashes, retries, or
+all future time.
+
+Relay-event deduplication, crash recovery, at-least-once transport, and
+idempotent presentation are different contracts. Test each at its owning
+mechanism, schedule, or product boundary rather than compressing them into the
+phrase “exactly once.”
+
 ## No catalog tags
 
 Committed feature files contain only executable deterministic contracts.
@@ -74,6 +87,11 @@ The design agent:
 The implementation agent may add lower-level evidence but cannot silently
 change the outcome. An adversarial pass tries false-pass implementations,
 contrast cases, and boundary failures before completion.
+
+The oracle is authoritative for implementation only after discovery and
+admission. Evidence that it is wrong, incomplete, or overconstrained reopens
+the contract through explicit discussion; authority does not mean permanent
+freeze.
 
 ## Running
 

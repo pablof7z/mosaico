@@ -87,6 +87,11 @@ Mosaico's default is:
 Independent tests can still be wrong. Clear issue contracts and oracle review
 prevent independence from becoming hidden arbitrariness.
 
+An admitted oracle is authoritative for implementation, not beyond
+reconsideration. Discovery or new evidence may reopen it through explicit
+contract discussion. The implementation agent must not silently revise it
+first and call the resulting green run success.
+
 ## Green and coverage
 
 Never optimize for a green dashboard, scenario count, or coverage percentage.

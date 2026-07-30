@@ -121,13 +121,23 @@ impl MosaicoWorld {
         self.publish_addressed_message(body);
     }
 
-    pub fn wait_until_harness_receives_once(&self, body: &str) -> bool {
+    pub fn wait_until_harness_observes_one_delivery(&self, body: &str) -> bool {
         let deadline = std::time::Instant::now() + Duration::from_secs(25);
+        let observation_window = Duration::from_secs(1);
+        let mut one_delivery_since = None;
         while std::time::Instant::now() < deadline {
-            if self.current_backend().harness_input().matches(body).count() == 1 {
-                return true;
+            match self.current_backend().harness_input().matches(body).count() {
+                0 => one_delivery_since = None,
+                1 => {
+                    let observed_at =
+                        one_delivery_since.get_or_insert_with(std::time::Instant::now);
+                    if observed_at.elapsed() >= observation_window {
+                        return true;
+                    }
+                }
+                _ => return false,
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(100));
         }
         false
     }

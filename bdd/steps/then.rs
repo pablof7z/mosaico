@@ -71,11 +71,13 @@ async fn management_identity_absent(world: &mut MosaicoWorld) {
     );
 }
 
-#[then(regex = r#"^the native harness receives "([^"]+)" exactly once$"#)]
-async fn harness_receives_once(world: &mut MosaicoWorld, body: String) {
+#[then(
+    regex = r#"^the native harness observes one user-visible delivery of "([^"]+)" during the controlled execution$"#
+)]
+async fn harness_observes_one_delivery(world: &mut MosaicoWorld, body: String) {
     assert!(
-        world.wait_until_harness_receives_once(&body),
-        "native harness input did not contain exactly one {body:?}"
+        world.wait_until_harness_observes_one_delivery(&body),
+        "native harness did not retain one {body:?} delivery through the observation window"
     );
 }
 

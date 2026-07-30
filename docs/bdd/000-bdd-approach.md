@@ -75,13 +75,18 @@ The suite may inspect:
 It does not inspect SQLite. Exact adapter argv and protocol matrices belong in
 typed Rust conformance/process tests.
 
+Delivery counts are scoped to those observables. “One harness-visible delivery
+during the controlled execution” means the deterministic capture remains at
+one through a bounded observation window. It is not a claim of global
+exactly-once processing across crashes, retries, or all future time.
+
 ## Current scope
 
 The admitted suite covers:
 
 - relay-backed peer awareness without backend-authority leakage;
 - backend-addressed management replies;
-- addressed PTY delivery exactly once;
+- one harness-visible addressed PTY delivery during controlled execution;
 - explicit sender-session authority;
 - local cached message search through the public CLI;
 - relay-only cross-backend workspace discovery;
@@ -91,3 +96,5 @@ The admitted suite covers:
 
 When a scenario stops earning admission, move any still-current claim to its
 proper Rust, fault, evaluation, or live layer and delete its exclusive glue.
+Every scenario must earn that admission independently; appearing in this scope
+list does not admit it automatically.
