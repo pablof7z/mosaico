@@ -25,6 +25,8 @@ mod orchestration;
 mod pty_bootstrap;
 #[path = "channels/publication_membership.rs"]
 mod publication_membership;
+#[path = "channels/restart_routes.rs"]
+mod restart_routes;
 #[path = "channels/session_add.rs"]
 mod session_add;
 #[path = "channels/session_kill.rs"]

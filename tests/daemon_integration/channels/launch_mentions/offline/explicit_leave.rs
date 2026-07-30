@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[test]
 fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
@@ -104,7 +105,105 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
     let endpoint =
         pty_session_for_session(&Store::open(&home.store_path()).unwrap(), &original.pubkey)
             .expect("resumed endpoint");
-    kill_pty(&endpoint);
+    let cleanup = PtyProcessGuard::capture(&endpoint);
+    let public_handle = Store::open(&home.store_path())
+        .unwrap()
+        .session_identity(&original.pubkey)
+        .unwrap()
+        .expect("public session identity")
+        .display_slug();
+
+    let log_boundary = daemon_log_boundary(&home);
+    stop_daemon(&home);
+    cleanup.assert_exact_processes_live();
+    rt().block_on(async {
+        DaemonClient::connect_or_spawn()
+            .await
+            .expect("restart exact Cargo-built daemon");
+    });
+    wait_for_reconciled_session_engine(&home, &original.pubkey, 2, log_boundary);
+    let after = wait_for_running_generation(&home, &original.pubkey, 2);
+    assert_eq!(after.pubkey, original.pubkey);
+    assert_eq!(after.agent_slug, agent);
+    assert_eq!(
+        Store::open(&home.store_path())
+            .unwrap()
+            .list_session_routes(&original.pubkey)
+            .unwrap(),
+        [],
+        "daemon restart invented a route for an explicitly routeless session"
+    );
+    cleanup.assert_exact_processes_live();
+    assert_memberships_still_absent(&home, &original.pubkey, &root, &child_h, &child_path);
+    wait_for_exact_relay_groups(
+        &shared_nip29_relay_url(),
+        &original.pubkey,
+        &BTreeSet::new(),
+        Duration::from_secs(25),
+    );
+
+    let (statusline, no_route_error) = rt().block_on(async {
+        let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
+        let statusline = client
+            .call(
+                "statusline",
+                serde_json::json!({ "session": &original.pubkey }),
+            )
+            .await
+            .expect("routeless public statusline");
+        let error = client
+            .call(
+                "channel_send",
+                serde_json::json!({
+                    "session": &original.pubkey,
+                    "message": "must not invent a route",
+                }),
+            )
+            .await
+            .expect_err("routeless send without channel must fail")
+            .to_string();
+        (statusline, error)
+    });
+    assert_eq!(
+        statusline["agent"].as_str(),
+        Some(public_handle.as_str()),
+        "daemon restart changed the public session identity"
+    );
+    assert_eq!(statusline["channels"], serde_json::json!([]));
+    assert!(
+        no_route_error.contains("has not joined any channels"),
+        "routeless command used an invented route: {no_route_error}"
+    );
+    let matching_sessions = Store::open(&home.store_path())
+        .unwrap()
+        .list_sessions()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.agent_slug == agent)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matching_sessions.len(),
+        1,
+        "restart minted a sibling routeless session: {matching_sessions:?}"
+    );
+    assert_eq!(matching_sessions[0].pubkey, original.pubkey);
+
+    let post_restart_body = format!("still routeless {}", unique_session("post-restart"));
+    rt().block_on(publish_user_kind9(
+        &root,
+        &post_restart_body,
+        &original.pubkey,
+    ));
+    wait_for_injected_log(&log, &post_restart_body);
+    assert_memberships_still_absent(&home, &original.pubkey, &root, &child_h, &child_path);
+    wait_for_exact_relay_groups(
+        &shared_nip29_relay_url(),
+        &original.pubkey,
+        &BTreeSet::new(),
+        Duration::from_secs(25),
+    );
+
+    cleanup.finish();
     stop_daemon(&home);
 }
 
