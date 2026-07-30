@@ -92,8 +92,6 @@ jobs:
     name: BDD acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
     steps:
       - uses: actions/checkout@v4
 
@@ -123,7 +121,11 @@ jobs:
 
       - name: Build the pinned Croissant fixture
         working-directory: croissant-fixture
+        env:
+          NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
         run: go build -o "$NIP29_RELAY_BIN" .
 
       - name: Executable product contracts (just test-bdd)
+        env:
+          NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
         run: just test-bdd
