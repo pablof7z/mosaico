@@ -12,6 +12,8 @@ proof, not model quality.
 
 ## Resource map
 
+- `resources/testing/INDEX.md`: Mosaico testing philosophy, test selection,
+  executable-claim workflow, evidence tiers, commands, and review guidance.
 - `references/live-lab-workflow.md`: start-to-finish single- and multi-agent
   procedure.
 - `references/container-backends.md`: auth, state, identity, profile, and model
