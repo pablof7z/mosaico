@@ -39,7 +39,7 @@ Do not make a red test green by:
 - increasing a sleep without identifying the awaited fact;
 - swallowing an error or accepting empty output;
 - broadening an equality assertion;
-- tagging it `@wip` without a real open bug;
+- excluding it from the committed behavior-contract suite;
 - sharing warmed state from a previous scenario.
 
 A retry belongs inside product or fixture semantics only when the boundary
@@ -60,7 +60,8 @@ Check, in order:
 8. a real product race.
 
 Repeat a focused test to characterize a suspected race, not to certify it.
-Once understood, encode the invariant and remove timing luck.
+Once understood, encode the invariant, preserve a replayable seed/schedule,
+and remove timing luck.
 
 ## Useful failure output
 

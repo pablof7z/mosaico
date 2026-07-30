@@ -61,6 +61,9 @@ jobs:
       - name: Unit tests (just test-unit)
         run: just test-unit
 
+      - name: Hermetic integration tests (just test-hermetic-integration)
+        run: just test-hermetic-integration
+
   local-relay-integration:
     name: local relay integration
     runs-on: ubuntu-latest
@@ -88,8 +91,8 @@ jobs:
       - name: Local relay integration tests (just test-local-relay)
         run: just test-local-relay
 
-  bdd-acceptance:
-    name: BDD acceptance
+  behavior-contracts:
+    name: deterministic behavior contracts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -125,7 +128,7 @@ jobs:
           NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
         run: go build -o "$NIP29_RELAY_BIN" .
 
-      - name: Executable product contracts (just test-bdd)
+      - name: Executable product contracts (just test-behavior-contracts)
         env:
           NIP29_RELAY_BIN: ${{ runner.temp }}/croissant
-        run: just test-bdd
+        run: just test-behavior-contracts

@@ -1,130 +1,128 @@
-# Choosing a test
+# Choosing evidence
 
-Use this sequence before choosing a file or framework.
+Choose the evidence family before choosing a file or framework.
 
-## 1. Write the claim
+## 1. State the claim
 
 Use one sentence:
 
-> When an operator addresses an offline stable agent, Mosaico starts that agent
-> under its configured public identity and delivers the message once.
+> Work addressed to an offline stable agent survives daemon restart, remains
+> bound to the same public key, and is delivered no more than once.
 
-If the sentence names a Rust function rather than an operator, agent, protocol
-peer, or owned subsystem, it is probably not a product claim.
+Name a current Mosaico rule, product outcome, adapter semantic, failure
+invariant, or measurable capability.
 
-## 2. Name the consequence
+## 2. Classify the uncertainty
 
-Ask what breaks if the claim is false:
+### Local deterministic rule
 
-- visible product behavior;
-- identity, authority, secrecy, or durability;
-- a local rule;
-- a technical seam;
-- compatibility with an external system;
-- repository maintainability.
+Examples: selector precedence, event decoding, path resolution, reconciliation
+transition, authorization decision.
 
-High-cost identity, authority, message-loss, process-ownership, and secret
-failures normally deserve both an acceptance witness and narrow causal tests.
+Use a unit/property test. Include equivalence classes and counterexamples.
 
-## 3. Choose the observer
+### Adapter equivalence
 
-Use the first observer with enough authority:
+Examples: every PTY driver applies its native profile selector; every hosted
+transport preserves identity and lifecycle outcomes.
 
-1. Pure return value or state transition: unit test.
-2. Owned store, codec, RPC, or adapter boundary: integration/contract test.
-3. Exact binary, daemon, socket, child process, or local relay: process test.
-4. Supported CLI/relay/harness outcome stated in product language: BDD.
-5. Real provider or public relay behavior: opt-in probe/live lab.
+Use one typed conformance suite against every implementation. Add a process
+capture only when the executable boundary itself is the contract.
 
-Do not move outward merely because a broader test feels more realistic.
+### Critical deterministic product promise
 
-## 4. Check determinism
+Examples: relay-only cross-backend discovery, no sibling identity on resume,
+hook fail-open authority, exactly bounded addressed delivery.
 
-Routine evidence must control:
+Use the actual binary and public/independent witnesses. Prefer Rust black-box
+tests. Admit Cucumber only when product-language examples add durable clarity.
 
-- homes, config, identities, ports, and working directories;
-- binary and external fixture versions;
-- child-process ownership and cleanup;
-- clock and eventual-consistency deadlines;
-- provider responses or harness behavior.
+### Asynchronous schedule risk
 
-If real credentials, public infrastructure, rate limits, or model output are
-required, the check belongs in the live tier. If the unknown can be learned
-once and represented by a pinned local fixture, do that for regression.
+Examples: daemon death between durable writes, duplicate relay events, delayed
+ACK, stale presence, simultaneous sessions.
 
-## 5. Decide whether BDD is warranted
+Use a seeded fault/schedule harness with replay artifacts. One hand-authored
+happy-path scenario is insufficient.
 
-Add or change a feature scenario when the claim:
+### Emergent agent capability
 
-- is stable enough to be a product promise;
-- is meaningful to an operator or participating agent;
-- crosses a boundary where local tests can pass while Mosaico is broken;
-- protects a must-never safety or authority rule;
-- resolves an ambiguity that future implementers might interpret differently.
+Examples: noticing overlap, useful peer contact, avoiding duplicate work,
+collective task quality.
 
-Do not use BDD for:
+Use repeated comparative evaluations. Score outcomes and flexible trajectory
+properties rather than demanding one exact path.
 
-- every parser branch;
-- schema columns or migration statements;
-- internal RPC choreography;
-- race mechanics with no readable product-level outcome;
-- current repository architecture or file-layout constraints;
-- a full permutation matrix already covered by a local rule test.
+### External compatibility
 
-## Change-specific defaults
+Examples: current provider auth, public-relay policy, deployed protocol
+behavior.
 
-New product behavior:
+Use an explicit opt-in probe or live lab. Convert stable findings into
+deterministic local evidence where possible.
 
-- author examples and a failing executable product claim first;
-- add narrow unit/contract tests for the rules needed to implement it.
+## 3. Choose the oracle
+
+Use the narrowest observer with enough authority:
+
+1. pure result or state transition;
+2. typed adapter output;
+3. owned store, frame, socket, or process capture;
+4. supported CLI/RPC result or independent relay witness;
+5. repeated scored agent outcome;
+6. real provider or public infrastructure.
+
+Do not move outward merely because a broader test looks more realistic.
+
+## 4. Decide whether Cucumber earns admission
+
+A scenario belongs in `features/` only when every answer is yes:
+
+- Is this a stable operator/agent-visible promise?
+- Is it deterministic with local controlled fixtures?
+- Can lower-level tests pass while this promise remains broken?
+- Is the failure consequence load-bearing?
+- Do concrete product-language examples remove real ambiguity?
+- Can one or a few examples express the rule without a permutation matrix?
+- Is the public or independent oracle clear?
+- Is the glue-code maintenance cost justified?
+
+Otherwise use Rust, fault testing, evaluations, or a live probe.
+
+Never use Cucumber for:
+
+- exact adapter matrices or internal protocol choreography;
+- parser branches and broad input spaces;
+- speculative future behavior or issue backlogs;
+- known failing scenarios skipped on `master`;
+- model quality or one prescribed coordination trajectory;
+- timing permutations;
+- removed-feature tombstones.
+
+## Change defaults
+
+New behavior:
+
+- specify examples and counterexamples first;
+- author the narrowest failing oracle;
+- add a black-box contract only when local evidence lacks authority.
 
 Bug:
 
 - reproduce the cause at the narrowest honest boundary;
-- add BDD only if the defect violated a missing or inadequate product contract.
+- add a broader contract only when a product promise was absent.
 
 Refactor:
 
-- preserve existing product contracts;
-- add lower-level characterization only where the refactor crosses an unclear
-  seam;
-- do not invent new BDD when public behavior is unchanged.
+- preserve existing behavior evidence;
+- add characterization only for unclear seams.
 
 Feature removal:
 
-- delete every scenario, test, fixture, and helper owned only by the removed
-  behavior;
-- do not add a negative test proving the deleted surface remains absent;
-- keep a nearby test only when it states an independent current Mosaico rule.
+- delete all evidence owned only by the removed behavior;
+- do not create an absence test.
 
-Protocol or config change:
+Emergent claim:
 
-- add contract tests for exact accepted and rejected shapes;
-- add BDD when operators or agents observe different behavior.
-
-Concurrency or process lifecycle:
-
-- use integration/process stress and exact process evidence;
-- add BDD for the stable visible promise, not for thread scheduling.
-
-External uncertainty:
-
-- write a bounded probe with explicit side effects;
-- convert the learned invariant into deterministic evidence where possible.
-
-## Duplication test
-
-Before adding another layer, ask:
-
-- Can the existing test pass while this behavior is broken?
-- Will the new witness locate a different class of failure?
-- Does the new claim communicate a stable product rule?
-
-If all answers are no, strengthen or relocate the existing test.
-
-## Exception record
-
-When the default cannot work, write a short note in the test or durable owning
-guide explaining the Mosaico constraint, lost confidence, and compensating
-evidence. Do not create a GitHub planning duplicate; actionable follow-up
-belongs in one issue.
+- define a dataset, baseline, repetitions, metrics, and artifact policy before
+  claiming improvement.

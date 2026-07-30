@@ -6,41 +6,6 @@ use cucumber::then;
 
 use crate::world::MosaicoWorld;
 
-#[then("the command succeeds")]
-async fn command_succeeds(world: &mut MosaicoWorld) {
-    let run = world.last_run();
-    assert!(
-        run.success(),
-        "expected success, got status {:?}\nstdout:\n{}\nstderr:\n{}",
-        run.status,
-        run.stdout,
-        run.stderr
-    );
-}
-
-#[then("the command fails")]
-async fn command_fails(world: &mut MosaicoWorld) {
-    assert!(
-        !world.last_run().success(),
-        "expected command failure, but it succeeded"
-    );
-}
-
-#[then(regex = r#"^the output contains "([^"]+)"$"#)]
-async fn output_contains(world: &mut MosaicoWorld, expected: String) {
-    let output = world.last_run().combined();
-    assert!(
-        output.contains(&expected),
-        "expected output to contain {expected:?}\nactual:\n{output}"
-    );
-}
-
-#[then("the output is valid JSON")]
-async fn output_is_json(world: &mut MosaicoWorld) {
-    serde_json::from_str::<serde_json::Value>(&world.last_run().stdout)
-        .expect("stdout is valid JSON");
-}
-
 #[then("the hook returns successfully within its fail-open deadline")]
 async fn hook_returns_fail_open(world: &mut MosaicoWorld) {
     let run = world.last_run();
@@ -59,31 +24,6 @@ async fn no_daemon_spawned(world: &mut MosaicoWorld) {
         !world.daemon_socket_exists(),
         "a hook spawned a daemon in {}",
         world.current_home().display()
-    );
-}
-
-#[then("one daemon owns the backend socket")]
-async fn one_daemon_owns_socket(world: &mut MosaicoWorld) {
-    assert!(
-        world.daemon_socket_exists(),
-        "the successful command left no daemon socket in {}",
-        world.current_home().display()
-    );
-}
-
-#[then(regex = r#"^diagnostic "([^"]+)" is "([^"]+)"$"#)]
-async fn diagnostic_state(world: &mut MosaicoWorld, name: String, status: String) {
-    let report: serde_json::Value =
-        serde_json::from_str(&world.last_run().stdout).expect("doctor stdout is JSON");
-    let checks = report["checks"].as_array().expect("doctor checks array");
-    let check = checks
-        .iter()
-        .find(|check| check["name"] == name)
-        .unwrap_or_else(|| panic!("doctor report has no {name:?} check"));
-    assert_eq!(
-        check["status"].as_str(),
-        Some(status.as_str()),
-        "unexpected status for diagnostic {name:?}: {check}"
     );
 }
 
@@ -110,34 +50,6 @@ async fn no_shared_filesystem(world: &mut MosaicoWorld) {
     assert!(
         world.backends_are_filesystem_isolated(&["laptop", "server"]),
         "backend roots overlap"
-    );
-}
-
-#[then("the Claude process receives exactly the bundle arguments and profile selector")]
-async fn exact_claude_argv(world: &mut MosaicoWorld) {
-    assert_eq!(
-        world.harness_argv(),
-        ["--dangerously-skip-permissions", "--agent", "reviewer",],
-        "the admitted runtime must assemble one exact native argv"
-    );
-}
-
-#[then("no selector belonging to another harness is present")]
-async fn no_foreign_selector(world: &mut MosaicoWorld) {
-    let argv = world.harness_argv();
-    for foreign in ["--profile", "--resume", "--session", "--agent-file"] {
-        assert!(
-            !argv.iter().any(|argument| argument == foreign),
-            "foreign selector {foreign:?} leaked into Claude argv {argv:?}"
-        );
-    }
-}
-
-#[then("no legacy terminal multiplexer was invoked")]
-async fn no_legacy_terminal_host(world: &mut MosaicoWorld) {
-    assert!(
-        world.legacy_terminal_host_was_not_invoked(),
-        "the portable PTY launch attempted to invoke the forbidden legacy host"
     );
 }
 

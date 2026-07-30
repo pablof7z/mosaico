@@ -1,104 +1,104 @@
 # Testing philosophy
 
-Testing is the practice of making a claim falsifiable and collecting evidence
-from a witness that has authority to decide whether the claim is true.
+Testing makes a Mosaico claim falsifiable and collects evidence from an oracle
+with authority to decide whether the claim is true.
 
-For Mosaico, a useful test answers three questions:
+## Claims, oracles, and boundaries
 
-1. What behavior or rule is claimed?
-2. What failure would matter?
-3. Which observer can distinguish success from a convincing imitation?
+Every useful check answers:
 
-## Claims and witnesses
+1. What current behavior, rule, or capability is claimed?
+2. What failure matters?
+3. Which oracle can distinguish success from a convincing imitation?
+4. At what boundary can that oracle observe the claim?
+5. Is the claim deterministic, schedule-dependent, model-dependent, or live?
 
-“A second backend sees the workspace” is a claim. The second backend's public
-channel listing, backed by relay state and isolated filesystems, is a witness.
-Inspecting the first backend's SQLite row is not an authoritative witness for
-cross-backend discovery.
+“A second backend sees the workspace” is a claim. That backend's public
+listing, an independent relay query, and filesystem isolation are authoritative
+evidence. The publishing backend's SQLite row is not.
 
-“The Claude profile becomes `--agent reviewer`” is a claim. A deterministic
-Claude process shim that captures exact argv is a witness. Asserting that a
-helper returned an enum is useful lower-level evidence, but does not prove the
-spawned process received the argument.
+“Claude receives the configured native selector” is an adapter claim. A typed
+driver contract or deterministic process capture is authoritative. It does not
+need product prose or a real model.
 
-Choose the cheapest witness that still has authority. Narrow evidence is easier
-to run and diagnose. Broader evidence is justified when narrower observers can
-pass while the product remains broken.
+## BDD is a discipline
 
-## Green means demonstrated behavior
+BDD means discovering behavior through concrete examples, counterexamples, and
+shared language before implementation. It does not mean that every example
+becomes Gherkin.
 
-Never optimize for a green dashboard, a test count, or a coverage percentage.
-Those are measurements of the evidence machinery, not proof that the claims
-matter.
+Cucumber can preserve a few critical examples as executable product-readable
+contracts. Ordinary Rust can also be behavior-driven and black-box. Choose the
+representation that makes the oracle clearest and cheapest to maintain.
 
-A test that cannot fail for the defect it names creates false confidence. A
-skipped scenario is not green evidence. A test made green by weakening the
-assertion is a design regression.
+## Deterministic fabric versus emergent capability
 
-The normal workflow separates authorship:
+Fabric behavior is controlled enough for pass/fail contracts:
 
-- the design/architecture agent writes the executable claim and explains the
-  witness;
-- an implementation agent changes production code;
-- both may revise a claim only after showing that it was inaccurate,
-  unobservable, or coupled to an implementation choice.
+- identity continuity;
+- message durability and delivery bounds;
+- relay-only discovery;
+- authorization and secrecy;
+- daemon and hook ownership;
+- restart reconciliation.
 
-This separation protects the claim from being rewritten around the code that
-happened to be produced.
+Agent capability depends on model, prompt, context, peers, and available valid
+trajectories:
 
-## A portfolio, not a pyramid
+- noticing overlapping work;
+- routing a finding to the useful actor;
+- coordinating without duplicate implementation;
+- opening a useful subchannel;
+- improving collective task quality.
 
-Mosaico needs several evidence types because it crosses several authorities:
+Do not turn the second group into one deterministic path. Evaluate it over
+repeated runs, diverse tasks, multiple harness/model combinations, and a
+baseline.
 
-- unit tests localize rules and cover many edge cases cheaply;
-- integration and contract tests prove technical seams;
-- process tests prove daemon, socket, supervisor, and executable behavior;
-- BDD states stable product promises in shared language;
-- local relay tests prove Nostr or NIP-29 behavior deterministically;
-- probes ask live systems questions that local code cannot answer;
-- provider labs prove real authentication and transport compatibility;
-- quality gates enforce source and repository constraints.
+## The evidence portfolio
 
-No tier is prestigious. Each owns a different uncertainty.
+Mosaico needs complementary evidence:
 
-## Independence and complementary overlap
+- unit/property tests explore local rules and broad input spaces;
+- adapter conformance tests prove implementations preserve one typed semantic
+  contract;
+- integration/process tests prove owned seams and failure mechanics;
+- a small black-box suite proves critical deterministic product promises;
+- seeded fault tests explore asynchronous schedules reproducibly;
+- capability evaluations score emergent outcomes and trajectories;
+- live probes prove current external compatibility;
+- quality gates constrain source and repository structure.
 
-Keep two tests for the same area when they use different witnesses or answer
-different diagnostic questions. A unit test may prove profile-selector mapping
-while BDD proves exact process argv. The first localizes a mapping defect; the
-second proves the complete supported launch path.
+No family is prestigious. Production likeness is not automatically stronger:
+the best evidence is the least variable oracle with enough authority.
 
-Remove duplication when two tests repeat the same setup, action, and witness
-without adding failure localization, edge coverage, or product readability.
+## Independence
 
-## Tests follow product lifetime
+The same agent writing the requirement, oracle, implementation, and assessment
+in one uninterrupted context can narrow the claim around its own code.
 
-A test is part of the specification for behavior Mosaico currently owns. When
-that behavior is intentionally removed, delete its BDD scenarios, unit and
-integration tests, fixtures, step definitions, and dedicated helpers in the
-same change.
+Mosaico's default is:
 
-Do not turn the former positive test into a negative “the old feature does not
-exist” test. That preserves a dead concept in the current specification and
-creates maintenance work for behavior Mosaico no longer owns. Git history is
-the record that it once existed.
+- design agent: behavior contract and initial oracle;
+- implementation agent: production change and supporting local tests;
+- adversarial agent: contrast cases, failure schedules, and false-pass search;
+- design review: explicit approval for any oracle revision.
 
-Keep a nearby test only when it independently specifies current behavior. Its
-name and claim must describe that current rule without referring to the removed
-feature.
+Independent tests can still be wrong. Clear issue contracts and oracle review
+prevent independence from becoming hidden arbitrariness.
 
-## Strong defaults
+## Green and coverage
 
-- Test observable behavior rather than call order.
-- Use real Mosaico components until a boundary becomes slow, unsafe, variable,
-  or outside repository ownership.
-- Replace external variability with pinned fixtures or deterministic shims.
-- Keep every test independent of execution order.
-- Bound all waits by observable evidence.
-- Preserve detailed artifacts on failure without leaking secrets.
-- Make destructive or credentialed evidence explicitly opt-in.
-- Prefer risk and contract coverage over numeric coverage targets.
+Never optimize for a green dashboard, scenario count, or coverage percentage.
+Those measure evidence machinery, not the importance or truth of its claims.
 
-When evidence is missing because Mosaico exposes no supported witness, add a
-lower-level test and record the observability gap. Do not teach a private table
-as public behavior merely to make acceptance testing convenient.
+A skipped scenario is no evidence. A test that cannot fail for its named defect
+is false confidence. A test made green by weakening the oracle is a regression.
+Coverage may reveal unexamined code, but risk, contract, schedule, and
+capability coverage drive decisions.
+
+## Product lifetime
+
+Tests live only while their behavior lives. Delete tests and fixtures for a
+removed feature. Keep a nearby test only if it independently specifies current
+behavior without naming the removed concept.

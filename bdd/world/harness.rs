@@ -5,26 +5,6 @@ use std::time::Duration;
 use super::MosaicoWorld;
 
 impl MosaicoWorld {
-    pub fn install_claude_profile_agent(&self, profile: &str, agent: &str) {
-        self.current_backend()
-            .install_claude_profile_agent(profile, agent)
-            .unwrap_or_else(|error| panic!("install Claude profile agent: {error:#}"));
-    }
-
-    pub fn launch_agent(&mut self, agent: &str) {
-        self.run(&[agent]);
-    }
-
-    pub fn harness_argv(&self) -> Vec<String> {
-        self.current_backend()
-            .harness_argv()
-            .unwrap_or_else(|error| panic!("capture native harness argv: {error:#}"))
-    }
-
-    pub fn legacy_terminal_host_was_not_invoked(&self) -> bool {
-        !self.current_backend().legacy_terminal_host_was_invoked()
-    }
-
     pub fn configure_claude_agent_in_workspace(
         &mut self,
         profile: &str,

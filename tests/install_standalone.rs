@@ -76,14 +76,12 @@ fn binary_outside_checkout_installs_statuses_and_uninstalls_skill_and_hooks() {
             }]
         })
     };
-    std::fs::create_dir_all(home.join(".claude/skills")).unwrap();
+    assert!(home.join(".claude/skills/mosaico").is_symlink());
     std::fs::write(
         home.join(".claude/settings.json"),
         serde_json::json!({"hooks": {"SessionStart": [hook_group("claude-code")]}}).to_string(),
     )
     .unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&skill, home.join(".claude/skills/mosaico")).unwrap();
     std::fs::create_dir_all(home.join(".grok/hooks")).unwrap();
     std::fs::write(
         home.join(".grok/hooks/mosaico.json"),

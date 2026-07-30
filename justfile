@@ -18,7 +18,7 @@ install-hooks:
 
 test: test-all-local
 
-test-all-local: test-dev-scripts test-site test-unit test-local-relay test-local-nip29 test-bdd
+test-all-local: test-dev-scripts test-site test-unit test-hermetic-integration test-local-relay test-local-nip29 test-behavior-contracts
 
 test-dev-scripts:
     bash skills/mosaico-dev/tests/scripts.sh
@@ -32,6 +32,11 @@ test-site:
 test-unit:
     cargo test --lib
 
+# Hermetic real-binary contracts that need no relay or external executable.
+test-hermetic-integration:
+    cargo test --test help
+    cargo test --test install_standalone
+
 # Local plain-Nostr relay tests. Requires `nak` on PATH or at `$HOME/go/bin/nak`.
 test-local-relay:
     cargo test --test daemon_mechanics
@@ -42,15 +47,12 @@ test-local-relay:
 test-local-nip29:
     cargo test --test daemon_integration -- --test-threads=1
 
-# Executable product contracts. Croissant is an external fixture supplied by
-# exact path; the runner itself always uses Cargo's exact Mosaico binary.
-test-bdd:
+# Narrow deterministic product contracts expressed through Cucumber. Croissant
+# is an external fixture supplied by exact path; the runner always uses Cargo's
+# exact Mosaico binary.
+test-behavior-contracts:
     : "${NIP29_RELAY_BIN:?set NIP29_RELAY_BIN to a Croissant executable}"
     cargo test --test bdd
-
-test-bdd-live:
-    : "${NIP29_RELAY_BIN:?set NIP29_RELAY_BIN to a Croissant executable}"
-    MOSAICO_BDD_LIVE=1 MOSAICO_BDD_ONLY_LIVE=1 cargo test --test bdd
 
 test-live-relay-probe:
     : "${MOSAICO_RELAY:?set MOSAICO_RELAY=wss://relay.tenex.chat}"

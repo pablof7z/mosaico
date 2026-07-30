@@ -1,6 +1,5 @@
 @croissant
 Feature: Independent backends coordinate only through the relay
-  @bdd-01 @bdd-02
   Scenario: A workspace opened on one backend appears on another
     Given a fresh NIP-29 relay
     And backends "laptop" and "server" have isolated homes
@@ -10,10 +9,3 @@ Feature: Independent backends coordinate only through the relay
     When "server" lists every visible workspace
     Then "server" shows workspace "mosaico"
     And no filesystem state is shared between the backends
-
-  @designed @issue-704
-  Scenario: An addressed message crosses backends without shared local state
-    Given one live session on each isolated backend shares a channel
-    When the first session addresses the second
-    Then the target backend durably materializes the relay event
-    And only the target native harness receives the message

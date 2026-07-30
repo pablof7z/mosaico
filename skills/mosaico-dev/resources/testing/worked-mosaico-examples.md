@@ -1,151 +1,121 @@
 # Worked Mosaico examples
 
-These examples show how complementary layers answer different questions.
+These examples show how the evidence families answer different uncertainties.
 
-## Explicit session anchor
+## Explicit session authority
 
-Product claim:
+Claim:
 
 > An explicitly selected sender session overrides ambient process hints.
 
-BDD witness:
+Evidence:
 
-- launch two isolated sessions;
-- send with the second session explicitly selected;
-- query relay output and verify the message author is that session.
+- unit tests cover parsing and precedence combinations;
+- an admitted black-box contract launches isolated sessions, sends through the
+  exact binary, and verifies relay authorship.
 
-Lower-level evidence:
+Why both: the unit tests localize the rule; the relay oracle proves authority
+across the supported path.
 
-- CLI argument tests prove parsing;
-- selection unit tests cover precedence combinations.
+## Native profile selectors
 
-Why both: parser and precedence tests localize the rule; relay authorship proves
-the complete supported behavior.
+Claim:
 
-## Native Claude profile
+> Every harness adapter translates a named profile into its own valid selector
+> while preserving shared Mosaico launch semantics.
 
-Product claim:
+Evidence:
 
-> Agent `reviewer` using bundle `yolo-claude` launches Claude with bundle
-> arguments followed by `--agent reviewer`, and no other harness selector.
+- one typed adapter conformance suite covers Claude, Codex, Hermes, and other
+  supported drivers;
+- deterministic process captures cover executable argv boundaries where
+  necessary;
+- provider-specific cases cover only genuine differences.
 
-BDD witness:
-
-- real Mosaico binary and daemon;
-- deterministic Claude shim;
-- exact captured argv;
-- assertion that no legacy terminal multiplexer ran.
-
-Lower-level evidence:
-
-- harness config parsing;
-- profile-to-selector mapping;
-- launch argument composition edge cases.
-
-Do not use a real Claude model for deterministic argv proof.
+This is not Cucumber. It is an adapter matrix, and no real model is needed.
 
 ## Cross-backend workspace discovery
 
-Product claim:
+Claim:
 
 > A workspace opened on backend `laptop` becomes visible to isolated backend
 > `server` through the shared relay.
 
-BDD witness:
+Evidence:
 
-- fresh Croissant relay;
-- two homes with no shared filesystem state;
-- relay metadata queried independently;
-- `server` public workspace listing.
-
-Lower-level evidence:
-
-- NIP-29 event codec/contract tests;
-- materializer/store tests;
-- relay client acquisition integration.
+- a small Cucumber contract uses fresh Croissant, isolated homes, independent
+  relay metadata, and `server`'s public listing;
+- codec, materializer, and acquisition tests localize lower-level failures.
 
 Inspecting `laptop`'s database cannot prove cross-backend discovery.
 
-## One daemon owns backend state
+## Message delivery across restart
 
-Product claim:
+Claim:
 
-> A normal configured command starts one daemon that owns the backend socket.
+> Addressed work survives restart, remains bound to one public identity, and is
+> delivered no more than once.
 
-BDD witness:
+Evidence:
 
-- run the exact binary in an isolated configured home;
-- observe successful command and one owned socket.
+- unit/state-machine tests prove claim and delivery transitions;
+- process tests prove durable restart mechanics;
+- seeded schedule tests vary death before/after writes and acknowledgements;
+- one black-box contract proves the stable outward identity/delivery promise.
 
-Integration evidence:
+Do not add one Gherkin scenario for each restart interleaving.
 
-- simultaneous client spawn race;
-- stale socket reclaim;
-- version-skew handshake;
-- supported durable-store integrity checks.
+## Backend-addressed management
 
-BDD describes the stable operator outcome. Integration owns the race mechanics.
+Claim:
 
-## Backend-addressed management command
+> A backend-addressed management request produces one relay-visible result.
 
-Product claim:
+Evidence:
 
-> A backend-addressed `list sessions` command produces one public management
-> result.
+- parser and handler tests cover command cases;
+- event contract tests cover authorship and reply relationships;
+- an admitted Cucumber scenario proves the end-to-end relay-visible outcome.
 
-BDD witness:
+The Cucumber scenario does not enumerate parser tokens.
 
-- live deterministic harness session on local Croissant;
-- operator-authored management message;
-- relay reply containing the management result.
+## Public relay behavior
 
-Lower-level evidence:
+Question:
 
-- management command parser cases;
-- handler routing and rejected-command tests;
-- reply event contract.
+> Does the deployed NIP-29 relay currently enforce the group lifecycle Mosaico
+> expects?
 
-Do not write one Gherkin scenario for every parser token.
+Evidence:
 
-## Public relay NIP-29 behavior
+- an explicit live probe uses disposable identities and records side effects;
+- stable findings are encoded against pinned Croissant;
+- product contracts use the deterministic fixture, not the public relay.
 
-Unknown:
+The probe confirms compatibility at one time. It is not regression evidence.
 
-> Does the deployed NIP-29 relay enforce closed/public membership and preserve
-> readable group state?
+## Agents notice overlapping work
 
-Probe witness:
+Capability claim:
 
-- explicit public relay;
-- disposable identities and group;
-- create, edit, add, write, and readback evidence.
+> Mosaico helps agents discover relevant peer work and reduces duplicate
+> implementation without harming final task quality.
 
-Deterministic follow-up:
+Evaluation:
 
-- pinned Croissant tests encode the learned group lifecycle;
-- BDD proves Mosaico's product behavior against that fixture.
+- controlled repositories and paired assignments;
+- no-Mosaico, awareness-only, and awareness-plus-messaging conditions;
+- repeated runs across relevant model/harness combinations;
+- task quality, time to useful contact, message relevance, duplicate diffs,
+  conflicts, latency, and cost;
+- independent scoring with saved transcripts and artifacts.
 
-The public probe confirms deployment behavior at a moment; it does not replace
-local regression.
+A valid run may use several different trajectories. One Gherkin path cannot
+prove this capability.
 
-## Addressed work disappears after agent add
+## Feature removal
 
-Product failure:
-
-> Work sent immediately after adding an agent can vanish without an explainable
-> durable state.
-
-BDD:
-
-- `@must-never @wip @issue-291`;
-- product outcome requires accepted, pending, delivered, or failed evidence;
-- event explanation must say why delivery did or did not occur.
-
-Causal regressions:
-
-- add/session readiness transition;
-- inbox claim and delivery state machine;
-- relay materialization and harness delivery races.
-
-The issue-linked excluded scenario is not green coverage. Once fixed, remove
-`@wip` and run it deterministically.
+When a command or behavior is deleted, delete its scenarios, tests, fixtures,
+and dedicated helpers. Do not add a test that invokes the old command and
+expects rejection. Current replacement behavior receives its own positively
+stated evidence.

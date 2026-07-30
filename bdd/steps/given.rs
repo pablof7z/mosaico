@@ -4,11 +4,6 @@ use cucumber::given;
 
 use crate::world::MosaicoWorld;
 
-#[given("an isolated unconfigured Mosaico home")]
-async fn isolated_unconfigured(world: &mut MosaicoWorld) {
-    world.isolated_unconfigured();
-}
-
 #[given("an isolated configured Mosaico home using a local relay")]
 async fn isolated_with_nak(world: &mut MosaicoWorld) {
     world.isolated_with_nak();
@@ -24,11 +19,6 @@ async fn fresh_nip29_relay(world: &mut MosaicoWorld) {
     world.start_croissant();
 }
 
-#[given(regex = r#"^backend "([^"]+)" has an isolated home$"#)]
-async fn isolated_backend(world: &mut MosaicoWorld, name: String) {
-    world.add_isolated_backend(&name);
-}
-
 #[given(regex = r#"^backends "([^"]+)" and "([^"]+)" have isolated homes$"#)]
 async fn isolated_backends(world: &mut MosaicoWorld, first: String, second: String) {
     world.add_isolated_backend(&first);
@@ -38,24 +28,6 @@ async fn isolated_backends(world: &mut MosaicoWorld, first: String, second: Stri
 #[given("both backends trust the same operator")]
 async fn shared_operator(world: &mut MosaicoWorld) {
     world.trust_shared_operator(&["laptop", "server"]);
-}
-
-#[given(regex = r#"^backend "([^"]+)" is selected$"#)]
-async fn selected_backend(world: &mut MosaicoWorld, name: String) {
-    world.select_backend(&name);
-}
-
-#[given(regex = r#"^Claude profile "([^"]+)" is installed$"#)]
-async fn claude_profile(world: &mut MosaicoWorld, profile: String) {
-    world.install_claude_profile_agent(&profile, &profile);
-}
-
-#[given(regex = r#"^agent "([^"]+)" selects that profile through bundle "([^"]+)"$"#)]
-async fn agent_selects_profile(_world: &mut MosaicoWorld, _agent: String, bundle: String) {
-    assert_eq!(
-        bundle, "yolo-claude",
-        "the fixture installs one exact bundle"
-    );
 }
 
 #[given("no Mosaico daemon is running")]
