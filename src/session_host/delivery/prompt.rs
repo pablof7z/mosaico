@@ -6,11 +6,15 @@ use std::sync::Arc;
 
 #[path = "prompt/managed_turn.rs"]
 mod managed_turn;
+#[cfg(test)]
+#[path = "prompt/tests.rs"]
+mod tests;
 
 struct PendingPrompt {
     text: String,
     chat_ids: Vec<String>,
     channels: Vec<String>,
+    coordination_reminder_turn: Option<u64>,
 }
 
 async fn collect_pending_prompt(
@@ -34,8 +38,16 @@ async fn collect_pending_prompt(
         .collect::<Vec<_>>();
     channels.sort();
     channels.dedup();
+    let reminder_turn = if rec.is_working() {
+        rec.turn_count.max(1)
+    } else {
+        rec.turn_count.saturating_add(1).max(1)
+    };
+    let unresolved =
+        state.with_store(|s| crate::injection::has_unresolved_terminal_mention(s, &chat_rows));
+    let show_guide = unresolved && state.coordination_reminder_due(&rec.pubkey, reminder_turn);
     let rendered = state.with_store(|s| {
-        crate::injection::render_terminal_mention(s, &chat_rows, &whitelisted, now)
+        crate::injection::render_terminal_mention(s, &chat_rows, &whitelisted, now, show_guide)
     });
     let Some(text) = rendered else {
         if let Err(e) = state.with_store(|s| s.reenqueue_pending(&chat_ids, &rec.pubkey)) {
@@ -58,6 +70,7 @@ async fn collect_pending_prompt(
         text,
         chat_ids,
         channels,
+        coordination_reminder_turn: show_guide.then_some(reminder_turn),
     }))
 }
 
@@ -82,7 +95,13 @@ pub(super) async fn inject_planned_messages(
         return Ok(false);
     };
 
-    let completion = match transport.deliver(&endpoint, &prompt.text, true).await {
+    let delivered = transport.deliver(&endpoint, &prompt.text, true).await;
+    let completion = match finish_delivery(
+        state,
+        &rec.pubkey,
+        prompt.coordination_reminder_turn,
+        delivered,
+    ) {
         Ok(completion) => completion,
         Err(error) => {
             reenqueue_after_failure(
@@ -106,6 +125,19 @@ pub(super) async fn inject_planned_messages(
     )
     .await?;
     Ok(true)
+}
+
+fn finish_delivery<T>(
+    state: &Arc<DaemonState>,
+    pubkey: &str,
+    reminder_turn: Option<u64>,
+    delivered: Result<T>,
+) -> Result<T> {
+    let completion = delivered?;
+    if let Some(turn_count) = reminder_turn {
+        state.record_coordination_reminder(pubkey, turn_count);
+    }
+    Ok(completion)
 }
 
 pub(super) async fn track_spawn_prompt(

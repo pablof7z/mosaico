@@ -55,7 +55,8 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     store
         .upsert_reaction("rx-1", "abcdef123456", "proj", "pk-target", "👍", 110)
         .unwrap();
-    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
+    let prompt =
+        crate::injection::render_terminal_mention(&store, &[row], &[], 120, false).unwrap();
 
     assert_eq!(
         prompt,
@@ -84,7 +85,7 @@ fn attachment_prompt_uses_one_directory_attribute_and_ordinary_bracket_labels() 
     let store = crate::state::Store::open_memory().unwrap();
     store.upsert_channel("proj", "proj", "", "", 1).unwrap();
 
-    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
+    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120, true).unwrap();
 
     assert!(prompt.contains("attachment-dir=\"/tmp/mosaico-files/abcdef\""));
     assert!(prompt.contains("Review [plan/report.md]"));
@@ -124,7 +125,7 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
         .unwrap();
     // Sender is whitelisted, but the injected line still carries the source room.
     let prompt =
-        crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120)
+        crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120, false)
             .unwrap();
     assert_eq!(
         prompt,
@@ -153,11 +154,17 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
 
     let store = crate::state::Store::open_memory().unwrap();
     store.upsert_channel("proj", "proj", "", "", 1).unwrap();
-    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120).unwrap();
+    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120, true).unwrap();
 
     assert!(
-        prompt
-            .contains("Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."),
+        prompt.contains("Follow up on abcdef: reply for substantive context or react for an ACK."),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(
+            "Read Mosaico's skill resource \
+             `~/.agents/skills/mosaico/references/coordination-guide.md`"
+        ),
         "{prompt}"
     );
 }
@@ -198,7 +205,7 @@ fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
         .map(|(pubkey, _, _)| (*pubkey).to_string())
         .collect::<Vec<_>>();
 
-    let prompt = crate::injection::render_terminal_mention(&store, &rows, &whitelist, 120)
+    let prompt = crate::injection::render_terminal_mention(&store, &rows, &whitelist, 120, false)
         .expect("multi-human prompt");
     for (_, name, token) in humans {
         assert!(
@@ -207,4 +214,36 @@ fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
         );
         assert!(prompt.contains(token), "missing {token}: {prompt}");
     }
+}
+
+#[test]
+fn multi_message_prompt_has_one_full_guide_and_one_compact_affordance_each() {
+    let store = crate::state::Store::open_memory().unwrap();
+    store
+        .upsert_channel("workspace", "workspace", "", "", 1)
+        .unwrap();
+    let rows = ["event-one", "event-two"]
+        .into_iter()
+        .map(|event_id| crate::state::InboxRow {
+            event_id: event_id.into(),
+            target_pubkey: "target".into(),
+            state: "pending".into(),
+            from_pubkey: "sender".into(),
+            channel_h: "workspace".into(),
+            body: "Please respond".into(),
+            created_at: 100,
+            delivered_at: 0,
+            attachment_dir: String::new(),
+        })
+        .collect::<Vec<_>>();
+
+    let prompt = crate::injection::render_terminal_mention(&store, &rows, &[], 120, true).unwrap();
+    assert_eq!(prompt.matches("Follow up on ").count(), 2, "{prompt}");
+    assert_eq!(
+        prompt
+            .matches(crate::reconcile::COORDINATION_GUIDE_REMINDER)
+            .count(),
+        1,
+        "{prompt}"
+    );
 }

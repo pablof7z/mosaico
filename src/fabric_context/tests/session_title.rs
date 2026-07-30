@@ -14,7 +14,9 @@ fn agent_supplied_title_appears_immediately() {
         "got: {visible}"
     );
     assert!(
-        visible.contains("Read mosaico://skill/public-work-status before updating it"),
+        visible.contains(
+            "Read ~/.agents/skills/mosaico/references/public-work-status.md before updating it"
+        ),
         "got: {visible}"
     );
 
@@ -33,6 +35,10 @@ fn missing_title_prompts_to_set_a_status() {
     assert!(
         visible.contains("No session status set"),
         "an agent with no title should be prompted to set one; got: {visible}"
+    );
+    assert!(
+        visible.contains("~/.agents/skills/mosaico/references/public-work-status.md"),
+        "got: {visible}"
     );
     assert!(
         !visible.contains("Current title"),

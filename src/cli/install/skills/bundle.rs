@@ -32,6 +32,10 @@ pub(super) const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/mosaico/references/mcp-chatbot-setup.md"),
     ),
     (
+        "references/message-search.md",
+        include_str!("../../../../skills/mosaico/references/message-search.md"),
+    ),
+    (
         "references/public-work-status.md",
         include_str!("../../../../skills/mosaico/references/public-work-status.md"),
     ),

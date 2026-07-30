@@ -31,8 +31,8 @@ pub(super) fn render_messages(out: &mut String, channel: &ChannelBlock, indent: 
         if message.mention && message.needs_reply_nudge {
             let _ = write!(
                 out,
-                "\n{child_pad}Need a follow-up? Read \
-                 `skills/mosaico/references/coordination-guide.md`."
+                "\n{child_pad}Follow up on {}: reply for substantive context or react for an ACK.",
+                text(&crate::util::short_id(&message.id))
             );
         }
     }

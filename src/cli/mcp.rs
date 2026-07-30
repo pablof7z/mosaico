@@ -20,6 +20,11 @@ mod resources;
 mod skill;
 mod tools;
 
+#[cfg(test)]
+pub(in crate::cli) fn embedded_skill_content(name: &str) -> String {
+    skill::content(Some(name)).unwrap().2
+}
+
 use protocol::{
     error, result, write_value, Message, SharedWriter, INVALID_PARAMS, INVALID_REQUEST,
     METHOD_NOT_FOUND, PARSE_ERROR,

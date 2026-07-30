@@ -284,7 +284,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
     assert!(
         ctx.contains("<chatter>")
             && ctx.contains(
-                "Need a follow-up? Read `skills/mosaico/references/coordination-guide.md`."
+                "Follow up on ev-dm-: reply for substantive context or react for an ACK."
             ),
         "ambient chat and mention must render in the fabric context; got:\n{ctx}"
     );

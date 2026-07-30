@@ -16,6 +16,14 @@ impl ViewInputs {
     pub(crate) fn force(&self) -> bool {
         self.meta.force
     }
+
+    pub(crate) fn turn_count(&self) -> u64 {
+        self.meta
+            .self_row
+            .as_ref()
+            .map(|row| row.turn_count)
+            .unwrap_or_default()
+    }
 }
 
 /// Channel/subchannel metadata + per-render identity (all now/cursor-free).

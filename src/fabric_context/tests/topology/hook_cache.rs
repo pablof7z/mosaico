@@ -1,5 +1,5 @@
 use super::*;
-use crate::reconcile::HookContextState;
+use crate::reconcile::{HookContextState, COORDINATION_GUIDE_REMINDER};
 
 #[test]
 fn a_heartbeat_only_refresh_does_not_emit_a_member_delta() {
@@ -149,4 +149,66 @@ fn a_fresh_hook_cache_rebaselines_members_without_replaying_chatter() {
     );
     assert!(!text.contains("<chatter>"), "{text}");
     assert!(!text.contains("hello"), "{text}");
+}
+
+#[test]
+fn coordination_reminder_uses_eight_turn_cooldown_and_one_copy_per_snapshot() {
+    let store = seed_store();
+    let mut rec = session(&store);
+    let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
+    chat(
+        &store,
+        "mention-cooldown",
+        "root",
+        210,
+        "please decide",
+        &tags,
+    );
+    let mut hook = HookContextState::default();
+
+    for turn in 1..=9 {
+        rec.turn_count = turn;
+        let captured =
+            capture_inputs(&store, &input(Some(&rec), "root", 200, 300 + turn, false)).unwrap();
+        let text = hook
+            .render_context(
+                &rec.pubkey,
+                "turn_start",
+                200,
+                (300 + turn) as i64,
+                captured,
+            )
+            .text
+            .expect("unresolved mention renders");
+        assert!(text.contains("Follow up on mentio:"), "turn {turn}: {text}");
+        let full_count = text.matches(COORDINATION_GUIDE_REMINDER).count();
+        assert_eq!(
+            full_count,
+            usize::from(turn == 1 || turn == 9),
+            "turn {turn}: {text}"
+        );
+    }
+}
+
+#[test]
+fn coordination_cooldown_is_session_local_and_actions_reset_it() {
+    let mut first = HookContextState::default();
+    let second = HookContextState::default();
+    assert!(first.coordination_reminder_due(1));
+    first.record_coordination_reminder(1);
+    for turn in 2..=8 {
+        assert!(!first.coordination_reminder_due(turn));
+    }
+    assert!(first.coordination_reminder_due(9));
+    assert!(second.coordination_reminder_due(1));
+
+    first.record_coordination_action(5);
+    assert!(!first.coordination_reminder_due(12));
+    assert!(first.coordination_reminder_due(13));
+
+    first.record_coordination_reminder(15);
+    first.record_coordination_action(4);
+    first.record_coordination_reminder(3);
+    assert!(!first.coordination_reminder_due(22));
+    assert!(first.coordination_reminder_due(23));
 }

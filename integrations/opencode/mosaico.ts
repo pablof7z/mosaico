@@ -35,6 +35,26 @@ function resolveBin(): string {
   return "mosaico"
 }
 
+// MOSAICO_CONTEXT_HELPERS_START
+/**
+ * Replace Mosaico-owned parts on one retained message with at most one current part.
+ * @param {{parts: Array<any>}} message
+ * @param {any} [current]
+ */
+export function replaceMosaicoPart(message, current) {
+  message.parts = message.parts.filter((part) => !part?._mosaicoInjected)
+  if (current) message.parts.unshift(current)
+}
+
+/**
+ * Drain queued tool-boundary warnings exactly once.
+ * @param {Array<string>} queue
+ */
+export function drainBoundaryWarnings(queue) {
+  return queue.splice(0).join("\n\n")
+}
+// MOSAICO_CONTEXT_HELPERS_END
+
 export const Mosaico: Plugin = async ({ directory }) => {
   const BIN = resolveBin()
 
@@ -42,7 +62,6 @@ export const Mosaico: Plugin = async ({ directory }) => {
   // door Claude Code and Codex use — by piping a small JSON payload on stdin and
   // reading stdout back. mosaico has no per-step subcommands anymore; `harness
   // hook opencode --type <t>` parses this payload and drives the lifecycle.
-  // (Peer queries — `who`, `chat` — stay plain subcommands.)
   function runHook(
     type: string,
     payload: Record<string, unknown>,
@@ -107,6 +126,11 @@ export const Mosaico: Plugin = async ({ directory }) => {
     // message) mark the turn "working".
     "experimental.chat.messages.transform": async (_input, output) => {
       const msgs = output.messages as Array<{ info: any; parts: any[] }>
+      // A transform receives retained message history. Remove every prior
+      // Mosaico part first, even when this invocation has no current context.
+      for (const message of msgs) {
+        replaceMosaicoPart(message)
+      }
       let lastUser: { info: any; parts: any[] } | undefined
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i].info?.role === "user") { lastUser = msgs[i]; break }
@@ -142,12 +166,12 @@ export const Mosaico: Plugin = async ({ directory }) => {
         context = (await runHook("post-tool-use", { session_id: ocSessionID })).trim()
       }
       if (pendingBoundaryWarnings.length) {
-        const warnings = pendingBoundaryWarnings.splice(0).join("\n\n")
+        const warnings = drainBoundaryWarnings(pendingBoundaryWarnings)
         context = context ? `${warnings}\n\n${context}` : warnings
       }
 
       if (context) {
-        lastUser.parts.unshift({
+        replaceMosaicoPart(lastUser, {
           id: `mosaico-${msgID}`,
           sessionID: ocSessionID,
           messageID: msgID,

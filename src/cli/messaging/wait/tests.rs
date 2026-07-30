@@ -92,7 +92,7 @@ fn direct_delivery_and_wait_share_the_exact_message_element() {
         delivered_at: 0,
         attachment_dir: "/tmp/mosaico-files/abcdef".into(),
     };
-    let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160).unwrap();
+    let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160, true).unwrap();
     let waited = render_wait_message(
         &serde_json::json!({
             "channel": "/x",

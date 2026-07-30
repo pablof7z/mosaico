@@ -6,6 +6,7 @@ pub mod status;
 pub mod subscriptions;
 
 pub use delivery::{DeliveryEffect, DeliveryScanFact};
+pub(crate) use hook_context::COORDINATION_GUIDE_REMINDER;
 pub use hook_context::{HookContextOutcome, HookContextReceipt, HookContextState};
 pub use status::{
     PresenceProjection, PresenceSnapshot, PublishReason, StatusEffect, StatusOutcome,

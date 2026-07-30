@@ -61,7 +61,8 @@ pub(crate) fn sync_hook_context(hook_type: &str, context: Option<&str>) -> Resul
         .context("Goose hook has no session-specific GOOSE_MOIM_MESSAGE_FILE")?;
     validate_context_path(&path)?;
     match hook_type {
-        "user-prompt-submit" | "post-tool-use" => {
+        "user-prompt-submit" => replace_context(&path, context.unwrap_or_default()),
+        "post-tool-use" => {
             if let Some(delta) = context.filter(|value| !value.trim().is_empty()) {
                 append_delta(&path, delta)
             } else {
@@ -90,6 +91,10 @@ fn validate_context_path(path: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn replace_context(path: &Path, context: &str) -> Result<()> {
+    atomic_write(path, bounded_utf8(context))
 }
 
 fn append_delta(path: &Path, delta: &str) -> Result<()> {

@@ -22,7 +22,7 @@ use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
 pub(super) use device_config::ConfigRepair;
-pub(super) use hooks::{is_installed, is_present, merge_hooks, migrate_codex_root_events};
+pub(super) use hooks::{is_installed, is_present, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 pub(super) use repair::{repair_device_config, repair_integration};
 use selection::{detected_list, preflight_selection, resolve_selection};
@@ -168,9 +168,6 @@ fn print_status(all: &[Harness]) {
 
 fn install_json_harness(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     let mut root = read_json_or_default(&h.config_path)?;
-    if h.id == "codex" {
-        migrate_codex_root_events(&mut root);
-    }
     let entries = hook_entries(h);
     let removed = merge_hooks(&mut root, &entries, host_for_harness(h), opts.uninstall);
 
