@@ -47,6 +47,18 @@ Cover:
 Table-driven cases are useful when one rule has several input classes. Split
 tests when failures would otherwise be hard to interpret.
 
+Use property or generative tests when the rule spans a broad input space:
+
+- identity and path normalization;
+- event encode/decode round trips;
+- precedence and ordering invariants;
+- idempotent materialization;
+- state-machine transitions;
+- bounded rendering and secret scrubbing.
+
+Record failing seeds and shrink to the smallest counterexample when the
+framework supports it.
+
 ## State and filesystem tests
 
 Temporary SQLite stores and temporary homes can still be unit/subsystem tests

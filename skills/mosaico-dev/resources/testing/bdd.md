@@ -1,129 +1,93 @@
-# Behavior-driven development in Mosaico
+# BDD and deterministic behavior contracts
 
-BDD is the practice of discovering product behavior through concrete examples,
-expressing those examples in shared language, and making the resulting claims
-executable.
+BDD is Mosaico's discipline for discovering and specifying current behavior
+through examples. Cucumber is a small executable surface for critical,
+deterministic, cross-boundary product contracts.
 
-Gherkin is the notation Mosaico uses to preserve the result. Cucumber is the
-runner. Neither tool creates BDD without the example-discovery work.
+## What Cucumber owns
 
-## What BDD owns
+The admitted suite proves load-bearing fabric behavior where lower-level tests
+can pass while Mosaico remains broken:
 
-Mosaico's feature tree owns stable behavior visible to operators and agents:
+- relay-only identity and discovery across isolated backends;
+- addressed delivery through the real binary, daemon, relay, and harness;
+- public-key continuity without sibling identities;
+- explicit sender authority;
+- management replies visible through the relay;
+- hook fail-open and authority boundaries.
 
-- setup and diagnostics;
-- agent discovery and selection;
-- workspace and channel behavior;
-- session identity and lifecycle;
-- awareness and messaging;
-- coordination and management;
-- native harness launch behavior;
-- daemon ownership and recovery;
-- multi-backend fabric behavior;
-- must-never authority, durability, and secrecy boundaries.
+It does not catalog every product domain, command, adapter, bug, or future
+feature.
 
-The feature files are not a catalog of Rust modules. Parsers, migrations,
-storage mechanics, codecs, and narrow races remain lower-level evidence.
+## What belongs elsewhere
 
-## The BDD conversation
+- Local rules and input spaces: unit/property tests.
+- Harness, relay, PTY, ACP, and provider equivalence: typed adapter suites.
+- Exact selector and argv matrices: adapter/process contracts.
+- Races and restart permutations: seeded fault/schedule tests.
+- Emergent awareness and coordination: repeated agent evaluations.
+- Real providers and public relays: `mosaico-dev` live labs and probes.
+- Future behavior and known gaps: GitHub Issues.
 
-Before writing a scenario, the design agent should answer:
+## Current runner
 
-1. Who observes the behavior?
-2. What useful state already exists?
-3. What event or decision occurs?
-4. What outcome is externally meaningful?
-5. What failure would violate trust?
-6. Which independent witness can see it?
-7. Which examples distinguish the rule from nearby interpretations?
-
-For a stable agent, useful examples include an offline configured identity,
-addressed work, activation under that exact public key, one harness delivery,
-and no sibling identity. They do not include the internal method used to choose
-the signer.
-
-## Current harness contract
-
-`Cargo.toml` declares a custom integration target at `bdd/main.rs` with
-`harness = false`. The runner parses `features/` and uses
-`CARGO_BIN_EXE_mosaico`, so scenarios drive Cargo's exact binary rather than an
-installed executable.
+`Cargo.toml` declares `bdd/main.rs` as a custom integration target. It parses
+the narrowly admitted `features/` tree and uses `CARGO_BIN_EXE_mosaico`.
 
 Each `MosaicoWorld` owns:
 
 - a temporary root;
-- isolated backend homes, configs, workspaces, sockets, and identities;
-- a scenario-owned `nak` or external Croissant relay;
+- isolated homes, configs, workspaces, sockets, and identities;
+- scenario-owned `nak` or external Croissant;
 - deterministic native harness shims;
 - child-process handles and bounded cleanup;
 - public command results and independent relay/harness witnesses.
 
-Scenarios are serialized. Waits poll evidence until a deadline. Failed worlds
-are retained under `target/bdd-artifacts/<scenario>/`.
+Scenarios are serialized. Eventual assertions poll evidence to a deadline.
+Failed worlds are retained under `target/bdd-artifacts/<scenario>/`.
 
-BDD may observe CLI/hook status and output, relay events queried independently,
-socket/process state, harness argv or delivered-input captures, and stable
-diagnostic JSON. It must not inspect SQLite tables.
+Allowed observables include CLI/hook results, relay events queried
+independently, exact process state, harness delivery captures, and public
+identity. SQLite is not a Cucumber observable.
 
-## Tags are truth claims
+## No catalog tags
 
-- Untagged scenarios are built, deterministic, and run by default.
-- `@must-never` is deterministic and still runs by default.
-- `@croissant` states a fixture requirement; it does not skip CI.
-- `@live` requires real provider auth or public infrastructure and is opt-in.
-- `@designed @issue-N` records agreed behavior that is not implemented.
-- `@wip @issue-N` records a built behavior with a known failing contract.
-- `@bdd-N` preserves historical migration traceability only.
+Committed feature files contain only executable deterministic contracts.
 
-`@designed` and `@wip` do not count as passing coverage. Their issue must be
-open and behavior-specific. When that issue closes, remove the exclusion and
-run the scenario, move it to another valid open owner, or correct/remove the
-claim.
+- `@croissant` documents a required local NIP-29 fixture.
+- `@must-never` identifies a deterministic safety contract.
 
-Several current designed scenarios use umbrella harness issue `#704`. Treat
-that as a known ownership gap. Do not copy that pattern into new scenarios.
+There is no `@designed`, `@wip`, `@live`, historical migration, or issue tag
+semantics. A skipped plan is not executable evidence. Keep planned behavior in
+its GitHub issue, develop failing scenarios on the implementation branch, and
+commit them only with their implementation.
 
-## Feature removal
+## Oracle handoff
 
-When Mosaico intentionally removes a feature, delete its feature scenarios and
-exclusive step vocabulary. Do not add a scenario asserting that the former
-feature, command, or option is absent. The feature tree describes the product
-that exists now, not the history of surfaces it has deleted.
+The design agent:
 
-## Test-driven handoff
+1. discovers examples and counterexamples;
+2. proves the claim satisfies the Cucumber admission rule;
+3. identifies public and independent oracles;
+4. authors the failing scenario and minimal vocabulary.
 
-The design/architecture agent normally:
+The implementation agent may add lower-level evidence but cannot silently
+change the outcome. An adversarial pass tries false-pass implementations,
+contrast cases, and boundary failures before completion.
 
-1. writes or revises the feature example;
-2. identifies the public witness;
-3. adds only the step vocabulary needed for the claim;
-4. confirms the scenario fails for the intended missing behavior.
-
-A separate implementation agent then changes production code and supporting
-lower-level tests. It must not change expected behavior merely to make the
-scenario pass. If the claim is wrong, return it to design with concrete
-evidence.
-
-## BDD anti-patterns
-
-- Scenario-per-function or scenario-per-command-option.
-- Steps that invoke named Rust tests.
-- Database assertions presented as product outcomes.
-- Mock-only worlds that bypass the exact binary.
-- Vague outcomes such as “works correctly.”
-- Fixed sleeps as acceptance semantics.
-- A second prose or shell acceptance catalog.
-- Real model-quality assertions in deterministic acceptance.
-- Exclusion tags without a specific open owner.
-
-Run deterministic BDD with:
+## Running
 
 ```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd
+NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
-Run the opt-in live tier with:
+The suite is deterministic and credential-free. Provider/network checks use
+the separate live-lab and probe commands.
 
-```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd-live
-```
+## Retirement
+
+If a contract no longer meets admission, move its still-current claim to the
+appropriate Rust/fault/evaluation layer and remove its Gherkin glue.
+
+If the product behavior itself is removed, delete the scenario and exclusive
+steps. Never replace it with a scenario proving the dead surface is absent.

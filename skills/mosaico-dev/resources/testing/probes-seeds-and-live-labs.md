@@ -71,18 +71,16 @@ fixture where possible. Croissant-backed BDD is the deterministic home for
 NIP-29 product contracts; public-relay probes remain confirmation of deployed
 behavior.
 
-## Live BDD
+## Separation from deterministic contracts
 
-The feature tree may express an opt-in `@live` example when it is the same
-stable Mosaico contract exercised with a real provider adapter. The
-`mosaico-dev` lab guide owns operational setup and evidence collection; it must
-not become a second prose acceptance catalog.
+Live providers and public infrastructure never run through the Cucumber
+contract suite. The same product invariant may have deterministic local
+evidence, while this guide owns current external compatibility and operational
+proof.
 
-Run live feature scenarios with:
-
-```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd-live
-```
+Model-dependent coordination belongs in
+[agent capability evaluations](agent-capability-evaluations.md), not a live
+pass/fail feature scenario.
 
 Run current relay probes with:
 

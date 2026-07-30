@@ -104,6 +104,10 @@ Pin external regression fixtures. Current BDD CI pins Croissant source, Go, and
 Live labs intentionally test current external systems; record their resolved
 versions in the report.
 
+Seeded fault tests must record deterministic randomness, injected fault points,
+and event ordering. A seed without enough schedule metadata to replay the
+failure is not a useful artifact.
+
 ## Failure retention
 
 Successful temporary state should be removed. Failed BDD worlds are copied to

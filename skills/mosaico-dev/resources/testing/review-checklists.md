@@ -8,14 +8,23 @@ declaring the change complete.
 - [ ] The claim states a real Mosaico rule or behavior.
 - [ ] The consequence of failure is named.
 - [ ] The witness has authority to decide the claim.
+- [ ] Determinism is classified: deterministic, schedule-dependent,
+      model-dependent, or live.
 - [ ] The boundary is the narrowest one that can prove it honestly.
 - [ ] The claim was executable and failing before production implementation.
 - [ ] A separate implementation agent was used, or claim and implementation
       phases were explicitly separated.
 - [ ] No assertion was weakened merely to obtain green.
 
-## BDD
+## Cucumber admission and BDD
 
+- [ ] Examples and counterexamples were discovered before implementation.
+- [ ] The claim is a stable deterministic product promise.
+- [ ] Lower-level evidence can pass while the outward promise remains broken.
+- [ ] Product-language examples add durable clarity.
+- [ ] The failure consequence justifies step-glue maintenance.
+- [ ] The claim is not an adapter matrix, timing schedule, model capability,
+      live check, future plan, known failure, or tombstone.
 - [ ] Feature prose uses operator/agent Mosaico language.
 - [ ] The scenario distinguishes one coherent behavior.
 - [ ] `Given` contains only relevant state.
@@ -26,9 +35,8 @@ declaring the change complete.
 - [ ] No fixed sleep is treated as proof.
 - [ ] The exact Cargo-built Mosaico binary is used.
 - [ ] The scenario is isolated and cleans every owned process.
-- [ ] `@live` is used only for credentials/public infrastructure.
-- [ ] `@designed` or `@wip` has an open behavior-specific issue.
-- [ ] An excluded scenario is not reported as passing coverage.
+- [ ] The committed scenario runs in the required deterministic suite.
+- [ ] No planning, issue, live, WIP, or historical tags exist.
 
 ## Unit
 
@@ -50,6 +58,27 @@ declaring the change complete.
 - [ ] Environment mutation and shared relay state are serialized or isolated.
 - [ ] Concurrency assertions target invariants, not a lucky schedule.
 - [ ] Broader BDD is added only for a separate product claim.
+- [ ] Equivalent adapters run one shared typed conformance suite.
+- [ ] Provider-specific cases cover real differences rather than copied
+      semantics.
+
+## Seeded fault and schedule
+
+- [ ] The test varies a real asynchronous risk.
+- [ ] Randomness and fault points are controlled by a recorded seed.
+- [ ] Assertions target invariants, not a lucky interleaving.
+- [ ] Failure output contains a replay command and retained artifacts.
+- [ ] Fixed seeds are distinguished from exploratory campaigns.
+
+## Agent capability evaluation
+
+- [ ] The claim genuinely depends on model or peer choices.
+- [ ] Controlled tasks and starting state are recorded.
+- [ ] A no-Mosaico or relevant feature baseline exists.
+- [ ] Repetitions and model/harness conditions are explicit.
+- [ ] Scoring permits multiple valid trajectories.
+- [ ] Outcomes, transcripts, diffs, latency, and cost are retained.
+- [ ] The implementation agent is not the sole evaluator.
 
 ## Process, relay, and harness
 

@@ -1,8 +1,12 @@
-# Integration and contract tests
+# Integration and adapter contract tests
 
 Integration tests prove that owned Mosaico components compose correctly.
 Contract tests protect an exact technical boundary. “Integration” describes
 execution scope; “contract” describes the claim. One test can be both.
+
+Adapter conformance is a first-class Mosaico test family. A shared typed suite
+should be applied to every implementation of the same semantic boundary rather
+than copying similar examples into provider- or harness-specific tests.
 
 ## Integration scope
 
@@ -41,6 +45,25 @@ When a field, alias, protocol dialect, or whole surface is deliberately
 removed, delete tests and fixtures dedicated to it. Do not retain its name in a
 negative contract test merely to prove the former surface remains absent.
 
+## Shared adapter suites
+
+Use one conformance suite when multiple implementations promise the same
+Mosaico semantics:
+
+- PTY harness drivers;
+- ACP and app-server dialect adapters;
+- native profile selectors;
+- relay implementations;
+- hosted transport lifecycle;
+- provider hook/plugin integrations.
+
+The suite should accept a typed factory or adapter and assert common identity,
+delivery, lifecycle, error, and cleanup outcomes. Implementation-specific tests
+then cover only genuine differences.
+
+Do not use Cucumber outlines as an adapter matrix. Do not launch real models to
+prove deterministic selector, frame, or lifecycle composition.
+
 ## Observer rules
 
 Technical tests may inspect the owned store, protocol frames, logs, or process
@@ -74,7 +97,7 @@ Concurrency tests should assert the invariant—one daemon/socket/writer—not a
 specific thread schedule. Poll for bounded observable state rather than using a
 sleep as proof.
 
-## Relationship to BDD
+## Relationship to behavior contracts
 
 Keep integration tests beneath a BDD scenario when they add:
 
@@ -85,7 +108,7 @@ Keep integration tests beneath a BDD scenario when they add:
 - owned-store invariants that are intentionally not public.
 
 Remove an integration test only when it duplicates the same setup, action,
-witness, and failure value as acceptance evidence.
+oracle, and failure value as broader evidence.
 
 ## Running
 

@@ -14,9 +14,10 @@ NIP29_RELAY_BIN=/absolute/path/to/croissant just test
 - `test-dev-scripts`;
 - `test-site`;
 - `test-unit`;
+- `test-hermetic-integration`;
 - `test-local-relay`;
 - `test-local-nip29`;
-- `test-bdd`.
+- `test-behavior-contracts`.
 
 It requires Rust, Node, `nak`, and an external Croissant executable. It does not
 run credentialed live checks.
@@ -30,6 +31,15 @@ just test-unit
 ```
 
 This is `cargo test --lib`.
+
+Hermetic real-binary integration:
+
+```sh
+just test-hermetic-integration
+```
+
+This executes `tests/help.rs` and `tests/install_standalone.rs` without a relay
+or external executable.
 
 Plain local relay:
 
@@ -50,7 +60,7 @@ This runs `daemon_integration` with one Rust test thread.
 Executable product contracts:
 
 ```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd
+NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
 Development scripts and site:
@@ -80,33 +90,15 @@ prove product behavior.
 `.github/workflows/ci.yml` currently has:
 
 - `quality-gate`: formatting, LOC/helper checks, development scripts, site,
-  Clippy, and library unit tests;
+  Clippy, library unit tests, and hermetic real-binary integration;
 - `local-relay-integration`: pinned `nak` and the plain local relay suite;
-- `bdd-acceptance`: pinned Croissant/Go/`nak` and deterministic BDD.
+- `behavior-contracts`: pinned Croissant/Go/`nak` and the narrow deterministic
+  Cucumber contract suite.
 
 The local NIP-29 `daemon_integration` recipe is not currently a separate CI
 job. Do not report it as CI-covered unless it was explicitly run.
 
-## Known hermetic integration gap
-
-`tests/help.rs` and `tests/install_standalone.rs` are compiled by all-target
-Clippy but are not executed by a named current `just` or CI test recipe. When
-changing those surfaces, run:
-
-```sh
-cargo test --test help
-cargo test --test install_standalone
-```
-
-This is a documented gap, not a claim that the recipes have been fixed.
-
 ## Live checks
-
-Live BDD:
-
-```sh
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd-live
-```
 
 Relay probes:
 
@@ -123,6 +115,10 @@ MOSAICO_NIP29_RELAY=wss://intentional-relay just test-live-seed-validation
 
 These may publish public disposable state. Run them only against an explicitly
 chosen relay and report that choice.
+
+Real-provider transport/auth checks run through the `mosaico-dev` live-lab
+workflow. Agent capability evaluations and long seeded schedule campaigns are
+separate evidence families; they do not run through Cucumber.
 
 ## Focused development
 

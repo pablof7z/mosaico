@@ -94,7 +94,8 @@ Assert product-relevant process invariants:
 - cleanup leaves no owned process or socket.
 
 Detailed race mechanics belong in integration tests. Product-readable outcomes
-belong in BDD when operators or agents depend on them.
+belong in the small black-box contract suite only when they pass its admission
+rule. Schedule permutations belong in seeded fault tests.
 
 ## Failure artifacts
 
@@ -110,7 +111,7 @@ status, and relevant logs. Scrub Nostr secrets and provider credentials.
 ```sh
 just test-local-relay
 NIP29_RELAY_BIN=/absolute/path/to/croissant just test-local-nip29
-NIP29_RELAY_BIN=/absolute/path/to/croissant just test-bdd
+NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
 Use the narrowest command while developing, then run every owning deterministic

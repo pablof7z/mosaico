@@ -5,13 +5,6 @@ use std::time::Duration;
 use super::{MosaicoWorld, RelayFixture};
 
 impl MosaicoWorld {
-    pub fn isolated_unconfigured(&mut self) {
-        self.ensure_sandbox();
-        self.add_backend("local", false)
-            .expect("create unconfigured backend");
-        self.current_backend = Some("local".to_string());
-    }
-
     pub fn isolated_with_nak(&mut self) {
         self.ensure_sandbox();
         let root = self.root().to_path_buf();

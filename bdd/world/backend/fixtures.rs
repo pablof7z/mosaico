@@ -63,14 +63,6 @@ impl Backend {
         Ok(public)
     }
 
-    pub fn harness_argv(&self) -> Result<Vec<String>> {
-        let path = self.mosaico_home.join("harness-argv");
-        wait_for_file(&path);
-        let argv = std::fs::read_to_string(&path)
-            .with_context(|| format!("read harness argv capture {}", path.display()))?;
-        Ok(argv.lines().map(str::to_owned).collect())
-    }
-
     pub fn harness_pubkey(&self) -> Result<String> {
         let path = self.mosaico_home.join("harness-pubkey");
         wait_for_file(&path);
@@ -84,32 +76,22 @@ impl Backend {
         std::fs::read_to_string(self.mosaico_home.join("harness-input")).unwrap_or_default()
     }
 
-    pub fn legacy_terminal_host_was_invoked(&self) -> bool {
-        self.mosaico_home.join("legacy-host-invoked").exists()
-    }
-
     pub(super) fn install_shims(&self) -> Result<()> {
         let script = r#"#!/bin/sh
 if [ "${1:-}" = "--version" ]; then
   echo 1.99.0
   exit 0
 fi
-printf '%s\n' "$@" > "${MOSAICO_HOME}/harness-argv"
 printf '%s\n' "${MOSAICO_PUBKEY:-}" > "${MOSAICO_HOME}/harness-pubkey"
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "${MOSAICO_HOME}/harness-input"
 done
-"#;
-        let forbidden_host = r#"#!/bin/sh
-touch "${MOSAICO_HOME}/legacy-host-invoked"
-exit 97
 "#;
         for bin in [self.home.join("bin"), self.home.join(".local/bin")] {
             std::fs::create_dir_all(&bin)?;
             for name in ["claude", "codex", "opencode", "grok", "goose", "hermes"] {
                 write_executable(&bin.join(name), script)?;
             }
-            write_executable(&bin.join("tmux"), forbidden_host)?;
         }
         Ok(())
     }

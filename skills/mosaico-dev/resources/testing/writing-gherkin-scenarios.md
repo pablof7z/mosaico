@@ -1,53 +1,43 @@
-# Writing Gherkin scenarios
+# Writing admitted Gherkin scenarios
 
-Feature prose is a durable product contract. An agent should be able to review
-it without knowing Mosaico's Rust module layout.
+Write Gherkin only after a claim passes the admission rule in [BDD and
+deterministic behavior contracts](bdd.md).
 
 ## Shape
 
-Use:
+- `Feature`: one coherent load-bearing product capability or invariant.
+- `Scenario`: one concrete example that distinguishes a rule.
+- `Given`: relevant externally meaningful starting state.
+- `When`: the causal operator, agent, relay, or lifecycle event.
+- `Then`: public or independent consequences.
 
-- `Feature` for one coherent product capability or invariant;
-- `Scenario` for one concrete example of a rule;
-- `Given` for relevant starting state;
-- `When` for the event or decision under examination;
-- `Then` for observable consequences;
-- `And` only when it continues the same semantic role.
-
-Prefer one causal `When`. A lifecycle scenario may contain a second `When` when
-the intermediate result becomes the explicit state for the next action, but do
-not turn a scenario into an operator script.
+Prefer one causal `When`. Do not turn scenarios into operator scripts.
 
 ## Vocabulary
 
-Use Mosaico product nouns:
+Use current Mosaico product nouns:
 
 - operator, agent, backend, session, workspace, channel;
-- message, addressed work, membership, public identity;
+- addressed work, membership, public identity;
 - native harness, relay, diagnostic, visible result.
 
-Avoid implementation nouns unless that surface is itself the public contract:
+Avoid Rust functions, SQLite tables, helper names, private RPC handlers,
+retired vocabulary, and implementation layout. Protocol kinds may appear only
+when the wire contract itself is public and meaningful.
 
-- Rust function and module names;
-- SQLite tables and columns;
-- private daemon handlers;
-- helper filenames;
-- internal task or channel types.
+## Admission review
 
-Protocol kinds may appear when relay protocol behavior is the contract. Prefer
-“root channel metadata” over `kind:39000` when the number adds no meaning.
+Before adding a file or scenario, record:
 
-## Good scenario test
+1. the product promise;
+2. why a Rust contract alone lacks authority or durable clarity;
+3. the deterministic fixture boundary;
+4. the public/independent oracle;
+5. the expensive failure it prevents;
+6. the exclusive step glue it introduces.
 
-A scenario is ready when:
-
-1. its title states the distinguishing outcome;
-2. every `Given` affects the rule;
-3. the `When` is an operator, agent, or external event;
-4. each `Then` is visible through a supported or independent witness;
-5. it remains meaningful if implementation modules are rewritten;
-6. it runs independently from every other scenario;
-7. it contains no secret material.
+Reject the scenario if it is an adapter matrix, schedule permutation,
+capability evaluation, live check, issue plan, known failure, or tombstone.
 
 ## Example
 
@@ -64,71 +54,42 @@ Scenario: A workspace opened on one backend appears on another
   And no filesystem state is shared between the backends
 ```
 
-The independent relay witness and isolated filesystems distinguish fabric
-discovery from accidental local sharing.
+The second `When` is justified because relay publication becomes the explicit
+state observed by another isolated product boundary.
 
-## Negative and must-never examples
+## Negative contracts
 
-Use negative scenarios for high-cost boundaries, not every rejected input.
-Good candidates include:
+Use `@must-never` only for current, high-cost safety outcomes:
 
-- hooks never start backend infrastructure;
-- peer text never gains host authority;
-- addressed work never silently disappears;
-- secrets never render publicly;
-- path resolution never mints a phantom channel.
+- peer input cannot gain host authority;
+- work cannot silently lose all durable state;
+- secrets cannot render publicly;
+- hooks cannot start backend infrastructure.
 
-Put parser rejection permutations in unit or contract tests. Keep one BDD
-example when the rejection itself is a stable product promise.
+Do not use negative scenarios to memorialize removed features, aliases, or
+implementations.
 
 ## Scenario outlines
 
-Use `Scenario Outline` when every row demonstrates the same rule and the
-differences are product-relevant. Native profile selectors across Claude,
-Codex, and Hermes can form one rule if each row expects the same lifecycle
-contract.
-
-Do not use an outline to generate a cross-product of transports, errors, flags,
-and internal states. Cover the rule's equivalence classes below the acceptance
-layer.
+An adapter or provider matrix belongs in a typed conformance suite, not a
+Gherkin outline. Use an outline only when several product-relevant examples of
+the same outward rule remain readable and each row earns acceptance-level
+evidence.
 
 ## Step vocabulary
 
-Steps should express reusable domain actions, not generic automation:
+Steps express domain actions:
 
 - good: `the operator addresses that agent with "review this"`
-- weak: `I run a channel-send command`
+- weak: `I run command "mosaico channel send ..."`
 - forbidden: `the test calls operator_kind9_to_offline`
 
-Keep the vocabulary closed and intentional. Reuse a step when its domain
-meaning is identical. Do not force reuse by adding ambiguous parameters or
-branching behavior to one step.
+Keep vocabulary small and closed. Reuse a step only when its domain meaning is
+identical. Remove exclusive steps when their last admitted scenario leaves.
 
-Step definitions may perform complex setup, but the world must own all created
-state and processes. Assertions should expose the actual witness in failure
-output.
+## Committed-state rule
 
-## Tag discipline
-
-Apply tags to communicate truth and fixture needs, not organization alone:
-
-- `@croissant` for real local NIP-29 semantics;
-- `@must-never` for a deterministic safety invariant;
-- `@live` for real credentials/public infrastructure;
-- `@designed @issue-N` for agreed unimplemented behavior;
-- `@wip @issue-N` for a known failing built behavior.
-
-Never use `@wip` as a temporary convenience while developing a scenario. Run
-the focused scenario locally. Commit an exclusion only for a real open bug with
-a behavior-specific issue.
-
-## Common rewrites
-
-- “Then the sessions table has one row” becomes “Then the agent is live under
-  the same public identity with no sibling.”
-- “When the management handler parses list” becomes “When the operator sends
-  management command `list sessions`.”
-- “Then spawn_args equals the vector” becomes “Then the Claude process receives
-  exactly the bundle arguments and profile selector.”
-- “Then the test succeeds” becomes the public or independent fact that defines
-  success.
+Every committed scenario runs in the deterministic suite. Do not commit
+`@designed`, `@wip`, `@live`, issue-tracking, or historical-migration tags.
+GitHub owns plans; live labs own external compatibility; the feature tree owns
+only executable current contracts.

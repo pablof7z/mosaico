@@ -1,6 +1,7 @@
 # Change and regression workflow
 
-Mosaico changes begin with executable claims. Production code follows.
+Mosaico changes begin with behavior contracts and authoritative oracles.
+Production code follows.
 
 ## Default agent handoff
 
@@ -8,7 +9,8 @@ The design or architecture agent:
 
 1. states the behavior and why it matters;
 2. chooses the narrowest authoritative witness;
-3. writes the failing BDD, unit, contract, or architecture claim;
+3. writes the failing unit/property, adapter, black-box, fault, evaluation, or
+   architecture oracle;
 4. proves the failure is caused by the missing or broken behavior;
 5. hands the claim and relevant evidence to a separate implementation agent.
 
@@ -20,7 +22,9 @@ The implementation agent:
 4. runs focused tests, then all owning suites;
 5. returns evidence, artifacts, and any challenge to the original claim.
 
-The designer reviews whether green still means the intended behavior.
+An adversarial agent then generates contrast cases, failure schedules, and
+shortcut implementations that might falsely pass. The designer reviews whether
+green still means the intended behavior.
 
 If only one agent is available, complete and review the claim phase before
 editing production code. Do not author the expected result around the finished
@@ -38,8 +42,8 @@ An implementation agent should challenge a test when it:
 - conflicts with a stronger invariant.
 
 The challenge must include concrete source/runtime evidence and a replacement
-claim or observer. Do not silently loosen equality, remove a negative
-assertion, add a sleep, or mark the scenario `@wip`.
+claim or oracle. Do not silently loosen equality, remove a negative assertion,
+add a sleep, or exclude a failing contract.
 
 ## New product behavior
 
@@ -50,15 +54,18 @@ Start with examples that distinguish the rule:
 - relevant must-never failure;
 - identity, authority, durability, and secrecy effects.
 
-Write BDD when this is a stable operator/agent promise. Add unit and contract
-tests for the local policies and protocol shapes the implementation needs.
+Use Cucumber only if the stable deterministic product promise passes every
+admission rule. Add unit/property and adapter tests for local policies and
+technical semantics. Define evaluation datasets instead when the desired
+behavior depends on a model choosing among several valid trajectories.
 
 ## Bug fix
 
 1. Reproduce the causal defect at the narrowest honest layer.
 2. Confirm the test fails on the current defect.
-3. Determine whether an existing feature scenario should also have failed.
-4. If the product contract was absent, add the missing BDD example.
+3. Determine whether an existing broader contract, fault invariant, or
+   capability evaluation should also have caught it.
+4. Add broader evidence only when that evidence family owns a missing claim.
 5. Implement without weakening either claim.
 6. Run adjacent suites that exercise the same authority boundary.
 
@@ -67,7 +74,7 @@ contract normally needs only the causal unit regression.
 
 ## Refactor
 
-Existing acceptance contracts should remain unchanged. Add characterization
+Existing behavior contracts should remain unchanged. Add characterization
 tests only where the current technical seam is unclear or risky.
 
 Refactoring is successful when:
@@ -85,7 +92,7 @@ Do not preserve a source layout merely because tests assert private calls.
 When a feature, command, option, compatibility surface, or behavior is
 deliberately removed:
 
-1. Delete its BDD scenarios and exclusive step definitions.
+1. Delete its Gherkin scenarios and exclusive step definitions.
 2. Delete its unit, integration, contract, and process tests.
 3. Delete fixtures, doubles, snapshots, and helpers that exist only for it.
 4. Keep or rewrite a nearby test only when it expresses an independent current
@@ -100,8 +107,8 @@ behavior.
 
 Write exact accepted and rejected cases for the new current contract. Delete
 tests and fixtures for any deliberately removed surface in the same change.
-Add or update BDD if operators or agents observe a different current command,
-error, identity, or lifecycle.
+Add or update a black-box behavior contract only when the new current outward
+claim passes its admission rule.
 
 Mosaico does not retain backwards compatibility. Tests specify the current
 surface rather than memorializing stale input.
@@ -110,25 +117,32 @@ surface rather than memorializing stale input.
 
 Express the product promise separately from the schedule:
 
-- BDD: concurrent clients still observe one daemon-owned backend.
-- Integration/process test: spawn race, lock, socket, and writer mechanics.
+- black-box contract, if admitted: clients observe one daemon-owned backend;
+- integration/process test: spawn, lock, socket, and writer mechanics;
+- seeded schedule test: varied client ordering, death, and restart points.
 
-Use bounded stress where it increases confidence. Never make a precise thread
-interleaving the contract unless the protocol defines it.
+Use bounded stress to search, then preserve failures as replayable schedules.
+Never make a precise thread interleaving the contract unless the protocol
+defines it.
 
-## Excluded scenario lifecycle
+## Emergent agent behavior
 
-`@designed` and `@wip` scenarios must reference an open, behavior-specific
-issue. An umbrella implementation issue is not durable ownership.
+Before implementation, define:
 
-Closing the issue requires one of:
+- controlled tasks and repositories;
+- no-Mosaico and relevant feature conditions;
+- repetitions, models/harnesses, and budgets;
+- outcome, trajectory, cost, and latency metrics;
+- independent scoring and artifact retention.
 
-- remove the exclusion and prove the scenario passes;
-- move the scenario to a different valid open issue with justification;
-- correct or remove a contract that is no longer intended.
+Do not claim that one successful agent conversation proves a capability.
 
-Current use of `@issue-704` by several designed product gaps is known debt, not
-a template.
+## Committed Cucumber state
+
+Every scenario on `master` executes deterministically. Future behavior and
+known bugs remain in GitHub Issues until implementation work begins. Do not use
+`@designed`, `@wip`, `@live`, historical migration, or issue tags as a second
+planning catalog.
 
 ## Completion evidence
 
@@ -136,7 +150,9 @@ Handoff includes:
 
 - claims added or changed;
 - focused failing-before/passing-after evidence;
+- adversarial cases and oracle challenges considered;
 - owning deterministic suites run;
+- seeds/replay commands or evaluation run sets when relevant;
 - live/probe evidence only when relevant;
 - retained artifact paths for failures;
 - explicit unrun suites and dependencies;
