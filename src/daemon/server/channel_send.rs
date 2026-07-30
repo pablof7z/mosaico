@@ -7,6 +7,7 @@ use anyhow::bail;
 
 mod body;
 mod mention_guard;
+mod params;
 mod react;
 mod recipient;
 mod recipient_notice;
@@ -15,13 +16,15 @@ mod self_target;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::daemon::server) use params::caller_params;
 pub(in crate::daemon::server) use react::rpc_channel_react;
 pub(in crate::daemon::server) use recipient::resolve_recipient;
 use recipient::TaggedRecipient;
 pub(in crate::daemon::server) use reply::rpc_channel_reply;
 
+const COORDINATION_GUIDE: &str = "~/.agents/skills/mosaico/references/coordination-guide.md";
+
 #[derive(serde::Deserialize, Default)]
-#[allow(dead_code)]
 pub(in crate::daemon::server) struct ChannelSendParams {
     message: String,
     #[serde(default)]
@@ -31,17 +34,31 @@ pub(in crate::daemon::server) struct ChannelSendParams {
     #[serde(default)]
     force: bool,
     #[serde(default)]
-    harness_session: Option<String>,
-    #[serde(default)]
-    pty_session: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    agent: Option<String>,
-    #[serde(default)]
     channel: Option<String>,
-    #[serde(default)]
-    long_message: bool,
+}
+
+fn parse_params(params: &serde_json::Value) -> Result<ChannelSendParams> {
+    self::params::validate_send(params)?;
+    serde_json::from_value(params.clone()).context("parsing channel_send params")
+}
+
+fn validate_authored_message(message: &str) -> Result<()> {
+    if message.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT {
+        bail!(
+            "your message is too long; keep authored chat under \
+             {CHANNEL_MESSAGE_CHAR_LIMIT} characters. Put detailed material in a file and send \
+             it with --attach FILE. Read {COORDINATION_GUIDE}"
+        );
+    }
+    Ok(())
+}
+
+fn prepare_outbound_message(
+    message: &str,
+    attachments: &[crate::attachment::Attachment],
+) -> Result<String> {
+    validate_authored_message(message)?;
+    crate::attachment::prepare_message(message, attachments)
 }
 
 fn chat_publish_scope(
@@ -59,8 +76,8 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let p: ChannelSendParams =
-        serde_json::from_value(params.clone()).context("parsing channel_send params")?;
+    let p = parse_params(params)?;
+    let prepared_message = prepare_outbound_message(&p.message, &p.attachments)?;
     mention_guard::check(&p.message, &p.tags, p.force)?;
     let anchor = CallerAnchor::from_params(params);
     let rec = resolve_session(state, &anchor)?;
@@ -124,24 +141,15 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         tagged.first().map(|target| target.channel.as_str()),
     );
 
-    // Attachments and chat are signed by the same session identity. Uploads
-    // finish before the NIP-29 event is built, so all consumers see final URLs.
+    // The authored text limit and every label check have passed before the
+    // first upload, so an overlong/unsafe request cannot orphan a Blossom blob.
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
     let from_pubkey = instance.pubkey.clone();
-    let expanded_message = crate::attachment::upload_and_expand(
-        &p.message,
-        &p.attachments,
-        &state.cfg.relays,
-        &chat_signing_keys,
-    )
-    .await?;
-    let body_to_send = body::format_tagged_body(&expanded_message, &tagged)?;
-    if !p.long_message && body_to_send.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT {
-        bail!(
-            "your message is too long; keep it under {CHANNEL_MESSAGE_CHAR_LIMIT} characters or pass --long-message"
-        );
-    }
+    let uploaded_attachments =
+        crate::attachment::upload_all(&p.attachments, &state.cfg.relays, &chat_signing_keys)
+            .await?;
+    let body_to_send = body::format_tagged_body(&prepared_message, &tagged)?;
     // Local visibility and inbox routing must use the same channel as the signed
     // event's `h` tag. Otherwise relay readback of our own event can disagree
     // with the locally-seeded row and the primary-key de-dupe preserves the wrong
@@ -153,6 +161,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         channel: publish_scope.clone(),
         body: body_to_send.clone(),
         mentioned_pubkeys: mentioned_pubkeys.clone(),
+        attachments: uploaded_attachments.clone(),
     };
     let published = state
         .provider
@@ -179,6 +188,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             body: &body_to_send,
             created_at,
             target_pubkeys: &mentioned_pubkeys,
+            attachments: &uploaded_attachments,
         },
     )?;
 

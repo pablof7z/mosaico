@@ -1,10 +1,10 @@
+use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, TagKind, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use url::Url;
 
@@ -19,39 +19,45 @@ pub(crate) struct Attachment {
 #[derive(Deserialize)]
 struct BlobDescriptor {
     url: String,
-    sha256: String,
-    size: u64,
-    #[serde(rename = "type")]
-    mime_type: String,
-    uploaded: u64,
 }
 
 pub(crate) fn parse_spec(raw: &str) -> std::result::Result<Attachment, String> {
-    let (label, path) = raw
-        .split_once('=')
-        .ok_or_else(|| "attachment must use LABEL=FILE".to_string())?;
-    validate_label(label)?;
-    if path.is_empty() {
+    if raw.is_empty() {
         return Err("attachment file path must not be empty".to_string());
     }
-    Ok(Attachment {
-        label: label.to_string(),
-        path: PathBuf::from(path),
-    })
+    let path = PathBuf::from(raw);
+    let label = infer_label(&path)?;
+    Ok(Attachment { label, path })
 }
 
-fn validate_label(label: &str) -> std::result::Result<(), String> {
-    if label.is_empty()
-        || !label
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-    {
-        return Err(
-            "attachment label must contain only ASCII letters, digits, '.', '-', or '_'"
-                .to_string(),
-        );
-    }
-    Ok(())
+fn infer_label(path: &Path) -> std::result::Result<String, String> {
+    let label_path = if path.is_absolute() {
+        PathBuf::from(
+            path.file_name()
+                .ok_or_else(|| "attachment path must name a file".to_string())?,
+        )
+    } else {
+        let mut clean = PathBuf::new();
+        for part in path.components() {
+            match part {
+                Component::CurDir => {}
+                Component::Normal(value) => clean.push(value),
+                Component::ParentDir => {
+                    return Err("attachment path must not contain '..'".to_string())
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err("attachment label must be a safe relative path".to_string())
+                }
+            }
+        }
+        clean
+    };
+    let label = label_path
+        .to_str()
+        .ok_or_else(|| "attachment path must have a UTF-8 label".to_string())?
+        .to_string();
+    crate::attachment_contract::validate_label(&label).map_err(|error| error.to_string())?;
+    Ok(label)
 }
 
 pub(crate) fn canonicalize(mut attachments: Vec<Attachment>) -> Result<Vec<Attachment>> {
@@ -74,15 +80,31 @@ pub(crate) fn canonicalize(mut attachments: Vec<Attachment>) -> Result<Vec<Attac
     Ok(attachments)
 }
 
-pub(crate) async fn upload_and_expand(
-    message: &str,
+pub(crate) fn prepare_message(message: &str, attachments: &[Attachment]) -> Result<String> {
+    validate(attachments)?;
+    let mut prepared = message.to_string();
+    let missing = attachments
+        .iter()
+        .filter(|attachment| !message.contains(&format!("[{}]", attachment.label)))
+        .map(|attachment| format!("[{}]", attachment.label))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        if !prepared.is_empty() {
+            prepared.push_str("\n\n");
+        }
+        prepared.push_str(&missing.join("\n"));
+    }
+    Ok(prepared)
+}
+
+pub(crate) async fn upload_all(
     attachments: &[Attachment],
     relays: &[String],
     keys: &Keys,
-) -> Result<String> {
-    validate(message, attachments)?;
+) -> Result<Vec<ChatAttachment>> {
+    validate(attachments)?;
     if attachments.is_empty() {
-        return Ok(message.to_string());
+        return Ok(Vec::new());
     }
 
     let server = blossom_server(relays)?;
@@ -91,30 +113,29 @@ pub(crate) async fn upload_and_expand(
         .timeout(Duration::from_secs(5 * 60))
         .build()
         .context("building Blossom HTTP client")?;
-    let mut expanded = message.to_string();
+    let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
         let public_url = upload(&client, &server, attachment, keys).await?;
-        expanded = expanded.replace(&format!("[{}]", attachment.label), public_url.as_str());
+        uploaded.push(ChatAttachment {
+            url: public_url.into(),
+            label: attachment.label.clone(),
+        });
     }
-    Ok(expanded)
+    crate::attachment_contract::validate_attachments(&uploaded)?;
+    Ok(uploaded)
 }
 
-fn validate(message: &str, attachments: &[Attachment]) -> Result<()> {
-    let mut labels = HashSet::new();
+fn validate(attachments: &[Attachment]) -> Result<()> {
     for attachment in attachments {
-        validate_label(&attachment.label).map_err(anyhow::Error::msg)?;
         if attachment.path.as_os_str().is_empty() {
             bail!("attachment [{}] has an empty file path", attachment.label);
         }
-        if !labels.insert(attachment.label.as_str()) {
-            bail!("duplicate attachment label [{}]", attachment.label);
-        }
-        let marker = format!("[{}]", attachment.label);
-        if !message.contains(&marker) {
-            bail!("message does not reference attachment {marker}");
-        }
     }
-    Ok(())
+    crate::attachment_contract::validate_labels(
+        attachments
+            .iter()
+            .map(|attachment| attachment.label.as_str()),
+    )
 }
 
 fn blossom_server(relays: &[String]) -> Result<Url> {
@@ -151,10 +172,6 @@ async fn upload(
             attachment.path.display()
         )
     })?;
-    if bytes.is_empty() {
-        bail!("attachment [{}] is empty", attachment.label);
-    }
-    let size = bytes.len();
     let hash = format!("{:x}", Sha256::digest(&bytes));
     let auth = authorization(keys, server, &hash)?;
     let upload_url = server
@@ -191,35 +208,11 @@ async fn upload(
             attachment.label
         )
     })?;
-    if !descriptor.sha256.eq_ignore_ascii_case(&hash) {
-        bail!(
-            "Blossom response hash mismatch for attachment [{}]",
-            attachment.label
-        );
-    }
-    if descriptor.size != size as u64 {
-        bail!(
-            "Blossom response size mismatch for attachment [{}]",
-            attachment.label
-        );
-    }
-    if descriptor.mime_type.trim().is_empty() || descriptor.uploaded == 0 {
-        bail!(
-            "Blossom returned an incomplete descriptor for attachment [{}]",
-            attachment.label
-        );
-    }
     let public_url = Url::parse(&descriptor.url)
         .with_context(|| format!("invalid Blossom URL for attachment [{}]", attachment.label))?;
     if !matches!(public_url.scheme(), "http" | "https") {
         bail!(
             "Blossom returned a non-HTTP URL for attachment [{}]",
-            attachment.label
-        );
-    }
-    if !public_url.path().to_ascii_lowercase().contains(&hash) {
-        bail!(
-            "Blossom URL does not contain the blob hash for attachment [{}]",
             attachment.label
         );
     }

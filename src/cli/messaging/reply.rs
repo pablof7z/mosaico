@@ -5,13 +5,11 @@ pub(in crate::cli) async fn channel_reply(
     message: String,
     attachments: Vec<crate::attachment::Attachment>,
     session: Option<String>,
-    long_message: bool,
 ) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "id": id,
         "message": message,
         "attachments": attachments,
-        "long_message": long_message,
         "session": session,
     }));
     let v = daemon_call_async("channel_reply", params).await?;

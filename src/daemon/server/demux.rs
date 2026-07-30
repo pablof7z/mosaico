@@ -121,6 +121,7 @@ fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
                             body: &chat.body,
                             created_at: event.created_at.as_secs(),
                             target_pubkeys: &chat.mentioned_pubkeys,
+                            attachments: &chat.attachments,
                         },
                     ) {
                         Ok(report) if !report.owned_targets.is_empty() => {

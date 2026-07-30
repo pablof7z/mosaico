@@ -3,8 +3,8 @@
 //!
 //! Rather than re-implement chat publishing (mention resolution, p-tag, local
 //! doorbell delivery), this synthesizes a `channel_send` call from the SAME caller
-//! anchors the invite ran under, prefixing the body with the brought-online
-//! session's `@sessionCode-agent` handle so `channel_send` p-tags it.
+//! anchors the invite ran under and passes the brought-online session's
+//! `sessionCode-agent` handle through the canonical tag field.
 
 use crate::daemon::server::DaemonState;
 use std::sync::Arc;
@@ -20,18 +20,13 @@ pub(super) async fn post_add_message(
     session_handle: &str,
     message: &str,
 ) -> Option<String> {
-    let mut chat = params.clone();
+    let mut chat = crate::daemon::server::channel_send::caller_params(params);
     let Some(obj) = chat.as_object_mut() else {
         return Some("invite params were not an object".to_string());
     };
     obj.insert("channel".into(), serde_json::json!(channel_h));
-    obj.insert(
-        "message".into(),
-        serde_json::json!(format!("@{session_handle} {message}")),
-    );
-    // The mention prefix can push a short message over the soft cap; the operator
-    // already opted into posting it, so never reject on length here.
-    obj.insert("long_message".into(), serde_json::json!(true));
+    obj.insert("message".into(), serde_json::json!(message));
+    obj.insert("tags".into(), serde_json::json!([session_handle]));
     match crate::daemon::server::channel_send::rpc_channel_send(state, &chat).await {
         Ok(_) => None,
         Err(e) => Some(format!("{e:#}")),

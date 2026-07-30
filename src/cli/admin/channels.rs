@@ -46,7 +46,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             force,
             channel,
             session,
-            long_message,
             wait,
         } => {
             let message =
@@ -59,7 +58,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 force,
                 channel,
                 session,
-                long_message,
                 wait,
             })
             .await?;
@@ -70,13 +68,11 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             message_flag,
             attachments,
             session,
-            long_message,
         } => {
             let message =
                 crate::cli::messaging::resolve_send_message_body(message_flag.or(message))?;
             let attachments = crate::attachment::canonicalize(attachments)?;
-            crate::cli::messaging::channel_reply(id, message, attachments, session, long_message)
-                .await?;
+            crate::cli::messaging::channel_reply(id, message, attachments, session).await?;
         }
         ChannelAction::React { id, emoji, session } => {
             crate::cli::messaging::channel_react(id, emoji, session).await?;

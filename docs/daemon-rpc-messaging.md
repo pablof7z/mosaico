@@ -66,7 +66,7 @@ also returns the grouped result as structured content.
 ```jsonc
 params: {"message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "channel": "/root/child"|null, "long_message": false}
+         "channel": "/root/child"|null}
 result: {"event_id": "hex", "channel": "/root/child",
          "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
          "recipient_reminders": []}
@@ -80,9 +80,11 @@ stopped, route-less, or revoked. Locality selects the executor; it does not
 decide whether the relay-accepted mention is valid. Remote p-tags cause no
 local action. Untagged channel chat remains ambient awareness.
 
-Attachment labels must appear as `[label]`. The daemon uploads and verifies each
-blob before publishing, then replaces markers with public URLs. Invalid,
-duplicate, unused, mismatched, or failed attachments abort without publishing.
+Authored chat is limited to 600 characters and is rejected before any attachment
+upload. The daemon leaves `[label]` markers in content, appends missing markers
+as trailing lines, uploads each file, and adds `["attachment", URL, LABEL]` to
+the signed kind:9. Duplicate labels, unsafe relative labels, and failed uploads
+abort without publishing.
 
 ## `channel_wait`
 
@@ -110,8 +112,7 @@ Timeout is a successful RPC outcome.
 
 ```jsonc
 params: {"id": "event-id-or-prefix", "message": "see [report]",
-         "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "long_message": false}
+         "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
 result: {"event_id": "hex", "reply_to": "hex",
          "channel": "/root/child", "mentioned_pubkey": "hex",
          "recipient_reminders": []}

@@ -231,6 +231,7 @@ fn direct_parking_targets_exact_pubkey_and_skips_sender() {
         channel: "proj".into(),
         body: "ambient".into(),
         mentioned_pubkeys: Vec::new(),
+        attachments: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &ambient_event));
     assert!(!route_for_test(&store, &ambient_event, &ambient_chat));
@@ -251,6 +252,7 @@ fn direct_parking_targets_exact_pubkey_and_skips_sender() {
         channel: "proj".into(),
         body: "ship it".into(),
         mentioned_pubkeys: vec![receiver_pk.clone()],
+        attachments: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &mention_event));
     assert!(route_for_test(&store, &mention_event, &mention_chat));
@@ -294,6 +296,7 @@ fn direct_parking_does_not_substitute_a_sibling_ordinal() {
         channel: "proj".into(),
         body: "hey one ordinal".into(),
         mentioned_pubkeys: vec![ord0_pk.clone()],
+        attachments: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(route_for_test(&store, &event, &chat));
@@ -337,6 +340,7 @@ fn direct_parking_survives_a_stopped_exact_session() {
         channel: "proj".into(),
         body: "resume this exact session".into(),
         mentioned_pubkeys: vec![target_pk.clone()],
+        attachments: Vec::new(),
     };
     assert!(Nip29Materializer::materialize_event(&store, &event));
     assert!(route_for_test(&store, &event, &chat));

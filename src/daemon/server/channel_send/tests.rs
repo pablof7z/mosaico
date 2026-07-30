@@ -263,3 +263,34 @@ fn local_chat_cache_scope_matches_signed_event_target() {
         "mentioned-room"
     );
 }
+
+#[test]
+fn authored_limit_precedes_attachment_processing_and_guides_to_files() {
+    let unsafe_attachment = crate::attachment::Attachment {
+        label: "../escape".into(),
+        path: "ignored".into(),
+    };
+    let error = prepare_outbound_message(
+        &"x".repeat(CHANNEL_MESSAGE_CHAR_LIMIT + 1),
+        &[unsafe_attachment],
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(error.contains("too long"), "{error}");
+    assert!(error.contains("--attach FILE"), "{error}");
+    assert!(error.contains("coordination-guide.md"), "{error}");
+    assert!(validate_authored_message(&"x".repeat(CHANNEL_MESSAGE_CHAR_LIMIT)).is_ok());
+}
+
+#[test]
+fn unknown_channel_send_rpc_field_is_rejected() {
+    let error = match parse_params(&serde_json::json!({
+        "message": "hello",
+        "long_message": true,
+    })) {
+        Ok(_) => panic!("unknown channel_send field was accepted"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("channel_send received unknown field \"long_message\""));
+}

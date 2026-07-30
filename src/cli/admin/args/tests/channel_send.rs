@@ -13,9 +13,9 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "--tag",
         "agent2",
         "--attach",
-        "diagram=out/diagram.png",
+        "./out/diagram.png",
         "--attach",
-        "logs=out/build.log",
+        "./out/build.log",
         "--force",
         "--channel",
         "/ops",
@@ -42,12 +42,12 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         } => {
             assert_eq!(message.as_deref(), Some("hello"));
             assert_eq!(attachments.len(), 2);
-            assert_eq!(attachments[0].label, "diagram");
+            assert_eq!(attachments[0].label, "out/diagram.png");
             assert_eq!(
                 attachments[0].path,
-                std::path::PathBuf::from("out/diagram.png")
+                std::path::PathBuf::from("./out/diagram.png")
             );
-            assert_eq!(attachments[1].label, "logs");
+            assert_eq!(attachments[1].label, "out/build.log");
             assert_eq!(tags, vec!["agent1", "agent2"]);
             assert!(force);
             assert_eq!(channel.as_deref(), Some("/ops"));
@@ -56,4 +56,20 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         }
         _ => panic!("expected channel send command"),
     }
+}
+
+#[test]
+fn rejects_removed_long_message_flag() {
+    let error = match crate::cli::args::Cli::try_parse_from([
+        "mosaico",
+        "channel",
+        "send",
+        "--message",
+        "hello",
+        "--long-message",
+    ]) {
+        Ok(_) => panic!("removed --long-message flag was accepted"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
 }

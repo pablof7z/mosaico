@@ -91,11 +91,11 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Upload a file to Blossom and replace every `[LABEL]` in the message
-        /// with its public URL. Repeat for multiple attachments.
+        /// Upload FILE to Blossom. Its supplied relative path is the bracket
+        /// label; absent labels are appended to the message. Repeat for files.
         #[arg(
             long = "attach",
-            value_name = "LABEL=FILE",
+            value_name = "FILE",
             value_parser = crate::attachment::parse_spec
         )]
         attachments: Vec<crate::attachment::Attachment>,
@@ -117,9 +117,6 @@ pub(in crate::cli) enum ChannelAction {
         /// PTY/harness process or root scan.
         #[arg(long)]
         session: Option<String>,
-        /// Allow publishing a message longer than the default 600-character cap.
-        #[arg(long)]
-        long_message: bool,
         /// Block for up to SECONDS until a correlated reply arrives.
         #[arg(long, value_name = "SECONDS", value_parser = crate::cli::messaging::parse_wait_seconds)]
         wait: Option<u64>,
@@ -133,11 +130,11 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Upload a file to Blossom and replace every `[LABEL]` in the message
-        /// with its public URL. Repeat for multiple attachments.
+        /// Upload FILE to Blossom. Its supplied relative path is the bracket
+        /// label; absent labels are appended to the message. Repeat for files.
         #[arg(
             long = "attach",
-            value_name = "LABEL=FILE",
+            value_name = "FILE",
             value_parser = crate::attachment::parse_spec
         )]
         attachments: Vec<crate::attachment::Attachment>,
@@ -145,9 +142,6 @@ pub(in crate::cli) enum ChannelAction {
         /// PTY/harness process or root scan.
         #[arg(long)]
         session: Option<String>,
-        /// Allow publishing a message longer than the default 600-character cap.
-        #[arg(long)]
-        long_message: bool,
     },
     /// React to a specific channel message with an emoji (a non-disruptive ACK).
     /// Unlike a chat reply, a reaction NEVER interrupts the target's turn — it

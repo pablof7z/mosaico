@@ -194,6 +194,7 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
         channel: channel.to_string(),
         body: body.to_string(),
         mentioned_pubkeys: vec![mentioned_pubkey.to_string()],
+        attachments: Vec::new(),
     };
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))

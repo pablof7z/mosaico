@@ -4,7 +4,7 @@
 //! |-------------|------|
 //! | Profile     | kind:0,     content `{"name": "sessionCode-agent"}`, `["host", host]`, optional `["agent-slug", slug]` and scoped live-agent `["workspace", root_h]`; backend profiles additionally carry `["backend"]`, repeated `["agent", slug, desc]`, and repeated `["workspace", root_h]` tags |
 //! | Status      | kind:30315, content = live activity (may be empty between turns), `["d", "status"]`, one or more `["h", channel]`, `["title", title]` (always), `["state", "working"\|"idle"\|"suspended"\|"offline"]`, `["state-since", ts]`, `["host", host]`, `["workspace", root-name]`, optional `["branch", branch]`, optional `["slug", slug]`, optional `["rel-cwd", rel]`, optional NIP-40 `["expiration", ts]` |
-//! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]` |
+//! | Chat        | kind:9,     `["h", channel]`, repeated `["p", mentioned_pubkey]`, repeated `["attachment", URL, LABEL]` |
 //!
 //! Status is the single self-contained per-agent signal: ONE kind:30315 event
 //! per author pubkey carries the whole canonical live state, the
@@ -25,7 +25,7 @@
 //! authority and are never written; only the **backend** management-key-signed kind:0 advertises
 //! `["agent", slug, desc]` tags (the host inventory for client add-agent pickers).
 
-use crate::domain::{AgentRef, ChatMessage, DomainEvent, Reaction, Status};
+use crate::domain::{AgentRef, ChatAttachment, ChatMessage, DomainEvent, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
 use nostr::*;
@@ -99,6 +99,22 @@ fn all_tag_values(event: &Event, name: &str) -> Vec<String> {
         .collect()
 }
 
+fn attachment_tags(event: &Event) -> Vec<ChatAttachment> {
+    let mut attachments = Vec::new();
+    for tag in event.tags.iter() {
+        let values = tag.as_slice();
+        if values.first().map(String::as_str) != Some("attachment") || values.len() != 3 {
+            continue;
+        }
+        let candidate = ChatAttachment {
+            url: values[1].clone(),
+            label: values[2].clone(),
+        };
+        crate::attachment_contract::try_push(&mut attachments, candidate);
+    }
+    attachments
+}
+
 fn channel_from_tags(event: &Event) -> Option<String> {
     first_tag(event, "h").map(String::from)
 }
@@ -155,10 +171,15 @@ impl Nip29WireCodec {
                 channel,
                 body,
                 mentioned_pubkeys,
+                attachments,
             }) => {
+                crate::attachment_contract::validate_attachments(attachments)?;
                 let mut tags = vec![h_tag(channel)?];
                 for pk in mentioned_pubkeys {
                     tags.push(tag(&["p", pk])?);
+                }
+                for attachment in attachments {
+                    tags.push(tag(&["attachment", &attachment.url, &attachment.label])?);
                 }
                 EventBuilder::new(kind(KIND_CHAT), body.clone())
                     .tags(tags)
@@ -215,6 +236,7 @@ impl Nip29WireCodec {
                 channel: channel_from_tags(event)?,
                 body: event.content.clone(),
                 mentioned_pubkeys: all_tag_values(event, "p"),
+                attachments: attachment_tags(event),
             })),
             KIND_REACTION => {
                 // A reaction MUST reference a target message via an `e` tag. A

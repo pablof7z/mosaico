@@ -121,8 +121,8 @@ pub(crate) const CODE_WORDS_B: [&str; 32] = [
 
 pub const CHAT_RENDER_WORD_LIMIT: usize = 100;
 
-/// `channel send` refuses to publish a message longer than this many characters
-/// unless the caller passes `--long-message`.
+/// Maximum authored chat text accepted by channel send/reply. Attachment labels
+/// appended by the daemon and addressing prefixes do not consume this budget.
 pub const CHANNEL_MESSAGE_CHAR_LIMIT: usize = 600;
 
 pub fn truncate_words(text: &str, limit: usize) -> (String, bool) {

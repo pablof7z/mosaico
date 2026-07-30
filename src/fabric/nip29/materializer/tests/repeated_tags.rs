@@ -26,6 +26,7 @@ fn parks_every_distinct_p_tag() {
         channel: "proj".into(),
         body: "both of you".into(),
         mentioned_pubkeys: vec![first_pk.clone(), second_pk.clone()],
+        attachments: Vec::new(),
     };
 
     assert!(Nip29Materializer::materialize_event(&store, &event));

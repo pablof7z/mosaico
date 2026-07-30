@@ -233,6 +233,7 @@ async fn publish_reply(
         channel: channel_h.to_string(),
         body: body.to_string(),
         mentioned_pubkeys: vec![requester.to_string()],
+        attachments: Vec::new(),
     };
     let record = OutboundChatRecord {
         channel_h: channel_h.to_string(),

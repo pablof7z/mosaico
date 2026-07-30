@@ -14,6 +14,7 @@ mod agent_count;
 pub(crate) mod agent_inventory;
 pub(crate) mod agent_xml;
 mod attachment;
+mod attachment_contract;
 mod channel_about;
 mod channel_name;
 mod channel_nudge;

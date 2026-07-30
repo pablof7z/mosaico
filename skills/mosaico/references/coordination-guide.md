@@ -44,23 +44,24 @@ independently addressable session in a specific workspace or channel.
 ## Attach Files Deliberately
 
 `channel send` and `channel reply` can upload files to the configured Blossom
-server. Use `--attach <label>=<file>` and include the exact `[<label>]` marker
-in the message; the marker becomes the uploaded file's public URL. Repeat
-`--attach` for multiple files. Labels may contain letters, digits, `.`, `-`,
-and `_`.
+server. Use repeatable `--attach FILE`. The supplied relative path becomes its
+bracket label after a leading `./` is removed, so `./1/screenshot.png` is
+`[1/screenshot.png]`. Absolute paths use their file name. Include that bracket
+label where the file belongs in your message; Mosaico appends any missing labels
+as trailing lines. The kind:9 keeps the bracket label in its content and carries
+the Blossom URL separately.
 
-Treat an attachment as shared outside the local filesystem. Do not attach
-secrets, credentials, or private material without explicit authorization. If a
-file is only local evidence, summarize it instead.
+Authored chat is capped at 600 characters. Put detailed findings, plans, logs,
+and other long material in a file and attach it instead of stretching chat.
 
 ```bash
 mosaico channel send --channel <channel> \
-  --attach report=./report.pdf \
-  --message "The review findings are in [report]."
+  --attach ./report.pdf \
+  --message "The review findings are in [report.pdf]."
 
 mosaico channel reply <message-id> \
-  --attach trace=./trace.json \
-  --message "The reproducer trace is [trace]."
+  --attach ./traces/reproducer.json \
+  --message "The reproducer trace is [traces/reproducer.json]."
 ```
 
 ## Replying to incoming messages
