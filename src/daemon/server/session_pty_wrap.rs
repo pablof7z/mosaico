@@ -151,7 +151,9 @@ pub(in crate::daemon::server) async fn rpc_session_pty_wrap(
         state,
         &rec,
         &resume_id,
-        crate::session_host::LaunchIntent::Interactive,
+        crate::session_host::ResumeRequest::without_args(
+            crate::session_host::LaunchIntent::Interactive,
+        ),
     )
     .await
     {

@@ -8,6 +8,22 @@ fn endpoint_ids_are_unique_within_the_same_process_and_second() {
     assert_ne!(first, second);
 }
 
+#[test]
+fn supervisor_uses_the_stable_current_executable_when_it_exists() {
+    let executable = std::env::current_exe().unwrap();
+    assert_eq!(supervisor_executable(executable.clone()), executable);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn deleted_daemon_binary_falls_back_to_proc_self_exe() {
+    let missing = std::path::PathBuf::from("/definitely/missing/mosaico (deleted)");
+    assert_eq!(
+        supervisor_executable(missing),
+        std::path::PathBuf::from("/proc/self/exe")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn generated_endpoint_stays_within_unix_socket_limits() {

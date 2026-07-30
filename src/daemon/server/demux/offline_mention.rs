@@ -101,7 +101,9 @@ pub(super) async fn handle(
                 state,
                 target,
                 &locator.locator_value,
-                crate::session_host::LaunchIntent::Managed,
+                crate::session_host::ResumeRequest::without_args(
+                    crate::session_host::LaunchIntent::Managed,
+                ),
             )
             .await
             {

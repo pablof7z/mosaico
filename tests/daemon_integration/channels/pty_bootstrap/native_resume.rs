@@ -58,7 +58,12 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         ("HOME", isolated_home.as_str()),
         ("XDG_DATA_HOME", data_home.as_str()),
     ];
-    let adopted = run_cli_with_env_in_dir(&home, &["resume", native_id], &env, &work_dir);
+    let adopted = run_cli_with_env_in_dir(
+        &home,
+        &["resume", native_id, "--", "--yolo"],
+        &env,
+        &work_dir,
+    );
     assert!(
         adopted.status.success(),
         "native adoption failed: {}",
@@ -84,7 +89,7 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         .expect("adopted PTY metadata");
     assert_eq!(
         metadata.command,
-        ["opencode", "forever", "--session", native_id]
+        ["opencode", "forever", "--session", native_id, "--yolo"]
     );
     let cleanup = PtyCleanup(metadata.id.clone());
 

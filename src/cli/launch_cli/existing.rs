@@ -2,16 +2,22 @@ use anyhow::{bail, Context, Result};
 use std::io::IsTerminal;
 
 pub(super) async fn launch_if_known(request: &super::args::LaunchRequest) -> Result<bool> {
-    if !is_plain_session_selector(request) {
+    if !can_select_existing_session(request) {
         return Ok(false);
     }
-    attach_or_resume(&request.agent).await
+    attach_or_resume(&request.agent, &request.extra_args).await
 }
 
-pub(in crate::cli) async fn attach_or_resume(selector: &str) -> Result<bool> {
+pub(in crate::cli) async fn attach_or_resume(
+    selector: &str,
+    extra_args: &[String],
+) -> Result<bool> {
     let response = crate::cli::daemon_call_async(
         "pty_launch_existing",
-        serde_json::json!({ "session": selector }),
+        serde_json::json!({
+            "session": selector,
+            "extra_args": extra_args,
+        }),
     )
     .await?;
     let action = response["action"]
@@ -46,16 +52,13 @@ pub(in crate::cli) async fn attach_or_resume(selector: &str) -> Result<bool> {
     Ok(true)
 }
 
-fn is_plain_session_selector(request: &super::args::LaunchRequest) -> bool {
-    request.channel.is_none()
-        && request.session_name.is_none()
-        && request.prompt.is_none()
-        && request.extra_args.is_empty()
+fn can_select_existing_session(request: &super::args::LaunchRequest) -> bool {
+    request.channel.is_none() && request.session_name.is_none() && request.prompt.is_none()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_plain_session_selector;
+    use super::can_select_existing_session;
     use crate::cli::launch_cli::args::LaunchRequest;
 
     fn request() -> LaunchRequest {
@@ -69,16 +72,15 @@ mod tests {
     }
 
     #[test]
-    fn only_a_bare_launch_reuses_an_existing_session() {
+    fn launch_arguments_do_not_bypass_existing_session_resolution() {
         let mut plain = request();
-        assert!(is_plain_session_selector(&plain));
+        assert!(can_select_existing_session(&plain));
+        plain.extra_args.push("--yolo".into());
+        assert!(can_select_existing_session(&plain));
         plain.prompt = Some("fresh prompt".into());
-        assert!(!is_plain_session_selector(&plain));
+        assert!(!can_select_existing_session(&plain));
         let mut named = request();
         named.session_name = Some("hi".into());
-        assert!(!is_plain_session_selector(&named));
-        let mut with_args = request();
-        with_args.extra_args.push("--yolo".into());
-        assert!(!is_plain_session_selector(&with_args));
+        assert!(!can_select_existing_session(&named));
     }
 }

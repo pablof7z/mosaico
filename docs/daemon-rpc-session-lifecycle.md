@@ -94,18 +94,22 @@ accepted direct inbox row; that row stays pending for retry or manual action.
 ## `pty_resume_native`
 
 ```jsonc
-params: {"native_id": "harness-owned-id", "workspace": "/absolute/path"|null}
+params: {"native_id": "harness-owned-id", "workspace": "/absolute/path"|null,
+         "extra_args": ["--one-launch-override"]}
 result: {"action": "attached"|"resumed"|"adopted", "pty_id": "…",
          "pubkey": "hex", "npub": "npub1…", "handle": "quill-codex",
          "agent": "developer", "harness": "claude-code"}
 ```
 
-Operator entry point for `mosaico resume <HARNESS_ID>`. The daemon first looks
-up the native locator across every harness. A mapped locator resumes the exact
+Operator entry point for
+`mosaico resume <HARNESS_ID> [-- <ARGS>...]`. The daemon first looks up the
+native locator across every harness. A mapped locator resumes the exact
 persisted pubkey, signer, agent slug, workspace, and channel; current agent
-profile configuration contributes no identity authority. A live PTY attaches,
-while a running non-PTY runtime refuses to double-spawn and directs explicit
-takeover to the bare `mosaico` operator home.
+profile configuration contributes no identity authority. One-launch arguments
+are appended whenever this operation starts the harness. A live PTY attaches
+only when no launch arguments were supplied; arguments cannot be applied to an
+already-running process. A running non-PTY runtime refuses to double-spawn and
+directs explicit takeover to the bare `mosaico` operator home.
 
 An unmapped id is adopted only when authoritative local Claude, Codex, Grok, or
 OpenCode storage identifies one harness. Its recorded cwd selects the workspace

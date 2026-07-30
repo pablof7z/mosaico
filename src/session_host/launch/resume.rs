@@ -7,12 +7,31 @@ use crate::session_host::transport::{LaunchSpec, ResumeSpec};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
+#[derive(Clone, Copy)]
+pub(crate) struct ResumeRequest<'a> {
+    intent: LaunchIntent,
+    extra_args: &'a [String],
+}
+
+impl<'a> ResumeRequest<'a> {
+    pub(crate) fn with_args(intent: LaunchIntent, extra_args: &'a [String]) -> Self {
+        Self { intent, extra_args }
+    }
+
+    pub(crate) fn without_args(intent: LaunchIntent) -> Self {
+        Self {
+            intent,
+            extra_args: &[],
+        }
+    }
+}
+
 /// Resume one exact persisted Mosaico session with its harness-native token.
 pub(crate) async fn resume_agent(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     resume_id: &str,
-    intent: LaunchIntent,
+    request: ResumeRequest<'_>,
 ) -> Result<String> {
     anyhow::ensure!(
         !resume_id.is_empty(),
@@ -24,7 +43,7 @@ pub(crate) async fn resume_agent(
         .map(|(channel, _)| channel)
         .next()
         .unwrap_or_default();
-    resume_session_record(state, rec, &rec.work_root, &group, resume_id, intent).await
+    resume_session_record(state, rec, &rec.work_root, &group, resume_id, request).await
 }
 
 /// Resume an exact persisted identity into a caller-selected channel.
@@ -34,13 +53,13 @@ pub(crate) async fn resume_agent_in_channel(
     root: &str,
     group: &str,
     resume_id: &str,
-    intent: LaunchIntent,
+    request: ResumeRequest<'_>,
 ) -> Result<String> {
     anyhow::ensure!(
         !resume_id.is_empty(),
         "session has no resume token (not resumable)"
     );
-    resume_session_record(state, rec, root, group, resume_id, intent).await
+    resume_session_record(state, rec, root, group, resume_id, request).await
 }
 
 async fn resume_session_record(
@@ -49,7 +68,7 @@ async fn resume_session_record(
     root: &str,
     group: &str,
     resume_id: &str,
-    intent: LaunchIntent,
+    request: ResumeRequest<'_>,
 ) -> Result<String> {
     let mut channels = state
         .with_store(|store| store.list_session_routes(&rec.pubkey))?
@@ -69,8 +88,12 @@ async fn resume_session_record(
         rec.observed_harness
     );
     let abs_path = workspace_abs_path(state, root, None)?;
-    let source =
-        resolve_harness_source(harness, &rec.agent_slug, Some(&rec.admitted_bundle), intent)?;
+    let source = resolve_harness_source(
+        harness,
+        &rec.agent_slug,
+        Some(&rec.admitted_bundle),
+        request.intent,
+    )?;
     let identity = resume_identity(state, rec, &source.bundle)?;
     let reservation = admission::reserve_resume_exact(
         state,
@@ -93,6 +116,7 @@ async fn resume_session_record(
         &channels,
         &abs_path,
         resume_id,
+        request.extra_args,
     )
     .await
 }
@@ -108,10 +132,11 @@ pub(crate) async fn adopt_native_session(
     cwd: &std::path::Path,
     root: &str,
     resume_id: &str,
+    request: ResumeRequest<'_>,
 ) -> Result<AdoptedNativeSession> {
     let slug = harness.agent_slug();
     let abs_path = workspace_abs_path(state, root, Some(cwd))?;
-    let source = resolve_harness_source(harness, slug, None, LaunchIntent::Interactive)?;
+    let source = resolve_harness_source(harness, slug, None, request.intent)?;
     let reservation = admission::reserve_fresh(
         state,
         &source.identity,
@@ -148,6 +173,7 @@ pub(crate) async fn adopt_native_session(
         &channels,
         &abs_path,
         resume_id,
+        request.extra_args,
     )
     .await?;
     Ok(AdoptedNativeSession { pty_id, pubkey })
@@ -170,7 +196,7 @@ fn resume_identity(
 #[allow(clippy::too_many_arguments)]
 async fn launch_resume(
     state: &Arc<DaemonState>,
-    source: super::source::ResolvedSource,
+    mut source: super::source::ResolvedSource,
     reservation: admission::Reservation,
     slug: &str,
     root: &str,
@@ -178,12 +204,16 @@ async fn launch_resume(
     channels: &[String],
     abs_path: &str,
     resume_id: &str,
+    extra_args: &[String],
 ) -> Result<String> {
     let transport = source.transport;
     let harness = source.harness;
     let bundle = source.bundle;
     let resume_command =
-        build_driver_resume_command(&source.command, source.resume, resume_id, slug)?;
+        build_driver_resume_command(&source.command, source.resume, resume_id, slug, extra_args)?;
+    if let Some(rpc) = source.prepared_launch.rpc.as_mut() {
+        rpc.argv.extend_from_slice(extra_args);
+    }
     let spec = LaunchSpec {
         slug: slug.to_string(),
         native_agent: source.native_agent,
@@ -237,18 +267,19 @@ fn build_driver_resume_command(
     mechanism: ResumeMechanism,
     resume_id: &str,
     slug: &str,
+    extra_args: &[String],
 ) -> Result<Vec<String>> {
-    match mechanism {
+    let mut command = match mechanism {
         ResumeMechanism::AppendFlag(flag) => {
             let mut command = base.to_vec();
             command.extend([flag.to_string(), resume_id.to_string()]);
-            Ok(command)
+            command
         }
         ResumeMechanism::AppendFlags(flags) => {
             let mut command = base.to_vec();
             command.extend(flags.iter().map(|flag| (*flag).to_string()));
             command.push(resume_id.to_string());
-            Ok(command)
+            command
         }
         ResumeMechanism::Subcommand(subcommand) => {
             let (program, args) = base
@@ -260,12 +291,14 @@ fn build_driver_resume_command(
                 resume_id.to_string(),
             ];
             command.extend(args.iter().cloned());
-            Ok(command)
+            command
         }
         ResumeMechanism::AcpSessionLoad
         | ResumeMechanism::AppServerThreadResume
-        | ResumeMechanism::None => Ok(base.to_vec()),
-    }
+        | ResumeMechanism::None => base.to_vec(),
+    };
+    command.extend_from_slice(extra_args);
+    Ok(command)
 }
 
 #[cfg(test)]

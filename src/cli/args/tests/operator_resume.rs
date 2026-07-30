@@ -8,6 +8,8 @@ fn native_resume_parses_with_optional_workspace() {
         "019f7f5c-575d-7640-958d-e7428d4d77b0",
         "--workspace",
         "/work/mosaico",
+        "--",
+        "--yolo",
     ])
     .unwrap();
 
@@ -18,6 +20,7 @@ fn native_resume_parses_with_optional_workspace() {
                 args.workspace.as_deref(),
                 Some(std::path::Path::new("/work/mosaico"))
             );
+            assert_eq!(args.extra_args, ["--yolo"]);
         }
         _ => panic!("expected native resume command"),
     }

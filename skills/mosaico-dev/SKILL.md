@@ -41,7 +41,9 @@ Treat these ownership boundaries as fixed:
 - `mosaico <TARGET> [PROMPT] [-- <ARGS>...]` first matches an existing session,
   then an available agent. The workspace comes from the current directory; it
   accepts `--channel` and `--name`. Arguments after `--` are appended to the
-  resolved harness command for that launch.
+  resolved harness command for that launch, including a named-session resume.
+  `mosaico resume <HARNESS_ID> [-- <ARGS>...]` applies the same rule to native
+  resume. Attaching to an already-running harness rejects launch arguments.
 - The selected bundle admits exactly one hosted transport kind: `pty` or `acp`.
   A configured `app-server` bundle uses the ACP hosted kind with the app-server
   protocol dialect; `app-server` is not a third admitted kind. There is no

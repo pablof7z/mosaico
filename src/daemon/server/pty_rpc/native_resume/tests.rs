@@ -21,7 +21,7 @@ async fn running_non_pty_session_refuses_a_second_process() {
         .unwrap()
         .unwrap();
 
-    let error = resume_mapped(&state, &session, "native-id")
+    let error = resume_mapped(&state, &session, "native-id", &[])
         .await
         .unwrap_err();
 

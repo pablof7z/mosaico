@@ -3,6 +3,8 @@ use super::*;
 #[derive(serde::Deserialize)]
 struct ExistingLaunchParams {
     session: String,
+    #[serde(default)]
+    extra_args: Vec<String>,
 }
 
 pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
@@ -21,6 +23,7 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
         .unwrap_or_else(|| rec.agent_slug.clone());
 
     if let Some(pty_id) = live_pty_for_session(state, &rec).await {
+        ensure_no_launch_args(&p.extra_args, &handle)?;
         return Ok(serde_json::json!({
             "action": "attached",
             "pty_id": pty_id,
@@ -28,6 +31,7 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
         }));
     }
     if rec.is_running() {
+        ensure_no_launch_args(&p.extra_args, &handle)?;
         return Ok(serde_json::json!({
             "action": "already-running",
             "handle": handle,
@@ -44,7 +48,10 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
         state,
         &rec,
         &resume_id,
-        crate::session_host::LaunchIntent::Interactive,
+        crate::session_host::ResumeRequest::with_args(
+            crate::session_host::LaunchIntent::Interactive,
+            &p.extra_args,
+        ),
     )
     .await?;
     Ok(serde_json::json!({
@@ -52,6 +59,14 @@ pub(in crate::daemon::server) async fn rpc_pty_launch_existing(
         "pty_id": pty_id,
         "handle": handle,
     }))
+}
+
+fn ensure_no_launch_args(extra_args: &[String], handle: &str) -> Result<()> {
+    anyhow::ensure!(
+        extra_args.is_empty(),
+        "cannot apply launch arguments to {handle}: its harness is already running"
+    );
+    Ok(())
 }
 
 pub(super) async fn live_pty_for_session(
