@@ -91,6 +91,8 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         metadata.command,
         ["opencode", "forever", "--session", native_id, "--yolo"]
     );
+    let original_generation = session.runtime_generation;
+    let original_endpoint = metadata.id.clone();
     let cleanup = PtyCleanup(metadata.id.clone());
 
     let attached = run_cli_with_env_in_dir(&home, &["resume", native_id], &env, &work_dir);
@@ -99,6 +101,18 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         String::from_utf8_lossy(&attached.stderr).contains("Attached to @"),
         "unexpected attach output: {}",
         String::from_utf8_lossy(&attached.stderr)
+    );
+    let rejected = run_cli_with_env_in_dir(
+        &home,
+        &["resume", native_id, "--", "--debug"],
+        &env,
+        &work_dir,
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("cannot apply launch arguments"),
+        "unexpected rejection: {}",
+        String::from_utf8_lossy(&rejected.stderr)
     );
     let sessions = Store::open(&home.store_path())
         .unwrap()
@@ -111,6 +125,16 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
             .count(),
         1
     );
+    let still_running = sessions
+        .iter()
+        .find(|session| session.pubkey == pubkey)
+        .expect("adopted session remains live");
+    assert_eq!(still_running.runtime_generation, original_generation);
+    let endpoint = mosaico::pty::read_all_metadata()
+        .into_iter()
+        .find(|metadata| metadata.agent == "opencode" && metadata.root == root)
+        .expect("attached PTY metadata");
+    assert_eq!(endpoint.id, original_endpoint);
 
     drop(cleanup);
     stop_daemon(&home);
