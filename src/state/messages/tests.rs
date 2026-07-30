@@ -44,7 +44,7 @@ fn relay_event_backfill_uses_event_author_pubkey() {
             channel_h: "chan".to_string(),
             d_tag: String::new(),
             content: "from relay".to_string(),
-            tags_json: "[]".to_string(),
+            tags_json: r#"[["p","recipient-pk"]]"#.to_string(),
         })
         .unwrap();
 
@@ -53,6 +53,10 @@ fn relay_event_backfill_uses_event_author_pubkey() {
     let msg = store.get_message("event-2").unwrap().unwrap();
     assert_eq!(msg.author_pubkey, "author-pk");
     assert_eq!(msg.body, "from relay");
+    assert_eq!(
+        store.message_recipients("event-2").unwrap()[0].recipient_pubkey,
+        "recipient-pk"
+    );
 }
 
 #[test]

@@ -12,9 +12,9 @@ use std::time::Duration;
 
 /// The compiled-in protocol version, bumped when client and daemon RPC
 /// contracts must agree.
-// Agent identity configuration mutations are daemon-owned. Older daemons do not
-// expose `agent_save` / `agent_remove`, so a mixed client must force a re-exec.
-const PROTOCOL_VERSION_BASE: u32 = 68;
+// Local-cache search and agent configuration mutations are daemon-owned. Older
+// daemons do not expose these RPCs, so a mixed client must force a re-exec.
+const PROTOCOL_VERSION_BASE: u32 = 69;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →
