@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn command_line_message_arguments_expand_literal_newlines() {
+    let message =
+        resolve_send_message_body(Some(r"First paragraph.\n\nSecond paragraph.".into())).unwrap();
+
+    assert_eq!(message, "First paragraph.\n\nSecond paragraph.");
+}
+
+#[test]
+fn command_line_message_arguments_preserve_other_backslash_sequences() {
+    let message = resolve_send_message_body(Some(r"Run cargo\test from C:\repo.".into())).unwrap();
+
+    assert_eq!(message, r"Run cargo\test from C:\repo.");
+}
+
+#[test]
 fn channel_read_row_prints_truncation_recovery_command() {
     let item = serde_json::json!({
         "event_id": "event-123",
