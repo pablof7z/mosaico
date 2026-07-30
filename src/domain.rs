@@ -178,12 +178,22 @@ impl Status {
 /// going forward only. Chat fans out to every alive channel session by pubkey +
 /// channel membership; private runtime ids never address chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatAttachment {
+    /// Public Blossom URL carried by the kind:9 `attachment` tag.
+    pub url: String,
+    /// Stable bracket label rendered in chat and used for local file placement.
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub from: AgentRef,
     pub channel: String,
     pub body: String,
     /// Pubkeys explicitly tagged by the sender.
     pub mentioned_pubkeys: Vec<String>,
+    /// Uploaded files referenced by bracket label in `body`.
+    pub attachments: Vec<ChatAttachment>,
 }
 
 /// Largest reaction payload we accept. Comfortably fits any single emoji,

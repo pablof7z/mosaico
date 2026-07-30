@@ -239,6 +239,7 @@ async fn send_dispatch_message(
         channel: channel.to_string(),
         body: message.to_string(),
         mentioned_pubkeys: vec![ack.pubkey.clone()],
+        attachments: Vec::new(),
     };
     let published = state
         .provider

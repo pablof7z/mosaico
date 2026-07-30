@@ -24,6 +24,7 @@ pub(in crate::daemon::server::demux) fn drive_retries(state: &Arc<DaemonState>) 
             channel: claim.channel_h,
             body: claim.body,
             mentioned_pubkeys: vec![claim.mentioned_pubkey.clone()],
+            attachments: Vec::new(),
         };
         if begin(state, &claim.event_id, &claim.mentioned_pubkey, &chat) {
             tracing::info!(

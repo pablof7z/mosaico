@@ -2,7 +2,6 @@ use super::super::*;
 use super::recipient_notice;
 use super::self_target;
 use crate::fabric::provider::chat::OutboundChatRecord;
-use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::{bail, Context, Result};
 use nostr::{PublicKey, ToBech32};
 
@@ -12,30 +11,25 @@ struct ChannelReplyParams {
     message: String,
     #[serde(default)]
     attachments: Vec<crate::attachment::Attachment>,
-    #[serde(default)]
-    long_message: bool,
+}
+
+fn parse_params(params: &serde_json::Value) -> Result<ChannelReplyParams> {
+    super::params::validate_reply(params)?;
+    serde_json::from_value(params.clone()).context("parsing channel_reply params")
 }
 
 pub(in crate::daemon::server) async fn rpc_channel_reply(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let p: ChannelReplyParams =
-        serde_json::from_value(params.clone()).context("parsing channel_reply params")?;
+    let p = parse_params(params)?;
     if p.id.trim().is_empty() {
         bail!("reply id must not be empty");
     }
     if p.message.trim().is_empty() {
         bail!("reply message must not be empty");
     }
-    if p.attachments.is_empty()
-        && !p.long_message
-        && p.message.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT
-    {
-        bail!(
-            "your message is too long; keep it under {CHANNEL_MESSAGE_CHAR_LIMIT} characters or pass --long-message"
-        );
-    }
+    let prepared_message = super::prepare_outbound_message(&p.message, &p.attachments)?;
     let rec = resolve_session(state, &CallerAnchor::from_params(params))?;
     let original = state
         .with_store(|s| s.get_message_by_prefix(p.id.trim()))
@@ -52,18 +46,9 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         .unwrap_or_else(|| original.message_id.clone());
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
-    let expanded_message =
-        crate::attachment::upload_and_expand(&p.message, &p.attachments, &state.cfg.relays, &keys)
-            .await?;
-    if !p.attachments.is_empty()
-        && !p.long_message
-        && expanded_message.chars().count() > CHANNEL_MESSAGE_CHAR_LIMIT
-    {
-        bail!(
-            "your message is too long after expanding attachments; keep it under {CHANNEL_MESSAGE_CHAR_LIMIT} characters or pass --long-message"
-        );
-    }
-    let body = reply_body(&original.author_pubkey, &expanded_message)?;
+    let uploaded_attachments =
+        crate::attachment::upload_all(&p.attachments, &state.cfg.relays, &keys).await?;
+    let body = reply_body(&original.author_pubkey, &prepared_message)?;
     let recipient_reminders = state.with_store(|store| {
         recipient_notice::reply_suspension_reminders(store, &original, now_secs())
     })?;
@@ -72,6 +57,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         channel: original.channel_h.clone(),
         body: body.clone(),
         mentioned_pubkeys: vec![original.author_pubkey.clone()],
+        attachments: uploaded_attachments.clone(),
     };
     let published = state
         .provider
@@ -94,6 +80,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             body: &body,
             created_at: published.created_at,
             target_pubkeys: std::slice::from_ref(&original.author_pubkey),
+            attachments: &uploaded_attachments,
         },
     )?;
     state.emit_tail(TailEvent::Msg {
@@ -119,4 +106,22 @@ fn reply_body(author_pubkey: &str, message: &str) -> Result<String> {
     let pk = PublicKey::parse(author_pubkey)
         .with_context(|| format!("invalid author pubkey for reply: {author_pubkey}"))?;
     Ok(format!("nostr:{}: {message}", pk.to_bech32()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_channel_reply_rpc_field_is_rejected() {
+        let error = match parse_params(&serde_json::json!({
+            "id": "abc123",
+            "message": "hello",
+            "long_message": true,
+        })) {
+            Ok(_) => panic!("unknown channel_reply field was accepted"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("channel_reply received unknown field \"long_message\""));
+    }
 }

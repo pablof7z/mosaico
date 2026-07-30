@@ -299,7 +299,7 @@ fn channel_reply_parses_short_id_and_message_flag() {
         "--message",
         "see [trace]",
         "--attach",
-        "trace=out/trace.bin",
+        "./out/trace.bin",
         "--session",
         "session-1",
     ])
@@ -319,11 +319,25 @@ fn channel_reply_parses_short_id_and_message_flag() {
             assert_eq!(id, "abc123");
             assert_eq!(message_flag.as_deref(), Some("see [trace]"));
             assert_eq!(attachments.len(), 1);
-            assert_eq!(attachments[0].label, "trace");
+            assert_eq!(attachments[0].label, "out/trace.bin");
             assert_eq!(session.as_deref(), Some("session-1"));
         }
         _ => panic!("expected channel reply command"),
     }
+}
+
+#[test]
+fn channel_reply_rejects_removed_long_message_flag() {
+    let error = parse_err(&[
+        "mosaico",
+        "channel",
+        "reply",
+        "abc123",
+        "--message",
+        "hello",
+        "--long-message",
+    ]);
+    assert_eq!(error.kind(), ErrorKind::UnknownArgument);
 }
 
 #[test]

@@ -133,7 +133,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "Full channel path (/workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
-            Prop::new("long_message", "boolean", "Allow long messages."),
             Prop::new(
                 "wait_seconds",
                 "integer",

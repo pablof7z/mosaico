@@ -159,6 +159,7 @@ async fn publish_management_command(channel: &str, body: &str) {
         channel: channel.to_string(),
         body: body.to_string(),
         mentioned_pubkeys: vec![pubkey_of(EXAMPLE_BACKEND_SEC_HEX)],
+        attachments: Vec::new(),
     };
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))

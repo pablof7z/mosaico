@@ -17,6 +17,7 @@ fn chat() -> ChatMessage {
         channel: "chan".into(),
         body: "root cause was a retry storm".into(),
         mentioned_pubkeys: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 

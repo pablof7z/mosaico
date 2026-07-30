@@ -180,7 +180,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
             let parent_path = state.with_store(|store| {
                 channel_resolve::channel_reference_for(store, &offer.evidence.parent)
             })?;
-            let mut send_params = params.clone();
+            let mut send_params = channel_send::caller_params(params);
             if let Some(obj) = send_params.as_object_mut() {
                 obj.insert("message".into(), serde_json::json!(pointer));
                 obj.insert("channel".into(), serde_json::json!(parent_path));

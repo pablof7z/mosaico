@@ -8,6 +8,7 @@ pub(super) struct DirectMention<'a> {
     pub(super) body: &'a str,
     pub(super) created_at: u64,
     pub(super) target_pubkeys: &'a [String],
+    pub(super) attachments: &'a [crate::domain::ChatAttachment],
 }
 
 pub(super) struct RouteReport {
@@ -52,6 +53,7 @@ pub(super) fn route(state: &Arc<DaemonState>, mention: DirectMention<'_>) -> Res
             channel: mention.channel_h.to_string(),
             body: mention.body.to_string(),
             mentioned_pubkeys: targets.clone(),
+            attachments: mention.attachments.to_vec(),
         };
         super::demux::dispatch_offline_mentions(state, mention.event_id, &chat, &targets);
     }
@@ -148,6 +150,7 @@ mod tests {
                 body: "please inspect",
                 created_at: 5,
                 target_pubkeys: &targets,
+                attachments: &[],
             },
         )
         .unwrap();

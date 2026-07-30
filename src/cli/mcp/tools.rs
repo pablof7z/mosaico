@@ -98,6 +98,7 @@ async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
 }
 
 async fn channel_send(args: &Value, caller: Option<&str>) -> Result<Value> {
+    validate_channel_send_args(args)?;
     let wait_seconds = wait::send_timeout(args)?;
     if let Some(reply_to) = opt_string(args, "reply_to") {
         if wait_seconds.is_some() {
@@ -107,10 +108,6 @@ async fn channel_send(args: &Value, caller: Option<&str>) -> Result<Value> {
             json!({
                 "id": reply_to,
                 "message": required_string(args, "message")?,
-                "long_message": args
-                    .get("long_message")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
             }),
             args,
         );
@@ -181,19 +178,35 @@ async fn channel_mutation(method: &str, args: &Value, caller: Option<&str>) -> R
 }
 
 fn channel_send_params(args: &Value) -> Result<Value> {
+    validate_channel_send_args(args)?;
     Ok(with_session(
         json!({
             "message": required_string(args, "message")?,
             "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
             "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
             "channel": opt_string(args, "channel"),
-            "long_message": args
-                .get("long_message")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
         }),
         args,
     ))
+}
+
+fn validate_channel_send_args(args: &Value) -> Result<()> {
+    const ALLOWED: &[&str] = &[
+        "message",
+        "tags",
+        "force",
+        "channel",
+        "session",
+        "wait_seconds",
+        "reply_to",
+    ];
+    let object = args
+        .as_object()
+        .context("mosaico.channel_send arguments must be an object")?;
+    if let Some(unknown) = object.keys().find(|key| !ALLOWED.contains(&key.as_str())) {
+        anyhow::bail!("unsupported mosaico.channel_send argument {unknown:?}");
+    }
+    Ok(())
 }
 
 fn with_session(mut value: Value, args: &Value) -> Value {
@@ -283,6 +296,18 @@ async fn daemon_raw(method: &str, params: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_send_rejects_arguments_outside_its_schema() {
+        let error = channel_send_params(&json!({
+            "message": "hello",
+            "long_message": true,
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("unsupported mosaico.channel_send argument"));
+        assert!(error.contains("long_message"));
+    }
 
     #[test]
     fn explicit_session_remains_an_operator_override() {

@@ -7,7 +7,6 @@ pub(in crate::cli) struct ChannelSendRequest {
     pub force: bool,
     pub channel: Option<String>,
     pub session: Option<String>,
-    pub long_message: bool,
     pub wait: Option<u64>,
 }
 
@@ -19,7 +18,6 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         force,
         channel,
         session,
-        long_message,
         wait,
     } = req;
     let params = crate::cli::rpc_params(serde_json::json!({
@@ -27,7 +25,6 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         "attachments": attachments,
         "tags": tags,
         "force": force,
-        "long_message": long_message,
         "session": session.clone(),
         // Explicit `--channel` is destination targeting only. Caller identity
         // still comes from the session anchors added by `rpc_params`.

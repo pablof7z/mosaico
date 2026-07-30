@@ -32,6 +32,7 @@ pub(super) async fn publish_start_failure_notice(
         channel: channel.to_string(),
         body: body.clone(),
         mentioned_pubkeys: requester_pubkey.map(str::to_string).into_iter().collect(),
+        attachments: Vec::new(),
     };
     let record = OutboundChatRecord {
         channel_h: channel.to_string(),
