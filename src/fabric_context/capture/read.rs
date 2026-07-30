@@ -166,6 +166,12 @@ pub(super) fn capture_messages(
                 return None;
             }
             let resolved_body = crate::profile::rewrite_body_mentions(store, &ev.content);
+            let attachment_dir = store
+                .get_message(&ev.id)
+                .ok()
+                .flatten()
+                .map(|message| message.attachment_dir)
+                .unwrap_or_default();
             Some(EvCap {
                 id: ev.id.clone(),
                 channel_ref,
@@ -173,6 +179,7 @@ pub(super) fn capture_messages(
                 recipient_refs: p_tag_refs(store, &ev.tags_json, input.local_host),
                 created_at: ev.created_at,
                 body: resolved_body,
+                attachment_dir,
                 mentions_self: mentions_pubkey(&ev.tags_json, input.self_pubkey),
                 forced_mention: false,
                 needs_reply_nudge: reply_nudge_for_message(
@@ -200,6 +207,7 @@ pub(super) fn capture_messages(
                 recipient_refs: forced_recipient_refs(store, input, row.mention),
                 created_at: row.created_at,
                 body: row.body.clone(),
+                attachment_dir: row.attachment_dir.clone(),
                 mentions_self: false,
                 forced_mention: row.mention,
                 needs_reply_nudge: reply_nudge_for_message(

@@ -64,6 +64,7 @@ pub(in crate::state::schema::tests) fn downgrade_channel_context_to_v17(conn: &C
         ALTER TABLE relay_status DROP COLUMN workspace;
         ALTER TABLE relay_status DROP COLUMN branch;
         DROP TABLE relay_status_sets;
+        ALTER TABLE messages DROP COLUMN attachment_dir;
 
         CREATE TABLE relay_event_quarantine (
             id TEXT PRIMARY KEY,

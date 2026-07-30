@@ -62,6 +62,22 @@ fn prepare_outbound_message(
     crate::attachment::prepare_message(message, attachments)
 }
 
+fn persist_attachment_directory_then_deliver<T>(
+    event_id: &str,
+    persist: impl FnOnce() -> Result<bool>,
+    deliver: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    if let Err(error) = persist() {
+        tracing::warn!(
+            event_id,
+            %error,
+            "local attachments were copied but their directory could not be persisted; \
+             delivering ordinary message"
+        );
+    }
+    deliver()
+}
+
 fn chat_publish_scope(
     selected_destination: &str,
     pinned_destination: Option<&str>,
@@ -199,19 +215,45 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .await?;
     let event_id = published.event_id;
     let created_at = published.created_at;
+    let local_directory = match crate::attachment_receive::copy_local(
+        &state.cfg.attachment_receive_directory,
+        &event_id,
+        &p.attachments,
+    ) {
+        Ok(directory) => directory,
+        Err(error) => {
+            tracing::warn!(
+                event_id,
+                %error,
+                "local attachment copy failed; delivering ordinary message without files"
+            );
+            None
+        }
+    };
     // Relays need not echo a successful publish to this connection. Use the
     // same ownership router as inbound events so local direct delivery is
     // durable even when the target is stopped or has no channel route.
-    super::direct_mentions::route(
-        state,
-        super::direct_mentions::DirectMention {
-            event_id: &event_id,
-            from_pubkey: &from_pubkey,
-            channel_h: &deliver_scope,
-            body: &body_to_send,
-            created_at,
-            target_pubkeys: &mentioned_pubkeys,
-            attachments: &uploaded_attachments,
+    persist_attachment_directory_then_deliver(
+        &event_id,
+        || match local_directory.as_ref() {
+            Some(directory) => {
+                state.with_store(|store| store.set_message_attachment_dir(&event_id, directory))
+            }
+            None => Ok(false),
+        },
+        || {
+            super::direct_mentions::route(
+                state,
+                super::direct_mentions::DirectMention {
+                    event_id: &event_id,
+                    from_pubkey: &from_pubkey,
+                    channel_h: &deliver_scope,
+                    body: &body_to_send,
+                    created_at,
+                    target_pubkeys: &mentioned_pubkeys,
+                    attachments: &uploaded_attachments,
+                },
+            )
         },
     )?;
 

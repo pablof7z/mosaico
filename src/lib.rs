@@ -15,6 +15,7 @@ pub(crate) mod agent_inventory;
 pub(crate) mod agent_xml;
 mod attachment;
 mod attachment_contract;
+mod attachment_receive;
 mod channel_about;
 mod channel_name;
 mod channel_nudge;

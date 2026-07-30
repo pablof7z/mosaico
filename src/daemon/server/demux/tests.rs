@@ -1,6 +1,9 @@
 use super::*;
 use crate::state::{RegisterSession, StopReason, Store};
 
+#[path = "tests/attachments.rs"]
+mod attachments;
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &str) -> String {

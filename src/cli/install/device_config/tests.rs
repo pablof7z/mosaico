@@ -13,6 +13,7 @@ fn overrides_preserve_unknown_fields_and_secrets() {
         "userNsec": operator.clone(),
         "mosaicoPrivateKey": backend.clone(),
         "relays": ["wss://relay.example"],
+        "attachmentReceiveDirectory": "/custom/shared-files",
     });
     let mut options = opts();
     options.host_label = Some("workstation".into());
@@ -26,6 +27,7 @@ fn overrides_preserve_unknown_fields_and_secrets() {
     assert_eq!(doc["mosaicoPrivateKey"], backend);
     assert_eq!(doc["backendName"], "workstation");
     assert_eq!(doc["perSessionRooms"], true);
+    assert_eq!(doc["attachmentReceiveDirectory"], "/custom/shared-files");
 }
 
 #[test]

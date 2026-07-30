@@ -26,8 +26,8 @@ fn repair_config(actions: &mut Vec<String>) -> Result<()> {
 
     match super::super::install::repair_device_config()? {
         ConfigRepair::Unchanged => {}
-        ConfigRepair::GeneratedManagementKey => actions.push(format!(
-            "generated missing mosaicoPrivateKey in {}",
+        ConfigRepair::Updated => actions.push(format!(
+            "completed Mosaico-owned fields and attachment storage in {}",
             crate::config::config_path().display()
         )),
     }

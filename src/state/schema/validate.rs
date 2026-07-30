@@ -160,7 +160,7 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     ensure_columns(
         conn,
         "messages",
-        &["message_id", "author_pubkey"],
+        &["message_id", "author_pubkey", "attachment_dir"],
         &["author_session"],
         path,
     )?;

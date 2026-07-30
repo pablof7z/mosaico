@@ -118,6 +118,7 @@ pub struct Message {
     pub sync_state: String,
     pub native_event_id: Option<String>,
     pub error: Option<String>,
+    pub attachment_dir: String,
 }
 
 /// Input shape for recording a canonical message row.
@@ -219,6 +220,8 @@ pub struct InboxRow {
     pub body: String,
     pub created_at: u64,
     pub delivered_at: u64,
+    /// Joined from the canonical message row by `event_id`.
+    pub attachment_dir: String,
 }
 
 mod agent_usage;

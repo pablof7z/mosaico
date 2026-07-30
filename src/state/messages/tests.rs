@@ -33,6 +33,38 @@ fn relay_replay_preserves_local_outbound_direction() {
 }
 
 #[test]
+fn relay_replay_cannot_erase_or_replace_materialized_attachment_directory() {
+    let store = Store::open_memory().unwrap();
+    store
+        .record_message(&record("event-files", "outbound"))
+        .unwrap();
+    assert!(store
+        .set_message_attachment_dir(
+            "event-files",
+            std::path::Path::new("/tmp/mosaico-files/abcdef"),
+        )
+        .unwrap());
+    assert!(!store
+        .set_message_attachment_dir(
+            "event-files",
+            std::path::Path::new("/tmp/mosaico-files/replacement"),
+        )
+        .unwrap());
+    store
+        .record_message(&record("event-files", "inbound"))
+        .unwrap();
+
+    assert_eq!(
+        store
+            .get_message("event-files")
+            .unwrap()
+            .unwrap()
+            .attachment_dir,
+        "/tmp/mosaico-files/abcdef"
+    );
+}
+
+#[test]
 fn relay_event_backfill_uses_event_author_pubkey() {
     let store = Store::open_memory().unwrap();
     store

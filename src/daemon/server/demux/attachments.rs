@@ -1,0 +1,57 @@
+use super::*;
+
+pub(super) fn required(outcome: &crate::fabric::MaterializationOutcome) -> bool {
+    matches!(
+        outcome.tail.as_ref(),
+        Some(DomainEvent::ChatMessage(chat)) if !chat.attachments.is_empty()
+    )
+}
+
+pub(super) async fn materialize(
+    state: &Arc<DaemonState>,
+    outcome: &crate::fabric::MaterializationOutcome,
+    event: &Event,
+) {
+    let Some(DomainEvent::ChatMessage(chat)) = outcome.tail.as_ref() else {
+        return;
+    };
+    if chat.attachments.is_empty() {
+        return;
+    }
+    let event_id = event.id.to_hex();
+    let already_materialized = state.with_store(|store| {
+        store
+            .get_message(&event_id)
+            .ok()
+            .flatten()
+            .is_some_and(|message| !message.attachment_dir.is_empty())
+    });
+    if already_materialized {
+        return;
+    }
+    match crate::attachment_receive::download(
+        &state.cfg.attachment_receive_directory,
+        &event_id,
+        &chat.attachments,
+    )
+    .await
+    {
+        Ok(Some(directory)) => {
+            if let Err(error) =
+                state.with_store(|store| store.set_message_attachment_dir(&event_id, &directory))
+            {
+                tracing::warn!(
+                    event_id,
+                    %error,
+                    "received attachments but could not persist their directory"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(
+            event_id,
+            %error,
+            "attachment download failed; delivering ordinary message without files"
+        ),
+    }
+}

@@ -172,3 +172,43 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
     let rendered = render_view_text(&assemble::assemble_view(&captured, 200, 300));
     assert_eq!(rendered, text);
 }
+
+#[test]
+fn ambient_attachment_renders_the_canonical_directory_without_child_nodes() {
+    let store = seed_store();
+    let rec = session(&store);
+    chat(
+        &store,
+        "attach-event",
+        "root",
+        210,
+        "Review [plan/report.md]",
+        "[]",
+    );
+    store
+        .record_message(&crate::state::RecordMessage {
+            message_id: "attach-event".into(),
+            thread_id: "root".into(),
+            channel_h: "root".into(),
+            author_pubkey: OTHER_PK.into(),
+            body: "Review [plan/report.md]".into(),
+            created_at: 210,
+            direction: "inbound".into(),
+            sync_state: "accepted".into(),
+            native_event_id: Some("attach-event".into()),
+            error: None,
+        })
+        .unwrap();
+    store
+        .set_message_attachment_dir(
+            "attach-event",
+            std::path::Path::new("/tmp/mosaico-files/attach"),
+        )
+        .unwrap();
+
+    let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
+        .expect("attachment message should render");
+    assert!(text.contains("attachment-dir=\"/tmp/mosaico-files/attach\""));
+    assert!(text.contains("Review [plan/report.md]"));
+    assert!(!text.contains("<attachment"));
+}

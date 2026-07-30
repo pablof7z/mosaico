@@ -14,6 +14,7 @@ fn row(body: String) -> Message {
         sync_state: "accepted".into(),
         native_event_id: Some("event-1".into()),
         error: None,
+        attachment_dir: String::new(),
     }
 }
 
@@ -46,6 +47,14 @@ fn chat_log_json_keeps_exact_id_reads_full() {
     let json = chat_log_row_to_json(&row(body.clone()), "writer", "laptop", false);
     assert_eq!(json["truncated"], false);
     assert_eq!(json["body"], body);
+}
+
+#[test]
+fn chat_log_json_exposes_the_materialized_attachment_directory() {
+    let mut message = row("see [report.md]".into());
+    message.attachment_dir = "/tmp/mosaico-files/abcdef".into();
+    let json = chat_log_row_to_json(&message, "writer", "laptop", false);
+    assert_eq!(json["attachment_dir"], "/tmp/mosaico-files/abcdef");
 }
 
 #[test]

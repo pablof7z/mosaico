@@ -71,16 +71,42 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             },
         )
         .await?;
-    super::super::direct_mentions::route(
-        state,
-        super::super::direct_mentions::DirectMention {
-            event_id: &published.event_id,
-            from_pubkey: &rec.pubkey,
-            channel_h: &original.channel_h,
-            body: &body,
-            created_at: published.created_at,
-            target_pubkeys: std::slice::from_ref(&original.author_pubkey),
-            attachments: &uploaded_attachments,
+    let local_directory = match crate::attachment_receive::copy_local(
+        &state.cfg.attachment_receive_directory,
+        &published.event_id,
+        &p.attachments,
+    ) {
+        Ok(directory) => directory,
+        Err(error) => {
+            tracing::warn!(
+                event_id = published.event_id,
+                %error,
+                "local attachment copy failed; delivering ordinary message without files"
+            );
+            None
+        }
+    };
+    super::persist_attachment_directory_then_deliver(
+        &published.event_id,
+        || match local_directory.as_ref() {
+            Some(directory) => state.with_store(|store| {
+                store.set_message_attachment_dir(&published.event_id, directory)
+            }),
+            None => Ok(false),
+        },
+        || {
+            super::super::direct_mentions::route(
+                state,
+                super::super::direct_mentions::DirectMention {
+                    event_id: &published.event_id,
+                    from_pubkey: &rec.pubkey,
+                    channel_h: &original.channel_h,
+                    body: &body,
+                    created_at: published.created_at,
+                    target_pubkeys: std::slice::from_ref(&original.author_pubkey),
+                    attachments: &uploaded_attachments,
+                },
+            )
         },
     )?;
     state.emit_tail(TailEvent::Msg {

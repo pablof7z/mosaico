@@ -103,6 +103,7 @@ fn render_wait_message(message: &serde_json::Value, now: u64) -> String {
             event_id: message["event_id"].as_str().unwrap_or_default(),
             from,
             recipients: &recipients,
+            attachment_dir: message["attachment_dir"].as_str().unwrap_or_default(),
             body: message["body"].as_str().unwrap_or_default(),
             created_at: message["created_at"].as_u64().unwrap_or_default(),
             now,

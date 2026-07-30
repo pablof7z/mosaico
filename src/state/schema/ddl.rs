@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS messages (
     direction       TEXT NOT NULL DEFAULT 'inbound',
     sync_state      TEXT NOT NULL DEFAULT 'accepted',
     native_event_id TEXT,
-    error           TEXT
+    error           TEXT,
+    attachment_dir  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_messages_channel
     ON messages(channel_h, created_at, message_id);

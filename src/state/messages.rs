@@ -7,11 +7,13 @@
 use super::*;
 use std::collections::BTreeMap;
 
+mod attachments;
+mod backfill;
 mod wait_cursor;
 
 pub(super) const MESSAGE_COLS: &str =
     "message_id, thread_id, channel_h, author_pubkey, body, created_at, \
-     direction, sync_state, native_event_id, error";
+     direction, sync_state, native_event_id, error, attachment_dir";
 const RECIPIENT_COLS: &str = "message_id, recipient_pubkey, delivered_at";
 
 fn opt_text(s: Option<String>) -> Option<String> {
@@ -30,6 +32,7 @@ pub(super) fn row_to_message(row: &rusqlite::Row) -> rusqlite::Result<Message> {
         sync_state: row.get(7)?,
         native_event_id: opt_text(row.get(8)?),
         error: opt_text(row.get(9)?),
+        attachment_dir: row.get(10)?,
     })
 }
 
@@ -43,43 +46,6 @@ fn row_to_recipient(row: &rusqlite::Row) -> rusqlite::Result<MessageRecipient> {
 }
 
 impl Store {
-    pub(super) fn backfill_messages_from_relay_events(&self) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO messages
-                 (message_id, thread_id, channel_h, author_pubkey, body,
-                  created_at, direction, sync_state, native_event_id)
-             SELECT
-                 id,
-                 channel_h,
-                 channel_h,
-                 pubkey,
-                 content,
-                 created_at,
-                 'inbound',
-                 'accepted',
-                 id
-             FROM relay_events
-             WHERE kind=9
-             ON CONFLICT(message_id) DO NOTHING",
-            [],
-        )?;
-        let cached_tags = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, tags_json FROM relay_events WHERE kind=9")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-            rows.collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        for (message_id, tags_json) in cached_tags {
-            for recipient in p_tag_pubkeys(&tags_json) {
-                self.add_message_recipient(&message_id, &recipient, None)?;
-            }
-        }
-        Ok(())
-    }
-
     /// Record or refresh one canonical message row. Idempotent by `message_id`:
     /// local optimistic writes and relay replay can both materialize the same
     /// event while preserving local outbound direction.
@@ -107,7 +73,8 @@ impl Store {
                  END,
                  sync_state=excluded.sync_state,
                  native_event_id=COALESCE(excluded.native_event_id, messages.native_event_id),
-                 error=excluded.error",
+                 error=excluded.error,
+                 attachment_dir=messages.attachment_dir",
             params![
                 message_id,
                 msg.thread_id,
@@ -306,18 +273,6 @@ impl Store {
         let rows = stmt.query_map(params![message_id], row_to_recipient)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
-}
-
-fn p_tag_pubkeys(tags_json: &str) -> Vec<String> {
-    serde_json::from_str::<Vec<Vec<String>>>(tags_json)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|tag| {
-            (tag.first().map(String::as_str) == Some("p"))
-                .then(|| tag.get(1).cloned())
-                .flatten()
-        })
-        .collect()
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! Relay demux pipeline extracted from `server.rs` (issue #12, EPIC-server-001).
 //!
 //! One relay subscription feeds every hosted agent. `spawn_demux` drains the
-//! notification stream; `handle_incoming` materializes each event once and
+//! notification stream; incoming events are materialized once and
 //! derives real-time `TailEvent`s via `derive_and_emit_tail_events`. The two
 //! async side-channels (`handle_offline_agent_mention`, `handle_orchestration`)
 //! are dispatched off the demux loop.
@@ -13,7 +13,9 @@
 
 use super::*;
 
+mod attachments;
 mod chat_ops;
+mod inbound_dispatch;
 mod offline_mention;
 mod profile_cache;
 mod route_reaction;
@@ -54,44 +56,21 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
         .expect("NMP materialization stream has one daemon owner");
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
-            handle_incoming(&state, &event);
+            inbound_dispatch::dispatch(&state, &event);
         }
     });
 }
 
-/// Decode one event and apply it. Multi-agent aware: "me" is the set of
-/// daemon-owned pubkeys; direct p-tags park under those exact identities.
-///
-/// Thin dispatch to `provider.materialize` (Phase 5), then derives TailEvents
-/// from the domain event using the in-memory tracking maps.
-fn handle_incoming(state: &Arc<DaemonState>, event: &Event) {
-    tracing::debug!(
-        kind = event.kind.as_u16(),
-        id = %&event.id.to_hex()[..8],
-        from = %crate::util::pubkey_short(&event.pubkey.to_hex()),
-        "incoming event"
-    );
-    let env = crate::fabric::RawEnvelope::Nostr(event.clone());
-    // Expand the hosted set for self-profile/status suppression and tail
-    // presentation. Direct execution uses its own durable ownership classifier.
-    let hosted: Vec<String> = {
-        let mut h = state.hosted_pubkeys();
-        h.extend(crate::identity::list_local_pubkeys(
-            &crate::config::mosaico_home(),
-        ));
-        h.extend(state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()));
-        h.sort_unstable();
-        h.dedup();
-        h
-    };
-    let now = now_secs();
-    // Always materialize: transport read models are idempotent across relay
-    // redelivery. Direct execution is first-sight plus durable per-target claims.
-    let outcome = state.with_store(|s| state.provider.materialize(&env, s));
-
+fn finish_incoming(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    outcome: crate::fabric::MaterializationOutcome,
+    hosted: Vec<String>,
+    now: u64,
+    first_sight: bool,
+) {
     // Resolve newly surfaced identities without waiting for a turn to warm them.
     warm_profiles(state, referenced_pubkeys(event));
-    let first_sight = state.first_sight(&event.id.to_hex());
     super::subscriptions::reconcile_after_group_state_event(state, event, first_sight);
 
     // NMP can deliver once per matching observation (scope filters × live

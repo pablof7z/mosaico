@@ -71,7 +71,14 @@ fn absolute_path_uses_just_the_file_name_as_label() {
 
 #[test]
 fn rejects_empty_parent_and_unsafe_marker_paths() {
-    for raw in ["", "../secret", "out/../secret", "bad[name].png"] {
+    for raw in [
+        "",
+        "../secret",
+        "out/../secret",
+        "bad[name].png",
+        ".event-id",
+        ".EVENT-ID/file.png",
+    ] {
         assert!(parse_spec(raw).is_err(), "accepted {raw:?}");
     }
 }
@@ -125,6 +132,21 @@ fn rejects_duplicate_and_overlapping_labels() {
         .unwrap_err()
         .to_string()
         .contains("overwrite the same path"));
+
+    let case_collision = vec![
+        Attachment {
+            label: "Images/A.png".into(),
+            path: "a".into(),
+        },
+        Attachment {
+            label: "images/a.PNG".into(),
+            path: "b".into(),
+        },
+    ];
+    assert!(prepare_message("chat", &case_collision)
+        .unwrap_err()
+        .to_string()
+        .contains("duplicate attachment label"));
 }
 
 #[test]

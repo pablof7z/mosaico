@@ -9,7 +9,9 @@ use serde::Deserialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+mod attachment_directory;
 mod behavior;
+mod document;
 mod management_key;
 pub use behavior::{BoundaryAction, CrossProjectBoundary};
 pub use harness_detection::detect as detect_available_harnesses;
@@ -54,6 +56,8 @@ pub struct Config {
     pub per_session_rooms: bool,
     /// Cooperative guardrails for explicit structured file-tool paths.
     pub cross_project_boundary: CrossProjectBoundary,
+    /// Shared directory where received chat attachments are materialized.
+    pub attachment_receive_directory: PathBuf,
 }
 
 impl Config {
@@ -115,11 +119,17 @@ struct RawConfig {
     per_session_rooms: bool,
     #[serde(default)]
     agents: behavior::RawAgents,
+    #[serde(default, rename = "attachmentReceiveDirectory")]
+    attachment_receive_directory: Option<PathBuf>,
 }
 
 impl Config {
-    /// Parse from a JSON string. Pure — the unit-testable core of `load`.
+    /// Parse from JSON, resolving local storage against the selected Mosaico home.
     pub fn from_json_str(s: &str, fallback_host: &str) -> Result<Self> {
+        Self::from_json_str_at(s, fallback_host, &mosaico_home())
+    }
+
+    fn from_json_str_at(s: &str, fallback_host: &str, home: &Path) -> Result<Self> {
         let raw: RawConfig = serde_json::from_str(s).context("parsing mosaico config json")?;
         let host = raw
             .backend_name
@@ -129,6 +139,8 @@ impl Config {
             .indexer_relay
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_INDEXER_RELAY.to_string());
+        let attachment_receive_directory =
+            attachment_directory::resolve(raw.attachment_receive_directory, home)?;
         Ok(Config {
             whitelisted_pubkeys: raw.whitelisted_pubkeys,
             relays: raw.relays,
@@ -138,6 +150,7 @@ impl Config {
             mosaico_private_key: raw.mosaico_private_key,
             per_session_rooms: raw.per_session_rooms,
             cross_project_boundary: raw.agents.behavior.cross_project_boundary,
+            attachment_receive_directory,
         })
     }
 
@@ -157,6 +170,10 @@ impl Config {
         let config = Self::from_json_str(&s, &hostname())?;
         require_configured_relay(config)
     }
+}
+
+pub(crate) fn ensure_attachment_receive_directory() -> Result<PathBuf> {
+    attachment_directory::ensure()
 }
 
 fn require_configured_relay(config: Config) -> Result<Config> {

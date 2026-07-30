@@ -72,6 +72,46 @@ fn pending_event_survives_runtime_replacement() {
 }
 
 #[test]
+fn offline_inbox_rows_join_attachment_directory_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        store
+            .record_message(&RecordMessage {
+                message_id: "evt-files".into(),
+                thread_id: "room".into(),
+                channel_h: "room".into(),
+                author_pubkey: "human".into(),
+                body: "see [report.md]".into(),
+                created_at: 10,
+                direction: "inbound".into(),
+                sync_state: "accepted".into(),
+                native_event_id: Some("evt-files".into()),
+                error: None,
+            })
+            .unwrap();
+        store
+            .set_message_attachment_dir("evt-files", Path::new("/tmp/mosaico-files/evt-fi"))
+            .unwrap();
+        store
+            .enqueue_inbox(
+                "evt-files",
+                "pk-agent",
+                "human",
+                "room",
+                "see [report.md]",
+                10,
+            )
+            .unwrap();
+    }
+
+    let reopened = Store::open(&path).unwrap();
+    let rows = reopened.peek_pending_for_pubkey("pk-agent").unwrap();
+    assert_eq!(rows[0].attachment_dir, "/tmp/mosaico-files/evt-fi");
+}
+
+#[test]
 fn hook_claim_stages_one_work_start_reaction() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);

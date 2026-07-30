@@ -73,6 +73,7 @@ fn suspended_reply_author_gets_the_same_reminder_contract() {
         sync_state: "published".into(),
         native_event_id: Some("event".into()),
         error: None,
+        attachment_dir: String::new(),
     };
 
     assert_eq!(

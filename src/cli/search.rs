@@ -132,6 +132,7 @@ fn render_response_at(response: &Value, now: u64) -> Result<String> {
                     event_id: &message.event_id,
                     from: &message.from,
                     recipients: &message.recipients,
+                    attachment_dir: &message.attachment_dir,
                     body: &message.body,
                     created_at: message.created_at,
                     now,
@@ -173,6 +174,8 @@ struct SearchMessage {
     #[serde(default)]
     recipients: Vec<String>,
     body: String,
+    #[serde(default)]
+    attachment_dir: String,
     created_at: u64,
 }
 
@@ -217,6 +220,7 @@ mod tests {
                     "from": "Pablo",
                     "recipients": ["reviewer"],
                     "body": "landed <the> commit",
+                    "attachment_dir": "/tmp/mosaico-files/4e91c0",
                     "created_at": 9_940,
                 }]
             }, {
@@ -235,7 +239,7 @@ mod tests {
         let xml = render_response_at(&response, 10_000).unwrap();
         assert!(xml.starts_with("<mosaico>\n  <channel ref=\"/nmp/research&amp;design\">"));
         assert!(xml.contains(
-            "<message from=\"@Pablo\" id=\"4e91c0\" for=\"@reviewer\" age=\"1m\">landed &lt;the&gt; commit</message>"
+            "<message from=\"@Pablo\" id=\"4e91c0\" for=\"@reviewer\" attachment-dir=\"/tmp/mosaico-files/4e91c0\" age=\"1m\">landed &lt;the&gt; commit</message>"
         ));
         assert!(xml.contains(
             "<message from=\"@reviewer\" id=\"7bc421\" time=\"6000\">approved</message>"

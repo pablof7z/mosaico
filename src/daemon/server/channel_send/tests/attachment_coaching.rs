@@ -28,3 +28,20 @@ fn attachment_labels_survive_tag_normalization_and_ack_uses_display_text() {
     assert_eq!(ack.message, "Got it!");
     assert!(coaching::ack_like(&ack.message).is_some());
 }
+
+#[test]
+fn attachment_persistence_failure_does_not_skip_direct_delivery() {
+    let delivered = std::cell::Cell::new(false);
+    let result = persist_attachment_directory_then_deliver(
+        "published-event",
+        || Err(anyhow::anyhow!("state write failed")),
+        || {
+            delivered.set(true);
+            Ok("delivered")
+        },
+    )
+    .unwrap();
+
+    assert!(delivered.get());
+    assert_eq!(result, "delivered");
+}
