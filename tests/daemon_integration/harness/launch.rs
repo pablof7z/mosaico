@@ -46,6 +46,11 @@ case "${1:-forever}" in
     ;;
   exit-0) exit 0 ;;
   exit-1) exit 1 ;;
+  capture-input)
+    while IFS= read -r line; do
+      printf '%s\n' "$line" >> "$MOSAICO_HOME/captured-pty-input"
+    done
+    ;;
   forever) while :; do sleep 1; done ;;
   *) exit 2 ;;
 esac

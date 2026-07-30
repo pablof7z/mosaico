@@ -18,6 +18,15 @@ mod launch;
 pub(crate) use launch::{
     configure_pty_agent, configure_pty_agent_with_args, install_test_harness_shim,
 };
+#[path = "harness/pty_guard.rs"]
+mod pty_guard;
+pub(crate) use pty_guard::PtyProcessGuard;
+#[path = "harness/reconcile_witness.rs"]
+mod reconcile_witness;
+pub(crate) use reconcile_witness::{daemon_log_boundary, wait_for_reconciled_session_engine};
+#[path = "harness/relay_witness.rs"]
+mod relay_witness;
+pub(crate) use relay_witness::{publish_addressed_chat, wait_for_exact_relay_groups};
 #[path = "harness/wedge_relay.rs"]
 mod wedge_relay;
 pub(crate) use wedge_relay::WedgeRelay;
