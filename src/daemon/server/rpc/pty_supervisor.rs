@@ -5,6 +5,10 @@ struct PtySupervisorExitParams {
     pty_id: String,
     child_success: Option<bool>,
     child_exit_code: Option<u32>,
+    #[serde(default)]
+    command: Vec<String>,
+    #[serde(default)]
+    diagnostic_tail: String,
     presentation: crate::pty::PresentationSnapshot,
     recorded_at: u64,
 }
@@ -15,14 +19,27 @@ pub(in crate::daemon::server) async fn rpc_pty_supervisor_exit(
 ) -> Result<serde_json::Value> {
     let p: PtySupervisorExitParams =
         serde_json::from_value(params.clone()).context("parsing pty_supervisor_exit params")?;
-    tracing::info!(
-        pty_id = %p.pty_id,
-        child_success = ?p.child_success,
-        child_exit_code = ?p.child_exit_code,
-        attached_clients = p.presentation.attached_clients,
-        attachment_epoch = p.presentation.attachment_epoch,
-        "PTY supervisor exited"
-    );
+    if p.child_success == Some(true) {
+        tracing::info!(
+            pty_id = %p.pty_id,
+            child_success = ?p.child_success,
+            child_exit_code = ?p.child_exit_code,
+            attached_clients = p.presentation.attached_clients,
+            attachment_epoch = p.presentation.attachment_epoch,
+            "PTY supervisor exited"
+        );
+    } else {
+        tracing::error!(
+            pty_id = %p.pty_id,
+            child_success = ?p.child_success,
+            child_exit_code = ?p.child_exit_code,
+            command = ?p.command,
+            diagnostic_tail = %p.diagnostic_tail,
+            attached_clients = p.presentation.attached_clients,
+            attachment_epoch = p.presentation.attachment_epoch,
+            "PTY child exited unsuccessfully"
+        );
+    }
     let Some(_) = wait_for_registered_session(state, &p.pty_id).await else {
         return Ok(serde_json::json!({ "accepted": false, "ended": false }));
     };

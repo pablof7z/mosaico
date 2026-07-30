@@ -128,6 +128,8 @@ async fn replay_finalizes_reserved_idle_stop_once() {
         pty_id: pty_id.into(),
         child_success: None,
         child_exit_code: None,
+        command: Vec::new(),
+        diagnostic_tail: String::new(),
         presentation: crate::pty::PresentationSnapshot {
             attached_clients: 0,
             attachment_epoch: 1,
