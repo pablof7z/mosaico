@@ -16,7 +16,8 @@ pub(in crate::cli) struct ChannelSearchArgs {
     #[arg(long, value_name = "TEXT")]
     pub(in crate::cli) contains: Vec<String>,
     /// Search this channel and its descendants. Repeat to search any subtree.
-    /// Omit, or pass /, to search every channel in the local database.
+    /// Omit, or pass `#`, to search every channel in the local database. Quote
+    /// paths in the shell: `'#nmp/research'`.
     #[arg(
         long,
         value_name = "CHANNEL",
@@ -198,7 +199,7 @@ mod tests {
             vec!["@Pablo".into()],
             Vec::new(),
             vec!["commit".into()],
-            vec!["/".into()],
+            vec!["#".into()],
             Some(10),
             Some(20),
             Some(5),
@@ -214,7 +215,7 @@ mod tests {
     fn response_groups_channels_and_uses_canonical_message_elements() {
         let response = json!({
             "channels": [{
-                "ref": "/nmp/research&design",
+                "ref": "#nmp/research&design",
                 "messages": [{
                     "event_id": "4e91c0b7f2de",
                     "from": "Pablo",
@@ -224,7 +225,7 @@ mod tests {
                     "created_at": 9_940,
                 }]
             }, {
-                "ref": "/nmp/archive",
+                "ref": "#nmp/archive",
                 "messages": [{
                     "event_id": "7bc421123456",
                     "from": "reviewer",
@@ -237,7 +238,7 @@ mod tests {
         });
 
         let xml = render_response_at(&response, 10_000).unwrap();
-        assert!(xml.starts_with("<mosaico>\n  <channel ref=\"/nmp/research&amp;design\">"));
+        assert!(xml.starts_with("<mosaico>\n  <channel ref=\"#nmp/research&amp;design\">"));
         assert!(xml.contains(
             "<message from=\"@Pablo\" id=\"4e91c0\" for=\"@reviewer\" attachment-dir=\"/tmp/mosaico-files/4e91c0\" age=\"1m\">landed &lt;the&gt; commit</message>"
         ));

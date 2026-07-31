@@ -5,17 +5,18 @@ use nostr::ToBech32;
 const WRITER_PUBKEY: &str = "31d4c4950a12b978cee21f84f4f5703e700b2d77a18648773239096675a7ab2d";
 
 #[test]
-fn fully_qualified_channels_use_leading_slash_paths() {
+fn fully_qualified_channels_use_leading_hash_paths() {
     assert_eq!(
-        split_fully_qualified_channel("/workspace/research"),
+        split_fully_qualified_channel("#workspace/research"),
         Some(("workspace", Some("research")))
     );
     assert_eq!(
-        split_fully_qualified_channel("/workspace"),
+        split_fully_qualified_channel("#workspace"),
         Some(("workspace", None))
     );
     assert_eq!(split_fully_qualified_channel("workspace.research"), None);
     assert_eq!(split_fully_qualified_channel("workspace/research"), None);
+    assert_eq!(split_fully_qualified_channel("/workspace"), None);
 }
 
 fn caller_session(state: &Arc<DaemonState>, channels: &[&str]) -> crate::state::Session {

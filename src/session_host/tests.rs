@@ -61,8 +61,8 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     assert_eq!(
         prompt,
         "<mosaico>\n\
-         \u{20}\u{20}<channel ref=\"/proj\">\n\
-         \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\" for=\"@pk-targe\" age=\"20s\">please review the PTY delivery path</message>\n\
+         \u{20}\u{20}<channel ref=\"#proj\">\n\
+         \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\" age=\"20s\">please review the PTY delivery path</message>\n\
          \u{20}\u{20}</channel>\n\
          </mosaico>"
     );
@@ -130,8 +130,8 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
     assert_eq!(
         prompt,
         "<mosaico>\n\
-         \u{20}\u{20}<channel ref=\"/mosaico/writer-test\">\n\
-         \u{20}\u{20}\u{20}\u{20}<message from=\"@human-pk\" id=\"ev-hum\" for=\"@pk-targe\" age=\"20s\">@developer hey there</message>\n\
+         \u{20}\u{20}<channel ref=\"#mosaico/writer-test\">\n\
+         \u{20}\u{20}\u{20}\u{20}<message from=\"@human-pk\" id=\"ev-hum\" age=\"20s\">@developer hey there</message>\n\
          \u{20}\u{20}</channel>\n\
          </mosaico>"
     );

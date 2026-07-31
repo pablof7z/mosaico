@@ -261,7 +261,7 @@ mod tests {
         let event = public_tail_event(&state, event).expect("complete public path");
         assert!(matches!(
             event,
-            TailEvent::Msg { channel, .. } if channel == "/root-h/review"
+            TailEvent::Msg { channel, .. } if channel == "#root-h/review"
         ));
     }
 }

@@ -100,8 +100,8 @@ result: {"fabric": "<mosaico>…</mosaico>"}
 Strict self-scoped agent briefing. It resolves the exact live caller, requests
 canonical state at cursor `0`, and emits `<self>`, host inventory, a root-channel
 forest, and typed member sessions. There are no workspace wrappers and no
-repeated channel name/id attributes. Public names are absolute slash paths
-(`/root/child`); opaque protocol ids and local paths are never exposed. Every
+repeated channel name/id attributes. Public names are absolute hash paths
+(`#root/child`); opaque protocol ids and local paths are never exposed. Every
 root containing one of the session's joined channels expands recursively.
 Other roots remain compact. Member rows appear only where the session belongs;
 non-member channels may expose an agent-only count and relative `last-active`.
@@ -155,8 +155,8 @@ use this diagnostic path.
 
 ### `tail` (streaming)
 ```jsonc
-params: {"channel": "/root/child"|null}
-stream: {"item": {"category": "…", "channel": "/root/child", …}} // repeated
+params: {"channel": "#root/child"|null}
+stream: {"item": {"category": "…", "channel": "#root/child", …}} // repeated
         … until client disconnects (Ctrl-C)
 ```
 The daemon resolves the requested full path, ensures NMP observation coverage,
@@ -167,7 +167,7 @@ opaque protocol identifiers remain inside the daemon.
 
 ### Channels
 The channel addressing contract (every public `"channel"` argument is a full
-absolute path `/workspace/child`, resolved globally and exactly)
+absolute path `#workspace/child`, resolved globally and exactly)
 and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
 `channel_members`, `channel_add_member`, `channel_remove_member`,
 `channel_create`, `channel_list`, `channel_join`, `channel_leave`,

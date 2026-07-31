@@ -123,13 +123,13 @@ pub(crate) fn initialize_workspace_root(channel: &str, path: &str) {
             .call(
                 "channel_init",
                 serde_json::json!({
-                    "channel": format!("/{channel}"),
+                    "channel": format!("#{channel}"),
                     "path": path,
                 }),
             )
             .await
             .expect("initialize workspace root");
-        assert_eq!(initialized["channel"], format!("/{channel}"));
+        assert_eq!(initialized["channel"], format!("#{channel}"));
     });
 }
 

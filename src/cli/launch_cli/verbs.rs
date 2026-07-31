@@ -151,13 +151,13 @@ fn collect_picker_channels(
 }
 
 async fn resolve_existing_channel_path(root: &str, path: &str, agent: &str) -> Result<String> {
-    let prefix = format!("/{root}");
+    let prefix = crate::channel_ref::format_channel_ref(root, &[]);
     let remainder = path
         .strip_prefix(&prefix)
-        .with_context(|| format!("selected channel path {path:?} is outside /{root}"))?;
+        .with_context(|| format!("selected channel path {path:?} is outside #{root}"))?;
     anyhow::ensure!(
         remainder.is_empty() || remainder.starts_with('/'),
-        "selected channel path {path:?} is outside /{root}"
+        "selected channel path {path:?} is outside #{root}"
     );
     let mut parent = root.to_string();
     for name in remainder.split('/').filter(|segment| !segment.is_empty()) {
@@ -201,7 +201,7 @@ async fn create_channel_interactive(
     let v = super::super::daemon_call_async(
         "channel_create",
         crate::cli::rpc_params(serde_json::json!({
-            "channel": format!("/{root}/{name}"),
+            "channel": crate::channel_ref::format_channel_ref(root, &[name.clone()]),
             "about": &name,
             "agents": [{ "slug": agent_slug, "backend": backend_label }],
         })),
@@ -237,10 +237,10 @@ mod tests {
     fn picker_collects_only_public_nested_paths() {
         let children = serde_json::json!([
             {
-                "path": "/nmp/review",
+                "path": "#nmp/review",
                 "about": "Reviews",
                 "children": [{
-                    "path": "/nmp/review/deep",
+                    "path": "#nmp/review/deep",
                     "about": "Deep reviews",
                 }],
             }
@@ -254,11 +254,11 @@ mod tests {
             paths,
             vec![
                 None,
-                Some("/nmp/review".into()),
-                Some("/nmp/review/deep".into())
+                Some("#nmp/review".into()),
+                Some("#nmp/review/deep".into())
             ]
         );
-        assert_eq!(labels, ["create", "/nmp/review", "  /nmp/review/deep"]);
+        assert_eq!(labels, ["create", "#nmp/review", "  #nmp/review/deep"]);
     }
 
     #[tokio::test]

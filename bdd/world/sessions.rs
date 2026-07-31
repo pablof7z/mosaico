@@ -75,7 +75,7 @@ impl MosaicoWorld {
             .current_backend()
             .workspace(&workspace)
             .expect("resolve active workspace");
-        let channel = format!("/{workspace}");
+        let channel = format!("#{workspace}");
         let result = self
             .current_backend()
             .run_in(

@@ -5,8 +5,8 @@ fn view() -> StatuslineView {
         agent: "amber-claude".into(),
         host: "Kubrick's Mac".into(),
         session_id: "some-long-uuid".into(),
-        work_root: "/mosaico".into(),
-        channels: vec!["/mosaico/support".into()],
+        work_root: "#mosaico".into(),
+        channels: vec!["#mosaico/support".into()],
         working: true,
         title: "Refactoring the inbox".into(),
         activity: "writing tests".into(),
@@ -18,7 +18,7 @@ fn view() -> StatuslineView {
 fn renders_identity_root_session_title_status() {
     assert_eq!(
         render_statusline(&view(), false),
-        "amber-claude /mosaico /mosaico/support [Refactoring the inbox] [writing tests]"
+        "amber-claude #mosaico #mosaico/support [Refactoring the inbox] [writing tests]"
     );
 }
 
@@ -48,15 +48,15 @@ fn zero_memberships_are_explicit() {
 #[test]
 fn multiple_memberships_are_rendered_without_selecting_one() {
     let mut v = view();
-    v.channels.push("/other/review".into());
+    v.channels.push("#other/review".into());
     let rendered = render_statusline(&v, false);
-    assert!(rendered.contains("/mosaico/support, /other/review"));
+    assert!(rendered.contains("#mosaico/support, #other/review"));
 }
 
 #[test]
 fn truncates_long_channel_memberships() {
     let mut v = view();
-    v.channels = vec![format!("/mosaico/{}", "x".repeat(100))];
+    v.channels = vec![format!("#mosaico/{}", "x".repeat(100))];
     assert!(render_statusline(&v, false).contains('…'));
 }
 

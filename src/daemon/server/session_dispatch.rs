@@ -110,7 +110,7 @@ async fn resolve_dispatch_channels(
 }
 
 fn split_fully_qualified_channel(raw: &str) -> Option<(&str, Option<&str>)> {
-    let path = raw.strip_prefix('/')?;
+    let path = raw.strip_prefix(crate::channel_ref::CHANNEL_PATH_PREFIX)?;
     if path.is_empty() || path.ends_with('/') || path.contains("//") || path.contains('.') {
         return None;
     }

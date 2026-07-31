@@ -74,11 +74,15 @@ pub(in crate::daemon::server) fn rpc_channel_list(
 }
 
 fn normalize_workspace(value: &str) -> Result<String> {
-    let workspace = value.trim().trim_start_matches('/');
+    let trimmed = value.trim();
+    // Bare root slug (`mosaico`) or full root path (`#mosaico`). No slash form.
+    let workspace = trimmed
+        .strip_prefix(crate::channel_ref::CHANNEL_PATH_PREFIX)
+        .unwrap_or(trimmed);
     anyhow::ensure!(!workspace.is_empty(), "workspace must not be empty");
     anyhow::ensure!(
-        !workspace.contains('/'),
-        "workspace must be a root name, not a channel path"
+        !workspace.starts_with('/') && !workspace.contains('/'),
+        "workspace must be a root name or full root path (#name), not a slash path"
     );
     Ok(workspace.to_string())
 }

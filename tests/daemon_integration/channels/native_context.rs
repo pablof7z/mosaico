@@ -45,7 +45,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "channel": format!("/{parent}/native-subtask"),
+                "channel": format!("#{parent}/native-subtask"),
                 "agents": [],
                 "harness": "claude-code",
                 "watch_pid": watch_pid,
@@ -56,7 +56,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         .await
         .expect("channel_create should resolve the exact watched process")
     });
-    let child_path = format!("/{parent}/native-subtask");
+    let child_path = format!("#{parent}/native-subtask");
     assert_eq!(created["channel"], child_path);
     assert_eq!(created["joined"].as_bool(), Some(true));
 
@@ -201,7 +201,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "channel": format!("/{parent}/membership-child"),
+                "channel": format!("#{parent}/membership-child"),
                 "agents": [],
                 "harness": "claude-code",
                 "watch_pid": watch_pid,
@@ -212,7 +212,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
         .await
         .expect("create should resolve by watched process")
     });
-    let child_path = format!("/{parent}/membership-child");
+    let child_path = format!("#{parent}/membership-child");
     assert_eq!(created["channel"], child_path);
     assert_eq!(created["joined"].as_bool(), Some(true));
     let child_h = named_child_h(&home, &parent, "membership-child");
@@ -226,7 +226,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             .call(
                 "channel_leave",
                 serde_json::json!({
-                    "channel": format!("/{parent}"),
+                    "channel": format!("#{parent}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -235,14 +235,14 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             )
             .await
             .expect("leave should resolve by watched process");
-        assert_eq!(left["channel"], format!("/{parent}"));
+        assert_eq!(left["channel"], format!("#{parent}"));
         assert_eq!(left["left"].as_bool(), Some(true));
 
         let joined = c
             .call(
                 "channel_join",
                 serde_json::json!({
-                    "channel": format!("/{parent}"),
+                    "channel": format!("#{parent}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -251,7 +251,7 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
             )
             .await
             .expect("join should resolve by watched process");
-        assert_eq!(joined["channel"], format!("/{parent}"));
+        assert_eq!(joined["channel"], format!("#{parent}"));
     });
 
     let store = Store::open(&home.store_path()).unwrap();

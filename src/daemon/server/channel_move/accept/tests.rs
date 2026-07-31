@@ -91,12 +91,12 @@ fn move_creation_uses_the_required_about_as_the_child_about() {
     });
     let created = move_create_params(
         &params,
-        "/root",
+        "#root",
         "focused",
         "Coordinate the focused implementation",
     );
 
-    assert_eq!(created["channel"], "/root/focused");
+    assert_eq!(created["channel"], "#root/focused");
     assert_eq!(created["about"], "Coordinate the focused implementation");
     assert_eq!(created["agents"], serde_json::json!([]));
     assert_eq!(created["session"], A1);
@@ -162,7 +162,7 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
             store,
             7,
             A1,
-            "Continue this conversation in /root/focused; existing channel memberships are unchanged"
+            "Continue this conversation in #root/focused; existing channel memberships are unchanged"
                 .into(),
             now,
         );

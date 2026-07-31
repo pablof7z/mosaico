@@ -13,8 +13,8 @@ fn human_who_renderer_is_non_xml_and_terminal_friendly() {
         .expect("valid channel ancestry")
         .expect("human who should render");
 
-    assert!(human.starts_with("/root\nRoot room\n\n"), "got: {human}");
-    assert!(human.contains("/root/task"), "got: {human}");
+    assert!(human.starts_with("#root\nRoot room\n\n"), "got: {human}");
+    assert!(human.contains("#root/task"), "got: {human}");
     assert!(human.contains("Members"), "got: {human}");
     assert!(human.contains("@coder"), "got: {human}");
     assert!(human.contains("idle"), "got: {human}");

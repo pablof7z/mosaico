@@ -90,7 +90,10 @@ fn scope_spans(workspaces: &[WorkspaceGroup]) -> Vec<Span<'static>> {
                     spans.push(Span::raw(" "));
                 }
                 spans.push(Span::styled(
-                    format!("/{}/{}", workspace.id, channel.name),
+                    crate::channel_ref::format_channel_ref(
+                        &workspace.id,
+                        &[channel.name.clone()],
+                    ),
                     Style::default().fg(CHANNEL),
                 ));
             }
@@ -177,7 +180,7 @@ mod tests {
             .map(|s| s.content.as_ref())
             .collect::<String>();
         assert!(first.contains("● @delta-codex"));
-        assert!(first.contains("mosaico: /mosaico-root/ideas"));
+        assert!(first.contains("mosaico: #mosaico-root/ideas"));
         assert!(first.ends_with("working"));
         assert!(!first.contains("PTY"));
         assert_eq!(second, "Implement session picker — running tests");

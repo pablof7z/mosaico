@@ -55,7 +55,7 @@ fn wait_has_no_json_mode() {
 fn agent_native_wait_renderers_use_one_mosaico_envelope() {
     let message = render_wait_message(
         &serde_json::json!({
-            "channel": "/root/x",
+            "channel": "#root/x",
             "from_ref": "agent5",
             "recipient_refs": ["reviewer"],
             "event_id": "abcdef123",
@@ -66,19 +66,19 @@ fn agent_native_wait_renderers_use_one_mosaico_envelope() {
         160,
     );
     assert!(message.starts_with("<mosaico>"));
-    assert!(message.contains("<channel ref=\"/root/x\">"));
+    assert!(message.contains("<channel ref=\"#root/x\">"));
     assert!(message.contains(
         "<message from=\"@agent5\" id=\"abcdef\" for=\"@reviewer\" attachment-dir=\"/tmp/mosaico-files/abcdef\" age=\"1m\">done</message>"
     ));
 
-    let timeout = crate::injection::render_agent_wait_timeout(60, &["/root/x", "/root/y"]);
+    let timeout = crate::injection::render_agent_wait_timeout(60, &["#root/x", "#root/y"]);
     assert!(timeout.starts_with("<mosaico>"));
     assert!(timeout.contains("<wait outcome=\"timeout\" after=\"60s\">"));
-    assert!(timeout.contains("<channel ref=\"/root/y\" />"));
+    assert!(timeout.contains("<channel ref=\"#root/y\" />"));
 }
 
 #[test]
-fn direct_delivery_and_wait_share_the_exact_message_element() {
+fn direct_delivery_omits_for_while_wait_keeps_recipients() {
     let store = crate::state::Store::open_memory().unwrap();
     store.upsert_channel("x", "x", "", "", 1).unwrap();
     let row = crate::state::InboxRow {
@@ -95,7 +95,7 @@ fn direct_delivery_and_wait_share_the_exact_message_element() {
     let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160, true).unwrap();
     let waited = render_wait_message(
         &serde_json::json!({
-            "channel": "/x",
+            "channel": "#x",
             "from_ref": "pk-sende",
             "recipient_refs": ["pk-targe"],
             "event_id": "abcdef123",
@@ -106,7 +106,21 @@ fn direct_delivery_and_wait_share_the_exact_message_element() {
         160,
     );
 
-    assert_eq!(message_element(&direct), message_element(&waited));
+    // Injected delivery is already addressed to the receiving session, so it
+    // drops `for=`. Wait still shows recipients (channel activity may be
+    // directed at someone else).
+    assert!(
+        !message_element(&direct).contains(" for="),
+        "injected envelope must not restate the delivery target: {direct}"
+    );
+    assert!(
+        message_element(&waited).contains(" for=\"@pk-targe\""),
+        "wait still surfaces directed recipients: {waited}"
+    );
+    assert!(message_element(&direct).contains("from=\"@pk-sende\""));
+    assert!(message_element(&direct).contains("id=\"abcdef\""));
+    assert!(message_element(&direct).contains("attachment-dir=\"/tmp/mosaico-files/abcdef\""));
+    assert!(message_element(&direct).contains("done &amp; checked"));
 }
 
 fn message_element(document: &str) -> &str {

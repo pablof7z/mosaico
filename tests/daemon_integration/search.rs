@@ -54,8 +54,8 @@ fn channel_search_reads_cached_messages_across_channels_while_relay_is_wedged() 
         String::from_utf8_lossy(&all.stderr)
     );
     let all = String::from_utf8_lossy(&all.stdout);
-    assert!(all.contains("<channel ref=\"/alpha/research\">"), "{all}");
-    assert!(all.contains("<channel ref=\"/beta\">"), "{all}");
+    assert!(all.contains("<channel ref=\"#alpha/research\">"), "{all}");
+    assert!(all.contains("<channel ref=\"#beta\">"), "{all}");
     assert!(all.contains("id=\"aaaaaa\""), "{all}");
     assert!(all.contains("id=\"bbbbbb\""), "{all}");
     assert!(!all.contains("unrelated"), "{all}");
@@ -66,7 +66,7 @@ fn channel_search_reads_cached_messages_across_channels_while_relay_is_wedged() 
             "channel",
             "search",
             "--channel",
-            "/alpha",
+            "#alpha",
             "--contains",
             "commit",
         ],
@@ -93,8 +93,8 @@ fn channel_search_reads_cached_messages_across_channels_while_relay_is_wedged() 
     let response: serde_json::Value = serde_json::from_slice(&mcp.stdout).unwrap();
     let result = &response["result"];
     let xml = result["content"][0]["text"].as_str().unwrap();
-    assert!(xml.contains("<channel ref=\"/alpha/research\">"), "{xml}");
-    assert!(xml.contains("<channel ref=\"/beta\">"), "{xml}");
+    assert!(xml.contains("<channel ref=\"#alpha/research\">"), "{xml}");
+    assert!(xml.contains("<channel ref=\"#beta\">"), "{xml}");
     assert_eq!(
         result["structuredContent"]["channels"]
             .as_array()

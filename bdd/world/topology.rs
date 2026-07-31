@@ -104,7 +104,7 @@ impl MosaicoWorld {
         while std::time::Instant::now() < deadline {
             self.list_channels_on(backend_name);
             let run = self.last_run();
-            if run.success() && run.stdout.contains(&format!("/{workspace}")) {
+            if run.success() && run.stdout.contains(&format!("#{workspace}")) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(300));

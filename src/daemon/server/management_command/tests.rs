@@ -10,7 +10,7 @@ async fn management_channel_labels_are_public_paths_or_generic() {
         })
         .unwrap();
 
-    assert_eq!(channel_label(&state, "opaque-child"), "/root/review");
+    assert_eq!(channel_label(&state, "opaque-child"), "#root/review");
     assert_eq!(
         channel_label(&state, "unknown-internal-id"),
         "a channel with unavailable public path"

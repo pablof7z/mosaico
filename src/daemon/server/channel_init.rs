@@ -47,7 +47,7 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
         .await
         .context("root channel readiness timed out")?;
     ready.require_ready(format!(
-        "workspace root /{channel} was registered locally but was not provisioned"
+        "workspace root #{channel} was registered locally but was not provisioned"
     ))?;
 
     ensure_subscription(state, &channel).await?;
@@ -60,8 +60,8 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
 
 fn root_slug(reference: &str) -> Result<String> {
     let reference = reference.trim();
-    let Some(slug) = reference.strip_prefix('/') else {
-        anyhow::bail!("workspace root must be a full path such as /workspace");
+    let Some(slug) = reference.strip_prefix(crate::channel_ref::CHANNEL_PATH_PREFIX) else {
+        anyhow::bail!("workspace root must be a full path such as #workspace");
     };
     if slug.is_empty() || slug.contains(['/', '.']) || slug.chars().any(char::is_whitespace) {
         anyhow::bail!("workspace root must contain exactly one non-empty path segment");
@@ -75,8 +75,8 @@ mod tests {
 
     #[test]
     fn root_slug_accepts_only_one_absolute_segment() {
-        assert_eq!(root_slug("/mosaico").unwrap(), "mosaico");
-        for invalid in ["mosaico", "/", "/a/b", "/a.b", "/a b"] {
+        assert_eq!(root_slug("#mosaico").unwrap(), "mosaico");
+        for invalid in ["mosaico", "#", "#a/b", "#a.b", "#a b", "/mosaico"] {
             assert!(root_slug(invalid).is_err(), "{invalid:?}");
         }
     }

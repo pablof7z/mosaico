@@ -8,7 +8,7 @@ pub(in crate::daemon::server) struct ChatTarget {
 
 /// Resolve `--channel`/inferred destination for `channel send`/`channel read`.
 ///
-/// An explicit reference must be a full absolute path (`/workspace/child`) —
+/// An explicit reference must be a full absolute path (`#workspace/child`) —
 /// no bare names or opaque ids, and no exception for a launch channel.
 /// Resolution is GLOBAL (not scoped to
 /// the caller's own workspace). A reference that doesn't resolve is rejected
@@ -136,7 +136,7 @@ mod tests {
         store.grant_session_route("pk", "abcd1234", 1).unwrap();
 
         assert_eq!(
-            resolve_chat_channel_ref(&store, "/root/planning").unwrap(),
+            resolve_chat_channel_ref(&store, "#root/planning").unwrap(),
             "abcd1234"
         );
     }
@@ -164,7 +164,7 @@ mod tests {
             .with_store(|s| s.upsert_channel("other", "other", "", "", 1))
             .unwrap();
 
-        let err = resolve_chat_target(&state, &rec, Some("/other"), "channel send")
+        let err = resolve_chat_target(&state, &rec, Some("#other"), "channel send")
             .expect_err("an existing but un-joined channel must be rejected");
         assert!(
             err.to_string().contains("hasn't joined"),
@@ -183,11 +183,11 @@ mod tests {
             .with_store(|s| s.upsert_channel("h-alpha", "alpha", "", "workspace", 1))
             .unwrap();
 
-        let err = resolve_chat_target(&state, &rec, Some("/workspace/test/hello"), "channel send")
+        let err = resolve_chat_target(&state, &rec, Some("#workspace/test/hello"), "channel send")
             .expect_err("a missing path must be rejected, not auto-created");
         let message = err.to_string();
         assert!(message.contains("no channel matching"), "{message}");
-        assert!(message.contains("/workspace/alpha"), "{message}");
+        assert!(message.contains("#workspace/alpha"), "{message}");
         assert!(
             state
                 .with_store(|s| s.get_channel("test"))
@@ -248,8 +248,8 @@ mod tests {
             .map(|(h, _)| channel_reference_for(&store, h))
             .collect::<Result<Vec<_>>>()
             .unwrap();
-        assert!(refs.contains(&"/root".to_string()));
-        assert!(refs.contains(&"/other".to_string()));
+        assert!(refs.contains(&"#root".to_string()));
+        assert!(refs.contains(&"#other".to_string()));
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
 
         assert_eq!(
             channel_reference_for(&store, "h-plan").unwrap(),
-            "/root/epic/planning"
+            "#root/epic/planning"
         );
     }
 }

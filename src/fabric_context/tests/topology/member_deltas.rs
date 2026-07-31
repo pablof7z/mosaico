@@ -154,7 +154,7 @@ fn an_unjoined_descendant_never_emits_typed_member_detail() {
     let full = render_fabric_context(&store, input(Some(&rec), "root", 0, 300, false))
         .expect("the descendant metadata remains visible");
     assert!(
-        full.contains("<channel name=\"/root/task\" about=\"Task room\" agents=\"2\" />"),
+        full.contains("<channel name=\"#root/task\" about=\"Task room\" agents=\"2\" />"),
         "{full}"
     );
     assert!(!full.contains("Private child work"), "{full}");

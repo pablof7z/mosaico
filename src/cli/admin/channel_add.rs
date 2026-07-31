@@ -26,7 +26,7 @@ async fn human_add(
         anyhow::bail!("--message is only valid with --session");
     }
     let (Some(id), Some(channel)) = (id, channel) else {
-        anyhow::bail!("channel add <pubkey|npub|nip05> <channel> [--admin]");
+        anyhow::bail!("{}", crate::channel_ref::MISSING_CHANNEL_NAME_HINT);
     };
     super::args::parse_channel_path(&channel).map_err(anyhow::Error::msg)?;
     let v = daemon_call_async(
@@ -47,7 +47,7 @@ async fn human_add(
 
 async fn session_add(channel: Option<String>, handle: &str, message: Option<String>) -> Result<()> {
     let Some(channel) = channel else {
-        anyhow::bail!("channel add --session <npub|hex|current-handle> <channel>");
+        anyhow::bail!("{}", crate::channel_ref::MISSING_CHANNEL_NAME_HINT);
     };
     super::args::parse_channel_path(&channel).map_err(anyhow::Error::msg)?;
     // Strip the mention sigil before sending the canonical handle to the daemon.

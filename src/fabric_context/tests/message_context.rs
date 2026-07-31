@@ -61,8 +61,8 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
         .expect("mention should render");
     assert!(text.contains("<channels>"));
     assert!(!text.contains("<workspace"));
-    assert!(text.contains("<channel name=\"/root\""));
-    assert!(!text.contains("<channel name=\"/root\" id=\""));
+    assert!(text.contains("<channel name=\"#root\""));
+    assert!(!text.contains("<channel name=\"#root\" id=\""));
     assert!(text.contains("<message from=\"@reviewer\" id=\"mentio\""));
     assert!(text.contains("age=\"1m\""));
     assert!(!text.contains("Follow up on mentio:"));
@@ -70,7 +70,7 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
     assert!(!text.contains("truncated=\"true\""));
     assert!(text.contains("[message truncated; run `mosaico channel read --id mentio`]"));
     assert!(text.contains("<important>"));
-    assert!(text.contains("<mention channel=\"/root\""));
+    assert!(text.contains("<mention channel=\"#root\""));
     assert!(text.contains("message_id=\"mentio\""));
 }
 

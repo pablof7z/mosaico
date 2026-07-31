@@ -2,6 +2,10 @@ use crate::state::Store;
 
 const MAX_CHANNEL_REF_DEPTH: usize = 32;
 
+/// Leading sigil for every agent-facing channel path (`#root/child`).
+/// Path segments after the sigil are still separated by `/`.
+pub(crate) const CHANNEL_PATH_PREFIX: char = '#';
+
 /// Full, agent-facing channel path for reply instructions. The workspace is its
 /// root channel, so descendants extend the durable root `h` directly.
 pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
@@ -26,33 +30,46 @@ pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
 
 pub(crate) fn split_create_path(path: &str) -> anyhow::Result<(String, String)> {
     let path = path.trim();
-    if !path.starts_with('/') || path.ends_with('/') || path.contains("//") {
-        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
+    if !path.starts_with(CHANNEL_PATH_PREFIX) || path.ends_with('/') || path.contains("//") {
+        anyhow::bail!(
+            "channel create <path> requires a full absolute path, e.g. #workspace/child"
+        );
     }
     let segments = path[1..].split('/').map(str::trim).collect::<Vec<_>>();
     if segments.iter().any(|segment| segment.is_empty()) {
-        anyhow::bail!("channel create <path> requires a full absolute path, e.g. /workspace/child");
+        anyhow::bail!(
+            "channel create <path> requires a full absolute path, e.g. #workspace/child"
+        );
     }
     let Some((name, parents)) = segments.split_last() else {
         anyhow::bail!("channel create <path> requires a non-empty path");
     };
     if parents.is_empty() {
         anyhow::bail!(
-            "channel create <path> needs a parent, e.g. /workspace/{name}; the workspace itself \
+            "channel create <path> needs a parent, e.g. #workspace/{{name}}; the workspace itself \
              comes from `channel init`, not `channel create`"
         );
     }
-    Ok((format!("/{}", parents.join("/")), (*name).to_string()))
+    Ok((
+        format_channel_ref(&parents.join("/"), &[]),
+        (*name).to_string(),
+    ))
 }
 
 pub(crate) fn format_channel_ref(workspace: &str, descendants: &[String]) -> String {
-    let mut reference = format!("/{workspace}");
+    let workspace = workspace.trim_start_matches(CHANNEL_PATH_PREFIX);
+    let mut reference = format!("{CHANNEL_PATH_PREFIX}{workspace}");
     for descendant in descendants {
         reference.push('/');
         reference.push_str(descendant);
     }
     reference
 }
+
+/// Hint shown when a channel name is missing — usually because the shell ate an
+/// unquoted `#…` path as a comment.
+pub(crate) const MISSING_CHANNEL_NAME_HINT: &str =
+    "no channel name; did you put quotes around the name? e.g. '#channel'";
 
 #[cfg(test)]
 mod tests {
@@ -71,7 +88,7 @@ mod tests {
             .upsert_channel("qa-h", "qa", "", "child-h", 3)
             .unwrap();
 
-        assert_eq!(full_channel_ref(&store, "qa-h"), "/root-h/channel/qa");
+        assert_eq!(full_channel_ref(&store, "qa-h"), "#root-h/channel/qa");
     }
 
     #[test]
@@ -88,20 +105,20 @@ mod tests {
             .upsert_channel("workspace", "workspace", "", "", 1)
             .unwrap();
 
-        assert_eq!(full_channel_ref(&store, "workspace"), "/workspace");
+        assert_eq!(full_channel_ref(&store, "workspace"), "#workspace");
     }
 
     #[test]
     fn split_create_path_requires_an_absolute_child_path() {
         assert_eq!(
-            split_create_path("/workspace/epic/planning").unwrap(),
-            ("/workspace/epic".into(), "planning".into())
+            split_create_path("#workspace/epic/planning").unwrap(),
+            ("#workspace/epic".into(), "planning".into())
         );
         assert!(split_create_path("workspace/child").is_err());
-        assert!(split_create_path("/workspace").is_err());
+        assert!(split_create_path("#workspace").is_err());
         assert_eq!(
-            split_create_path("/f7z.io/child").unwrap(),
-            ("/f7z.io".into(), "child".into())
+            split_create_path("#f7z.io/child").unwrap(),
+            ("#f7z.io".into(), "child".into())
         );
     }
 }

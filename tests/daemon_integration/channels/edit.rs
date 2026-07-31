@@ -169,8 +169,8 @@ fn channel_edit_rejects_bare_names_and_resolves_full_paths() {
     // Both same-named channels are accepted as independently addressable full
     // paths rather than being rejected as malformed references.
     for path in [
-        format!("/{workspace_h}/planning"),
-        format!("/{workspace_h}/epic/planning"),
+        format!("#{workspace_h}/planning"),
+        format!("#{workspace_h}/epic/planning"),
     ] {
         let rendered = match edit(path.clone()) {
             Ok(v) => v.to_string(),

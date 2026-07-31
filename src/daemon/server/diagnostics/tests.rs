@@ -164,7 +164,7 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
             id: 702,
             method: "channel_add_member".into(),
             params: serde_json::json!({
-                "channel": "/project",
+                "channel": "#project",
                 "pubkey": target,
                 "session": caller,
                 "admin": false
@@ -219,7 +219,7 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
             id: 703,
             method: "channel_create".into(),
             params: serde_json::json!({
-                "channel": "/project/new-channel",
+                "channel": "#project/new-channel",
                 "about": "",
                 "agents": []
             }),

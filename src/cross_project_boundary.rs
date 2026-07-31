@@ -79,7 +79,7 @@ pub(crate) fn classify(
 }
 
 fn channel_name(value: &str) -> String {
-    format!("/{}", value.trim_start_matches('/'))
+    crate::channel_ref::format_channel_ref(value, &[])
 }
 
 fn resolve_lexically(cwd: &Path, requested: &Path) -> Option<PathBuf> {
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(read.action, BoundaryAction::Warn);
         assert_eq!(write.action, BoundaryAction::Deny);
         assert_eq!(read.resolved_path, Path::new("/work/beta/README.md"));
-        assert!(write.message.contains("Mosaico workspace /beta"));
+        assert!(write.message.contains("Mosaico workspace #beta"));
         assert!(write.message.contains("dispatch an agent there"));
     }
 

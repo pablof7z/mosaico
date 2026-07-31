@@ -9,8 +9,9 @@ pub(super) fn canonical_segments(root: &str, reference: &str) -> Option<Vec<Stri
     {
         return None;
     }
-    let absolute = reference.starts_with('/');
-    let path = reference.strip_prefix('/').unwrap_or(reference);
+    let prefix = crate::channel_ref::CHANNEL_PATH_PREFIX;
+    let absolute = reference.starts_with(prefix);
+    let path = reference.strip_prefix(prefix).unwrap_or(reference);
     let mut segments = path
         .split('/')
         .map(str::trim)
@@ -28,14 +29,15 @@ pub(super) fn canonical_segments(root: &str, reference: &str) -> Option<Vec<Stri
     Some(segments)
 }
 
-/// Absolute path segments, e.g. `/workspace/a/b` -> `["workspace","a","b"]`.
+/// Absolute path segments, e.g. `#workspace/a/b` -> `["workspace","a","b"]`.
 /// Unlike [`canonical_segments`], this never scopes to a known root: segment 0
 /// IS the workspace slug the caller looks up. `None` for anything that isn't a
-/// well-formed absolute path (no leading `/`, `.`, trailing `/`, `//`, or empty
+/// well-formed absolute path (no leading `#`, `.`, trailing `/`, `//`, or empty
 /// segments).
 pub(super) fn absolute_path_segments(reference: &str) -> Option<Vec<String>> {
     let reference = reference.trim();
-    if !reference.starts_with('/')
+    let prefix = crate::channel_ref::CHANNEL_PATH_PREFIX;
+    if !reference.starts_with(prefix)
         || reference.contains('.')
         || reference.ends_with('/')
         || reference.contains("//")

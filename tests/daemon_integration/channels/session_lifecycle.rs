@@ -124,7 +124,7 @@ fn generated_management_key_self_grants_on_existing_user_owned_channel() {
     .unwrap();
     let backend_pk = pubkey_of(cfg["mosaicoPrivateKey"].as_str().unwrap());
     if !wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&format!("/{channel}"));
+        refresh_channel_members(&format!("#{channel}"));
         let members = Store::open(&home.store_path())
             .and_then(|store| store.list_channel_members(&channel))
             .unwrap_or_default();

@@ -48,8 +48,8 @@ first; an unresolved path is rejected with the channels that actually exist,
 never silently created:
 
 ```bash
-mosaico channel join /other-workspace/channel
-mosaico channel send --channel /other-workspace/channel --message "..."
+mosaico channel join '#other-workspace/channel'
+mosaico channel send --channel '#other-workspace/channel' --message "..."
 ```
 
 Prefer an existing agent whose context and ownership match the request. For a

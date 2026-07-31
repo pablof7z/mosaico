@@ -31,10 +31,10 @@ async fn resumable_sessions_expose_only_full_public_channel_paths() {
 
     let response = rpc_pty_resumable(&state).await.unwrap();
     let row = &response["resumable"][0];
-    assert_eq!(row["work_root"], "/root");
+    assert_eq!(row["work_root"], "#root");
     assert_eq!(
         row["channels"],
-        serde_json::json!(["/root", "/root/development"])
+        serde_json::json!(["#root", "#root/development"])
     );
     assert!(!response.to_string().contains("opaque-child"));
 }

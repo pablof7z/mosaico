@@ -48,7 +48,7 @@ pub(in crate::fabric_context) fn render_human_views(views: &[FabricView], color:
 }
 
 fn render_human_workspace(out: &mut String, view: &WorkspaceView, color: bool) {
-    let root = format!("/{}", view.name);
+    let root = crate::channel_ref::format_channel_ref(&view.name, &[]);
     let root = crate::console_style::paint_workspace(&root, &view.name, color);
     let _ = writeln!(out, "{}", style(&root, color, Style::Title));
     if !view.about.is_empty() {

@@ -92,7 +92,14 @@ fn channel_create_help_shows_about_limit() {
 #[test]
 fn channel_create_about_rejects_more_than_80_chars() {
     let too_long = "a".repeat(crate::channel_about::CHANNEL_ABOUT_MAX_CHARS + 1);
-    let err = parse_err(&["mosaico", "channel", "create", "ops", "--about", &too_long]);
+    let err = parse_err(&[
+        "mosaico",
+        "channel",
+        "create",
+        "#ops/room",
+        "--about",
+        &too_long,
+    ]);
 
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
     assert!(
@@ -108,7 +115,7 @@ fn channel_create_parses_hierarchical_path() {
         "mosaico",
         "channel",
         "create",
-        "epic/planning",
+        "#workspace/epic/planning",
         "--about",
         "planning room",
         "--agent",
@@ -128,7 +135,7 @@ fn channel_create_parses_hierarchical_path() {
                     session,
                 },
         } => {
-            assert_eq!(path, "epic/planning");
+            assert_eq!(path, "#workspace/epic/planning");
             assert_eq!(about, "planning room");
             assert_eq!(agents, vec!["codex@laptop".to_string()]);
             assert_eq!(session.as_deref(), Some("session-1"));
@@ -138,8 +145,18 @@ fn channel_create_parses_hierarchical_path() {
 }
 
 #[test]
+fn channel_create_missing_path_is_required() {
+    let err = parse_err(&["mosaico", "channel", "create", "--about", "room"]);
+    assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    assert!(
+        err.to_string().contains("<PATH>"),
+        "expected missing PATH in {err}"
+    );
+}
+
+#[test]
 fn channel_archive_parses_channel_reference() {
-    let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "archive", "/ops"])
+    let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "archive", "#ops"])
         .expect("channel archive parses");
 
     match cli.cmd.expect("expected channel command") {
@@ -149,7 +166,7 @@ fn channel_archive_parses_channel_reference() {
                     channel,
                     session: None,
                 },
-        } => assert_eq!(channel, "/ops"),
+        } => assert_eq!(channel, "#ops"),
         _ => panic!("expected channel archive command"),
     }
 }
@@ -160,7 +177,7 @@ fn channel_edit_about_parses() {
         "mosaico",
         "channel",
         "edit",
-        "/workspace/epic/planning",
+        "#workspace/epic/planning",
         "--about",
         "new description",
     ])
@@ -175,7 +192,7 @@ fn channel_edit_about_parses() {
                     session: None,
                 },
         } => {
-            assert_eq!(channel, "/workspace/epic/planning");
+            assert_eq!(channel, "#workspace/epic/planning");
             assert_eq!(about, "new description");
         }
         _ => panic!("expected channel edit command"),
@@ -185,7 +202,7 @@ fn channel_edit_about_parses() {
 #[test]
 fn channel_edit_about_rejects_more_than_80_chars() {
     let too_long = "a".repeat(crate::channel_about::CHANNEL_ABOUT_MAX_CHARS + 1);
-    let err = parse_err(&["mosaico", "channel", "edit", "/ops", "--about", &too_long]);
+    let err = parse_err(&["mosaico", "channel", "edit", "#ops", "--about", &too_long]);
 
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
     assert!(
@@ -206,13 +223,13 @@ fn channel_read_help_uses_channel_flag() {
 #[test]
 fn channel_read_channel_still_parses() {
     let cli =
-        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "/ops"])
+        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "read", "--channel", "#ops"])
             .unwrap();
 
     match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
             action: ChannelAction::Read { channel, .. },
-        } => assert_eq!(channel.as_deref(), Some("/ops")),
+        } => assert_eq!(channel.as_deref(), Some("#ops")),
         _ => panic!("expected channel read command"),
     }
 }
@@ -232,9 +249,9 @@ fn channel_search_parses_repeatable_filters() {
         "--contains",
         "commit",
         "--channel",
-        "/nmp/research",
+        "#nmp/research",
         "--channel",
-        "/",
+        "#",
         "--since",
         "1785348600",
         "--until",
@@ -251,7 +268,7 @@ fn channel_search_parses_repeatable_filters() {
             assert_eq!(args.from, ["@Pablo", "@reviewer"]);
             assert_eq!(args.to, ["@chief-of-staff"]);
             assert_eq!(args.contains, ["commit"]);
-            assert_eq!(args.channel, ["/nmp/research", "/"]);
+            assert_eq!(args.channel, ["#nmp/research", "#"]);
             assert_eq!(args.since, Some(1_785_348_600));
             assert_eq!(args.until, Some(1_785_404_520));
             assert_eq!(args.limit, Some(40));
@@ -269,6 +286,24 @@ fn channel_search_parses_repeatable_filters() {
             action: ChannelAction::Search(args),
         } => assert_eq!(args.cursor.as_deref(), Some("opaque")),
         _ => panic!("expected channel search command"),
+    }
+}
+
+#[test]
+fn channel_args_reject_slash_prefixed_paths() {
+    for args in [
+        &["mosaico", "channel", "join", "/nmp"][..],
+        &["mosaico", "channel", "archive", "/nmp/old"][..],
+        &["mosaico", "channel", "create", "/nmp/child", "--about", "x"][..],
+        &["mosaico", "channel", "search", "--channel", "/nmp"][..],
+        &["mosaico", "dispatch", "codex@laptop", "--workspace", "nmp", "--channel", "/nmp"][..],
+    ] {
+        let err = parse_err(args);
+        assert_eq!(err.kind(), ErrorKind::ValueValidation, "{args:?}");
+        assert!(
+            err.to_string().contains("full path starting with \"#\""),
+            "slash form must not be accepted for {args:?}: {err}"
+        );
     }
 }
 

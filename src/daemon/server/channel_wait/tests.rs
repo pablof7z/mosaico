@@ -79,10 +79,10 @@ async fn no_channel_uses_all_joined_channels_and_explicit_channels_narrow() {
         [X_CHANNEL, Y_CHANNEL]
     );
     assert_eq!(
-        resolve_joined_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
+        resolve_joined_scopes(&state, &rec, &["#root/y".into()]).unwrap(),
         [Y_CHANNEL]
     );
-    let error = resolve_joined_scopes(&state, &rec, &["/root/z".into()]).unwrap_err();
+    let error = resolve_joined_scopes(&state, &rec, &["#root/z".into()]).unwrap_err();
     assert!(error.to_string().contains("has not joined channel"));
     // A bare opaque id is not an accepted reference form.
     let bare = resolve_joined_scopes(&state, &rec, &[Y_CHANNEL.into()]).unwrap_err();
@@ -103,11 +103,11 @@ async fn explicit_channel_filters_resolve_across_every_joined_workspace() {
         .unwrap();
 
     assert_eq!(
-        resolve_joined_scopes(&state, &rec, &["/other/y".into()]).unwrap(),
+        resolve_joined_scopes(&state, &rec, &["#other/y".into()]).unwrap(),
         ["other-y"]
     );
     assert_eq!(
-        resolve_joined_scopes(&state, &rec, &["/root/y".into()]).unwrap(),
+        resolve_joined_scopes(&state, &rec, &["#root/y".into()]).unwrap(),
         [Y_CHANNEL]
     );
     // A bare opaque id is rejected even when two joined channels share a
@@ -256,7 +256,7 @@ async fn ambient_rpc_returns_first_new_chat_from_any_joined_channel() {
     let result = waiting.await.unwrap().unwrap();
     assert_eq!(result["outcome"], "message");
     assert_eq!(result["message"]["event_id"], "new-chat");
-    assert_eq!(result["message"]["channel"], "/root/y");
+    assert_eq!(result["message"]["channel"], "#root/y");
     assert!(result["message"].get("channel_ref").is_none());
 }
 
@@ -269,7 +269,7 @@ async fn timeout_is_a_normal_structured_outcome() {
         &serde_json::json!({
             "session": SELF_PUBKEY,
             "timeout_secs": 1,
-            "channels": ["/root/x"],
+            "channels": ["#root/x"],
         }),
     )
     .await
@@ -277,5 +277,5 @@ async fn timeout_is_a_normal_structured_outcome() {
 
     assert_eq!(result["outcome"], "timeout");
     assert_eq!(result["timeout_secs"], 1);
-    assert_eq!(result["channels"], serde_json::json!(["/root/x"]));
+    assert_eq!(result["channels"], serde_json::json!(["#root/x"]));
 }

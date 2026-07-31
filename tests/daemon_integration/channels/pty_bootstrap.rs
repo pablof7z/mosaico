@@ -113,7 +113,7 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     // asserting on a single refresh — otherwise this races the propagation.
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&format!("/{channel}"));
+            refresh_channel_members(&format!("#{channel}"));
             Store::open(&home.store_path())
                 .map(|s| s.is_channel_member(&channel, &rec.pubkey).unwrap_or(false))
                 .unwrap_or(false)

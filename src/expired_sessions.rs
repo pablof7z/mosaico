@@ -118,7 +118,7 @@ mod tests {
         );
         assert_ne!(stopped_id, running_id);
         assert_eq!(row.host, "laptop");
-        assert_eq!(row.channels, vec!["/proj"]);
+        assert_eq!(row.channels, vec!["#proj"]);
         assert!(row.resumable, "row retains exact recovery authority");
     }
 }

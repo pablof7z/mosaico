@@ -98,8 +98,8 @@ pub(in crate::daemon::server) async fn resolve_channel(
     Ok(child_h)
 }
 
-/// Resolve a slash path within `root`, provisioning each missing ancestor via
-/// [`resolve_channel`] when requested. There is no depth cap.
+/// Resolve a `#root[/child…]` path within `root`, provisioning each missing
+/// ancestor via [`resolve_channel`] when requested. There is no depth cap.
 pub(in crate::daemon::server) async fn resolve_channel_path(
     state: &Arc<DaemonState>,
     root: &str,
@@ -107,7 +107,7 @@ pub(in crate::daemon::server) async fn resolve_channel_path(
     create_if_absent: bool,
 ) -> Result<String> {
     let segments = canonical_segments(root, reference).with_context(|| {
-        format!("invalid channel path {reference:?}; use a full path such as /{root}/child")
+        format!("invalid channel path {reference:?}; use a full path such as #{root}/child")
     })?;
     if segments.is_empty() {
         return Ok(root.to_string());

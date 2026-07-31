@@ -1,20 +1,21 @@
 //! Global, full-path channel resolution.
 //!
 //! Every "channel" argument across the CLI (send/read/join/leave/archive/
-//! edit/create/add) requires a full absolute path (`/root/child`). Resolution
+//! edit/create/add) requires a full absolute path (`#root/child`). Resolution
 //! is GLOBAL — no caller-scoped root, opaque-id selector, or relative/suffix
 //! matching.
 
 use super::super::*;
 use super::paths::{absolute_path_segments, subtree_paths};
+use crate::channel_ref::CHANNEL_PATH_PREFIX;
 
 /// Every channel argument is full-path-only. `label` names the argument in the
 /// error so the caller sees which one it was (`channel`, `--parent-channel`…).
 pub(in crate::daemon::server) fn require_full_path(label: &str, reference: &str) -> Result<()> {
-    if !reference.starts_with('/') {
+    if !reference.starts_with(CHANNEL_PATH_PREFIX) {
         anyhow::bail!(
-            "{label} must be a full path starting with \"/\", e.g. /workspace/child \
-             (got {reference:?})"
+            "{label} must be a full path starting with \"{CHANNEL_PATH_PREFIX}\", \
+             e.g. #workspace/child (got {reference:?})"
         );
     }
     Ok(())
@@ -49,7 +50,7 @@ pub(in crate::daemon::server) fn root_channel_by_slug(
         .map(|c| c.channel_h)
 }
 
-/// Resolve a full absolute channel path GLOBALLY. `/root[/child...]` segment 0
+/// Resolve a full absolute channel path GLOBALLY. `#root[/child...]` segment 0
 /// must name an existing top-level root; each further segment is an exact
 /// (case-insensitive) name
 ///     lookup under the previous segment. Any miss is `NotFound` — there is
@@ -101,7 +102,7 @@ pub(in crate::daemon::server) fn describe_missing_channel(
 ) -> String {
     let Some(segments) = absolute_path_segments(reference) else {
         return format!(
-            "{reference:?} is not a valid channel path; use a full path such as /workspace/child"
+            "{reference:?} is not a valid channel path; use a full path such as #workspace/child"
         );
     };
     let mut out = format!("no channel matching {reference:?}.");
@@ -120,7 +121,7 @@ pub(in crate::daemon::server) fn describe_missing_channel(
         }
         Some(workspace_h) => {
             out.push_str(&format!(
-                "\nChannels in /{}:\n{}",
+                "\nChannels in {CHANNEL_PATH_PREFIX}{}:\n{}",
                 segments[0],
                 render_workspace_channels(store, &segments[0], &workspace_h)
             ));
@@ -132,7 +133,7 @@ pub(in crate::daemon::server) fn describe_missing_channel(
                 }
                 if let Some(other_h) = root_channel_by_slug(store, seg) {
                     out.push_str(&format!(
-                        "\n/{seg} is also a separate workspace. Channels in /{seg}:\n{}",
+                        "\n{CHANNEL_PATH_PREFIX}{seg} is also a separate workspace. Channels in {CHANNEL_PATH_PREFIX}{seg}:\n{}",
                         render_workspace_channels(store, seg, &other_h)
                     ));
                 }
@@ -147,7 +148,7 @@ fn workspace_slugs(store: &crate::state::Store) -> Vec<String> {
         .list_root_channels()
         .unwrap_or_default()
         .into_iter()
-        .map(|c| format!("/{}", c.channel_h))
+        .map(|c| crate::channel_ref::format_channel_ref(&c.channel_h, &[]))
         .collect();
     names.sort();
     names
@@ -158,11 +159,14 @@ fn render_workspace_channels(
     workspace_slug: &str,
     workspace_h: &str,
 ) -> String {
-    let mut lines = vec![format!("  /{workspace_slug}")];
+    let mut lines = vec![format!("  {CHANNEL_PATH_PREFIX}{workspace_slug}")];
     let mut paths = subtree_paths(store, workspace_h);
     paths.sort_by(|a, b| a.1.cmp(&b.1));
     for (_, segs) in paths {
-        lines.push(format!("  /{workspace_slug}/{}", segs.join("/")));
+        lines.push(format!(
+            "  {CHANNEL_PATH_PREFIX}{workspace_slug}/{}",
+            segs.join("/")
+        ));
     }
     lines.join("\n")
 }

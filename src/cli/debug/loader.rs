@@ -466,7 +466,7 @@ mod tests {
         )]);
         enrich_panes_from_store_path(&mut panes, &path).unwrap();
         assert_eq!(panes["pk"].agent, "pearl-cliff-395-haiku");
-        assert_eq!(panes["pk"].root, "/aaa");
-        assert_eq!(panes["pk"].channels, vec!["/aaa", "/aaa/dev"]);
+        assert_eq!(panes["pk"].root, "#aaa");
+        assert_eq!(panes["pk"].channels, vec!["#aaa", "#aaa/dev"]);
     }
 }
