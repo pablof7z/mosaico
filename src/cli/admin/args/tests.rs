@@ -296,7 +296,15 @@ fn channel_args_reject_slash_prefixed_paths() {
         &["mosaico", "channel", "archive", "/nmp/old"][..],
         &["mosaico", "channel", "create", "/nmp/child", "--about", "x"][..],
         &["mosaico", "channel", "search", "--channel", "/nmp"][..],
-        &["mosaico", "dispatch", "codex@laptop", "--workspace", "nmp", "--channel", "/nmp"][..],
+        &[
+            "mosaico",
+            "dispatch",
+            "codex@laptop",
+            "--workspace",
+            "nmp",
+            "--channel",
+            "/nmp",
+        ][..],
     ] {
         let err = parse_err(args);
         assert_eq!(err.kind(), ErrorKind::ValueValidation, "{args:?}");

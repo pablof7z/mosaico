@@ -90,10 +90,7 @@ fn scope_spans(workspaces: &[WorkspaceGroup]) -> Vec<Span<'static>> {
                     spans.push(Span::raw(" "));
                 }
                 spans.push(Span::styled(
-                    crate::channel_ref::format_channel_ref(
-                        &workspace.id,
-                        &[channel.name.clone()],
-                    ),
+                    crate::channel_ref::format_channel_ref(&workspace.id, &[channel.name.clone()]),
                     Style::default().fg(CHANNEL),
                 ));
             }

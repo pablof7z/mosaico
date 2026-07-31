@@ -31,15 +31,11 @@ pub(crate) fn full_channel_ref(store: &Store, channel_h: &str) -> String {
 pub(crate) fn split_create_path(path: &str) -> anyhow::Result<(String, String)> {
     let path = path.trim();
     if !path.starts_with(CHANNEL_PATH_PREFIX) || path.ends_with('/') || path.contains("//") {
-        anyhow::bail!(
-            "channel create <path> requires a full absolute path, e.g. #workspace/child"
-        );
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. #workspace/child");
     }
     let segments = path[1..].split('/').map(str::trim).collect::<Vec<_>>();
     if segments.iter().any(|segment| segment.is_empty()) {
-        anyhow::bail!(
-            "channel create <path> requires a full absolute path, e.g. #workspace/child"
-        );
+        anyhow::bail!("channel create <path> requires a full absolute path, e.g. #workspace/child");
     }
     let Some((name, parents)) = segments.split_last() else {
         anyhow::bail!("channel create <path> requires a non-empty path");
