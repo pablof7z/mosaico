@@ -62,7 +62,8 @@ result: {"event_id": "hex", "channel": "#root/child", "about": "…",
          "confirmed": true}
 ```
 
-Updates an existing channel's durable description.
+Updates an existing channel's durable description. Signed by the management key;
+works from an agent session or an operator (non-agent) invocation.
 
 ## `channel_members`
 
@@ -136,3 +137,23 @@ leave result: {"channel": "#root/child", "left": true|false}
 All three require an existing full path. Join is additive and never creates.
 Leave is explicit and may leave the joined set empty. Archive updates metadata
 and removes non-admin members after relay confirmation.
+
+## `channel_delete`
+
+```jsonc
+params: {"channel": "#root/child"}
+result: {
+  "channel": "#root/child",
+  "event_id": "hex",
+  "notice_event_id": "hex"| "",
+  "notified_agents": [{"pubkey": "hex", "slug": "agent"}, …],
+  "deleted": true
+}
+```
+
+Hard-deletes a channel by publishing NIP-29 kind:9008 (`delete-group`). Distinct
+from archive: the group is removed, not merely marked `[ARCHIVED]`. Before the
+delete event, a kind:9 notice tags every **online** agent currently present in
+the channel so they see the removal. Refuses workspace roots and channels that
+still have direct children — delete leaves first so hierarchy stays intentional.
+Operator action (management key); no agent session is required.

@@ -62,6 +62,27 @@ fn only_named_siblings_share_a_unique_namespace() {
 }
 
 #[test]
+fn list_child_channels_and_purge_deleted_channel() {
+    let store = Store::open_memory().unwrap();
+    store.upsert_channel("root", "Root", "r", "", 1).unwrap();
+    store
+        .upsert_channel("child", "Child", "c", "root", 2)
+        .unwrap();
+    store
+        .upsert_channel_member("child", "pk", "member", 2)
+        .unwrap();
+
+    let children = store.list_child_channels("root").unwrap();
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].channel_h, "child");
+
+    store.purge_deleted_channel("child").unwrap();
+    assert!(store.get_channel("child").unwrap().is_none());
+    assert!(store.list_channel_members("child").unwrap().is_empty());
+    assert!(store.list_child_channels("root").unwrap().is_empty());
+}
+
+#[test]
 fn archived_channel_predicate_uses_about_prefix() {
     let store = Store::open_memory().unwrap();
     store

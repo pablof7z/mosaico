@@ -1,6 +1,21 @@
 use super::*;
+use std::io::IsTerminal;
 
 pub(super) async fn run(workspace: Option<String>, all: bool, recursive: bool) -> Result<()> {
+    let flagged = workspace.is_some() || all || recursive;
+    // Operator interactive home: bare `channel list` opens the manager TUI.
+    // Agent sessions and any explicit list flag keep the text projection.
+    if !flagged && !in_agent_session() && stdin_stdout_tty() {
+        return crate::cli::interactive::channel_picker::run().await;
+    }
+    if !flagged && !in_agent_session() && !stdin_stdout_tty() {
+        // Non-interactive operator calls need an explicit inventory shape.
+        anyhow::bail!(
+            "channel list outside a mosaico session needs a list flag \
+             (-a, -r, or --workspace) when not run in a terminal"
+        );
+    }
+
     let projection = daemon_call_async(
         "channel_list",
         crate::cli::rpc_params(serde_json::json!({
@@ -12,6 +27,17 @@ pub(super) async fn run(workspace: Option<String>, all: bool, recursive: bool) -
     .await?;
     print!("{}", render_projection(&projection));
     Ok(())
+}
+
+fn in_agent_session() -> bool {
+    crate::cli::agent_env_slug().is_some()
+        || std::env::var("MOSAICO_PUBKEY")
+            .ok()
+            .is_some_and(|value| !value.is_empty())
+}
+
+fn stdin_stdout_tty() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 fn render_projection(projection: &serde_json::Value) -> String {

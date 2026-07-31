@@ -171,7 +171,8 @@ absolute path `#workspace/child`, resolved globally and exactly)
 and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
 `channel_members`, `channel_add_member`, `channel_remove_member`,
 `channel_create`, `channel_list`, `channel_join`, `channel_leave`,
-`channel_archive` — live in [daemon-rpc-channels.md](daemon-rpc-channels.md).
+`channel_archive`, `channel_delete` — live in
+[daemon-rpc-channels.md](daemon-rpc-channels.md).
 
 ### Channel messaging
 The streaming read, local-cache search, send, reply, and blocking wait

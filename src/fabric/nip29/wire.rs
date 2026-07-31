@@ -40,6 +40,7 @@ pub const KIND_STATUS: u16 = 30315;
 
 // NIP-29 group management (mosaicoPrivateKey-signed) + relay-authored state.
 pub const KIND_GROUP_CREATE: u16 = 9007;
+pub const KIND_GROUP_DELETE: u16 = 9008;
 pub const KIND_GROUP_PUT_USER: u16 = 9000;
 pub const KIND_GROUP_REMOVE_USER: u16 = 9001;
 pub const KIND_GROUP_EDIT_METADATA: u16 = 9002;
