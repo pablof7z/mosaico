@@ -231,6 +231,54 @@ impl Store {
             .map(|root| root != channel_h)
             .unwrap_or(false))
     }
+
+    /// Direct children of `parent` (one hop), ordered by stable id.
+    pub fn list_child_channels(&self, parent: &str) -> Result<Vec<Channel>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM relay_channels WHERE parent=?1 ORDER BY channel_h"
+        ))?;
+        let rows = stmt.query_map(params![parent], row_to_channel)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Drop local cache rows for a channel after a confirmed kind:9008 delete.
+    /// Does not cascade to descendants — callers must delete leaves first.
+    pub fn purge_deleted_channel(&self, channel_h: &str) -> Result<()> {
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        transaction.execute(
+            "DELETE FROM relay_channel_members WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM relay_channel_member_sets WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM relay_status WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM session_channels WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM session_standing WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM channel_resolution_intents WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.execute(
+            "DELETE FROM relay_channels WHERE channel_h=?1",
+            params![channel_h],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

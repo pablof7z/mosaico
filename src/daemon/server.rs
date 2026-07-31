@@ -191,8 +191,8 @@ use channel_resolve::{
 };
 use channel_send::rpc_channel_send;
 use channels_rpc::{
-    ensure_session_room, rpc_channel_archive, rpc_channel_create, rpc_channel_edit,
-    rpc_channel_list,
+    ensure_session_room, rpc_channel_archive, rpc_channel_create, rpc_channel_delete,
+    rpc_channel_edit, rpc_channel_list,
 };
 use diagnostics::{
     log_nip29_role_decision, refresh_channel_members_cache, rpc_doctor, rpc_explain,
@@ -262,6 +262,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_resolve" => rpc_channel_resolve(state, &req.params).await,
         "channel_list" => rpc_channel_list(state, &req.params),
         "channel_archive" => rpc_channel_archive(state, &req.params).await,
+        "channel_delete" => rpc_channel_delete(state, &req.params).await,
         "channel_join" => rpc_channel_join(state, &req.params).await,
         "channel_leave" => rpc_channel_leave(state, &req.params).await,
         "channel_move_accept" => channel_move::rpc_accept(state, &req.params).await,

@@ -259,13 +259,13 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     }
     let p: P = serde_json::from_value(params.clone()).context("channel_edit params")?;
     crate::channel_about::validate_channel_about(&p.about)?;
-
-    let _rec = resolve_session_inner(
+    // Operator TUI and agent CLI both edit via the management key. A session
+    // anchor is optional; when present it only identifies the caller for logs.
+    let _ = resolve_session_inner(
         state,
         &CallerAnchor::from_params(params),
         ResolveScope::Strict,
-    )
-    .context("channel edit must be run from within a mosaico agent session")?;
+    );
     let channel_h = resolve_target_channel(state, &p.channel)?;
 
     let mgmt_keys = state.management_keys()?;
@@ -313,6 +313,9 @@ async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about
 
 mod archive;
 pub(in crate::daemon::server) use archive::{archive_channel, rpc_channel_archive};
+
+mod delete;
+pub(in crate::daemon::server) use delete::rpc_channel_delete;
 
 mod list;
 pub(in crate::daemon::server) use list::rpc_channel_list;

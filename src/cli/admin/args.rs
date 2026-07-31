@@ -205,8 +205,10 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// List the channel forest. By default, your own and joined workspaces are
-    /// expanded while other known workspaces stay compact.
+    /// List the channel forest. From an agent session, your own and joined
+    /// workspaces expand while other known workspaces stay compact. From a
+    /// non-agent interactive terminal with no flags, opens the channel manager
+    /// TUI (navigate, edit about, delete).
     List {
         /// Expand only this workspace. Useful outside an agent session.
         #[arg(

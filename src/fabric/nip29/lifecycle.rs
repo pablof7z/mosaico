@@ -6,7 +6,8 @@
 //!   group_create -> group_lock_closed -> group_put_user (per agent).
 
 use crate::fabric::nip29::wire::{
-    kind, KIND_GROUP_CREATE, KIND_GROUP_EDIT_METADATA, KIND_GROUP_PUT_USER, KIND_GROUP_REMOVE_USER,
+    kind, KIND_GROUP_CREATE, KIND_GROUP_DELETE, KIND_GROUP_EDIT_METADATA, KIND_GROUP_PUT_USER,
+    KIND_GROUP_REMOVE_USER,
 };
 use anyhow::Result;
 use nostr::*;
@@ -119,6 +120,12 @@ pub fn group_edit_metadata(channel: &str, about: &str) -> Result<EventBuilder> {
 pub fn group_edit_name(channel: &str, name: &str) -> Result<EventBuilder> {
     Ok(EventBuilder::new(kind(KIND_GROUP_EDIT_METADATA), "")
         .tags([h_tag(channel)?, tag(&["name", name])?]))
+}
+
+/// kind:9008 delete-group. The relay marks the group deleted (hidden/closed,
+/// membership cleared). Distinct from archive (kind:9002 about prefix).
+pub fn group_delete(channel: &str) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(kind(KIND_GROUP_DELETE), "").tags([h_tag(channel)?]))
 }
 
 #[cfg(test)]
@@ -269,6 +276,15 @@ mod tests {
                 && s.get(1).map(String::as_str) == Some(pk.as_str())
                 && s.get(2).map(String::as_str) == Some("admin")
         }));
+    }
+
+    #[test]
+    fn group_delete_has_h_tag() {
+        let b = group_delete("mosaico-child-a1b2c3d4").unwrap();
+        let ev = b.sign_with_keys(&Keys::generate()).unwrap();
+        assert_eq!(ev.kind.as_u16(), KIND_GROUP_DELETE);
+        assert!(has_tag(&ev, "h", "mosaico-child-a1b2c3d4"));
+        assert!(!has_tag_name(&ev, "d"));
     }
 
     #[test]
