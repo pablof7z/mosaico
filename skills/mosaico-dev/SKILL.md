@@ -1,6 +1,6 @@
 ---
 name: mosaico-dev
-description: "Use whenever developing Mosaico itself — code, docs, CLI, daemon, fabric, harness integrations, tests, containers, live labs, install, or operator tooling. Triggers: mosaico repo work, harness/PTY/ACP changes, daemon/session/channel work, doctor/hooks, container runner, live lab, behavior contracts, or anything under the mosaico product. Not for participating as a fabric agent in another product (use the mosaico skill)."
+description: "Develop Mosaico itself: product code, tests, docs, containers, and live labs. Load for any work in this repo. Not for fabric participation (use mosaico)."
 ---
 
 # Mosaico development
