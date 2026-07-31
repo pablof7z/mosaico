@@ -201,7 +201,7 @@ async fn create_channel_interactive(
     let v = super::super::daemon_call_async(
         "channel_create",
         crate::cli::rpc_params(serde_json::json!({
-            "channel": crate::channel_ref::format_channel_ref(root, &[name.clone()]),
+            "channel": crate::channel_ref::format_channel_ref(root, std::slice::from_ref(&name)),
             "about": &name,
             "agents": [{ "slug": agent_slug, "backend": backend_label }],
         })),
