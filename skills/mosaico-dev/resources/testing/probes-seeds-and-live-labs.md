@@ -39,7 +39,7 @@ relay environment variable.
 
 ## Live provider lab
 
-The `mosaico-dev` skill runs real provider auth and transport through isolated
+The `mosaico-dev` skill's live-lab workflow runs real provider auth and transport through isolated
 container profiles. Use it to prove:
 
 - host authentication is staged correctly;
@@ -52,7 +52,7 @@ The objective is transport and fabric proof, not model quality. Use the
 cheapest model capable of one deterministic instruction. Do not assert that a
 provider produced a “good” review or plan.
 
-Start with `references/live-lab-workflow.md`, then use the provider-specific
+Start with `references/lab/INDEX.md`, then use the provider-specific
 references and `scripts/probe-lab`.
 
 ## Deterministic versus live

@@ -2,6 +2,17 @@
 
 This is the authoritative contributor guide for the repository — for agents and humans equally. Everything here is enforced, not suggested. `CLAUDE.md` defers to this file.
 
+## Always load `mosaico-dev`
+
+Any agent working in this repository **must load the `mosaico-dev` skill at
+session start** before implementing, testing, documenting, or operating
+Mosaico. The skill lives at [`skills/mosaico-dev/SKILL.md`](skills/mosaico-dev/SKILL.md).
+
+It is the default development context for this repo (contracts, tests,
+containers, live labs, and related operator workflow). The separate `mosaico`
+skill is for *participating* in a running fabric as an agent, not for
+developing Mosaico itself.
+
 ## No Backwards Compatibility
 
 This repository does **not** preserve backwards compatibility. Removed surfaces
