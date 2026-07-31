@@ -5,56 +5,76 @@ description: "Develop Mosaico itself. Load for any work in this repo. Not for fa
 
 # Mosaico development
 
-Operator guide for **building** Mosaico. The sibling **`mosaico`** skill is for
-*participating* in a running fabric; this skill is for implementing, testing,
-and operating the product that provides it.
+This skill is for people and agents **building Mosaico** — code, tests, docs,
+install, harness integration, daemon, and operator workflows.
 
-## Authority and orientation
+It is **not** the skill for *being* a fabric agent. That is the separate
+`mosaico` skill shipped to end users.
 
-[`AGENTS.md`](../../../AGENTS.md) is the contributor contract (no backwards
-compat, file size, GitHub Issues as the only queue, daemon restart rules).
-Product and architecture live under `docs/`. Read the owning doc before inventing
-behavior.
+## Start here: rules and map
 
-Details: [`resources/authority-and-orientation.md`](resources/authority-and-orientation.md).
+Before changing product behavior, read the **repo root `AGENTS.md`**. It owns
+backwards-compat policy, file-size limits, the GitHub Issues backlog rule, and
+daemon restart safety. Product intent lives under `docs/product-spec/`;
+architecture under `docs/fabric-architecture*.md` and the other design docs in
+`docs/`. Prefer those over memory or ad-hoc plan files.
+
+Expand: `skills/mosaico-dev/resources/authority-and-orientation.md`.
 
 ## Launch and config
 
-Harness bundles and agent files own transport and identity. Launch is
-`mosaico <TARGET> [PROMPT] [-- <ARGS>...]` — no launch-time harness/transport
-selector. Keep `userNsec` and `mosaicoPrivateKey` distinct; per-session agents
-are keyless on disk.
+Care when you touch how sessions start or how agents/harnesses are declared.
+The durable contract is: bundles own transport; agents pick a bundle and
+identity mode; launch is `mosaico <TARGET> [PROMPT] [-- <ARGS>...]` with no
+launch-time harness/transport switch. Identity keys have fixed roles — do not
+invent dual names or legacy flags.
 
-Details: [`resources/launch-and-config.md`](resources/launch-and-config.md).
+Expand: `skills/mosaico-dev/resources/launch-and-config.md`.
 
 ## Build, test, and quality
 
-Use `just` recipes for fmt, lint, LOC, unit, hermetic, and relay-backed suites.
-Croissant is external. Admit test oracles before implementation; do not weaken
-them around code.
+Default development loop for almost every code change. Run the repo `just`
+recipes (fmt, lint, LOC, unit, hermetic, local relay/contracts) instead of
+inventing cargo one-offs. Croissant is an external binary Mosaico does not own.
+Write the claim/oracle before implementing; do not quietly weaken tests to
+match code.
 
-Details: [`resources/build-and-quality.md`](resources/build-and-quality.md),
-[`resources/testing/INDEX.md`](resources/testing/INDEX.md).
+Expand: `skills/mosaico-dev/resources/build-and-quality.md` and
+`skills/mosaico-dev/resources/testing/INDEX.md`.
 
 ## Containers and live lab
 
-Isolated container profiles prove host auth and transport. Never start a second
-container against a live profile; inspect from the host. Clean containers before
-the relay.
+**Why it exists:** unit and hermetic tests cannot prove real provider auth,
+PTY/ACP wiring, host-auth staging, or end-to-end fabric delivery through Claude,
+Codex, Grok, Goose, Hermes, or OpenCode. The live lab is the opt-in stack for
+that class of proof: host Croissant relay + isolated container profiles + real
+host credentials.
 
-Details: [`resources/containers-and-lab.md`](resources/containers-and-lab.md),
-[`references/lab/INDEX.md`](references/lab/INDEX.md).
+**When to use it:** the change or investigation depends on a real provider CLI,
+hosted session lifecycle, hooks/plugins at provider paths, multi-agent or
+multi-human traffic on a real relay, or you are validating install/onboarding
+in the container runner. **When not to:** pure logic, schema, deterministic
+contracts, or anything a `just` suite already covers — stay hermetic.
 
-## Resource map
+**What to care about:** keep fabric state in the lab profile, not host
+`~/.mosaico`; never attach a second container to a live profile (socket
+eviction); inspect from the host while an agent is up; clean containers before
+the relay. Objective is transport/fabric evidence, not model quality — use the
+cheapest model that can run one command.
 
-| Path | Role |
+Expand: `skills/mosaico-dev/resources/containers-and-lab.md` and the procedure
+index `skills/mosaico-dev/references/lab/INDEX.md`.
+
+## Where detail lives
+
+| Path under `skills/mosaico-dev/` | Open when you need… |
 |---|---|
-| [`resources/authority-and-orientation.md`](resources/authority-and-orientation.md) | Sources of truth, how to work, repo map |
-| [`resources/launch-and-config.md`](resources/launch-and-config.md) | Bundles, agents, launch CLI, identity |
-| [`resources/build-and-quality.md`](resources/build-and-quality.md) | Just recipes, Croissant, contracts |
-| [`resources/testing/`](resources/testing/INDEX.md) | Full testing doctrine and commands |
-| [`resources/containers-and-lab.md`](resources/containers-and-lab.md) | Container/lab rules and quick start |
-| [`references/lab/`](references/lab/INDEX.md) | Live lab procedure topics |
-| [`references/`](references/lab/INDEX.md) | Backend, ACP, Grok, observability, troubleshooting |
-| `scripts/` | Relay, profiles, launch, probe, cleanup helpers |
-| `tests/` | Skill script tests (`scripts.sh`, `profile-writer.sh`) |
+| `resources/authority-and-orientation.md` | sources of truth, working rules, repo layout |
+| `resources/launch-and-config.md` | harnesses.json, agents, identity, launch CLI |
+| `resources/build-and-quality.md` | just recipes, Croissant, quality gates |
+| `resources/testing/` | how to choose and write tests |
+| `resources/containers-and-lab.md` | lab purpose, hard rules, minimal start |
+| `references/lab/` | step-by-step live lab procedure |
+| `references/` | backends, ACP, Grok, observability, troubleshooting |
+| `scripts/` | relay, profile write, launch, probe, cleanup helpers |
+| `tests/` | checks for those scripts |

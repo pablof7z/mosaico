@@ -1,8 +1,14 @@
 # Launch and config contracts
 
-Ownership boundaries for config and CLI work. No old launch flags, duplicate
-config fields, or fallback bundle names. Fix durable defaults in config; use
-separator args only for intentional one-launch overrides.
+**Why:** session start and agent declaration are product surface. Drift here
+ships broken hosts and fake compatibility.
+
+**When:** editing launch CLI, `harnesses.json`, agent JSON, identity derivation,
+or harness-native profile wiring.
+
+No old launch flags, duplicate config fields, or fallback bundle names. Fix
+durable defaults in config; use separator args only for intentional one-launch
+overrides.
 
 ## Bundle and agent files
 
@@ -43,6 +49,7 @@ separator args only for intentional one-launch overrides.
   and `goose acp`. Goose ACP has no stable recipe/profile selector.
 - **Hermes:** isolated `HERMES_HOME` with Mosaico user plugin and named profiles.
 
-Provider-specific lab detail: [`../references/container-backends.md`](../references/container-backends.md),
-[`../references/acp-backends.md`](../references/acp-backends.md),
-[`../references/grok-pty-lab.md`](../references/grok-pty-lab.md).
+Provider-specific lab detail:
+`skills/mosaico-dev/references/container-backends.md`,
+`skills/mosaico-dev/references/acp-backends.md`,
+`skills/mosaico-dev/references/grok-pty-lab.md`.

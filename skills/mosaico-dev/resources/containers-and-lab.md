@@ -1,10 +1,28 @@
 # Containers and live lab
 
-Use the container runner for isolated host-auth backends and transport proof.
-Full procedure: [`../references/lab/INDEX.md`](../references/lab/INDEX.md).
-Runner docs: `containers/mosaico/README.md`.
+## Why
 
-## Non-negotiables
+Deterministic suites cannot answer: “does this harness actually start with real
+host auth, install our hooks, join the fabric, and receive a tagged mention?”
+The live lab exists to answer that with a host Croissant relay, isolated
+container profiles, and real provider CLIs. The goal is **transport and fabric
+proof**, not model quality.
+
+## When
+
+Use it when the work depends on:
+
+- real provider authentication or plugin/hook install paths;
+- hosted PTY or ACP/app-server session lifecycle;
+- delivery of fabric events to a live agent session;
+- multi-agent or multi-human traffic on a real NIP-29 relay;
+- containerized install/onboarding (`containers/mosaico/run onboard`).
+
+Do **not** open a lab for pure logic, schema, or anything already covered by
+`just test-unit`, hermetic integration, or local contract suites. Prefer the
+cheapest sufficient evidence layer.
+
+## Hard rules
 
 - Real host AI auth (`MOSAICO_CONTAINER_HOST_AUTH=1` default).
 - Fabric state under `.container-state/<profile>` or the run workdir — never
@@ -15,7 +33,7 @@ Runner docs: `containers/mosaico/README.md`.
 - **Never** start a second container against a profile whose agent is alive
   (shared socket eviction). Inspect bind-mounted logs and the relay from the
   host only while live.
-- Clean containers before the relay: `scripts/cleanup-lab`.
+- Clean containers before the relay: `skills/mosaico-dev/scripts/cleanup-lab`.
 
 ## Minimal lab start
 
@@ -30,6 +48,9 @@ skills/mosaico-dev/scripts/start-croissant-relay
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" <profiles...>
 ```
 
+Step-by-step procedure: `skills/mosaico-dev/references/lab/INDEX.md`.
+Runner docs: `containers/mosaico/README.md`.
+
 ## Manual onboarding
 
 First-time setup without pre-generated lab config:
@@ -38,14 +59,14 @@ First-time setup without pre-generated lab config:
 bash containers/mosaico/run onboard
 ```
 
-## Related lab references
+## Related paths
 
-- [`../references/lab/INDEX.md`](../references/lab/INDEX.md) — procedure index
-- [`../references/container-backends.md`](../references/container-backends.md)
-- [`../references/acp-backends.md`](../references/acp-backends.md)
-- [`../references/grok-pty-lab.md`](../references/grok-pty-lab.md)
-- [`../references/observability.md`](../references/observability.md)
-- [`../references/troubleshooting.md`](../references/troubleshooting.md)
-
-Scripts: `start-croissant-relay`, `write-container-profiles`, `launch-agent`,
-`probe-lab`, `cleanup-lab`, `send-human-kind9` under `skills/mosaico-dev/scripts/`.
+- `skills/mosaico-dev/references/lab/` — procedure topics
+- `skills/mosaico-dev/references/container-backends.md`
+- `skills/mosaico-dev/references/acp-backends.md`
+- `skills/mosaico-dev/references/grok-pty-lab.md`
+- `skills/mosaico-dev/references/observability.md`
+- `skills/mosaico-dev/references/troubleshooting.md`
+- `skills/mosaico-dev/scripts/` — `start-croissant-relay`,
+  `write-container-profiles`, `launch-agent`, `probe-lab`, `cleanup-lab`,
+  `send-human-kind9`
