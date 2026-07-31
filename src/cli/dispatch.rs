@@ -9,8 +9,9 @@ pub(in crate::cli) struct DispatchArgs {
     /// Target workspace/root channel where the new session runs.
     #[arg(long)]
     workspace: String,
-    /// Fully-qualified channel to join. Repeat to join several channels.
-    #[arg(long = "channel")]
+    /// Fully-qualified channel to join (e.g. `'#workspace/child'`). Quote in
+    /// the shell so `#…` is not a comment. Repeat to join several channels.
+    #[arg(long = "channel", value_parser = super::admin::parse_channel_path)]
     channels: Vec<String>,
     /// Message to send after the new session ACKs. Literal `\n` sequences
     /// become line breaks. Use "-" to read stdin verbatim.
@@ -55,9 +56,9 @@ mod tests {
             "--workspace",
             "project2",
             "--channel",
-            "/project2/qa",
+            "#project2/qa",
             "--channel",
-            "/project1/bug-123",
+            "#project1/bug-123",
             "--message",
             "investigate",
         ])
@@ -67,7 +68,7 @@ mod tests {
             crate::cli::args::Cmd::Dispatch(args) => {
                 assert_eq!(args.target, "codex@backend2");
                 assert_eq!(args.workspace, "project2");
-                assert_eq!(args.channels, vec!["/project2/qa", "/project1/bug-123"]);
+                assert_eq!(args.channels, vec!["#project2/qa", "#project1/bug-123"]);
                 assert_eq!(args.message.as_deref(), Some("investigate"));
             }
             _ => panic!("expected dispatch command"),

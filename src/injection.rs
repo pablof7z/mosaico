@@ -4,12 +4,15 @@
 //!
 //! ```text
 //! <mosaico>
-//!   <channel ref="/workspace/channel/qa">
+//!   <channel ref="#workspace/channel/qa">
 //!     <message from="@mist-ridge-204-developer" id="abc123"
-//!              for="@reviewer" age="1m">hello</message>
+//!              age="1m">hello</message>
 //!   </channel>
 //! </mosaico>
 //! ```
+//!
+//! Direct injection never emits `for=…`: the envelope is already delivered
+//! into the target session, so naming that recipient is redundant noise.
 //!
 //! Publishing no longer happens automatically on the agent's behalf — when the
 //! target has not already been answered or acknowledged, the envelope carries a
@@ -56,19 +59,21 @@ pub(crate) fn render_terminal_mention(
             return None;
         }
         let from = speaker_label(store, &row.from_pubkey);
-        let recipients = vec![speaker_label(store, &row.target_pubkey)];
         let _ = write!(
             out,
             "\n  <channel ref=\"{}\">",
             crate::agent_xml::attr(&channel_ref)
         );
+        // Empty recipients: this envelope is already being injected into the
+        // target session, so a `for=` attribute would only restate the
+        // delivery target.
         crate::agent_xml::write_message(
             &mut out,
             4,
             &crate::agent_xml::MessageElement {
                 event_id: &row.event_id,
                 from: &from,
-                recipients: &recipients,
+                recipients: &[],
                 attachment_dir: &row.attachment_dir,
                 body: &row.body,
                 created_at: row.created_at,

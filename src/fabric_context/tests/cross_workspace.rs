@@ -68,9 +68,9 @@ fn outside_workspace_is_a_compact_root_and_does_not_leak_presence_or_chatter() {
     let baseline = outcome
         .text
         .expect("a fresh hook cache re-baselines the joined root roster");
-    assert!(baseline.contains("<channel name=\"/root\""), "{baseline}");
+    assert!(baseline.contains("<channel name=\"#root\""), "{baseline}");
     assert!(
-        !baseline.contains("<channel name=\"/remote\""),
+        !baseline.contains("<channel name=\"#remote\""),
         "{baseline}"
     );
     assert!(!baseline.contains("coordinating release"), "{baseline}");
@@ -80,10 +80,10 @@ fn outside_workspace_is_a_compact_root_and_does_not_leak_presence_or_chatter() {
     let full = render_fabric_context(&store, input(Some(&rec), "root", 0, 300, false))
         .expect("current workspace full snapshot");
     assert!(
-        full.contains("<channel name=\"/remote\" about=\"Remote room\" agents=\"0\" />"),
+        full.contains("<channel name=\"#remote\" about=\"Remote room\" agents=\"0\" />"),
         "{full}"
     );
-    assert!(!full.contains("/remote/review"), "{full}");
+    assert!(!full.contains("#remote/review"), "{full}");
     assert!(!full.contains("coordinating release"), "{full}");
     assert!(!full.contains("reviewing patch"), "{full}");
     assert!(!full.contains("private unjoined chatter"), "{full}");
@@ -121,8 +121,8 @@ fn unscoped_session_sees_known_roots_without_expanding_them() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "", 0, 300, true))
         .expect("full briefing should orient an unscoped session");
-    assert!(text.contains("<channel name=\"/remote\""), "{text}");
-    assert!(!text.contains("/remote/review"), "{text}");
+    assert!(text.contains("<channel name=\"#remote\""), "{text}");
+    assert!(!text.contains("#remote/review"), "{text}");
     assert!(!text.contains("coordinating release"), "{text}");
     assert!(!text.contains("<workspace"), "{text}");
 }

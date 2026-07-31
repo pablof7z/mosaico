@@ -46,7 +46,7 @@ fn wait_for_channel_parent(home: &Home, channel: &str, parent: &str) {
 fn wait_for_channel_member(home: &Home, channel: &str, pubkey: &str) {
     assert!(
         wait_until(std::time::Duration::from_secs(25), || {
-            refresh_channel_members(&format!("/{channel}"));
+            refresh_channel_members(&format!("#{channel}"));
             Store::open(&home.store_path())
                 .map(|s| s.is_channel_member(channel, pubkey).unwrap_or(false))
                 .unwrap_or(false)

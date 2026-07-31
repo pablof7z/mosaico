@@ -5,7 +5,9 @@ use anyhow::{Context, Result};
 
 pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
     let body = strip_leading_inline_mentions(body.trim());
-    let words = shlex::split(body).context("could not parse command quoting")?;
+    // Quote-aware split that does NOT treat `#` as a comment — channel paths
+    // are `#root/child` and appear unquoted in chat management commands.
+    let words = split_words(body).context("could not parse command quoting")?;
     match words.as_slice() {
         [verb, spec] if eq(verb, "add") => {
             crate::idref::parse_agent_backend_ref(spec)
@@ -33,8 +35,8 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
         }
         [verb, channel] if eq(verb, "archive") => {
             let channel_ref = channel.trim();
-            if !channel_ref.starts_with('/') {
-                anyhow::bail!("archive requires a full channel path such as /mosaico/old");
+            if !channel_ref.starts_with(crate::channel_ref::CHANNEL_PATH_PREFIX) {
+                anyhow::bail!("archive requires a full channel path such as #mosaico/old");
             }
             Ok(ManagementCommand::Archive {
                 channel_ref: channel_ref.to_string(),
@@ -42,7 +44,7 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
         }
         [] => anyhow::bail!("empty management command"),
         _ => anyhow::bail!(
-            "unsupported management command; supported: add agent[@backend], list agents, list sessions, list all sessions, kill <npub|hex|handle>, archive /root/channel"
+            "unsupported management command; supported: add agent[@backend], list agents, list sessions, list all sessions, kill <npub|hex|handle>, archive #root/channel"
         ),
     }
 }
@@ -58,7 +60,8 @@ pub(super) fn parse_command(body: &str) -> Result<ManagementCommand> {
 /// cannot re-enter the loop.
 pub(super) fn is_command_shaped(body: &str) -> bool {
     let stripped = strip_leading_inline_mentions(body.trim());
-    shlex::split(stripped)
+    split_words(stripped)
+        .ok()
         .and_then(|words| words.into_iter().next())
         .map(|verb| {
             matches!(
@@ -67,6 +70,40 @@ pub(super) fn is_command_shaped(body: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+/// Whitespace-split with single/double quotes, without shell comment semantics.
+/// `#root/child` must remain a word so archive (and similar) can take hash paths.
+fn split_words(input: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            '\\' if !in_single => {
+                if let Some(next) = chars.next() {
+                    cur.push(next);
+                }
+            }
+            _ => cur.push(c),
+        }
+    }
+    if in_single || in_double {
+        anyhow::bail!("unclosed quote in management command");
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    Ok(out)
 }
 
 fn strip_leading_inline_mentions(mut body: &str) -> &str {
@@ -195,15 +232,15 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_command("archive /mosaico/planning").unwrap(),
+            parse_command("archive #mosaico/planning").unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "/mosaico/planning".to_string()
+                channel_ref: "#mosaico/planning".to_string()
             }
         );
         assert_eq!(
-            parse_command("archive \"/mosaico/planning\"").unwrap(),
+            parse_command("archive \"#mosaico/planning\"").unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "/mosaico/planning".to_string()
+                channel_ref: "#mosaico/planning".to_string()
             }
         );
         assert_eq!(
@@ -215,13 +252,15 @@ mod tests {
         );
         assert_eq!(
             parse_command(
-                "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs archive /mosaico/planning"
+                "npub1qv7resh7tczrrrgwj2t0pwq5jp9r5t86l73gsnlfldfdsqqle2yqnqjwjs archive #mosaico/planning"
             )
             .unwrap(),
             ManagementCommand::Archive {
-                channel_ref: "/mosaico/planning".to_string()
+                channel_ref: "#mosaico/planning".to_string()
             }
         );
-        assert!(parse_command("archive #planning").is_err());
+        // Only `#root[/child…]` is a full channel path.
+        assert!(parse_command("archive planning").is_err());
+        assert!(parse_command("archive /mosaico/planning").is_err());
     }
 }

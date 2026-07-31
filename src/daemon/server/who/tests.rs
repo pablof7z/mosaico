@@ -81,11 +81,11 @@ async fn raw_who_json_uses_public_channel_paths() {
 
     let out = rpc_who(
         &state,
-        &serde_json::json!({ "channel": "/root-h/review", "human_color": false }),
+        &serde_json::json!({ "channel": "#root-h/review", "human_color": false }),
     )
     .unwrap();
-    assert_eq!(out["root"], "/root-h/review");
-    assert_eq!(out["rows"][0]["channel"], "/root-h/review");
-    assert_eq!(out["rows"][0]["work_root"], "/root-h");
+    assert_eq!(out["root"], "#root-h/review");
+    assert_eq!(out["rows"][0]["channel"], "#root-h/review");
+    assert_eq!(out["rows"][0]["work_root"], "#root-h");
     assert!(!out.to_string().contains("\"child-h\""), "{out:#}");
 }

@@ -237,7 +237,7 @@ pub(crate) fn is_substantive_message(body: &str) -> bool {
     if normalized.is_empty()
         || body
             .trim_start()
-            .starts_with("Continue this conversation in /")
+            .starts_with("Continue this conversation in #")
     {
         return false;
     }

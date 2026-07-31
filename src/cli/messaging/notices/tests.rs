@@ -31,7 +31,7 @@ fn renderer_rejects_an_incomplete_result_contract() {
 fn renderer_preserves_summaries_and_builds_an_explicit_correction_command() {
     let result = serde_json::json!({
         "event_id": "abcdef1234567890",
-        "channel": "/mosaico/reviews",
+        "channel": "#mosaico/reviews",
         "coaching": [{
             "level": "warn",
             "code": "untagged_agent_prefix",
@@ -45,7 +45,7 @@ fn renderer_preserves_summaries_and_builds_an_explicit_correction_command() {
         vec![
             "WARN: published ambient chat",
             "To tag that agent now, run: `mosaico channel send --channel \
-             '/mosaico/reviews' --tag 'drift-codex' --message \
+             '#mosaico/reviews' --tag 'drift-codex' --message \
              'That message, abcdef, was for you; I forgot to tag you.'`"
         ]
     );
@@ -55,7 +55,7 @@ fn renderer_preserves_summaries_and_builds_an_explicit_correction_command() {
 fn ambiguous_advisory_never_offers_a_guessed_command() {
     let result = serde_json::json!({
         "event_id": "abcdef1234567890",
-        "channel": "/mosaico",
+        "channel": "#mosaico",
         "coaching": [{
             "level": "warn",
             "code": "untagged_agent_prefix_ambiguous",

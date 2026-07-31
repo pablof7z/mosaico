@@ -113,12 +113,12 @@ mod tests {
         assert!(!first.contains("<hosts>"), "{first}");
         assert!(!first.contains("<workspace"), "{first}");
         assert!(
-            first.contains("<channel name=\"/alpha\" about=\"Alpha\" agents=\"1\">")
+            first.contains("<channel name=\"#alpha\" about=\"Alpha\" agents=\"1\">")
                 && first.contains("<agent name=\"@codex\""),
             "{first}"
         );
         assert!(
-            first.contains("<channel name=\"/beta\" about=\"Beta\" agents=\"1\" />"),
+            first.contains("<channel name=\"#beta\" about=\"Beta\" agents=\"1\" />"),
             "{first}"
         );
 
@@ -134,7 +134,7 @@ mod tests {
         let second = second["fabric"].as_str().expect("agent briefing");
         assert!(!second.contains("<workspace"), "{second}");
         assert!(
-            second.contains("<channel name=\"/beta\" about=\"Beta\" agents=\"1\">"),
+            second.contains("<channel name=\"#beta\" about=\"Beta\" agents=\"1\">"),
             "{second}"
         );
 

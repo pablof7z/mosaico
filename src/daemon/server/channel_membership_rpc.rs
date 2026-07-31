@@ -20,7 +20,7 @@ pub(in crate::daemon::server) fn resolve_caller(
     .with_context(|| format!("{verb} must be run from within a mosaico agent session"))
 }
 
-/// A channel argument must be a full absolute path (`/workspace/child`) — never
+/// A channel argument must be a full absolute path (`#workspace/child`) — never
 /// a bare name or opaque id. Checked before resolving so
 /// the error names the actual problem instead of falling through to NotFound.
 fn require_full_path(reference: &str) -> Result<&str> {
@@ -188,12 +188,12 @@ mod tests {
         });
         let before = state.with_store(|store| store.list_channels().unwrap());
 
-        let error = match resolve_target_channel(&state, "/project/does-not-exist") {
+        let error = match resolve_target_channel(&state, "#project/does-not-exist") {
             Ok(_) => panic!("a missing channel must not resolve"),
             Err(error) => error.to_string(),
         };
 
-        assert!(error.contains("/project/does-not-exist"), "{error}");
+        assert!(error.contains("#project/does-not-exist"), "{error}");
         let after = state.with_store(|store| store.list_channels().unwrap());
         assert_eq!(after, before, "join resolution must be existing-only");
     }

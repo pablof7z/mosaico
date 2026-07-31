@@ -179,7 +179,7 @@ impl Backend {
     }
 
     pub fn keep_channel_reader(&mut self, workspace: &str) -> Result<()> {
-        let channel = format!("/{workspace}");
+        let channel = format!("#{workspace}");
         let child = self
             .command(&["channel", "read", "--live", "--channel", &channel])
             .stdout(Stdio::null())

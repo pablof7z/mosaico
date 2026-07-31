@@ -115,7 +115,7 @@ fn query_from_params(
 fn validate_params(params: &SearchParams) -> Result<()> {
     anyhow::ensure!(
         params.workspace.is_none(),
-        "--workspace is not supported; omit channels or use --channel /"
+        "--workspace is not supported; omit channels or use --channel '#'"
     );
     if params.cursor.is_some() {
         anyhow::ensure!(
@@ -158,7 +158,8 @@ fn resolve_identities(store: &Store, selectors: &[String]) -> Result<Vec<String>
 }
 
 fn resolve_channel_scopes(store: &Store, selectors: &[String]) -> Result<Vec<String>> {
-    if selectors.is_empty() || selectors.iter().any(|selector| selector.trim() == "/") {
+    // Bare `#` means "every channel in the local cache".
+    if selectors.is_empty() || selectors.iter().any(|selector| selector.trim() == "#") {
         return Ok(Vec::new());
     }
     let channels = store.list_channels()?;

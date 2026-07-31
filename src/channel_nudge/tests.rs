@@ -163,7 +163,7 @@ fn active_offer_suppresses_further_lottery_checks_until_expiry() {
 fn acknowledgement_and_parent_pointer_are_not_substantive() {
     assert!(!is_substantive_message("ok"));
     assert!(!is_substantive_message(
-        "Continue this conversation in /mosaico/reviews; existing channel memberships are unchanged"
+        "Continue this conversation in #mosaico/reviews; existing channel memberships are unchanged"
     ));
     assert!(is_substantive_message("I verified the integration tests"));
 }

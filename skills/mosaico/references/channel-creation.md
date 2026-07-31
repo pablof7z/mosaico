@@ -44,12 +44,14 @@ working conversation. Nest a narrower stream beneath the child that owns it.
 Choose a durable topic name and a short stable `--about` description. Treat the
 name and description as shared orientation for future participants.
 
-Canonical channel names are absolute slash paths: `/<root>` for a root and
-`/<root>/<child>` for a descendant. Dotted paths, bare names, `#` names, and
-opaque group ids are not aliases. Every channel argument across the CLI
-requires the full path. A session has one immutable launch workspace and one
-set of zero or more joined channels; there is no current, active, focused, or
-switched channel.
+Canonical channel names are absolute hash paths: `#<root>` for a root and
+`#<root>/<child>` for a descendant. Dotted paths, bare names, and opaque group
+ids are not aliases. Every channel argument across the CLI requires the full
+path. **Always quote channel paths in the shell** (`'#workspace/child'`) so the
+leading `#` is not eaten as a comment. A missing path often means the shell
+stripped an unquoted name; the CLI says so. A session has one immutable launch
+workspace and one set of zero or more joined channels; there is no current,
+active, focused, or switched channel.
 
 ## Seed The Channel
 
@@ -85,7 +87,7 @@ useful synthesis to the channel that owns the outcome.
 
 ## Commands
 
-Every channel argument below is a full absolute path (`/root/child`) — never a
+Every channel argument below is a full absolute path (`#root/child`) — never a
 bare relative name or internal id. A path that doesn't resolve is
 rejected with the channels that actually exist, never silently created; join
 is unrestricted (any session may join any channel in any workspace), but
@@ -110,7 +112,7 @@ Join for passive context. Joining never creates anything; every path segment
 must already exist:
 
 ```bash
-mosaico channel join /workspace/child
+mosaico channel join '#workspace/child'
 ```
 
 Add a human or bring an existing session into a channel when its participation
@@ -118,15 +120,15 @@ is needed. Do not use `channel add` to start a new agent; use `dispatch` for
 that.
 
 ```bash
-mosaico channel add <pubkey-or-npub-or-nip05> /workspace/child
-mosaico channel add --session <session-handle> /workspace/child
+mosaico channel add <pubkey-or-npub-or-nip05> '#workspace/child'
+mosaico channel add --session <session-handle> '#workspace/child'
 ```
 
 Create a child and join it; the parent (everything but the last segment) must
 already exist. Creation never leaves any other channel:
 
 ```bash
-mosaico channel create /workspace/epic/child --about "short stable description"
+mosaico channel create '#workspace/epic/child' --about "short stable description"
 ```
 
 When Mosaico injects a channel-topology nudge for an ongoing conversation, an
@@ -143,18 +145,18 @@ it, and passively adds the still-running agents that actually participated in
 the conversation, including participants currently between turns. It does
 not add silent agent members or restart stopped sessions. Human users and
 parent admins retain access through normal child inheritance. Mosaico posts one
-untagged `Continue this conversation in /<root>/<new-channel-name>; existing
+untagged `Continue this conversation in #<root>/<new-channel-name>; existing
 channel memberships are unchanged` pointer in the parent and no
 automatic message in the child.
 
 Maintain a channel's durable metadata only when you own that decision:
 
 ```bash
-mosaico channel edit /workspace/child --about "revised stable description"
-mosaico channel leave /workspace/child
+mosaico channel edit '#workspace/child' --about "revised stable description"
+mosaico channel leave '#workspace/child'
 ```
 
-`channel archive /workspace/child` marks the channel archived and removes
+`channel archive '#workspace/child'` marks the channel archived and removes
 every non-admin member. Treat it as destructive: require explicit authority
 and post or preserve any necessary handoff before using it.
 
@@ -167,7 +169,7 @@ and filesystem access.
 Send an update to a specific joined channel:
 
 ```bash
-mosaico channel send --channel /workspace/child --message "..."
+mosaico channel send --channel '#workspace/child' --message "..."
 ```
 
 For channels in another workspace, read

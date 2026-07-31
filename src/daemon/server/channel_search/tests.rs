@@ -87,22 +87,22 @@ async fn subtree_scope_is_recursive_and_results_group_after_global_selection() {
     f.message("other", "other", &f.agent, "other", 20);
     f.message("root-old", "root", &f.pablo, "root old", 10);
 
-    let scoped = f.search(serde_json::json!({"channels":["/root/research"]}));
+    let scoped = f.search(serde_json::json!({"channels":["#root/research"]}));
     assert_eq!(event_ids(&scoped), ["child", "deep"]);
-    assert_eq!(scoped["channels"][0]["ref"], "/root/research");
-    assert_eq!(scoped["channels"][1]["ref"], "/root/research/notes");
+    assert_eq!(scoped["channels"][0]["ref"], "#root/research");
+    assert_eq!(scoped["channels"][1]["ref"], "#root/research/notes");
 
     let all = f.search(serde_json::json!({}));
-    let slash = f.search(serde_json::json!({"channels":["/"]}));
+    let slash = f.search(serde_json::json!({"channels":["#"]}));
     assert_eq!(all, slash);
     assert_eq!(
         event_ids(&all),
         ["root-new", "root-old", "child", "deep", "other"]
     );
-    assert_eq!(all["channels"][0]["ref"], "/root");
-    assert_eq!(all["channels"][1]["ref"], "/root/research");
-    assert_eq!(all["channels"][2]["ref"], "/root/research/notes");
-    assert_eq!(all["channels"][3]["ref"], "/other");
+    assert_eq!(all["channels"][0]["ref"], "#root");
+    assert_eq!(all["channels"][1]["ref"], "#root/research");
+    assert_eq!(all["channels"][2]["ref"], "#root/research/notes");
+    assert_eq!(all["channels"][3]["ref"], "#other");
 }
 
 #[tokio::test]
@@ -130,7 +130,7 @@ async fn identity_recipient_text_and_time_filters_combine_without_membership_che
         "from":["@Pablo"],
         "to":["mist-codex"],
         "contains":["COMMIT"],
-        "channels":["/root"],
+        "channels":["#root"],
         "since":20,
         "until":22
     }));
@@ -169,7 +169,7 @@ async fn cursor_continues_globally_and_is_bound_to_the_normalized_query() {
 async fn exact_request_contract_rejects_workspace_and_invalid_bounds() {
     let f = Fixture::new().await;
     let workspace =
-        rpc_channel_search(&f.state, &serde_json::json!({"workspace":"/root"})).unwrap_err();
+        rpc_channel_search(&f.state, &serde_json::json!({"workspace":"#root"})).unwrap_err();
     assert!(workspace
         .to_string()
         .contains("--workspace is not supported"));

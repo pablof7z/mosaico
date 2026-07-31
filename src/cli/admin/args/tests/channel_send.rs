@@ -18,7 +18,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "./out/build.log",
         "--force",
         "--channel",
-        "/ops",
+        "#ops",
         "--session",
         "session-1",
         "--wait",
@@ -50,7 +50,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
             assert_eq!(attachments[1].label, "out/build.log");
             assert_eq!(tags, vec!["agent1", "agent2"]);
             assert!(force);
-            assert_eq!(channel.as_deref(), Some("/ops"));
+            assert_eq!(channel.as_deref(), Some("#ops"));
             assert_eq!(session.as_deref(), Some("session-1"));
             assert_eq!(wait, Some(600));
         }

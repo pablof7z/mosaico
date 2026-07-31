@@ -69,7 +69,7 @@ mod tests {
                 "attachments": [],
                 "tags": [],
                 "force": false,
-                "channel": "/work",
+                "channel": "#work",
             })
             .as_object()
             .unwrap()

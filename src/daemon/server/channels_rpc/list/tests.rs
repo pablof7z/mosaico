@@ -41,16 +41,16 @@ fn caller_view_expands_own_and_joined_but_compacts_other_roots() {
         ["own", "joined", "other"]
     );
     let own = &view.sections[0].channels[0];
-    assert_eq!(own.path, "/own");
+    assert_eq!(own.path, "#own");
     assert_eq!(own.about, "Primary workspace");
-    assert_eq!(own.children[0].path, "/own/alpha");
-    assert_eq!(own.children[0].children[0].path, "/own/alpha/deep");
+    assert_eq!(own.children[0].path, "#own/alpha");
+    assert_eq!(own.children[0].children[0].path, "#own/alpha/deep");
 
     let joined = &view.sections[1].channels[0];
-    assert_eq!(joined.children[0].path, "/joined/review");
+    assert_eq!(joined.children[0].path, "#joined/review");
 
     let other = &view.sections[2].channels[0];
-    assert_eq!(other.path, "/dev2");
+    assert_eq!(other.path, "#dev2");
     assert_eq!(other.subchannels, Some(2));
     assert!(other.children.is_empty());
 }
@@ -70,12 +70,12 @@ fn launch_workspace_is_compact_when_the_session_joined_no_channel_under_it() {
     .unwrap();
 
     let own = &view.sections[0].channels[0];
-    assert_eq!(own.path, "/own");
+    assert_eq!(own.path, "#own");
     assert_eq!(own.subchannels, Some(2));
     assert!(own.children.is_empty());
     assert_eq!(
         view.sections[1].channels[0].children[0].path,
-        "/joined/review"
+        "#joined/review"
     );
 }
 
@@ -88,10 +88,10 @@ fn recursive_view_expands_unjoined_roots_without_opaque_ids() {
     let dev2 = view.sections[0]
         .channels
         .iter()
-        .find(|root| root.path == "/dev2")
+        .find(|root| root.path == "#dev2")
         .unwrap();
-    assert_eq!(dev2.children[0].path, "/dev2/one");
-    assert_eq!(dev2.children[0].children[0].path, "/dev2/one/two");
+    assert_eq!(dev2.children[0].path, "#dev2/one");
+    assert_eq!(dev2.children[0].children[0].path, "#dev2/one/two");
     assert!(!json.contains("one-h"));
     assert!(!json.contains("child_h"));
 }
@@ -159,7 +159,7 @@ fn compact_empty_root_has_no_zero_subchannel_suffix() {
     let view = build(&store, ListMode::All, 10, "").unwrap();
 
     let solo = &view.sections[0].channels[0];
-    assert_eq!(solo.path, "/solo");
+    assert_eq!(solo.path, "#solo");
     assert_eq!(solo.subchannels, None);
 }
 
@@ -181,7 +181,7 @@ fn explicit_workspace_keeps_a_cold_registered_root_visible() {
     let view = build(&store, ListMode::Workspace("cold".into()), 10, "").unwrap();
 
     let root = &view.sections[0].channels[0];
-    assert_eq!(root.path, "/cold");
+    assert_eq!(root.path, "#cold");
     assert_eq!(root.about, "");
     assert_eq!(root.agents, None);
 }

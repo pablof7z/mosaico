@@ -131,7 +131,7 @@ mod tests {
             .upsert_channel("opaque-child", "review", "", "root", 2)
             .unwrap();
 
-        assert_eq!(public_channel_label(&store, "opaque-child"), "/root/review");
+        assert_eq!(public_channel_label(&store, "opaque-child"), "#root/review");
         assert_eq!(
             public_channel_label(&store, "unknown-internal-id"),
             "channel with unavailable public path"

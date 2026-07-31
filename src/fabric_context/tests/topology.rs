@@ -40,12 +40,12 @@ fn every_channel_shows_only_last_accepted_activity() {
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true)).unwrap();
     assert!(
         xml.contains(
-            "<channel name=\"/root/lounge\" about=\"Lounge\" \
+            "<channel name=\"#root/lounge\" about=\"Lounge\" \
              agents=\"1\" last-active=\"2 min ago\" />"
         ),
         "{xml}"
     );
-    let task = opening_tag(&xml, "/root/task");
+    let task = opening_tag(&xml, "#root/task");
     assert!(task.contains("last-active=\"1 min ago\""), "{task}");
 }
 
@@ -61,16 +61,16 @@ fn full_and_delta_channels_use_identical_tags_and_nesting() {
     let delta = render_view_text(&assemble::assemble_view(&captured, 200, 300));
 
     assert_eq!(
-        normalized_opening_tag(&full, "/root"),
-        normalized_opening_tag(&delta, "/root")
+        normalized_opening_tag(&full, "#root"),
+        normalized_opening_tag(&delta, "#root")
     );
     assert_eq!(
-        normalized_opening_tag(&full, "/root/task"),
-        normalized_opening_tag(&delta, "/root/task")
+        normalized_opening_tag(&full, "#root/task"),
+        normalized_opening_tag(&delta, "#root/task")
     );
     for xml in [&full, &delta] {
         assert!(
-            xml.find("name=\"/root\"").unwrap() < xml.find("name=\"/root/task\"").unwrap(),
+            xml.find("name=\"#root\"").unwrap() < xml.find("name=\"#root/task\"").unwrap(),
             "{xml}"
         );
     }
@@ -114,7 +114,7 @@ fn full_rosters_distinguish_humans_from_agents() {
     );
     assert!(xml.contains("<agent name=\"@coder\""), "{xml}");
     assert!(
-        xml.contains("<channel name=\"/root\" about=\"Root room\" agents=\"2\""),
+        xml.contains("<channel name=\"#root\" about=\"Root room\" agents=\"2\""),
         "the human row must not inflate the agent-only count: {xml}"
     );
 }
@@ -127,7 +127,7 @@ fn unhydrated_membership_omits_the_agent_count() {
     captured.members.hydrated.remove("root");
 
     let xml = render_view_text(&assemble::assemble_view(&captured, 0, 100));
-    let root = opening_tag(&xml, "/root");
+    let root = opening_tag(&xml, "#root");
     assert!(!root.contains(" agents="), "{root}");
 }
 
@@ -142,19 +142,19 @@ fn a_partial_relay_roster_snapshot_never_claims_zero_members() {
         .unwrap();
     assert_eq!(
         crate::channel_ref::full_channel_ref(&store, "partial-h"),
-        "/root/partial"
+        "#root/partial"
     );
     let rec = session(&store);
 
     let partial = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    assert!(partial.contains("/root/partial"), "{partial}");
-    let partial_tag = opening_tag(&partial, "/root/partial");
+    assert!(partial.contains("#root/partial"), "{partial}");
+    let partial_tag = opening_tag(&partial, "#root/partial");
     assert!(!partial_tag.contains(" agents="), "{partial_tag}");
 
     store.replace_channel_admins("partial-h", &[], 2).unwrap();
     let complete = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
-        opening_tag(&complete, "/root/partial").contains("agents=\"1\""),
+        opening_tag(&complete, "#root/partial").contains("agents=\"1\""),
         "{complete}"
     );
 }
@@ -169,7 +169,7 @@ fn hydrated_roster_with_an_unknown_identity_omits_the_agent_count() {
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    let root = opening_tag(&xml, "/root");
+    let root = opening_tag(&xml, "#root");
     assert!(!root.contains(" agents="), "{root}");
 }
 
@@ -219,11 +219,11 @@ fn a_channel_with_an_unarrived_parent_does_not_sink_the_whole_topology() {
         .expect("an unplaceable channel must not fail the capture");
 
     assert!(
-        xml.contains("<channel name=\"/root\""),
+        xml.contains("<channel name=\"#root\""),
         "root channel missing: {xml}"
     );
     assert!(
-        xml.contains("<channel name=\"/root/task\""),
+        xml.contains("<channel name=\"#root/task\""),
         "task channel missing: {xml}"
     );
     assert!(

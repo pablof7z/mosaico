@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn compact_suffix_omits_zero() {
         let no_children = serde_json::json!({
-            "path": "/solo",
+            "path": "#solo",
             "about": "Solo",
             "children": [],
         });
@@ -110,27 +110,27 @@ mod tests {
                 "kind": "own",
                 "title": "Your workspace",
                 "channels": [{
-                    "path": "/root",
+                    "path": "#root",
                     "about": "Root",
                     "agents": 2,
                     "last_activity": "3 min ago",
                     "children": [{
-                        "path": "/root/review",
+                        "path": "#root/review",
                         "about": "Reviews",
                     }],
                 }],
             }],
         });
         let root = &projection["sections"][0]["channels"][0];
-        assert_eq!(root["path"], "/root");
-        assert_eq!(root["children"][0]["path"], "/root/review");
+        assert_eq!(root["path"], "#root");
+        assert_eq!(root["children"][0]["path"], "#root/review");
         assert!(projection.to_string().find("child_h").is_none());
         assert_eq!(
             render_projection(&projection),
             concat!(
                 "Your workspace\n",
-                "/root  — Root · 2 agents · active 3 min ago\n",
-                "  /root/review  — Reviews\n",
+                "#root  — Root · 2 agents · active 3 min ago\n",
+                "  #root/review  — Reviews\n",
             )
         );
     }

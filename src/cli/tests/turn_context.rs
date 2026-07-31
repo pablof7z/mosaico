@@ -38,7 +38,7 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
         "first turn should render fabric awareness; got: {text:?}"
     );
     assert!(
-        text.contains("<channel name=\"/proj\"") && !text.contains("<workspace"),
+        text.contains("<channel name=\"#proj\"") && !text.contains("<workspace"),
         "awareness should use the public root-channel path without a workspace wrapper; got: {text:?}"
     );
     assert!(

@@ -44,7 +44,7 @@ fn canonical_context_and_human_view_keep_host_capabilities() {
     let solo = session_record(&empty, "solo", "solo");
     let text = render_fabric_context(&empty, input(Some(&solo), "solo", 0, 100, true)).unwrap();
     assert!(!text.contains("<workspace"));
-    assert!(text.contains("<channel name=\"/solo\" agents=\"0\""));
+    assert!(text.contains("<channel name=\"#solo\" agents=\"0\""));
     assert!(!text.contains("<members>"), "got: {text}");
 }
 
@@ -81,7 +81,7 @@ fn host_profile_delta_emits_through_the_canonical_hook_context() {
     let baseline = baseline
         .text
         .expect("a fresh hook cache re-baselines joined members");
-    assert!(baseline.contains("<channel name=\"/root\""), "{baseline}");
+    assert!(baseline.contains("<channel name=\"#root\""), "{baseline}");
     assert!(!baseline.contains("<hosts>"), "{baseline}");
 
     advertise_host(

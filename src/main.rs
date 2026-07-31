@@ -55,7 +55,14 @@ fn main() {
         Err(err) => {
             command_log.finish_clap_error(&err);
             let code = err.exit_code();
-            let _ = err.print();
+            if missing_channel_name(&err) {
+                // Unquoted `#channel` is a shell comment, so the path never arrives.
+                eprintln!(
+                    "error: no channel name; did you put quotes around the name? e.g. '#channel'"
+                );
+            } else {
+                let _ = err.print();
+            }
             std::process::exit(code);
         }
     };
@@ -85,4 +92,18 @@ fn inactive_hook_fast_path(argv: &[String]) -> bool {
             .windows(2)
             .any(|pair| pair[0] == "--type" && !pair[1].is_empty());
     is_hook && !mosaico::daemon::socket_path().exists()
+}
+
+/// Clap reports a missing required `PATH`/`CHANNEL` when the shell ate an
+/// unquoted `#…` channel path as a comment. Surface a quote hint instead of
+/// the generic "required arguments were not provided" text.
+fn missing_channel_name(err: &clap::error::Error) -> bool {
+    if err.kind() != clap::error::ErrorKind::MissingRequiredArgument {
+        return false;
+    }
+    let rendered = err.to_string();
+    rendered.contains("<PATH>")
+        || rendered.contains("<CHANNEL>")
+        || rendered.contains("--channel <CHANNEL>")
+        || rendered.contains("<ID_OR_CHANNEL>")
 }

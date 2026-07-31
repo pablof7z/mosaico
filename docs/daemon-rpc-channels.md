@@ -9,9 +9,9 @@ documented in [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 Every agent- or operator-supplied channel reference is a full absolute path:
 
 ```text
-/root
-/root/child
-/root/child/grandchild
+#root
+#root/child
+#root/child/grandchild
 ```
 
 The first segment names an existing root channel. Each later segment is an
@@ -49,7 +49,7 @@ and points to the explicit-read guidance. It never returns pre-join bodies.
 
 ```jsonc
 params: {}
-result: {"channels": [{"channel": "/root", "about": "…"}, …]}
+result: {"channels": [{"channel": "#root", "about": "…"}, …]}
 ```
 
 Returns known root channels using public paths.
@@ -57,8 +57,8 @@ Returns known root channels using public paths.
 ## `channel_edit`
 
 ```jsonc
-params: {"channel": "/root/child", "about": "…"}
-result: {"event_id": "hex", "channel": "/root/child", "about": "…",
+params: {"channel": "#root/child", "about": "…"}
+result: {"event_id": "hex", "channel": "#root/child", "about": "…",
          "confirmed": true}
 ```
 
@@ -67,8 +67,8 @@ Updates an existing channel's durable description.
 ## `channel_members`
 
 ```jsonc
-params: {"channel": "/root/child"}
-result: {"channel": "/root/child",
+params: {"channel": "#root/child"}
+result: {"channel": "#root/child",
          "members": [{"pubkey": "hex", "slug": "agent", "role": "member"}, …]}
 ```
 
@@ -77,8 +77,8 @@ Returns the current relay-confirmed membership roster.
 ## `channel_add_member` / `channel_remove_member`
 
 ```jsonc
-params: {"channel": "/root/child", "pubkey": "hex", "admin": false}
-result: {"channel": "/root/child", "pubkey": "hex", "role": "member",
+params: {"channel": "#root/child", "pubkey": "hex", "admin": false}
+result: {"channel": "#root/child", "pubkey": "hex", "role": "member",
          "confirmed": true}
 ```
 
@@ -88,8 +88,8 @@ against relay state before success is reported.
 ## `channel_create`
 
 ```jsonc
-params: {"channel": "/root/parent/child", "about": "…", "agents": […]}
-result: {"channel": "/root/parent/child", "joined": true,
+params: {"channel": "#root/parent/child", "about": "…", "agents": […]}
+result: {"channel": "#root/parent/child", "joined": true,
          "orchestration_event_id": "hex"|""}
 ```
 
@@ -107,7 +107,7 @@ result: {
     "kind": "own",
     "title": "Your workspace",
     "channels": [{
-      "path": "/root",
+      "path": "#root",
       "about": "…",
       "agents": 2,
       "last_activity": "3 min ago",
@@ -127,10 +127,10 @@ counts or activity are omitted rather than fabricated.
 ## `channel_join` / `channel_leave` / `channel_archive`
 
 ```jsonc
-params: {"channel": "/root/child", "session": "npub1…"|"hex"|"handle"|null}
-join result: {"channel": "/root/child",
+params: {"channel": "#root/child", "session": "npub1…"|"hex"|"handle"|null}
+join result: {"channel": "#root/child",
               "history_notice": "…"|null}
-leave result: {"channel": "/root/child", "left": true|false}
+leave result: {"channel": "#root/child", "left": true|false}
 ```
 
 All three require an existing full path. Join is additive and never creates.

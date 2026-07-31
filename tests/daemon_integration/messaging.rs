@@ -46,8 +46,8 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         .get_session(&receiver_pubkey)
         .unwrap()
         .expect("receiver session row");
-    let receiver_scope = format!("/{}", only_session_route(&store, &receiver_row.pubkey));
-    let receiver_channel = receiver_scope.trim_start_matches('/').to_string();
+    let receiver_scope = format!("#{}", only_session_route(&store, &receiver_row.pubkey));
+    let receiver_channel = receiver_scope.trim_start_matches('#').to_string();
     drop(store);
     assert!(
         wait_until(Duration::from_secs(25), || {
@@ -150,7 +150,7 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         .unwrap()
         .expect("sender session row")
         .pubkey;
-    let original_channel = receiver_scope.trim_start_matches('/');
+    let original_channel = receiver_scope.trim_start_matches('#');
     let original_event = Store::open(&home.store_path())
         .unwrap()
         .chat_for_channel(original_channel, 0, u32::MAX)

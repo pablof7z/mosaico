@@ -37,7 +37,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
         pubkey_for_harness_session(&store, "claude-code", &sid).unwrap()
     };
     if !wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&format!("/{channel}"));
+        refresh_channel_members(&format!("#{channel}"));
         let store = Store::open(&home.store_path()).unwrap();
         store.has_session_route(&pubkey, &channel).unwrap_or(false)
             && store
@@ -76,7 +76,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
             .call(
                 "channel_leave",
                 serde_json::json!({
-                    "channel": format!("/{channel}"),
+                    "channel": format!("#{channel}"),
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
                     "agent": "coder",
@@ -101,7 +101,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
         }),
         "presence publisher did not process the post-leave expiry"
     );
-    refresh_channel_members(&format!("/{channel}"));
+    refresh_channel_members(&format!("#{channel}"));
     let store = Store::open(&home.store_path()).unwrap();
     assert!(store.list_session_routes(&pubkey).unwrap().is_empty());
     assert_eq!(

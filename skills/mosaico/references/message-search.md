@@ -7,16 +7,16 @@ cache.
 
 ## Scope
 
-Omitting `--channel` and passing `--channel /` are equivalent: both search
+Omitting `--channel` and passing `--channel '#'` are equivalent: both search
 every channel currently represented in the local database. A narrower channel
 path includes that channel and every descendant:
 
 ```bash
-mosaico channel search --channel /nmp/research
+mosaico channel search --channel '#nmp/research'
 ```
 
 There is no workspace filter. A workspace root is an ordinary channel path, so
-`--channel /nmp` searches that root and its descendants.
+`--channel '#nmp'` searches that root and its descendants.
 
 Do not add a local permission check before searching. NIP-29 relay policy owns
 admission and authorization. Once messages have been accepted and materialized
@@ -44,12 +44,12 @@ combine with AND. For example:
 mosaico channel search \
   --from @Pablo --from @reviewer \
   --contains commit \
-  --channel /nmp/research \
+  --channel '#nmp/research' \
   --since 7d
 ```
 
 This finds locally cached messages authored by Pablo **or** reviewer whose body
-contains `commit`, within `/nmp/research` or any descendant, during the last
+contains `commit`, within `#nmp/research` or any descendant, during the last
 seven days.
 
 ## Output and pagination
@@ -58,10 +58,10 @@ Results are selected newest-first and grouped by channel in agent-native XML:
 
 ```xml
 <mosaico>
-  <channel ref="/nmp/research">
+  <channel ref="#nmp/research">
     <message from="@Pablo" for="@reviewer" id="4e91c0" age="4m">landed the commit</message>
   </channel>
-  <channel ref="/nmp/research/design">
+  <channel ref="#nmp/research/design">
     <message from="@reviewer" id="7bc421" time="1785348600">approved</message>
   </channel>
   <next cursor="opaque-cursor" />

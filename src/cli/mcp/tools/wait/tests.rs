@@ -33,13 +33,13 @@ fn string_arrays_default_to_empty() {
 fn ambient_params_preserve_filters_and_session() {
     let params = ambient_params(&json!({
         "timeout_seconds": 60,
-        "channels": ["/mosaico/work"],
+        "channels": ["#mosaico/work"],
         "from": "agent",
         "session": "actor",
     }))
     .unwrap();
     assert_eq!(params["timeout_secs"], 60);
-    assert_eq!(params["channels"], json!(["/mosaico/work"]));
+    assert_eq!(params["channels"], json!(["#mosaico/work"]));
     assert_eq!(params["from"], "agent");
     assert_eq!(params["session"], "actor");
 }

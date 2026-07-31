@@ -198,9 +198,17 @@ fn parse_uri(uri: &str) -> Result<ResourceUri> {
     if let Some(channel) = uri.strip_prefix(STATUS_PREFIX) {
         let channel = channel.trim();
         if !channel.is_empty() {
+            // Resource URIs keep slash-separated segments after the status
+            // prefix (URI fragments cannot safely carry a leading `#`). Convert
+            // to the agent-facing `#root/child` form here.
+            let path = channel.trim_start_matches(crate::channel_ref::CHANNEL_PATH_PREFIX);
+            anyhow::ensure!(
+                !path.is_empty() && !path.starts_with('/'),
+                "channel status URI must use slash-separated segments without a leading slash"
+            );
             return Ok(ResourceUri::ChannelStatus(format!(
-                "/{}",
-                channel.trim_start_matches('/')
+                "{}{path}",
+                crate::channel_ref::CHANNEL_PATH_PREFIX
             )));
         }
     }
@@ -258,8 +266,12 @@ mod tests {
         ));
         assert!(matches!(
             parse_uri("mosaico://channels/status/root/task").unwrap(),
-            ResourceUri::ChannelStatus(channel) if channel == "/root/task"
+            ResourceUri::ChannelStatus(channel) if channel == "#root/task"
         ));
+        assert!(
+            parse_uri("mosaico://channels/status//root/task").is_err(),
+            "slash-prefixed status paths are not accepted"
+        );
     }
 
     #[test]

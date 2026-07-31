@@ -1,7 +1,7 @@
 # Channel messaging RPCs
 
 Companion to [daemon-rpc-channels.md](daemon-rpc-channels.md). Every public
-channel value below is a full `/root[/child…]` path. No messaging surface
+channel value below is a full `#root[/child…]` path. No messaging surface
 accepts or returns opaque protocol ids.
 
 Explicit targets must already be in the caller's joined-channel set. Omitting a
@@ -11,11 +11,11 @@ zero or multiple joined channels must name the destination.
 ## `channel_read`
 
 ```jsonc
-params: {"id": "event-id"|null, "channel": "/root/child"|null,
+params: {"id": "event-id"|null, "channel": "#root/child"|null,
          "since": u64|null, "limit": u64|null, "offset": u64,
          "tail": bool, "live": bool}
 stream: {"item": {"event_id": "hex", "from_slug": "agent",
-                  "channel": "/root/child", "body": "…",
+                  "channel": "#root/child", "body": "…",
                   "truncated": false, "created_at": 123}}
 ```
 
@@ -28,12 +28,12 @@ subject to automatic-context join cutoffs.
 
 ```jsonc
 params: {"from": ["identity", …], "to": ["identity", …],
-         "contains": ["literal", …], "channels": ["/root/child", …],
+         "contains": ["literal", …], "channels": ["#root/child", …],
          "since": u64|null, "until": u64|null, "limit": u64|null,
          "cursor": "opaque"|null}
 result: {
   "channels": [{
-    "ref": "/root/child",
+    "ref": "#root/child",
     "messages": [{
       "event_id": "hex", "from": "public-ref",
       "recipients": ["public-ref", …], "body": "…", "created_at": 123
@@ -45,7 +45,7 @@ result: {
 
 Search is a one-shot query over messages already materialized in the daemon's
 local database; it never queries or backfills from the relay. An empty
-`channels` list and `["/"]` both search every cached channel. Any narrower
+`channels` list and `["#"]` both search every cached channel. Any narrower
 channel includes its descendants. There is no workspace selector: a root
 channel path already scopes its workspace subtree.
 
@@ -66,8 +66,8 @@ also returns the grouped result as structured content.
 ```jsonc
 params: {"message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "channel": "/root/child"|null}
-result: {"event_id": "hex", "channel": "/root/child",
+         "channel": "#root/child"|null}
+result: {"event_id": "hex", "channel": "#root/child",
          "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
          "recipient_reminders": []}
 ```
@@ -89,13 +89,13 @@ abort without publishing.
 ## `channel_wait`
 
 ```jsonc
-params: {"timeout_secs": 60, "channels": ["/root/child"],
+params: {"timeout_secs": 60, "channels": ["#root/child"],
          "from": "human-or-agent"|null, "reply_to": "event-id"|null}
 result: {"outcome": "message", "waited_secs": 4,
-         "channels": ["/root/child"],
-         "message": {"event_id": "hex", "channel": "/root/child", "body": "…"}}
+         "channels": ["#root/child"],
+         "message": {"event_id": "hex", "channel": "#root/child", "body": "…"}}
       | {"outcome": "timeout", "timeout_secs": 60,
-         "channels": ["/root/child"]}
+         "channels": ["#root/child"]}
 ```
 
 Wait captures a message-arrival cursor and the caller's joined-channel set
@@ -114,7 +114,7 @@ Timeout is a successful RPC outcome.
 params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
 result: {"event_id": "hex", "reply_to": "hex",
-         "channel": "/root/child", "mentioned_pubkey": "hex",
+         "channel": "#root/child", "mentioned_pubkey": "hex",
          "recipient_reminders": []}
 ```
 

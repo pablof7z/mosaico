@@ -125,7 +125,7 @@ fn an_unnameable_member_is_withheld_and_reported_for_refetch() {
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
         !xml.lines()
-            .find(|line| line.contains("<channel name=\"/root\""))
+            .find(|line| line.contains("<channel name=\"#root\""))
             .unwrap_or_default()
             .contains(" agents="),
         "an unclassified roster identity must make the count unknown: {xml}"

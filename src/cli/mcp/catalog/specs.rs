@@ -72,7 +72,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child). Must already be joined.",
+                "Full channel path (#workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
@@ -101,7 +101,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channels",
                 "array",
-                "Channel subtrees. Omit, or pass /, for every locally cached channel.",
+                "Channel subtrees. Omit, or pass #, for every locally cached channel.",
             ),
             Prop::new("since", "string", "Unix timestamp or duration like 2h."),
             Prop::new("until", "string", "Unix timestamp or duration like 2h."),
@@ -134,7 +134,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full channel path (/workspace/child). Must already be joined.",
+                "Full channel path (#workspace/child). Must already be joined.",
             ),
             SESSION_PROP,
             Prop::new(
@@ -161,7 +161,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channel",
                 "string",
-                "Full absolute path for the new leaf (/workspace/epic/child).",
+                "Full absolute path for the new leaf (#workspace/epic/child).",
             ),
             Prop::new("about", "string", "Short stable channel description."),
             Prop::new("agents", "array", "Agent targets as slug@backend strings."),
@@ -231,7 +231,7 @@ const SESSION_PROP: Prop = Prop::new(
     "Public session npub, hex pubkey, or handle.",
 );
 const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new("channel", "string", "Full channel path (/workspace/child)."),
+    Prop::new("channel", "string", "Full channel path (#workspace/child)."),
     SESSION_PROP,
 ];
 

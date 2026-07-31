@@ -51,8 +51,9 @@ coordination overhead.
   only when the current decision depends on complete fabric state; do not use
   it as a ritual preflight.
 - Treat the launch workspace as execution context and its root channel as an
-  ordinary channel. Canonical channel names are absolute slash paths:
-  `/<root>` and `/<root>/reviews`.
+  ordinary channel. Canonical channel names are absolute hash paths:
+  `#<root>` and `#<root>/reviews`. Always quote them in the shell
+  (`'#nmp/reviews'`) so `#…` is not treated as a comment.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
   secret-bearing environment affects the work.
@@ -66,7 +67,7 @@ coordination overhead.
   known roots remain compact.
 - Expect a channel's descendants and typed member rows only when you belong to
   that channel. Backend identities are never participants or member counts.
-- Never create `/<workspace>/<workspace>`; that is invalid self-nesting, not
+- Never create `#<workspace>/<workspace>`; that is invalid self-nesting, not
   the root channel.
 - Keep the user's newest instruction and the host's governing instructions above
   fabric momentum.

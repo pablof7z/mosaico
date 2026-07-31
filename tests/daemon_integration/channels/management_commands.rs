@@ -142,7 +142,7 @@ fn start_channel(home: &Home, channel: &str, work_dir: &Path) {
     });
     let user = pubkey_of(EXAMPLE_USER_NSEC);
     assert!(wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&format!("/{channel}"));
+        refresh_channel_members(&format!("#{channel}"));
         Store::open(&home.store_path())
             .map(|store| store.is_channel_admin(channel, &user).unwrap_or(false))
             .unwrap_or(false)

@@ -70,13 +70,13 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
         .expect("spawned PTY metadata");
     assert_eq!(spawned_meta.command, ["opencode", "forever"]);
 
-    let side_path = format!("/{root}/side");
+    let side_path = format!("#{root}/side");
     let created = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
             "channel_create",
             serde_json::json!({
-                "channel": format!("/{root}/side"),
+                "channel": format!("#{root}/side"),
                 "about": "side channel",
                 "cwd": &work_dir,
             }),

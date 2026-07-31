@@ -52,7 +52,7 @@ mod tests {
             npub: "npub1durable".into(),
             handle: handle.map(str::to_string),
             host: "laptop".into(),
-            channels: vec!["/main".into()],
+            channels: vec!["#main".into()],
             last_seen: 0,
             resumable,
         }
@@ -63,7 +63,7 @@ mod tests {
         let out = render_expired(&[row(Some("amber-coder"), true), row(None, false)]);
         assert!(out.contains("@amber-coder"), "got: {out}");
         assert!(out.contains("npub1durable"), "got: {out}");
-        assert!(out.contains("/main"), "got: {out}");
+        assert!(out.contains("#main"), "got: {out}");
         assert!(out.contains("resumable"), "got: {out}");
         assert!(out.contains("not resumable"), "got: {out}");
     }

@@ -118,7 +118,7 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             let response = daemon_call_async(
                 "channel_init",
                 crate::cli::rpc_params(serde_json::json!({
-                    "channel": format!("/{slug}"),
+                    "channel": crate::channel_ref::format_channel_ref(&slug, &[]),
                     "path": path,
                 })),
             )

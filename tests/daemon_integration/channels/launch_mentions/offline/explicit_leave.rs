@@ -22,7 +22,7 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
     start_keeper(&home, &root, &work_dir);
 
     let child_name = unique_session("left-child");
-    let child_path = format!("/{root}/{child_name}");
+    let child_path = format!("#{root}/{child_name}");
     let created = rt().block_on(async {
         let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
         client
@@ -47,7 +47,7 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
 
     rt().block_on(async {
         let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
-        for channel in [&child_path, &format!("/{root}")] {
+        for channel in [&child_path, &format!("#{root}")] {
             let left = client
                 .call(
                     "channel_leave",
@@ -63,7 +63,7 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
     });
 
     assert!(wait_until(Duration::from_secs(15), || {
-        refresh_channel_members(&format!("/{root}"));
+        refresh_channel_members(&format!("#{root}"));
         refresh_channel_members(&child_path);
         let store = Store::open(&home.store_path()).unwrap();
         store
@@ -227,7 +227,7 @@ fn assert_memberships_still_absent(
     child_path: &str,
 ) {
     assert!(wait_until(Duration::from_secs(15), || {
-        refresh_channel_members(&format!("/{root}"));
+        refresh_channel_members(&format!("#{root}"));
         refresh_channel_members(child_path);
         let store = Store::open(&home.store_path()).unwrap();
         store.list_session_routes(pubkey).unwrap().is_empty()
