@@ -40,8 +40,18 @@ impl Drop for Home {
 
 impl Home {
     fn new() -> Self {
+        scavenge_deleted_tmp_mosaico_processes();
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("MOSAICO_HOME", dir.path());
+        // SAFETY: daemon_mechanics serializes env mutation via ENV_LOCK.
+        unsafe {
+            std::env::set_var("MOSAICO_HOME", dir.path());
+            std::env::set_var("MOSAICO_CONFIG", dir.path().join("config.json"));
+            std::env::set_var("MOSAICO_DAEMON_GRACE_S", "30");
+            std::env::set_var(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1");
+            // The thin client spawns `current_exe() daemon`; in a test binary that
+            // is the harness, so point it at the real built binary.
+            std::env::set_var("MOSAICO_BIN", bin());
+        }
         // Config with a LOCAL relay so the daemon never dials the live fabric.
         let cfg = dir.path().join("config.json");
         let body = serde_json::json!({
@@ -50,11 +60,6 @@ impl Home {
             "relays": [shared_relay_url()],
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
-        std::env::set_var("MOSAICO_CONFIG", &cfg);
-        std::env::set_var("MOSAICO_DAEMON_GRACE_S", "30");
-        // The thin client spawns `current_exe() daemon`; in a test binary that
-        // is the harness, so point it at the real built binary.
-        std::env::set_var("MOSAICO_BIN", bin());
         // Register /tmp as a channel so hook-driven session_start finds a
         // resolvable channel (the new "refuse without a channel" gate would
         // otherwise silently exit 0).
@@ -91,6 +96,7 @@ fn spawn_real_daemon(home: &Home) -> std::process::Child {
         .env("MOSAICO_HOME", home.dir.path())
         .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
         .env("MOSAICO_DAEMON_GRACE_S", "30")
+        .env(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1")
         .stdout(log.try_clone().unwrap())
         .stderr(log)
         .spawn()
@@ -279,21 +285,99 @@ fn version_skew_old_daemon_exits_and_respawns() {
     stop_daemon(&home);
 }
 
-/// Ask the daemon to exit by deleting the lock and sending SIGTERM if we can
-/// find it; simplest portable approach: connect with a future protocol to
-/// trigger its shutdown path, then wait for the socket to disappear.
+/// Full teardown: reap this home's PTY supervisors, stop the daemon via
+/// protocol skew, force-kill any leftover daemon still bound to this home.
 fn stop_daemon(home: &Home) {
-    if !home.sock().exists() {
-        return;
+    unsafe {
+        std::env::set_var("MOSAICO_HOME", home.dir.path());
     }
-    let _ = newer_client_please_exit(&home.sock(), u32::MAX); // please_exit path
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if !home.sock().exists() {
-            break;
-        }
+    let reap = mosaico::pty::reap_home_supervisors().expect("PTY reap during teardown");
+    assert!(
+        reap.is_clean(),
+        "PTY supervisors survived teardown: {}",
+        reap.errors.join("; ")
+    );
+    if home.sock().exists() {
+        let _ = newer_client_please_exit(&home.sock(), u32::MAX);
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && home.sock().exists() {
         std::thread::sleep(Duration::from_millis(25));
     }
-    // Best-effort cleanup of lock file.
+    force_kill_daemons_for_home(home.dir.path());
     let _ = std::fs::remove_file(home.lock());
+    scavenge_deleted_tmp_mosaico_processes();
+}
+
+fn force_kill_daemons_for_home(home: &std::path::Path) {
+    let needle = format!("MOSAICO_HOME={}", home.display());
+    let Ok(output) = std::process::Command::new("/bin/ps")
+        .args(["-eo", "pid=", "-o", "args="])
+        .output()
+    else {
+        return;
+    };
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = line.trim();
+        let Some((pid, args)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(pid) = pid.parse::<i32>() else {
+            continue;
+        };
+        let tokens: Vec<&str> = args.split_whitespace().collect();
+        let is_daemon = tokens.iter().any(|arg| arg.ends_with("mosaico"))
+            && tokens.iter().any(|arg| *arg == "daemon")
+            && !tokens.iter().any(|arg| *arg == "__pty-supervisor");
+        if !is_daemon {
+            continue;
+        }
+        let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) else {
+            continue;
+        };
+        let env = String::from_utf8_lossy(&env).replace('\0', "\n");
+        if env.contains(&needle) {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
+}
+
+fn scavenge_deleted_tmp_mosaico_processes() {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<i32>() else {
+            continue;
+        };
+        if pid <= 1 {
+            continue;
+        }
+        let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else {
+            continue;
+        };
+        let exe = exe.to_string_lossy();
+        if !(exe.contains("(deleted)") && exe.contains("/tmp/") && exe.contains("mosaico")) {
+            continue;
+        }
+        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&cmdline);
+        let args: Vec<&str> = cmdline
+            .split('\0')
+            .filter(|part| !part.is_empty())
+            .collect();
+        let role = args.get(1).copied().unwrap_or("");
+        if role != "daemon" && role != "__pty-supervisor" {
+            continue;
+        }
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(pid),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
 }

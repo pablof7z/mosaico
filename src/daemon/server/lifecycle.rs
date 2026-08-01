@@ -156,6 +156,7 @@ pub async fn run() -> Result<()> {
     tracing::info!("daemon shutting down");
     accept.abort();
     shutdown::rpc_sessions(&state).await;
+    shutdown::pty_supervisors_if_requested();
     cleanup();
     state.nmp.shutdown();
     drop(lock);
