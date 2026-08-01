@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 #[path = "harness/daemon.rs"]
 mod daemon;
-pub(crate) use daemon::stop_daemon;
+pub(crate) use daemon::{scavenge_deleted_tmp_mosaico_processes, stop_daemon};
 #[path = "harness/cli.rs"]
 mod cli;
 pub(crate) use cli::{
@@ -94,6 +94,9 @@ impl Drop for Home {
 
 impl Home {
     pub(crate) fn new() -> Self {
+        // Prior crashed test runs leave detached daemons/supervisors under
+        // deleted /tmp binaries. Scavenge them before claiming a fresh home.
+        scavenge_deleted_tmp_mosaico_processes();
         let dir = tempfile::tempdir().unwrap();
         let original_home = std::env::var_os("HOME");
         unsafe { std::env::set_var("HOME", dir.path()) };
@@ -108,7 +111,12 @@ impl Home {
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
         std::env::set_var("MOSAICO_CONFIG", &cfg);
         std::env::set_var("MOSAICO_DAEMON_GRACE_S", "30");
-        std::env::set_var("MOSAICO_BIN", bin());
+        // Isolated homes must reap PTY supervisors on daemon stop — production
+        // leaves them alive across restart; tests must not.
+        unsafe {
+            std::env::set_var(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1");
+            std::env::set_var("MOSAICO_BIN", bin());
+        }
         // Register /tmp as a channel so hooks (which all send cwd=/tmp) find a
         // resolvable channel. Without this, the new "refuse to start without a
         // known channel" gate silently exits 0 and the tests see no session.

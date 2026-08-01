@@ -6,6 +6,7 @@ mod exit_record;
 mod launch;
 mod meta;
 mod presentation;
+mod reap;
 mod supervisor;
 
 pub use client::{attach, attach_stream, inject, is_live, kill, list, resize, AttachStream};
@@ -22,6 +23,9 @@ pub(crate) use meta::{owned_supervisor_state, OwnedSupervisorState};
 pub(crate) use presentation::{
     kill_if_headless_at, presentation_observation, ConditionalKillOutcome, PresentationSnapshot,
     PresentationUnavailable,
+};
+pub use reap::{
+    reap_home_supervisors, reap_sessions_on_stop_enabled, ReapReport, REAP_SESSIONS_ON_STOP_ENV,
 };
 pub use supervisor::{run_supervisor, SupervisorArgs};
 

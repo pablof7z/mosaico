@@ -93,6 +93,25 @@ Assert product-relevant process invariants:
 - an admitted runtime's exact endpoint receives addressed input;
 - cleanup leaves no owned process or socket.
 
+### Isolated-home teardown (mandatory)
+
+Detached daemons and PTY supervisors intentionally survive ordinary production
+`daemon stop` / restart so live sessions reattach. Isolated tests and labs must
+**not** leave that fleet behind:
+
+1. Set `MOSAICO_REAP_SESSIONS_ON_STOP=1` on every test/lab daemon so orderly
+   shutdown reaps supervisors owned by that `$MOSAICO_HOME`.
+2. Harness `Drop` / scenario teardown must still call
+   `mosaico::pty::reap_home_supervisors()` and force-kill any daemon whose
+   `/proc/PID/environ` lists the exact home path.
+3. Scavenge processes whose executable is a **deleted** binary under `/tmp/`
+   (classic TempDir leak after a SIGKILL'd cargo run). Never kill by bare
+   binary name — that reaps the operator's live fleet.
+
+If a scenario ends with a `mosaico daemon` or `__pty-supervisor` still running
+under a deleted `/tmp` path, teardown is wrong; fix the harness, do not paper
+over it with a broader `pkill`.
+
 Detailed race mechanics belong in integration tests. Product-readable outcomes
 belong in the small black-box contract suite only when they pass its admission
 rule. Schedule permutations belong in seeded fault tests.

@@ -211,7 +211,9 @@ impl Backend {
             .env("MOSAICO_CONFIG", &self.config)
             .env("MOSAICO_BIN", env!("CARGO_BIN_EXE_mosaico"))
             .env("MOSAICO_DAEMON_GRACE_S", "10")
-            .env("MOSAICO_ISOLATED_HOME_OK", "1");
+            .env("MOSAICO_ISOLATED_HOME_OK", "1")
+            // Isolated lab homes must reap PTY supervisors on daemon stop.
+            .env(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1");
         for name in [
             "MOSAICO_AGENT",
             "MOSAICO_CHANNEL",

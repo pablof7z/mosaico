@@ -146,7 +146,11 @@ pub(crate) fn owned_supervisor_state(endpoint_id: &str) -> Result<OwnedSuperviso
 /// Terminate only the supervisor whose persisted metadata and live command line
 /// both identify `endpoint_id`. The identity check prevents a recycled PID from
 /// turning stale metadata into an unrelated process kill.
-pub(super) fn terminate_owned_supervisor(endpoint_id: &str) -> Result<bool> {
+///
+/// The harness child is terminated when it can be identified. An unknown child
+/// does **not** block supervisor teardown — otherwise test/lab leftovers with a
+/// dead or never-bound child would pin supervisors forever.
+pub(in crate::pty) fn terminate_owned_supervisor(endpoint_id: &str) -> Result<bool> {
     let Some(metadata) = read_all_metadata()
         .into_iter()
         .find(|metadata| metadata.id == endpoint_id)
@@ -159,15 +163,27 @@ pub(super) fn terminate_owned_supervisor(endpoint_id: &str) -> Result<bool> {
         return Ok(true);
     }
     verify_owned_process(pid, endpoint_id, &metadata)?;
-    let child_pid = metadata
+    if let Some(child_pid) = metadata
         .child_pid
         .and_then(|pid| i32::try_from(pid).ok())
-        .or_else(|| discover_owned_child(pid));
-    let Some(child_pid) = child_pid else {
-        anyhow::bail!("refusing to terminate PTY {endpoint_id:?}: owned child is unknown");
-    };
-    verify_owned_child(pid, child_pid)?;
-    terminate_owned_child(child_pid)?;
+        .or_else(|| discover_owned_child(pid))
+    {
+        if let Err(error) = verify_owned_child(pid, child_pid) {
+            tracing::warn!(
+                endpoint_id,
+                child_pid,
+                error = %error,
+                "PTY child ownership changed; continuing with supervisor teardown"
+            );
+        } else if let Err(error) = terminate_owned_child(child_pid) {
+            tracing::warn!(
+                endpoint_id,
+                child_pid,
+                error = %error,
+                "PTY child did not exit cleanly; continuing with supervisor teardown"
+            );
+        }
+    }
     if process_running(pid) {
         signal(pid, nix::sys::signal::Signal::SIGTERM)?;
         wait_for_exit(pid, 20);
