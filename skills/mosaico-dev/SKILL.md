@@ -5,14 +5,6 @@ description: "Develop Mosaico itself. Load for any work in this repo. Not for fa
 
 # Mosaico development
 
-This skill is for people and agents **building Mosaico** — code, tests, docs,
-install, harness integration, daemon, and operator workflows.
-
-It is **not** the skill for *being* a fabric agent. That is the separate
-`mosaico` skill shipped to end users.
-
-## Start here: rules and map
-
 Before changing product behavior, read the **repo root `AGENTS.md`**. It owns
 backwards-compat policy, file-size limits, the GitHub Issues backlog rule, and
 daemon restart safety. Product intent lives under `docs/product-spec/`;
