@@ -36,10 +36,7 @@ pub enum SubscriptionQuery {
     /// The contents of one group, scoped by `#h`. Per-relay-authoritative:
     /// a kind:9 carrying `h=X` served by a relay that does not host group `X`
     /// is not in this group.
-    GroupContents {
-        group: String,
-        kinds: BTreeSet<u16>,
-    },
+    GroupContents { group: String, kinds: BTreeSet<u16> },
     /// Every event of these kinds the group hosts serve, unscoped by group.
     Kinds { kinds: BTreeSet<u16> },
     /// Events of these kinds naming one pubkey in a `p` tag.

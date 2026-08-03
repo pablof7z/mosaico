@@ -1,4 +1,5 @@
 use super::*;
+use nmp::{Binding, CacheMode, IndexedTagName, SourceAuthority};
 use nostr::{EventBuilder, Kind, Tag};
 use std::sync::Arc;
 use std::time::Duration;
