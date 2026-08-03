@@ -245,8 +245,11 @@ fn classify(status: WriteStatus) -> ReceiptProgress {
     match status {
         WriteStatus::Accepted
         | WriteStatus::Signed(_)
-        | WriteStatus::Routed(_)
+        | WriteStatus::Routed { .. }
         | WriteStatus::AwaitingCapability { .. }
+        // Retained, NOT terminal: NMP parks a route indefinitely rather than
+        // failing it, so this is progress reporting, not an outcome.
+        | WriteStatus::AwaitingRoute { .. }
         | WriteStatus::AwaitingRelay { .. }
         | WriteStatus::AwaitingAuth { .. }
         | WriteStatus::RetryEligible { .. }
@@ -278,6 +281,21 @@ fn classify(status: WriteStatus) -> ReceiptProgress {
         WriteStatus::OutcomeUnknown(relay) => {
             ReceiptProgress::Gap(BackgroundWriteGapStatus::OutcomeUnknown, relay.to_string())
         }
+        // A newer accepted write won the same replaceable coordinate before
+        // this one made a wire attempt. Terminal and never retried.
+        WriteStatus::Superseded => ReceiptProgress::Failure(
+            BackgroundWriteTerminalStatus::Superseded,
+            "a newer accepted write superseded this replaceable coordinate".into(),
+        ),
+        WriteStatus::AuthDenied {
+            relay,
+            pubkey,
+            source,
+            reason,
+        } => ReceiptProgress::Failure(
+            BackgroundWriteTerminalStatus::AuthDenied,
+            format!("{relay} refused {pubkey} ({source:?}): {reason}"),
+        ),
         WriteStatus::ReplaceableConflict { expected, actual } => ReceiptProgress::Failure(
             BackgroundWriteTerminalStatus::ReplaceableConflict,
             format!("expected {expected:?}, actual {actual:?}"),
