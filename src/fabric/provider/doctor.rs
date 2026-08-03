@@ -52,10 +52,10 @@ impl Nip29Provider {
                 summary: format!("{error:#}"),
             },
         };
-        let filter = doctor_probe_filter(&group, &marker);
+        let filter = doctor_probe_filter(&marker);
         let readback = match self
             .nmp
-            .fetch_group(filter, 5, Duration::from_secs(5))
+            .fetch_in_group(&group, filter, 5, Duration::from_secs(5))
             .await
         {
             Ok(events) if !events.is_empty() => ProbeStep {
@@ -104,17 +104,14 @@ impl Nip29Provider {
     }
 
     async fn doctor_read_only(&self) -> DoctorProbe {
-        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
         let publish = ProbeStep {
             status: ProbeStatus::Skipped,
             summary: "no existing materialized NIP-29 group authorizes the management identity"
                 .into(),
         };
-        let filter = crate::nmp_host::read::filter(&[KIND_GROUP_METADATA], &[], &[])
-            .expect("static NMP metadata filter");
         let readback = match self
             .nmp
-            .fetch_group(filter, 1, Duration::from_secs(5))
+            .fetch_all_group_metadata(1, Duration::from_secs(5))
             .await
         {
             Ok(events) => ProbeStep {
@@ -148,20 +145,24 @@ fn doctor_probe_builder(group: &str, marker: &str) -> nostr::EventBuilder {
     ])
 }
 
-fn doctor_probe_filter(group: &str, marker: &str) -> nmp::Filter {
-    crate::nmp_host::read::filter(
-        &[1],
-        &[],
-        &[('h', group.to_string()), ('t', marker.to_string())],
-    )
-    .expect("static NMP doctor filter")
+/// The `#h` row is deliberately absent: NMP's group read door owns it and
+/// REFUSES a caller-supplied context constraint.
+fn doctor_probe_filter(marker: &str) -> nmp::Filter {
+    crate::nmp_host::read::filter(&[1], &[], &[('t', marker.to_string())])
+        .expect("static NMP doctor filter")
 }
 
 #[cfg(test)]
 mod tests {
+    /// The marker is the caller's own constraint; the group scope is NMP's.
+    /// Asserting two tags here would now be asserting the refusal condition —
+    /// `group_demand_at` rejects a selection that already constrains `#h`.
     #[test]
-    fn doctor_readback_is_scoped_to_existing_group_and_unique_marker() {
-        let filter = super::doctor_probe_filter("existing-workspace", "mosaico-doctor-test");
-        assert_eq!(filter.tags.len(), 2);
+    fn doctor_readback_is_scoped_to_a_unique_marker_and_never_to_h() {
+        let filter = super::doctor_probe_filter("mosaico-doctor-test");
+        assert_eq!(filter.tags.len(), 1);
+        assert!(!filter
+            .tags
+            .contains_key(&nmp::IndexedTagName::new('h').unwrap()));
     }
 }

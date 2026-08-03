@@ -13,14 +13,9 @@ impl Nip29Provider {
         use crate::fabric::nip29::wire::{
             KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
         };
-        let filter = crate::nmp_host::read::filter(
-            &[KIND_GROUP_METADATA, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS],
-            &[],
-            &[('d', group.to_string())],
-        )?;
         let state_evs = self
             .nmp
-            .fetch_group(filter, 30, Duration::from_secs(5))
+            .fetch_group_records(group, 30, Duration::from_secs(5))
             .await
             .context("fetch_group_state: relay fetch of group state failed")?;
 
@@ -91,17 +86,16 @@ impl Nip29Provider {
         group: &str,
     ) -> Result<Option<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let filter = crate::nmp_host::read::filter(
-            &[KIND_GROUP_METADATA],
-            &[],
-            &[('d', group.to_string())],
-        )?;
         let evs = self
             .nmp
-            .fetch_group(filter, 10, Duration::from_secs(5))
+            .fetch_group_records(group, 10, Duration::from_secs(5))
             .await
             .context("fetch_group_parent: relay fetch of kind:39000 failed")?;
-        let Some(newest) = evs.iter().max_by_key(|e| e.created_at.as_secs()) else {
+        let Some(newest) = evs
+            .iter()
+            .filter(|e| e.kind.as_u16() == KIND_GROUP_METADATA)
+            .max_by_key(|e| e.created_at.as_secs())
+        else {
             return Ok(None);
         };
         Ok(newest.tags.iter().find_map(|t| {
@@ -122,12 +116,9 @@ impl Nip29Provider {
     pub async fn fetch_and_materialize_channel(&self, group: &str) -> bool {
         use crate::fabric::nip29::materializer::Nip29Materializer;
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let filter =
-            crate::nmp_host::read::filter(&[KIND_GROUP_METADATA], &[], &[('d', group.to_string())])
-                .expect("static NMP group metadata filter");
         let evs = match self
             .nmp
-            .fetch_group(filter, 10, Duration::from_secs(5))
+            .fetch_group_records(group, 10, Duration::from_secs(5))
             .await
         {
             Ok(evs) => evs,
@@ -142,7 +133,11 @@ impl Nip29Provider {
                 Vec::new()
             }
         };
-        if let Some(newest) = evs.iter().max_by_key(|e| e.created_at.as_secs()) {
+        if let Some(newest) = evs
+            .iter()
+            .filter(|e| e.kind.as_u16() == KIND_GROUP_METADATA)
+            .max_by_key(|e| e.created_at.as_secs())
+        {
             self.with_store(|s| Nip29Materializer::materialize_channel(s, newest));
         }
         self.with_store(|s| s.get_channel(group).ok().flatten().is_some())
@@ -152,10 +147,9 @@ impl Nip29Provider {
     /// `relay_channels` cache via the single inbound materializer.
     pub async fn refresh_root_channels(&self) -> Result<()> {
         use crate::fabric::nip29::materializer::Nip29Materializer;
-        let filter = crate::nmp_host::read::filter(&[39000], &[], &[])?;
         let events = self
             .nmp
-            .fetch_group(filter, 200, Duration::from_secs(5))
+            .fetch_all_group_metadata(200, Duration::from_secs(5))
             .await
             .context("refresh_root_channels: relay fetch of kind:39000 list failed")?;
         for ev in &events {

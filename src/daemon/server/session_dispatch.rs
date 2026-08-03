@@ -178,10 +178,9 @@ struct DispatchAck {
 }
 
 fn dispatch_ack_query(dispatch_event_id: &str) -> crate::reconcile::SubscriptionQuery {
-    crate::reconcile::SubscriptionQuery {
+    crate::reconcile::SubscriptionQuery::References {
+        event_id: dispatch_event_id.to_string(),
         kinds: std::collections::BTreeSet::from([crate::fabric::nip29::wire::KIND_STATUS]),
-        authors: std::collections::BTreeSet::new(),
-        tag: Some(('e', dispatch_event_id.to_string())),
     }
 }
 

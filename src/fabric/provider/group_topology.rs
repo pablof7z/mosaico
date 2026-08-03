@@ -9,17 +9,13 @@ const RELATIONSHIP_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 impl Nip29Provider {
     async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let filter = crate::nmp_host::read::filter(
-            &[KIND_GROUP_METADATA],
-            &[],
-            &[('d', parent_h.to_string())],
-        )?;
         let events = self
             .nmp
-            .fetch_group(filter, 10, Duration::from_secs(5))
+            .fetch_group_records(parent_h, 10, Duration::from_secs(5))
             .await?;
         Ok(events
             .iter()
+            .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
             .max_by_key(|event| event.created_at.as_secs())
             .map(children_from_metadata)
             .unwrap_or_default())

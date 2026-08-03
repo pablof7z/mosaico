@@ -109,13 +109,12 @@ pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonSta
     );
     let effect = SubEffect::Replace {
         id: format!("mosaico-h-{h}"),
-        query: crate::reconcile::SubscriptionQuery {
+        query: crate::reconcile::SubscriptionQuery::GroupContents {
+            group: h.to_string(),
             kinds: BTreeSet::from([
                 crate::fabric::nip29::wire::KIND_CHAT,
                 crate::fabric::nip29::wire::KIND_STATUS,
             ]),
-            authors: BTreeSet::new(),
-            tag: Some(('h', h.to_string())),
         },
     };
     if let Err(error) = apply_effects(state, vec![effect]).await {

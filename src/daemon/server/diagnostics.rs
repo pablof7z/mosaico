@@ -39,16 +39,9 @@ pub(in crate::daemon::server) async fn refresh_channel_members_cache(
     use crate::fabric::nip29::materializer::Nip29Materializer;
     use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS};
 
-    let Ok(filter) = crate::nmp_host::read::filter(
-        &[KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS],
-        &[],
-        &[('d', channel.to_string())],
-    ) else {
-        return false;
-    };
     let Ok(events) = state
         .nmp
-        .fetch_group(filter, 10, Duration::from_secs(5))
+        .fetch_group_records(channel, 10, Duration::from_secs(5))
         .await
     else {
         return false;
