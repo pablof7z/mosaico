@@ -5,6 +5,33 @@
 //!   * addressable  (30000 <= kind < 40000): replace older by (kind, pubkey, d_tag)
 //!   * replaceable  (kind == 0 || kind == 3 || 10000 <= kind < 20000): replace by (kind, pubkey)
 //!   * regular: append.
+//!
+//! # This is a SECOND replaceable-resolution authority, and that is the bug
+//!
+//! NMP already applies supersession before it delivers a row, and — since the
+//! subscription drain started consuming them — signals a superseded row's
+//! departure as `RowDelta::Removed`. Resolving it again here means two stores
+//! in one system deciding which event is current, which is precisely the class
+//! of defect that produces "works here, not there" (mosaico#743).
+//!
+//! The rule below is now NIP-01's, byte for byte with NMP's own
+//! (`nmp_store::address_key::candidate_wins`): newest `created_at` wins, and on
+//! an exact tie the lexicographically-smallest event id wins. It previously
+//! kept whichever event ARRIVED FIRST, which is neither.
+//!
+//! Agreeing is not the same as not duplicating. Two things have to change
+//! upstream before the duplication can go:
+//!
+//! * NMP's comparator is unreachable from a consumer — `candidate_wins` is
+//!   `pub(crate)`, and `nmp_store::EventStore` is re-exported only under the
+//!   `unstable-mechanism` feature. There is no way to CALL the canonical rule,
+//!   which is how a second implementation came to drift in the first place.
+//! * `relay_events` is not purely a mirror: `prejoin_chat_for_session` joins it
+//!   against `session_channels.joined_event_seq`, a LOCAL arrival fence keyed
+//!   on SQLite `rowid`, and NMP's store has nothing to join that against.
+//!
+//! So this file agrees with NMP today; retiring the duplication is follow-up
+//! work scoped on mosaico#743, not something the tie-break fix closes.
 
 use super::*;
 
@@ -32,22 +59,29 @@ fn is_replaceable(kind: u32) -> bool {
 
 impl Store {
     /// Insert a relay event applying NIP-01 replacement. Returns `true` if the
-    /// event was stored (it was new and not superseded by a newer cached event),
-    /// `false` if it was an older duplicate that lost the replacement race.
+    /// event was stored (it was new and not superseded by a cached event that
+    /// wins), `false` if it lost the replacement race.
+    ///
+    /// The comparison is NIP-01's and NMP's: a cached row beats the incoming
+    /// event when its `created_at` is strictly greater, OR when the two are
+    /// equal and its id sorts first. `id <= ?` rather than `id <` so that
+    /// re-delivering an event already cached is a no-op rather than a
+    /// pointless delete-and-reinsert.
     pub fn insert_event(&self, ev: &RelayEvent) -> Result<bool> {
-        // Replacement: an existing newer event for the same coordinate wins.
         if is_addressable(ev.kind) {
-            let newer: bool = self
+            let superseded: bool = self
                 .conn
                 .query_row(
                     "SELECT 1 FROM relay_events
-                     WHERE kind=?1 AND pubkey=?2 AND d_tag=?3 AND created_at >= ?4 LIMIT 1",
-                    params![ev.kind as i64, ev.pubkey, ev.d_tag, ev.created_at],
+                     WHERE kind=?1 AND pubkey=?2 AND d_tag=?3
+                       AND (created_at > ?4 OR (created_at = ?4 AND id <= ?5))
+                     LIMIT 1",
+                    params![ev.kind as i64, ev.pubkey, ev.d_tag, ev.created_at, ev.id],
                     |_| Ok(()),
                 )
                 .optional()?
                 .is_some();
-            if newer {
+            if superseded {
                 return Ok(false);
             }
             self.conn.execute(
@@ -55,17 +89,19 @@ impl Store {
                 params![ev.kind as i64, ev.pubkey, ev.d_tag],
             )?;
         } else if is_replaceable(ev.kind) {
-            let newer: bool = self
+            let superseded: bool = self
                 .conn
                 .query_row(
                     "SELECT 1 FROM relay_events
-                     WHERE kind=?1 AND pubkey=?2 AND created_at >= ?3 LIMIT 1",
-                    params![ev.kind as i64, ev.pubkey, ev.created_at],
+                     WHERE kind=?1 AND pubkey=?2
+                       AND (created_at > ?3 OR (created_at = ?3 AND id <= ?4))
+                     LIMIT 1",
+                    params![ev.kind as i64, ev.pubkey, ev.created_at, ev.id],
                     |_| Ok(()),
                 )
                 .optional()?
                 .is_some();
-            if newer {
+            if superseded {
                 return Ok(false);
             }
             self.conn.execute(
@@ -89,6 +125,21 @@ impl Store {
             ],
         )?;
         Ok(n > 0)
+    }
+
+    /// Retract one cached event by id, because NMP says it no longer belongs
+    /// to any row set Mosaico observes.
+    ///
+    /// NMP reaches that conclusion for exactly three reasons over the literal-
+    /// bound, unwindowed queries Mosaico opens: the event was retracted by a
+    /// NIP-09 kind:5, its NIP-40 `expiration` came due, or a NIP-01
+    /// replaceable superseded it. All three mean the cached copy is no longer
+    /// true, so the row goes. Returns `true` when a row was actually removed.
+    pub fn retract_event(&self, id: &str) -> Result<bool> {
+        let removed = self
+            .conn
+            .execute("DELETE FROM relay_events WHERE id=?1", params![id])?;
+        Ok(removed > 0)
     }
 
     /// Fetch one event by id.

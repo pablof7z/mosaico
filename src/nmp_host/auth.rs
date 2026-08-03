@@ -42,6 +42,17 @@ impl NmpHost {
     /// Install the signer and exact-account NIP-42 policy as one retained
     /// capability pair. NMP freezes the requested identity into each relay
     /// session; this policy only approves configured app/indexer relays.
+    /// Whether this pubkey has been registered as a signing identity with the
+    /// engine. Test-facing: it is the observable proof that a signature went
+    /// through NMP's registry rather than around it.
+    #[cfg(test)]
+    pub(crate) fn has_registered_identity(&self, pubkey: &PublicKey) -> bool {
+        self.identities
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(pubkey)
+    }
+
     pub(crate) fn ensure_identity(&self, keys: &Keys) -> Result<()> {
         let pubkey = keys.public_key();
         let mut identities = self

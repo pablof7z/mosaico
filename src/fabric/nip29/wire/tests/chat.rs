@@ -1,11 +1,15 @@
 use super::*;
 
+fn digest() -> String {
+    "aa".repeat(32)
+}
+
 fn decode_attachment_tags(tags: &[(&str, &str)]) -> ChatMessage {
     let keys = Keys::generate();
     let mut wire_tags = vec![Tag::parse(["h", "mychannel"]).unwrap()];
     wire_tags.extend(
         tags.iter()
-            .map(|(url, label)| Tag::parse(["attachment", *url, *label]).unwrap()),
+            .map(|(url, label)| Tag::parse(["attachment", url, label, &digest()]).unwrap()),
     );
     let signed = EventBuilder::new(kind(KIND_CHAT), "still ordinary chat")
         .tags(wire_tags)
@@ -30,6 +34,7 @@ fn encodes_repeated_pubkey_mentions() {
         attachments: vec![crate::domain::ChatAttachment {
             url: "https://blossom.example/diagram.png".into(),
             label: "1/diagram.png".into(),
+            sha256: digest(),
         }],
     });
     let codec = Nip29WireCodec;
@@ -49,6 +54,7 @@ fn encodes_repeated_pubkey_mentions() {
                 "attachment",
                 "https://blossom.example/diagram.png",
                 "1/diagram.png",
+                &digest(),
             ]
     }));
     match codec.decode_event(&signed) {
@@ -77,6 +83,7 @@ fn decode_ignores_parent_and_absolute_attachment_labels() {
         vec![crate::domain::ChatAttachment {
             url: "https://blossom.example/good".into(),
             label: "evidence/good.txt".into(),
+            sha256: digest(),
         }]
     );
 }
@@ -128,10 +135,20 @@ fn decode_ignores_incomplete_and_overlong_attachment_tags() {
         .tags([
             Tag::parse(["h", "mychannel"]).unwrap(),
             Tag::parse(["attachment", "https://blossom.example/missing-label"]).unwrap(),
+            // Three values is now INCOMPLETE, not complete: an attachment with
+            // no declared digest cannot be verified on receipt, so it is not an
+            // attachment this build will accept.
+            Tag::parse([
+                "attachment",
+                "https://blossom.example/no-digest",
+                "no-digest.txt",
+            ])
+            .unwrap(),
             Tag::parse([
                 "attachment",
                 "https://blossom.example/extra",
                 "extra.txt",
+                &digest(),
                 "unexpected",
             ])
             .unwrap(),
@@ -159,6 +176,7 @@ fn encode_rejects_invalid_domain_attachments() {
         attachments: vec![crate::domain::ChatAttachment {
             url: "file:///tmp/secret".into(),
             label: "../secret".into(),
+            sha256: digest(),
         }],
     });
 

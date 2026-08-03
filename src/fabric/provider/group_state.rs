@@ -29,32 +29,33 @@ impl Nip29Provider {
             || newest(KIND_GROUP_ADMINS).is_some()
             || newest(KIND_GROUP_MEMBERS).is_some();
 
-        let mut roles: HashMap<String, String> = HashMap::new();
-        if let Some(ev) = newest(KIND_GROUP_ADMINS) {
-            for t in ev.tags.iter() {
-                let s = t.as_slice();
-                if s.first().map(String::as_str) == Some("p") {
-                    if let Some(pk) = s.get(1) {
-                        roles.insert(
-                            pk.clone(),
-                            s.get(2).cloned().unwrap_or_else(|| "member".to_string()),
-                        );
-                    }
-                }
-            }
-        }
+        // One roster parse for the whole daemon: `crate::fabric::nip29::roster`.
+        // This used to read the `p` rows here while the materializer read them
+        // again and dropped the role, so the same 39001 described a different
+        // roster depending on which caller decoded it.
+        let roles: HashMap<String, String> = newest(KIND_GROUP_ADMINS)
+            .map(|event| {
+                crate::fabric::nip29::roster::subjects(event)
+                    .into_iter()
+                    .map(|subject| {
+                        // An admin-list row that names no role still names an
+                        // admin. "member" is the pre-existing spelling for
+                        // "the list did not say"; it is preserved verbatim
+                        // rather than reinterpreted in a parser cleanup.
+                        let role = subject.role.unwrap_or_else(|| "member".to_string());
+                        (subject.pubkey, role)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        let mut members: HashSet<String> = HashSet::new();
-        if let Some(ev) = newest(KIND_GROUP_MEMBERS) {
-            for t in ev.tags.iter() {
-                let s = t.as_slice();
-                if s.first().map(String::as_str) == Some("p") {
-                    if let Some(pk) = s.get(1) {
-                        members.insert(pk.clone());
-                    }
-                }
-            }
-        }
+        let members: HashSet<String> = newest(KIND_GROUP_MEMBERS)
+            .map(|event| {
+                crate::fabric::nip29::roster::subject_pubkeys(event)
+                    .into_iter()
+                    .collect()
+            })
+            .unwrap_or_default();
         Ok((group_exists, roles, members))
     }
 

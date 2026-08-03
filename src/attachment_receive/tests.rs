@@ -21,6 +21,7 @@ async fn downloads_nested_labels_and_reuses_redelivery_directory() {
     let attachments = vec![ChatAttachment {
         url,
         label: "images/diagram.png".into(),
+        sha256: nmp_asset::Sha256Hash::of(b"diagram").to_hex(),
     }];
 
     let first = download(root.path(), "abcdef111111", &attachments)
@@ -65,6 +66,7 @@ async fn reserved_marker_labels_are_rejected_before_receive_storage() {
             &[ChatAttachment {
                 url: "https://example.invalid/file".into(),
                 label: label.into(),
+                sha256: nmp_asset::Sha256Hash::of(b"whatever").to_hex(),
             }],
         )
         .await
@@ -91,4 +93,56 @@ fn reserved_marker_labels_are_rejected_before_local_copy() {
     .unwrap_err();
     assert!(error.to_string().contains("reserved path component"));
     assert!(!root.exists());
+}
+
+/// mosaico#742. The receiver used to write whatever came back to disk, under a
+/// label the remote side supplied, with no check at all. It now refuses bytes
+/// that are not the ones the sender uploaded — and refuses them BEFORE the
+/// write, so nothing lands.
+#[tokio::test]
+async fn bytes_that_do_not_match_the_declared_hash_never_reach_the_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let (url, task) = server(b"substituted bytes").await;
+    let error = download(
+        root.path(),
+        "abcdef111111",
+        &[ChatAttachment {
+            url,
+            label: "images/diagram.png".into(),
+            sha256: nmp_asset::Sha256Hash::of(b"what the sender actually sent").to_hex(),
+        }],
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(
+        error.contains("does not match its declared sha256"),
+        "{error}"
+    );
+    assert!(
+        !root.path().join("abcdef/images/diagram.png").exists(),
+        "a blob that failed verification must not be on disk"
+    );
+    task.abort();
+}
+
+/// An attachment whose declared digest is not a usable sha256 is refused
+/// outright rather than downloaded and hoped over.
+#[tokio::test]
+async fn an_unusable_declared_digest_is_refused_without_fetching() {
+    let root = tempfile::tempdir().unwrap();
+    let error = download(
+        root.path(),
+        "abcdef111111",
+        &[ChatAttachment {
+            url: "https://example.invalid/file".into(),
+            label: "diagram.png".into(),
+            sha256: "not-a-hash".into(),
+        }],
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("unusable sha256"), "{error}");
 }

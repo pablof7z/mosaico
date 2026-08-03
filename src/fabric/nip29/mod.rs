@@ -4,6 +4,7 @@ pub mod lifecycle;
 pub mod materializer;
 pub mod orchestration;
 pub mod readiness;
+pub(crate) mod roster;
 pub mod session_dispatch;
 pub mod wire;
 

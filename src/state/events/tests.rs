@@ -13,6 +13,25 @@ fn event(id: &str, created_at: u64) -> RelayEvent {
     }
 }
 
+/// mosaico#744. A kind:5 retraction or a NIP-40 expiry reaches Mosaico as
+/// `RowDelta::Removed(id)`; before this the delta was discarded and the row
+/// stayed cached forever.
+#[test]
+fn retracting_an_event_removes_exactly_that_row() {
+    let store = Store::open_memory().unwrap();
+    assert!(store.insert_event(&event("a", 10)).unwrap());
+    assert!(store.insert_event(&event("b", 11)).unwrap());
+
+    assert!(store.retract_event("a").unwrap());
+    assert!(store.get_event("a").unwrap().is_none());
+    assert!(store.get_event("b").unwrap().is_some());
+
+    // Retracting a row that is already gone is not an error: a supersession
+    // handled by `insert_event` and reported again as `Removed` in the same
+    // frame must not look like a failure.
+    assert!(!store.retract_event("a").unwrap());
+}
+
 #[test]
 fn chat_for_channel_after_preserves_same_second_id_cursor() {
     let store = Store::open_memory().unwrap();
