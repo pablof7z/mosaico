@@ -50,15 +50,52 @@ fn referenced_pubkeys(event: &Event) -> Vec<String> {
 }
 
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
-    let mut events = state
+    let mut batches = state
         .nmp
         .take_materialization_events()
         .expect("NMP materialization stream has one daemon owner");
     tokio::spawn(async move {
-        while let Some(event) = events.recv().await {
-            inbound_dispatch::dispatch(&state, &event);
+        while let Some(batch) = batches.recv().await {
+            apply_batch(&state, batch);
         }
     });
+}
+
+/// Apply one NMP frame's row transition.
+///
+/// **Removals first, additions second, always.** The frame is a set, not a
+/// sequence: NMP re-folds it through a `BTreeMap<EventId, _>` before delivery,
+/// so the order deltas arrive in is event-id ascending and says nothing about
+/// causality. A relay republishing an addressable event — which every NIP-29
+/// roster change is — sends `Removed(old)` and `Added(new)` in that one frame,
+/// and `Removed` carries only an id. Acting on each delta as it arrives can
+/// therefore blank a roster on nothing but hex ordering.
+///
+/// Removals-first is also what NMP's own coordinator does with the same
+/// problem (`nmp_nip65::observe_current_delta`: *"Removals are applied before
+/// additions irrespective of delivery order. This lets a replaceable winner's
+/// removal reveal an older current row in the same batch without emitting a
+/// transient absence."*).
+fn apply_batch(state: &Arc<DaemonState>, batch: crate::nmp_host::MaterializationBatch) {
+    state.with_store(|store| retract_all(store, &batch.removed));
+    for event in &batch.added {
+        inbound_dispatch::dispatch(state, event);
+    }
+}
+
+fn retract_all(store: &crate::state::Store, removed: &[nostr::EventId]) {
+    for id in removed {
+        let id = id.to_hex();
+        match store.retract_event(&id) {
+            Ok(true) => tracing::debug!(id = %&id[..8], "retracted — NMP dropped the row"),
+            Ok(false) => {}
+            Err(error) => tracing::error!(
+                id = %&id[..8],
+                %error,
+                "retraction failed; a deleted or expired event stays cached"
+            ),
+        }
+    }
 }
 
 fn finish_incoming(

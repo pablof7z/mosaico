@@ -183,3 +183,7 @@ fn union_branches(branches: Vec<Demand>) -> Result<LiveQuery> {
             .map_err(|error| anyhow::anyhow!("composing per-host read branches: {error}")),
     }
 }
+
+#[cfg(test)]
+#[path = "query/tests.rs"]
+mod tests;
