@@ -111,20 +111,6 @@ impl Nip29Materializer {
     }
 }
 
-/// All `p`-tag pubkey values (`slice[1]`) on the event.
-fn collect_p_pubkeys(event: &Event) -> Vec<String> {
-    event
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let parts = tag.as_slice();
-            (parts.first().map(String::as_str) == Some("p"))
-                .then(|| parts.get(1).cloned())
-                .flatten()
-        })
-        .collect()
-}
-
 /// Channel a raw Nostr event onto the verbatim `relay_events` row shape.
 pub(crate) fn to_relay_event(event: &Event) -> RelayEvent {
     RelayEvent {

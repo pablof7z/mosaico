@@ -32,7 +32,7 @@ impl Nip29Materializer {
         let Some(channel_h) = super::super::nostr_tag(event, "d") else {
             return;
         };
-        let admins = collect_p_pubkeys(event);
+        let admins = super::super::roster::subject_pubkeys(event);
         if let Err(e) = store.replace_channel_admins(channel_h, &admins, event.created_at.as_secs())
         {
             tracing::error!(
@@ -49,7 +49,7 @@ impl Nip29Materializer {
         let Some(channel_h) = super::super::nostr_tag(event, "d") else {
             return;
         };
-        let members = collect_p_pubkeys(event);
+        let members = super::super::roster::subject_pubkeys(event);
         if let Err(e) =
             store.replace_channel_members(channel_h, &members, event.created_at.as_secs())
         {
