@@ -227,10 +227,16 @@ fn group_values<'a>(tags: impl IntoIterator<Item = &'a Tag>) -> BTreeSet<String>
         .collect()
 }
 
-/// Mint the group write through NMP's `Group`, which owns the `#h` scoping
-/// and pins the route to the host itself. `Group::write_intent` refuses a
-/// caller-supplied `h` or `previous` row, so `group_template` strips both
-/// before we get here.
+/// Mint the group write from NMP's `#h` contextualizer, pinned to the one
+/// host. `nmp_nip29::contextualize` refuses a caller-supplied `h` or
+/// `previous` row, so `group_template` strips both before we get here.
+///
+/// Routing and identity are assembled HERE only because `nmp::nip29::Group`
+/// exposes no mint-without-publish door: `Group::intent` and
+/// `through_the_one_door` are private, and `publish`/`publish_signed` publish
+/// immediately and return receipts. Mosaico mints intents and submits them
+/// later through one choke-point, so it cannot use a publish-now door. See
+/// NMP #1242; this is a visible gap, not a deliberate bypass of the group.
 fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIntent> {
     let tags = template
         .extra_tags
@@ -245,9 +251,17 @@ fn group_intent(relay: RelayUrl, template: GroupTemplate) -> Result<nmp::WriteIn
         content: template.content,
         created_at: Some(template.created_at),
     };
-    nmp_nip29::Group::new(relay, template.group)
-        .write_intent(builder)
-        .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
+    let contextualized = nmp_nip29::contextualize(&template.group, builder)
+        .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))?;
+    Ok(WriteIntent {
+        payload: WritePayload::Event(contextualized),
+        durability: Durability::Durable,
+        routing: WriteRouting::Explicit(vec![relay]),
+        // A group write says nothing about WHO is publishing; callers that
+        // know the author overwrite this with `Identity::Explicit`.
+        identity: Identity::Active,
+        correlation: None,
+    })
 }
 
 fn require_configured_host(receivers: &[FifoReceiver<WriteStatus>]) -> Result<()> {

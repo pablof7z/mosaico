@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 
 use nmp::{FifoReceiver, FifoRecvTimeoutError, WriteStatus};
 
+mod classify;
+
+use classify::{classify, ReceiptProgress};
+
 use super::admission::ReceiptSlot;
 use super::evidence::{BackgroundWriteGapStatus, BackgroundWriteTerminalStatus, Evidence};
 
@@ -230,58 +234,6 @@ fn poll_stream(job: &ReceiptJob, shutdown: &AtomicBool) -> PollOutcome {
             BackgroundWriteGapStatus::ReceiptLagged,
             "receipt stream exceeded its bounded delivery capacity".into(),
         )),
-    }
-}
-
-enum ReceiptProgress {
-    Intermediate,
-    Acked,
-    Failure(BackgroundWriteTerminalStatus, String),
-    NonterminalFailure(BackgroundWriteTerminalStatus, String),
-    Gap(BackgroundWriteGapStatus, String),
-}
-
-fn classify(status: WriteStatus) -> ReceiptProgress {
-    match status {
-        WriteStatus::Accepted
-        | WriteStatus::Signed(_)
-        | WriteStatus::Routed(_)
-        | WriteStatus::AwaitingCapability { .. }
-        | WriteStatus::AwaitingRelay { .. }
-        | WriteStatus::AwaitingAuth { .. }
-        | WriteStatus::RetryEligible { .. }
-        | WriteStatus::HandoffAmbiguous { .. }
-        | WriteStatus::Sent { .. } => ReceiptProgress::Intermediate,
-        WriteStatus::Acked(_) => ReceiptProgress::Acked,
-        WriteStatus::Cancelled => ReceiptProgress::Failure(
-            BackgroundWriteTerminalStatus::Cancelled,
-            "write was cancelled before signature promotion".into(),
-        ),
-        WriteStatus::Failed(reason) => {
-            ReceiptProgress::Failure(BackgroundWriteTerminalStatus::Failed, reason)
-        }
-        WriteStatus::Rejected(relay, reason) => ReceiptProgress::Failure(
-            BackgroundWriteTerminalStatus::Rejected,
-            format!("{relay}: {reason}"),
-        ),
-        WriteStatus::GaveUp(relay) => {
-            ReceiptProgress::Failure(BackgroundWriteTerminalStatus::GaveUp, relay.to_string())
-        }
-        WriteStatus::PersistenceBlocked(relay) => ReceiptProgress::NonterminalFailure(
-            BackgroundWriteTerminalStatus::PersistenceBlocked,
-            relay.to_string(),
-        ),
-        WriteStatus::RoutePersistenceBlocked(relay) => ReceiptProgress::NonterminalFailure(
-            BackgroundWriteTerminalStatus::RoutePersistenceBlocked,
-            relay.to_string(),
-        ),
-        WriteStatus::OutcomeUnknown(relay) => {
-            ReceiptProgress::Gap(BackgroundWriteGapStatus::OutcomeUnknown, relay.to_string())
-        }
-        WriteStatus::ReplaceableConflict { expected, actual } => ReceiptProgress::Failure(
-            BackgroundWriteTerminalStatus::ReplaceableConflict,
-            format!("expected {expected:?}, actual {actual:?}"),
-        ),
     }
 }
 

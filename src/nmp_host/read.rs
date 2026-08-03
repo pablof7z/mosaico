@@ -109,7 +109,15 @@ fn finish_latest(frame: Option<nmp::Frame>) -> Result<Vec<Event>> {
     Ok(window.rows.into_iter().map(|row| row.event).collect())
 }
 
-fn acquisition_ready(evidence: &AcquisitionEvidence) -> bool {
+/// Every branch of the live query must be ready. Per-branch evidence is
+/// positionally indexed against `LiveQuery::branches()` (#1108); one branch's
+/// shortfall is never masked by a sibling's proof, so readiness is the
+/// conjunction over branches and never a fold that loses which branch failed.
+fn acquisition_ready(evidence: &[AcquisitionEvidence]) -> bool {
+    !evidence.is_empty() && evidence.iter().all(branch_ready)
+}
+
+fn branch_ready(evidence: &AcquisitionEvidence) -> bool {
     evidence.shortfall.is_empty()
         && !evidence.sources.is_empty()
         && evidence
@@ -118,7 +126,7 @@ fn acquisition_ready(evidence: &AcquisitionEvidence) -> bool {
             .all(|source| source.reconciled_through.is_some())
 }
 
-fn empty_result_usable(evidence: &AcquisitionEvidence) -> bool {
+fn empty_result_usable(evidence: &[AcquisitionEvidence]) -> bool {
     acquisition_ready(evidence)
         // NMP intentionally exposes source facts rather than a global
         // completeness verdict. After an event-driven quiet period, an active
@@ -127,7 +135,11 @@ fn empty_result_usable(evidence: &AcquisitionEvidence) -> bool {
         || acquisition_active(evidence)
 }
 
-fn acquisition_active(evidence: &AcquisitionEvidence) -> bool {
+fn acquisition_active(evidence: &[AcquisitionEvidence]) -> bool {
+    !evidence.is_empty() && evidence.iter().all(branch_active)
+}
+
+fn branch_active(evidence: &AcquisitionEvidence) -> bool {
     evidence.shortfall.is_empty()
         && !evidence.sources.is_empty()
         && evidence

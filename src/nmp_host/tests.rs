@@ -17,13 +17,13 @@ fn public_query_is_pinned_to_the_configured_host() {
     };
 
     let live = live_query(&relays, &query, AccessContext::Public).unwrap();
-    assert_eq!(live.0.access, AccessContext::Public);
-    assert_eq!(live.0.source, SourceAuthority::Pinned(relays));
-    assert_eq!(live.0.selection.kinds, Some(query.kinds));
-    assert_eq!(live.0.selection.authors, None);
+    assert_eq!(live.branches()[0].access, AccessContext::Public);
+    assert_eq!(live.branches()[0].source, SourceAuthority::Pinned(relays));
+    assert_eq!(live.branches()[0].selection.kinds, Some(query.kinds));
+    assert_eq!(live.branches()[0].selection.authors, None);
     let h = IndexedTagName::new('h').unwrap();
     assert_eq!(
-        live.0.selection.tags.get(&h),
+        live.branches()[0].selection.tags.get(&h),
         Some(&Binding::Literal(BTreeSet::from(["room".to_string()])))
     );
 }
@@ -41,7 +41,7 @@ fn profile_query_is_scoped_to_exact_authors() {
     let live = live_query(&relays, &query, AccessContext::Public).unwrap();
 
     assert_eq!(
-        live.0.selection.authors,
+        live.branches()[0].selection.authors,
         Some(Binding::Literal(BTreeSet::from([author])))
     );
 }

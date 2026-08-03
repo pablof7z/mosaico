@@ -246,7 +246,7 @@ fn pinned_query(
     } else {
         Demand::new(filter, SourceAuthority::Pinned(relays.clone()), access)?
     };
-    Ok(LiveQuery(demand))
+    Ok(LiveQuery::single(demand))
 }
 
 fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {

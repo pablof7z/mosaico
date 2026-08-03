@@ -9,12 +9,25 @@ use nostr::{Event, Filter};
 
 const SNAPSHOT_QUIET_PERIOD: Duration = Duration::from_millis(500);
 
+/// Per-branch acquisition evidence is positionally indexed against
+/// `LiveQuery::branches()` (#1108). One branch's shortfall is never masked by
+/// a sibling's proof, so every branch must independently satisfy the test.
+fn all_branches(
+    evidence: &[nmp::AcquisitionEvidence],
+    per_branch: impl Fn(&nmp::AcquisitionEvidence) -> bool,
+) -> bool {
+    !evidence.is_empty()
+        && evidence.iter().all(|branch| {
+            branch.shortfall.is_empty() && !branch.sources.is_empty() && per_branch(branch)
+        })
+}
+
 pub(super) fn pinned_query(
     relay: RelayUrl,
     filter: nmp::Filter,
     access: AccessContext,
 ) -> Result<LiveQuery> {
-    Ok(LiveQuery(Demand::new(
+    Ok(LiveQuery::single(Demand::new(
         filter,
         SourceAuthority::Pinned(BTreeSet::from([relay])),
         access,
@@ -68,20 +81,18 @@ pub(super) fn receive_window(
         }
         match subscription.recv_timeout(remaining) {
             Ok(frame) => {
-                let acquisition_ready = frame.evidence.shortfall.is_empty()
-                    && !frame.evidence.sources.is_empty()
-                    && frame
-                        .evidence
+                let acquisition_ready = all_branches(&frame.evidence, |evidence| {
+                    evidence
                         .sources
                         .iter()
-                        .all(|source| source.reconciled_through.is_some());
-                let acquisition_active = frame.evidence.shortfall.is_empty()
-                    && !frame.evidence.sources.is_empty()
-                    && frame
-                        .evidence
+                        .all(|source| source.reconciled_through.is_some())
+                });
+                let acquisition_active = all_branches(&frame.evidence, |evidence| {
+                    evidence
                         .sources
                         .iter()
-                        .all(|source| matches!(source.status, nmp::SourceStatus::Requesting));
+                        .all(|source| matches!(source.status, nmp::SourceStatus::Requesting))
+                });
                 quiet_deadline = acquisition_active.then(|| Instant::now() + SNAPSHOT_QUIET_PERIOD);
                 latest = Some(frame);
                 if acquisition_ready {
@@ -98,12 +109,12 @@ pub(super) fn receive_window(
     let window = frame
         .window
         .context("NMP test bounded read had no window")?;
-    let usable_empty = frame.evidence.shortfall.is_empty()
-        && !frame.evidence.sources.is_empty()
-        && frame.evidence.sources.iter().all(|source| {
+    let usable_empty = all_branches(&frame.evidence, |evidence| {
+        evidence.sources.iter().all(|source| {
             source.reconciled_through.is_some()
                 || matches!(source.status, nmp::SourceStatus::Requesting)
-        });
+        })
+    });
     if window.rows.is_empty() && !usable_empty {
         anyhow::bail!(
             "NMP test read ended without relay acquisition evidence: load={:?} evidence={:?}",

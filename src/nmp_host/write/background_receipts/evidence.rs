@@ -14,6 +14,8 @@ pub(crate) enum BackgroundWriteTerminalStatus {
     PersistenceBlocked,
     RoutePersistenceBlocked,
     ReplaceableConflict,
+    Superseded,
+    AuthDenied,
     SubmissionFailed,
 }
 

@@ -101,7 +101,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
         ..EngineConfig::default()
     })
     .expect("NMP engine starts");
-    let query = LiveQuery(
+    let query = LiveQuery::single(
         Demand::new(
             NmpFilter {
                 kinds: Some(BTreeSet::from([1])),
