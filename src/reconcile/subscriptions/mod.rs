@@ -12,11 +12,45 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+/// What an observation is asking about, named rather than spelled.
+///
+/// The distinction between the NIP-29 variants and the rest is not cosmetic.
+/// A NIP-29 question is answered by a RELAY, not by the network: the `h` tag
+/// is a label and two relays hosting the same group id are two independent
+/// groups. NMP mints those reads itself
+/// (`nmp::nip29::Group::read` / `nmp_nip29::groups_where_at`) precisely so
+/// both host-scoping axes get stamped — `SourceAuthority::Pinned` for which
+/// relays are ASKED and `CacheMode::Strict` for which cached rows may ANSWER.
+/// Naming the group here rather than carrying a raw `('h', value)` tag is
+/// what lets `NmpHost` route each variant to the door that owns it; NMP's own
+/// door REFUSES a caller-supplied `#h` constraint, so a raw tag could not be
+/// handed to it at all.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SubscriptionQuery {
-    pub kinds: BTreeSet<u16>,
-    pub authors: BTreeSet<String>,
-    pub tag: Option<(char, String)>,
+pub enum SubscriptionQuery {
+    /// The relay-signed records describing every group these hosts serve
+    /// (kind:39000). Per-relay-authoritative, so per-host and strict.
+    AllGroupMetadata,
+    /// The relay-signed records describing ONE group (kinds 39000/39001/39002,
+    /// keyed by `d`). Per-relay-authoritative.
+    GroupRecords { group: String },
+    /// The contents of one group, scoped by `#h`. Per-relay-authoritative:
+    /// a kind:9 carrying `h=X` served by a relay that does not host group `X`
+    /// is not in this group.
+    GroupContents { group: String, kinds: BTreeSet<u16> },
+    /// Every event of these kinds the group hosts serve, unscoped by group.
+    Kinds { kinds: BTreeSet<u16> },
+    /// Events of these kinds naming one pubkey in a `p` tag.
+    Mentions {
+        pubkey: String,
+        kinds: BTreeSet<u16>,
+    },
+    /// Events of these kinds referencing one event id in an `e` tag.
+    References {
+        event_id: String,
+        kinds: BTreeSet<u16>,
+    },
+    /// kind:0 for one author, over the app hosts plus the indexer.
+    Profile { pubkey: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -191,34 +225,31 @@ fn sub_id((space, entity): &SubKey) -> String {
 }
 
 fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
-    use crate::fabric::nip29::wire::{
-        KIND_CHAT, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA, KIND_STATUS,
-    };
+    use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_METADATA, KIND_STATUS};
     match space {
-        Space::GlobalKind => SubscriptionQuery {
-            kinds: BTreeSet::from([entity.parse().expect("global kind is numeric")]),
-            authors: BTreeSet::new(),
-            tag: None,
-        },
-        Space::ChannelH => SubscriptionQuery {
+        Space::GlobalKind => {
+            let kind: u16 = entity.parse().expect("global kind is numeric");
+            if kind == KIND_GROUP_METADATA {
+                SubscriptionQuery::AllGroupMetadata
+            } else {
+                SubscriptionQuery::Kinds {
+                    kinds: BTreeSet::from([kind]),
+                }
+            }
+        }
+        Space::ChannelH => SubscriptionQuery::GroupContents {
+            group: entity.clone(),
             kinds: BTreeSet::from([KIND_CHAT, KIND_STATUS]),
-            authors: BTreeSet::new(),
-            tag: Some(('h', entity.clone())),
         },
-        Space::GroupStateD => SubscriptionQuery {
-            kinds: BTreeSet::from([KIND_GROUP_METADATA, KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS]),
-            authors: BTreeSet::new(),
-            tag: Some(('d', entity.clone())),
+        Space::GroupStateD => SubscriptionQuery::GroupRecords {
+            group: entity.clone(),
         },
-        Space::PubkeyP => SubscriptionQuery {
+        Space::PubkeyP => SubscriptionQuery::Mentions {
+            pubkey: entity.clone(),
             kinds: BTreeSet::from([KIND_CHAT]),
-            authors: BTreeSet::new(),
-            tag: Some(('p', entity.clone())),
         },
-        Space::ProfileAuthor => SubscriptionQuery {
-            kinds: BTreeSet::from([crate::fabric::nip29::wire::KIND_PROFILE]),
-            authors: BTreeSet::from([entity.clone()]),
-            tag: None,
+        Space::ProfileAuthor => SubscriptionQuery::Profile {
+            pubkey: entity.clone(),
         },
     }
 }

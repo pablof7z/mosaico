@@ -94,9 +94,12 @@ fn host_profiles_are_observed_by_exact_author() {
             _ => None,
         })
         .expect("profile observation");
-    assert_eq!(query.kinds, BTreeSet::from([0]));
-    assert_eq!(query.authors, set(["backend-1"]));
-    assert!(query.tag.is_none());
+    assert_eq!(
+        query,
+        &SubscriptionQuery::Profile {
+            pubkey: "backend-1".to_string()
+        }
+    );
 }
 
 #[test]

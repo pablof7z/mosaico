@@ -13,15 +13,13 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use nmp::{
-    AccessContext, Binding, Demand, Engine, EngineConfig, IndexedTagName, LiveQuery,
-    ObservationCancel, RelayUrl, SourceAuthority,
-};
+use nmp::{AccessContext, Engine, EngineConfig, ObservationCancel, RelayUrl};
 use nostr::Keys;
 use tokio::sync::mpsc;
 
 use crate::reconcile::{SubEffect, SubscriptionQuery};
 mod auth;
+mod query;
 pub(crate) mod read;
 mod scrub;
 #[cfg(test)]
@@ -127,7 +125,7 @@ impl NmpHost {
         access: AccessContext,
     ) -> Result<nmp::Subscription> {
         self.engine
-            .observe(live_query(&self.relays, query, access)?, None)
+            .observe(self.live_query(query, access)?, None)
             .context("opening NMP observation")
     }
 
@@ -212,41 +210,6 @@ impl Drop for NmpHost {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-fn live_query(
-    relays: &BTreeSet<RelayUrl>,
-    query: &SubscriptionQuery,
-    access: AccessContext,
-) -> Result<LiveQuery> {
-    let mut filter = nmp::Filter {
-        kinds: Some(query.kinds.clone()),
-        ..nmp::Filter::default()
-    };
-    if !query.authors.is_empty() {
-        filter.authors = Some(Binding::Literal(query.authors.clone()));
-    }
-    if let Some((name, value)) = &query.tag {
-        let tag = IndexedTagName::new(*name)
-            .with_context(|| format!("invalid indexed tag name {name}"))?;
-        filter
-            .tags
-            .insert(tag, Binding::Literal(BTreeSet::from([value.to_string()])));
-    }
-    pinned_query(relays, filter, access)
-}
-
-fn pinned_query(
-    relays: &BTreeSet<RelayUrl>,
-    filter: nmp::Filter,
-    access: AccessContext,
-) -> Result<LiveQuery> {
-    let demand = if relays.is_empty() {
-        Demand::from_filter(filter)
-    } else {
-        Demand::new(filter, SourceAuthority::Pinned(relays.clone()), access)?
-    };
-    Ok(LiveQuery::single(demand))
 }
 
 fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {

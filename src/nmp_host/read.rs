@@ -8,37 +8,74 @@ use anyhow::{Context, Result};
 use nmp::{AccessContext, AcquisitionEvidence, Binding, IndexedTagName, SourceStatus, Window};
 use nostr::Event;
 
-use super::{pinned_query, NmpHost};
+use super::NmpHost;
 
 const SNAPSHOT_QUIET_PERIOD: Duration = Duration::from_millis(500);
 
 impl NmpHost {
-    /// Read bounded NIP-29 state from the configured group hosts.
-    pub(crate) async fn fetch_group(
+    /// Read the relay-signed records describing ONE group — kinds
+    /// 39000/39001/39002 keyed on `d`. Minted by NMP's NIP-29 discovery
+    /// vocabulary, so every branch is pinned to one host AND strict about
+    /// which cached rows may answer for it.
+    pub(crate) async fn fetch_group_records(
         &self,
+        group: &str,
+        max_rows: usize,
+        timeout: Duration,
+    ) -> Result<Vec<Event>> {
+        self.fetch_query(self.group_records_query(group)?, max_rows, timeout)
+            .await
+    }
+
+    /// Read the relay-signed metadata for EVERY group these hosts describe.
+    pub(crate) async fn fetch_all_group_metadata(
+        &self,
+        max_rows: usize,
+        timeout: Duration,
+    ) -> Result<Vec<Event>> {
+        self.fetch_query(self.all_group_metadata_query()?, max_rows, timeout)
+            .await
+    }
+
+    /// Read an app-chosen selection from INSIDE one group (`#h`-scoped).
+    pub(crate) async fn fetch_in_group(
+        &self,
+        group: &str,
         filter: nmp::Filter,
         max_rows: usize,
         timeout: Duration,
     ) -> Result<Vec<Event>> {
-        self.fetch_from(&self.relays, filter, max_rows, timeout)
-            .await
+        self.fetch_query(
+            self.group_contents_query(group, strip_limit(filter))?,
+            max_rows,
+            timeout,
+        )
+        .await
     }
 
     /// Read bounded profile state from the configured app and indexer hosts.
+    ///
+    /// Deliberately provenance-agnostic: kind:0 is self-authenticating, the
+    /// answer does not depend on which relay served it, and the indexer is
+    /// pinned precisely so it can answer for relays outside the app's set.
     pub(crate) async fn fetch_profiles(
         &self,
         filter: nmp::Filter,
         max_rows: usize,
         timeout: Duration,
     ) -> Result<Vec<Event>> {
-        self.fetch_from(&self.profile_relays, filter, max_rows, timeout)
-            .await
+        let query = self.host_pinned_query(
+            &self.profile_relays,
+            strip_limit(filter),
+            AccessContext::Public,
+            nmp::CacheMode::Agnostic,
+        )?;
+        self.fetch_query(query, max_rows, timeout).await
     }
 
-    async fn fetch_from(
+    async fn fetch_query(
         &self,
-        relays: &BTreeSet<nmp::RelayUrl>,
-        mut filter: nmp::Filter,
+        query: nmp::LiveQuery,
         max_rows: usize,
         timeout: Duration,
     ) -> Result<Vec<Event>> {
@@ -47,9 +84,6 @@ impl NmpHost {
             return result;
         }
         let bound = NonZeroUsize::new(max_rows).context("NMP read bound must be non-zero")?;
-        // The window owns the result bound. NMP rejects a competing NIP-01 limit.
-        filter.limit = None;
-        let query = pinned_query(relays, filter, AccessContext::Public)?;
         let subscription = self
             .engine
             .observe(
@@ -64,6 +98,12 @@ impl NmpHost {
             .await
             .context("joining bounded NMP read")?
     }
+}
+
+/// The window owns the result bound. NMP rejects a competing NIP-01 limit.
+fn strip_limit(mut filter: nmp::Filter) -> nmp::Filter {
+    filter.limit = None;
+    filter
 }
 
 fn receive_bounded(subscription: nmp::Subscription, timeout: Duration) -> Result<Vec<Event>> {
