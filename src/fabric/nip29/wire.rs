@@ -100,16 +100,20 @@ fn all_tag_values(event: &Event, name: &str) -> Vec<String> {
         .collect()
 }
 
+/// `["attachment", url, label, sha256]`. The digest is required, not optional:
+/// a receiver cannot verify a blob it has no expected hash for, and an
+/// attachment that cannot be verified is one this build will not place on disk.
 fn attachment_tags(event: &Event) -> Vec<ChatAttachment> {
     let mut attachments = Vec::new();
     for tag in event.tags.iter() {
         let values = tag.as_slice();
-        if values.first().map(String::as_str) != Some("attachment") || values.len() != 3 {
+        if values.first().map(String::as_str) != Some("attachment") || values.len() != 4 {
             continue;
         }
         let candidate = ChatAttachment {
             url: values[1].clone(),
             label: values[2].clone(),
+            sha256: values[3].clone(),
         };
         crate::attachment_contract::try_push(&mut attachments, candidate);
     }
@@ -180,7 +184,12 @@ impl Nip29WireCodec {
                     tags.push(tag(&["p", pk])?);
                 }
                 for attachment in attachments {
-                    tags.push(tag(&["attachment", &attachment.url, &attachment.label])?);
+                    tags.push(tag(&[
+                        "attachment",
+                        &attachment.url,
+                        &attachment.label,
+                        &attachment.sha256,
+                    ])?);
                 }
                 EventBuilder::new(kind(KIND_CHAT), body.clone())
                     .tags(tags)

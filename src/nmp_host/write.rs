@@ -29,6 +29,22 @@ impl NmpHost {
         builder: EventBuilder,
         keys: &Keys,
     ) -> Result<Event> {
+        let unsigned = builder.build(keys.public_key());
+        self.sign_unsigned(unsigned, keys).await
+    }
+
+    /// Sign a draft another layer already composed.
+    ///
+    /// A protocol module that owns an event's schema hands back an
+    /// `UnsignedEvent` rather than a builder — `nmp-blossom`'s BUD-11
+    /// authorization is the case in hand — because signing and publishing are
+    /// orthogonal stages. Its `created_at` is part of the grant it composed,
+    /// so it survives to the signature rather than being re-stamped here.
+    pub(crate) async fn sign_unsigned(
+        self: &std::sync::Arc<Self>,
+        unsigned: UnsignedEvent,
+        keys: &Keys,
+    ) -> Result<Event> {
         let host = std::sync::Arc::clone(self);
         let keys = keys.clone();
         tokio::task::spawn_blocking(move || {
@@ -37,7 +53,7 @@ impl NmpHost {
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
             host.ensure_identity(&keys)?;
-            let mut unsigned = builder.build(keys.public_key());
+            let mut unsigned = unsigned;
             scrub_unsigned(&mut unsigned);
             let previous = host
                 .engine

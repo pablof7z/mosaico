@@ -4,8 +4,16 @@ use nostr::{EventBuilder, Keys, Kind, Tag};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-fn attachment_tag(url: &str, label: &str) -> Tag {
-    Tag::parse(["attachment", url, label]).unwrap()
+/// `["attachment", url, label, sha256]`. The digest is the bytes the fixture
+/// server actually serves, because the receiver verifies before it writes.
+fn attachment_tag(url: &str, label: &str, bytes: &[u8]) -> Tag {
+    Tag::parse([
+        "attachment",
+        url,
+        label,
+        &nmp_asset::Sha256Hash::of(bytes).to_hex(),
+    ])
+    .unwrap()
 }
 
 fn register_receiver(state: &DaemonState, pubkey: &str) {
@@ -37,7 +45,11 @@ async fn remote_attachment_is_persisted_before_direct_inbox_routing() {
         .tags([
             Tag::parse(["h", "room"]).unwrap(),
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
-            attachment_tag(&format!("http://{address}/report"), "plan/report.md"),
+            attachment_tag(
+                &format!("http://{address}/report"),
+                "plan/report.md",
+                b"finished plan",
+            ),
         ])
         .sign_with_keys(&Keys::generate())
         .unwrap();
@@ -72,7 +84,11 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
         .tags([
             Tag::parse(["h", "room"]).unwrap(),
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
-            attachment_tag(&format!("http://{address}/missing"), "missing.md"),
+            attachment_tag(
+                &format!("http://{address}/missing"),
+                "missing.md",
+                b"never served",
+            ),
         ])
         .sign_with_keys(&Keys::generate())
         .unwrap();
@@ -130,7 +146,11 @@ async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
         .tags([
             Tag::parse(["h", "room"]).unwrap(),
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
-            attachment_tag(&format!("http://{address}/slow"), "slow.md"),
+            attachment_tag(
+                &format!("http://{address}/slow"),
+                "slow.md",
+                b"eventual file",
+            ),
         ])
         .sign_with_keys(&sender)
         .unwrap();

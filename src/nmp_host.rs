@@ -161,6 +161,18 @@ impl NmpHost {
             .context("NMP materialization stream is already owned")
     }
 
+    /// The loopback / private-network hosts the operator opted in by naming
+    /// them as relays, in `nmp_network_policy`'s normalized form.
+    ///
+    /// One allowlist, one vocabulary. A Blossom dial to the same host has to
+    /// clear the same destination policy the engine applies to the relay, or
+    /// a local test fixture works for one and is refused by the other.
+    pub(crate) fn allowed_local_hosts(&self) -> std::collections::BTreeSet<String> {
+        local_relay_hosts(self.profile_relays.iter())
+            .into_iter()
+            .collect()
+    }
+
     /// Open a caller-owned NMP observation. Dropping the returned value closes
     /// it, making this suitable for precise, short-lived correlation queries.
     pub(crate) fn observe(&self, query: &SubscriptionQuery) -> Result<nmp::Subscription> {

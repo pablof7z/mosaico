@@ -1,13 +1,36 @@
 //! Materialize received chat attachments in one shared, collision-safe tree.
+//!
+//! # The HTTP here is a gap, not a preference
+//!
+//! `nmp-blossom` has no blob RETRIEVAL door at the pinned revision. It ships
+//! `upload`, `mirror`, `delete` and `list`; `BlossomVerb::Get` exists as
+//! vocabulary with no draft builder and no client method, and the crate's own
+//! doc says the `get`/`media` endpoints are follow-up work (upstream NMP #749,
+//! blocked on #748). Its wired `reqwest::Client` — hickory DNS behind a
+//! post-resolution local-IP admission filter, no redirects, no retries, no
+//! proxy, one deadline — is private, so a consumer cannot borrow the transport
+//! either.
+//!
+//! So the fetch is ours until NMP #749 lands, and it is the only part that is.
+//! The thing that made the old code a hole was not the `reqwest` call: it was
+//! that nothing checked the bytes. `nmp_asset::Sha256Hash` — the same exact-byte
+//! identity `nmp-blossom` mints an upload witness from — does that here.
 
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
+use nmp_asset::Sha256Hash;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::attachment_contract::EVENT_MARKER;
+
+/// A hostile or misconfigured server must not be able to spend the daemon's
+/// memory on one attachment. `nmp-blossom` bounds its own response bodies for
+/// the same reason; this is that ceiling, applied to the one verb it does not
+/// yet own.
+const MAX_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) async fn download(
     root: &Path,
@@ -22,9 +45,16 @@ pub(crate) async fn download(
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("building attachment download client")?;
     for attachment in attachments {
+        let expected = Sha256Hash::from_hex(&attachment.sha256).map_err(|error| {
+            anyhow::anyhow!(
+                "attachment [{}] declares an unusable sha256: {error}",
+                attachment.label
+            )
+        })?;
         let response = client
             .get(&attachment.url)
             .send()
@@ -41,6 +71,25 @@ pub(crate) async fn download(
             .bytes()
             .await
             .with_context(|| format!("reading attachment [{}]", attachment.label))?;
+        if bytes.len() > MAX_ATTACHMENT_BYTES {
+            bail!(
+                "attachment [{}] is {} bytes, over the {MAX_ATTACHMENT_BYTES}-byte ceiling",
+                attachment.label,
+                bytes.len()
+            );
+        }
+        // Content-addressed, so this is the whole trust story: the bytes are
+        // what the sender uploaded, or they do not reach the disk. Checked
+        // BEFORE the write, under a label the remote side chose.
+        let observed = Sha256Hash::of(&bytes);
+        if observed != expected {
+            bail!(
+                "attachment [{}] does not match its declared sha256: expected {}, got {}",
+                attachment.label,
+                expected.to_hex(),
+                observed.to_hex()
+            );
+        }
         write_new(&directory.join(&attachment.label), &bytes)?;
     }
     Ok(Some(directory))

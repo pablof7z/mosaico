@@ -46,6 +46,8 @@ nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "
 nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3dd740ab0254e2211b92eea050a48dfb494b1272" }
 nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3dd740ab0254e2211b92eea050a48dfb494b1272" }
 nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3dd740ab0254e2211b92eea050a48dfb494b1272" }
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3dd740ab0254e2211b92eea050a48dfb494b1272" }
+nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3dd740ab0254e2211b92eea050a48dfb494b1272" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"

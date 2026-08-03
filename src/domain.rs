@@ -183,6 +183,11 @@ pub struct ChatAttachment {
     pub url: String,
     /// Stable bracket label rendered in chat and used for local file placement.
     pub label: String,
+    /// Lowercase-hex sha256 of the exact bytes the sender uploaded, as computed
+    /// by `nmp_asset::Sha256Hash` and confirmed by the Blossom server's own
+    /// descriptor. A receiver that fetches the URL checks what it got against
+    /// this; without it a download is unverifiable, which is what it was.
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
