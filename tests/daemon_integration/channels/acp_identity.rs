@@ -14,6 +14,12 @@ fn goose_acp_agent_receives_signer_and_hosted_prompt() {
     assert_acp_identity("goose", Some("Goose daemon delivery probe"));
 }
 
+#[test]
+fn kimi_acp_agent_receives_signer_and_hosted_prompt() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    assert_acp_identity("kimi", Some("Kimi daemon delivery probe"));
+}
+
 fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let home = Home::new();
     write_config(&home, false);
@@ -59,10 +65,22 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
         .join(".config")
         .to_string_lossy()
         .into_owned();
+    let executable_path = std::env::join_paths([
+        home.dir.path().join("bin"),
+        std::path::PathBuf::from("/usr/bin"),
+        std::path::PathBuf::from("/bin"),
+    ])
+    .unwrap()
+    .to_string_lossy()
+    .into_owned();
     let out = run_cli_with_env_in_dir(
         &home,
         &args,
-        &[("HOME", &isolated_home), ("XDG_CONFIG_HOME", &xdg_config)],
+        &[
+            ("HOME", &isolated_home),
+            ("XDG_CONFIG_HOME", &xdg_config),
+            ("PATH", &executable_path),
+        ],
         &work_dir,
     );
     assert!(

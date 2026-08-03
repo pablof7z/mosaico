@@ -38,9 +38,7 @@ pub fn reap_home_supervisors() -> Result<ReapReport> {
         match terminate_owned_supervisor(&metadata.id) {
             Ok(true) => report.reaped.push(metadata.id),
             Ok(false) => {}
-            Err(error) => report
-                .errors
-                .push(format!("{}: {error:#}", metadata.id)),
+            Err(error) => report.errors.push(format!("{}: {error:#}", metadata.id)),
         }
     }
     Ok(report)

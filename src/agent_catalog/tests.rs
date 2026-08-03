@@ -5,6 +5,8 @@ use tempfile::TempDir;
 mod codex_named;
 #[path = "tests/hermes.rs"]
 mod hermes;
+#[path = "tests/kimi.rs"]
+mod kimi;
 
 fn write(path: &Path, body: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

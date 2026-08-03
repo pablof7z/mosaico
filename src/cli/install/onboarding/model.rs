@@ -248,7 +248,7 @@ impl Onboarding {
                 match self.relay_choice() {
                     RelayChoice::Assist if self.assistable_harness().is_none() => {
                         self.relay_status = RelayStatus::Failed(
-                            "pick Claude, Codex, OpenCode, Goose, or Hermes to use an agent".into(),
+                            "pick Claude, Codex, OpenCode, Goose, Hermes, or Kimi".into(),
                         );
                         Action::None
                     }

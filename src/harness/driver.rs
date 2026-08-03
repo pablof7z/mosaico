@@ -43,7 +43,7 @@ pub enum ResumeMechanism {
     /// Codex app-server `thread/resume` (or `thread/fork`) with the thread id.
     AppServerThreadResume,
     /// PTY: append `<flag> <id>` to argv. claude `--resume`,
-    /// opencode `--session`, grok/hermes `--resume`.
+    /// opencode/kimi `--session`, grok/hermes `--resume`.
     AppendFlag(&'static str),
     /// PTY: append fixed flags followed by the native id.
     AppendFlags(&'static [&'static str]),
@@ -209,6 +209,27 @@ static DRIVERS: &[HarnessDriver] = &[
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
         profile: ProfileMechanism::CliGlobalFlag { flag: "--profile" },
+    },
+    // ── Kimi Code ────────────────────────────────────────────────────────
+    HarnessDriver {
+        harness: Harness::Kimi,
+        transport: Transport::Acp,
+        base_argv: &["kimi", "acp"],
+        base_env: &[],
+        resume: ResumeMechanism::AcpSessionLoad,
+        steer: SteerPrimitive::None,
+        turn: TurnModel::RpcTurn,
+        profile: ProfileMechanism::Unsupported,
+    },
+    HarnessDriver {
+        harness: Harness::Kimi,
+        transport: Transport::Pty,
+        base_argv: &["kimi"],
+        base_env: &[],
+        resume: ResumeMechanism::AppendFlag("--session"),
+        steer: SteerPrimitive::PtyPaste,
+        turn: TurnModel::InteractivePty,
+        profile: ProfileMechanism::CliFlag { flag: "--agent" },
     },
 ];
 

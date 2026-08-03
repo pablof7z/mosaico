@@ -135,8 +135,8 @@ pub(in crate::daemon::server) fn resolve_session_inner(
             return Ok(rec);
         }
     }
-    // 4. Watched harness process — exact for native Claude/Codex/Grok shells
-    // that were not launched through mosaico and therefore lack a PTY anchor.
+    // 4. Watched harness process — exact for native harness shells that were
+    // not launched through mosaico and therefore lack a PTY anchor.
     if let (Some(pid), Some(harness)) = (anchor.watch_pid, anchor.harness) {
         let harness = crate::session::Harness::from_str(harness).as_str();
         let pid = pid.to_string();

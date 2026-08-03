@@ -7,6 +7,7 @@ mod goose;
 mod hermes;
 mod hooks;
 mod io;
+mod kimi;
 mod onboarding;
 mod repair;
 mod selection;
@@ -38,7 +39,7 @@ fn print_setup_guide() {
     println!("Mosaico is not installed in any supported agent harness.\n");
     println!("Set it up with:\n\n  mosaico setup\n");
     println!(
-        "This detects Claude Code, Codex, OpenCode, Grok, Goose, and Hermes and lets you choose integrations."
+        "This detects Claude Code, Codex, OpenCode, Grok, Goose, Hermes, and Kimi and lets you choose integrations."
     );
     println!("Use `mosaico setup --all` to install every detected harness.");
 }
@@ -111,6 +112,7 @@ async fn apply_install(
             "goose" => goose::install(h, opts, true)?,
             "hermes" if opts.uninstall => hermes::uninstall(h, opts)?,
             "hermes" => hermes::install(h, opts, true)?,
+            "kimi" => kimi::install(h, opts, true)?,
             _ => {}
         }
     }

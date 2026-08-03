@@ -17,9 +17,13 @@ pub struct CodexRootConfig {
 pub(super) fn load(profile: &NativeAgentProfile) -> Result<NativeAgentActivation> {
     match profile.harness {
         Harness::Codex => load_codex(profile),
-        Harness::ClaudeCode | Harness::Opencode | Harness::Hermes => {
+        Harness::ClaudeCode | Harness::Opencode | Harness::Hermes | Harness::Kimi => {
             Ok(NativeAgentActivation::NativeSelector {
-                name: native_selector_name(profile),
+                name: if profile.harness == Harness::Kimi {
+                    profile.slug.clone()
+                } else {
+                    native_selector_name(profile)
+                },
             })
         }
         Harness::Grok | Harness::Goose | Harness::Unknown => {

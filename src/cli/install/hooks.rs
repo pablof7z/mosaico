@@ -109,6 +109,7 @@ pub fn is_present(h: &Harness) -> bool {
         "claude-code" | "codex" | "grok" => is_json_harness_present(h),
         "goose" => super::goose::is_present(h),
         "hermes" => super::hermes::is_present(h),
+        "kimi" => super::kimi::is_present(h),
         _ => false,
     }
 }
@@ -124,6 +125,7 @@ pub fn is_installed(h: &Harness) -> bool {
         "claude-code" | "codex" | "grok" => is_json_harness_installed(h),
         "goose" => super::goose::is_installed(h),
         "hermes" => super::hermes::is_installed(h),
+        "kimi" => super::kimi::is_installed(h),
         _ => false,
     }
 }

@@ -38,6 +38,8 @@ bash containers/mosaico/run codex-login --device-auth
 bash containers/mosaico/run codex
 bash containers/mosaico/run codex-ollama
 bash containers/mosaico/run goose
+bash containers/mosaico/run kimi-login
+bash containers/mosaico/run kimi
 
 bash containers/mosaico/run opencode
 bash containers/mosaico/run opencode-ollama ollama/qwen2.5-coder:7b
@@ -76,6 +78,7 @@ claude-acp       -> Claude Code through the installed ACP adapter
 codex-app-server -> Codex app-server JSON-RPC
 opencode-acp     -> native OpenCode ACP
 goose-acp        -> native Goose ACP
+kimi-acp         -> native Kimi Code ACP
 ```
 
 Each generated profile writes `/state/mosaico/harnesses.json` plus a keyless
@@ -115,6 +118,13 @@ model-visible fabric context path for both `goose session` and native ACP.
 Provider-owned plugins/extensions remain in Goose config; recipes are not
 advertised as native profiles because Goose ACP exposes no stable selector.
 
+Kimi config, optional device identity, and native agents from
+`~/.kimi-code/agents` and `~/.agents/agents` seed the profile-local home once.
+OAuth credentials are deliberately not copied because Kimi refresh tokens
+rotate; run `bash containers/mosaico/run kimi-login` once to authenticate the
+durable isolated profile. Host session history is not imported. Interactive
+named agents launch with `kimi --agent`; Kimi ACP has no named-agent selector.
+
 All agent profiles build the current checkout and run
 `mosaico setup --harness <name>` inside the isolated home before launching
 the harness. The live lab therefore exercises the same hooks and plugins users
@@ -149,6 +159,7 @@ from inside the container.
 | OpenCode config | selected host credentials and `agents/` projected into `/state/home/.config/opencode` |
 | OpenCode data/cache | `/state/home/.local/share`, `/state/home/.cache` |
 | Goose config/auth | copied into `/state/home/.config/goose`; sessions remain profile-local under XDG data |
+| Kimi config/agents | seeded into `/state/home/.kimi-code` and `/state/home/.agents`; OAuth login and sessions remain profile-local |
 | Cargo registry/cache | `/state/cargo` |
 | Cargo target | `/state/target` |
 | Mosaico config | `/state/mosaico/config.json` |

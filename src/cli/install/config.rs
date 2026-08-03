@@ -25,6 +25,7 @@ impl Harness {
             "grok" => "grok",
             "goose" => "goose",
             "hermes" => "hermes",
+            "kimi" => "kimi",
             _ => unreachable!("unknown installer harness {}", self.id),
         }
     }
@@ -34,6 +35,7 @@ pub fn harnesses() -> Result<Vec<Harness>> {
     let home = home_dir()?;
     let grok_home = grok_home_dir(std::env::var("GROK_HOME").ok(), &home);
     let hermes_home = hermes_home_dir(std::env::var("HERMES_HOME").ok(), &home);
+    let kimi_home = kimi_home_dir(std::env::var("KIMI_CODE_HOME").ok(), &home);
     let available = crate::config::detect_available_harnesses()?;
     Ok(vec![
         Harness {
@@ -72,6 +74,12 @@ pub fn harnesses() -> Result<Vec<Harness>> {
             config_path: hermes_home.join("plugins/mosaico"),
             detected: available.contains(&crate::session::Harness::Hermes),
         },
+        Harness {
+            id: "kimi",
+            display: "Kimi Code",
+            config_path: kimi_home.join("config.toml"),
+            detected: available.contains(&crate::session::Harness::Kimi),
+        },
     ])
 }
 
@@ -101,6 +109,13 @@ fn hermes_home_dir(hermes_home: Option<String>, home: &std::path::Path) -> PathB
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".hermes"))
+}
+
+fn kimi_home_dir(kimi_home: Option<String>, home: &std::path::Path) -> PathBuf {
+    kimi_home
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".kimi-code"))
 }
 
 pub(super) fn claude_detected() -> Result<bool> {
@@ -256,5 +271,15 @@ mod tests {
             PathBuf::from("/tmp/hermes")
         );
         assert_eq!(hermes_home_dir(None, &home), home.join(".hermes"));
+    }
+
+    #[test]
+    fn kimi_home_honors_override_and_defaults_under_home() {
+        let home = PathBuf::from("/Users/alice");
+        assert_eq!(
+            kimi_home_dir(Some("/tmp/kimi".to_string()), &home),
+            PathBuf::from("/tmp/kimi")
+        );
+        assert_eq!(kimi_home_dir(None, &home), home.join(".kimi-code"));
     }
 }

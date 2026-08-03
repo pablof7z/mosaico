@@ -55,7 +55,7 @@ case "${1:-forever}" in
   *) exit 2 ;;
 esac
 "#;
-    for executable in ["opencode", "goose"] {
+    for executable in ["opencode", "goose", "kimi"] {
         let shim = bin.join(executable);
         std::fs::write(&shim, body).unwrap();
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();

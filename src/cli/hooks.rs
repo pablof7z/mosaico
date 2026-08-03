@@ -1,9 +1,10 @@
-use super::turn::{turn_check, turn_end, turn_start};
+use super::turn::{turn_check, turn_start};
 use super::*;
 use std::path::PathBuf;
 
 mod applicability;
 mod hook_forensics;
+mod kimi_stop;
 mod observation;
 mod pre_tool;
 mod registry;
@@ -106,16 +107,18 @@ async fn hook_dispatch(
     }
 
     // A slug from MOSAICO_AGENT (set by a Mosaico-hosted launch) is always
-    // authoritative. Otherwise, look for a live ancestor directly running
-    // `claude --agent <name>` (bypassing Mosaico hosting) and treat it the
-    // same as if it had been launched under that identity. The profile name is
-    // retained, but argv remains owned by harnesses.json.
+    // authoritative. Otherwise, look for a live Claude or Kimi ancestor using
+    // its native `--agent <name>` selector (bypassing Mosaico hosting) and
+    // treat it as that identity. The profile name is retained, but argv
+    // remains owned by harnesses.json.
     let env_slug = agent_env_slug();
     let (agent_slug, profile): (String, Option<String>) = match &env_slug {
         Some(s) => (s.clone(), None),
-        None if host.name == "claude-code" => find_direct_agent_invocation()
-            .map(|slug| (slug.clone(), Some(slug)))
-            .unwrap_or_else(|| (host.agent_slug.to_string(), None)),
+        None if matches!(host.name, "claude-code" | "kimi") => {
+            find_direct_agent_invocation(host.name)
+                .map(|slug| (slug.clone(), Some(slug)))
+                .unwrap_or_else(|| (host.agent_slug.to_string(), None))
+        }
         None => (host.agent_slug.to_string(), None),
     };
 
@@ -364,11 +367,7 @@ async fn hook_dispatch(
                 println!("{output}");
             }
         }
-        "stop" => {
-            if !sid.is_empty() {
-                turn_end(sid).await?;
-            }
-        }
+        "stop" => kimi_stop::run(host, &sid, emit, call_log).await?,
         other => {
             // Fail open: unknown hook types are ignored so future harness
             // versions can add hooks without breaking this binary.

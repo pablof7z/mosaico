@@ -20,6 +20,7 @@ backend_command_for_profile() {
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
+    kimi*) echo "kimi" ;;
     opencode-ollama*) echo "opencode-ollama" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
@@ -33,6 +34,7 @@ agent_slug_for_profile() {
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
+    kimi*) echo "kimi" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
   esac

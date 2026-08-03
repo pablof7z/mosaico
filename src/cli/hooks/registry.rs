@@ -1,4 +1,4 @@
-use super::observation::find_ancestor_pid;
+use super::observation::find_ancestor_harness;
 use crate::cli::turn::EmitFormat;
 
 /// How context blocks are returned to the model by a given harness.
@@ -18,7 +18,6 @@ pub(super) struct HostDef {
     pub(super) session_id_fields: &'static [&'static str],
     pub(super) session_id_env: Option<&'static str>,
     pub(super) output_format: HookOutputFormat,
-    pub(super) pid_search: Option<&'static str>,
     pub(super) requires_harness_session: bool,
 }
 
@@ -29,7 +28,6 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         session_id_env: None,
         output_format: HookOutputFormat::PlainText,
-        pid_search: Some("claude"),
         requires_harness_session: true,
     },
     HostDef {
@@ -38,7 +36,6 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         session_id_env: None,
         output_format: HookOutputFormat::HookSpecificAdditionalContext,
-        pid_search: Some("codex"),
         requires_harness_session: true,
     },
     HostDef {
@@ -47,7 +44,6 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         session_id_env: None,
         output_format: HookOutputFormat::PlainText,
-        pid_search: None,
         requires_harness_session: false,
     },
     HostDef {
@@ -56,7 +52,6 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         session_id_env: Some("GROK_SESSION_ID"),
         output_format: HookOutputFormat::PlainText,
-        pid_search: Some("grok"),
         requires_harness_session: true,
     },
     HostDef {
@@ -67,7 +62,6 @@ static HOOK_HOSTS: &[HostDef] = &[
         // Goose ignores hook stdout. Mosaico also publishes the same context
         // into the session-specific Top Of Mind file after this call.
         output_format: HookOutputFormat::PlainText,
-        pid_search: Some("goose"),
         requires_harness_session: true,
     },
     HostDef {
@@ -76,7 +70,14 @@ static HOOK_HOSTS: &[HostDef] = &[
         session_id_fields: &["session_id"],
         session_id_env: None,
         output_format: HookOutputFormat::ContextObject,
-        pid_search: Some("hermes"),
+        requires_harness_session: true,
+    },
+    HostDef {
+        name: "kimi",
+        agent_slug: "kimi",
+        session_id_fields: &["session_id"],
+        session_id_env: None,
+        output_format: HookOutputFormat::PlainText,
         requires_harness_session: true,
     },
 ];
@@ -97,6 +98,9 @@ pub(super) fn find_hook_host(name: &str) -> Option<&'static HostDef> {
 }
 
 pub(super) fn emit_format(host: &HostDef, hook_type: &str) -> EmitFormat {
+    if host.name == "kimi" && hook_type == "stop" {
+        return EmitFormat::KimiStopBlock;
+    }
     if host.name == "claude-code" && hook_type == "post-tool-use" {
         return EmitFormat::HookSpecificAdditionalContext {
             hook_event_name: "PostToolUse",
@@ -126,10 +130,7 @@ fn hook_event_name(hook_type: &str) -> &'static str {
 }
 
 pub(super) fn caller_watch_pid_anchor() -> Option<(&'static str, i32)> {
-    HOOK_HOSTS
-        .iter()
-        .filter_map(|host| host.pid_search.map(|needle| (host.name, needle)))
-        .find_map(|(name, needle)| find_ancestor_pid(needle).map(|pid| (name, pid)))
+    find_ancestor_harness()
 }
 
 #[cfg(test)]
@@ -139,7 +140,7 @@ mod tests {
 
     #[test]
     fn harness_context_envelopes_render_current_adapter_contracts() {
-        for host in ["claude-code", "grok", "opencode", "goose"] {
+        for host in ["claude-code", "grok", "opencode", "goose", "kimi"] {
             let format = emit_format(find_hook_host(host).unwrap(), "user-prompt-submit");
             assert_eq!(render_context_output("fabric", format), "fabric");
         }
@@ -170,6 +171,16 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&hermes).unwrap(),
             serde_json::json!({"context": "fabric"})
+        );
+
+        let kimi = render_context_output(
+            "fabric",
+            emit_format(find_hook_host("kimi").unwrap(), "stop"),
+        );
+        let kimi: serde_json::Value = serde_json::from_str(&kimi).unwrap();
+        assert_eq!(
+            kimi["hookSpecificOutput"]["permissionDecisionReason"],
+            "fabric"
         );
     }
 }

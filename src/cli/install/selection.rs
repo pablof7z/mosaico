@@ -14,6 +14,10 @@ pub(super) struct InstallSelection<'a> {
 
 pub(super) fn preflight_selection(selected: &InstallSelection<'_>) -> Result<()> {
     for harness in &selected.harnesses {
+        if harness.id == "kimi" {
+            super::kimi::preflight(harness)?;
+            continue;
+        }
         if !matches!(harness.id, "claude-code" | "codex" | "grok") {
             continue;
         }

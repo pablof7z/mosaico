@@ -327,8 +327,8 @@ fn force_kill_daemons_for_home(home: &std::path::Path) {
         };
         let tokens: Vec<&str> = args.split_whitespace().collect();
         let is_daemon = tokens.iter().any(|arg| arg.ends_with("mosaico"))
-            && tokens.iter().any(|arg| *arg == "daemon")
-            && !tokens.iter().any(|arg| *arg == "__pty-supervisor");
+            && tokens.contains(&"daemon")
+            && !tokens.contains(&"__pty-supervisor");
         if !is_daemon {
             continue;
         }

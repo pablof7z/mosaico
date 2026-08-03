@@ -97,7 +97,10 @@ pub(crate) fn scavenge_deleted_tmp_mosaico_processes() {
         let Some(cmdline) = process_cmdline(pid) else {
             continue;
         };
-        let args: Vec<&str> = cmdline.split('\0').filter(|part| !part.is_empty()).collect();
+        let args: Vec<&str> = cmdline
+            .split('\0')
+            .filter(|part| !part.is_empty())
+            .collect();
         let role = args.get(1).copied().unwrap_or("");
         if role != "daemon" && role != "__pty-supervisor" {
             continue;
@@ -127,8 +130,8 @@ fn mosaico_daemon_pids() -> Vec<i32> {
             let pid: i32 = pid.parse().ok()?;
             let tokens: Vec<&str> = args.split_whitespace().collect();
             let is_daemon = tokens.iter().any(|arg| arg.ends_with("mosaico"))
-                && tokens.iter().any(|arg| *arg == "daemon")
-                && !tokens.iter().any(|arg| *arg == "__pty-supervisor");
+                && tokens.contains(&"daemon")
+                && !tokens.contains(&"__pty-supervisor");
             is_daemon.then_some(pid)
         })
         .collect()

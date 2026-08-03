@@ -89,7 +89,9 @@ done
 "#;
         for bin in [self.home.join("bin"), self.home.join(".local/bin")] {
             std::fs::create_dir_all(&bin)?;
-            for name in ["claude", "codex", "opencode", "grok", "goose", "hermes"] {
+            for name in [
+                "claude", "codex", "opencode", "grok", "goose", "hermes", "kimi",
+            ] {
                 write_executable(&bin.join(name), script)?;
             }
         }

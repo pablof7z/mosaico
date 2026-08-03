@@ -37,7 +37,10 @@ impl Backend {
         // Soft socket KILL as a second pass for anything metadata lost.
         for metadata in self.pty_metadata() {
             let _ = mosaico::pty::kill(&metadata.id);
-            if let Some(pid) = i32::try_from(metadata.supervisor_pid).ok().filter(|p| *p > 1) {
+            if let Some(pid) = i32::try_from(metadata.supervisor_pid)
+                .ok()
+                .filter(|p| *p > 1)
+            {
                 if process_alive(pid) {
                     let _ = nix::sys::signal::kill(
                         nix::unistd::Pid::from_raw(pid),
@@ -136,8 +139,8 @@ fn force_kill_daemons_for_home(home: &std::path::Path) {
         };
         let tokens: Vec<&str> = args.split_whitespace().collect();
         let is_daemon = tokens.iter().any(|arg| arg.ends_with("mosaico"))
-            && tokens.iter().any(|arg| *arg == "daemon")
-            && !tokens.iter().any(|arg| *arg == "__pty-supervisor");
+            && tokens.contains(&"daemon")
+            && !tokens.contains(&"__pty-supervisor");
         if !is_daemon {
             continue;
         }

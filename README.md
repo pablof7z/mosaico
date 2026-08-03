@@ -80,6 +80,7 @@ Follow [the install guide](docs/install.md).
     <td align="center" width="110"><img src="docs/images/logos/hermes.png" width="48" alt="Hermes"><br><sub><b>Hermes</b></sub></td>
     <td align="center" width="110"><img src="docs/images/logos/opencode.png" width="48" alt="OpenCode"><br><sub><b>OpenCode</b></sub></td>
     <td align="center" width="110"><img src="docs/images/logos/grok.png" width="48" alt="Grok"><br><sub><b>Grok</b></sub></td>
+    <td align="center" width="110"><strong>Kimi Code</strong></td>
   </tr>
 </table>
 

@@ -24,6 +24,10 @@ pub(crate) fn discover(native_id: &str) -> Result<Vec<NativeSession>> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".grok"));
+    let kimi_home = std::env::var_os("KIMI_CODE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".kimi-code"));
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -33,6 +37,11 @@ pub(crate) fn discover(native_id: &str) -> Result<Vec<NativeSession>> {
     discover_claude(&home.join(".claude/projects"), native_id, &mut found)?;
     discover_codex(&codex_home.join("sessions"), native_id, &mut found)?;
     discover_grok(&grok_home.join("sessions"), native_id, &mut found)?;
+    discover_kimi(
+        &kimi_home.join("session_index.jsonl"),
+        native_id,
+        &mut found,
+    )?;
     discover_opencode(
         &data_home.join("opencode/opencode.db"),
         native_id,
@@ -135,6 +144,33 @@ fn discover_opencode(
         found.push(NativeSession {
             harness: crate::session::Harness::Opencode,
             cwd: (!cwd.trim().is_empty()).then(|| PathBuf::from(cwd)),
+        });
+    }
+    Ok(())
+}
+
+fn discover_kimi(index: &Path, native_id: &str, found: &mut Vec<NativeSession>) -> Result<()> {
+    let body = match std::fs::read_to_string(index) {
+        Ok(body) => body,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("reading Kimi session index {}", index.display()))
+        }
+    };
+    for line in body.lines().filter(|line| !line.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line)
+            .with_context(|| format!("parsing Kimi session index {}", index.display()))?;
+        if value.get("sessionId").and_then(|id| id.as_str()) != Some(native_id) {
+            continue;
+        }
+        found.push(NativeSession {
+            harness: crate::session::Harness::Kimi,
+            cwd: value
+                .get("workDir")
+                .and_then(|cwd| cwd.as_str())
+                .filter(|cwd| !cwd.trim().is_empty())
+                .map(PathBuf::from),
         });
     }
     Ok(())

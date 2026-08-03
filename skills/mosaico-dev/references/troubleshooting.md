@@ -116,7 +116,7 @@ find .container-state/<profile>/mosaico/sessions -name hook-calls.jsonl -print
 ```
 
 Doctor/install must use the canonical harness name (`claude-code`, `codex`,
-`grok`, `goose`, or `opencode`) even when the public agent slug differs. Goose
+`grok`, `goose`, `hermes`, `kimi`, or `opencode`) even when the public agent slug differs. Goose
 requires Mosaico's Open Plugin and native Top Of Mind extension in addition to
 its ACP command and staged auth/config. A Goose launch that lacks that plugin,
 has it disabled, disables Top Of Mind, or runs Goose older than 1.43.0 must fail
