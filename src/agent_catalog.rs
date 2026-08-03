@@ -11,9 +11,13 @@ use std::path::{Path, PathBuf};
 mod activation;
 mod parse;
 mod removal;
+mod roots;
 pub use activation::{CodexRootConfig, NativeAgentActivation};
-use parse::{discover_codex_named_profiles, discover_dir, discover_hermes_profiles};
+use parse::{
+    discover_codex_named_profiles, discover_dir, discover_hermes_profiles, discover_kimi_profiles,
+};
 pub use removal::remove_native_profile;
+pub use roots::DiscoveryRoots;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentScope {
@@ -37,56 +41,6 @@ pub struct AgentCapability {
     pub use_criteria: String,
     pub profiles: Vec<NativeAgentProfile>,
     pub available_since: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct DiscoveryRoots {
-    pub codex: PathBuf,
-    pub codex_profiles: PathBuf,
-    pub claude: PathBuf,
-    pub opencode: PathBuf,
-    pub hermes: PathBuf,
-}
-
-impl DiscoveryRoots {
-    pub fn for_user_home(home: &Path) -> Self {
-        Self {
-            codex: home.join(".codex/agents"),
-            codex_profiles: home.join(".codex"),
-            claude: home.join(".claude/agents"),
-            opencode: home.join(".config/opencode/agents"),
-            hermes: home.join(".hermes/profiles"),
-        }
-    }
-
-    pub fn installed() -> Result<Self> {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .context("HOME is required to discover installed harness agents")?;
-        let mut roots = Self::for_user_home(&home);
-        if let Some(codex_home) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
-            roots.codex_profiles = PathBuf::from(codex_home);
-            roots.codex = roots.codex_profiles.join("agents");
-        }
-        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
-            roots.opencode = PathBuf::from(xdg).join("opencode/agents");
-        }
-        if let Some(hermes_home) = std::env::var_os("HERMES_HOME").filter(|v| !v.is_empty()) {
-            roots.hermes = hermes_profiles_root(&home, &PathBuf::from(hermes_home));
-        }
-        Ok(roots)
-    }
-}
-
-fn hermes_profiles_root(home: &Path, hermes_home: &Path) -> PathBuf {
-    let native_root = home.join(".hermes");
-    if hermes_home.starts_with(&native_root) {
-        return native_root.join("profiles");
-    }
-    if hermes_home.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("profiles")) {
-        return hermes_home.parent().unwrap().to_path_buf();
-    }
-    hermes_home.join("profiles")
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -117,6 +71,11 @@ impl AgentCatalog {
             &mut profiles,
         )?;
         discover_hermes_profiles(&roots.hermes, AgentScope::Global, &mut profiles)?;
+        discover_kimi_profiles(
+            &[roots.kimi.clone(), roots.shared_agents.clone()],
+            AgentScope::Global,
+            &mut profiles,
+        )?;
         for workspace in workspaces {
             discover_dir(
                 &workspace.join(".codex/agents"),
@@ -133,6 +92,14 @@ impl AgentCatalog {
             discover_dir(
                 &workspace.join(".opencode/agents"),
                 Harness::Opencode,
+                AgentScope::Workspace(workspace.clone()),
+                &mut profiles,
+            )?;
+            discover_kimi_profiles(
+                &[
+                    workspace.join(".kimi-code/agents"),
+                    workspace.join(".agents/agents"),
+                ],
                 AgentScope::Workspace(workspace.clone()),
                 &mut profiles,
             )?;

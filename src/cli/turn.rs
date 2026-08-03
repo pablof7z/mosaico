@@ -12,8 +12,14 @@ use super::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum EmitFormat {
     PlainText,
-    HookSpecificAdditionalContext { hook_event_name: &'static str },
+    HookSpecificAdditionalContext {
+        hook_event_name: &'static str,
+    },
     ContextObject,
+    /// Kimi's Stop hook continues only when a hook returns a native denial.
+    /// Pending fabric context becomes that denial reason and therefore the
+    /// next model-step input.
+    KimiStopBlock,
 }
 
 pub(super) struct HookContextResult {
@@ -173,6 +179,14 @@ pub(super) fn render_context_output(content: &str, emit: EmitFormat) -> String {
             obj.to_string()
         }
         EmitFormat::ContextObject => serde_json::json!({ "context": content }).to_string(),
+        EmitFormat::KimiStopBlock => serde_json::json!({
+            "hookSpecificOutput": {
+                "message": content,
+                "permissionDecision": "deny",
+                "permissionDecisionReason": content,
+            }
+        })
+        .to_string(),
     }
 }
 
@@ -232,5 +246,16 @@ mod tests {
         let rendered = render_context_output("fabric snapshot", EmitFormat::ContextObject);
         let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         assert_eq!(parsed, serde_json::json!({"context": "fabric snapshot"}));
+    }
+
+    #[test]
+    fn kimi_stop_context_uses_native_block_contract() {
+        let rendered = render_context_output("new fabric message", EmitFormat::KimiStopBlock);
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(
+            parsed["hookSpecificOutput"]["permissionDecisionReason"],
+            "new fabric message"
+        );
     }
 }

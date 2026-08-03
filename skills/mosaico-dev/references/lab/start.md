@@ -68,7 +68,7 @@ Multi-provider lab:
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
   claude claude-acp codex codex-app-server grok goose goose-acp hermes hermes-acp \
-  opencode opencode-acp
+  kimi kimi-acp opencode opencode-acp
 ```
 
 Each profile receives:

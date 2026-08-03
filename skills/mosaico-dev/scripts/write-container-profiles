@@ -102,6 +102,21 @@ profile_contract() {
       BUNDLE_ARGS_JSON="${MOSAICO_DEV_HERMES_ACP_ARGS_JSON:-[]}"
       AGENT_PROFILE="${MOSAICO_DEV_HERMES_PROFILE:-}"
       ;;
+    kimi)
+      AGENT_SLUG=kimi
+      BUNDLE=kimi
+      HARNESS=kimi
+      TRANSPORT=pty
+      BUNDLE_ARGS_JSON="${MOSAICO_DEV_KIMI_ARGS_JSON:-[]}"
+      AGENT_PROFILE="${MOSAICO_DEV_KIMI_PROFILE:-}"
+      ;;
+    kimi-acp)
+      AGENT_SLUG=kimi
+      BUNDLE=kimi-acp
+      HARNESS=kimi
+      TRANSPORT=acp
+      BUNDLE_ARGS_JSON="${MOSAICO_DEV_KIMI_ACP_ARGS_JSON:-[]}"
+      ;;
     opencode)
       AGENT_SLUG=opencode
       BUNDLE=opencode
@@ -134,7 +149,7 @@ profile_contract() {
       BUNDLE_ARGS_JSON="${MOSAICO_DEV_OPENCODE_OLLAMA_ARGS_JSON:-${default_opencode_args}}"
       ;;
     *)
-      printf 'unsupported profile %s; expected claude|claude-acp|codex|codex-app-server|grok|goose|goose-acp|hermes|hermes-acp|opencode|opencode-acp|codex-ollama|opencode-ollama\n' "${profile}" >&2
+      printf 'unsupported profile %s; expected claude|claude-acp|codex|codex-app-server|grok|goose|goose-acp|hermes|hermes-acp|kimi|kimi-acp|opencode|opencode-acp|codex-ollama|opencode-ollama\n' "${profile}" >&2
       exit 2
       ;;
   esac

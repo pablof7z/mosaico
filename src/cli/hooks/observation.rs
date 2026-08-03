@@ -12,7 +12,7 @@ use std::path::Path;
 /// session, watched pid, cwd) and the daemon resolves the private run internally.
 ///
 /// `harness_session_id` is `Some` only for harnesses that own an id of their own
-/// (claude-code, codex); it is `None` for programmatic hosts (opencode) whose
+/// (claude-code, codex, kimi); it is `None` for programmatic hosts (opencode) whose
 /// only stable anchors are the resume token / hosted PTY session / watched pid. Each
 /// present locator becomes a session alias the registry uses to reattach future
 /// starts to the same canonical id.
@@ -85,27 +85,6 @@ pub(super) fn render_init_progress(item: &serde_json::Value) {
     eprintln!("[mosaico init +{elapsed}ms] {phase}: {message}");
 }
 
-// ── process-tree PID search (for harnesses like Codex that omit their PID) ───
-
-/// Walk the process tree upward looking for an ancestor whose command name
-/// contains `needle` (case-insensitive). Returns the first match.
-pub(super) fn find_ancestor_pid(needle: &str) -> Option<i32> {
-    let needle = needle.to_lowercase();
-    let mut pid = std::process::id() as i32;
-    let mut seen = std::collections::HashSet::new();
-    for _ in 0..16 {
-        let ppid = ps_ppid(pid)?;
-        if ppid <= 1 || !seen.insert(ppid) {
-            return None;
-        }
-        if ps_comm(ppid).to_lowercase().contains(&needle) {
-            return Some(ppid);
-        }
-        pid = ppid;
-    }
-    None
-}
-
 /// Identify the nearest supported harness ancestor independently of the hook
 /// adapter's host claim. Returning `None` is intentional: callers must diagnose
 /// missing observation instead of inferring a harness from payload shape.
@@ -140,8 +119,12 @@ fn harness_from_process(command: &str, args: &str) -> Option<&'static str> {
         Some("opencode")
     } else if command.contains("grok") {
         Some("grok")
+    } else if command.contains("goose") {
+        Some("goose")
     } else if command.contains("hermes") || python_script_is_hermes(args) {
         Some("hermes")
+    } else if command.contains("kimi") || node_script_is_kimi(args) {
+        Some("kimi")
     } else {
         None
     }
@@ -162,6 +145,10 @@ fn python_script_is_hermes(args: &str) -> bool {
         && argv
             .get(1)
             .is_some_and(|value| matches!(basename(value), "hermes" | "hermes-acp"))
+}
+
+fn node_script_is_kimi(args: &str) -> bool {
+    args.contains("/@moonshot-ai/kimi-code/")
 }
 
 fn ps_ppid(pid: i32) -> Option<i32> {
@@ -206,11 +193,15 @@ fn extract_agent_flag(argv: &[String]) -> Option<String> {
     })
 }
 
-/// Look for a live ancestor directly running `claude ... --agent <name>` —
-/// i.e. NOT spawned through Mosaico, which sets `MOSAICO_AGENT`
-/// instead and short-circuits this search. Returns the requested slug and
-/// the named profile so a brand-new identity can retain that selection.
-pub(super) fn find_direct_agent_invocation() -> Option<String> {
+#[cfg(test)]
+#[path = "observation/kimi_tests.rs"]
+mod kimi_tests;
+
+/// Look for a live ancestor directly running a supported native
+/// `--agent <name>` selector — i.e. NOT spawned through Mosaico, which sets
+/// `MOSAICO_AGENT` instead and short-circuits this search. Returns the selected
+/// profile so a brand-new identity can retain it.
+pub(super) fn find_direct_agent_invocation(expected_harness: &str) -> Option<String> {
     let mut pid = std::process::id() as i32;
     let mut seen = std::collections::HashSet::new();
     for _ in 0..16 {
@@ -218,7 +209,11 @@ pub(super) fn find_direct_agent_invocation() -> Option<String> {
         if ppid <= 1 || !seen.insert(ppid) {
             return None;
         }
-        if ps_comm(ppid).to_lowercase().contains("claude") {
+        let command = ps_comm(ppid);
+        let matches_expected = (expected_harness == "claude-code"
+            && command.to_lowercase().contains("claude"))
+            || harness_for_process(ppid) == Some(expected_harness);
+        if matches_expected {
             if let Some(args) = ps_args(ppid) {
                 let argv = shlex::split(&args).unwrap_or_else(|| vec![args.clone()]);
                 if let Some(slug) = extract_agent_flag(&argv) {

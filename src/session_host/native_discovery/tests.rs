@@ -88,3 +88,23 @@ fn unrelated_uuid_shaped_files_do_not_match() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn discovers_kimi_from_its_session_index() {
+    let home = tempfile::tempdir().unwrap();
+    let kimi_home = home.path().join("kimi-home");
+    let mut env = EnvGuard::set("HOME", home.path());
+    env.set_var("KIMI_CODE_HOME", &kimi_home);
+    write(
+        &kimi_home.join("session_index.jsonl"),
+        "{\"sessionId\":\"other\",\"workDir\":\"/work/other\"}\n{\"sessionId\":\"session-kimi\",\"workDir\":\"/work/kimi\"}\n",
+    );
+
+    assert_eq!(
+        discover("session-kimi").unwrap(),
+        [NativeSession {
+            harness: crate::session::Harness::Kimi,
+            cwd: Some(PathBuf::from("/work/kimi")),
+        }]
+    );
+}

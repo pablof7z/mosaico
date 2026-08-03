@@ -121,9 +121,9 @@ only when no launch arguments were supplied; arguments cannot be applied to an
 already-running process. A running non-PTY runtime refuses to double-spawn and
 directs explicit takeover to the bare `mosaico` operator home.
 
-An unmapped id is adopted only when authoritative local Claude, Codex, Grok, or
-OpenCode storage identifies one harness. Its recorded cwd selects the workspace
-unless `workspace` supplies an existing absolute directory. Mosaico then mints
+An unmapped id is adopted only when authoritative local Claude, Codex, Grok,
+Kimi, or OpenCode storage identifies one harness. Its recorded cwd selects the
+workspace unless `workspace` supplies an existing absolute directory. Mosaico then mints
 the generic per-session identity for that harness and atomically claims the
 native locator before opening the PTY. Missing and cross-harness-ambiguous ids
 fail; UUID shape is never a harness signal.

@@ -23,7 +23,10 @@ pub(super) async fn check(
     cwd: &Path,
     raw: &Value,
 ) -> Option<String> {
-    if !matches!(host.name, "claude-code" | "codex" | "opencode" | "hermes") {
+    if !matches!(
+        host.name,
+        "claude-code" | "codex" | "opencode" | "hermes" | "kimi"
+    ) {
         return None;
     }
     let (access, path) = direct_path(raw)?;
@@ -44,7 +47,7 @@ fn direct_path(raw: &Value) -> Option<(Access, &str)> {
     let tool = raw.get("tool_name")?.as_str()?.to_ascii_lowercase();
     let input = raw.get("tool_input")?.as_object()?;
     let access = match tool.as_str() {
-        "read" | "glob" | "grep" | "view_image" | "read_file" => Access::Read,
+        "read" | "glob" | "grep" | "view_image" | "read_file" | "readmediafile" => Access::Read,
         "write" | "edit" | "multiedit" | "notebookedit" | "write_file" => Access::Write,
         // Bash, Shell, terminal, apply_patch, patch, and unknown/plugin tools
         // are intentionally outside this cooperative direct-path heuristic.
@@ -80,6 +83,16 @@ fn render(host: &str, result: &Value) -> Option<String> {
             serde_json::json!({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": message,
+                }
+            })
+            .to_string(),
+        ),
+        "kimi" if decision == "deny" => Some(
+            serde_json::json!({
+                "hookSpecificOutput": {
+                    "message": message,
                     "permissionDecision": "deny",
                     "permissionDecisionReason": message,
                 }
@@ -196,6 +209,26 @@ mod tests {
             render(
                 "grok",
                 &serde_json::json!({"decision":"deny","message":"ignored"})
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn kimi_denial_uses_its_native_hook_contract_and_warning_is_non_blocking() {
+        let denial: Value = serde_json::from_str(
+            &render(
+                "kimi",
+                &serde_json::json!({"decision":"deny","message":"stay in workspace"}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(denial["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(
+            render(
+                "kimi",
+                &serde_json::json!({"decision":"warn","message":"other workspace"}),
             ),
             None
         );

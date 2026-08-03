@@ -1,6 +1,6 @@
 ---
 name: mosaico-setup
-description: Install, configure, repair, verify, update, or uninstall Mosaico and its coding-agent integrations. Use when an agent is told to follow https://mosaico.f7z.io/SETUP.md, when preparing Mosaico on a new macOS or Linux machine, or when wiring Claude Code, Codex, OpenCode, Grok Build, Goose, or Hermes Agent into a shared Mosaico fabric.
+description: Install, configure, repair, verify, update, or uninstall Mosaico and its coding-agent integrations. Use when an agent is told to follow https://mosaico.f7z.io/SETUP.md, when preparing Mosaico on a new macOS or Linux machine, or when wiring Claude Code, Codex, OpenCode, Grok Build, Goose, Hermes Agent, or Kimi Code into a shared Mosaico fabric.
 ---
 
 # Set up Mosaico
@@ -11,7 +11,7 @@ Treat setup as an inspect, explain, install, configure, and verify workflow. Kee
 
 Mosaico gives coding agents a shared awareness fabric. Each session receives an identity, can see relevant peer presence and status, and can send an addressed message that arrives as a real turn in another agent's native session. Mosaico does not replace the harness, run the model, or read every transcript.
 
-One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, and Hermes Agent. Relay infrastructure is deployed and operated separately; the Mosaico binary only connects to configured `ws://` or `wss://` URLs. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
+One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, Hermes Agent, and Kimi Code. Relay infrastructure is deployed and operated separately; the Mosaico binary only connects to configured `ws://` or `wss://` URLs. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
 
 ## Follow the safety contract
 
@@ -33,9 +33,10 @@ uname -s
 uname -m
 command -v curl || true
 command -v mosaico || true
-for harness in claude codex opencode grok goose hermes; do command -v "$harness" || true; done
+for harness in claude codex opencode grok goose hermes kimi; do command -v "$harness" || true; done
 printf 'MOSAICO_HOME=%s\n' "${MOSAICO_HOME-}"
 printf 'MOSAICO_CONFIG=%s\n' "${MOSAICO_CONFIG-}"
+printf 'KIMI_CODE_HOME=%s\n' "${KIMI_CODE_HOME-}"
 ```
 
 If `mosaico` exists, inspect `mosaico --help` and `mosaico setup --status`. A checkout-local or stale executable can differ from the current contract.

@@ -19,6 +19,7 @@ pub(in crate::cli::install::onboarding) fn rpc_transport(
         "opencode" => Some((SessionHarness::Opencode, Transport::Acp)),
         "goose" => Some((SessionHarness::Goose, Transport::Acp)),
         "hermes" => Some((SessionHarness::Hermes, Transport::Acp)),
+        "kimi" => Some((SessionHarness::Kimi, Transport::Acp)),
         // Grok is PTY-only — no structured transport.
         _ => None,
     }
@@ -65,6 +66,7 @@ mod tests {
         assert!(can_assist("opencode"));
         assert!(can_assist("goose"));
         assert!(can_assist("hermes"));
+        assert!(can_assist("kimi"));
         assert!(!can_assist("grok"));
     }
 

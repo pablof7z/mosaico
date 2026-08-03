@@ -30,8 +30,8 @@ overrides.
   or harness selector.
 - Bundle `args` are operational provider flags. Agent `profile` is a named
   native profile (Claude PTY `--agent`, Codex PTY `--profile`, Hermes
-  PTY/ACP top-level `--profile`, Codex app-server isolated `CODEX_HOME`). ACP
-  dialects without named profiles reject `profile`.
+  PTY/ACP top-level `--profile`, Kimi PTY `--agent`, Codex app-server isolated
+  `CODEX_HOME`). ACP dialects without named profiles reject `profile`.
 
 ## Identity
 
@@ -48,6 +48,11 @@ overrides.
 - **Goose:** Mosaico Open Plugin + Top Of Mind refresh for both `goose session`
   and `goose acp`. Goose ACP has no stable recipe/profile selector.
 - **Hermes:** isolated `HERMES_HOME` with Mosaico user plugin and named profiles.
+- **Kimi:** managed TOML hooks in `KIMI_CODE_HOME/config.toml`; PTY and native
+  `kimi acp` transports are supported. PTY named agents use `kimi --agent`;
+  Kimi ACP rejects profiles because it exposes no agent selector. Its `Stop`
+  hook uses native block output to deliver pending fabric
+  context before the model finishes and closes the original turn accounting.
 
 Provider-specific lab detail:
 `skills/mosaico-dev/references/container-backends.md`,

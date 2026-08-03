@@ -47,6 +47,8 @@ launch_tail() {
   awk '$0 == "<mosaico>" || $0 == "<mosaico-hosted>" { seen = 1; next } seen'
 }
 
+# shellcheck source=helpers/kimi.sh
+source "${SKILL}/tests/helpers/kimi.sh"
 mkdir -p "${TMP}/launcher-bin" "${TMP}/work"
 cat >"${TMP}/launcher-bin/env" <<'EOF'
 #!/bin/sh
@@ -99,6 +101,7 @@ DIRECT_TAIL="$(printf '%s\n' "${DIRECT_OUTPUT}" \
 assert_eq $'<claude>\n<--model>\n<haiku>' "${DIRECT_TAIL}" \
   'direct mode still forwards provider arguments'
 
+test_kimi_launch
 # shellcheck source=profile-writer.sh
 source "${SKILL}/tests/profile-writer.sh"
 run_profile_writer_tests
@@ -167,6 +170,7 @@ cmp -s "${HOST_HOME}/.hermes/.env" "${STATE_DIR}/home/.hermes/.env" \
   || fail 'Hermes host auth unexpectedly exposed a host bind mount'
 echo 'ok: host auth copies Hermes state without sharing the host files'
 
+test_kimi_host_auth
 mkdir -p "${TMP}/relay-bin"
 cat >"${TMP}/relay-bin/curl" <<'EOF'
 #!/bin/sh

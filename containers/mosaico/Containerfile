@@ -46,6 +46,8 @@ RUN mkdir -p /opt/claude \
     && printf '#!/usr/bin/env bash\nexec /opt/claude/node_modules/@anthropic-ai/claude-code/bin/claude.exe "$@"\n' > /usr/local/bin/claude \
     && chmod +x /usr/local/bin/claude
 
+RUN npm install --global @moonshot-ai/kimi-code
+
 # The runtime's Claude ACP driver invokes this adapter through npx. Install it
 # in the image so a fresh live-lab profile never pauses for an interactive npx
 # download before the JSON-RPC handshake.
@@ -93,6 +95,7 @@ ENV HOME=/state/home \
     GROK_HOME=/state/home/.grok \
     GOOSE_DISABLE_KEYRING=1 \
     HERMES_HOME=/state/home/.hermes \
+    KIMI_CODE_HOME=/state/home/.kimi-code \
     MOSAICO_CONFIG=/state/mosaico/config.json \
     MOSAICO_HOME=/state/mosaico \
     MOSAICO_BIN=/state/target/debug/mosaico \

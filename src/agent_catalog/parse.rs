@@ -60,6 +60,27 @@ pub(super) fn discover_hermes_profiles(
     Ok(())
 }
 
+/// Kimi scans its brand-specific root before the shared `.agents/agents`
+/// root, recursively, and the first same-named profile wins within one scope.
+pub(super) fn discover_kimi_profiles(
+    roots: &[std::path::PathBuf],
+    scope: AgentScope,
+    out: &mut Vec<NativeAgentProfile>,
+) -> Result<()> {
+    let mut seen = std::collections::BTreeSet::new();
+    for root in roots {
+        let mut candidates = Vec::new();
+        discover_dir(root, Harness::Kimi, scope.clone(), &mut candidates)?;
+        candidates.sort_by(|left, right| left.path.cmp(&right.path));
+        out.extend(
+            candidates
+                .into_iter()
+                .filter(|profile| seen.insert(profile.slug.clone())),
+        );
+    }
+    Ok(())
+}
+
 fn read_hermes_description(path: &Path) -> String {
     std::fs::read_to_string(path)
         .ok()
@@ -100,7 +121,7 @@ fn discover_dir_inner(
     };
     for entry in entries {
         let path = entry?.path();
-        if path.is_dir() && harness == Harness::ClaudeCode {
+        if path.is_dir() && matches!(harness, Harness::ClaudeCode | Harness::Kimi) {
             discover_dir_inner(&path, harness, scope, out)?;
             continue;
         }
@@ -130,6 +151,7 @@ fn parse_profile(
         Harness::Codex => Some(parse_codex(&body, path)?),
         Harness::ClaudeCode => Some(parse_claude(&body, path)?),
         Harness::Opencode => parse_opencode(&body, path)?,
+        Harness::Kimi => parse_kimi(&body, path)?,
         Harness::Grok | Harness::Goose | Harness::Hermes | Harness::Unknown => None,
     };
     let Some((slug, use_criteria)) = parsed else {
@@ -193,6 +215,41 @@ fn parse_opencode(body: &str, path: &Path) -> Result<Option<(String, String)>> {
         stem.to_string(),
         required_field(&fields, "description", path)?,
     )))
+}
+
+fn parse_kimi(body: &str, path: &Path) -> Result<Option<(String, String)>> {
+    // Kimi skips malformed directory-discovered profiles without suppressing
+    // other valid files. Mirror that tolerance in Mosaico's inventory.
+    let Ok(fields) = markdown_frontmatter(body, path) else {
+        return Ok(None);
+    };
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return Ok(None);
+    };
+    let name = fields
+        .get("name")
+        .map(String::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(stem)
+        .trim();
+    let valid_name = !name.is_empty()
+        && name.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        });
+    let Some(description) = fields
+        .get("description")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    if !valid_name {
+        return Ok(None);
+    }
+    Ok(Some((name.to_string(), description.to_string())))
 }
 
 fn markdown_frontmatter(body: &str, path: &Path) -> Result<BTreeMap<String, String>> {

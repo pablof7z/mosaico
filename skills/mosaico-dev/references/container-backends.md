@@ -28,6 +28,11 @@ writable isolated `HERMES_HOME`, where Mosaico installs its user plugin.
 Profile-scoped `auth.json` stays inside the copied profile with its private file
 mode; no host Hermes file is bind mounted. A named-profile doctor run requires
 an explicit provider whose native `hermes auth status` reports `logged in`.
+Kimi seeds `config.toml`, optional device/TUI state, and native agents from
+`~/.kimi-code/agents` and `~/.agents/agents` into the isolated home once. OAuth
+credentials are not copied because Kimi refresh tokens rotate. Authenticate the
+durable profile with `bash containers/mosaico/run kimi-login`; host session
+history is not imported and no host Kimi file is bind mounted.
 
 ## State boundary
 
@@ -120,7 +125,7 @@ translation are code-owned. Unknown bundle fields fail parsing.
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
   claude claude-acp codex codex-app-server grok goose goose-acp hermes hermes-acp \
-  opencode opencode-acp \
+  kimi kimi-acp opencode opencode-acp \
   codex-ollama opencode-ollama
 ```
 
@@ -142,6 +147,8 @@ Every profile has an exact JSON-array override:
 | `goose-acp` | `MOSAICO_DEV_GOOSE_ACP_ARGS_JSON` |
 | `hermes` | `MOSAICO_DEV_HERMES_ARGS_JSON` |
 | `hermes-acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |
+| `kimi` | `MOSAICO_DEV_KIMI_ARGS_JSON` |
+| `kimi-acp` | `MOSAICO_DEV_KIMI_ACP_ARGS_JSON` |
 | `opencode` | `MOSAICO_DEV_OPENCODE_ARGS_JSON` |
 | `opencode-acp` | `MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON` |
 | `codex-ollama` | `MOSAICO_DEV_CODEX_OLLAMA_ARGS_JSON` |
@@ -153,6 +160,9 @@ Each override must be a JSON array of strings and replaces the generated args.
 the Codex app-server agent file. It does not add fields to the bundle.
 `MOSAICO_DEV_HERMES_PROFILE=<name>` does the same for both Hermes profiles;
 Mosaico places Hermes' top-level `--profile` before the optional `acp` subcommand.
+`MOSAICO_DEV_KIMI_PROFILE=<name>` adds a Kimi PTY native agent, which Mosaico
+launches with `kimi --agent <name>`. Kimi ACP rejects `profile` because its
+structured command has no named-agent selector.
 
 ## Direct and launched runs
 
@@ -188,9 +198,12 @@ native agent profiles discovered from:
 - `$CODEX_HOME/agents` or `~/.codex/agents`
 - agent-like `$CODEX_HOME/*.config.toml` files with non-empty
   `developer_instructions`
+- `$HERMES_HOME/profiles` or `~/.hermes/profiles`
+- `$KIMI_CODE_HOME/agents`, `~/.kimi-code/agents`, or `~/.agents/agents`
 - `~/.claude/agents`
 - `$XDG_CONFIG_HOME/opencode/agents` or `~/.config/opencode/agents`
-- workspace-local `.codex/agents`, `.claude/agents`, and `.opencode/agents`
+- workspace-local `.codex/agents`, `.claude/agents`, `.kimi-code/agents`,
+  `.agents/agents`, and `.opencode/agents`
 
 Workspace-local definitions override the matching global profile. Codex named
 configuration profiles take precedence over same-slug global Codex custom-agent

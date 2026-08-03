@@ -12,6 +12,7 @@ pub(crate) fn harness_color_index(harness: Harness) -> u8 {
         Harness::Grok => 75,
         Harness::Goose => 204,
         Harness::Hermes => 214,
+        Harness::Kimi => 135,
         Harness::Unknown => 245,
     }
 }

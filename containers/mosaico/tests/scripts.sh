@@ -10,6 +10,17 @@ fail() {
   exit 1
 }
 
+# shellcheck source=helpers/kimi.sh
+source "${ROOT}/containers/mosaico/tests/helpers/kimi.sh"
+
+file_mode() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 assert_mounts_only() {
   local agent="$1" expected="$2" mounts
   AGENT="${agent}"
@@ -70,6 +81,7 @@ printf 'model:\n  default: gpt-test\n  provider: openai-codex\n' \
 printf '{"providers":{"openai-codex":{"tokens":{"access_token":"test","refresh_token":"test"}}}}\n' \
   >"${HOST_HOME}/.hermes/profiles/reviewer/auth.json"
 chmod 600 "${HOST_HOME}/.hermes/profiles/reviewer/auth.json"
+setup_kimi_host_fixture
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/auth.json"
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/account.json"
 printf '{}\n' >"${HOST_HOME}/.config/opencode/opencode.jsonc"
@@ -86,6 +98,7 @@ assert_mounts_only codex '/host-auth/codex'
 assert_mounts_only opencode '/host-auth/opencode-config'
 assert_no_mounts goose
 assert_no_mounts hermes
+assert_no_mounts kimi
 echo 'ok: host auth mounts are provider-scoped'
 
 stage_provider() {
@@ -122,8 +135,7 @@ for path in config.yaml permission.yaml secrets.yaml; do
   [[ ! -L "${STATE_DIR}/home/.config/goose/${path}" ]] \
     || fail "Goose ${path} must not point back into host state"
 done
-GOOSE_SECRET_MODE="$(stat -f '%Lp' "${STATE_DIR}/home/.config/goose/secrets.yaml" 2>/dev/null \
-  || stat -c '%a' "${STATE_DIR}/home/.config/goose/secrets.yaml")"
+GOOSE_SECRET_MODE="$(file_mode "${STATE_DIR}/home/.config/goose/secrets.yaml")"
 [[ "${GOOSE_SECRET_MODE}" == "600" ]] \
   || fail 'Goose staged secrets are not private'
 echo 'ok: Goose auth and config are copied into isolated writable state'
@@ -145,18 +157,18 @@ cmp -s "${HOST_HOME}/.hermes/profiles/reviewer/auth.json" \
   || fail 'Hermes profile auth was not copied into isolated state'
 [[ ! -L "${STATE_DIR}/home/.hermes/profiles/reviewer/auth.json" ]] \
   || fail 'Hermes profile auth must not point back into host state'
-HERMES_AUTH_MODE="$(
-  stat -f '%Lp' "${STATE_DIR}/home/.hermes/profiles/reviewer/auth.json" 2>/dev/null \
-    || stat -c '%a' "${STATE_DIR}/home/.hermes/profiles/reviewer/auth.json"
-)"
+HERMES_AUTH_MODE="$(file_mode \
+  "${STATE_DIR}/home/.hermes/profiles/reviewer/auth.json")"
 [[ "${HERMES_AUTH_MODE}" == "600" ]] \
   || fail 'Hermes staged profile auth is not private'
 echo 'ok: Hermes auth, config, and profiles are staged into writable state'
 
+assert_kimi_state_isolated
+
 CONFIG_HOME="${TMP}/mosaico"
 mkdir -p "${CONFIG_HOME}/agents"
 printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"}}' \
+  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"},"kimi-acp":{"harness":"kimi","transport":"acp"}}' \
   >"${CONFIG_HOME}/harnesses.json"
 printf '%s\n' \
   '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex-app-server"}' \
@@ -202,6 +214,10 @@ PATH="${TMP}/fake-bin:${PATH}" \
   || fail 'no-command runner did not open the default shell container'
 grep -Fq '/workspace/containers/mosaico/shell-bin' "${DEFAULT_SHELL_ARGS}" \
   || fail 'default shell did not expose the lazy-build mosaico command'
+grep -Fxq 'MOSAICO_REAP_SESSIONS_ON_STOP=1' "${DEFAULT_SHELL_ARGS}" \
+  || fail 'container runner did not enable deterministic daemon session reaping'
+
+assert_kimi_login_runner
 
 printf '%s\n' \
   '#!/bin/sh' \

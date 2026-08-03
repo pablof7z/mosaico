@@ -52,6 +52,17 @@ stage_auth_copy() {
   chmod u+w "${target}"
 }
 
+stage_auth_copy_once() {
+  local source="$1" target="$2" required="${3:-required}"
+  if [[ "${HOST_AUTH}" != "1" || -f "${target}" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${source}" && "${required}" == "optional" ]]; then
+    return 0
+  fi
+  stage_auth_copy "${source}" "${target}"
+}
+
 stage_auth_dir_copy() {
   local source="$1" target="$2" required="${3:-required}"
   if [[ "${HOST_AUTH}" != "1" ]]; then
@@ -74,6 +85,18 @@ stage_auth_dir_copy() {
   fi
   cp -a "${source}" "${target}"
   chmod -R u+w "${target}"
+}
+
+stage_auth_dir_copy_once() {
+  local source="$1" target="$2" required="${3:-required}"
+  if [[ "${HOST_AUTH}" != "1" ]]; then
+    return 0
+  fi
+  if [[ -d "${target}" \
+    && -n "$(find "${target}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    return 0
+  fi
+  stage_auth_dir_copy "${source}" "${target}" "${required}"
 }
 
 stage_claude_credentials() {
@@ -215,6 +238,27 @@ stage_hermes_state() {
     "${STATE_DIR}/home/.hermes/profiles" optional
 }
 
+stage_kimi_state() {
+  if [[ "${HOST_AUTH}" != "1" || "${AGENT}" != "kimi" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${STATE_DIR}/home/.agents" "${STATE_DIR}/home/.kimi-code"
+  # Kimi OAuth refresh credentials rotate. Copying them would let an isolated
+  # lab invalidate the host session. Seed non-credential state once, then keep
+  # the profile durable and authenticate it with `kimi-login`.
+  stage_auth_copy_once "${HOST_HOME}/.kimi-code/config.toml" \
+    "${STATE_DIR}/home/.kimi-code/config.toml"
+  stage_auth_dir_copy_once "${HOST_HOME}/.kimi-code/agents" \
+    "${STATE_DIR}/home/.kimi-code/agents" optional
+  stage_auth_dir_copy_once "${HOST_HOME}/.agents/agents" \
+    "${STATE_DIR}/home/.agents/agents" optional
+  stage_auth_copy_once "${HOST_HOME}/.kimi-code/device_id" \
+    "${STATE_DIR}/home/.kimi-code/device_id" optional
+  stage_auth_copy_once "${HOST_HOME}/.kimi-code/tui.toml" \
+    "${STATE_DIR}/home/.kimi-code/tui.toml" optional
+}
+
 build_host_auth_mounts() {
   HOST_AUTH_MOUNTS=()
   case "${AGENT}" in
@@ -232,6 +276,9 @@ build_host_auth_mounts() {
       ;;
     hermes)
       # Hermes config/auth is copied before its plugin mutates isolated config.
+      ;;
+    kimi)
+      # Kimi config and native profiles are copied into writable isolated state.
       ;;
     opencode)
       add_required_auth_dir_mount \
@@ -298,6 +345,7 @@ stage_host_auth() {
     grok) stage_grok_state ;;
     goose) stage_goose_state ;;
     hermes) stage_hermes_state ;;
+    kimi) stage_kimi_state ;;
     opencode) stage_opencode_auth ;;
     *)
       echo "unsupported host-auth agent: ${AGENT}" >&2

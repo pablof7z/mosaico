@@ -1,7 +1,7 @@
 # ACP and app-server backends
 
-Use this reference for Claude ACP, Codex app-server, Goose ACP, Hermes ACP, and
-OpenCode ACP labs.
+Use this reference for Claude ACP, Codex app-server, Goose ACP, Hermes ACP,
+Kimi ACP, and OpenCode ACP labs.
 These transports use structured RPC instead of terminal-byte injection.
 
 ## Configuration contract
@@ -64,6 +64,7 @@ false.
 | `goose-acp` | `goose` | `acp` | `MOSAICO_DEV_GOOSE_ACP_ARGS_JSON` |
 | `opencode-acp` | `opencode` | `acp` | `MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON` |
 | `hermes-acp` | `hermes` | `acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |
+| `kimi-acp` | `kimi` | `acp` | `MOSAICO_DEV_KIMI_ACP_ARGS_JSON` |
 
 Default args are `[]`. Use the listed writer override only when the lab needs
 explicit provider arguments. The value must be a JSON array of strings. There
@@ -84,6 +85,8 @@ supports recipes through other CLI surfaces, but `goose acp` exposes no stable
 recipe/profile selector. Omit `profile` for those combinations. Hermes ACP
 accepts `MOSAICO_DEV_HERMES_PROFILE`; its `--profile <name>` selector is placed
 before the `acp` subcommand.
+Kimi ACP also has no stable named-profile selector, so omit `profile` for
+`kimi-acp`.
 
 ## Smoke before launch
 
@@ -117,6 +120,9 @@ skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke hermes-acp \
 
 The smoke prints the resolved argv, first session ID, successful cross-process
 `session/load`, both `end_turn` results, and `PASS`.
+
+Kimi's canonical structured command is `kimi acp`. The same smoke contract
+proves initialization, two real turns, and cross-process `session/load`.
 
 ## Launch
 

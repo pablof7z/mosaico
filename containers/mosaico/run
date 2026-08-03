@@ -29,6 +29,8 @@ Commands:
   grok [args]              Run isolated Grok using host auth/config.
   goose [args]             Run isolated Goose using host auth/config.
   hermes [args]            Run isolated Hermes using host auth/config.
+  kimi [args]              Run Kimi Code in its durable isolated profile.
+  kimi-login               Authenticate the durable isolated Kimi profile.
   opencode [args]          Run isolated OpenCode using the opencode profile.
   opencode-auth [args]     Run isolated `opencode providers`.
   opencode-ollama [args]   Run isolated OpenCode with an Ollama model.
@@ -60,6 +62,7 @@ agent_for_profile() {
     grok*) echo "grok" ;;
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
+    kimi*) echo "kimi" ;;
     *) echo "opencode" ;;
   esac
 }
@@ -139,6 +142,9 @@ prepare_state() {
     "${STATE_DIR}/home/.claude" \
     "${STATE_DIR}/home/.grok/hooks" \
     "${STATE_DIR}/home/.hermes/plugins" \
+    "${STATE_DIR}/home/.agents/agents" \
+    "${STATE_DIR}/home/.kimi-code/agents" \
+    "${STATE_DIR}/home/.kimi-code/credentials" \
     "${STATE_DIR}/home/.config/opencode" \
     "${STATE_DIR}/home/.config/goose" \
     "${STATE_DIR}/home/.local/share" \
@@ -244,11 +250,13 @@ container_run() {
     --env GROK_HOME=/state/home/.grok \
     --env GOOSE_DISABLE_KEYRING=1 \
     --env HERMES_HOME=/state/home/.hermes \
+    --env KIMI_CODE_HOME=/state/home/.kimi-code \
     --env OLLAMA_HOST="${OLLAMA_HOST}" \
     --env MOSAICO_CONFIG=/state/mosaico/config.json \
     --env MOSAICO_HOME=/state/mosaico \
     --env MOSAICO_BIN=/state/target/debug/mosaico \
     --env MOSAICO_AGENT="${AGENT}" \
+    --env MOSAICO_REAP_SESSIONS_ON_STOP=1 \
     --env PATH=/state/target/debug:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin \
     "${HOST_AUTH_MOUNTS[@]+"${HOST_AUTH_MOUNTS[@]}"}" \
     "${passthrough_env_args[@]+"${passthrough_env_args[@]}"}" \
@@ -270,7 +278,7 @@ with_mosaico() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -287,7 +295,7 @@ with_mosaico_direct() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -304,7 +312,7 @@ with_mosaico_hosted() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -383,6 +391,15 @@ main() {
     hermes)
       select_command_profile hermes hermes
       with_mosaico_direct hermes hermes "$@"
+      ;;
+    kimi)
+      select_command_profile kimi kimi
+      with_mosaico_direct kimi kimi "$@"
+      ;;
+    kimi-login)
+      select_command_profile kimi kimi
+      HOST_AUTH=0
+      container_run readonly kimi login "$@"
       ;;
     opencode)
       select_command_profile opencode opencode

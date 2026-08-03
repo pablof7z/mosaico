@@ -109,7 +109,7 @@ pub(super) enum Cmd {
     /// Show the human/operator fabric view.
     #[command(hide = true)]
     Who(WhoArgs),
-    /// Resume a session by its native Claude, Codex, Grok, Hermes, or OpenCode id.
+    /// Resume a session by its native Claude, Codex, Grok, Hermes, Kimi, or OpenCode id.
     #[command(hide = true)]
     Resume(ResumeArgs),
     /// Find and list local agent sessions.

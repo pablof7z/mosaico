@@ -27,10 +27,11 @@ EOF
       MOSAICO_DEV_STATE_ROOT="${TMP}/container-state" \
       MOSAICO_DEV_CODEX_CONFIG_PROFILE=planner \
       MOSAICO_DEV_HERMES_PROFILE=reviewer \
+      MOSAICO_DEV_KIMI_PROFILE=reviewer \
       MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON='["--strict-config"]' \
       bash "${SKILL}/scripts/write-container-profiles" "${writer_env}" \
         claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-        codex-ollama opencode-ollama
+        kimi kimi-acp codex-ollama opencode-ollama
   )"
   assert_generated_profiles
   assert_regeneration_preserves_key "${writer_env}"
@@ -66,7 +67,7 @@ EOF
 assert_generated_profiles() {
   local profile harnesses agent config
   for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-    codex-ollama opencode-ollama; do
+    kimi kimi-acp codex-ollama opencode-ollama; do
     harnesses="${TMP}/container-state/${profile}/mosaico/harnesses.json"
     agent="$(find "${TMP}/container-state/${profile}/mosaico/agents" \
       -type f -name '*.json')"
@@ -103,6 +104,18 @@ assert_generated_profiles() {
   assert_json '.profile == "reviewer"' \
     "${TMP}/container-state/hermes-acp/mosaico/agents/hermes.json" \
     'Hermes named profile belongs to agent config'
+  assert_json '.["kimi"] == {"harness":"kimi","transport":"pty"}' \
+    "${TMP}/container-state/kimi/mosaico/harnesses.json" \
+    'Kimi profile emits its interactive PTY bundle'
+  assert_json '.profile == "reviewer"' \
+    "${TMP}/container-state/kimi/mosaico/agents/kimi.json" \
+    'Kimi PTY named profile belongs to agent config'
+  assert_json '.["kimi-acp"] == {"harness":"kimi","transport":"acp"}' \
+    "${TMP}/container-state/kimi-acp/mosaico/harnesses.json" \
+    'Kimi ACP profile emits a structured bundle'
+  assert_json 'has("profile") | not' \
+    "${TMP}/container-state/kimi-acp/mosaico/agents/kimi.json" \
+    'Kimi ACP omits unsupported named profiles'
   assert_json '.profile == "planner"' \
     "${TMP}/container-state/codex-app-server/mosaico/agents/codex.json" \
     'Codex named profile belongs to agent config'
@@ -115,12 +128,12 @@ assert_generated_profiles() {
   local key_count
   key_count="$(
     for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-      codex-ollama opencode-ollama; do
+      kimi kimi-acp codex-ollama opencode-ollama; do
       jq -r '.mosaicoPrivateKey' \
         "${TMP}/container-state/${profile}/mosaico/config.json"
     done | sort -u | wc -l | tr -d ' '
   )"
-  assert_eq 9 "${key_count}" 'each profile has a distinct backend key'
+  assert_eq 11 "${key_count}" 'each profile has a distinct backend key'
 }
 
 assert_regeneration_preserves_key() {

@@ -14,6 +14,7 @@ pub(in crate::cli) fn repair_integration(harness: &Harness) -> Result<()> {
         "opencode" => super::install_opencode(harness, &opts, false),
         "goose" => super::goose::install(harness, &opts, false),
         "hermes" => super::hermes::install(harness, &opts, false),
+        "kimi" => super::kimi::install(harness, &opts, false),
         _ => Ok(()),
     }
 }
