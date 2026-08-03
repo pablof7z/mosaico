@@ -32,6 +32,52 @@ use write::BackgroundReceiptObserver;
 const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
 
+/// One NMP frame's row transition, carried and applied as a UNIT.
+///
+/// The unit is the point. A relay republishing an addressable event — every
+/// NIP-29 roster change does this — arrives as `Removed(old_id)` and
+/// `Added(new_id)` **in the same frame**, and `Removed` carries only an id.
+/// The delivered delta order is event-id ascending, not causal
+/// (`nmp::runtime::row_channel` re-folds a frame through a `BTreeMap`), so a
+/// consumer that acts on each delta as it arrives can render a momentarily
+/// empty roster purely on hex ordering. Handing the whole frame across, and
+/// applying removals before additions, is the only shape under which the
+/// batch's final state is the batch's intent.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct MaterializationBatch {
+    /// Rows that left the observation's row set.
+    pub(crate) removed: Vec<nostr::EventId>,
+    /// Rows that entered it, carrying the full event.
+    pub(crate) added: Vec<nostr::Event>,
+}
+
+impl MaterializationBatch {
+    fn from_deltas(deltas: &[nmp::RowDelta]) -> Self {
+        let mut batch = Self::default();
+        for delta in deltas {
+            match delta {
+                nmp::RowDelta::Added(row) => batch.added.push(row.event.clone()),
+                nmp::RowDelta::Removed(id) => batch.removed.push(*id),
+                // A relay that already held this exact event id now also
+                // serves it. Mosaico's read model is keyed by event id and
+                // coordinate and carries no provenance column, and no product
+                // surface asks "which relays hold this" — so there is nothing
+                // to project. The arm is spelled out rather than folded into a
+                // wildcard so the decision stays a decision: NMP owns
+                // provenance, and a surface that ever needs it must read
+                // `Row.sources` at the point of the question rather than
+                // mirror it into a second store here.
+                nmp::RowDelta::SourcesGrew { .. } => {}
+            }
+        }
+        batch
+    }
+
+    fn is_empty(&self) -> bool {
+        self.removed.is_empty() && self.added.is_empty()
+    }
+}
+
 pub(crate) struct NmpHost {
     engine: Engine,
     relays: BTreeSet<RelayUrl>,
@@ -39,8 +85,8 @@ pub(crate) struct NmpHost {
     identities: Mutex<BTreeMap<nostr::PublicKey, IdentityRegistration>>,
     signing: Mutex<()>,
     subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
-    materialization_tx: Mutex<Option<mpsc::Sender<nostr::Event>>>,
-    materialization_rx: Mutex<Option<mpsc::Receiver<nostr::Event>>>,
+    materialization_tx: Mutex<Option<mpsc::Sender<MaterializationBatch>>>,
+    materialization_rx: Mutex<Option<mpsc::Receiver<MaterializationBatch>>>,
     background_receipts: BackgroundReceiptObserver,
     #[cfg(test)]
     test_io: test_io::TestIo,
@@ -105,7 +151,9 @@ impl NmpHost {
     /// Take the one lossless stream feeding Mosaico's canonical read-model
     /// materializer. A bounded channel deliberately backpressures observation
     /// drains instead of dropping canonical additions under a relay burst.
-    pub(crate) fn take_materialization_events(&self) -> Result<mpsc::Receiver<nostr::Event>> {
+    pub(crate) fn take_materialization_events(
+        &self,
+    ) -> Result<mpsc::Receiver<MaterializationBatch>> {
         self.materialization_rx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
@@ -175,10 +223,12 @@ impl NmpHost {
             .name(format!("nmp-{id}"))
             .spawn(move || {
                 while let Ok(frame) = subscription.recv() {
-                    for event in frame.deltas.iter().filter_map(|delta| delta.event()) {
-                        if materialization.blocking_send(event.clone()).is_err() {
-                            return;
-                        }
+                    let batch = MaterializationBatch::from_deltas(&frame.deltas);
+                    if batch.is_empty() {
+                        continue;
+                    }
+                    if materialization.blocking_send(batch).is_err() {
+                        return;
                     }
                 }
             })

@@ -91,6 +91,21 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// Retract one cached event by id, because NMP says it no longer belongs
+    /// to any row set Mosaico observes.
+    ///
+    /// NMP reaches that conclusion for exactly three reasons over the literal-
+    /// bound, unwindowed queries Mosaico opens: the event was retracted by a
+    /// NIP-09 kind:5, its NIP-40 `expiration` came due, or a NIP-01
+    /// replaceable superseded it. All three mean the cached copy is no longer
+    /// true, so the row goes. Returns `true` when a row was actually removed.
+    pub fn retract_event(&self, id: &str) -> Result<bool> {
+        let removed = self
+            .conn
+            .execute("DELETE FROM relay_events WHERE id=?1", params![id])?;
+        Ok(removed > 0)
+    }
+
     /// Fetch one event by id.
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
         Ok(self

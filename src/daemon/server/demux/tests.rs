@@ -22,6 +22,75 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
     pubkey.to_string()
 }
 
+// ── mosaico#744: applying an NMP frame as a unit ─────────────────────────────
+
+fn cached(store: &Store, id: &str) -> bool {
+    store.has_event(id).unwrap()
+}
+
+fn chat_row(id: &str) -> crate::state::RelayEvent {
+    crate::state::RelayEvent {
+        id: id.into(),
+        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
+        pubkey: "pk".into(),
+        created_at: 10,
+        channel_h: "room".into(),
+        d_tag: String::new(),
+        content: "hello".into(),
+        tags_json: "[]".into(),
+    }
+}
+
+#[test]
+fn a_retraction_removes_exactly_the_named_row() {
+    let store = Store::open_memory().unwrap();
+    let doomed = event_id("aa").to_hex();
+    let bystander = event_id("bb").to_hex();
+    store.insert_event(&chat_row(&doomed)).unwrap();
+    store.insert_event(&chat_row(&bystander)).unwrap();
+
+    retract_all(&store, &[event_id("aa")]);
+
+    assert!(
+        !cached(&store, &doomed),
+        "a retracted event must leave the cache"
+    );
+    assert!(cached(&store, &bystander), "an untouched row must survive");
+}
+
+/// The order is load-bearing, not stylistic. NMP composes a row that was
+/// present at the baseline, removed, and re-added into a `Replaced`
+/// transition, delivered as `Removed(id)` followed by `Added(row)` for the
+/// SAME id. Applying additions first and removals second deletes that row
+/// outright — the batch's own addition, undone by its own removal.
+#[test]
+fn removals_are_applied_before_additions_so_a_replaced_row_survives() {
+    let store = Store::open_memory().unwrap();
+    let id = event_id("cc");
+
+    // Removals first, then the addition: the row is present afterwards.
+    retract_all(&store, &[id]);
+    store.insert_event(&chat_row(&id.to_hex())).unwrap();
+    assert!(
+        cached(&store, &id.to_hex()),
+        "a Removed+Added pair for one id must leave the row present"
+    );
+
+    // The order this replaces: the addition, then the removal that was meant
+    // to precede it. The row is gone.
+    store.insert_event(&chat_row(&id.to_hex())).unwrap();
+    retract_all(&store, &[id]);
+    assert!(
+        !cached(&store, &id.to_hex()),
+        "NOTHING TO OBSERVE — additions-first must actually lose the row, \
+         otherwise this test proves nothing about the ordering"
+    );
+}
+
+fn event_id(prefix: &str) -> nostr::EventId {
+    nostr::EventId::from_hex(&format!("{prefix}{}", "0".repeat(64 - prefix.len()))).unwrap()
+}
+
 // ── has_alive gate ────────────────────────────────────────────────────────────
 
 #[test]
