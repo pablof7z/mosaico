@@ -1,6 +1,5 @@
 use super::super::*;
 use crate::daemon::protocol::Request;
-use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
 use crate::state::RegisterSession;
 use nmp::WriteStatus;
 use nostr::{Event, EventBuilder, Keys, Kind, Tag};
@@ -21,7 +20,12 @@ fn event(kind: u16, tags: Vec<Tag>) -> Event {
         .unwrap()
 }
 
-fn group_state(group: &str, management: &str) -> Vec<Event> {
+/// The relay-signed records a host holds for `group`. Readiness still asks the
+/// WIRE whether the group exists — a cached `relay_channels` row may be the
+/// local reservation `channel_init` writes before provisioning — so this stays
+/// scripted. Only the ROSTER moved to the cache.
+fn group_records(group: &str, management: &str) -> Vec<Event> {
+    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
     vec![
         event(
             KIND_GROUP_METADATA,
@@ -150,13 +154,21 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     let management = state.backend_pubkey().unwrap();
     register_caller(&state, &caller);
 
-    let relay_state = group_state("project", &management);
-    state.nmp.script_read_events(relay_state.clone());
-    state.nmp.script_read_events(vec![relay_state[0].clone()]);
+    // Existence is still proven from the wire; the ROSTER now comes from the
+    // cache the retained group-records observation keeps current.
+    state
+        .with_store(|store| {
+            store.replace_channel_admins("project", std::slice::from_ref(&management), 2)?;
+            store.replace_channel_members("project", &[], 3)
+        })
+        .unwrap();
+    state
+        .nmp
+        .script_read_events(group_records("project", &management));
     state.nmp.script_write_statuses(vec![WriteStatus::Failed(
         SCRIPTED_CLASSIFIED_FAILURE.into(),
     )]);
-    state.nmp.script_read_events(relay_state);
+    state.nmp.script_read_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,

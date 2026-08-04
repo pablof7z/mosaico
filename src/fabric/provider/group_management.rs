@@ -56,34 +56,35 @@ impl Nip29Provider {
                     ));
                 }
             };
-            match self.fetch_group_state(group).await {
-                Ok((_, roles, _)) => {
-                    if roles.get(mgmt_pubkey).map(String::as_str) == Some("admin") {
-                        self.with_store(|s| {
-                            if let Err(e) = s.upsert_channel_member(
-                                group,
-                                mgmt_pubkey,
-                                "admin",
-                                crate::util::now_secs(),
-                            ) {
-                                tracing::error!(
-                                    channel = group,
-                                    pubkey = mgmt_pubkey,
-                                    error = %e,
-                                    "try_grant_mgmt_admin: local mirror write failed after confirmed relay grant"
-                                );
-                            }
-                        });
-                        return GroupMutationOutcome::Confirmed;
-                    }
+            // Confirmed by presence on the relay's kind:39001, not by that
+            // record spelling the role "admin" — see `confirm_role_grant`.
+            match self.with_store(|s| s.is_channel_admin(group, mgmt_pubkey)) {
+                Ok(true) => {
+                    self.with_store(|s| {
+                        if let Err(e) = s.upsert_channel_member(
+                            group,
+                            mgmt_pubkey,
+                            "admin",
+                            crate::util::now_secs(),
+                        ) {
+                            tracing::error!(
+                                channel = group,
+                                pubkey = mgmt_pubkey,
+                                error = %e,
+                                "try_grant_mgmt_admin: local mirror write failed after confirmed relay grant"
+                            );
+                        }
+                    });
+                    return GroupMutationOutcome::Confirmed;
                 }
+                Ok(false) => {}
                 Err(e) => {
                     tracing::error!(
                         channel = group,
                         pubkey = mgmt_pubkey,
                         attempt,
                         error = %e,
-                        "try_grant_mgmt_admin: relay read-back failed; cannot confirm self-grant"
+                        "try_grant_mgmt_admin: roster read-back failed; cannot confirm self-grant"
                     );
                 }
             }
@@ -93,7 +94,7 @@ impl Nip29Provider {
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
         }
         GroupMutationOutcome::Unconfirmed {
-            detail: "relay read-back never showed the management admin grant".into(),
+            detail: "roster read-back never showed the management admin grant".into(),
         }
     }
 

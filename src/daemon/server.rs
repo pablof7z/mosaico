@@ -30,6 +30,7 @@ mod chat_rows;
 mod delivery_drive;
 mod demux;
 mod direct_mentions;
+mod group_records;
 mod invite_rpc;
 mod managed_lifecycle;
 mod management_command;

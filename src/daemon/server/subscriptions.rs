@@ -27,6 +27,13 @@ pub(in crate::daemon::server) async fn ensure_subscription(
 pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonState>) -> Result<()> {
     let _serial = state.subscriptions.sync.lock().await;
     let snapshot = build_coverage_snapshot(state);
+    // The relay-signed group records ride ONE retained observation rather than
+    // the per-entity refcount, because their branch count is set by the host
+    // set and not by how many groups are named.
+    super::group_records::sync(
+        state,
+        super::group_records::GroupRecordsCoverage::from_snapshot(&snapshot),
+    )?;
     // Compute the plan under the policy lock, then drop it before handing the
     // effects to NMP's engine.
     let effects = {

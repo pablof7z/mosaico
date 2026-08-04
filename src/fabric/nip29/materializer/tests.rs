@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::ChatMessage;
 use crate::state::{RegisterSession, Store};
+use nmp::nip29::GroupSnapshot;
 use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp, ToBech32};
 
 mod backend_profile;
@@ -24,6 +25,40 @@ fn build_at(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>, created_at:
         .custom_created_at(Timestamp::from_secs(created_at))
         .sign_with_keys(keys)
         .unwrap()
+}
+
+/// Fold one host's relay-signed records into the snapshot NMP delivers.
+///
+/// The per-record projection is NMP's own (`listed_record_at`), so this fixture
+/// never re-implements the `p`-row reading under test elsewhere; it only stands
+/// in for the cross-host fold, which is NMP's tested concern and not Mosaico's.
+fn snapshot_of(id: &str, admins: Option<&Event>, members: Option<&Event>) -> GroupSnapshot {
+    let host = nostr::RelayUrl::parse("wss://relay.example").unwrap();
+    let admins = admins.map(|event| nmp_nip29::listed_record_at(&host, event));
+    let members = members.map(|event| nmp_nip29::listed_record_at(&host, event));
+    GroupSnapshot {
+        id: id.to_string(),
+        metadata: None,
+        admins: admins
+            .as_ref()
+            .map(|r| r.subjects.clone())
+            .unwrap_or_default(),
+        members: members
+            .as_ref()
+            .map(|r| r.subjects.clone())
+            .unwrap_or_default(),
+        availability: nmp::nip29::GroupAvailability::Ready,
+        per_host: std::collections::BTreeMap::from([(
+            host,
+            nmp::nip29::HostRecords {
+                metadata: None,
+                admins,
+                members,
+                availability: nmp::nip29::GroupAvailability::Ready,
+            },
+        )]),
+        disagreements: Default::default(),
+    }
 }
 
 fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
@@ -100,8 +135,10 @@ fn admins_and_members_preserve_each_other() {
         "",
         vec![make_tag(&["d", "proj"]), make_tag(&["p", &member])],
     );
-    Nip29Materializer::materialize_admins(&store, &admins);
-    Nip29Materializer::materialize_members(&store, &members);
+    Nip29Materializer::materialize_group_snapshot(
+        &store,
+        &snapshot_of("proj", Some(&admins), Some(&members)),
+    );
 
     assert!(store.is_channel_admin("proj", &admin).unwrap());
     assert!(store.is_channel_member("proj", &member).unwrap());

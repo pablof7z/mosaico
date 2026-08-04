@@ -43,16 +43,38 @@ impl NmpHost {
             .map_err(|error| anyhow::anyhow!("NIP-29 group read for {group:?}: {error}"))
     }
 
+    /// Watch the relay-signed records of every group matching `predicate`.
+    ///
+    /// The returned [`GroupObservation`](nmp::nip29::GroupObservation) is the
+    /// handle and Mosaico owns its lifetime: dropping it withdraws the demand.
+    /// NMP deliberately caches nothing keyed by group on the app's behalf.
+    ///
+    /// Branches scale with HOSTS, not groups — every group this daemon watches
+    /// rides the same one-branch-per-relay observation. The honest limit is at
+    /// the wire, not here: the id leaf lowers to a `#d` set, and a relay may
+    /// refuse or truncate a filter carrying very many values, so a daemon
+    /// watching very many groups at once would need to shard across several
+    /// observations.
+    pub(crate) fn observe_group_records(
+        &self,
+        predicate: nmp::nip29::GroupPredicate,
+    ) -> Result<nmp::nip29::GroupObservation> {
+        self.nip29_scope()?
+            .observe(&self.engine, predicate, nmp::nip29::GroupRecord::ALL)
+            .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
+    }
+
     /// The relay-signed records describing ONE group — kinds 39000/39001/39002
     /// joined on `d`. One complete branch per host, `Pinned` and `Strict` at
     /// every nesting level, because these three kinds are signed by the RELAY
     /// and a row relay B served is no evidence about relay A's group.
     pub(crate) fn group_records_query(&self, group: &str) -> Result<LiveQuery> {
+        let records = BTreeSet::from(nmp_nip29::GroupRecord::ALL);
         let predicate = Binding::Literal(BTreeSet::from([group.to_string()]));
         let branches = self
             .relays
             .iter()
-            .map(|host| nmp_nip29::groups_where_at(host, predicate.clone()))
+            .map(|host| nmp_nip29::group_records_at(host, &records, predicate.clone()))
             .collect::<Vec<_>>();
         union_branches(branches)
     }
@@ -127,7 +149,6 @@ impl NmpHost {
     ) -> Result<LiveQuery> {
         match query {
             SubscriptionQuery::AllGroupMetadata => self.all_group_metadata_query(),
-            SubscriptionQuery::GroupRecords { group } => self.group_records_query(group),
             SubscriptionQuery::GroupContents { group, kinds } => {
                 self.group_contents_query(group, kinds_filter(kinds))
             }

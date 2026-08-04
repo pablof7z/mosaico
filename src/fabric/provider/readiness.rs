@@ -96,12 +96,15 @@ fn ensure_channel_ready_inner<'a>(
         } else {
             vec![]
         };
-        // A relay fetch FAILURE must never be read as "group absent" — that would
-        // drive spurious group re-creation (fabrication-by-omission). Degrade
-        // loudly without attempting to create anything.
-        let (group_exists, mut roles, members) = match provider.fetch_group_state(ctx.channel).await
-        {
-            Ok(state) => state,
+        // Existence comes from the WIRE, never from `relay_channels`. That cache
+        // also holds the LOCAL row `channel_init` writes for a workspace root
+        // before the group is provisioned, so trusting it here would skip
+        // creation for exactly the channel that most needs it. A relay fetch
+        // FAILURE must equally never be read as "group absent" — that would
+        // drive spurious re-creation (fabrication-by-omission). Degrade loudly
+        // without attempting to create anything.
+        let group_exists = match provider.group_records_exist(ctx.channel).await {
+            Ok(exists) => exists,
             Err(e) => {
                 tracing::error!(
                     channel = ctx.channel,
@@ -117,7 +120,20 @@ fn ensure_channel_ready_inner<'a>(
                 Ok(created) => repaired |= created,
                 Err(error) => return attempt::degraded_error(provider, &ctx, error),
             }
-        } else if roles.get(&mgmt_pubkey).map(String::as_str) != Some("admin") {
+        } else if !provider.admin_list_observed(ctx.channel) {
+            // The group is there but its kind:39001 has not reached the cache
+            // yet. "Not observed" is not "does not name the management key":
+            // firing a self-grant on the strength of an unseen list is acting
+            // on absence of evidence. Degrade; readiness retries.
+            return attempt::degraded(
+                provider,
+                &ctx,
+                "relay-signed admin list has not been observed yet",
+            );
+        } else if !provider.with_store(|s| {
+            s.is_channel_admin(ctx.channel, &mgmt_pubkey)
+                .unwrap_or(false)
+        }) {
             let granted = provider
                 .try_grant_mgmt_admin_via_user_nsec(ctx.channel, &mgmt_pubkey)
                 .await;
@@ -138,7 +154,9 @@ fn ensure_channel_ready_inner<'a>(
                     );
                 }
             }
-            roles.insert(mgmt_pubkey.clone(), "admin".to_string());
+            // No optimistic local patch is needed: a CONFIRMED self-grant has
+            // already written the management admin row through the same store
+            // every check below reads.
             repaired = true;
         }
 
@@ -198,15 +216,8 @@ fn ensure_channel_ready_inner<'a>(
             provider.fetch_and_materialize_channel(ctx.channel).await;
         }
 
-        let invariant = verify::ensure_invariants(
-            provider,
-            &ctx,
-            &mgmt_pubkey,
-            &parent_admins,
-            &roles,
-            &members,
-        )
-        .await;
+        let invariant =
+            verify::ensure_invariants(provider, &ctx, &mgmt_pubkey, &parent_admins).await;
         if let Some(error) = invariant.degraded {
             return attempt::degraded_error(provider, &ctx, error);
         }

@@ -1,67 +1,50 @@
 use super::Nip29Provider;
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 impl Nip29Provider {
-    /// Fetch the relay's live state for `group`: `(exists, roles, members)`.
-    /// A transport failure remains distinct from genuine relay absence.
-    pub(crate) async fn fetch_group_state(
+    /// Whether any host in scope holds any of `group`'s relay-signed records.
+    ///
+    /// Read from the WIRE, and deliberately never from `relay_channels`. That
+    /// cache also carries the LOCAL row `channel_init` writes for a workspace
+    /// root before the group is provisioned, so a cached row is not evidence
+    /// that the relay has the group. Provisioning is precisely the decision
+    /// that must not be fooled by one — reading a local reservation as relay
+    /// truth skips creation and leaves the workspace unprovisioned.
+    ///
+    /// Only the KIND of each returned record is inspected, so this needs no
+    /// per-event host attribution and parses no `p` row.
+    pub(in crate::fabric::provider) async fn group_records_exist(
         &self,
         group: &str,
-    ) -> Result<(bool, HashMap<String, String>, HashSet<String>)> {
-        use crate::fabric::nip29::wire::{
-            KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
-        };
-        let state_evs = self
+    ) -> Result<bool> {
+        let records = self
             .nmp
             .fetch_group_records(group, 30, Duration::from_secs(5))
             .await
-            .context("fetch_group_state: relay fetch of group state failed")?;
-
-        let newest = |k: u16| {
-            state_evs
-                .iter()
-                .filter(|e| e.kind.as_u16() == k)
-                .max_by_key(|e| e.created_at.as_secs())
-        };
-        let group_exists = newest(KIND_GROUP_METADATA).is_some()
-            || newest(KIND_GROUP_ADMINS).is_some()
-            || newest(KIND_GROUP_MEMBERS).is_some();
-
-        // One roster parse for the whole daemon: `crate::fabric::nip29::roster`.
-        // This used to read the `p` rows here while the materializer read them
-        // again and dropped the role, so the same 39001 described a different
-        // roster depending on which caller decoded it.
-        let roles: HashMap<String, String> = newest(KIND_GROUP_ADMINS)
-            .map(|event| {
-                crate::fabric::nip29::roster::subjects(event)
-                    .into_iter()
-                    .map(|subject| {
-                        // An admin-list row that names no role still names an
-                        // admin. "member" is the pre-existing spelling for
-                        // "the list did not say"; it is preserved verbatim
-                        // rather than reinterpreted in a parser cleanup.
-                        let role = subject.role.unwrap_or_else(|| "member".to_string());
-                        (subject.pubkey, role)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let members: HashSet<String> = newest(KIND_GROUP_MEMBERS)
-            .map(|event| {
-                crate::fabric::nip29::roster::subject_pubkeys(event)
-                    .into_iter()
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok((group_exists, roles, members))
+            .context("group_records_exist: relay fetch of group records failed")?;
+        Ok(records.iter().any(|event| {
+            matches!(
+                event.kind.as_u16(),
+                nmp_nip29::GROUP_METADATA_KIND
+                    | nmp_nip29::GROUP_ADMINS_KIND
+                    | nmp_nip29::GROUP_MEMBERS_KIND
+            )
+        }))
     }
 
-    /// Convenience: just the role map (kind:39001) for `group`.
-    pub(crate) async fn fetch_group_roles(&self, group: &str) -> Result<HashMap<String, String>> {
-        Ok(self.fetch_group_state(group).await?.1)
+    /// Whether a relay-signed kind:39001 for `group` has been observed at all.
+    ///
+    /// Distinguishes "the admin list does not name X" from "no admin list has
+    /// arrived yet". Acting on the second as if it were the first is how a
+    /// daemon fires a repair against state it has never seen.
+    pub(in crate::fabric::provider) fn admin_list_observed(&self, group: &str) -> bool {
+        self.with_store(|store| {
+            store
+                .channel_member_sets(group)
+                .map(|sets| sets.iter().any(|set| set.role == "admin"))
+                .unwrap_or(false)
+        })
     }
 
     /// The `parent` group id declared in `group`'s relay-authored kind:39000 metadata.

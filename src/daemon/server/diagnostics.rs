@@ -32,40 +32,24 @@ pub(in crate::daemon::server) fn rpc_local_backend(
     Ok(serde_json::json!({ "pubkey": pubkey, "backend_label": state.host.clone() }))
 }
 
+/// Wait for the channel's relay-signed roster to be present in the cache.
+///
+/// NOT a fetch. The roster arrives on the ONE retained group-records
+/// observation, so the only thing an RPC that has just mutated membership can
+/// honestly do is wait for that observation to deliver. Waiting is bounded;
+/// `false` means "not observed within the window", never "no such roster".
 pub(in crate::daemon::server) async fn refresh_channel_members_cache(
     state: &Arc<DaemonState>,
     channel: &str,
 ) -> bool {
-    use crate::fabric::nip29::materializer::Nip29Materializer;
-    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS};
-
-    let Ok(events) = state
-        .nmp
-        .fetch_group_records(channel, 10, Duration::from_secs(5))
-        .await
-    else {
-        return false;
-    };
-    let newest_admins = events
-        .iter()
-        .filter(|e| e.kind.as_u16() == KIND_GROUP_ADMINS)
-        .max_by_key(|e| e.created_at.as_secs());
-    let newest_members = events
-        .iter()
-        .filter(|e| e.kind.as_u16() == KIND_GROUP_MEMBERS)
-        .max_by_key(|e| e.created_at.as_secs());
-    if newest_admins.is_none() && newest_members.is_none() {
-        return false;
+    const ATTEMPTS: u32 = 10;
+    for attempt in 0..ATTEMPTS {
+        if state.with_store(|s| s.has_channel_membership_snapshot(channel).unwrap_or(false)) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100 * (attempt as u64 + 1).min(5))).await;
     }
-    state.with_store(|s| {
-        if let Some(ev) = newest_admins {
-            Nip29Materializer::materialize_admins(s, ev);
-        }
-        if let Some(ev) = newest_members {
-            Nip29Materializer::materialize_members(s, ev);
-        }
-    });
-    true
+    false
 }
 
 pub(in crate::daemon::server) fn log_nip29_role_decision(

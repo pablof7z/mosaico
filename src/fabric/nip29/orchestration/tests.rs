@@ -197,16 +197,6 @@ fn parse_none_for_wrong_kind() {
 }
 
 #[test]
-fn is_authorized_only_for_admin() {
-    let mut roles = HashMap::new();
-    roles.insert("admin-pk".to_string(), "admin".to_string());
-    roles.insert("member-pk".to_string(), "member".to_string());
-    assert!(is_authorized(&roles, "admin-pk"));
-    assert!(!is_authorized(&roles, "member-pk"));
-    assert!(!is_authorized(&roles, "absent-pk"));
-}
-
-#[test]
 fn adds_for_backend_filters() {
     let adds = vec![
         at("bk1", "architect"),

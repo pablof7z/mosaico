@@ -15,9 +15,12 @@ pub(super) async fn handle_session_dispatch(
     }
 
     let signer = event.pubkey.to_hex();
-    let (_exists, roles, members) = match state.provider.fetch_group_state(&op.route_channel).await
-    {
-        Ok(state) => state,
+    // The relay-signed roster is read from the cache the ONE retained
+    // group-records observation keeps current — no wire call on the dispatch
+    // path. `is_channel_member` is true for either list, which is the same
+    // admission this used to spell as "named by 39001 or by 39002".
+    let member = match state.with_store(|s| s.is_channel_member(&op.route_channel, &signer)) {
+        Ok(member) => member,
         Err(error) => {
             tracing::warn!(
                 event_id = %&event_id[..event_id.len().min(8)],
@@ -28,7 +31,7 @@ pub(super) async fn handle_session_dispatch(
             return;
         }
     };
-    if !roles.contains_key(&signer) && !members.contains(&signer) {
+    if !member {
         tracing::warn!(
             event_id = %&event_id[..event_id.len().min(8)],
             signer = %crate::util::pubkey_short(&signer),

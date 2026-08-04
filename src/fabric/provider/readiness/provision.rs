@@ -52,22 +52,22 @@ async fn await_metadata(provider: &Nip29Provider, channel: &str) -> bool {
     false
 }
 
+/// Wait for the relay's own kind:39001 to name the management identity.
+///
+/// Polls the cache the retained group-records observation keeps current: the
+/// admin row appears the moment a host publishes the record, so this is a wait
+/// on RELAY state that costs no relay read.
 async fn await_management_admin(provider: &Nip29Provider, channel: &str, management_pubkey: &str) {
     for attempt in 0..6u32 {
-        let roles = provider
-            .fetch_group_roles(channel)
-            .await
-            .unwrap_or_else(|error| {
-                tracing::warn!(
-                    channel,
-                    attempt,
-                    error = %format!("{error:#}"),
-                    "admin state read-back failed after group creation"
-                );
-                Default::default()
-            });
-        if roles.get(management_pubkey).map(String::as_str) == Some("admin") {
-            return;
+        match provider.with_store(|s| s.is_channel_admin(channel, management_pubkey)) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                channel,
+                attempt,
+                error = %format!("{error:#}"),
+                "admin state read-back failed after group creation"
+            ),
         }
         tokio::time::sleep(backoff(attempt)).await;
     }
