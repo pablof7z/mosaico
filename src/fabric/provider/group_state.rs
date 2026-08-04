@@ -3,6 +3,50 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 
 impl Nip29Provider {
+    /// Whether any host in scope holds any of `group`'s relay-signed records.
+    ///
+    /// Read from the WIRE, and deliberately never from `relay_channels`. That
+    /// cache also carries the LOCAL row `channel_init` writes for a workspace
+    /// root before the group is provisioned, so a cached row is not evidence
+    /// that the relay has the group. Provisioning is precisely the decision
+    /// that must not be fooled by one — reading a local reservation as relay
+    /// truth skips creation and leaves the workspace unprovisioned.
+    ///
+    /// Only the KIND of each returned record is inspected, so this needs no
+    /// per-event host attribution and parses no `p` row.
+    pub(in crate::fabric::provider) async fn group_records_exist(
+        &self,
+        group: &str,
+    ) -> Result<bool> {
+        let records = self
+            .nmp
+            .fetch_group_records(group, 30, Duration::from_secs(5))
+            .await
+            .context("group_records_exist: relay fetch of group records failed")?;
+        Ok(records.iter().any(|event| {
+            matches!(
+                event.kind.as_u16(),
+                nmp_nip29::GROUP_METADATA_KIND
+                    | nmp_nip29::GROUP_ADMINS_KIND
+                    | nmp_nip29::GROUP_MEMBERS_KIND
+            )
+        }))
+    }
+
+    /// Whether a relay-signed kind:39001 for `group` has been observed at all.
+    ///
+    /// Distinguishes "the admin list does not name X" from "no admin list has
+    /// arrived yet". Acting on the second as if it were the first is how a
+    /// daemon fires a repair against state it has never seen.
+    pub(in crate::fabric::provider) fn admin_list_observed(&self, group: &str) -> bool {
+        self.with_store(|store| {
+            store
+                .channel_member_sets(group)
+                .map(|sets| sets.iter().any(|set| set.role == "admin"))
+                .unwrap_or(false)
+        })
+    }
+
     /// The `parent` group id declared in `group`'s relay-authored kind:39000 metadata.
     pub async fn fetch_group_parent(&self, group: &str) -> Option<String> {
         match self.try_fetch_group_parent(group).await {
