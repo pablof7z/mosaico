@@ -61,12 +61,12 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
             Nip29Materializer::materialize_channel(store, event);
             return MaterializationOutcome::default();
         }
-        39001 => {
-            Nip29Materializer::materialize_admins(store, event);
-            return MaterializationOutcome::default();
-        }
-        39002 => {
-            Nip29Materializer::materialize_members(store, event);
+        // 39001/39002 never reach this projection: the roster is read through
+        // NMP's group-records observation, which folds both lists across every
+        // host in scope and delivers a whole `GroupSnapshot`. A raw roster
+        // event has no host attribution here, so there is no honest reading of
+        // one at this seam.
+        39001 | 39002 => {
             return MaterializationOutcome::default();
         }
         _ => {}

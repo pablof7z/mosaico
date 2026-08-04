@@ -82,22 +82,23 @@ impl Nip29Provider {
         if candidates.is_empty() {
             return Ok(None);
         }
-        let mut fetch_errors = Vec::new();
+        // `candidates` already came from the relay-signed roster the retained
+        // group-records observation materialized, so membership is settled. The
+        // one thing left to require is that the group's own kind:39000 was
+        // observed too — a roster row for a group whose metadata never arrived
+        // is not something to point a publish probe at.
+        let mut read_errors = Vec::new();
         for group in candidates {
-            match self.fetch_group_state(&group).await {
-                Ok((true, roles, members))
-                    if roles.contains_key(&pubkey) || members.contains(&pubkey) =>
-                {
-                    return Ok(Some(group));
-                }
-                Ok(_) => {}
-                Err(error) => fetch_errors.push(format!("{group}: {error:#}")),
+            match self.with_store(|store| store.get_channel(&group)) {
+                Ok(Some(_)) => return Ok(Some(group)),
+                Ok(None) => {}
+                Err(error) => read_errors.push(format!("{group}: {error:#}")),
             }
         }
-        if !fetch_errors.is_empty() {
+        if !read_errors.is_empty() {
             anyhow::bail!(
                 "could not verify an existing authorized NIP-29 group: {}",
-                fetch_errors.join("; ")
+                read_errors.join("; ")
             );
         }
         Ok(None)

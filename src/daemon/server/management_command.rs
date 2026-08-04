@@ -109,7 +109,7 @@ async fn accept_command(
 ) -> Result<ManagementCommand> {
     let command = parse_command(&event.content)?;
     let signer = event.pubkey.to_hex();
-    if !is_admin(state, channel_h, &signer).await? {
+    if !is_admin(state, channel_h, &signer)? {
         anyhow::bail!(
             "signer {} is not an admin of channel {}",
             crate::util::pubkey_short(&signer),
@@ -207,17 +207,15 @@ async fn archive_named_channel(
     ))
 }
 
-async fn is_admin(state: &Arc<DaemonState>, channel_h: &str, signer: &str) -> Result<bool> {
-    if state.with_store(|s| s.is_channel_admin(channel_h, signer).unwrap_or(false)) {
-        return Ok(true);
-    }
-    Ok(state
-        .provider
-        .fetch_group_roles(channel_h)
-        .await?
-        .get(signer)
-        .map(String::as_str)
-        == Some("admin"))
+/// Whether `signer` is named by the channel's relay-signed kind:39001.
+///
+/// One read of the cache the retained group-records observation keeps current.
+/// The relay fallback this used to carry was the same question asked twice —
+/// the second time over the wire, and with the extra defect that it demanded
+/// the literal role string "admin" that NIP-29 does not require a relay to
+/// write.
+fn is_admin(state: &Arc<DaemonState>, channel_h: &str, signer: &str) -> Result<bool> {
+    state.with_store(|s| s.is_channel_admin(channel_h, signer))
 }
 
 async fn publish_reply(

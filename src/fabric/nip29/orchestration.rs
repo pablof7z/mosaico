@@ -11,7 +11,6 @@
 use crate::fabric::nip29::wire::{kind, KIND_CHAT};
 use anyhow::Result;
 use nostr::*;
-use std::collections::HashMap;
 
 /// Marker `mosaico-op` value identifying the add-agents orchestration event.
 pub const MOSAICO_OP_ADD_AGENTS: &str = "subgroup.add-agents.v2";
@@ -205,11 +204,6 @@ pub fn parse_orchestration(event: &Event) -> Option<AddAgentsOp> {
         adds,
         running_only,
     })
-}
-
-/// A signer is authorized to issue orchestration iff their role is `admin`.
-pub fn is_authorized(roles: &HashMap<String, String>, signer: &str) -> bool {
-    roles.get(signer).map(String::as_str) == Some("admin")
 }
 
 /// Filter the adds down to those targeting `backend_pubkey` (this backend).

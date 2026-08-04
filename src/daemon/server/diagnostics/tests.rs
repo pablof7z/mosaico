@@ -1,9 +1,8 @@
 use super::super::*;
 use crate::daemon::protocol::Request;
-use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
 use crate::state::RegisterSession;
 use nmp::WriteStatus;
-use nostr::{Event, EventBuilder, Keys, Kind, Tag};
+use nostr::{EventBuilder, Keys, Kind};
 
 #[path = "tests/status.rs"]
 mod status;
@@ -13,33 +12,6 @@ const RELAY: &str = "wss://relay.example.com";
 // NMP revision cannot originate this classification itself.
 const SCRIPTED_CLASSIFIED_FAILURE: &str =
     "fault=latched durability=absent reopen=required: Previous I/O error occurred";
-
-fn event(kind: u16, tags: Vec<Tag>) -> Event {
-    EventBuilder::new(Kind::from(kind), "")
-        .tags(tags)
-        .sign_with_keys(&Keys::generate())
-        .unwrap()
-}
-
-fn group_state(group: &str, management: &str) -> Vec<Event> {
-    vec![
-        event(
-            KIND_GROUP_METADATA,
-            vec![
-                Tag::parse(["d", group]).unwrap(),
-                Tag::parse(["name", "project"]).unwrap(),
-            ],
-        ),
-        event(
-            KIND_GROUP_ADMINS,
-            vec![
-                Tag::parse(["d", group]).unwrap(),
-                Tag::parse(["p", management, "admin"]).unwrap(),
-            ],
-        ),
-        event(KIND_GROUP_MEMBERS, vec![Tag::parse(["d", group]).unwrap()]),
-    ]
-}
 
 fn register_caller(state: &Arc<DaemonState>, pubkey: &str) {
     state
@@ -150,13 +122,20 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     let management = state.backend_pubkey().unwrap();
     register_caller(&state, &caller);
 
-    let relay_state = group_state("project", &management);
-    state.nmp.script_read_events(relay_state.clone());
-    state.nmp.script_read_events(vec![relay_state[0].clone()]);
+    // Readiness reads the relay-signed roster from the cache the retained
+    // group-records observation keeps current, so the fixture seeds the cache
+    // rather than scripting a bounded read that no longer happens.
+    state
+        .with_store(|store| {
+            store.replace_channel_admins("project", std::slice::from_ref(&management), 2)?;
+            store.replace_channel_members("project", &[], 3)
+        })
+        .unwrap();
+    state.nmp.script_read_events(Vec::new());
     state.nmp.script_write_statuses(vec![WriteStatus::Failed(
         SCRIPTED_CLASSIFIED_FAILURE.into(),
     )]);
-    state.nmp.script_read_events(relay_state);
+    state.nmp.script_read_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,

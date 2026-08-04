@@ -1,69 +1,8 @@
 use super::Nip29Provider;
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 impl Nip29Provider {
-    /// Fetch the relay's live state for `group`: `(exists, roles, members)`.
-    /// A transport failure remains distinct from genuine relay absence.
-    pub(crate) async fn fetch_group_state(
-        &self,
-        group: &str,
-    ) -> Result<(bool, HashMap<String, String>, HashSet<String>)> {
-        use crate::fabric::nip29::wire::{
-            KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA,
-        };
-        let state_evs = self
-            .nmp
-            .fetch_group_records(group, 30, Duration::from_secs(5))
-            .await
-            .context("fetch_group_state: relay fetch of group state failed")?;
-
-        let newest = |k: u16| {
-            state_evs
-                .iter()
-                .filter(|e| e.kind.as_u16() == k)
-                .max_by_key(|e| e.created_at.as_secs())
-        };
-        let group_exists = newest(KIND_GROUP_METADATA).is_some()
-            || newest(KIND_GROUP_ADMINS).is_some()
-            || newest(KIND_GROUP_MEMBERS).is_some();
-
-        // One roster parse for the whole daemon: `crate::fabric::nip29::roster`.
-        // This used to read the `p` rows here while the materializer read them
-        // again and dropped the role, so the same 39001 described a different
-        // roster depending on which caller decoded it.
-        let roles: HashMap<String, String> = newest(KIND_GROUP_ADMINS)
-            .map(|event| {
-                crate::fabric::nip29::roster::subjects(event)
-                    .into_iter()
-                    .map(|subject| {
-                        // An admin-list row that names no role still names an
-                        // admin. "member" is the pre-existing spelling for
-                        // "the list did not say"; it is preserved verbatim
-                        // rather than reinterpreted in a parser cleanup.
-                        let role = subject.role.unwrap_or_else(|| "member".to_string());
-                        (subject.pubkey, role)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let members: HashSet<String> = newest(KIND_GROUP_MEMBERS)
-            .map(|event| {
-                crate::fabric::nip29::roster::subject_pubkeys(event)
-                    .into_iter()
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok((group_exists, roles, members))
-    }
-
-    /// Convenience: just the role map (kind:39001) for `group`.
-    pub(crate) async fn fetch_group_roles(&self, group: &str) -> Result<HashMap<String, String>> {
-        Ok(self.fetch_group_state(group).await?.1)
-    }
-
     /// The `parent` group id declared in `group`'s relay-authored kind:39000 metadata.
     pub async fn fetch_group_parent(&self, group: &str) -> Option<String> {
         match self.try_fetch_group_parent(group).await {

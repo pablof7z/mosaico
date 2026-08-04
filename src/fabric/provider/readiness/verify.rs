@@ -1,20 +1,23 @@
 use super::{ChannelCtx, Nip29Provider};
 use crate::fabric::group_management::GroupMutationOutcome;
 use crate::fabric::nip29::readiness::ChannelReadinessError;
-use std::collections::{HashMap, HashSet};
 
 pub(super) struct Outcome {
     pub(super) repaired: bool,
     pub(super) degraded: Option<ChannelReadinessError>,
 }
 
+/// Bring the relay's roster up to the invariants a ready channel must satisfy.
+///
+/// Every membership question is asked of the cache the retained group-records
+/// observation keeps current. "Is an admin" means NAMED BY kind:39001 — not
+/// that the record spelled the free-form role string "admin" — which is the
+/// same reading the store itself materializes.
 pub(super) async fn ensure_invariants(
     provider: &Nip29Provider,
     ctx: &ChannelCtx<'_>,
     mgmt_pubkey: &str,
     parent_admins: &[String],
-    roles: &HashMap<String, String>,
-    members: &HashSet<String>,
 ) -> Outcome {
     let mut repaired = false;
     let mut required_admins: Vec<String> = vec![mgmt_pubkey.to_string()];
@@ -27,7 +30,7 @@ pub(super) async fn ensure_invariants(
         }
     }
     for pk in &required_admins {
-        if roles.get(pk.as_str()).map(String::as_str) == Some("admin") {
+        if provider.with_store(|s| s.is_channel_admin(ctx.channel, pk).unwrap_or(false)) {
             continue;
         }
         match confirmed(
@@ -56,10 +59,11 @@ pub(super) async fn ensure_invariants(
             .iter()
             .any(|pk| pk == ctx.expect_member)
         || parent_admins.iter().any(|pk| pk == ctx.expect_member);
-    if !expect_already_admin
-        && !members.contains(ctx.expect_member)
-        && !roles.contains_key(ctx.expect_member)
-    {
+    let expect_listed = provider.with_store(|s| {
+        s.is_channel_member(ctx.channel, ctx.expect_member)
+            .unwrap_or(false)
+    });
+    if !expect_already_admin && !expect_listed {
         match confirmed(
             provider
                 .grant_member_confirmed(ctx.channel, ctx.expect_member)
@@ -75,7 +79,7 @@ pub(super) async fn ensure_invariants(
             }
         }
     } else {
-        sync_local_member_mirror(provider, ctx, roles);
+        sync_local_member_mirror(provider, ctx);
     }
     Outcome {
         repaired,
@@ -95,11 +99,7 @@ fn confirmed(outcome: GroupMutationOutcome, action: String) -> Result<(), Channe
     }
 }
 
-fn sync_local_member_mirror(
-    provider: &Nip29Provider,
-    ctx: &ChannelCtx<'_>,
-    roles: &HashMap<String, String>,
-) {
+fn sync_local_member_mirror(provider: &Nip29Provider, ctx: &ChannelCtx<'_>) {
     let locally =
         provider.with_store(
             |s| match s.is_channel_member(ctx.channel, ctx.expect_member) {
@@ -118,10 +118,17 @@ fn sync_local_member_mirror(
     if locally {
         return;
     }
-    let role = roles
-        .get(ctx.expect_member)
-        .map(String::as_str)
-        .unwrap_or("member");
+    // Which of the two relay-signed lists names the subject decides the row.
+    // A subject on kind:39001 is an admin however the relay filled — or left
+    // empty — the role position beside it.
+    let role = if provider.with_store(|s| {
+        s.is_channel_admin(ctx.channel, ctx.expect_member)
+            .unwrap_or(false)
+    }) {
+        "admin"
+    } else {
+        "member"
+    };
     provider.with_store(|s| {
         if let Err(e) = s.upsert_channel_member(
             ctx.channel,

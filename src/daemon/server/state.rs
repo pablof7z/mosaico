@@ -65,6 +65,9 @@ pub(super) struct SubscriptionState {
     pub(super) roots: Mutex<Vec<String>>,
     pub(super) reconciler: Mutex<SubscriptionReconciler>,
     pub(super) sync: tokio::sync::Mutex<()>,
+    /// The one retained NIP-29 group-records observation. Mosaico owns this
+    /// handle and its lifetime; NMP caches no observation on its behalf.
+    pub(super) group_records: Mutex<super::group_records::GroupRecordsWatch>,
 }
 
 impl SubscriptionState {
@@ -73,6 +76,7 @@ impl SubscriptionState {
             roots: Mutex::new(Vec::new()),
             reconciler: Mutex::new(SubscriptionReconciler::new()),
             sync: tokio::sync::Mutex::new(()),
+            group_records: Mutex::new(super::group_records::GroupRecordsWatch::default()),
         }
     }
 }

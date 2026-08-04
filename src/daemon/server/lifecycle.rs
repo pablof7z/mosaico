@@ -158,6 +158,9 @@ pub async fn run() -> Result<()> {
     shutdown::rpc_sessions(&state).await;
     shutdown::pty_supervisors_if_requested();
     cleanup();
+    // Mosaico owns the group-records observation, so Mosaico withdraws it —
+    // before the engine goes down under it.
+    super::group_records::shutdown(&state);
     state.nmp.shutdown();
     drop(lock);
     Ok(())

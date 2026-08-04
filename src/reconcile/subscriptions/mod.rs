@@ -30,9 +30,6 @@ pub enum SubscriptionQuery {
     /// The relay-signed records describing every group these hosts serve
     /// (kind:39000). Per-relay-authoritative, so per-host and strict.
     AllGroupMetadata,
-    /// The relay-signed records describing ONE group (kinds 39000/39001/39002,
-    /// keyed by `d`). Per-relay-authoritative.
-    GroupRecords { group: String },
     /// The contents of one group, scoped by `#h`. Per-relay-authoritative:
     /// a kind:9 carrying `h=X` served by a relay that does not host group `X`
     /// is not in this group.
@@ -84,7 +81,6 @@ pub struct CoverageSnapshot {
 enum Space {
     GlobalKind,
     ChannelH,
-    GroupStateD,
     PubkeyP,
     ProfileAuthor,
 }
@@ -178,12 +174,6 @@ fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
     {
         add_channel_owner(&mut desired, channel);
     }
-    for channel in snapshot
-        .group_state_channels
-        .difference(&snapshot.archived_channels)
-    {
-        add_owner(&mut desired, (Space::GroupStateD, channel.clone()));
-    }
     for channels in snapshot.sessions.values() {
         for channel in channels.difference(&snapshot.archived_channels) {
             add_channel_owner(&mut desired, channel);
@@ -200,7 +190,6 @@ fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
 
 fn add_channel_owner(owners: &mut BTreeMap<SubKey, usize>, channel: &str) {
     add_owner(owners, (Space::ChannelH, channel.to_string()));
-    add_owner(owners, (Space::GroupStateD, channel.to_string()));
 }
 
 fn add_owner(owners: &mut BTreeMap<SubKey, usize>, key: SubKey) {
@@ -218,7 +207,6 @@ fn sub_id((space, entity): &SubKey) -> String {
     match space {
         Space::GlobalKind => format!("mosaico-global-kind-{entity}"),
         Space::ChannelH => format!("mosaico-h-{entity}"),
-        Space::GroupStateD => format!("mosaico-gstate-{entity}"),
         Space::PubkeyP => format!("mosaico-p-{entity}"),
         Space::ProfileAuthor => format!("mosaico-profile-{entity}"),
     }
@@ -240,9 +228,6 @@ fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
         Space::ChannelH => SubscriptionQuery::GroupContents {
             group: entity.clone(),
             kinds: BTreeSet::from([KIND_CHAT, KIND_STATUS]),
-        },
-        Space::GroupStateD => SubscriptionQuery::GroupRecords {
-            group: entity.clone(),
         },
         Space::PubkeyP => SubscriptionQuery::Mentions {
             pubkey: entity.clone(),

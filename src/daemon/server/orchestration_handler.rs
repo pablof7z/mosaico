@@ -13,8 +13,6 @@ pub(super) async fn handle_orchestration(
     event: &Event,
     op: crate::fabric::nip29::orchestration::AddAgentsOp,
 ) {
-    use crate::fabric::nip29::orchestration::is_authorized;
-
     let event_id = event.id.to_hex();
     let Some(backend_pk) = state.backend_pubkey() else {
         return;
@@ -30,8 +28,10 @@ pub(super) async fn handle_orchestration(
     }
 
     let signer = event.pubkey.to_hex();
-    let parent_roles = match state.provider.fetch_group_roles(&op.parent).await {
-        Ok(roles) => roles,
+    // Admin authority is read from the cache the retained group-records
+    // observation keeps current: named by the channel's relay-signed kind:39001.
+    let parent_admin = match state.with_store(|s| s.is_channel_admin(&op.parent, &signer)) {
+        Ok(is_admin) => is_admin,
         Err(error) => {
             tracing::warn!(
                 event_id = %&event_id[..event_id.len().min(8)],
@@ -42,11 +42,11 @@ pub(super) async fn handle_orchestration(
             return;
         }
     };
-    let authorized = if is_authorized(&parent_roles, &signer) {
+    let authorized = if parent_admin {
         true
     } else {
-        let child_roles = match state.provider.fetch_group_roles(&op.child_h).await {
-            Ok(roles) => roles,
+        match state.with_store(|s| s.is_channel_admin(&op.child_h, &signer)) {
+            Ok(is_admin) => is_admin,
             Err(error) => {
                 tracing::warn!(
                     event_id = %&event_id[..event_id.len().min(8)],
@@ -56,8 +56,7 @@ pub(super) async fn handle_orchestration(
                 );
                 return;
             }
-        };
-        is_authorized(&child_roles, &signer)
+        }
     };
     if !authorized {
         tracing::warn!(

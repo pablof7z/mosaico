@@ -27,22 +27,25 @@ impl Nip29Provider {
         let mut last_readback_error = None;
         for attempt in 0..6u32 {
             let outcome = self.nip29_remove_member_outcome(channel, pubkey).await;
-            match self.fetch_group_state(channel).await {
-                Ok((_, roles, members)) => {
-                    if !members.contains(pubkey) && !roles.contains_key(pubkey) {
-                        self.with_store(|s| {
-                            if let Err(e) = s.remove_channel_member(channel, pubkey) {
-                                tracing::error!(
-                                    channel,
-                                    pubkey,
-                                    error = %e,
-                                    "remove_member_confirmed: local mirror remove failed after confirmed relay removal"
-                                );
-                            }
-                        });
-                        return GroupMutationOutcome::Confirmed;
-                    }
+            // Read back from the cache the retained group-records observation
+            // keeps current. Confirmation still rests on OBSERVED relay state:
+            // the roster row only leaves the cache when a host publishes a
+            // 39001/39002 that no longer names the subject.
+            match self.with_store(|s| s.is_channel_member(channel, pubkey)) {
+                Ok(false) => {
+                    self.with_store(|s| {
+                        if let Err(e) = s.remove_channel_member(channel, pubkey) {
+                            tracing::error!(
+                                channel,
+                                pubkey,
+                                error = %e,
+                                "remove_member_confirmed: local mirror remove failed after confirmed relay removal"
+                            );
+                        }
+                    });
+                    return GroupMutationOutcome::Confirmed;
                 }
+                Ok(true) => {}
                 Err(e) => {
                     last_readback_error = Some(format!("{e:#}"));
                     tracing::error!(
@@ -50,7 +53,7 @@ impl Nip29Provider {
                         pubkey,
                         attempt,
                         error = %e,
-                        "remove_member_confirmed: relay read-back failed; cannot confirm removal"
+                        "remove_member_confirmed: roster read-back failed; cannot confirm removal"
                     );
                 }
             }
@@ -61,8 +64,8 @@ impl Nip29Provider {
         }
         GroupMutationOutcome::Unconfirmed {
             detail: last_readback_error
-                .map(|error| format!("relay read-back failed: {error}"))
-                .unwrap_or_else(|| "relay read-back still showed the member present".into()),
+                .map(|error| format!("roster read-back failed: {error}"))
+                .unwrap_or_else(|| "roster read-back still showed the member present".into()),
         }
     }
 
@@ -81,30 +84,36 @@ impl Nip29Provider {
             };
             // Confirm ONLY on a relay state we actually OBSERVED. A read-back
             // failure must never be promoted to "grant confirmed".
-            match self.fetch_group_state(channel).await {
-                Ok((_, roles, members)) => {
-                    let present = if want_admin {
-                        roles.get(pubkey).map(String::as_str) == Some("admin")
-                    } else {
-                        members.contains(pubkey) || roles.contains_key(pubkey)
-                    };
-                    if present {
-                        let role = if want_admin { "admin" } else { "member" };
-                        self.with_store(|s| {
-                            if let Err(e) = s.upsert_channel_member(channel, pubkey, role, now_secs())
-                            {
-                                tracing::error!(
-                                    channel,
-                                    pubkey,
-                                    role,
-                                    error = %e,
-                                    "confirm_role_grant: local mirror write failed after confirmed relay grant"
-                                );
-                            }
-                        });
-                        return GroupMutationOutcome::Confirmed;
-                    }
+            //
+            // An admin grant is confirmed by the subject appearing on the
+            // relay's kind:39001, NOT by that record carrying the literal role
+            // string "admin". NIP-29's role position is a free-form label the
+            // relay may leave empty; the admin list IS the grant. Requiring the
+            // string meant a relay that wrote `["p", <pubkey>]` never confirmed
+            // a grant it had in fact applied.
+            match self.with_store(|s| {
+                if want_admin {
+                    s.is_channel_admin(channel, pubkey)
+                } else {
+                    s.is_channel_member(channel, pubkey)
                 }
+            }) {
+                Ok(true) => {
+                    let role = if want_admin { "admin" } else { "member" };
+                    self.with_store(|s| {
+                        if let Err(e) = s.upsert_channel_member(channel, pubkey, role, now_secs()) {
+                            tracing::error!(
+                                channel,
+                                pubkey,
+                                role,
+                                error = %e,
+                                "confirm_role_grant: local mirror write failed after confirmed relay grant"
+                            );
+                        }
+                    });
+                    return GroupMutationOutcome::Confirmed;
+                }
+                Ok(false) => {}
                 Err(e) => {
                     last_readback_error = Some(format!("{e:#}"));
                     tracing::error!(
@@ -112,7 +121,7 @@ impl Nip29Provider {
                         pubkey,
                         attempt,
                         error = %e,
-                        "confirm_role_grant: relay read-back failed; cannot confirm grant"
+                        "confirm_role_grant: roster read-back failed; cannot confirm grant"
                     );
                 }
             }
@@ -123,8 +132,8 @@ impl Nip29Provider {
         }
         GroupMutationOutcome::Unconfirmed {
             detail: last_readback_error
-                .map(|error| format!("relay read-back failed: {error}"))
-                .unwrap_or_else(|| "relay read-back did not show the requested role".into()),
+                .map(|error| format!("roster read-back failed: {error}"))
+                .unwrap_or_else(|| "roster read-back did not show the requested role".into()),
         }
     }
 }

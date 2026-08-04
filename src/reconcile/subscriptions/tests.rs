@@ -58,8 +58,6 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
             "mosaico-global-kind-39000",
             "mosaico-h-room-a",
             "mosaico-h-room-b",
-            "mosaico-gstate-room-a",
-            "mosaico-gstate-room-b",
             "mosaico-p-pk-1",
             "mosaico-p-pk-2",
             "mosaico-profile-backend-1",
@@ -68,8 +66,14 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
     assert!(sync(&mut policy, &snapshot).is_empty());
 }
 
+/// A known-but-unjoined channel gets its relay-signed records hydrated without
+/// its CONTENTS being subscribed to. This reconciler now owns only the second
+/// half of that: the records ride the one retained group-records observation,
+/// whose coverage is asserted in
+/// `daemon::server::group_records::tests` — `group_state_channels` reaches its
+/// watched id set there.
 #[test]
-fn known_unjoined_channels_hydrate_group_state_without_subscribing_to_content() {
+fn known_unjoined_channels_do_not_subscribe_to_content() {
     let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {
         group_state_channels: set(["known-child"]),
         ..Default::default()
@@ -77,7 +81,6 @@ fn known_unjoined_channels_hydrate_group_state_without_subscribing_to_content() 
     let opened = open_ids(&effects);
 
     assert!(opened.contains("mosaico-global-kind-39000"));
-    assert!(opened.contains("mosaico-gstate-known-child"));
     assert!(!opened.contains("mosaico-h-known-child"));
 }
 
@@ -133,7 +136,6 @@ fn channel_closes_only_when_last_owner_leaves() {
     );
     let closed = close_ids(&last_leave);
     assert!(closed.contains("mosaico-h-shared"));
-    assert!(closed.contains("mosaico-gstate-shared"));
     assert!(policy.covers_channel("solo"));
     assert!(!policy.covers_channel("shared"));
 }

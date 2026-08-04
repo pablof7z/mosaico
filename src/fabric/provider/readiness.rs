@@ -96,19 +96,26 @@ fn ensure_channel_ready_inner<'a>(
         } else {
             vec![]
         };
-        // A relay fetch FAILURE must never be read as "group absent" — that would
-        // drive spurious group re-creation (fabrication-by-omission). Degrade
-        // loudly without attempting to create anything.
-        let (group_exists, mut roles, members) = match provider.fetch_group_state(ctx.channel).await
+        // ABSENCE FROM THE CACHE IS NOT EVIDENCE OF ABSENCE AT THE RELAY. The
+        // retained group-records observation may simply not have delivered this
+        // group yet, and reading that as "group absent" would drive spurious
+        // re-creation (fabrication-by-omission). So the cheap local answer is
+        // only ever used to CONFIRM existence; concluding the opposite costs a
+        // direct read of the relay's own kind:39000, on the cold path only.
+        let group_exists = provider
+            .with_store(|s| s.get_channel(ctx.channel).ok().flatten().is_some())
+            || provider.fetch_and_materialize_channel(ctx.channel).await;
+        let mgmt_is_admin = match provider
+            .with_store(|s| s.is_channel_admin(ctx.channel, &mgmt_pubkey))
         {
-            Ok(state) => state,
+            Ok(is_admin) => is_admin,
             Err(e) => {
                 tracing::error!(
                     channel = ctx.channel,
                     error = %format!("{e:#}"),
-                    "ensure_channel_ready: relay fetch failed — degrading without attempting creation (no fabrication-by-omission)"
+                    "ensure_channel_ready: roster read failed — degrading without attempting creation (no fabrication-by-omission)"
                 );
-                return attempt::degraded(provider, &ctx, format!("relay fetch failed: {e:#}"));
+                return attempt::degraded(provider, &ctx, format!("roster read failed: {e:#}"));
             }
         };
         let mut repaired = false;
@@ -117,7 +124,7 @@ fn ensure_channel_ready_inner<'a>(
                 Ok(created) => repaired |= created,
                 Err(error) => return attempt::degraded_error(provider, &ctx, error),
             }
-        } else if roles.get(&mgmt_pubkey).map(String::as_str) != Some("admin") {
+        } else if !mgmt_is_admin {
             let granted = provider
                 .try_grant_mgmt_admin_via_user_nsec(ctx.channel, &mgmt_pubkey)
                 .await;
@@ -138,7 +145,9 @@ fn ensure_channel_ready_inner<'a>(
                     );
                 }
             }
-            roles.insert(mgmt_pubkey.clone(), "admin".to_string());
+            // No optimistic local patch is needed: a CONFIRMED self-grant has
+            // already written the management admin row through the same store
+            // every check below reads.
             repaired = true;
         }
 
@@ -198,15 +207,8 @@ fn ensure_channel_ready_inner<'a>(
             provider.fetch_and_materialize_channel(ctx.channel).await;
         }
 
-        let invariant = verify::ensure_invariants(
-            provider,
-            &ctx,
-            &mgmt_pubkey,
-            &parent_admins,
-            &roles,
-            &members,
-        )
-        .await;
+        let invariant =
+            verify::ensure_invariants(provider, &ctx, &mgmt_pubkey, &parent_admins).await;
         if let Some(error) = invariant.degraded {
             return attempt::degraded_error(provider, &ctx, error);
         }

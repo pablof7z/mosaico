@@ -9,15 +9,16 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     let keys = Keys::generate();
     let pubkey = keys.public_key().to_hex();
     let management = state.backend_pubkey().unwrap();
-    let mut relay_state = group_state("project", &management);
-    relay_state[2] = event(
-        KIND_GROUP_MEMBERS,
-        vec![
-            Tag::parse(["d", "project"]).unwrap(),
-            Tag::parse(["p", pubkey.as_str()]).unwrap(),
-        ],
-    );
-    state.nmp.script_read_events(relay_state);
+    // The publish gate reads the relay-signed roster from the cache the
+    // retained group-records observation keeps current, so the fixture seeds
+    // the cache rather than scripting a bounded read that no longer happens.
+    state
+        .with_store(|store| {
+            store.upsert_channel("project", "project", "", "", 1)?;
+            store.replace_channel_admins("project", std::slice::from_ref(&management), 2)?;
+            store.replace_channel_members("project", std::slice::from_ref(&pubkey), 3)
+        })
+        .unwrap();
     state.nmp.script_write_statuses(vec![WriteStatus::Failed(
         SCRIPTED_CLASSIFIED_FAILURE.into(),
     )]);
