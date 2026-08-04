@@ -81,10 +81,46 @@ impl DaemonState {
     }
 }
 
+/// The root workspaces this backend MANAGES: the ones whose relay-signed
+/// kind:39001 admin list names the management key.
+///
+/// This is the local reading of "to which groups does my management key belong
+/// on this relay as an admin?" — the question the retained group-records
+/// observation stands open on, materialized into `relay_channel_members`. It is
+/// deliberately not "every root channel this daemon has heard of": a backend
+/// caches the metadata of groups it merely observes, and advertising those as
+/// its own workspaces claims hosting it cannot provide. Consumers
+/// (`profile_qualifies`, `backend_profiles_for_root`) already intersect the
+/// advertised list with admin membership, so the over-claim was one they had to
+/// defend against rather than one they could use.
+///
+/// A locally bound workspace whose group has not been provisioned yet is
+/// absent, by the same rule: `channel_init` writes a local reservation before
+/// the relay holds anything, and a reservation is not an admin grant.
+pub(in crate::daemon::server) fn managed_roots(
+    store: &crate::state::Store,
+    management_pubkey: &str,
+) -> Result<Vec<String>> {
+    if management_pubkey.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut roots = Vec::new();
+    for channel_h in store.list_channels_where_admin(management_pubkey)? {
+        let Some(channel) = store.get_channel(&channel_h)? else {
+            continue;
+        };
+        if channel.parent.is_empty() && !channel.is_archived() {
+            roots.push(channel_h);
+        }
+    }
+    Ok(roots)
+}
+
 pub(in crate::daemon::server) fn backend_profile_snapshot(
     state: &Arc<DaemonState>,
 ) -> Result<BackendProfileSnapshot> {
-    let workspaces = state.with_store(super::who::root_channels)?;
+    let management_pubkey = state.backend_pubkey().unwrap_or_default();
+    let workspaces = state.with_store(|store| managed_roots(store, &management_pubkey))?;
     let bindings = state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()
     })?;
