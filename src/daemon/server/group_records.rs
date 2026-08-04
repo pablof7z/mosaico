@@ -143,6 +143,8 @@ pub(in crate::daemon::server) fn shutdown(state: &DaemonState) {
 /// a lost or redelivered frame is benign and there is no accumulated state
 /// here to corrupt.
 async fn drain(state: Arc<DaemonState>, observation: GroupObservation) {
+    let mut renamed: BTreeSet<String> = BTreeSet::new();
+    let mut advertised = managed_roots(&state);
     loop {
         let snapshots = match observation.next().await {
             Ok(Some(snapshots)) => snapshots,
@@ -155,6 +157,10 @@ async fn drain(state: Arc<DaemonState>, observation: GroupObservation) {
                 return;
             }
         };
+        let delivered: BTreeSet<String> = snapshots
+            .iter()
+            .map(|snapshot| snapshot.id.clone())
+            .collect();
         let discovered = state.with_store(|store| {
             let mut discovered = false;
             for snapshot in &snapshots {
@@ -163,6 +169,17 @@ async fn drain(state: Arc<DaemonState>, observation: GroupObservation) {
             }
             discovered
         });
+        // The delivery just moved the relay-signed admin lists, so it may have
+        // moved the answer to "which roots does my management key administer?"
+        // — both the names this backend owes those roots and the set it
+        // advertises. The profile is republished only when that set actually
+        // changed; a roster event about a group already advertised is not news.
+        root_names::repair_delivered(&state, &delivered, &mut renamed);
+        let managed = managed_roots(&state);
+        if managed != advertised {
+            advertised = managed;
+            state.schedule_backend_profile_refresh();
+        }
         if discovered {
             // A group nobody had enumerated now names a local identity in its
             // relay-signed roster. Recomputing coverage brings its contents
@@ -176,6 +193,21 @@ async fn drain(state: Arc<DaemonState>, observation: GroupObservation) {
         }
     }
 }
+
+/// The roots this backend currently administers, as the profile would state
+/// them. Read here so the drain can tell a delivery that changed the answer
+/// from one that merely repeated it.
+fn managed_roots(state: &DaemonState) -> Vec<String> {
+    let Some(management_pubkey) = state.backend_pubkey() else {
+        return Vec::new();
+    };
+    state
+        .with_store(|store| super::backend_profile::managed_roots(store, &management_pubkey))
+        .unwrap_or_default()
+}
+
+#[path = "group_records/root_names.rs"]
+mod root_names;
 
 #[cfg(test)]
 #[path = "group_records/tests.rs"]

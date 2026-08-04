@@ -4,13 +4,14 @@ const CHANNEL_MEMBER_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 // ── root_channels ────────────────────────────────────────────────────────────
 
-/// List NIP-29 root channels: refresh the local cache via the provider (which
-/// fetches kind:39000 from the relay), then return the read-model list.
-pub async fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
-    // Provider fetches kind:39000 from the relay and upserts relay_channels.
-    // Best-effort: a relay timeout must not prevent returning cached results.
-    state.provider.refresh_root_channels().await.ok();
-
+/// List the NIP-29 root channels this daemon knows, from the read model alone.
+///
+/// There is no fetch here on purpose. `relay_channels` is kept current by the
+/// standing kind:39000 observation and by the retained group-records
+/// observation, so asking the relay again on every call would re-derive state
+/// the daemon is already holding — and would do it with a bound and a timeout
+/// that make the answer worse, not better.
+pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
     let channels: Vec<serde_json::Value> = state
         .with_store(|s| s.list_root_channels())
         .unwrap_or_default()

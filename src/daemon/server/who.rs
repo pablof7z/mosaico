@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::BTreeSet;
 
 #[path = "who/human.rs"]
 mod human_view;
@@ -96,7 +95,7 @@ pub(in crate::daemon::server) fn rpc_who(
             out["fabric_human"] = serde_json::Value::String(human);
         }
     } else if p.all_workspaces {
-        let roots = state.with_store(root_channels)?;
+        let roots = state.with_store(all_known_roots)?;
         let human = state.with_store(|s| {
             crate::fabric_context::render_fabric_all_workspaces_human(
                 s,
@@ -142,16 +141,22 @@ fn publicize_snapshot(
     snapshot.root_display = snapshot.root.clone();
 }
 
-/// Top-level root channels (`parent` empty), non-archived — the set
-/// `--all-workspaces` fans its unified fabric render across.
-pub(super) fn root_channels(store: &crate::state::Store) -> Result<Vec<String>> {
+/// Every non-archived top-level root this daemon knows of, plus every locally
+/// bound workspace — the set `who --all-workspaces` fans its unified fabric
+/// render across.
+///
+/// Deliberately "everything cached", because that is what the operator asked
+/// to see. It is NOT the set this backend manages, and must not be reused as
+/// one: that question is answered by the relay-signed admin lists
+/// (`backend_profile::managed_roots`), not by what happens to be cached.
+fn all_known_roots(store: &crate::state::Store) -> Result<Vec<String>> {
     let mut roots = store
         .reader()
         .list_channels()?
         .into_iter()
         .filter(|c| c.parent.is_empty() && !c.is_archived())
         .map(|c| c.channel_h)
-        .collect::<BTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>();
     roots.extend(
         crate::daemon::workspace_path::WorkspacePathResolver::new(store)
             .bindings()?

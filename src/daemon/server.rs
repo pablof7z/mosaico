@@ -243,7 +243,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "doctor" => rpc_doctor(state).await,
         "explain" => rpc_explain(state, &req.params),
         "local_backend" => rpc_local_backend(state),
-        "root_channels" => rpc::rpc_root_channels(state).await,
+        "root_channels" => rpc::rpc_root_channels(state),
         "channel_members" => rpc::rpc_channel_members(state, &req.params).await,
         "channel_add_member" => rpc::rpc_channel_add_member(state, &req.params).await,
         "channel_remove_member" => rpc::rpc_channel_remove_member(state, &req.params).await,

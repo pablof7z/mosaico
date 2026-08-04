@@ -40,9 +40,20 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
         "name='project'\ndescription='Project work'\ndeveloper_instructions='Work'",
     );
     let state = DaemonState::new_for_test().await;
+    let management = state.backend_pubkey().unwrap();
     state.with_store(|store| {
         store.upsert_channel("root-a", "root-a", "", "", 1).unwrap();
         store.upsert_channel("root-b", "root-b", "", "", 1).unwrap();
+        // Observed but not administered: cached because the relay describes it,
+        // never this backend's to advertise.
+        store
+            .upsert_channel("someone-elses", "someone-elses", "", "", 1)
+            .unwrap();
+        for root in ["root-a", "root-b"] {
+            store
+                .upsert_channel_member(root, &management, "admin", 1)
+                .unwrap();
+        }
         store
             .upsert_workspace("root-a", &work_a.to_string_lossy(), 1)
             .unwrap();

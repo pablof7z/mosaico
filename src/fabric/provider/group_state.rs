@@ -126,19 +126,4 @@ impl Nip29Provider {
         }
         self.with_store(|s| s.get_channel(group).ok().flatten().is_some())
     }
-
-    /// Fetch all kind:39000 events from the relay and materialize them into the
-    /// `relay_channels` cache via the single inbound materializer.
-    pub async fn refresh_root_channels(&self) -> Result<()> {
-        use crate::fabric::nip29::materializer::Nip29Materializer;
-        let events = self
-            .nmp
-            .fetch_all_group_metadata(200, Duration::from_secs(5))
-            .await
-            .context("refresh_root_channels: relay fetch of kind:39000 list failed")?;
-        for ev in &events {
-            self.with_store(|s| Nip29Materializer::materialize_channel(s, ev));
-        }
-        Ok(())
-    }
 }
