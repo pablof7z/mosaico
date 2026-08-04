@@ -20,6 +20,7 @@ pub(in crate::cli) async fn launch(request: LaunchRequest) -> Result<()> {
         extra_args,
     } = request;
     let cwd = std::env::current_dir().unwrap_or_default();
+    super::durable_key::ensure_ready(&requested_agent).await?;
     let selection = resolve_fresh_agent(&requested_agent, &cwd).await?;
     let agent = selection.slug;
     let root = crate::daemon::workspace_path::channel_for_path_optional(&cwd)?;

@@ -44,6 +44,41 @@ pub(super) fn rpc_agent_save(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AgentKeyParams {
+    slug: String,
+}
+
+pub(super) fn rpc_agent_key_status(
+    state: &AgentConfigState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let params: AgentKeyParams =
+        serde_json::from_value(params.clone()).context("agent_key_status params")?;
+    let status = state.mutate(|| {
+        crate::identity::durable_key_status(&crate::config::mosaico_home(), &params.slug)
+    })?;
+    let status = match status {
+        crate::identity::DurableKeyStatus::Absent => "absent",
+        crate::identity::DurableKeyStatus::Ready => "ready",
+        crate::identity::DurableKeyStatus::Missing => "missing",
+    };
+    Ok(serde_json::json!({ "status": status }))
+}
+
+pub(super) fn rpc_agent_key_create(
+    state: &AgentConfigState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let params: AgentKeyParams =
+        serde_json::from_value(params.clone()).context("agent_key_create params")?;
+    let created = state.mutate(|| {
+        crate::identity::create_missing_durable_key(&crate::config::mosaico_home(), &params.slug)
+    })?;
+    Ok(serde_json::json!({ "created": created }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AgentRemoveParams {
     slug: String,
 }
@@ -120,6 +155,48 @@ mod tests {
             error.to_string().contains("parsing agent record"),
             "unexpected error: {error:#}"
         );
+    }
+
+    #[test]
+    fn durable_key_rpc_reports_and_repairs_only_missing_key_material() {
+        let (root, _env) = isolated_home();
+        let mosaico_home = root.path().join(".mosaico");
+        std::fs::create_dir_all(mosaico_home.join("agents")).unwrap();
+        let path = mosaico_home.join("agents/chief-of-staff.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "slug": "chief-of-staff",
+  "created_at": 7,
+  "perSessionKey": false,
+  "harness": "codex-pty"
+}"#,
+        )
+        .unwrap();
+        let state = AgentConfigState::new();
+        let params = serde_json::json!({ "slug": "chief-of-staff" });
+
+        assert_eq!(
+            rpc_agent_key_status(&state, &params).unwrap()["status"],
+            "missing"
+        );
+        assert_eq!(
+            rpc_agent_key_create(&state, &params).unwrap()["created"],
+            true
+        );
+        assert_eq!(
+            rpc_agent_key_status(&state, &params).unwrap()["status"],
+            "ready"
+        );
+        assert_eq!(
+            rpc_agent_key_create(&state, &params).unwrap()["created"],
+            false
+        );
+
+        let stored: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(stored["secret_key"].as_str().is_some());
+        assert!(stored["public_key"].as_str().is_some());
     }
 
     #[test]

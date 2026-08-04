@@ -84,7 +84,6 @@ impl DaemonState {
     fn backend_pubkey(&self) -> Option<String> {
         self.provider.management_pubkey()
     }
-
     /// Management signer for NIP-29 group ops; provisions `mosaicoPrivateKey`.
     fn management_keys(&self) -> Result<Keys> {
         self.provider
@@ -151,7 +150,6 @@ impl DaemonState {
             .expect("live session is missing its identity projection")
     }
 }
-
 // ── entry point ──────────────────────────────────────────────────────────────
 mod channel_init;
 mod channel_membership_rpc;
@@ -250,6 +248,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "operator_sessions" => operator_sessions::rpc_operator_sessions(state),
         "agent_inventory" => agent_discovery::rpc_agent_inventory(state, &req.params),
         "agent_save" => agent_config::rpc_agent_save(&state.agent_config, &req.params),
+        "agent_key_status" => agent_config::rpc_agent_key_status(&state.agent_config, &req.params),
+        "agent_key_create" => agent_config::rpc_agent_key_create(&state.agent_config, &req.params),
         "agent_remove" => agent_config::rpc_agent_remove(&state.agent_config, &req.params),
         "agent_usage" => agent_usage::rpc_agent_usage(state, &req.params),
         "pty_supervisor_exit" => rpc::rpc_pty_supervisor_exit(state, &req.params).await,

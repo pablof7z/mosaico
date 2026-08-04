@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod args;
+mod durable_key;
 mod existing;
 mod fresh;
 mod selection;
