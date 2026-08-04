@@ -23,6 +23,9 @@ use super::DaemonState;
 use crate::fabric::nip29::materializer::Nip29Materializer;
 use crate::reconcile::CoverageSnapshot;
 
+#[path = "group_records/root_names.rs"]
+mod root_names;
+
 /// The retained observation, and the inputs it was opened for.
 #[derive(Default)]
 pub(super) struct GroupRecordsWatch {
@@ -205,9 +208,6 @@ fn managed_roots(state: &DaemonState) -> Vec<String> {
         .with_store(|store| super::backend_profile::managed_roots(store, &management_pubkey))
         .unwrap_or_default()
 }
-
-#[path = "group_records/root_names.rs"]
-mod root_names;
 
 #[cfg(test)]
 #[path = "group_records/tests.rs"]

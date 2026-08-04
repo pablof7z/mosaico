@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[path = "who/human.rs"]
 mod human_view;
@@ -156,7 +157,7 @@ fn all_known_roots(store: &crate::state::Store) -> Result<Vec<String>> {
         .into_iter()
         .filter(|c| c.parent.is_empty() && !c.is_archived())
         .map(|c| c.channel_h)
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     roots.extend(
         crate::daemon::workspace_path::WorkspacePathResolver::new(store)
             .bindings()?
