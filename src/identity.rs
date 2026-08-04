@@ -12,8 +12,10 @@ use nostr::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+mod durable_key;
 mod keys;
 mod local_agent;
+pub(crate) use durable_key::{create_missing_durable_key, durable_key_status, DurableKeyStatus};
 pub use keys::{derive_session_keys, new_session_signer_salt, SessionIdentity};
 pub(crate) use local_agent::keystore_entries;
 pub use local_agent::{
@@ -58,6 +60,18 @@ impl StoredKey {
 /// The single parser for an on-disk agent record. Directory and exact-key
 /// lookups both pass through this boundary so schema changes cannot drift.
 fn read_stored_key(path: &Path) -> Result<StoredKey> {
+    let stored = read_stored_key_unvalidated(path)?;
+    stored
+        .identity_keys()
+        .with_context(|| format!("validating agent record {}", path.display()))?;
+    Ok(stored)
+}
+
+/// Parse the current schema without requiring complete durable key material.
+/// The launch repair path uses this narrow boundary to fix only missing keys;
+/// every ordinary reader still goes through [`read_stored_key`] and strict
+/// identity validation.
+fn read_stored_key_unvalidated(path: &Path) -> Result<StoredKey> {
     let body = std::fs::read_to_string(path)
         .with_context(|| format!("reading agent record {}", path.display()))?;
     let mut stored: StoredKey = serde_json::from_str(&body)
@@ -67,9 +81,6 @@ fn read_stored_key(path: &Path) -> Result<StoredKey> {
             .with_context(|| format!("migrating agent record {}", path.display()))?;
         tracing::info!(path = %path.display(), "migrated redundant per-session agent keys");
     }
-    stored
-        .identity_keys()
-        .with_context(|| format!("validating agent record {}", path.display()))?;
     Ok(stored)
 }
 

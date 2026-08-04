@@ -71,6 +71,26 @@ trimmed and non-empty. Null profile clears it; null `per_session_key` preserves
 existing identity mode and defaults new agents to per-session. `created`
 distinguishes creation; the result returns persisted slug and normalized harness.
 
+### `agent_key_status`
+```jsonc
+params: {"slug": "…"}
+result: {"status": "absent"|"ready"|"missing"}
+```
+Strict daemon-owned launch preflight for persisted agent identity. `missing`
+means the configured agent has `perSessionKey: false` but lacks either its
+secret or public key. Malformed keys and mismatched complete pairs are errors,
+not repair candidates.
+
+### `agent_key_create`
+```jsonc
+params: {"slug": "…"}
+result: {"created": bool}
+```
+Atomically completes missing durable key material after the interactive client
+has obtained confirmation. A valid existing secret is preserved and its public
+key is derived; otherwise one fresh matching pair is persisted. The RPC rejects
+per-session agents and never returns secret material.
+
 ### `agent_remove`
 ```jsonc
 params: {"slug": "…"}
