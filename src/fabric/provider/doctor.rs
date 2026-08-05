@@ -38,19 +38,20 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return both_failed("management signing identity is unavailable".into());
         };
-        let publish = match self
-            .nmp
-            .publish_group_builder(doctor_probe_builder(&group, &marker), &keys)
-        {
-            Ok(id) => ProbeStep {
-                status: ProbeStatus::Verified,
-                summary: format!("ACK ({})", crate::util::pubkey_short(&id.to_hex())),
-            },
-            Err(error) => ProbeStep {
-                status: ProbeStatus::Failed,
-                summary: format!("{error:#}"),
-            },
-        };
+        let publish =
+            match self
+                .nmp
+                .publish_group_builder(&group, doctor_probe_builder(&marker), &keys)
+            {
+                Ok(id) => ProbeStep {
+                    status: ProbeStatus::Verified,
+                    summary: format!("ACK ({})", crate::util::pubkey_short(&id.to_hex())),
+                },
+                Err(error) => ProbeStep {
+                    status: ProbeStatus::Failed,
+                    summary: format!("{error:#}"),
+                },
+            };
         let filter = doctor_probe_filter(&marker);
         let readback = match self
             .nmp
@@ -138,11 +139,11 @@ fn both_failed(summary: String) -> DoctorProbe {
     }
 }
 
-fn doctor_probe_builder(group: &str, marker: &str) -> nostr::EventBuilder {
-    nostr::EventBuilder::new(nostr::Kind::from(1u16), format!("mosaico doctor {marker}")).tags([
-        nostr::Tag::parse(["h", group]).expect("static h tag"),
-        nostr::Tag::parse(["t", marker]).expect("static t tag"),
-    ])
+/// The `#h` row is deliberately absent for the same reason it is absent from
+/// [`doctor_probe_filter`]: NMP's group doors own it on both sides.
+fn doctor_probe_builder(marker: &str) -> nostr::EventBuilder {
+    nostr::EventBuilder::new(nostr::Kind::from(1u16), format!("mosaico doctor {marker}"))
+        .tags([nostr::Tag::parse(["t", marker]).expect("static t tag")])
 }
 
 /// The `#h` row is deliberately absent: NMP's group read door owns it and

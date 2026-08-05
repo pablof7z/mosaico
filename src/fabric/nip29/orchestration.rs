@@ -33,11 +33,13 @@ pub struct AddTarget {
 
 /// Build the `kind:9` add-agents orchestration event.
 ///
-/// Routed into the coordination group (`h == parent_h`) so backends already in the
-/// parent group receive it. The child group id travels in an `h-target` tag.
+/// Published into the coordination group (`parent_h`) so backends already in the
+/// parent group receive it; the `h` row that routes it there is minted by NMP's
+/// group door at publish time, not written here. The child group id travels in
+/// an `h-target` tag.
 ///
 /// Tags, in order:
-///   `["h", parent_h]`, `["mosaico-op", MOSAICO_OP_ADD_AGENTS]`, `["parent", parent_h]`,
+///   `["mosaico-op", MOSAICO_OP_ADD_AGENTS]`, `["parent", parent_h]`,
 ///   `["h-target", child_h]`, one `["p", backend_pubkey]` per DISTINCT backend
 ///   (deduped, sorted for stable order), then one `["add", backend_pubkey,
 ///   slug, optional-session-pubkey]` per entry in `adds` (input order preserved).
@@ -77,7 +79,6 @@ fn build_event(
     prose: &str,
 ) -> Result<EventBuilder> {
     let mut tags: Vec<Tag> = vec![
-        tag(&["h", parent_h])?,
         tag(&["mosaico-op", operation])?,
         tag(&["parent", parent_h])?,
         tag(&["h-target", child_h])?,

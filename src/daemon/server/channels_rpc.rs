@@ -1,5 +1,6 @@
 use super::channel_membership_rpc::{resolve_caller, resolve_target_channel};
 use super::*;
+use crate::fabric::nip29::lifecycle::as_nostr;
 
 const CHANNEL_CREATE_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
@@ -187,8 +188,10 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // exactly like the channel edit RPC does. Best-effort: the channel exists either
     // way; an unset `about` skips the publish.
     if !p.about.trim().is_empty() {
-        let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&child_h, &p.about)?;
-        let _ = state.nmp.publish_group_builder(builder, &mgmt_keys);
+        let builder = as_nostr(nmp_nip29::edit_metadata(None, Some(&p.about)));
+        let _ = state
+            .nmp
+            .publish_group_builder(&child_h, builder, &mgmt_keys);
         // Re-read the relay's now-updated kind:39000 so the `about` lands in the
         // cache from relay truth, not a local write.
         let _ = state.provider.fetch_and_materialize_channel(&child_h).await;
@@ -215,14 +218,17 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     } else {
         let prose = generate_orchestration_prose(&adds);
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
-        let signed = state.nmp.sign_event(builder, &mgmt_keys).await?;
+        let signed = state
+            .nmp
+            .sign_group_event(&parent, builder, &mgmt_keys)
+            .await?;
         let oid = signed.id.to_hex();
         // Durable acceptance is the reporting boundary: NMP has taken custody
         // of the add-agents directive and will keep delivering it. Whether each
         // relay took it is settlement, and settlement is inspected -- through
         // the background receipt evidence `mosaico doctor` reads -- never
         // awaited here.
-        state.nmp.enqueue_group_event(&signed)?;
+        state.nmp.enqueue_group_event(&parent, &signed)?;
 
         // Local fast-path: relays don't reliably echo to the publishing connection,
         // so drive the same listener directly for roles targeted at THIS backend.
@@ -246,66 +252,6 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     }))
 }
 
-pub(in crate::daemon::server) async fn rpc_channel_edit(
-    state: &Arc<DaemonState>,
-    params: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    #[derive(serde::Deserialize)]
-    struct P {
-        channel: String,
-        about: String,
-    }
-    let p: P = serde_json::from_value(params.clone()).context("channel_edit params")?;
-    crate::channel_about::validate_channel_about(&p.about)?;
-    // Operator TUI and agent CLI both edit via the management key. A session
-    // anchor is optional; when present it only identifies the caller for logs.
-    let _ = resolve_session_inner(
-        state,
-        &CallerAnchor::from_params(params),
-        ResolveScope::Strict,
-    );
-    let channel_h = resolve_target_channel(state, &p.channel)?;
-
-    let mgmt_keys = state.management_keys()?;
-    let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&channel_h, &p.about)?;
-    let event_id = state.nmp.publish_group_builder(builder, &mgmt_keys)?;
-    let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
-    let channel = state
-        .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
-    if !confirmed {
-        anyhow::bail!("relay did not confirm updated about for channel {channel}");
-    }
-
-    Ok(serde_json::json!({
-        "event_id": event_id.to_hex(),
-        "channel": channel,
-        "about": p.about,
-        "confirmed": confirmed,
-    }))
-}
-
-async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about: &str) -> bool {
-    for _ in 0..20 {
-        state
-            .provider
-            .fetch_and_materialize_channel(channel_h)
-            .await;
-        let matches = state.with_store(|s| {
-            s.get_channel(channel_h)
-                .ok()
-                .flatten()
-                .map(|c| c.about)
-                .as_deref()
-                == Some(about)
-        });
-        if matches {
-            return true;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
-    false
-}
-
 mod archive;
 pub(in crate::daemon::server) use archive::{archive_channel, rpc_channel_archive};
 
@@ -314,6 +260,9 @@ pub(in crate::daemon::server) use delete::rpc_channel_delete;
 
 mod list;
 pub(in crate::daemon::server) use list::rpc_channel_list;
+
+mod edit;
+pub(in crate::daemon::server) use edit::rpc_channel_edit;
 
 /// Human-readable summary of the add-agents request, grouped per backend, e.g.
 /// "@<edge1>: add research-lead. @<edge2>: add implementation-lead and test1."

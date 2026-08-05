@@ -27,6 +27,13 @@ fn awaiting(id: u8, pubkey: PublicKey) -> PublishQueueEntry {
     }
 }
 
+fn in_flight(id: u8, pubkey: PublicKey) -> PublishQueueEntry {
+    PublishQueueEntry {
+        signing: SigningState::InFlight { pubkey },
+        ..entry(id)
+    }
+}
+
 #[test]
 fn an_ordinary_in_flight_write_is_outstanding_and_not_stuck() {
     let snapshot = summarize(&[entry(1)]);
@@ -48,19 +55,30 @@ fn a_write_still_resolving_its_route_is_not_reported_as_stuck() {
 }
 
 /// A write whose signature is merely in flight must not be reported as stuck.
-///
 /// This is the shape of every healthy write for the moment between acceptance
-/// and signature promotion, and NMP's queue projection gives it the same
-/// `SigningState::AwaitingSigner` as a key nobody has -- so the alarming
-/// reading is unavailable without also alarming on every ordinary write.
-/// Recorded as a test rather than a comment because it is the reason a
-/// genuinely parked write is currently invisible here.
+/// and signature promotion.
 #[test]
 fn a_signature_in_flight_is_outstanding_and_never_reported_as_stuck() {
     let pubkey = Keys::generate().public_key();
-    let snapshot = summarize(&[awaiting(3, pubkey)]);
+    let snapshot = summarize(&[in_flight(3, pubkey)]);
     assert_eq!(snapshot.outstanding, 1);
     assert!(snapshot.stuck.is_empty(), "{snapshot:?}");
+}
+
+/// The falsifier for adopting NMP #1270. Before it, every unsigned write
+/// projected as `AwaitingSigner`, so the genuinely parked write -- no signer
+/// answers for this key, and no clock will ever end that -- could not be named
+/// without also alarming on the healthy one above. It can now, so it is.
+#[test]
+fn a_write_no_signer_answers_for_is_named_as_stuck() {
+    let pubkey = Keys::generate().public_key();
+    let snapshot = summarize(&[awaiting(8, pubkey)]);
+    assert_eq!(snapshot.outstanding, 1);
+    assert_eq!(snapshot.stuck.len(), 1, "{snapshot:?}");
+    assert!(
+        snapshot.stuck[0].reason.contains(&pubkey.to_string()),
+        "the parked key must be named so a person knows which signer to attach: {snapshot:?}"
+    );
 }
 
 #[test]

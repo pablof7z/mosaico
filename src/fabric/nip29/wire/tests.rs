@@ -2,12 +2,13 @@ use super::*;
 
 mod chat;
 mod profile;
+mod publish_shape;
+
+pub(super) use publish_shape::signed_as_published;
 
 pub(super) fn roundtrip(ev: DomainEvent, keys: &Keys) -> DomainEvent {
-    let codec = Nip29WireCodec;
-    let builder = codec.encode_event(&ev).expect("encode");
-    let signed = builder.sign_with_keys(keys).expect("sign");
-    codec.decode_event(&signed).expect("decode")
+    let signed = signed_as_published(&ev, keys);
+    Nip29WireCodec.decode_event(&signed).expect("decode")
 }
 
 pub(super) fn agent(keys: &Keys, slug: &str) -> AgentRef {
@@ -288,11 +289,7 @@ fn reaction_with_e_tag_decodes_and_emits_kind7_tags() {
         target_event_id: target.clone(),
         emoji: "✅".into(),
     });
-    let signed = Nip29WireCodec
-        .encode_event(&ev)
-        .unwrap()
-        .sign_with_keys(&keys)
-        .unwrap();
+    let signed = signed_as_published(&ev, &keys);
     assert_eq!(signed.kind.as_u16(), KIND_REACTION);
     assert_eq!(signed.content, "✅");
     assert!(has_tag(&signed, "e", &target));

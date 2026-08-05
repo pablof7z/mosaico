@@ -92,23 +92,21 @@ pub(super) fn summarize(entries: &[PublishQueueEntry]) -> PublishQueueSnapshot {
 
 /// Why this entry will not move on its own, if it will not.
 ///
-/// Two things are deliberately NOT here.
+/// One thing is deliberately NOT here: a write still learning where it goes is
+/// not stuck. Route resolution parks deliberately and indefinitely, and calling
+/// that stuck would be guessing at exactly what NMP refuses to guess at.
 ///
-/// A write still learning where it goes is not stuck: route resolution parks
-/// deliberately and indefinitely, and calling that stuck would be guessing at
-/// exactly what NMP refuses to guess at.
-///
-/// Neither is `SigningState::AwaitingSigner`, even though a write parked on a
-/// missing signer is the case NMP #1039 named as motivating this door. The
-/// queue projection cannot express it: `publish_queue_entries` maps every
-/// receipt state that is not `Signed` or `Compensated` onto
-/// `AwaitingSigner { pubkey }` (`crates/nmp/src/core/write.rs`, the `_ =>`
-/// arm), so a signature request in flight one millisecond after acceptance is
-/// indistinguishable from a key nobody has. The store itself keeps the
-/// distinction -- `IntentSigState::AwaitingSigner` vs `Pending` -- so this is
-/// a projection gap, not missing knowledge. Reporting the collapsed state as
-/// stuck would make every healthy write momentarily alarming, so it is
-/// reported as outstanding until NMP can tell the two apart.
+/// `SigningState::AwaitingSigner` IS here, and that is new. NMP #1039 named a
+/// write parked on a missing signer as the case motivating this door, but the
+/// queue projection could not express it: every unsigned state collapsed onto
+/// `AwaitingSigner { pubkey }`, so a signature request in flight one
+/// millisecond after acceptance was indistinguishable from a key nobody has,
+/// and reporting the collapsed state would have made every healthy write
+/// momentarily alarming. NMP #1270 split the two: `InFlight` is a signer
+/// holding the request right now — transient, normal, ended by the signer
+/// answering — and `AwaitingSigner` is nobody answering for that key at all.
+/// No clock ends the second one; the person attaching a signer, or the app
+/// removing the entry, is its only exit. That is precisely a stuck write.
 fn stuck_reason(entry: &PublishQueueEntry) -> Option<String> {
     if let Some(detail) = &entry.persistence_fault {
         return Some(format!(
@@ -124,7 +122,11 @@ fn stuck_reason(entry: &PublishQueueEntry) -> Option<String> {
         Some(_) => None,
         None => match &entry.signing {
             SigningState::Refused { reason } => Some(format!("the signer refused: {reason}")),
-            SigningState::AwaitingSigner { .. } | SigningState::Signed { .. } => None,
+            SigningState::AwaitingSigner { pubkey } => Some(format!(
+                "no signer answers for {pubkey}; attach one or remove the entry"
+            )),
+            // A signer has it. Nothing to repair and nothing to report.
+            SigningState::InFlight { .. } | SigningState::Signed { .. } => None,
         },
     }
 }

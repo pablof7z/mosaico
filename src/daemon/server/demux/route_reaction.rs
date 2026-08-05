@@ -38,7 +38,7 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
             return;
         }
     };
-    let builder = match build_reaction(&event_id, &channel_h) {
+    let builder = match build_reaction(&event_id) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(
@@ -50,7 +50,10 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
             return;
         }
     };
-    if let Err(e) = state.nmp.publish_group_builder(builder, &mgmt_keys) {
+    if let Err(e) = state
+        .nmp
+        .publish_group_builder(&channel_h, builder, &mgmt_keys)
+    {
         tracing::warn!(
             event_id = %&event_id[..8],
             channel = %channel_h,
@@ -60,10 +63,11 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
     }
 }
 
-fn build_reaction(event_id: &str, channel_h: &str) -> Result<EventBuilder> {
+/// The reaction itself. Which group it lands in is the publish door's to say,
+/// so no context row is written here.
+fn build_reaction(event_id: &str) -> Result<EventBuilder> {
     let e_tag = tag(&["e", event_id])?;
-    let h_tag = tag(&["h", channel_h])?;
-    Ok(EventBuilder::new(Kind::from(KIND_REACTION), "👁").tags([e_tag, h_tag]))
+    Ok(EventBuilder::new(Kind::from(KIND_REACTION), "👁").tags([e_tag]))
 }
 
 fn tag(parts: &[&str]) -> Result<Tag> {
@@ -87,15 +91,28 @@ mod tests {
     }
 
     #[test]
-    fn build_reaction_carries_kind7_eye_with_e_and_h_tags() {
+    fn build_reaction_carries_kind7_eye_targeting_the_command() {
         let event_id = "aa".repeat(32);
         let keys = Keys::generate();
-        let unsigned = build_reaction(&event_id, "my-channel")
-            .unwrap()
-            .build(keys.public_key());
+        let unsigned = build_reaction(&event_id).unwrap().build(keys.public_key());
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👁");
         assert_eq!(tag_val(&unsigned, "e").as_deref(), Some(&event_id[..]));
-        assert_eq!(tag_val(&unsigned, "h").as_deref(), Some("my-channel"));
+        // No context row: the group is named at the publish door, and the
+        // draft carrying its own would be refused there.
+        assert_eq!(tag_val(&unsigned, "h"), None);
+    }
+
+    /// The group the reaction lands in, proved where it is actually decided.
+    #[test]
+    fn the_publish_door_puts_the_reaction_in_the_routed_channel() {
+        let keys = Keys::generate();
+        let signed = crate::nmp_host::write::contextualized_draft(
+            "my-channel",
+            build_reaction(&"aa".repeat(32)).unwrap(),
+            keys.public_key(),
+        )
+        .unwrap();
+        assert_eq!(tag_val(&signed, "h").as_deref(), Some("my-channel"));
     }
 }

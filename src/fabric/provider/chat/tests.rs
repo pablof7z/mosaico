@@ -173,25 +173,3 @@ fn local_seed_projects_the_canonical_signed_content() {
         signed.content
     );
 }
-
-#[test]
-fn signed_chat_group_is_exact_and_unambiguous() {
-    let keys = Keys::generate();
-    let exact = EventBuilder::new(Kind::from(9u16), "hello")
-        .tags([Tag::parse(["h", "chan"]).unwrap()])
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert_eq!(signed_group(&exact).unwrap(), "chan");
-
-    let ambiguous = EventBuilder::new(Kind::from(9u16), "hello")
-        .tags([
-            Tag::parse(["h", "chan-a"]).unwrap(),
-            Tag::parse(["h", "chan-b"]).unwrap(),
-        ])
-        .sign_with_keys(&keys)
-        .unwrap();
-    assert!(signed_group(&ambiguous)
-        .unwrap_err()
-        .to_string()
-        .contains("exactly one"));
-}

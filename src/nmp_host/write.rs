@@ -26,12 +26,7 @@ pub(crate) use background_receipts::BackgroundWriteSnapshot;
 #[cfg(test)]
 use background_submit::collect_background_receivers;
 use background_submit::BackgroundIntent;
-use compose::{
-    contextualized_builder, event_template, frozen_event_id, group_intent, group_values,
-    unsigned_template,
-};
-#[cfg(test)]
-use compose::{group_template, GroupTemplate};
+use compose::{draft_of, frozen_id_of, unsigned_of};
 
 impl NmpHost {
     /// Sign an exact event through NMP's account registry. The facade's
@@ -101,29 +96,74 @@ impl NmpHost {
         .context("joining NMP signer")?
     }
 
+    /// Sign a draft INTO `group`, so the group context tag is inside the bytes
+    /// the signature covers.
+    ///
+    /// Mosaico signs its own chat, reaction and status bytes because it seeds
+    /// them into the local read model before any relay has seen them, and an
+    /// event id only exists once the body is frozen. `h` is still never
+    /// Mosaico's to write: `nmp_nip29::contextualize` appends it, and refuses
+    /// a draft that already carries one.
+    ///
+    /// The group id is named twice on this path -- once here and once at the
+    /// `Group` the intent is minted from -- because `nip29::Group` retains an
+    /// id but exposes no contextualizer. Tracked upstream as
+    /// pablof7z/nmp#1283; one `group.contextualize(builder)` collapses both.
+    pub(crate) async fn sign_group_event(
+        self: &std::sync::Arc<Self>,
+        group: &str,
+        builder: EventBuilder,
+        keys: &Keys,
+    ) -> Result<Event> {
+        let draft = contextualized_draft(group, builder, keys.public_key())?;
+        self.sign_unsigned(draft, keys).await
+    }
+
     /// Enqueue a NIP-29 write NMP will sign, and return the id it freezes at
     /// acceptance.
     ///
     /// The id is computed here rather than awaited: a NIP-01 id never depends
     /// on `sig`, so the frozen body already determines it, and NMP freezes the
-    /// same bytes this composes. Waiting for `SigningState::Signed` would be
-    /// waiting for something already known.
+    /// same bytes the group door minted. Waiting for `SigningState::Signed`
+    /// would be waiting for something already known.
     pub(crate) fn publish_group_builder(
         &self,
+        group: &str,
         builder: EventBuilder,
         keys: &Keys,
     ) -> Result<EventId> {
         self.ensure_identity(keys)?;
-        let mut unsigned = builder.build(keys.public_key());
-        scrub_unsigned(&mut unsigned);
         let author = keys.public_key();
-        let composed = self.unsigned_group_intents(&unsigned, author)?;
+        let mut unsigned = builder.build(author);
+        scrub_unsigned(&mut unsigned);
+        let kind = unsigned.kind.as_u16();
+        let intent = self
+            .group(group)?
+            .intent(author, draft_of(unsigned))
+            .map_err(|error| anyhow::anyhow!("minting a NIP-29 group write: {error}"))?;
+        let event_id = frozen_id_of(&intent, author)?;
         self.enqueue_background_intents(
-            composed.event_id,
-            group_operation(unsigned.kind.as_u16()),
-            composed.intents,
+            event_id,
+            group_operation(kind),
+            vec![BackgroundIntent {
+                target: group.to_string(),
+                intent,
+            }],
         )?;
-        Ok(composed.event_id)
+        Ok(event_id)
+    }
+
+    /// The NIP-29 group door for `group`, over every configured host.
+    ///
+    /// One `Group` mints ONE intent routed to the whole scope, which is why
+    /// nothing here fans out per relay any more. The per-relay facts a write
+    /// produces arrive on that one receipt stream and are folded by
+    /// [`background_receipts::worker`]'s lane facts, which were already
+    /// written for exactly that shape.
+    pub(crate) fn group(&self, group: &str) -> Result<nmp::nip29::Group> {
+        nmp::nip29::group(self.relays.iter().cloned(), group).map_err(|error| {
+            anyhow::anyhow!("cannot publish into NIP-29 group {group:?}: {error:?}")
+        })
     }
 
     fn publish_intent(
@@ -137,42 +177,24 @@ impl NmpHost {
         }
         self.engine.publish(intent).context(context)
     }
-
-    fn unsigned_group_intents(
-        &self,
-        unsigned: &UnsignedEvent,
-        author: PublicKey,
-    ) -> Result<ComposedWrite> {
-        let groups = group_values(unsigned.tags.iter());
-        if groups.len() != 1 {
-            anyhow::bail!(
-                "unsigned NIP-29 writes require exactly one h tag; exact multi-group events must be pre-signed"
-            );
-        }
-        let composed = contextualized_builder(unsigned_template(unsigned)?)?;
-        let event_id = frozen_event_id(&composed, author)?;
-        let intents = self
-            .relays
-            .iter()
-            .enumerate()
-            .map(|(index, relay)| BackgroundIntent {
-                target: format!("{index}:{relay}"),
-                intent: WriteIntent {
-                    payload: WritePayload::Event(composed.clone()),
-                    routing: WriteRouting::Explicit(vec![relay.clone()]),
-                    identity: identity_of(Some(author)),
-                    correlation: None,
-                },
-            })
-            .collect();
-        Ok(ComposedWrite { event_id, intents })
-    }
 }
 
-/// A composed group write: the id NMP will freeze, and one intent per host.
-struct ComposedWrite {
-    event_id: EventId,
-    intents: Vec<BackgroundIntent>,
+/// The exact bytes a group write is signed over: Mosaico's draft with NMP's
+/// group context row already inside it.
+///
+/// Public to the crate because it is what makes an event "in a group", and a
+/// test that composes a group event any other way is testing a shape the
+/// product never publishes.
+pub(crate) fn contextualized_draft(
+    group: &str,
+    builder: EventBuilder,
+    author: PublicKey,
+) -> Result<UnsignedEvent> {
+    let mut unsigned = builder.build(author);
+    scrub_unsigned(&mut unsigned);
+    let contextualized = nmp_nip29::contextualize(group, draft_of(unsigned))
+        .map_err(|error| anyhow::anyhow!("composing a NIP-29 group draft: {error}"))?;
+    Ok(unsigned_of(contextualized, author))
 }
 
 /// The operation label correlated evidence is filed under.

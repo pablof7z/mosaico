@@ -20,15 +20,15 @@ impl Nip29Provider {
         keys: &Keys,
     ) -> Result<String> {
         let builder = self.wire.encode(&DomainEvent::Reaction(reaction.clone()))?;
-        let signed = self.nmp.sign_event(builder, keys).await?;
-
         let channel = reaction.channel.as_str();
+        let signed = self.nmp.sign_group_event(channel, builder, keys).await?;
+
         if !channel.is_empty() {
             self.verify_publish_scope(channel, &signed.pubkey.to_hex(), true)
                 .await?;
         }
 
-        let event_id = self.nmp.enqueue_group_event(&signed)?;
+        let event_id = self.nmp.enqueue_group_event(channel, &signed)?;
         // Seed locally through the single materializer writer.
         self.with_store(|store| {
             crate::fabric::materialize(&RawEnvelope::Nostr(signed.clone()), store);

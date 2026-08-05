@@ -36,26 +36,31 @@ impl Nip29Provider {
             }
         };
 
+        let operation = "9000 put-admin (self-grant via userNsec)";
+        let subject = match nostr::PublicKey::parse(mgmt_pubkey) {
+            Ok(subject) => subject,
+            Err(e) => {
+                eprintln!("[daemon] try_grant_mgmt_admin: management pubkey unparseable: {e}");
+                return GroupMutationOutcome::Failed(GroupOperationError::new(
+                    operation,
+                    GroupOperationStage::Build,
+                    e,
+                ));
+            }
+        };
+
         for attempt in 0..6u32 {
-            let outcome = match crate::fabric::nip29::lifecycle::group_put_admin(group, mgmt_pubkey)
-            {
-                Ok(b) => {
-                    self.publish_group_management_outcome(
-                        b,
-                        &user_keys,
-                        "9000 put-admin (self-grant via userNsec)",
-                    )
-                    .await
-                }
-                Err(e) => {
-                    eprintln!("[daemon] try_grant_mgmt_admin: build event failed: {e}");
-                    return GroupMutationOutcome::Failed(GroupOperationError::new(
-                        "9000 put-admin (self-grant via userNsec)",
-                        GroupOperationStage::Build,
-                        e,
-                    ));
-                }
-            };
+            let outcome = self
+                .publish_group_management_outcome(
+                    group,
+                    crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::add_user(
+                        subject,
+                        Some("admin"),
+                    )),
+                    &user_keys,
+                    operation,
+                )
+                .await;
             // Confirmed by presence on the relay's kind:39001, not by that
             // record spelling the role "admin" — see `confirm_role_grant`.
             match self.with_store(|s| s.is_channel_admin(group, mgmt_pubkey)) {
@@ -100,21 +105,23 @@ impl Nip29Provider {
 
     pub(in crate::fabric::provider) async fn publish_group_management(
         &self,
+        group: &str,
         builder: EventBuilder,
         keys: &nostr::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
-        self.publish_group_management_outcome(builder, keys, label)
+        self.publish_group_management_outcome(group, builder, keys, label)
             .await
     }
 
     async fn publish_group_management_outcome(
         &self,
+        group: &str,
         builder: EventBuilder,
         keys: &nostr::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
-        match self.nmp.publish_group_builder(builder, keys) {
+        match self.nmp.publish_group_builder(group, builder, keys) {
             Ok(_) => GroupPublishOutcome::Applied,
             Err(e) => {
                 let outcome = GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(

@@ -62,10 +62,13 @@ pub(super) async fn rpc_dispatch(
         &prose,
     )?;
     let keys = state.session_signing_keys(&caller.pubkey)?;
-    let signed = state.nmp.sign_event(builder, &keys).await?;
+    let signed = state
+        .nmp
+        .sign_group_event(&route_channel, builder, &keys)
+        .await?;
     let dispatch_event_id = signed.id.to_hex();
     let ack_events = state.nmp.observe(&dispatch_ack_query(&dispatch_event_id))?;
-    state.nmp.enqueue_group_event(&signed)?;
+    state.nmp.enqueue_group_event(&route_channel, &signed)?;
     if let Some(op) = crate::fabric::nip29::session_dispatch::parse_session_dispatch(&signed) {
         super::session_dispatch_handler::handle_session_dispatch(state, &signed, op).await;
     }

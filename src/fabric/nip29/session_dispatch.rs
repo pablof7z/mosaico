@@ -34,8 +34,8 @@ pub fn build_session_dispatch_event(
     target: &DispatchTarget,
     prose: &str,
 ) -> Result<EventBuilder> {
+    let _ = route_channel;
     let mut tags = vec![
-        tag(&["h", route_channel])?,
         tag(&["mosaico-op", MOSAICO_OP_SESSION_DISPATCH])?,
         tag(&["p", &target.backend_pubkey])?,
         tag(&["dispatch", &target.backend_pubkey, &target.slug])?,
@@ -131,6 +131,16 @@ mod tests {
         b.sign_with_keys(&Keys::generate()).unwrap()
     }
 
+    /// Sign the draft into `group` exactly as the publish path does: NMP's
+    /// contextualizer mints the routing `h` row, never this module.
+    fn sign_into(group: &str, b: EventBuilder) -> Event {
+        let keys = Keys::generate();
+        crate::nmp_host::write::contextualized_draft(group, b, keys.public_key())
+            .unwrap()
+            .sign_with_keys(&keys)
+            .unwrap()
+    }
+
     #[test]
     fn build_parse_dispatch_round_trip() {
         let target = DispatchTarget {
@@ -139,7 +149,10 @@ mod tests {
             workspace: "project2".into(),
             channels: vec!["project2.qa".into(), "project1.bug-123".into()],
         };
-        let ev = sign(build_session_dispatch_event("project1.bug-123", &target, "x").unwrap());
+        let ev = sign_into(
+            "project1.bug-123",
+            build_session_dispatch_event("project1.bug-123", &target, "x").unwrap(),
+        );
         let op = parse_session_dispatch(&ev).expect("dispatch parses");
 
         assert_eq!(op.route_channel, "project1.bug-123");
@@ -154,7 +167,10 @@ mod tests {
             workspace: "project2".into(),
             channels: Vec::new(),
         };
-        let ev = sign(build_session_dispatch_event("shared", &target, "x").unwrap());
+        let ev = sign_into(
+            "shared",
+            build_session_dispatch_event("shared", &target, "x").unwrap(),
+        );
         let op = parse_session_dispatch(&ev).unwrap();
 
         assert_eq!(op.target.channels, vec!["project2".to_string()]);

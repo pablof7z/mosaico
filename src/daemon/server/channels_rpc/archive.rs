@@ -30,11 +30,13 @@ pub(in crate::daemon::server) async fn archive_channel(
         String::new()
     } else {
         let mgmt_keys = state.management_keys()?;
-        let builder =
-            crate::fabric::nip29::lifecycle::group_edit_metadata(channel, &archived_about)?;
+        let builder = crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::edit_metadata(
+            None,
+            Some(&archived_about),
+        ));
         state
             .nmp
-            .publish_group_builder(builder, &mgmt_keys)?
+            .publish_group_builder(channel, builder, &mgmt_keys)?
             .to_hex()
     };
     let _ = state.provider.fetch_and_materialize_channel(channel).await;

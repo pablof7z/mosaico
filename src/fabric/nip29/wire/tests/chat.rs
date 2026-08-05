@@ -38,11 +38,7 @@ fn encodes_repeated_pubkey_mentions() {
         }],
     });
     let codec = Nip29WireCodec;
-    let signed = codec
-        .encode_event(&event)
-        .expect("encode")
-        .sign_with_keys(&keys)
-        .expect("sign");
+    let signed = super::signed_as_published(&event, &keys);
 
     assert_eq!(signed.kind.as_u16(), KIND_CHAT);
     assert!(has_tag(&signed, "h", "mychannel"));
