@@ -18,7 +18,6 @@ impl Nip29Materializer {
             author_pubkey: from_pubkey,
             body: chat.body.clone(),
             created_at: event.created_at.as_secs(),
-            direction: "inbound".to_string(),
             sync_state: "accepted".to_string(),
             native_event_id: Some(event_id.clone()),
             error: None,

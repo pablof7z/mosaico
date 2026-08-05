@@ -28,7 +28,11 @@
 //!   which is how a second implementation came to drift in the first place.
 //! * `relay_events` is not purely a mirror: `prejoin_chat_for_session` joins it
 //!   against `session_channels.joined_event_seq`, a LOCAL arrival fence keyed
-//!   on SQLite `rowid`, and NMP's store has nothing to join that against.
+//!   on SQLite `rowid`, and NMP's store has nothing to join that against. The
+//!   fence now means ONE thing for every event -- a rowid is allocated where
+//!   the subscription delivers it, this daemon's own writes included, because
+//!   NMP injects those into it too (#1182). The optimistic seed used to
+//!   allocate ours at publish time instead.
 //!
 //! So this file agrees with NMP today; retiring the duplication is follow-up
 //! work scoped on mosaico#743, not something the tie-break fix closes.

@@ -121,7 +121,7 @@ impl Nip29Provider {
         keys: &nostr::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
-        match self.nmp.publish_group_builder(group, builder, keys) {
+        match self.nmp.publish_group(group, builder, keys) {
             Ok(_) => GroupPublishOutcome::Applied,
             Err(e) => {
                 let outcome = GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(

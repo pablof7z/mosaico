@@ -60,10 +60,6 @@ fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)
 }
 
-fn h_tag(channel: &str) -> Result<Tag> {
-    tag(&["h", channel])
-}
-
 /// First value of the first tag whose name matches `name` (i.e. `slice[1]`).
 fn first_tag<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
     event.tags.iter().find_map(|t| {
@@ -154,14 +150,10 @@ impl Nip29WireCodec {
                     tag(&["workspace", workspace])?,
                     tag(&["slug", &agent.slug])?,
                 ];
-                // The one draft in Mosaico that still writes its own context
-                // rows, because it needs SEVERAL and no NMP door mints more
-                // than one: `nip29::Group` is one scope plus one group id.
-                // See `NmpHost::enqueue_multi_group_event` and
-                // pablof7z/nmp#1281.
-                for channel in channels {
-                    tags.push(h_tag(channel)?);
-                }
+                // No `h` rows. `channels` names the groups this status is
+                // published INTO, and `nip29::Groups` mints one context row
+                // per group before the bytes are signed (NMP #1281).
+                let _ = channels;
                 if !rel_cwd.is_empty() {
                     tags.push(tag(&["rel-cwd", rel_cwd])?);
                 }

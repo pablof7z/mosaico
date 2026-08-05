@@ -122,6 +122,36 @@ pub(crate) fn copy_local(
     Ok(Some(directory))
 }
 
+/// The directory this event's files ALREADY occupy, if it is complete.
+///
+/// A message this daemon sent has its files copied locally at send time, and
+/// the relay echo of that same event arrives through the ordinary inbound path
+/// with the same declared labels. Adopting the local copy is what stops the
+/// echo re-fetching bytes that are already on disk -- the directory is named by
+/// the event id and marker-verified, so "already there" is checkable rather
+/// than assumed.
+///
+/// Deliberately does NOT create anything: a missing or partial directory means
+/// the ordinary download runs.
+pub(crate) fn existing_complete(
+    root: &Path,
+    event_id: &str,
+    attachments: &[ChatAttachment],
+) -> Option<PathBuf> {
+    if attachments.is_empty() || event_id.is_empty() {
+        return None;
+    }
+    let first_len = event_id.len().min(6);
+    (first_len..=event_id.len())
+        .map(|length| root.join(&event_id[..length]))
+        .find(|directory| {
+            marker_matches(directory, event_id)
+                && attachments
+                    .iter()
+                    .all(|attachment| directory.join(&attachment.label).is_file())
+        })
+}
+
 fn event_directory(root: &Path, event_id: &str) -> Result<PathBuf> {
     anyhow::ensure!(
         !event_id.is_empty(),

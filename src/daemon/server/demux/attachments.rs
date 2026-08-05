@@ -29,6 +29,27 @@ pub(super) async fn materialize(
     if already_materialized {
         return;
     }
+    // This daemon's OWN message reaches here too: NMP injects the accepted
+    // write into the subscription that feeds the demux (#1182), so the send
+    // path's local copy and this path's download are two routes to one
+    // directory. If the files are already on disk under this event's id, adopt
+    // them rather than fetching bytes back out of Blossom.
+    if let Some(directory) = crate::attachment_receive::existing_complete(
+        &state.cfg.attachment_receive_directory,
+        &event_id,
+        &chat.attachments,
+    ) {
+        if let Err(error) =
+            state.with_store(|store| store.set_message_attachment_dir(&event_id, &directory))
+        {
+            tracing::warn!(
+                event_id,
+                %error,
+                "locally copied attachments could not be recorded on the message row"
+            );
+        }
+        return;
+    }
     match crate::attachment_receive::download(
         &state.cfg.attachment_receive_directory,
         &event_id,

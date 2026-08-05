@@ -5,9 +5,9 @@ impl Store {
         self.conn.execute(
             "INSERT INTO messages
                  (message_id, thread_id, channel_h, author_pubkey, body,
-                  created_at, direction, sync_state, native_event_id)
+                  created_at, sync_state, native_event_id)
              SELECT id, channel_h, channel_h, pubkey, content, created_at,
-                    'inbound', 'accepted', id
+                    'accepted', id
              FROM relay_events
              WHERE kind=9
              ON CONFLICT(message_id) DO NOTHING",

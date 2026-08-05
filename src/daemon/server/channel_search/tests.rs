@@ -54,7 +54,6 @@ impl Fixture {
                     author_pubkey: author.into(),
                     body: body.into(),
                     created_at: at,
-                    direction: "inbound".into(),
                     sync_state: "accepted".into(),
                     native_event_id: Some(id.into()),
                     error: None,

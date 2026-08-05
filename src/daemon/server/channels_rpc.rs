@@ -188,10 +188,11 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // exactly like the channel edit RPC does. Best-effort: the channel exists either
     // way; an unset `about` skips the publish.
     if !p.about.trim().is_empty() {
-        let builder = as_nostr(nmp_nip29::edit_metadata(None, Some(&p.about)));
-        let _ = state
-            .nmp
-            .publish_group_builder(&child_h, builder, &mgmt_keys);
+        let builder = as_nostr(nmp_nip29::edit_metadata(nmp_nip29::GroupMetadataEdit {
+            about: Some(p.about.clone()),
+            ..nmp_nip29::GroupMetadataEdit::default()
+        }));
+        let _ = state.nmp.publish_group(&child_h, builder, &mgmt_keys);
         // Re-read the relay's now-updated kind:39000 so the `about` lands in the
         // cache from relay truth, not a local write.
         let _ = state.provider.fetch_and_materialize_channel(&child_h).await;
@@ -218,25 +219,19 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     } else {
         let prose = generate_orchestration_prose(&adds);
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
-        let signed = state
-            .nmp
-            .sign_group_event(&parent, builder, &mgmt_keys)
-            .await?;
-        let oid = signed.id.to_hex();
         // Durable acceptance is the reporting boundary: NMP has taken custody
         // of the add-agents directive and will keep delivering it. Whether each
         // relay took it is settlement, and settlement is inspected -- through
-        // the background receipt evidence `mosaico doctor` reads -- never
-        // awaited here.
-        state.nmp.enqueue_group_event(&parent, &signed)?;
-
-        // Local fast-path: relays don't reliably echo to the publishing connection,
-        // so drive the same listener directly for roles targeted at THIS backend.
-        // Idempotency is enforced per add-target inside handle_orchestration.
-        if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
-            handle_orchestration(state, &signed, op).await;
-        }
-        oid
+        // the publish queue `mosaico doctor` reads -- never awaited here.
+        //
+        // The directive reaches THIS backend's own orchestration listener the
+        // same way a peer's does: NMP injects the accepted row into the group
+        // subscription and `demux::chat_ops` routes it (NMP #1182). There is no
+        // local fast-path, because there is no longer anything for it to fix.
+        state
+            .nmp
+            .publish_group(&parent, builder, &mgmt_keys)?
+            .to_hex()
     };
 
     let joined = creator_rec.is_some();

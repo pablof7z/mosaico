@@ -9,7 +9,10 @@ impl Nip29Provider {
         };
         self.publish_group_management(
             group,
-            as_nostr(nmp_nip29::edit_metadata(Some(name), None)),
+            as_nostr(nmp_nip29::edit_metadata(nmp_nip29::GroupMetadataEdit {
+                name: Some(name.to_string()),
+                ..nmp_nip29::GroupMetadataEdit::default()
+            })),
             &mgmt_keys,
             "9002 edit-metadata (name)",
         )

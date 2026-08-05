@@ -53,7 +53,6 @@ pub mod fabric;
 mod presence_publisher;
 pub mod pty;
 pub mod reconcile;
-pub mod relay_log;
 pub mod rpc_harness;
 pub mod runtime;
 pub mod session_host;

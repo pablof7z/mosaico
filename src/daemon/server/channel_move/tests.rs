@@ -35,7 +35,6 @@ fn record(store: &crate::state::Store, id: usize, author: &str, at: u64) {
             author_pubkey: author.into(),
             body: format!("substantive coordination message {id}"),
             created_at: at,
-            direction: "inbound".into(),
             sync_state: "accepted".into(),
             native_event_id: None,
             error: None,

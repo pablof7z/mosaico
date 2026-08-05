@@ -13,6 +13,7 @@ fn schema_eighteen_adds_empty_attachment_directory_without_losing_messages() {
         [],
     )
     .unwrap();
+    fixture::downgrade_messages_to_v19(&conn);
     conn.execute_batch(
         "ALTER TABLE messages DROP COLUMN attachment_dir;
          PRAGMA user_version = 18;",
@@ -25,7 +26,7 @@ fn schema_eighteen_adds_empty_attachment_directory_without_losing_messages() {
     assert_eq!(message.body, "hello");
     assert!(message.attachment_dir.is_empty());
     drop(store);
-    assert_eq!(version(&Connection::open(path).unwrap()), 19);
+    assert_eq!(version(&Connection::open(path).unwrap()), 20);
 }
 
 #[test]
@@ -34,6 +35,7 @@ fn malformed_schema_eighteen_fails_without_mutating_the_database() {
     let path = directory.path().join("state.db");
     drop(Store::open(&path).expect("fresh schema opens"));
     let conn = Connection::open(&path).unwrap();
+    fixture::downgrade_messages_to_v19(&conn);
     conn.execute_batch(
         "ALTER TABLE messages DROP COLUMN attachment_dir;
          ALTER TABLE messages DROP COLUMN body;

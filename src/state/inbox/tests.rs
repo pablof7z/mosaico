@@ -85,7 +85,6 @@ fn offline_inbox_rows_join_attachment_directory_after_reopen() {
                 author_pubkey: "human".into(),
                 body: "see [report.md]".into(),
                 created_at: 10,
-                direction: "inbound".into(),
                 sync_state: "accepted".into(),
                 native_event_id: Some("evt-files".into()),
                 error: None,

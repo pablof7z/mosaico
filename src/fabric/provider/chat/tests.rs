@@ -1,11 +1,18 @@
 use super::*;
 use crate::domain::AgentRef;
 use crate::state::Store;
-use nostr::{EventBuilder, Kind};
 use std::sync::{Arc, Mutex};
 
 async fn offline_provider() -> Nip29Provider {
-    let nmp = Arc::new(crate::nmp_host::NmpHost::open(&[], None, None, &Keys::generate()).unwrap());
+    let nmp = Arc::new(
+        crate::nmp_host::NmpHost::open(
+            &["wss://relay.example.com".into()],
+            None,
+            None,
+            &Keys::generate(),
+        )
+        .unwrap(),
+    );
     let store = Arc::new(Mutex::new(Store::open_memory().unwrap()));
     let mgmt = Keys::generate().secret_key().to_secret_hex();
     Nip29Provider::new(nmp, store, Some(mgmt), None, Vec::new())
@@ -28,31 +35,32 @@ fn addressed_chat(recipient: &str) -> ChatMessage {
     }
 }
 
-fn has_tag(event: &Event, name: &str, value: &str) -> bool {
-    event.tags.iter().any(|t| {
-        let s = t.as_slice();
-        s.first().map(String::as_str) == Some(name) && s.get(1).map(String::as_str) == Some(value)
+/// The draft is inspected unsigned because that is all Mosaico ever holds: NMP
+/// signs inside its own publish door and hands back an id, never an event.
+fn draft_tags(builder: nostr::EventBuilder) -> Vec<Vec<String>> {
+    builder
+        .build(Keys::generate().public_key())
+        .tags
+        .iter()
+        .map(|tag| tag.as_slice().to_vec())
+        .collect()
+}
+
+fn has_tag(tags: &[Vec<String>], name: &str, value: &str) -> bool {
+    tags.iter().any(|t| {
+        t.first().map(String::as_str) == Some(name) && t.get(1).map(String::as_str) == Some(value)
     })
 }
 
 #[tokio::test]
-async fn reply_threading_appends_e_tag_and_keeps_channel() {
+async fn reply_threading_appends_e_tag() {
     let provider = offline_provider().await;
     let reply_to = "a".repeat(64);
-    let signed = provider
-        .sign_chat_message(&chat(), Some(&reply_to), &Keys::generate())
-        .await
-        .unwrap();
+    let tags = draft_tags(provider.chat_draft(&chat(), Some(&reply_to)).unwrap());
 
     assert!(
-        has_tag(&signed, "e", &reply_to),
-        "reply must thread via an e tag: {:?}",
-        signed.tags
-    );
-    assert!(
-        has_tag(&signed, "h", "chan"),
-        "wire channel h tag must survive reply threading: {:?}",
-        signed.tags
+        has_tag(&tags, "e", &reply_to),
+        "reply must thread via an e tag: {tags:?}"
     );
 }
 
@@ -61,115 +69,71 @@ async fn reply_threading_keeps_addressing_p_tag() {
     let provider = offline_provider().await;
     let reply_to = "c".repeat(64);
     let requester = "a".repeat(64);
-    let signed = provider
-        .sign_chat_message(
-            &addressed_chat(&requester),
-            Some(&reply_to),
-            &Keys::generate(),
-        )
-        .await
-        .unwrap();
+    let tags = draft_tags(
+        provider
+            .chat_draft(&addressed_chat(&requester), Some(&reply_to))
+            .unwrap(),
+    );
 
-    assert!(
-        has_tag(&signed, "e", &reply_to),
-        "reply must thread via an e tag: {:?}",
-        signed.tags
-    );
-    assert!(
-        has_tag(&signed, "p", &requester),
-        "reply must p-tag the requester: {:?}",
-        signed.tags
-    );
+    assert!(has_tag(&tags, "e", &reply_to), "{tags:?}");
+    assert!(has_tag(&tags, "p", &requester), "{tags:?}");
 }
 
 #[tokio::test]
 async fn no_reply_leaves_no_e_tag() {
     let provider = offline_provider().await;
-    let signed = provider
-        .sign_chat_message(&chat(), None, &Keys::generate())
-        .await
-        .unwrap();
+    let tags = draft_tags(provider.chat_draft(&chat(), None).unwrap());
 
     assert!(
-        !signed
-            .tags
+        !tags
             .iter()
-            .any(|t| t.as_slice().first().map(String::as_str) == Some("e")),
-        "a non-reply chat must carry no e tag: {:?}",
-        signed.tags
+            .any(|t| t.first().map(String::as_str) == Some("e")),
+        "a non-reply chat must carry no e tag: {tags:?}"
     );
 }
 
+/// The context row belongs to NMP's group door, which appends it before the
+/// bytes are signed and REFUSES a draft that supplies its own. A chat draft
+/// that wrote an `h` would therefore never publish at all.
 #[tokio::test]
-async fn local_relay_event_preserves_signed_reply_tags() {
+async fn a_chat_draft_never_writes_its_own_group_context_row() {
     let provider = offline_provider().await;
-    let reply_to = "b".repeat(64);
-    let signed = provider
-        .sign_chat_message(&chat(), Some(&reply_to), &Keys::generate())
-        .await
-        .unwrap();
-    let relay = chat_relay_event(
-        &signed,
-        &OutboundChatRecord {
-            channel_h: "chan".into(),
-            direction: "outbound",
-        },
-        &signed.id.to_hex(),
-        signed.created_at.as_secs(),
-    );
-
-    let tags: Vec<Vec<String>> = serde_json::from_str(&relay.tags_json).unwrap();
-    assert!(
-        tags.iter()
-            .any(|t| t.first().map(String::as_str) == Some("e")
-                && t.get(1).map(String::as_str) == Some(reply_to.as_str())),
-        "local relay row must preserve reply e tag: {:?}",
-        tags
-    );
-    assert!(
-        tags.iter()
-            .any(|t| t.first().map(String::as_str) == Some("h")
-                && t.get(1).map(String::as_str) == Some("chan")),
-        "local relay row must preserve channel h tag: {:?}",
-        tags
-    );
+    for reply_to in [None, Some("d".repeat(64))] {
+        let tags = draft_tags(provider.chat_draft(&chat(), reply_to.as_deref()).unwrap());
+        assert!(
+            !tags
+                .iter()
+                .any(|t| t.first().map(String::as_str) == Some("h")),
+            "{tags:?}"
+        );
+    }
 }
 
-#[test]
-fn local_seed_projects_the_canonical_signed_content() {
-    let store = Store::open_memory().unwrap();
-    let signed = EventBuilder::new(Kind::from(9u16), "wire-redacted")
-        .tags([Tag::parse(["h", "chan"]).unwrap()])
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    let record = OutboundChatRecord {
-        channel_h: "chan".into(),
-        direction: "outbound",
-    };
-
-    seed_chat_read_models(
-        &store,
-        &signed,
-        &record,
-        &signed.id.to_hex(),
-        signed.created_at.as_secs(),
-        "test",
-    );
-
-    assert_eq!(
+/// Publishing writes NOTHING to the local store. The message comes back
+/// through the group subscription NMP injects the accepted row into (#1182)
+/// and reaches `messages` through the materializer, its single writer -- so a
+/// row appearing here at publish time would be a second writer racing it.
+#[tokio::test]
+async fn publishing_a_chat_seeds_no_local_row() {
+    let provider = offline_provider().await;
+    let keys = Keys::generate();
+    let author = keys.public_key().to_hex();
+    provider.with_store(|store| {
+        store.upsert_channel("chan", "chan", "", "", 1).unwrap();
         store
-            .get_event(&signed.id.to_hex())
-            .unwrap()
-            .unwrap()
-            .content,
-        signed.content
-    );
-    assert_eq!(
+            .replace_channel_admins("chan", std::slice::from_ref(&author), 2)
+            .unwrap();
         store
-            .get_message(&signed.id.to_hex())
-            .unwrap()
-            .unwrap()
-            .body,
-        signed.content
-    );
+            .replace_channel_members("chan", std::slice::from_ref(&author), 3)
+            .unwrap();
+    });
+    let published = provider
+        .publish_chat_checked(&chat(), &keys)
+        .await
+        .expect("acceptance never depends on a relay");
+
+    provider.with_store(|store| {
+        assert!(store.get_message(&published.event_id).unwrap().is_none());
+        assert!(store.get_event(&published.event_id).unwrap().is_none());
+    });
 }

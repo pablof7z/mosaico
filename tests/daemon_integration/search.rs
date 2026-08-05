@@ -10,7 +10,6 @@ fn cache_message(store: &Store, id: &str, channel: &str, author: &str, body: &st
             author_pubkey: author.to_string(),
             body: body.to_string(),
             created_at: at,
-            direction: "inbound".to_string(),
             sync_state: "accepted".to_string(),
             native_event_id: Some(id.to_string()),
             error: None,

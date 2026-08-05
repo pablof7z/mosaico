@@ -14,7 +14,6 @@ fn record(store: &Store, id: &str, channel: &str, state: &str, created_at: u64) 
             author_pubkey: OTHER_PK.to_string(),
             body: "hello".to_string(),
             created_at,
-            direction: "inbound".to_string(),
             sync_state: state.to_string(),
             native_event_id: Some(id.to_string()),
             error: None,

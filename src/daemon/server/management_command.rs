@@ -2,7 +2,6 @@ use super::channel_resolve::{absolute, ChannelResolution};
 use super::resolution::work_root_for;
 use super::*;
 use crate::domain::{AgentRef, ChatMessage};
-use crate::fabric::provider::chat::OutboundChatRecord;
 use anyhow::{Context, Result};
 use nostr::Event;
 
@@ -233,14 +232,7 @@ async fn publish_reply(
         mentioned_pubkeys: vec![requester.to_string()],
         attachments: Vec::new(),
     };
-    let record = OutboundChatRecord {
-        channel_h: channel_h.to_string(),
-        direction: "outbound",
-    };
-    state
-        .provider
-        .publish_chat_checked(&chat, &keys, &record)
-        .await?;
+    state.provider.publish_chat_checked(&chat, &keys).await?;
     Ok(())
 }
 

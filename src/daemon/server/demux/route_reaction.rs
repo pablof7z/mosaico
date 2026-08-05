@@ -50,10 +50,7 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
             return;
         }
     };
-    if let Err(e) = state
-        .nmp
-        .publish_group_builder(&channel_h, builder, &mgmt_keys)
-    {
+    if let Err(e) = state.nmp.publish_group(&channel_h, builder, &mgmt_keys) {
         tracing::warn!(
             event_id = %&event_id[..8],
             channel = %channel_h,
@@ -77,10 +74,10 @@ fn tag(parts: &[&str]) -> Result<Tag> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::{Keys, UnsignedEvent};
+    use nostr::Keys;
 
-    fn tag_val(event: &UnsignedEvent, name: &str) -> Option<String> {
-        event.tags.iter().find_map(|t| {
+    fn tag_val<'a>(tags: impl IntoIterator<Item = &'a nostr::Tag>, name: &str) -> Option<String> {
+        tags.into_iter().find_map(|t| {
             let s = t.as_slice();
             if s.first().map(String::as_str) == Some(name) {
                 s.get(1).cloned()
@@ -97,22 +94,27 @@ mod tests {
         let unsigned = build_reaction(&event_id).unwrap().build(keys.public_key());
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👁");
-        assert_eq!(tag_val(&unsigned, "e").as_deref(), Some(&event_id[..]));
+        assert_eq!(
+            tag_val(unsigned.tags.iter(), "e").as_deref(),
+            Some(&event_id[..])
+        );
         // No context row: the group is named at the publish door, and the
         // draft carrying its own would be refused there.
-        assert_eq!(tag_val(&unsigned, "h"), None);
+        assert_eq!(tag_val(unsigned.tags.iter(), "h"), None);
     }
 
     /// The group the reaction lands in, proved where it is actually decided.
     #[test]
     fn the_publish_door_puts_the_reaction_in_the_routed_channel() {
         let keys = Keys::generate();
-        let signed = crate::nmp_host::write::contextualized_draft(
+        let signed = crate::fabric::nip29::signed_into_group(
             "my-channel",
             build_reaction(&"aa".repeat(32)).unwrap(),
-            keys.public_key(),
-        )
-        .unwrap();
-        assert_eq!(tag_val(&signed, "h").as_deref(), Some("my-channel"));
+            &keys,
+        );
+        assert_eq!(
+            tag_val(signed.tags.iter(), "h").as_deref(),
+            Some("my-channel")
+        );
     }
 }

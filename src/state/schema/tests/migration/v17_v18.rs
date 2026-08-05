@@ -8,6 +8,7 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
 
     let conn = Connection::open(&path).unwrap();
     fixture::downgrade_channel_context_to_v17(&conn);
+    fixture::downgrade_messages_to_v19(&conn);
     conn.execute_batch(
         r#"
         INSERT INTO relay_events
@@ -47,7 +48,7 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
     assert_eq!(cleanup_due[0].channel_h, "cleanup");
     drop(store);
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 19);
+    assert_eq!(version(&conn), 20);
     assert_eq!(
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master

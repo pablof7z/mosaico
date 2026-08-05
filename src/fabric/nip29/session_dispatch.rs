@@ -134,11 +134,7 @@ mod tests {
     /// Sign the draft into `group` exactly as the publish path does: NMP's
     /// contextualizer mints the routing `h` row, never this module.
     fn sign_into(group: &str, b: EventBuilder) -> Event {
-        let keys = Keys::generate();
-        crate::nmp_host::write::contextualized_draft(group, b, keys.public_key())
-            .unwrap()
-            .sign_with_keys(&keys)
-            .unwrap()
+        crate::fabric::nip29::signed_into_group(group, b, &Keys::generate())
     }
 
     #[test]

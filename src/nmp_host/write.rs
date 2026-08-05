@@ -1,32 +1,33 @@
-//! Durable NIP-29 write and account lifecycle behind the NMP facade.
+//! NIP-29 writes and account lifecycle behind the NMP facade.
 //!
-//! **Publishing is optimistic.** `Engine::publish` returning `Ok` is NMP
-//! taking custody: the write is durably recorded and whatever becomes of it is
+//! **NMP signs, NMP stores, and Mosaico reads its own write back.** A group
+//! write leaves through `nip29::Group::publish` or `nip29::Groups::publish`:
+//! NMP appends the `h` rows, stamps, signs, takes durable custody and injects
+//! the accepted row into the very subscription Mosaico already holds for that
+//! group (NMP #1182). There is no app-side signing step, no app-side event id
+//! derivation, and no app-local copy of the event.
+//!
+//! **Publishing is optimistic.** `publish` returning `Ok` is NMP taking
+//! custody: the write is durably recorded and whatever becomes of it is
 //! recorded with it. Nothing here waits for a relay, because settlement is
-//! something an app INSPECTS — through the background receipt observer's
-//! evidence, and through NMP's own publish queue — never something it awaits.
-//! The 12-second foreground deadline this module used to run was the mechanism
-//! behind mosaico#745, where a terminal AUTH denial reached the operator as a
-//! timeout.
+//! something an app INSPECTS — through NMP's own publish queue — never
+//! something it awaits. The 12-second foreground deadline this module used to
+//! run was the mechanism behind mosaico#745, where a terminal AUTH denial
+//! reached the operator as a timeout.
+
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
-use nmp::{FifoReceiver, SignEventRequest, WriteFact};
+use nmp::{ReceiptId, ReceiptStream, SignEventRequest};
 use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, UnsignedEvent};
 
 use super::scrub::scrub_unsigned;
 use super::NmpHost;
 
-mod background_receipts;
-mod background_submit;
 mod compose;
 mod queue;
-pub(crate) use background_receipts::BackgroundReceiptObserver;
-pub(crate) use background_receipts::BackgroundWriteSnapshot;
-#[cfg(test)]
-use background_submit::collect_background_receivers;
-use background_submit::BackgroundIntent;
-use compose::{draft_of, frozen_id_of, unsigned_of};
+use compose::draft_of;
 
 impl NmpHost {
     /// Sign an exact event through NMP's account registry. The facade's
@@ -48,6 +49,10 @@ impl NmpHost {
     /// authorization is the case in hand — because signing and publishing are
     /// orthogonal stages. Its `created_at` is part of the grant it composed,
     /// so it survives to the signature rather than being re-stamped here.
+    ///
+    /// This signs WITHOUT publishing, which is the only thing it is for. A
+    /// group write never comes through here: NMP signs those inside its own
+    /// publish door.
     pub(crate) async fn sign_unsigned(
         self: &std::sync::Arc<Self>,
         unsigned: UnsignedEvent,
@@ -96,39 +101,29 @@ impl NmpHost {
         .context("joining NMP signer")?
     }
 
-    /// Sign a draft INTO `group`, so the group context tag is inside the bytes
-    /// the signature covers.
+    /// Publish a draft into ONE NIP-29 group, as `keys`.
     ///
-    /// Mosaico signs its own chat, reaction and status bytes because it seeds
-    /// them into the local read model before any relay has seen them, and an
-    /// event id only exists once the body is frozen. `h` is still never
-    /// Mosaico's to write: `nmp_nip29::contextualize` appends it, and refuses
-    /// a draft that already carries one.
-    ///
-    /// The group id is named twice on this path -- once here and once at the
-    /// `Group` the intent is minted from -- because `nip29::Group` retains an
-    /// id but exposes no contextualizer. Tracked upstream as
-    /// pablof7z/nmp#1283; one `group.contextualize(builder)` collapses both.
-    pub(crate) async fn sign_group_event(
-        self: &std::sync::Arc<Self>,
+    /// The whole write: NMP appends the `h` row before the stamp/sign step,
+    /// signs, takes custody and routes to every configured host. Mosaico
+    /// supplies a draft and an author and holds nothing else.
+    pub(crate) fn publish_group(
+        &self,
         group: &str,
         builder: EventBuilder,
         keys: &Keys,
-    ) -> Result<Event> {
-        let draft = contextualized_draft(group, builder, keys.public_key())?;
-        self.sign_unsigned(draft, keys).await
+    ) -> Result<EventId> {
+        self.publish_groups(std::iter::once(group.to_string()), builder, keys)
     }
 
-    /// Enqueue a NIP-29 write NMP will sign, and return the id it freezes at
-    /// acceptance.
+    /// Publish a draft into EVERY named group at once, as `keys`.
     ///
-    /// The id is computed here rather than awaited: a NIP-01 id never depends
-    /// on `sig`, so the frozen body already determines it, and NMP freezes the
-    /// same bytes the group door minted. Waiting for `SigningState::Signed`
-    /// would be waiting for something already known.
-    pub(crate) fn publish_group_builder(
+    /// One event, one replaceable coordinate, one `h` row per group — the
+    /// kind:30315 session status is the case in hand. One group is not a
+    /// special path that happens to agree with this one; it is literally this
+    /// one, which is why [`Self::publish_group`] delegates here.
+    pub(crate) fn publish_groups(
         &self,
-        group: &str,
+        groups: impl IntoIterator<Item = String>,
         builder: EventBuilder,
         keys: &Keys,
     ) -> Result<EventId> {
@@ -136,83 +131,93 @@ impl NmpHost {
         let author = keys.public_key();
         let mut unsigned = builder.build(author);
         scrub_unsigned(&mut unsigned);
-        let kind = unsigned.kind.as_u16();
-        let intent = self
-            .group(group)?
-            .intent(author, draft_of(unsigned))
-            .map_err(|error| anyhow::anyhow!("minting a NIP-29 group write: {error}"))?;
-        let event_id = frozen_id_of(&intent, author)?;
-        self.enqueue_background_intents(
-            event_id,
-            group_operation(kind),
-            vec![BackgroundIntent {
-                target: group.to_string(),
-                intent,
-            }],
-        )?;
-        Ok(event_id)
+        let groups: BTreeSet<String> = groups.into_iter().collect();
+        let receipt = self.publish_through_group_door(&groups, author, draft_of(unsigned))?;
+        self.frozen_id(receipt)
     }
 
-    /// The NIP-29 group door for `group`, over every configured host.
+    /// The frozen event id NMP gave this accepted write.
     ///
-    /// One `Group` mints ONE intent routed to the whole scope, which is why
-    /// nothing here fans out per relay any more. The per-relay facts a write
-    /// produces arrive on that one receipt stream and are folded by
-    /// [`background_receipts::worker`]'s lane facts, which were already
-    /// written for exactly that shape.
-    pub(crate) fn group(&self, group: &str) -> Result<nmp::nip29::Group> {
-        nmp::nip29::group(self.relays.iter().cloned(), group).map_err(|error| {
-            anyhow::anyhow!("cannot publish into NIP-29 group {group:?}: {error:?}")
-        })
+    /// Read back out of NMP's own publish queue rather than derived here: the
+    /// queue's `event_id` IS the write's identity from acceptance onward, and
+    /// it is the post-restamp value in every case including a replaceable
+    /// edit. Mosaico reimplementing NIP-01's hashing rule to guess it — which
+    /// is what this replaced — was a second authority on the same fact.
+    ///
+    /// O(outstanding writes), and deliberately so: NMP has no by-receipt
+    /// lookup door and a scan of the app's own outstanding writes is small.
+    fn frozen_id(&self, receipt: ReceiptId) -> Result<EventId> {
+        self.engine
+            .publish_queue()
+            .map_err(|error| anyhow::anyhow!("reading NMP's publish queue: {error}"))?
+            .into_iter()
+            .find(|entry| entry.receipt_id == receipt)
+            .map(|entry| entry.event_id)
+            .context("NMP accepted the write but its publish queue does not name the receipt")
     }
 
-    fn publish_intent(
+    fn publish_through_group_door(
         &self,
-        intent: WriteIntent,
-        context: &'static str,
-    ) -> Result<FifoReceiver<WriteFact>> {
+        groups: &BTreeSet<String>,
+        author: PublicKey,
+        builder: nmp::EventBuilder,
+    ) -> Result<ReceiptId> {
         #[cfg(test)]
-        if let Some(result) = self.test_io.take_write() {
-            return result.context(context);
+        if let Some(refusal) = self.test_io.take_write() {
+            refusal?;
         }
-        self.engine.publish(intent).context(context)
+        let hosts = nmp::nip29::on(self.relays.iter().cloned())
+            .map_err(|error| anyhow::anyhow!("no configured NIP-29 group host: {error:?}"))?;
+        let stream = hosts
+            .groups(groups.iter().cloned())
+            .map_err(|error| anyhow::anyhow!("naming the groups of a write: {error}"))?
+            .publish(&self.engine, author, builder)
+            .map_err(|error| anyhow::anyhow!("publishing a NIP-29 group write: {error}"))?;
+        Ok(stream.id)
     }
-}
 
-/// The exact bytes a group write is signed over: Mosaico's draft with NMP's
-/// group context row already inside it.
-///
-/// Public to the crate because it is what makes an event "in a group", and a
-/// test that composes a group event any other way is testing a shape the
-/// product never publishes.
-pub(crate) fn contextualized_draft(
-    group: &str,
-    builder: EventBuilder,
-    author: PublicKey,
-) -> Result<UnsignedEvent> {
-    let mut unsigned = builder.build(author);
-    scrub_unsigned(&mut unsigned);
-    let contextualized = nmp_nip29::contextualize(group, draft_of(unsigned))
-        .map_err(|error| anyhow::anyhow!("composing a NIP-29 group draft: {error}"))?;
-    Ok(unsigned_of(contextualized, author))
-}
-
-/// The operation label correlated evidence is filed under.
-pub(super) fn group_operation(kind: u16) -> &'static str {
-    match kind {
-        crate::fabric::nip29::wire::KIND_STATUS => "status",
-        7 => "reaction",
-        _ => "group_event",
+    /// Publish exact signed bytes to an exact relay set.
+    ///
+    /// NOT a group door and never used for one: NIP-29 composition, signing
+    /// and routing all belong to `nip29::Groups::publish`. This is the plain
+    /// NIP-01 write — a kind:0 profile going to the indexer, and the schema-7
+    /// migration journal replaying bytes an older Mosaico signed before NMP
+    /// existed. Neither can be re-composed, because re-composing would change
+    /// the id.
+    pub(crate) fn publish_signed_to(
+        &self,
+        relays: Vec<nmp::RelayUrl>,
+        event: &Event,
+    ) -> Result<ReceiptStream> {
+        if relays.is_empty() {
+            anyhow::bail!("cannot publish {} without a configured relay", event.id);
+        }
+        self.engine
+            .publish_tracked(WriteIntent {
+                payload: WritePayload::Signed(event.clone()),
+                routing: WriteRouting::Explicit(relays),
+                identity: Identity::Explicit(event.pubkey),
+                correlation: None,
+            })
+            .context("submitting a signed NMP write")
     }
-}
 
-/// `None` restates NMP's own default: publish as whoever is active at
-/// acceptance. `Some(pk)` names the key explicitly, which is what the signed
-/// paths do — the author is already frozen in the bytes there.
-pub(crate) fn identity_of(identity_override: Option<PublicKey>) -> Identity {
-    match identity_override {
-        Some(pubkey) => Identity::Explicit(pubkey),
-        None => Identity::Active,
+    /// Publish a kind:0 copy to every configured app/indexer relay.
+    pub(crate) fn enqueue_profile_event(&self, event: &Event) -> Result<EventId> {
+        if event.kind.as_u16() != 0 {
+            anyhow::bail!(
+                "profile enqueue requires kind:0, got {}",
+                event.kind.as_u16()
+            );
+        }
+        self.publish_signed_to(self.profile_relays.iter().cloned().collect(), event)?;
+        Ok(event.id)
+    }
+
+    /// Every configured NIP-29 group host, for a write that names its own
+    /// groups in bytes Mosaico may not recompose.
+    pub(crate) fn group_hosts(&self) -> Vec<nmp::RelayUrl> {
+        self.relays.iter().cloned().collect()
     }
 }
 

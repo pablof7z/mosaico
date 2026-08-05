@@ -10,11 +10,10 @@ fn row_to_message_with_rowid(row: &rusqlite::Row) -> rusqlite::Result<(i64, Mess
             author_pubkey: row.get(4)?,
             body: row.get(5)?,
             created_at: row.get(6)?,
-            direction: row.get(7)?,
-            sync_state: row.get(8)?,
-            native_event_id: opt_text(row.get(9)?),
-            error: opt_text(row.get(10)?),
-            attachment_dir: row.get(11)?,
+            sync_state: row.get(7)?,
+            native_event_id: opt_text(row.get(8)?),
+            error: opt_text(row.get(9)?),
+            attachment_dir: row.get(10)?,
         },
     ))
 }

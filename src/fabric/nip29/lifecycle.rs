@@ -1,25 +1,20 @@
 //! Group-lifecycle drafts NIP-29 does not compose for us.
 //!
-//! NIP-29's own schemas -- create-group, delete-group, put-user, remove-user
-//! and edit-metadata's `name`/`about` -- belong to `nmp_nip29::operations` and
-//! are called there directly. Nothing in this module re-spells them, and
-//! nothing here writes an `h` row: the group context tag is minted by NMP's
-//! group door at publish time.
+//! NIP-29's own schemas belong to `nmp_nip29::operations` and are called there
+//! directly. Nothing in this module re-spells them, and nothing here writes an
+//! `h` row: the group context tag is minted by NMP's group door at publish
+//! time.
 //!
-//! What is left are the three drafts NMP's composers cannot currently express:
+//! Exactly ONE draft is left that NMP cannot express:
 //!
-//! * **Visibility.** NIP-29's kind:9002 carries `open`/`closed` and
-//!   `public`/`private` alongside `name`/`about`, and `nmp_nip29::edit_metadata`
-//!   composes only the latter two. A Mosaico workspace is a CLOSED group, so
-//!   the flags are not optional decoration.
-//! * **`picture`.** Also a NIP-29 kind:9002 metadata field, also uncomposed.
-//!   (The dicebear URL is Mosaico product policy; the tag name is NIP-29's.)
 //! * **`parent`.** Subgroups per nostr-protocol/nips#2319: the relationship
 //!   rides on the kind:9007 create and the relay re-emits it on kind:39000.
 //!
-//! Tracked upstream as pablof7z/nmp#1282. Each draft below starts from the
-//! `nmp_nip29` verb that owns its kind and appends only the rows NMP has no
-//! spelling for, so the gap stays exactly as wide as it really is.
+//! Visibility (`open`/`closed`, `public`/`private`) and `picture` used to be
+//! here too. NMP #1282 gave kind:9002 its own spelling for all three
+//! ([`nmp_nip29::GroupMetadataEdit`]), so Mosaico states the policy and NMP
+//! composes the rows. `parent` is filed as pablof7z/nmp#1301; when it lands,
+//! this module is deleted rather than shrunk.
 
 use anyhow::Result;
 use nostr::*;
@@ -28,9 +23,22 @@ fn tag(parts: &[&str]) -> Result<Tag> {
     Ok(Tag::parse(parts.iter().copied())?)
 }
 
-fn picture_tag(seed: &str) -> Result<Tag> {
-    let url = format!("https://api.dicebear.com/10.x/stripes/svg?seed={seed}");
-    tag(&["picture", &url])
+/// Mosaico's own avatar policy. The `picture` ROW is NIP-29's and is composed
+/// by `nmp_nip29::edit_metadata`; which URL goes in it is the product's.
+fn picture_url(seed: &str) -> String {
+    format!("https://api.dicebear.com/10.x/stripes/svg?seed={seed}")
+}
+
+/// A Mosaico workspace is readable by anyone and joinable only by invitation.
+/// Stated once, composed by NIP-29's own kind:9002 spelling.
+fn workspace_visibility(name: &str, picture_seed: &str) -> nmp_nip29::GroupMetadataEdit {
+    nmp_nip29::GroupMetadataEdit {
+        name: Some(name.to_string()),
+        picture: Some(picture_url(picture_seed)),
+        read_access: Some(nmp_nip29::ReadAccess::Public),
+        join_access: Some(nmp_nip29::JoinAccess::Closed),
+        ..nmp_nip29::GroupMetadataEdit::default()
+    }
 }
 
 /// NMP's builder as `nostr`'s, for the signing doors that still take one.
@@ -49,10 +57,9 @@ pub fn as_nostr(builder: nmp::EventBuilder) -> EventBuilder {
 /// while keeping it `public`. The workspace is the root channel, so its visible
 /// name and durable group id use the same workspace slug.
 pub fn group_lock_closed(channel: &str) -> Result<nmp::EventBuilder> {
-    Ok(nmp_nip29::edit_metadata(Some(channel), None)
-        .tag(tag(&["closed"])?)
-        .tag(tag(&["public"])?)
-        .tag(picture_tag(channel)?))
+    Ok(nmp_nip29::edit_metadata(workspace_visibility(
+        channel, channel,
+    )))
 }
 
 /// kind:9007 create-group for a CHILD (sub-)group, declaring its `parent`
@@ -75,11 +82,10 @@ pub fn group_lock_closed_with_parent(
     name: &str,
     parent_h: &str,
 ) -> Result<nmp::EventBuilder> {
-    Ok(nmp_nip29::edit_metadata(Some(name), None)
-        .tag(tag(&["parent", parent_h])?)
-        .tag(tag(&["closed"])?)
-        .tag(tag(&["public"])?)
-        .tag(picture_tag(child_h)?))
+    Ok(
+        nmp_nip29::edit_metadata(workspace_visibility(name, child_h))
+            .tag(tag(&["parent", parent_h])?),
+    )
 }
 
 #[cfg(test)]

@@ -1,7 +1,6 @@
 use super::super::*;
 use super::recipient_notice;
 use super::self_target;
-use crate::fabric::provider::chat::OutboundChatRecord;
 use anyhow::{bail, Context, Result};
 use nostr::{PublicKey, ToBech32};
 
@@ -61,15 +60,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     };
     let published = state
         .provider
-        .publish_chat_reply_checked(
-            &chat,
-            &reply_to,
-            &keys,
-            &OutboundChatRecord {
-                channel_h: original.channel_h.clone(),
-                direction: "outbound",
-            },
-        )
+        .publish_chat_reply_checked(&chat, &reply_to, &keys)
         .await?;
     state.record_coordination_action(&rec);
     let local_directory = match crate::attachment_receive::copy_local(

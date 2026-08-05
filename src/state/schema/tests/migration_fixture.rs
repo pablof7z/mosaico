@@ -12,6 +12,23 @@ fn create_current(conn: &Connection) {
     }
 }
 
+/// Restore `messages.direction`, which schema 20 deleted.
+///
+/// Every fixture below builds an old schema by starting from the CURRENT DDL
+/// and reverting what changed since, so a column deleted at 20 has to come back
+/// before a database can honestly claim to be stamped 19 or earlier.
+pub(super) fn downgrade_messages_to_v19(conn: &Connection) {
+    conn.execute_batch(
+        r#"
+        DROP INDEX IF EXISTS idx_messages_author_pubkey;
+        ALTER TABLE messages ADD COLUMN direction TEXT NOT NULL DEFAULT 'inbound';
+        CREATE INDEX idx_messages_author_pubkey
+            ON messages(author_pubkey, direction, sync_state, created_at);
+        "#,
+    )
+    .unwrap();
+}
+
 pub(super) fn add_removed_v15_session_columns(conn: &Connection) {
     conn.execute_batch(
         r#"
@@ -210,6 +227,10 @@ pub(super) fn create_schema_eight(path: &Path) {
     conn.execute_batch(
         r#"
         DROP INDEX idx_sessions_runtime;
+        DROP INDEX idx_messages_author_pubkey;
+        ALTER TABLE messages ADD COLUMN direction TEXT NOT NULL DEFAULT 'inbound';
+        CREATE INDEX idx_messages_author_pubkey
+            ON messages(author_pubkey, direction, sync_state, created_at);
         DROP INDEX idx_sessions_idle_deadline;
         DROP INDEX idx_session_locators_runtime_endpoint;
         DROP INDEX idx_session_channels_channel;

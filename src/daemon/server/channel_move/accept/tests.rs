@@ -56,7 +56,6 @@ fn record(store: &crate::state::Store, id: usize, author: &str, body: String, at
             author_pubkey: author.into(),
             body,
             created_at: at,
-            direction: "inbound".into(),
             sync_state: "accepted".into(),
             native_event_id: None,
             error: None,

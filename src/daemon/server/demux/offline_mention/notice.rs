@@ -1,7 +1,6 @@
 use crate::daemon::server::DaemonState;
 use crate::daemon::tail_event::TailEvent;
 use crate::domain::{AgentRef, ChatMessage};
-use crate::fabric::provider::chat::OutboundChatRecord;
 use std::sync::Arc;
 
 pub(super) async fn publish_start_failure_notice(
@@ -34,15 +33,7 @@ pub(super) async fn publish_start_failure_notice(
         mentioned_pubkeys: requester_pubkey.map(str::to_string).into_iter().collect(),
         attachments: Vec::new(),
     };
-    let record = OutboundChatRecord {
-        channel_h: channel.to_string(),
-        direction: "outbound",
-    };
-    let published = match state
-        .provider
-        .publish_chat_checked(&chat, &keys, &record)
-        .await
-    {
+    let published = match state.provider.publish_chat_checked(&chat, &keys).await {
         Ok(published) => published,
         Err(error) => {
             state.emit_delivery_failure(channel, agent_slug, "spawn", body);
