@@ -15,7 +15,7 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "--attach",
         "./out/diagram.png",
         "--attach",
-        "./out/build.log",
+        "build-log=./out/build.log",
         "--force",
         "--channel",
         "#ops",
@@ -47,7 +47,11 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
                 attachments[0].path,
                 std::path::PathBuf::from("./out/diagram.png")
             );
-            assert_eq!(attachments[1].label, "out/build.log");
+            assert_eq!(attachments[1].label, "build-log");
+            assert_eq!(
+                attachments[1].path,
+                std::path::PathBuf::from("./out/build.log")
+            );
             assert_eq!(tags, vec!["agent1", "agent2"]);
             assert!(force);
             assert_eq!(channel.as_deref(), Some("#ops"));

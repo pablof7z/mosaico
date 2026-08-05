@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn parses_explicit_label_and_preserves_its_inline_reference() {
+    let parsed = parse_spec("review=./build/report.pdf").unwrap();
+    assert_eq!(parsed.label, "review");
+    assert_eq!(parsed.path, PathBuf::from("./build/report.pdf"));
+    assert_eq!(
+        prepare_message("Check out [review].", &[parsed]).unwrap(),
+        "Check out [review]."
+    );
+}
+
+#[test]
 fn infers_relative_label_from_supplied_path() {
     let parsed = parse_spec("./1/a=b.png").unwrap();
     assert_eq!(parsed.label, "1/a=b.png");
@@ -9,8 +20,8 @@ fn infers_relative_label_from_supplied_path() {
 
 #[test]
 fn absolute_path_uses_just_the_file_name_as_label() {
-    let parsed = parse_spec("/tmp/build/trace.json").unwrap();
-    assert_eq!(parsed.label, "trace.json");
+    let parsed = parse_spec("/tmp/build/trace=a.json").unwrap();
+    assert_eq!(parsed.label, "trace=a.json");
 }
 
 #[test]
@@ -22,6 +33,19 @@ fn rejects_empty_parent_and_unsafe_marker_paths() {
         "bad[name].png",
         ".event-id",
         ".EVENT-ID/file.png",
+    ] {
+        assert!(parse_spec(raw).is_err(), "accepted {raw:?}");
+    }
+}
+
+#[test]
+fn rejects_incomplete_or_unsafe_explicit_labels() {
+    for raw in [
+        "=./report.pdf",
+        "review=",
+        "../review=./report.pdf",
+        "bad[label]=./report.pdf",
+        ".event-id=./report.pdf",
     ] {
         assert!(parse_spec(raw).is_err(), "accepted {raw:?}");
     }

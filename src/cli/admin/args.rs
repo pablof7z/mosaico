@@ -100,11 +100,11 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Upload FILE to Blossom. Its supplied relative path is the bracket
-        /// label; absent labels are appended to the message. Repeat for files.
+        /// Upload FILE to Blossom, or use LABEL=FILE for a custom bracket
+        /// label. Absent labels are appended to the message. Repeat for files.
         #[arg(
             long = "attach",
-            value_name = "FILE",
+            value_name = "FILE|LABEL=FILE",
             value_parser = crate::attachment::parse_spec
         )]
         attachments: Vec<crate::attachment::Attachment>,
@@ -141,11 +141,11 @@ pub(in crate::cli) enum ChannelAction {
         message: Option<String>,
         #[arg(long = "message", value_name = "MESSAGE")]
         message_flag: Option<String>,
-        /// Upload FILE to Blossom. Its supplied relative path is the bracket
-        /// label; absent labels are appended to the message. Repeat for files.
+        /// Upload FILE to Blossom, or use LABEL=FILE for a custom bracket
+        /// label. Absent labels are appended to the message. Repeat for files.
         #[arg(
             long = "attach",
-            value_name = "FILE",
+            value_name = "FILE|LABEL=FILE",
             value_parser = crate::attachment::parse_spec
         )]
         attachments: Vec<crate::attachment::Attachment>,
