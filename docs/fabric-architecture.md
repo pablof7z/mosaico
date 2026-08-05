@@ -4,7 +4,7 @@
 > local store; *how* it was hydrated is irrelevant to its use.** A **Fabric
 > Provider** owns wire shape, admission, lifecycle effects, and canonical store
 > projections. NMP is the sole relay I/O substrate and owns acquisition, signing,
-> routing, receipts, retries, and the durable `submit_intents` queue. The direct
+> routing, receipts, retries, and the durable publish queue. The direct
 > `nostr` dependency supplies protocol values and builders only.
 
 ---
@@ -242,13 +242,13 @@ flowchart LR
   them, who's online, and what they're doing.
   recipient of each.* All are `SELECT`s. None know the fabric.
 - **Intents** are writes: open a project, send a message, renew a presence lease, or
-  publish a kind:0 profile. The provider encodes the intent to its wire shape
-  and submits it through NMP's durable `submit_intents` queue. NMP registers the
-  exact account, freezes the per-write author, signs, routes, retries, and
-  streams receipts; callers that need convergence wait for an ACK.
-  The provider only then reflects accepted
-  local writes into relay-derived read rows. Future optimistic UX must use an
-  explicit pending-outbound state, never fabricated relay cache rows.
+  publish a kind:0 profile. The provider encodes the intent to its wire shape and hands
+  it to NMP's publish queue. **`publish` returning `Ok` is acceptance** — NMP has
+  custody, author and event id frozen — and refuses only when it cannot write anything
+  down or the instruction cannot resolve; no relay, no signer, a stale replaceable base
+  and an AUTH denial all fail inside the queue instead. **No caller waits for a relay:**
+  settlement surfaces in `mosaico doctor`'s receipt evidence, and a caller that needs
+  relay convergence reads the relay back — a readback is evidence, a deadline is not.
 - **Admission and ambient reads have distinct evidence.** The fabric's accepted
   stream supplies sender/channel admission. Local membership rows govern ambient
   read visibility and lifecycle reconciliation. Explicit direct recipients are
@@ -307,7 +307,7 @@ flowchart TD
 The runtime only ever talks to one active provider interface. Swapping fabric =
 swap the provider constructor (or a small enum of providers until a truly
 object-safe async trait is needed). App-owned relay filters disappear from the
-provider seam: NMP owns the live-query, signing, durable `submit_intents` queue
+provider seam: NMP owns the live-query, signing, durable publish queue
 for all runtime/profile writes, receipts, retries, and connection lifecycle.
 
 ---
@@ -330,7 +330,7 @@ sequenceDiagram
     DOM->>P: lifecycle.react(ProjectOpened)
 
     alt nip29 provider
-        P->>NMP: submit_intents(create 9007, metadata 9002, member 9000)
+        P->>NMP: publish(create 9007, metadata 9002, member 9000)
         NMP->>FAB: retrying group writes
         %% NMP observes 39002 members and keeps admission live
         P->>NMP: declare 39002 observation
@@ -361,7 +361,7 @@ sequenceDiagram
     participant RD as Reader (CLI / hook)
 
     ME->>P: send(to = claude, project, body)
-    P->>NMP: submit_intents(provider wire shape)
+    P->>NMP: publish(provider wire shape)
     NMP->>FAB: retrying routed delivery
     FAB-->>NMP: receipt
     NMP-->>P: accepted / confirmed

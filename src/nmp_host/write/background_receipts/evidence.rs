@@ -3,19 +3,31 @@ use std::sync::{Condvar, Mutex};
 
 use serde::Serialize;
 
+/// One NMP publish-queue fact, as Mosaico files it.
+///
+/// Every name here is NMP's own — there is no Mosaico taxonomy left to keep in
+/// sync. `AuthFailed` stays distinct from `Rejected` because NMP keeps them
+/// distinct: a local policy or signer refusal is not a relay refusing the
+/// event, and collapsing them is the loss mosaico#745 recorded.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum BackgroundWriteTerminalStatus {
     Acked,
     Cancelled,
-    Failed,
+    SignerRefused,
     Rejected,
+    AuthFailed,
     GaveUp,
-    PersistenceBlocked,
-    RoutePersistenceBlocked,
-    ReplaceableConflict,
-    Superseded,
-    AuthDenied,
+    /// Local persistence refused a durable fact for this write. NMP emits it
+    /// as a fact AND latches it on the queue entry; Mosaico files it here and
+    /// a later relay ack never clears it.
+    PersistenceStalled,
+    /// The store answered acceptance with a semantic no — a stale replaceable
+    /// base, a tombstone, an already-expired event. Permanently failed, with
+    /// the payload intact in the queue.
+    Refused,
+    /// Routing finished and named zero relays. There is nowhere to publish.
+    NoDestination,
     SubmissionFailed,
 }
 
@@ -27,7 +39,6 @@ pub(crate) enum BackgroundWriteGapStatus {
     ReceiptTimeout,
     ReceiptDisconnected,
     ReceiptLagged,
-    OutcomeUnknown,
     Shutdown,
     WorkerLost,
 }

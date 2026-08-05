@@ -40,8 +40,7 @@ impl Nip29Provider {
         };
         let publish = match self
             .nmp
-            .publish_group_builder(doctor_probe_builder(&group, &marker), &keys, true)
-            .await
+            .publish_group_builder(doctor_probe_builder(&group, &marker), &keys)
         {
             Ok(id) => ProbeStep {
                 status: ProbeStatus::Verified,

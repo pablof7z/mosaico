@@ -34,7 +34,7 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
             return;
         }
     };
-    if let Err(e) = state.nmp.publish_group_builder(builder, &keys, false).await {
+    if let Err(e) = state.nmp.publish_group_builder(builder, &keys) {
         tracing::warn!(
             event_id = %short(&event_id),
             channel = %channel_h,

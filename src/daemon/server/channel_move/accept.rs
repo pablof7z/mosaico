@@ -265,7 +265,7 @@ async fn publish_running_only_moves(
     let builder = build_admit_running_event(parent, child_h, targets, &prose)?;
     let signed = state.nmp.sign_event(builder, &keys).await?;
     let event_id = signed.id.to_hex();
-    state.nmp.publish_group_event(&signed, true).await?;
+    state.nmp.enqueue_group_event(&signed)?;
     if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
         handle_orchestration(state, &signed, op).await;
     }

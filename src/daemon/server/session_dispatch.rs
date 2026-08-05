@@ -65,7 +65,7 @@ pub(super) async fn rpc_dispatch(
     let signed = state.nmp.sign_event(builder, &keys).await?;
     let dispatch_event_id = signed.id.to_hex();
     let ack_events = state.nmp.observe(&dispatch_ack_query(&dispatch_event_id))?;
-    state.nmp.publish_group_event(&signed, true).await?;
+    state.nmp.enqueue_group_event(&signed)?;
     if let Some(op) = crate::fabric::nip29::session_dispatch::parse_session_dispatch(&signed) {
         super::session_dispatch_handler::handle_session_dispatch(state, &signed, op).await;
     }

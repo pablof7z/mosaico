@@ -188,10 +188,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // way; an unset `about` skips the publish.
     if !p.about.trim().is_empty() {
         let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&child_h, &p.about)?;
-        let _ = state
-            .nmp
-            .publish_group_builder(builder, &mgmt_keys, false)
-            .await;
+        let _ = state.nmp.publish_group_builder(builder, &mgmt_keys);
         // Re-read the relay's now-updated kind:39000 so the `about` lands in the
         // cache from relay truth, not a local write.
         let _ = state.provider.fetch_and_materialize_channel(&child_h).await;
@@ -220,11 +217,12 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
         let signed = state.nmp.sign_event(builder, &mgmt_keys).await?;
         let oid = signed.id.to_hex();
-        // Require an NMP relay acknowledgement before reporting the orchestration
-        // id. A durable local acceptance alone cannot prove that backends will
-        // receive the add-agents directive; relay rejection must fail channel
-        // creation loudly.
-        state.nmp.publish_group_event(&signed, true).await?;
+        // Durable acceptance is the reporting boundary: NMP has taken custody
+        // of the add-agents directive and will keep delivering it. Whether each
+        // relay took it is settlement, and settlement is inspected -- through
+        // the background receipt evidence `mosaico doctor` reads -- never
+        // awaited here.
+        state.nmp.enqueue_group_event(&signed)?;
 
         // Local fast-path: relays don't reliably echo to the publishing connection,
         // so drive the same listener directly for roles targeted at THIS backend.
@@ -270,10 +268,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
 
     let mgmt_keys = state.management_keys()?;
     let builder = crate::fabric::nip29::lifecycle::group_edit_metadata(&channel_h, &p.about)?;
-    let event_id = state
-        .nmp
-        .publish_group_builder(builder, &mgmt_keys, true)
-        .await?;
+    let event_id = state.nmp.publish_group_builder(builder, &mgmt_keys)?;
     let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
     let channel = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;

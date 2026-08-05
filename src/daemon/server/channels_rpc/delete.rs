@@ -53,8 +53,7 @@ pub(in crate::daemon::server) async fn delete_channel(
     let builder = crate::fabric::nip29::lifecycle::group_delete(channel)?;
     let event_id = state
         .nmp
-        .publish_group_builder(builder, &mgmt_keys, true)
-        .await?
+        .publish_group_builder(builder, &mgmt_keys)?
         .to_hex();
 
     state.with_store(|s| s.purge_deleted_channel(channel))?;
