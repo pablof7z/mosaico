@@ -72,8 +72,11 @@ async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
                 continue;
             }
         };
-        let result = if has_group_tag(&event) {
-            nmp.enqueue_group_event(&event).map(|_| ())
+        let groups = group_values(&event);
+        let result = if groups.len() == 1 {
+            nmp.enqueue_group_event(&groups[0], &event).map(|_| ())
+        } else if groups.len() > 1 {
+            nmp.enqueue_multi_group_event(&event).map(|_| ())
         } else if event.kind.as_u16() == 0 {
             nmp.enqueue_profile_event(&event).map(|_| ())
         } else {
@@ -104,12 +107,22 @@ async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
     }
 }
 
-fn has_group_tag(event: &Event) -> bool {
-    event.tags.iter().any(|tag| {
-        let fields = tag.as_slice();
-        (fields.first().map(String::as_str) == Some("h"))
-            && fields.get(1).is_some_and(|group| !group.is_empty())
-    })
+/// The groups a preserved signed event already claims.
+///
+/// Read from the bytes because that is the only place they exist: these are
+/// events signed by an older schema, so nothing else remembers where they were
+/// going. Which of NMP's write doors takes them follows from the count.
+fn group_values(event: &Event) -> Vec<String> {
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let fields = tag.as_slice();
+            (fields.first().map(String::as_str) == Some("h"))
+                .then(|| fields.get(1).filter(|group| !group.is_empty()).cloned())
+                .flatten()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -128,7 +141,7 @@ mod tests {
                 .tags(tags)
                 .sign_with_keys(&Keys::generate())
                 .unwrap();
-            assert!(has_group_tag(&event));
+            assert!(!group_values(&event).is_empty());
         }
     }
 
@@ -137,6 +150,6 @@ mod tests {
         let event = EventBuilder::new(Kind::Metadata, "{}")
             .sign_with_keys(&Keys::generate())
             .unwrap();
-        assert!(!has_group_tag(&event));
+        assert!(group_values(&event).is_empty());
     }
 }

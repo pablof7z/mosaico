@@ -88,7 +88,10 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     assert_eq!(failure["status"], "signer_refused");
     assert_eq!(failure["operation"], "status");
     assert_eq!(failure["source_ref"], source_ref);
-    assert_eq!(failure["target"], format!("0:{RELAY}"));
+    // One group write is now ONE intent routed to the whole scope, so the
+    // stream that reports on it is named by the group rather than by an index
+    // into a per-relay fan-out Mosaico no longer performs.
+    assert_eq!(failure["target"], "every group host");
     assert_eq!(failure["detail"], SCRIPTED_CLASSIFIED_FAILURE);
     eprintln!(
         "CORPUS_STATUS_DOCTOR_JSON={}",

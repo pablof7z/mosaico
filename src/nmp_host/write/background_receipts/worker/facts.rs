@@ -80,9 +80,14 @@ impl LaneFacts {
 /// The reason a signature will never arrive, if the signing state says so.
 pub(super) fn signer_refusal(signing: SigningState) -> Option<String> {
     match signing {
-        // Parked on a signer that is simply not attached yet, or already
-        // signed. Neither is an outcome; nothing expires the first.
-        SigningState::AwaitingSigner { .. } | SigningState::Signed { .. } => None,
+        // A signer holding the request, a signer that is simply not attached
+        // yet, or a signature that already exists. None of the three is an
+        // outcome, and no clock ends the middle one -- which is why the
+        // durable queue projection, not this bounded observation, is where a
+        // permanently parked write gets named (`super::super::super::queue`).
+        SigningState::InFlight { .. }
+        | SigningState::AwaitingSigner { .. }
+        | SigningState::Signed { .. } => None,
         SigningState::Refused { reason } => Some(reason),
     }
 }

@@ -120,11 +120,8 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
     // event, so that is what is waited on.
     let written = host
         .publish_group_builder(
-            EventBuilder::new(Kind::TextNote, "authenticated agent write").tags([Tag::parse([
-                "h",
-                "auth-room",
-            ])
-            .unwrap()]),
+            "auth-room",
+            EventBuilder::new(Kind::TextNote, "authenticated agent write"),
             &agent,
         )
         .expect("NMP takes custody of the authenticated write");

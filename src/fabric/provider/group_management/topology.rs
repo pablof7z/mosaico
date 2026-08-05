@@ -1,4 +1,5 @@
 use super::*;
+use crate::fabric::nip29::lifecycle::as_nostr;
 
 impl Nip29Provider {
     /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
@@ -6,16 +7,14 @@ impl Nip29Provider {
         let Some(mgmt_keys) = self.management_keys() else {
             return false;
         };
-        match crate::fabric::nip29::lifecycle::group_edit_name(group, name) {
-            Ok(builder) => self
-                .publish_group_management(builder, &mgmt_keys, "9002 edit-metadata (name)")
-                .await
-                .is_applied(),
-            Err(error) => {
-                tracing::error!(group, name, error = %format!("{error:#}"), "group name build failed");
-                false
-            }
-        }
+        self.publish_group_management(
+            group,
+            as_nostr(nmp_nip29::edit_metadata(Some(name), None)),
+            &mgmt_keys,
+            "9002 edit-metadata (name)",
+        )
+        .await
+        .is_applied()
     }
 
     pub(in crate::fabric::provider) async fn nip29_create_root_outcome(
@@ -25,21 +24,27 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return configuration_failure("9007 create-group");
         };
-        let create = match crate::fabric::nip29::lifecycle::group_create(group) {
-            Ok(builder) => {
-                self.publish_group_management_outcome(builder, &keys, "9007 create-group")
-                    .await
-            }
-            Err(error) => build_failure("9007 create-group", error),
-        };
+        let create = self
+            .publish_group_management_outcome(
+                group,
+                as_nostr(nmp_nip29::create_group()),
+                &keys,
+                "9007 create-group",
+            )
+            .await;
         if let GroupPublishOutcome::Failed(_) = create {
             return create;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         match crate::fabric::nip29::lifecycle::group_lock_closed(group) {
             Ok(builder) => {
-                self.publish_group_management_outcome(builder, &keys, "9002 lock-closed")
-                    .await
+                self.publish_group_management_outcome(
+                    group,
+                    as_nostr(builder),
+                    &keys,
+                    "9002 lock-closed",
+                )
+                .await
             }
             Err(error) => build_failure("9002 lock-closed", error),
         }
@@ -54,10 +59,15 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return configuration_failure("9007 create-subgroup");
         };
-        let create = match crate::fabric::nip29::lifecycle::group_create_subgroup(child, parent) {
+        let create = match crate::fabric::nip29::lifecycle::group_create_subgroup(parent) {
             Ok(builder) => {
-                self.publish_group_management_outcome(builder, &keys, "9007 create-subgroup")
-                    .await
+                self.publish_group_management_outcome(
+                    child,
+                    as_nostr(builder),
+                    &keys,
+                    "9007 create-subgroup",
+                )
+                .await
             }
             Err(error) => build_failure("9007 create-subgroup", error),
         };
@@ -66,8 +76,13 @@ impl Nip29Provider {
         }
         match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(child, name, parent) {
             Ok(builder) => {
-                self.publish_group_management_outcome(builder, &keys, "9002 lock-with-parent")
-                    .await
+                self.publish_group_management_outcome(
+                    child,
+                    as_nostr(builder),
+                    &keys,
+                    "9002 lock-with-parent",
+                )
+                .await
             }
             Err(error) => build_failure("9002 lock-with-parent", error),
         }

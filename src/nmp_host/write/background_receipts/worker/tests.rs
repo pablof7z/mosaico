@@ -17,8 +17,12 @@ fn fault(state: RelayState) -> Option<(BackgroundWriteTerminalStatus, String)> {
 }
 
 #[test]
-fn an_unattached_signer_and_a_signature_are_both_silent() {
+fn every_unrefused_signing_state_is_silent_on_a_receipt_stream() {
     assert!(facts::signer_refusal(SigningState::AwaitingSigner {
+        pubkey: nostr::Keys::generate().public_key(),
+    })
+    .is_none());
+    assert!(facts::signer_refusal(SigningState::InFlight {
         pubkey: nostr::Keys::generate().public_key(),
     })
     .is_none());

@@ -22,7 +22,7 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
             return;
         }
     };
-    let builder = match build_thumbs_up(&event_id, channel_h) {
+    let builder = match build_thumbs_up(&event_id) {
         Ok(builder) => builder,
         Err(e) => {
             tracing::warn!(
@@ -34,7 +34,7 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
             return;
         }
     };
-    if let Err(e) = state.nmp.publish_group_builder(builder, &keys) {
+    if let Err(e) = state.nmp.publish_group_builder(channel_h, builder, &keys) {
         tracing::warn!(
             event_id = %short(&event_id),
             channel = %channel_h,
@@ -44,10 +44,11 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
     }
 }
 
-fn build_thumbs_up(event_id: &str, channel_h: &str) -> Result<EventBuilder> {
+/// The acknowledgement itself. Which group it lands in is the publish door's
+/// to say, so no context row is written here.
+fn build_thumbs_up(event_id: &str) -> Result<EventBuilder> {
     let e_tag = Tag::parse(["e", event_id])?;
-    let h_tag = Tag::parse(["h", channel_h])?;
-    Ok(EventBuilder::new(Kind::from(KIND_REACTION), "👍").tags([e_tag, h_tag]))
+    Ok(EventBuilder::new(Kind::from(KIND_REACTION), "👍").tags([e_tag]))
 }
 
 #[cfg(test)]
@@ -65,9 +66,9 @@ mod tests {
     }
 
     #[test]
-    fn acknowledgement_is_kind_7_thumbs_up_targeting_command_and_channel() {
+    fn acknowledgement_is_kind_7_thumbs_up_targeting_the_command() {
         let event_id = "ab".repeat(32);
-        let unsigned = build_thumbs_up(&event_id, "nmp")
+        let unsigned = build_thumbs_up(&event_id)
             .unwrap()
             .build(Keys::generate().public_key());
 
@@ -77,6 +78,20 @@ mod tests {
             tag_value(&unsigned, "e").as_deref(),
             Some(event_id.as_str())
         );
-        assert_eq!(tag_value(&unsigned, "h").as_deref(), Some("nmp"));
+        // No context row: the group is named at the publish door.
+        assert_eq!(tag_value(&unsigned, "h"), None);
+    }
+
+    /// The channel the acknowledgement lands in, proved where it is decided.
+    #[test]
+    fn the_publish_door_puts_the_acknowledgement_in_the_command_channel() {
+        let keys = Keys::generate();
+        let draft = crate::nmp_host::write::contextualized_draft(
+            "nmp",
+            build_thumbs_up(&"ab".repeat(32)).unwrap(),
+            keys.public_key(),
+        )
+        .unwrap();
+        assert_eq!(tag_value(&draft, "h").as_deref(), Some("nmp"));
     }
 }

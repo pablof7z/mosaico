@@ -144,17 +144,20 @@ async fn precreate_channel_group_as_user(channel: &str) {
         .await
         .expect("connect NMP relay client");
 
+    // This client talks to the relay directly rather than through NMP's group
+    // door, so the context row has to be minted explicitly -- by NMP's own
+    // contextualizer, never by hand.
     for (label, builder) in [
-        (
-            "9007 create-group",
-            mosaico::fabric::nip29::lifecycle::group_create(channel).unwrap(),
-        ),
+        ("9007 create-group", nmp_nip29::create_group()),
         (
             "9002 lock-closed",
             mosaico::fabric::nip29::lifecycle::group_lock_closed(channel).unwrap(),
         ),
     ] {
-        let signed = builder.sign_with_keys(&user_keys).unwrap();
+        let contextualized = nmp_nip29::contextualize(channel, builder).unwrap();
+        let signed = mosaico::fabric::nip29::lifecycle::as_nostr(contextualized)
+            .sign_with_keys(&user_keys)
+            .unwrap();
         let out = client.send_event(&signed).await.unwrap();
         assert!(
             !out.success.is_empty(),

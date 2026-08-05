@@ -126,11 +126,24 @@ impl Nip29Provider {
             DomainEvent::Profile(_) => unreachable!("profiles return above"),
         }
         let builder = self.wire.encode(ev)?;
-        if matches!(ev, DomainEvent::Status(_)) {
-            let signed = self.nmp.sign_event(builder, keys).await?;
-            return self.nmp.enqueue_group_event(&signed);
+        match ev {
+            // The multi-group write. Its `h` rows are already in the bytes the
+            // wire codec composed -- see `NmpHost::enqueue_multi_group_event`
+            // for why no NMP door can mint them.
+            DomainEvent::Status(_) => {
+                let signed = self.nmp.sign_event(builder, keys).await?;
+                self.nmp.enqueue_multi_group_event(&signed)
+            }
+            DomainEvent::ChatMessage(message) => {
+                self.nmp
+                    .publish_group_builder(&message.channel, builder, keys)
+            }
+            DomainEvent::Reaction(reaction) => {
+                self.nmp
+                    .publish_group_builder(&reaction.channel, builder, keys)
+            }
+            DomainEvent::Profile(_) => unreachable!("profiles return above"),
         }
-        self.nmp.publish_group_builder(builder, keys)
     }
 
     pub(in crate::fabric::provider) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {

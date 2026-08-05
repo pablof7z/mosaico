@@ -16,8 +16,21 @@ fn resume(pk: &str, slug: &str, session_pubkey: &str) -> AddTarget {
     }
 }
 
+/// Sign an event whose rows are stated in full. Decode-side tests use this:
+/// they assert what `parse_orchestration` does with bytes that ARRIVED, so the
+/// context row is part of the fixture rather than something to mint.
 fn sign(b: EventBuilder) -> Event {
     b.sign_with_keys(&Keys::generate()).unwrap()
+}
+
+/// Sign the draft into `group` exactly as the publish path does: NMP's
+/// contextualizer mints the routing `h` row, never `build_event`.
+fn sign_into(group: &str, b: EventBuilder) -> Event {
+    let keys = Keys::generate();
+    crate::nmp_host::write::contextualized_draft(group, b, keys.public_key())
+        .unwrap()
+        .sign_with_keys(&keys)
+        .unwrap()
 }
 
 fn tag_count(ev: &Event, name: &str) -> usize {
@@ -35,7 +48,7 @@ fn build_parse_round_trip_preserves_order() {
         at("bk1", "qa"),
     ];
     let b = build_add_agents_event("parent-g", "child-g", &adds, "please add these").unwrap();
-    let ev = sign(b);
+    let ev = sign_into("parent-g", b);
     assert_eq!(ev.kind.as_u16(), KIND_CHAT);
 
     let op = parse_orchestration(&ev).expect("well-formed");
@@ -48,7 +61,7 @@ fn build_parse_round_trip_preserves_order() {
 #[test]
 fn build_dedups_p_tags_but_keeps_all_adds() {
     let adds = vec![at("bk1", "architect"), at("bk1", "qa")];
-    let ev = sign(build_add_agents_event("p", "c", &adds, "x").unwrap());
+    let ev = sign_into("p", build_add_agents_event("p", "c", &adds, "x").unwrap());
     // Two adds to the same backend → one p tag, two add tags.
     assert_eq!(tag_count(&ev, "p"), 1);
     assert_eq!(tag_count(&ev, "add"), 2);
@@ -56,7 +69,10 @@ fn build_dedups_p_tags_but_keeps_all_adds() {
 
 #[test]
 fn build_routes_h_to_parent_and_carries_child_in_h_target() {
-    let ev = sign(build_add_agents_event("p", "c", &[at("bk", "r")], "x").unwrap());
+    let ev = sign_into(
+        "p",
+        build_add_agents_event("p", "c", &[at("bk", "r")], "x").unwrap(),
+    );
     // Single routing h equals parent; child travels in h-target.
     assert_eq!(tag_count(&ev, "h"), 1);
     assert_eq!(tag_count(&ev, "h-target"), 1);
@@ -68,7 +84,7 @@ fn build_routes_h_to_parent_and_carries_child_in_h_target() {
 #[test]
 fn build_parse_preserves_optional_session_pubkey() {
     let adds = vec![resume("bk1", "architect", &"11".repeat(32))];
-    let ev = sign(build_add_agents_event("p", "c", &adds, "x").unwrap());
+    let ev = sign_into("p", build_add_agents_event("p", "c", &adds, "x").unwrap());
     let op = parse_orchestration(&ev).unwrap();
     assert_eq!(op.adds, adds);
 }
@@ -76,7 +92,10 @@ fn build_parse_preserves_optional_session_pubkey() {
 #[test]
 fn build_parse_preserves_running_only_admission() {
     let adds = vec![resume("bk1", "architect", &"11".repeat(32))];
-    let ev = sign(build_admit_running_event("p", "c", &adds, "x").unwrap());
+    let ev = sign_into(
+        "p",
+        build_admit_running_event("p", "c", &adds, "x").unwrap(),
+    );
     let op = parse_orchestration(&ev).unwrap();
     assert_eq!(op.adds, adds);
     assert!(op.running_only);

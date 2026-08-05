@@ -42,12 +42,12 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
-nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
-nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
-nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
-nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
-nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4173b69aeb8660a5b2f38844f71dffe24d1e4d09" }
+nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
+nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
+nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
+nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
+nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "88a4e7e9990344de9dbe8b19c04d58458bf95a0a" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"

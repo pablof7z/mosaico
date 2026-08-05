@@ -1,13 +1,16 @@
-//! Composing a NIP-29 group write body.
+//! Turning a Mosaico draft into the shape NMP's NIP-29 group door takes.
 //!
-//! One body is composed per write and shared by every host's intent: all hosts
-//! receive identical bytes, so one frozen event id names the write everywhere.
+//! Nothing here knows what an `h` row is. `nmp::nip29::Group` owns the group
+//! context tag on both mint doors -- appended before signing on
+//! [`Group::intent`](nmp::nip29::Group::intent), validated rather than
+//! repaired on [`Group::signed_intent`](nmp::nip29::Group::signed_intent) --
+//! and refuses a draft that carries one already. What is left for this module
+//! is the two mechanical conversions NMP cannot do for us: `nostr`'s builder
+//! into `nmp`'s, and a minted intent's frozen body into the id it will have.
 
 use anyhow::{Context, Result};
-use nmp::RelayUrl;
-use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
-use nostr::{Event, EventId, PublicKey, Tag, UnsignedEvent};
-use std::collections::BTreeSet;
+use nmp_grammar::{WriteIntent, WritePayload};
+use nostr::{EventId, PublicKey, UnsignedEvent};
 
 /// The id NMP freezes at acceptance for a builder payload, by NIP-01's own
 /// rule. NMP applies exactly this (`freeze_payload`) to the same fields, and a
@@ -25,113 +28,52 @@ pub(super) fn frozen_event_id(builder: &nmp::EventBuilder, author: PublicKey) ->
     ))
 }
 
-#[derive(Clone)]
-pub(super) struct GroupTemplate {
-    pub(super) group: String,
-    pub(super) created_at: nostr::Timestamp,
-    pub(super) kind: u16,
-    pub(super) content: String,
-    pub(super) extra_tags: Vec<Vec<String>>,
-}
-
-pub(super) fn unsigned_template(unsigned: &UnsignedEvent) -> Result<GroupTemplate> {
-    group_template(
-        unsigned.created_at,
-        unsigned.kind.as_u16(),
-        unsigned.content.clone(),
-        unsigned.tags.iter().collect(),
-    )
-}
-
-pub(super) fn event_template(event: &Event) -> Result<GroupTemplate> {
-    group_template(
-        event.created_at,
-        event.kind.as_u16(),
-        event.content.clone(),
-        event.tags.iter().collect(),
-    )
-}
-
-pub(super) fn group_template(
-    created_at: nostr::Timestamp,
-    kind: u16,
-    content: String,
-    tags: Vec<&Tag>,
-) -> Result<GroupTemplate> {
-    let groups = group_values(tags.iter().copied());
-    let group = groups
-        .first()
-        .cloned()
-        .context("NIP-29 write has no h tag")?;
-    let extra_tags = tags
-        .into_iter()
-        .filter(|tag| {
-            !matches!(
-                tag.as_slice().first().map(String::as_str),
-                Some("h" | "previous")
-            )
-        })
-        .map(|tag| tag.as_slice().to_vec())
-        .collect();
-    Ok(GroupTemplate {
-        group,
-        created_at,
-        kind,
-        content,
-        extra_tags,
-    })
-}
-
-pub(super) fn group_values<'a>(tags: impl IntoIterator<Item = &'a Tag>) -> BTreeSet<String> {
-    tags.into_iter()
-        .filter_map(|tag| {
-            let row = tag.as_slice();
-            (row.first().map(String::as_str) == Some("h"))
-                .then(|| row.get(1).cloned())
-                .flatten()
-        })
-        .collect()
-}
-
-/// Mint the group write body from NMP's `#h` contextualizer.
-/// `nmp_nip29::contextualize` refuses a caller-supplied `h` or `previous` row,
-/// so `group_template` strips both before we get here.
+/// The id a minted intent will carry, whichever half of the lifecycle it is in.
 ///
-/// The body is composed once and shared by every host's intent: all hosts
-/// receive identical bytes, so they share one frozen id.
-///
-/// Routing and identity are assembled by the caller only because
-/// `nmp::nip29::Group` exposes no mint-without-publish door: `Group::intent`
-/// and `through_the_one_door` are private, and `publish`/`publish_signed`
-/// publish immediately and return receipts. Mosaico mints intents and submits
-/// them later through one choke-point, so it cannot use a publish-now door.
-/// See NMP #1242; this is a visible gap, not a deliberate bypass of the group.
-pub(super) fn contextualized_builder(template: GroupTemplate) -> Result<nmp::EventBuilder> {
-    let tags = template
-        .extra_tags
-        .into_iter()
-        .map(|row| {
-            Tag::parse(row).map_err(|error| anyhow::anyhow!("invalid NIP-29 tag: {error:?}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let builder = nmp::EventBuilder {
-        kind: nostr::Kind::from(template.kind),
-        tags,
-        content: template.content,
-        created_at: Some(template.created_at),
-    };
-    nmp_nip29::contextualize(&template.group, builder)
-        .map_err(|error| anyhow::anyhow!("composing NMP group write: {error:?}"))
+/// A signed payload already has one. A builder payload has the frozen body NMP
+/// will sign, and its `h` row is inside those bytes because the group door put
+/// it there before this was read back.
+pub(super) fn frozen_id_of(intent: &WriteIntent, author: PublicKey) -> Result<EventId> {
+    match &intent.payload {
+        WritePayload::Event(builder) => frozen_event_id(builder, author),
+        WritePayload::Signed(event) => Ok(event.id),
+        // The group door mints exactly the two payloads above, from
+        // `Group::intent` and `Group::signed_intent`. A third one arriving
+        // here means the door grew a shape Mosaico has not read.
+        _ => anyhow::bail!(
+            "NMP's group door minted a payload shape Mosaico has not read; \
+             `frozen_id_of` must learn it before this write can be tracked"
+        ),
+    }
 }
 
-/// One host's intent for an already-composed group body.
-pub(super) fn group_intent(relay: RelayUrl, builder: nmp::EventBuilder) -> WriteIntent {
-    WriteIntent {
-        payload: WritePayload::Event(builder),
-        routing: WriteRouting::Explicit(vec![relay]),
-        // A group write says nothing about WHO is publishing; callers that
-        // know the author overwrite this with `Identity::Explicit`.
-        identity: Identity::Active,
-        correlation: None,
+/// One Mosaico draft as the group door's builder.
+///
+/// `created_at` is stated rather than left absent: Mosaico's own doors hand
+/// back the frozen id synchronously, and an id cannot be computed for a
+/// timestamp NMP has not stamped yet. NMP keeps a stated one verbatim.
+///
+/// The tags cross unchanged, including any `h` the caller wrongly supplied --
+/// the group door refuses that with `CallerSuppliedContext`, and letting the
+/// refusal happen there is what keeps the rule in one place.
+pub(super) fn draft_of(unsigned: UnsignedEvent) -> nmp::EventBuilder {
+    nmp::EventBuilder {
+        kind: unsigned.kind,
+        tags: unsigned.tags.into_iter().collect(),
+        content: unsigned.content,
+        created_at: Some(unsigned.created_at),
+    }
+}
+
+/// A group-contextualized builder back as an unsigned event, so Mosaico can
+/// sign the bytes the group door composed rather than bytes of its own.
+pub(super) fn unsigned_of(builder: nmp::EventBuilder, author: PublicKey) -> UnsignedEvent {
+    UnsignedEvent {
+        id: None,
+        pubkey: author,
+        created_at: builder.created_at.unwrap_or_else(nostr::Timestamp::now),
+        kind: builder.kind,
+        tags: nostr::Tags::from_list(builder.tags),
+        content: builder.content,
     }
 }

@@ -154,6 +154,11 @@ impl Nip29WireCodec {
                     tag(&["workspace", workspace])?,
                     tag(&["slug", &agent.slug])?,
                 ];
+                // The one draft in Mosaico that still writes its own context
+                // rows, because it needs SEVERAL and no NMP door mints more
+                // than one: `nip29::Group` is one scope plus one group id.
+                // See `NmpHost::enqueue_multi_group_event` and
+                // pablof7z/nmp#1281.
                 for channel in channels {
                     tags.push(h_tag(channel)?);
                 }
@@ -173,13 +178,16 @@ impl Nip29WireCodec {
             }
             DomainEvent::ChatMessage(ChatMessage {
                 from: _from,
-                channel,
+                channel: _channel,
                 body,
                 mentioned_pubkeys,
                 attachments,
             }) => {
                 crate::attachment_contract::validate_attachments(attachments)?;
-                let mut tags = vec![h_tag(channel)?];
+                // No `h` row. `channel` names the group this draft is published
+                // INTO, and the context tag is NMP's group door to mint, before
+                // the bytes are signed.
+                let mut tags = Vec::new();
                 for pk in mentioned_pubkeys {
                     tags.push(tag(&["p", pk])?);
                 }
@@ -197,17 +205,14 @@ impl Nip29WireCodec {
             }
             DomainEvent::Reaction(Reaction {
                 reactor: _reactor,
-                channel,
+                channel: _channel,
                 target_event_id,
                 emoji,
             }) => {
                 // NIP-25 reaction: content = emoji, `e` = target message id. The
-                // channel `h` tag scopes it to the NIP-29 group so the relay
-                // admits it and awareness can attribute it to the channel.
-                let mut tags = vec![tag(&["e", target_event_id])?];
-                if !channel.is_empty() {
-                    tags.push(h_tag(channel)?);
-                }
+                // group scoping that gets it admitted and attributed is the `h`
+                // row NMP's group door mints; `channel` selects which door.
+                let tags = vec![tag(&["e", target_event_id])?];
                 EventBuilder::new(kind(KIND_REACTION), emoji.clone()).tags(tags)
             }
         };

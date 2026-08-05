@@ -33,7 +33,9 @@ impl Nip29Provider {
         if let Some(id) = reply_to.filter(|id| !id.is_empty()) {
             builder = builder.tags([Tag::parse(["e", id])?]);
         }
-        self.nmp.sign_event(builder, keys).await
+        self.nmp
+            .sign_group_event(&chat.channel, builder, keys)
+            .await
     }
 
     pub(crate) async fn publish_chat_checked(
@@ -90,33 +92,15 @@ impl Nip29Provider {
         record: &OutboundChatRecord,
     ) -> Result<EventId> {
         let channel = &record.channel_h;
-        let signed_channel = signed_group(signed)?;
-        if signed_channel != channel {
-            anyhow::bail!(
-                "signed chat targets group {signed_channel:?}, not checked group {channel:?}"
-            );
-        }
         self.verify_publish_scope(channel, &signed.pubkey.to_hex(), true)
             .await?;
-        self.nmp.enqueue_group_event(signed)
+        // The bytes name their own group, and NMP's group door is what
+        // compares the two: `signed_intent` refuses a missing, mismatched or
+        // duplicated `h` rather than repairing it. Mosaico re-deriving the
+        // group from the tags to make the same comparison is exactly the
+        // duplication the door removed.
+        self.nmp.enqueue_group_event(channel, signed)
     }
-}
-
-fn signed_group(event: &Event) -> Result<&str> {
-    let groups = event
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().map(String::as_str) == Some("h"))
-                .then(|| values.get(1).map(String::as_str))
-                .flatten()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    if groups.len() != 1 {
-        anyhow::bail!("signed chat must target exactly one h group");
-    }
-    Ok(groups.into_iter().next().expect("one group was verified"))
 }
 
 fn chat_relay_event(

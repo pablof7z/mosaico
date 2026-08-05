@@ -257,9 +257,12 @@ async fn publish_invite_orchestration(
         std::slice::from_ref(&target),
         &prose,
     )?;
-    let signed = state.nmp.sign_event(builder, &keys).await?;
+    let signed = state
+        .nmp
+        .sign_group_event(channel_h, builder, &keys)
+        .await?;
     let event_id = signed.id.to_hex();
-    state.nmp.enqueue_group_event(&signed)?;
+    state.nmp.enqueue_group_event(channel_h, &signed)?;
     if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
         handle_orchestration(state, &signed, op).await;
     }

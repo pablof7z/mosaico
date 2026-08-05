@@ -3,11 +3,63 @@ use super::*;
 impl NmpHost {
     /// Submit a signed group event and let the fixed receipt pool retain every
     /// terminal result after this call returns.
-    pub(crate) fn enqueue_group_event(&self, event: &Event) -> Result<EventId> {
+    ///
+    /// The `h` the event already carries is VALIDATED against `group` by the
+    /// door, never appended: appending would change the bytes and therefore
+    /// the id the caller already handed out. A missing, wrong or duplicated
+    /// `h` is a refusal here rather than a repair.
+    pub(crate) fn enqueue_group_event(&self, group: &str, event: &Event) -> Result<EventId> {
         crate::relay_log::log_outgoing_event(event);
         let operation = super::group_operation(event.kind.as_u16());
-        let intents = self.signed_group_intents(event)?;
-        self.enqueue_background_intents(event.id, operation, intents)?;
+        let intent = self
+            .group(group)?
+            .signed_intent(event.clone())
+            .map_err(|error| anyhow::anyhow!("minting a signed NIP-29 group write: {error}"))?;
+        self.enqueue_background_intents(
+            event.id,
+            operation,
+            vec![BackgroundIntent {
+                target: group.to_string(),
+                intent,
+            }],
+        )?;
+        Ok(event.id)
+    }
+
+    /// Submit a signed event that is in SEVERAL groups at once.
+    ///
+    /// The one write NMP's group door cannot mint, and the only hand-minted
+    /// `WriteIntent` left in Mosaico. `nmp::nip29::Group` is one relay scope
+    /// plus one group id, so `signed_intent` refuses a second `h` row with
+    /// `AmbiguousContext` -- correctly, for a door whose whole product is that
+    /// an event cannot be composed under one group and routed as another.
+    /// Mosaico's kind:30315 session status is genuinely in every channel the
+    /// session occupies: one replaceable coordinate, one `h` per channel, and
+    /// splitting it into one write per channel would have each copy replace
+    /// the last. There is no multi-group scope to mint it from.
+    ///
+    /// Tracked upstream as pablof7z/nmp#1281. When that door exists this
+    /// method is deleted, not adapted.
+    pub(crate) fn enqueue_multi_group_event(&self, event: &Event) -> Result<EventId> {
+        crate::relay_log::log_outgoing_event(event);
+        let relays: Vec<_> = self.relays.iter().cloned().collect();
+        if relays.is_empty() {
+            anyhow::bail!("cannot publish a NIP-29 event without a configured group host");
+        }
+        let intent = WriteIntent {
+            payload: WritePayload::Signed(event.clone()),
+            routing: WriteRouting::Explicit(relays),
+            identity: super::identity_of(Some(event.pubkey)),
+            correlation: None,
+        };
+        self.enqueue_background_intents(
+            event.id,
+            super::group_operation(event.kind.as_u16()),
+            vec![BackgroundIntent {
+                target: "every group host".to_string(),
+                intent,
+            }],
+        )?;
         Ok(event.id)
     }
 
@@ -35,24 +87,6 @@ impl NmpHost {
             .collect::<Vec<_>>();
         self.enqueue_background_intents(event.id, "profile", intents)?;
         Ok(event.id)
-    }
-
-    fn signed_group_intents(&self, event: &Event) -> Result<Vec<BackgroundIntent>> {
-        let composed = contextualized_builder(event_template(event)?)?;
-        Ok(self
-            .relays
-            .iter()
-            .enumerate()
-            .map(|(index, relay)| {
-                let mut intent = group_intent(relay.clone(), composed.clone());
-                intent.payload = WritePayload::Signed(event.clone());
-                intent.identity = super::identity_of(Some(event.pubkey));
-                BackgroundIntent {
-                    target: format!("{index}:{relay}"),
-                    intent,
-                }
-            })
-            .collect())
     }
 
     pub(super) fn enqueue_background_intents(

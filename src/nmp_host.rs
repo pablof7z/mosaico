@@ -24,7 +24,7 @@ pub(crate) mod read;
 mod scrub;
 #[cfg(test)]
 mod test_io;
-mod write;
+pub(crate) mod write;
 
 use auth::IdentityRegistration;
 use write::BackgroundReceiptObserver;
