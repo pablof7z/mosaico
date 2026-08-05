@@ -1,5 +1,5 @@
 use super::*;
-use crate::fabric::nip29::lifecycle::as_nostr;
+use crate::fabric::nip29::lifecycle::{self, as_nostr};
 
 impl Nip29Provider {
     /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
@@ -30,7 +30,7 @@ impl Nip29Provider {
         let create = self
             .publish_group_management_outcome(
                 group,
-                as_nostr(nmp_nip29::create_group()),
+                as_nostr(nmp_nip29::create_group(None)),
                 &keys,
                 "9007 create-group",
             )
@@ -39,20 +39,24 @@ impl Nip29Provider {
             return create;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        match crate::fabric::nip29::lifecycle::group_lock_closed(group) {
-            Ok(builder) => {
-                self.publish_group_management_outcome(
-                    group,
-                    as_nostr(builder),
-                    &keys,
-                    "9002 lock-closed",
-                )
-                .await
-            }
-            Err(error) => build_failure("9002 lock-closed", error),
-        }
+        self.publish_group_management_outcome(
+            group,
+            as_nostr(lifecycle::group_lock_closed(group, group)),
+            &keys,
+            "9002 lock-closed",
+        )
+        .await
     }
 
+    /// Create `child` as a SUBGROUP of `parent`, then lock it down.
+    ///
+    /// The parent is stated on the kind:9007 create and ONLY there. NMP's
+    /// `create_group(Some(parent))` composes the row; the relay validates it
+    /// there (the parent exists, the signer administers it, no cycle) and
+    /// derives the reciprocal `child` row on the parent's kind:39000 from that
+    /// same create. The kind:9002 that follows carries visibility and a display
+    /// name and says nothing about ancestry — a `parent` row on a 9002 is
+    /// ignored by the relay outright, so the lock is identical to a root's.
     pub(in crate::fabric::provider) async fn nip29_create_subgroup_outcome(
         &self,
         child: &str,
@@ -62,33 +66,24 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return configuration_failure("9007 create-subgroup");
         };
-        let create = match crate::fabric::nip29::lifecycle::group_create_subgroup(parent) {
-            Ok(builder) => {
-                self.publish_group_management_outcome(
-                    child,
-                    as_nostr(builder),
-                    &keys,
-                    "9007 create-subgroup",
-                )
-                .await
-            }
-            Err(error) => build_failure("9007 create-subgroup", error),
-        };
+        let create = self
+            .publish_group_management_outcome(
+                child,
+                as_nostr(nmp_nip29::create_group(Some(parent))),
+                &keys,
+                "9007 create-subgroup",
+            )
+            .await;
         if let GroupPublishOutcome::Failed(_) = create {
             return create;
         }
-        match crate::fabric::nip29::lifecycle::group_lock_closed_with_parent(child, name, parent) {
-            Ok(builder) => {
-                self.publish_group_management_outcome(
-                    child,
-                    as_nostr(builder),
-                    &keys,
-                    "9002 lock-with-parent",
-                )
-                .await
-            }
-            Err(error) => build_failure("9002 lock-with-parent", error),
-        }
+        self.publish_group_management_outcome(
+            child,
+            as_nostr(lifecycle::group_lock_closed(child, name)),
+            &keys,
+            "9002 lock-closed",
+        )
+        .await
     }
 }
 
@@ -97,13 +92,5 @@ fn configuration_failure(operation: &str) -> GroupPublishOutcome {
         operation,
         GroupOperationStage::Configuration,
         "management signing key unavailable",
-    ))
-}
-
-fn build_failure(operation: &str, error: anyhow::Error) -> GroupPublishOutcome {
-    GroupPublishOutcome::Failed(GroupOperationError::new(
-        operation,
-        GroupOperationStage::Build,
-        error,
     ))
 }

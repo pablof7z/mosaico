@@ -193,7 +193,7 @@ impl NmpHost {
             anyhow::bail!("cannot publish {} without a configured relay", event.id);
         }
         self.engine
-            .publish_tracked(WriteIntent {
+            .publish(WriteIntent {
                 payload: WritePayload::Signed(event.clone()),
                 routing: WriteRouting::Explicit(relays),
                 identity: Identity::Explicit(event.pubkey),

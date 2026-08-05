@@ -1,27 +1,18 @@
-//! Group-lifecycle drafts NIP-29 does not compose for us.
+//! Mosaico's group policy, stated for NIP-29's own schemas to compose.
 //!
-//! NIP-29's own schemas belong to `nmp_nip29::operations` and are called there
-//! directly. Nothing in this module re-spells them, and nothing here writes an
-//! `h` row: the group context tag is minted by NMP's group door at publish
-//! time.
+//! NIP-29's schemas belong to `nmp_nip29::operations` and are called there
+//! directly. **Nothing in this module composes a wire row.** It states what
+//! Mosaico wants — the avatar URL, the visibility a workspace has — and hands
+//! it to NMP's spelling; the rows, including the `h` group context, are NMP's
+//! to mint.
 //!
-//! Exactly ONE draft is left that NMP cannot express:
-//!
-//! * **`parent`.** Subgroups per nostr-protocol/nips#2319: the relationship
-//!   rides on the kind:9007 create and the relay re-emits it on kind:39000.
-//!
-//! Visibility (`open`/`closed`, `public`/`private`) and `picture` used to be
-//! here too. NMP #1282 gave kind:9002 its own spelling for all three
-//! ([`nmp_nip29::GroupMetadataEdit`]), so Mosaico states the policy and NMP
-//! composes the rows. `parent` is filed as pablof7z/nmp#1301; when it lands,
-//! this module is deleted rather than shrunk.
+//! Every draft that once lived here is gone. Visibility (`open`/`closed`,
+//! `public`/`private`) and `picture` went to [`nmp_nip29::GroupMetadataEdit`]
+//! (NMP #1282); the subgroup `parent` row went to
+//! [`nmp_nip29::create_group`] (NMP #1301), which is the only kind that
+//! carries it — see [`group_lock_closed`] for what that means for kind:9002.
 
-use anyhow::Result;
-use nostr::*;
-
-fn tag(parts: &[&str]) -> Result<Tag> {
-    Ok(Tag::parse(parts.iter().copied())?)
-}
+use nostr::EventBuilder;
 
 /// Mosaico's own avatar policy. The `picture` ROW is NIP-29's and is composed
 /// by `nmp_nip29::edit_metadata`; which URL goes in it is the product's.
@@ -53,45 +44,26 @@ pub fn as_nostr(builder: nmp::EventBuilder) -> EventBuilder {
         .allow_self_tagging()
 }
 
-/// kind:9002 edit-metadata that locks the group `closed` (only members may write)
-/// while keeping it `public`. The workspace is the root channel, so its visible
-/// name and durable group id use the same workspace slug.
-pub fn group_lock_closed(channel: &str) -> Result<nmp::EventBuilder> {
-    Ok(nmp_nip29::edit_metadata(workspace_visibility(
-        channel, channel,
-    )))
-}
-
-/// kind:9007 create-group for a CHILD (sub-)group, declaring its `parent`
-/// relationship at creation. NIP-29 subgroup relays (per
-/// nostr-protocol/nips#2319, e.g. nip29.f7z.io) validate the parent at create
-/// time (parent must exist; signer must be a parent admin; no cycles) and
-/// re-emit the tag on the relay-authored kind:39000. The signer becomes the
-/// subgroup admin and, as with any fresh group, it is OPEN until locked.
-pub fn group_create_subgroup(parent_h: &str) -> Result<nmp::EventBuilder> {
-    Ok(nmp_nip29::create_group().tag(tag(&["parent", parent_h])?))
-}
-
-/// kind:9002 edit-metadata that locks a CHILD group `closed` while keeping it
-/// `public` (the current product visibility policy) AND declares its NIP-29
-/// subgroup parent. Unlike [`group_lock_closed`], `name` is a human-readable
-/// display name rather than the slug. Shared acquisition follows this public
-/// visibility policy; closed membership still governs writes.
-pub fn group_lock_closed_with_parent(
-    child_h: &str,
-    name: &str,
-    parent_h: &str,
-) -> Result<nmp::EventBuilder> {
-    Ok(
-        nmp_nip29::edit_metadata(workspace_visibility(name, child_h))
-            .tag(tag(&["parent", parent_h])?),
-    )
+/// kind:9002 edit-metadata that locks `group` `closed` (only members may write)
+/// while keeping it `public`, and gives it the display `name`. The avatar seed
+/// is the durable group id, so a rename never moves the avatar. A workspace
+/// root passes its slug as both.
+///
+/// This applies to a subgroup exactly as it does to a root, because a
+/// subgroup's `parent` is NOT metadata: it is stated once on the kind:9007
+/// create (`nmp_nip29::create_group`) and cannot be restated. The only relay
+/// that implements subgroups reads `parent` on the create and ignores the row
+/// entirely on a kind:9002, so this edit neither sets nor clears it — the
+/// relationship simply survives untouched.
+pub fn group_lock_closed(group: &str, name: &str) -> nmp::EventBuilder {
+    nmp_nip29::edit_metadata(workspace_visibility(name, group))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fabric::nip29::wire::{KIND_GROUP_CREATE, KIND_GROUP_EDIT_METADATA};
+    use crate::fabric::nip29::wire::KIND_GROUP_EDIT_METADATA;
+    use nostr::{Event, Keys};
 
     fn has_tag(event: &Event, name: &str, value: &str) -> bool {
         event.tags.iter().any(|t| {
@@ -108,17 +80,15 @@ mod tests {
             .any(|t| t.as_slice().first().map(String::as_str) == Some(name))
     }
 
-    /// Every draft in this module leaves the group context row to NMP's group
-    /// door. A draft that carried its own would be refused there
-    /// (`GroupContextError::CallerSuppliedContext`), so this is the falsifier
-    /// for the whole module rather than a style check.
+    /// Nothing this module states carries the group context row: it is NMP's
+    /// group door that mints it, and a draft carrying its own would be refused
+    /// there (`GroupContextError::CallerSuppliedContext`).
     #[test]
     fn no_lifecycle_draft_writes_its_own_group_context_row() {
         let keys = Keys::generate();
         for builder in [
-            group_lock_closed("mosaico").unwrap(),
-            group_create_subgroup("mosaico").unwrap(),
-            group_lock_closed_with_parent("child", "Child", "mosaico").unwrap(),
+            group_lock_closed("mosaico", "mosaico"),
+            group_lock_closed("child", "Child"),
         ] {
             let event = as_nostr(builder).sign_with_keys(&keys).unwrap();
             assert!(!has_tag_name(&event, "h"), "{:?}", event.tags);
@@ -127,7 +97,7 @@ mod tests {
 
     #[test]
     fn group_lock_closed_is_closed_and_public() {
-        let ev = as_nostr(group_lock_closed("mosaico").unwrap())
+        let ev = as_nostr(group_lock_closed("mosaico", "mosaico"))
             .sign_with_keys(&Keys::generate())
             .unwrap();
         assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
@@ -144,31 +114,15 @@ mod tests {
     }
 
     #[test]
-    fn group_create_subgroup_declares_its_parent() {
-        let ev = as_nostr(group_create_subgroup("mosaico").unwrap())
-            .sign_with_keys(&Keys::generate())
-            .unwrap();
-        assert_eq!(ev.kind.as_u16(), KIND_GROUP_CREATE);
-        // The parent relationship must ride on the 9007 create (NIP #2319 relays
-        // validate + re-emit it on 39000 from the create event).
-        assert!(has_tag(&ev, "parent", "mosaico"));
-    }
-
-    #[test]
-    fn subgroup_lock_has_parent_name_closed_public() {
-        let ev = as_nostr(
-            group_lock_closed_with_parent(
-                "subgroup-support-a1b2c3d4",
-                "subgroup support",
-                "mosaico",
-            )
-            .unwrap(),
-        )
+    fn a_subgroup_lock_names_it_and_seeds_the_avatar_from_the_group_id() {
+        let ev = as_nostr(group_lock_closed(
+            "subgroup-support-a1b2c3d4",
+            "subgroup support",
+        ))
         .sign_with_keys(&Keys::generate())
         .unwrap();
         assert_eq!(ev.kind.as_u16(), KIND_GROUP_EDIT_METADATA);
         assert!(has_tag(&ev, "name", "subgroup support"));
-        assert!(has_tag(&ev, "parent", "mosaico"));
         assert!(has_tag_name(&ev, "closed"));
         assert!(has_tag_name(&ev, "public"));
         assert!(!has_tag_name(&ev, "private"));
@@ -177,6 +131,23 @@ mod tests {
             "picture",
             "https://api.dicebear.com/10.x/stripes/svg?seed=subgroup-support-a1b2c3d4"
         ));
+    }
+
+    /// A kind:9002 must never carry `parent`. Mosaico wrote one for months and
+    /// the relay discarded every single one: the row is not read by the 9002
+    /// parser at all, so an app that emits it believes it re-parented a group
+    /// it did not touch. The relationship rides on the kind:9007 create and
+    /// nowhere else. This is the falsifier that stops the row coming back.
+    #[test]
+    fn a_metadata_edit_never_carries_the_subgroup_parent_row() {
+        let keys = Keys::generate();
+        for builder in [
+            group_lock_closed("mosaico", "mosaico"),
+            group_lock_closed("child", "Child"),
+        ] {
+            let event = as_nostr(builder).sign_with_keys(&keys).unwrap();
+            assert!(!has_tag_name(&event, "parent"), "{:?}", event.tags);
+        }
     }
 
     /// `nostr`'s builder drops a `p` row naming the signer unless self-tagging

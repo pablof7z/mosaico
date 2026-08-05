@@ -148,10 +148,10 @@ async fn precreate_channel_group_as_user(channel: &str) {
     // door, so the context row has to be minted explicitly -- by NMP's own
     // contextualizer, never by hand.
     for (label, builder) in [
-        ("9007 create-group", nmp_nip29::create_group()),
+        ("9007 create-group", nmp_nip29::create_group(None)),
         (
             "9002 lock-closed",
-            mosaico::fabric::nip29::lifecycle::group_lock_closed(channel).unwrap(),
+            mosaico::fabric::nip29::lifecycle::group_lock_closed(channel, channel),
         ),
     ] {
         let contextualized = nmp_nip29::contextualize(
