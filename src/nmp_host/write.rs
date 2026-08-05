@@ -20,6 +20,7 @@ use super::NmpHost;
 mod background_receipts;
 mod background_submit;
 mod compose;
+mod queue;
 pub(crate) use background_receipts::BackgroundReceiptObserver;
 pub(crate) use background_receipts::BackgroundWriteSnapshot;
 #[cfg(test)]

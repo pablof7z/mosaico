@@ -2,6 +2,7 @@
 
 mod background;
 mod config;
+mod queue;
 mod render;
 mod repair;
 
@@ -257,6 +258,7 @@ async fn inspect_daemon(checks: &mut Vec<Check>) {
                 "verify relay read access and retry after connectivity is restored",
             ));
             background::inspect(&probe["background_writes"], checks);
+            queue::inspect(&probe["publish_queue"], checks);
         }
         Err(error) => checks.push(Check::new(
             "relay.probe",

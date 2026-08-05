@@ -101,6 +101,33 @@ async fn profile_receipt_reaches_actual_doctor_rpc_json() {
     );
 }
 
+/// The doctor RPC carries the durable queue alongside the process-local
+/// receipt evidence. Without it a daemon restarted with parked writes reports
+/// a clean bill it has no basis for.
+#[tokio::test]
+async fn doctor_rpc_reports_the_durable_publish_queue_alongside_receipt_evidence() {
+    let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
+    state.nmp.script_read_events(Vec::new());
+
+    let response = super::super::dispatch(
+        &state,
+        &Request {
+            id: 706,
+            method: "doctor".into(),
+            params: serde_json::json!({}),
+        },
+    )
+    .await;
+    let json = response.ok.expect("doctor RPC response");
+    let queue = &json["publish_queue"];
+    assert!(queue.is_object(), "{json}");
+    assert!(queue["entries"].is_u64(), "{queue}");
+    assert!(queue["outstanding"].is_u64(), "{queue}");
+    assert!(queue["stuck"].is_array(), "{queue}");
+    // An empty queue must never be spelled the same way as an unreadable one.
+    assert!(queue.get("unreadable").is_none(), "{queue}");
+}
+
 #[tokio::test]
 async fn partial_submission_cause_remains_retrievable_from_doctor_rpc() {
     let state = DaemonState::new_for_test_with_relays(vec![

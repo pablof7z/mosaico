@@ -103,6 +103,34 @@ async fn the_id_returned_without_waiting_is_the_id_nmp_froze() {
     );
 }
 
+/// The durable half of write visibility: an accepted write is readable back
+/// out of NMP's own queue, with no receipt id kept and no stream held open.
+#[tokio::test]
+async fn an_accepted_write_is_visible_in_the_queue_snapshot_without_any_bookkeeping() {
+    let host = std::sync::Arc::new(
+        NmpHost::open(
+            &["wss://relay.example.com".into()],
+            None,
+            None,
+            &Keys::generate(),
+        )
+        .unwrap(),
+    );
+    assert_eq!(host.publish_queue_snapshot().outstanding, 0);
+
+    let keys = Keys::generate();
+    let builder = EventBuilder::new(Kind::TextNote, "outstanding")
+        .tags([Tag::parse(["h", "room-a"]).unwrap()]);
+    host.publish_group_builder(builder, &keys).unwrap();
+
+    let snapshot = host.publish_queue_snapshot();
+    assert!(snapshot.unreadable.is_none(), "{snapshot:?}");
+    assert_eq!(snapshot.outstanding, 1);
+    // A signer IS attached and the route is explicit, so nothing about this
+    // write needs a person -- it is in flight, not stuck.
+    assert!(snapshot.stuck.is_empty(), "{snapshot:?}");
+}
+
 /// `publish` returning `Ok` IS acceptance, and acceptance is not viability:
 /// nothing here waits for a relay, so an offline host still returns promptly.
 #[tokio::test]
