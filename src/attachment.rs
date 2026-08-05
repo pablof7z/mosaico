@@ -37,6 +37,18 @@ pub(crate) fn parse_spec(raw: &str) -> std::result::Result<Attachment, String> {
     if raw.is_empty() {
         return Err("attachment file path must not be empty".to_string());
     }
+    if !raw.starts_with("./") && !Path::new(raw).is_absolute() {
+        if let Some((label, file)) = raw.split_once('=') {
+            crate::attachment_contract::validate_label(label).map_err(|error| error.to_string())?;
+            if file.is_empty() {
+                return Err("attachment file path must not be empty".to_string());
+            }
+            return Ok(Attachment {
+                label: label.to_string(),
+                path: PathBuf::from(file),
+            });
+        }
+    }
     let path = PathBuf::from(raw);
     let label = infer_label(&path)?;
     Ok(Attachment { label, path })
