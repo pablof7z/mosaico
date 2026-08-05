@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Result;
-use nmp::nip29::{GroupObservation, GroupPredicate};
+use nmp::nip29::{GroupIds, GroupObservation, GroupPredicate};
 use nmp::Binding;
 
 use super::DaemonState;
@@ -80,18 +80,18 @@ impl GroupRecordsCoverage {
     /// member list, and asking only about members would miss the group this
     /// daemon manages.
     fn predicate(&self) -> Option<GroupPredicate> {
-        let mut leaves: Vec<GroupPredicate> = Vec::new();
+        let mut leaves: Vec<GroupIds> = Vec::new();
         if !self.subjects.is_empty() {
             let subjects = Binding::Literal(self.subjects.clone());
             leaves.push(nmp::nip29::member_list_includes(subjects.clone()));
             leaves.push(nmp::nip29::admin_list_includes(subjects));
         }
         if !self.ids.is_empty() {
-            leaves.push(nmp::nip29::any_of(self.ids.iter().cloned()));
+            leaves.push(nmp::nip29::any_of(Binding::Literal(self.ids.clone())));
         }
         let mut leaves = leaves.into_iter();
         let first = leaves.next()?;
-        Some(first.union(leaves))
+        Some(first.union(leaves).into())
     }
 }
 

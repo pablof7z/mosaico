@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use anyhow::Result;
-use nmp::{fifo_channel, FifoReceiver, WriteStatus};
+use nmp::{fifo_channel, FifoReceiver, WriteFact};
 use nostr::Event;
 
 use super::NmpHost;
@@ -13,7 +13,7 @@ struct ScriptedError {
 }
 
 enum WriteResult {
-    Statuses(Vec<WriteStatus>),
+    Facts(Vec<WriteFact>),
     Error(ScriptedError),
 }
 
@@ -28,13 +28,13 @@ pub(super) struct TestIo {
 }
 
 impl TestIo {
-    pub(super) fn take_write(&self) -> Option<Result<FifoReceiver<WriteStatus>>> {
+    pub(super) fn take_write(&self) -> Option<Result<FifoReceiver<WriteFact>>> {
         let scripted = self.writes.lock().unwrap().pop_front()?;
         Some(match scripted {
-            WriteResult::Statuses(statuses) => {
+            WriteResult::Facts(facts) => {
                 let (sender, receiver) = fifo_channel();
-                for status in statuses {
-                    assert!(sender.send(status), "scripted receipt receiver");
+                for fact in facts {
+                    assert!(sender.send(fact), "scripted receipt receiver");
                 }
                 Ok(receiver)
             }
@@ -51,12 +51,12 @@ impl TestIo {
 }
 
 impl NmpHost {
-    pub(crate) fn script_write_statuses(&self, statuses: Vec<WriteStatus>) {
+    pub(crate) fn script_write_facts(&self, facts: Vec<WriteFact>) {
         self.test_io
             .writes
             .lock()
             .unwrap()
-            .push_back(WriteResult::Statuses(statuses));
+            .push_back(WriteResult::Facts(facts));
     }
 
     pub(crate) fn script_write_error(&self, context: &str, detail: &str) {

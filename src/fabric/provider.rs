@@ -130,7 +130,7 @@ impl Nip29Provider {
             let signed = self.nmp.sign_event(builder, keys).await?;
             return self.nmp.enqueue_group_event(&signed);
         }
-        self.nmp.publish_group_builder(builder, keys, false).await
+        self.nmp.publish_group_builder(builder, keys)
     }
 
     pub(in crate::fabric::provider) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {

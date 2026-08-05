@@ -115,21 +115,35 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
     .expect("authenticated observation task");
     assert_eq!(acquired.id, seed.id);
 
-    let written =
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            host.publish_group_builder(
-                EventBuilder::new(Kind::TextNote, "authenticated agent write")
-                    .tags([Tag::parse(["h", "auth-room"]).unwrap()]),
-                &agent,
-                true,
-            ),
+    // Acceptance is immediate and says nothing about the relay; the relay's
+    // own observation is what proves the authenticated session carried the
+    // event, so that is what is waited on.
+    let written = host
+        .publish_group_builder(
+            EventBuilder::new(Kind::TextNote, "authenticated agent write").tags([Tag::parse([
+                "h",
+                "auth-room",
+            ])
+            .unwrap()]),
+            &agent,
         )
-        .await
-        .expect("authenticated write deadline")
-        .expect("strict relay accepts authenticated write");
+        .expect("NMP takes custody of the authenticated write");
 
-    let observation = relay.observation();
+    let observation = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let observation = relay.observation();
+            if observation
+                .ordinary_events
+                .iter()
+                .any(|event| event.id == written)
+            {
+                break observation;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("strict relay accepts the authenticated write");
     assert_eq!(observation.pre_auth_reqs, 0, "REQ escaped before AUTH");
     assert_eq!(observation.pre_auth_events, 0, "EVENT escaped before AUTH");
     assert!(

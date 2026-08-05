@@ -1,7 +1,7 @@
 use super::super::*;
 use crate::daemon::protocol::Request;
 use crate::state::RegisterSession;
-use nmp::WriteStatus;
+use nmp::{SigningState, WriteFact};
 use nostr::{Event, EventBuilder, Keys, Kind, Tag};
 
 #[path = "tests/status.rs"]
@@ -68,10 +68,13 @@ async fn profile_receipt_reaches_actual_doctor_rpc_json() {
     let profile = EventBuilder::new(Kind::Metadata, "{}")
         .sign_with_keys(&Keys::generate())
         .unwrap();
-    state.nmp.script_write_statuses(vec![
-        WriteStatus::Accepted,
-        WriteStatus::Signed(profile.id),
-        WriteStatus::Failed(SCRIPTED_CLASSIFIED_FAILURE.into()),
+    state.nmp.script_write_facts(vec![
+        WriteFact::Signing(SigningState::Signed {
+            event_id: profile.id,
+        }),
+        WriteFact::Signing(SigningState::Refused {
+            reason: SCRIPTED_CLASSIFIED_FAILURE.into(),
+        }),
     ]);
     state.nmp.enqueue_profile_event(&profile).unwrap();
     state.nmp.wait_background_receipts();
@@ -88,7 +91,7 @@ async fn profile_receipt_reaches_actual_doctor_rpc_json() {
     .await;
     let json = response.ok.expect("doctor RPC response");
     let failure = &json["background_writes"]["last_failure"];
-    assert_eq!(failure["status"], "failed");
+    assert_eq!(failure["status"], "signer_refused");
     assert_eq!(failure["operation"], "profile");
     assert_eq!(failure["source_ref"], profile.id.to_hex());
     assert_eq!(failure["detail"], SCRIPTED_CLASSIFIED_FAILURE);
@@ -110,7 +113,9 @@ async fn partial_submission_cause_remains_retrievable_from_doctor_rpc() {
         .unwrap();
     state
         .nmp
-        .script_write_statuses(vec![WriteStatus::Failed("prior receipt retained".into())]);
+        .script_write_facts(vec![WriteFact::Signing(SigningState::Refused {
+            reason: "prior receipt retained".into(),
+        })]);
     state.nmp.script_write_error(
         "intent 1 durable-store persistence failure [fault=latched durability=absent reopen=required]",
         "Previous I/O error occurred",
@@ -138,7 +143,7 @@ async fn partial_submission_cause_remains_retrievable_from_doctor_rpc() {
         .contains("Previous I/O error occurred"));
     let history = writes["recent_failures"].as_array().unwrap();
     assert!(history.iter().any(|evidence| {
-        evidence["status"] == "failed" && evidence["detail"] == "prior receipt retained"
+        evidence["status"] == "signer_refused" && evidence["detail"] == "prior receipt retained"
     }));
     eprintln!(
         "CORPUS_PARTIAL_DOCTOR_JSON={}",
@@ -165,9 +170,9 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     state
         .nmp
         .script_read_events(group_records("project", &management));
-    state.nmp.script_write_statuses(vec![WriteStatus::Failed(
-        SCRIPTED_CLASSIFIED_FAILURE.into(),
-    )]);
+    state
+        .nmp
+        .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
     state.nmp.script_read_events(Vec::new());
 
     let response = super::super::dispatch(
@@ -220,9 +225,9 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
         })
         .unwrap();
     state.nmp.script_read_events(Vec::new());
-    state.nmp.script_write_statuses(vec![WriteStatus::Failed(
-        SCRIPTED_CLASSIFIED_FAILURE.into(),
-    )]);
+    state
+        .nmp
+        .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
     state.nmp.script_read_events(Vec::new());
 
     let response = super::super::dispatch(

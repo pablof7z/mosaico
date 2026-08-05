@@ -61,7 +61,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
   it). It holds exactly one `Store` (single SQLite connection → one writer by
   construction) and one NMP engine for acquisition, account signing, and every
   runtime/profile write. Those writes enter NMP through the durable
-  `submit_intents` queue, which owns routing, receipts, and retries. Bounded
+  publish queue, which owns routing, receipts, and retries. Bounded
   resolution reads and the doctor publish/readback use that same engine; the
   daemon has no second relay client.
 - Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
@@ -287,7 +287,7 @@ The `session_start` RPC makes the daemon spawn a tokio task running
   poll. Reconciled presence effects enter one bounded, ordered background queue,
   so a stalled relay cannot delay lifecycle RPCs or hooks. Every runtime and
   kind:0 profile write is signed and accepted through the shared NMP host's
-  durable `submit_intents` queue.
+  durable publish queue.
 - Peer-staleness pruning is a single daemon-level periodic task.
 
 `EngineParams` is reused largely as-is, minus `store_path` (the task gets the
@@ -312,7 +312,7 @@ construction — that is the whole point. Concurrency model inside the daemon:
   only if lock contention shows up (unlikely at this call frequency).
 
 - The NMP engine owns live queries, relay acquisition, local account
-  capabilities, and the durable `submit_intents` queue for all runtime and
+  capabilities, and the durable publish queue for all runtime and
   profile writes, including pinned-host indexer delivery. It also owns bounded
   group/profile projections and the explicit doctor probe. No other component
   opens a relay connection.
@@ -405,7 +405,7 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
   through NMP.
 - **One NMP relay plane** serves standing observations, bounded
   diagnostic/resolution projections, the doctor probe, and every runtime or
-  profile write. Writes are durably accepted through `submit_intents`; no
+  profile write. Writes are durably accepted into the publish queue; no
   direct client or parallel relay pool may be reintroduced.
 - **NIP-29 membership semantics** — group creation, owner admin backfill, and
   agent member admission remain provider-owned and relay-authoritative. Local

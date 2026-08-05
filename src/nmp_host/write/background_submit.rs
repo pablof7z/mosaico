@@ -5,11 +5,7 @@ impl NmpHost {
     /// terminal result after this call returns.
     pub(crate) fn enqueue_group_event(&self, event: &Event) -> Result<EventId> {
         crate::relay_log::log_outgoing_event(event);
-        let operation = match event.kind.as_u16() {
-            crate::fabric::nip29::wire::KIND_STATUS => "status",
-            7 => "reaction",
-            _ => "group_event",
-        };
+        let operation = super::group_operation(event.kind.as_u16());
         let intents = self.signed_group_intents(event)?;
         self.enqueue_background_intents(event.id, operation, intents)?;
         Ok(event.id)
@@ -31,7 +27,6 @@ impl NmpHost {
                 target: format!("{index}:{relay}"),
                 intent: WriteIntent {
                     payload: WritePayload::Signed(event.clone()),
-                    durability: Durability::Durable,
                     routing: WriteRouting::Explicit(vec![relay.clone()]),
                     identity: super::identity_of(Some(event.pubkey)),
                     correlation: None,
@@ -42,37 +37,25 @@ impl NmpHost {
         Ok(event.id)
     }
 
-    pub(super) fn submit_signed_group(
-        &self,
-        event: &Event,
-    ) -> Result<Vec<FifoReceiver<WriteStatus>>> {
-        crate::relay_log::log_outgoing_event(event);
-        let intents = self
-            .signed_group_intents(event)?
-            .into_iter()
-            .map(|targeted| targeted.intent)
-            .collect();
-        self.submit_intents(intents, "submitting signed NMP write")
-    }
-
     fn signed_group_intents(&self, event: &Event) -> Result<Vec<BackgroundIntent>> {
-        let template = event_template(event)?;
-        self.relays
+        let composed = contextualized_builder(event_template(event)?)?;
+        Ok(self
+            .relays
             .iter()
             .enumerate()
             .map(|(index, relay)| {
-                let mut intent = group_intent(relay.clone(), template.clone())?;
+                let mut intent = group_intent(relay.clone(), composed.clone());
                 intent.payload = WritePayload::Signed(event.clone());
                 intent.identity = super::identity_of(Some(event.pubkey));
-                Ok(BackgroundIntent {
+                BackgroundIntent {
                     target: format!("{index}:{relay}"),
                     intent,
-                })
+                }
             })
-            .collect()
+            .collect())
     }
 
-    fn enqueue_background_intents(
+    pub(super) fn enqueue_background_intents(
         &self,
         event_id: EventId,
         operation: &str,
@@ -121,13 +104,13 @@ pub(super) struct BackgroundIntent {
 }
 
 pub(super) struct BackgroundSubmission {
-    pub(super) receivers: Vec<(String, FifoReceiver<WriteStatus>)>,
+    pub(super) receivers: Vec<(String, FifoReceiver<WriteFact>)>,
     pub(super) error: Option<anyhow::Error>,
 }
 
 pub(super) fn collect_background_receivers(
     intents: Vec<BackgroundIntent>,
-    mut publish: impl FnMut(WriteIntent) -> Result<FifoReceiver<WriteStatus>>,
+    mut publish: impl FnMut(WriteIntent) -> Result<FifoReceiver<WriteFact>>,
 ) -> BackgroundSubmission {
     let mut receivers = Vec::with_capacity(intents.len());
     for targeted in intents {

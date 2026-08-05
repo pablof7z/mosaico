@@ -60,7 +60,7 @@ impl NmpHost {
         predicate: nmp::nip29::GroupPredicate,
     ) -> Result<nmp::nip29::GroupObservation> {
         self.nip29_scope()?
-            .observe(&self.engine, predicate, nmp::nip29::GroupRecord::ALL)
+            .observe(&self.engine, predicate, nmp::nip29::GroupRecord::ALL, None)
             .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
     }
 
@@ -74,37 +74,23 @@ impl NmpHost {
         let branches = self
             .relays
             .iter()
-            .map(|host| nmp_nip29::group_records_at(host, &records, predicate.clone()))
+            .map(|host| nmp_nip29::group_records_at(host, &records, Some(predicate.clone()), None))
             .collect::<Vec<_>>();
         union_branches(branches)
     }
 
     /// Every group these hosts describe (kind:39000, unkeyed).
     ///
-    /// NMP has no unpredicated group-listing constructor — `groups_where_at`
-    /// requires a `d` predicate — so the branch is assembled here from NMP's
-    /// own vocabulary rather than borrowed. It still stamps both axes per
-    /// host, which is the property that matters. See the report accompanying
-    /// mosaico#741: an `all_groups_at(host)` door would remove this.
+    /// The absent `d` binding is NMP's own spelling of "no constraint" —
+    /// `group_records_at` with `None` builds a branch carrying no `#d` row at
+    /// all, which is the only honest lowering of an unpredicated listing.
     pub(crate) fn all_group_metadata_query(&self) -> Result<LiveQuery> {
-        let selection = nmp::Filter {
-            kinds: Some(BTreeSet::from([nmp_nip29::GROUP_METADATA_KIND])),
-            ..nmp::Filter::default()
-        };
+        let records = BTreeSet::from([nmp_nip29::GroupRecord::Metadata]);
         let branches = self
             .relays
             .iter()
-            .map(|host| {
-                let mut demand = Demand::new(
-                    selection.clone(),
-                    SourceAuthority::Pinned(BTreeSet::from([host.clone()])),
-                    AccessContext::Public,
-                )?;
-                demand.cache = CacheMode::Strict;
-                Ok(demand)
-            })
-            .collect::<Result<Vec<_>, nmp::DemandError>>()
-            .map_err(|error| anyhow::anyhow!("group metadata listing: {error}"))?;
+            .map(|host| nmp_nip29::group_records_at(host, &records, None, None))
+            .collect::<Vec<_>>();
         union_branches(branches)
     }
 

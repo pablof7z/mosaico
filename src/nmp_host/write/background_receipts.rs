@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use nmp::{FifoReceiver, WriteStatus};
+use nmp::{FifoReceiver, WriteFact};
 use nostr::EventId;
 
 mod admission;
@@ -132,7 +132,7 @@ impl BackgroundReceiptObserver {
         mut permit: BackgroundReceiptPermit,
         operation: &str,
         event_id: EventId,
-        receivers: Vec<(String, FifoReceiver<WriteStatus>)>,
+        receivers: Vec<(String, FifoReceiver<WriteFact>)>,
         allow_success: bool,
     ) -> Result<()> {
         let source_ref = event_id.to_hex();
@@ -156,6 +156,7 @@ impl BackgroundReceiptObserver {
                 deadline: permit.deadline,
                 tracker: Arc::clone(&tracker),
                 _slot: permit.take_slot(),
+                lanes: Default::default(),
             };
             match sender.try_send(job) {
                 Ok(()) => {}

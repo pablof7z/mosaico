@@ -198,7 +198,7 @@ mod tests {
         state.nmp.script_read_events(Vec::new());
         state
             .nmp
-            .script_write_statuses(vec![nmp::WriteStatus::Failed(FAILURE.into())]);
+            .script_write_error("scripted NMP publish refusal", FAILURE);
         state.nmp.script_read_events(Vec::new());
 
         let error = verify_start_channel_ready(

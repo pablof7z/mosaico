@@ -5,10 +5,10 @@
 use anyhow::{Context, Result};
 use nmp::{
     AccessContext, AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration,
-    AuthPolicyRequest, Engine, EngineConfig, FifoReceiver, FifoRecvTimeoutError, RelayUrl, Window,
-    WriteStatus,
+    AuthPolicyRequest, Engine, EngineConfig, FifoReceiver, FifoRecvTimeoutError, NotSentReason,
+    RelayState, RelayUrl, SigningState, Window, WriteFact, WriteOutcome,
 };
-use nmp_grammar::{Durability, Identity, WriteIntent, WritePayload, WriteRouting};
+use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Filter, Keys};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -29,7 +29,7 @@ pub struct NmpRelayClient {
 }
 
 #[derive(Debug)]
-pub struct WriteOutcome {
+pub struct WriteAck {
     pub val: EventId,
     pub success: BTreeSet<String>,
     pub failed: BTreeMap<String, String>,
@@ -107,19 +107,18 @@ impl NmpRelayClient {
         Ok(())
     }
 
-    pub async fn send_event_builder(&self, builder: EventBuilder) -> Result<WriteOutcome> {
+    pub async fn send_event_builder(&self, builder: EventBuilder) -> Result<WriteAck> {
         let event = builder
             .sign_with_keys(&self.keys)
             .context("sign test event")?;
         self.send_event(&event).await
     }
 
-    pub async fn send_event(&self, event: &Event) -> Result<WriteOutcome> {
+    pub async fn send_event(&self, event: &Event) -> Result<WriteAck> {
         let receiver = self
             .engine
             .publish(WriteIntent {
                 payload: WritePayload::Signed(event.clone()),
-                durability: Durability::Durable,
                 routing: WriteRouting::Explicit(vec![self.relay.clone()]),
                 identity: Identity::Explicit(event.pubkey),
                 correlation: None,
@@ -165,47 +164,87 @@ impl NmpRelayClient {
     }
 }
 
+/// Drain one write's facts to its settlement.
+///
+/// This is a TEST HARNESS driving a real relay, not an app: proving what a
+/// relay did with an event is the whole point of it. It is still allowed to
+/// end only on a fact -- every stream carries exactly one `WriteOutcome` --
+/// so the deadline below is a harness guard against a write that legitimately
+/// parks forever (no signer, no resolvable route), never the way a settled
+/// write is recognised.
 fn wait_for_write(
-    receiver: FifoReceiver<WriteStatus>,
+    receiver: FifoReceiver<WriteFact>,
     relay: RelayUrl,
     event_id: EventId,
-) -> Result<WriteOutcome> {
+) -> Result<WriteAck> {
     let deadline = Instant::now() + Duration::from_secs(12);
+    let mut success = BTreeSet::new();
+    let mut failed = BTreeMap::new();
+    let mut last_fact = String::from("no fact observed");
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            anyhow::bail!("timed out waiting for NMP test write receipt");
+            anyhow::bail!("NMP test write parked without settling (last fact: {last_fact})");
         }
         match receiver.recv_timeout(remaining) {
-            Ok(WriteStatus::Acked(acked)) => {
-                return Ok(WriteOutcome {
+            Ok(WriteFact::Relay { relay, state }) => {
+                last_fact = format!("{relay}: {state:?}");
+                match state {
+                    RelayState::Published => {
+                        success.insert(relay.to_string());
+                    }
+                    RelayState::Rejected { reason } => {
+                        failed.insert(relay.to_string(), reason);
+                    }
+                    // Never folded into a rejection: the app's own policy or
+                    // signer declining is not the relay refusing the event.
+                    RelayState::AuthFailed {
+                        pubkey,
+                        source,
+                        reason,
+                    } => {
+                        failed.insert(
+                            relay.to_string(),
+                            format!("AUTH failed for {pubkey} ({source:?}): {reason}"),
+                        );
+                    }
+                    RelayState::GaveUp => {
+                        failed.insert(
+                            relay.to_string(),
+                            "NMP reached its publish attempt ceiling".to_string(),
+                        );
+                    }
+                    RelayState::Waiting(_) | RelayState::Sent { .. } => {}
+                }
+            }
+            Ok(WriteFact::Signing(SigningState::Refused { reason })) => {
+                anyhow::bail!("NMP test write was refused by the signer: {reason}")
+            }
+            Ok(WriteFact::Signing(signing)) => last_fact = format!("{signing:?}"),
+            Ok(WriteFact::Destinations { relays, complete }) => {
+                last_fact = format!("destinations {relays:?} complete={complete}");
+            }
+            Ok(WriteFact::Outcome(WriteOutcome::Settled)) => {
+                return Ok(WriteAck {
                     val: event_id,
-                    success: BTreeSet::from([acked.to_string()]),
-                    failed: BTreeMap::new(),
+                    success,
+                    failed,
                 })
             }
-            Ok(WriteStatus::Rejected(rejected, reason)) => {
-                return Ok(WriteOutcome {
-                    val: event_id,
-                    success: BTreeSet::new(),
-                    failed: BTreeMap::from([(rejected.to_string(), reason)]),
-                })
+            Ok(WriteFact::Outcome(WriteOutcome::NoDestination)) => {
+                anyhow::bail!("NMP test write routing named no relays")
             }
-            Ok(WriteStatus::GaveUp(failed)) => {
-                return Ok(WriteOutcome {
-                    val: event_id,
-                    success: BTreeSet::new(),
-                    failed: BTreeMap::from([(
-                        failed.to_string(),
-                        "NMP gave up delivery".to_string(),
-                    )]),
-                })
+            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Cancelled))) => {
+                anyhow::bail!("NMP test write was cancelled")
             }
-            Ok(WriteStatus::Failed(reason)) => anyhow::bail!("NMP test write failed: {reason}"),
-            Ok(WriteStatus::Cancelled) => anyhow::bail!("NMP test write was cancelled"),
-            Ok(_) => {}
+            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Superseded))) => {
+                anyhow::bail!("NMP test write was superseded by a newer write")
+            }
+            Ok(WriteFact::Outcome(WriteOutcome::Refused(reason))) => {
+                anyhow::bail!("NMP test write was refused at acceptance: {reason:?}")
+            }
             Err(FifoRecvTimeoutError::Timeout) => {
-                anyhow::bail!("timed out waiting for NMP test write receipt")
+                anyhow::bail!("NMP test write parked without settling (last fact: {last_fact})")
             }
             Err(FifoRecvTimeoutError::Closed) => {
                 anyhow::bail!("NMP test write receipt disconnected for {relay}")

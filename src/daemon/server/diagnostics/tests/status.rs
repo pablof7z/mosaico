@@ -19,9 +19,11 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
             store.replace_channel_members("project", std::slice::from_ref(&pubkey), 3)
         })
         .unwrap();
-    state.nmp.script_write_statuses(vec![WriteStatus::Failed(
-        SCRIPTED_CLASSIFIED_FAILURE.into(),
-    )]);
+    state
+        .nmp
+        .script_write_facts(vec![WriteFact::Signing(SigningState::Refused {
+            reason: SCRIPTED_CLASSIFIED_FAILURE.into(),
+        })]);
 
     let now = crate::util::now_secs();
     crate::presence_publisher::drive(
@@ -83,7 +85,7 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     .await;
     let json = response.ok.expect("doctor RPC response");
     let failure = &json["background_writes"]["last_failure"];
-    assert_eq!(failure["status"], "failed");
+    assert_eq!(failure["status"], "signer_refused");
     assert_eq!(failure["operation"], "status");
     assert_eq!(failure["source_ref"], source_ref);
     assert_eq!(failure["target"], format!("0:{RELAY}"));

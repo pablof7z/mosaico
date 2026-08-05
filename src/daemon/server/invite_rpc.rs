@@ -259,7 +259,7 @@ async fn publish_invite_orchestration(
     )?;
     let signed = state.nmp.sign_event(builder, &keys).await?;
     let event_id = signed.id.to_hex();
-    state.nmp.publish_group_event(&signed, true).await?;
+    state.nmp.enqueue_group_event(&signed)?;
     if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
         handle_orchestration(state, &signed, op).await;
     }
