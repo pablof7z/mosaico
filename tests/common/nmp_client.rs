@@ -115,7 +115,7 @@ impl NmpRelayClient {
     }
 
     pub async fn send_event(&self, event: &Event) -> Result<WriteAck> {
-        let receiver = self
+        let receipt = self
             .engine
             .publish(WriteIntent {
                 payload: WritePayload::Signed(event.clone()),
@@ -126,7 +126,7 @@ impl NmpRelayClient {
             .context("submit NMP test write")?;
         let relay = self.relay.clone();
         let event_id = event.id;
-        tokio::task::spawn_blocking(move || wait_for_write(receiver, relay, event_id))
+        tokio::task::spawn_blocking(move || wait_for_write(receipt.statuses, relay, event_id))
             .await
             .context("join NMP test write")?
     }
