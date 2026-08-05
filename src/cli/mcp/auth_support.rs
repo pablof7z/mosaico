@@ -46,6 +46,31 @@ pub(super) fn sign(secret: &[u8], payload: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
 }
 
+/// Check a signature produced by [`sign`] in constant time.
+///
+/// The comparison is on a network endpoint, so a byte-at-a-time `==` over the
+/// base64 text leaks how much of a forged signature was right.
+/// `Mac::verify_slice` is what `hmac` already ships for this.
+pub(super) fn verify_signature(secret: &[u8], payload: &[u8], signature: &str) -> bool {
+    let Ok(claimed) = URL_SAFE_NO_PAD.decode(signature) else {
+        return false;
+    };
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(payload);
+    mac.verify_slice(&claimed).is_ok()
+}
+
+/// Derive a purpose-specific key from the management secret.
+///
+/// One secret must not both sign access tokens and pseudonymise actor keys: a
+/// value that is valid input to one is then a forgery oracle for the other.
+/// `label` names the single purpose the returned key serves.
+pub(super) fn derive_key(secret: &[u8], label: &[u8]) -> Vec<u8> {
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(label);
+    mac.finalize().into_bytes().to_vec()
+}
+
 pub(super) fn stable_hash(value: &Value) -> String {
     let bytes = serde_json::to_vec(value).unwrap_or_default();
     URL_SAFE_NO_PAD.encode(&Sha256::digest(bytes)[..12])

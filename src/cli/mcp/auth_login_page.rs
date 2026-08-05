@@ -1,7 +1,17 @@
+/// The page an operator signs on.
+///
+/// `client_id` and `redirect_uri` are displayed, not merely posted back as
+/// hidden fields: the operator is approving delivery of a credential to a
+/// specific place and cannot weigh that without seeing where. Both are already
+/// constrained by the time this renders — the registration was screened against
+/// `mcpRedirectOrigins`, and the URI exact-matched against that registration —
+/// so this is the last human check, not the enforcing one.
 pub(super) fn login_html(
     fields: &[(String, String)],
     error: Option<&str>,
     authorize_url: &str,
+    client_id: &str,
+    redirect_uri: &str,
 ) -> String {
     let error = error
         .map(|e| format!("<p class=\"error\">{}</p>", html(e)))
@@ -81,6 +91,10 @@ h1{{max-width:10ch;margin:1.45rem 0 1.1rem;font-family:"Clash Display","Geist",u
 h2{{margin:0 0 .45rem;font-size:1.72rem;line-height:1.05;letter-spacing:0}}
 .micro{{margin:0 0 1.35rem;color:#747167;font-size:.78rem;line-height:1.55}}
 .hidden-field{{display:none}}
+.destination{{margin:0 0 1.2rem;padding:.85rem .9rem;border-radius:1rem;background:rgba(19,21,15,.045);box-shadow:inset 0 0 0 1px rgba(19,21,15,.065)}}
+.destination dt{{color:#65665c;font-size:.66rem;font-weight:750;letter-spacing:.12em;text-transform:uppercase}}
+.destination dd{{margin:.2rem 0 .7rem;color:#23261e;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;line-height:1.4;overflow-wrap:anywhere}}
+.destination dd:last-child{{margin-bottom:0}}
 .primary,.secondary{{width:100%;border:0;appearance:none;cursor:pointer;border-radius:999px;padding:.55rem .55rem .55rem 1.18rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;font:750 .95rem/1 "Geist","Plus Jakarta Sans",ui-sans-serif,sans-serif;transition:transform 700ms var(--ease),opacity 700ms var(--ease)}}
 .primary{{background:#141710;color:#fff7ee;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}}
 .secondary{{margin-top:.8rem;background:rgba(19,21,15,.06);color:#23261e;box-shadow:inset 0 0 0 1px rgba(19,21,15,.08)}}
@@ -123,6 +137,10 @@ input[type=password]:focus{{box-shadow:inset 0 0 0 1px rgba(28,107,100,.35),0 0 
       </div>
       <h2>Pair this session</h2>
       <p class="micro">Use a browser Nostr signer, or fall back to a whitelisted nsec when an extension is not available.</p>
+      <dl class="destination">
+        <dt>Registered client</dt><dd>{client_id}</dd>
+        <dt>Delivers the code to</dt><dd>{redirect_uri}</dd>
+      </dl>
       {error}
       <button class="primary" id="nip07-button" type="button"><span>Pair with NIP-07</span><span class="icon" aria-hidden="true">↗</span></button>
       <p id="login-status" class="status" aria-live="polite"></p>
@@ -137,6 +155,8 @@ input[type=password]:focus{{box-shadow:inset 0 0 0 1px rgba(28,107,100,.35),0 0 
 {script}"#,
         authorize_url = html(authorize_url),
         inputs = inputs,
+        client_id = html(client_id),
+        redirect_uri = html(redirect_uri),
         error = error,
         script = script,
     )

@@ -114,5 +114,42 @@ pub(super) fn inspect(path: &Path, checks: &mut Vec<Check>) -> bool {
             ),
         )
     });
+
+    checks.push(mcp_redirect_origins_check(&body));
     relay_ready && key_ready
+}
+
+/// Which hosted MCP clients may be registered to receive an authorization code.
+/// An empty list is not broken — loopback clients still work — but it is worth
+/// reporting, because a hosted connector's registration will be refused and the
+/// operator needs to know the control exists.
+fn mcp_redirect_origins_check(body: &str) -> Check {
+    let origins = match crate::config::mcp_trust::from_json_str(body) {
+        Ok(trust) => trust.redirect_origins,
+        Err(error) => {
+            return Check::new(
+                "config.mcp_redirect_origins",
+                CheckStatus::Error,
+                format!("cannot read mcpRedirectOrigins: {error:#}"),
+            )
+            .repair("repair the JSON without discarding its existing trust fields")
+        }
+    };
+    if origins.is_empty() {
+        Check::new(
+            "config.mcp_redirect_origins",
+            CheckStatus::Warning,
+            "no MCP redirect origins are approved: only loopback clients can register",
+        )
+        .repair(
+            "add each hosted MCP client's callback origin (e.g. https://chatgpt.com) to \
+             mcpRedirectOrigins before connecting it",
+        )
+    } else {
+        Check::new(
+            "config.mcp_redirect_origins",
+            CheckStatus::Ok,
+            format!("{} MCP redirect origin(s) approved", origins.len()),
+        )
+    }
 }
