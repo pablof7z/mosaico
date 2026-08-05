@@ -38,20 +38,19 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return both_failed("management signing identity is unavailable".into());
         };
-        let publish =
-            match self
-                .nmp
-                .publish_group_builder(&group, doctor_probe_builder(&marker), &keys)
-            {
-                Ok(id) => ProbeStep {
-                    status: ProbeStatus::Verified,
-                    summary: format!("ACK ({})", crate::util::pubkey_short(&id.to_hex())),
-                },
-                Err(error) => ProbeStep {
-                    status: ProbeStatus::Failed,
-                    summary: format!("{error:#}"),
-                },
-            };
+        let publish = match self
+            .nmp
+            .publish_group(&group, doctor_probe_builder(&marker), &keys)
+        {
+            Ok(id) => ProbeStep {
+                status: ProbeStatus::Verified,
+                summary: format!("ACK ({})", crate::util::pubkey_short(&id.to_hex())),
+            },
+            Err(error) => ProbeStep {
+                status: ProbeStatus::Failed,
+                summary: format!("{error:#}"),
+            },
+        };
         let filter = doctor_probe_filter(&marker);
         let readback = match self
             .nmp

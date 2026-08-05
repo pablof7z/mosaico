@@ -17,12 +17,13 @@ fn schema_fifteen_drops_the_auto_publish_marker() {
         [],
     )
     .unwrap();
+    fixture::downgrade_messages_to_v19(&conn);
     conn.pragma_update(None, "user_version", 15).unwrap();
     drop(conn);
 
     drop(Store::open(&path).expect("schema fifteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 19);
+    assert_eq!(version(&conn), 20);
     assert_eq!(
         conn.query_row(
             "SELECT agent_slug FROM sessions WHERE pubkey='historical'",

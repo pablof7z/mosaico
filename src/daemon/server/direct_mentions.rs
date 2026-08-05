@@ -203,7 +203,6 @@ mod tests {
                 author_pubkey: sender_pk.into(),
                 body: "please inspect".into(),
                 created_at: 5,
-                direction: "inbound".into(),
                 sync_state: "accepted".into(),
                 native_event_id: Some(event_id.into()),
                 error: None,

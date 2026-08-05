@@ -132,7 +132,6 @@ fn counts_named_agents_only_when_both_roster_snapshots_are_hydrated() {
             author_pubkey: "agent-pk".into(),
             body: "hello".into(),
             created_at: 40,
-            direction: "inbound".into(),
             sync_state: "accepted".into(),
             native_event_id: Some("event".into()),
             error: None,

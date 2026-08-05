@@ -109,7 +109,6 @@ CREATE TABLE IF NOT EXISTS messages (
     author_pubkey   TEXT NOT NULL,
     body            TEXT NOT NULL DEFAULT '',
     created_at      INTEGER NOT NULL,
-    direction       TEXT NOT NULL DEFAULT 'inbound',
     sync_state      TEXT NOT NULL DEFAULT 'accepted',
     native_event_id TEXT,
     error           TEXT,
@@ -120,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel
 CREATE INDEX IF NOT EXISTS idx_messages_native
     ON messages(native_event_id);
 CREATE INDEX IF NOT EXISTS idx_messages_author_pubkey
-    ON messages(author_pubkey, direction, sync_state, created_at);
+    ON messages(author_pubkey, sync_state, created_at);
 
 CREATE TABLE IF NOT EXISTS message_recipients (
     message_id       TEXT NOT NULL,

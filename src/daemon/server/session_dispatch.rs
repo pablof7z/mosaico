@@ -62,16 +62,18 @@ pub(super) async fn rpc_dispatch(
         &prose,
     )?;
     let keys = state.session_signing_keys(&caller.pubkey)?;
-    let signed = state
+    // The id exists once NMP has taken custody, so the ACK observation opens
+    // after the publish rather than before it. That is not a lost-ack race:
+    // `observe` is cache-then-live, so an ACK that lands in the gap is replayed
+    // from the store when the subscription opens.
+    //
+    // The dispatch reaches this backend's own session-dispatch listener through
+    // the same group subscription (NMP #1182), so nothing is driven inline.
+    let dispatch_event_id = state
         .nmp
-        .sign_group_event(&route_channel, builder, &keys)
-        .await?;
-    let dispatch_event_id = signed.id.to_hex();
+        .publish_group(&route_channel, builder, &keys)?
+        .to_hex();
     let ack_events = state.nmp.observe(&dispatch_ack_query(&dispatch_event_id))?;
-    state.nmp.enqueue_group_event(&route_channel, &signed)?;
-    if let Some(op) = crate::fabric::nip29::session_dispatch::parse_session_dispatch(&signed) {
-        super::session_dispatch_handler::handle_session_dispatch(state, &signed, op).await;
-    }
 
     let ack = wait_dispatch_ack(ack_events, dispatch_event_id.clone()).await?;
     let body = dispatch_message_body(&p.message, &ack.pubkey)?;
@@ -243,17 +245,7 @@ async fn send_dispatch_message(
         mentioned_pubkeys: vec![ack.pubkey.clone()],
         attachments: Vec::new(),
     };
-    let published = state
-        .provider
-        .publish_chat_checked(
-            &chat,
-            &keys,
-            &crate::fabric::provider::chat::OutboundChatRecord {
-                channel_h: channel.to_string(),
-                direction: "outbound",
-            },
-        )
-        .await?;
+    let published = state.provider.publish_chat_checked(&chat, &keys).await?;
     Ok(published.event_id)
 }
 

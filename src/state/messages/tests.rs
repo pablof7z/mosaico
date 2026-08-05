@@ -1,18 +1,17 @@
 use super::*;
 
-fn record(id: &str, direction: &str) -> RecordMessage {
-    record_at(id, direction, "accepted", 10)
+fn record(id: &str) -> RecordMessage {
+    record_at(id, "author-pk", "accepted", 10)
 }
 
-fn record_at(id: &str, direction: &str, sync_state: &str, created_at: u64) -> RecordMessage {
+fn record_at(id: &str, author_pubkey: &str, sync_state: &str, created_at: u64) -> RecordMessage {
     RecordMessage {
         message_id: id.to_string(),
         thread_id: "chan".to_string(),
         channel_h: "chan".to_string(),
-        author_pubkey: "author-pk".to_string(),
+        author_pubkey: author_pubkey.to_string(),
         body: "hello".to_string(),
         created_at,
-        direction: direction.to_string(),
         sync_state: sync_state.to_string(),
         native_event_id: Some(id.to_string()),
         error: None,
@@ -20,24 +19,9 @@ fn record_at(id: &str, direction: &str, sync_state: &str, created_at: u64) -> Re
 }
 
 #[test]
-fn relay_replay_preserves_local_outbound_direction() {
-    let store = Store::open_memory().unwrap();
-    store
-        .record_message(&record("event-1", "outbound"))
-        .unwrap();
-    store.record_message(&record("event-1", "inbound")).unwrap();
-
-    let msg = store.get_message("event-1").unwrap().unwrap();
-    assert_eq!(msg.author_pubkey, "author-pk");
-    assert_eq!(msg.direction, "outbound");
-}
-
-#[test]
 fn relay_replay_cannot_erase_or_replace_materialized_attachment_directory() {
     let store = Store::open_memory().unwrap();
-    store
-        .record_message(&record("event-files", "outbound"))
-        .unwrap();
+    store.record_message(&record("event-files")).unwrap();
     assert!(store
         .set_message_attachment_dir(
             "event-files",
@@ -50,9 +34,7 @@ fn relay_replay_cannot_erase_or_replace_materialized_attachment_directory() {
             std::path::Path::new("/tmp/mosaico-files/replacement"),
         )
         .unwrap());
-    store
-        .record_message(&record("event-files", "inbound"))
-        .unwrap();
+    store.record_message(&record("event-files")).unwrap();
 
     assert_eq!(
         store
@@ -130,41 +112,44 @@ fn latest_channel_activity_uses_only_accepted_messages() {
     );
 }
 
+/// The reply-nudge check asks whether THIS agent has spoken in the channel
+/// since the mention, and `author_pubkey` is the whole answer. A local
+/// `direction` column used to be conjoined with it and could only ever agree,
+/// because every caller passes its own key.
 #[test]
-fn outbound_reply_check_follows_pubkey_across_runtime_replacement() {
+fn the_reply_check_follows_the_authoring_pubkey_and_the_accepted_state() {
     let store = Store::open_memory().unwrap();
     store
-        .record_message(&record_at("old-outbound", "outbound", "accepted", 99))
+        .record_message(&record_at("older", "author-pk", "accepted", 99))
         .unwrap();
     store
-        .record_message(&record_at("inbound", "inbound", "accepted", 101))
+        .record_message(&record_at("someone-else", "other-pk", "accepted", 101))
         .unwrap();
     store
-        .record_message(&record_at("failed-outbound", "outbound", "failed", 102))
+        .record_message(&record_at("not-accepted", "author-pk", "failed", 102))
         .unwrap();
 
     assert!(!store
-        .pubkey_has_outbound_message_since("author-pk", 100)
+        .pubkey_has_own_message_after_in_channel("author-pk", "chan", 100)
         .unwrap());
 
     store
-        .record_message(&record_at("accepted-outbound", "outbound", "accepted", 100))
+        .record_message(&record_at("mine", "author-pk", "accepted", 101))
         .unwrap();
 
     assert!(store
-        .pubkey_has_outbound_message_since("author-pk", 100)
+        .pubkey_has_own_message_after_in_channel("author-pk", "chan", 100)
         .unwrap());
+    // A different channel is a different conversation.
     assert!(!store
-        .pubkey_has_outbound_message_since("other-pk", 100)
+        .pubkey_has_own_message_after_in_channel("author-pk", "other-chan", 100)
         .unwrap());
 }
 
 #[test]
 fn recipient_edge_is_unique_per_pubkey_and_keeps_latest_delivery() {
     let store = Store::open_memory().unwrap();
-    store
-        .record_message(&record("event-3", "outbound"))
-        .unwrap();
+    store.record_message(&record("event-3")).unwrap();
     store
         .add_message_recipient("event-3", "recipient-pk", None)
         .unwrap();

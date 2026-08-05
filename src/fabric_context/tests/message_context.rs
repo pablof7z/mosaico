@@ -195,7 +195,6 @@ fn ambient_attachment_renders_the_canonical_directory_without_child_nodes() {
             author_pubkey: OTHER_PK.into(),
             body: "Review [plan/report.md]".into(),
             created_at: 210,
-            direction: "inbound".into(),
             sync_state: "accepted".into(),
             native_event_id: Some("attach-event".into()),
             error: None,

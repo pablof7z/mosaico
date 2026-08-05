@@ -8,17 +8,17 @@ pub(in crate::daemon::server) async fn rpc_doctor(
         .keys_for(&state.hosted_pubkeys().first().cloned().unwrap_or_default())
         .map(|k| k.public_key().to_hex());
     let write_probe = state.provider.doctor_probe().await;
-    let background_writes = state.nmp.background_write_snapshot();
-    // Process-local receipt evidence dies with the daemon and only covers a
-    // bounded observation window; the publish queue is the durable half, and
-    // it is the only place a write parked since a previous boot is visible.
+    // NMP's publish queue is the ONE account of what this daemon still owes.
+    // It is durable, so it survives a restart, and it is where a write parked
+    // on a missing signer or permanently refused at acceptance is still
+    // visible an hour later. Mosaico used to keep a second, process-local
+    // receipt observer beside it; two answers to one question is one too many.
     let publish_queue = state.nmp.publish_queue_snapshot();
     Ok(serde_json::json!({
         "storage": crate::daemon::storage_paths::StoragePaths::current(),
         "relays": relays,
         "probe_pubkey": probe,
         "write_probe": write_probe,
-        "background_writes": background_writes,
         "publish_queue": publish_queue,
     }))
 }

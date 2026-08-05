@@ -154,7 +154,11 @@ async fn precreate_channel_group_as_user(channel: &str) {
             mosaico::fabric::nip29::lifecycle::group_lock_closed(channel).unwrap(),
         ),
     ] {
-        let contextualized = nmp_nip29::contextualize(channel, builder).unwrap();
+        let contextualized = nmp_nip29::contextualize(
+            &std::collections::BTreeSet::from([channel.to_string()]),
+            builder,
+        )
+        .unwrap();
         let signed = mosaico::fabric::nip29::lifecycle::as_nostr(contextualized)
             .sign_with_keys(&user_keys)
             .unwrap();

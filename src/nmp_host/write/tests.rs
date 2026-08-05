@@ -1,7 +1,4 @@
-use super::background_receipts::BackgroundWriteTerminalStatus;
 use super::*;
-use nmp::fifo_channel;
-use nmp::RelayUrl;
 use nostr::{EventBuilder, Kind};
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,26 +36,18 @@ pub(super) fn one_host() -> NmpHost {
 }
 
 /// The whole optimistic path rests on this: the id returned WITHOUT waiting is
-/// the id NMP froze at acceptance. A real engine is used deliberately -- a
-/// scripted receipt stream would only prove Mosaico agrees with itself.
+/// the id NMP froze at acceptance, and Mosaico learned it by ASKING NMP rather
+/// than by reimplementing NIP-01's hashing rule. A real engine is used
+/// deliberately -- a scripted receipt stream would only prove Mosaico agrees
+/// with itself.
 #[tokio::test]
-async fn the_id_returned_without_waiting_is_the_id_nmp_froze() {
-    let host = std::sync::Arc::new(
-        NmpHost::open(
-            &["wss://relay.example.com".into()],
-            None,
-            None,
-            &Keys::generate(),
-        )
-        .unwrap(),
-    );
+async fn the_returned_id_is_the_one_nmp_froze_and_nothing_derived_it() {
+    let host = one_host();
     let keys = Keys::generate();
     let builder = EventBuilder::new(Kind::TextNote, "optimistic")
         .custom_created_at(nostr::Timestamp::from(1_700_000_000));
 
-    let returned = host
-        .publish_group_builder("room-a", builder, &keys)
-        .unwrap();
+    let returned = host.publish_group("room-a", builder, &keys).unwrap();
 
     let entries = host
         .engine
@@ -71,25 +60,42 @@ async fn the_id_returned_without_waiting_is_the_id_nmp_froze() {
     );
 }
 
+/// The id is matched by RECEIPT, not by scanning for something that looks
+/// right. Two writes accepted back to back must come back as two different
+/// ids, in the order they were made -- which a queue scan keyed on anything
+/// weaker than the receipt id could not guarantee.
+#[tokio::test]
+async fn concurrent_writes_each_get_their_own_frozen_id() {
+    let host = one_host();
+    let keys = Keys::generate();
+
+    let first = host
+        .publish_group("room-a", EventBuilder::new(Kind::TextNote, "one"), &keys)
+        .unwrap();
+    let second = host
+        .publish_group("room-a", EventBuilder::new(Kind::TextNote, "two"), &keys)
+        .unwrap();
+
+    assert_ne!(first, second);
+    let entries = host.engine.publish_queue().unwrap();
+    for id in [first, second] {
+        assert!(
+            entries.iter().any(|entry| entry.event_id == id),
+            "{id} is not in the queue"
+        );
+    }
+}
+
 /// The durable half of write visibility: an accepted write is readable back
 /// out of NMP's own queue, with no receipt id kept and no stream held open.
 #[tokio::test]
 async fn an_accepted_write_is_visible_in_the_queue_snapshot_without_any_bookkeeping() {
-    let host = std::sync::Arc::new(
-        NmpHost::open(
-            &["wss://relay.example.com".into()],
-            None,
-            None,
-            &Keys::generate(),
-        )
-        .unwrap(),
-    );
+    let host = one_host();
     assert_eq!(host.publish_queue_snapshot().outstanding, 0);
 
     let keys = Keys::generate();
     let builder = EventBuilder::new(Kind::TextNote, "outstanding");
-    host.publish_group_builder("room-a", builder, &keys)
-        .unwrap();
+    host.publish_group("room-a", builder, &keys).unwrap();
 
     let snapshot = host.publish_queue_snapshot();
     assert!(snapshot.unreadable.is_none(), "{snapshot:?}");
@@ -103,20 +109,12 @@ async fn an_accepted_write_is_visible_in_the_queue_snapshot_without_any_bookkeep
 /// nothing here waits for a relay, so an offline host still returns promptly.
 #[tokio::test]
 async fn an_offline_relay_does_not_delay_acceptance() {
-    let host = std::sync::Arc::new(
-        NmpHost::open(
-            &["wss://relay.example.com".into()],
-            None,
-            None,
-            &Keys::generate(),
-        )
-        .unwrap(),
-    );
+    let host = one_host();
     let keys = Keys::generate();
     let builder = EventBuilder::new(Kind::TextNote, "no spinner");
 
     let started = std::time::Instant::now();
-    host.publish_group_builder("room-a", builder, &keys)
+    host.publish_group("room-a", builder, &keys)
         .expect("acceptance never depends on a relay");
     assert!(
         started.elapsed() < Duration::from_secs(1),
@@ -125,79 +123,22 @@ async fn an_offline_relay_does_not_delay_acceptance() {
     );
 }
 
-#[test]
-fn partial_background_submission_retains_prior_receipts_and_exact_error() {
-    fn targeted(index: usize) -> BackgroundIntent {
-        let relay =
-            RelayUrl::parse(&format!("wss://relay-{index}.example.com")).expect("test relay URL");
-        BackgroundIntent {
-            target: format!("{index}:{relay}"),
-            intent: nmp::nip29::group([relay], "room")
-                .expect("one host forms a scope")
-                .intent(
-                    Keys::generate().public_key(),
-                    nmp::EventBuilder::new(Kind::TextNote),
-                )
-                .expect("a draft with no context row of its own"),
-        }
-    }
-
-    let (first_sender, first_receiver) = fifo_channel();
-    let mut first_receiver = Some(first_receiver);
-    let mut call = 0;
-    let submission = collect_background_receivers(vec![targeted(0), targeted(1)], |_intent| {
-        call += 1;
-        if call == 1 {
-            Ok(first_receiver.take().unwrap())
-        } else {
-            Err(anyhow::anyhow!("Previous I/O error occurred").context(
-                "intent 1 durable-store persistence failure \
-                     [fault=latched durability=absent reopen=required]",
-            ))
-        }
-    });
-    let error = submission.error.expect("the second submission must fail");
-    let rendered = format!("{error:#}");
-    assert!(rendered.contains("fault=latched"), "{rendered}");
+/// A group write with no configured host cannot resolve, and says so at the
+/// door rather than taking custody of something that can never go anywhere.
+#[tokio::test]
+async fn a_group_write_with_no_configured_host_is_refused_at_the_door() {
+    let host = NmpHost::open(&[], None, None, &Keys::generate()).unwrap();
+    let error = host
+        .publish_group(
+            "room-a",
+            EventBuilder::new(Kind::TextNote, "nowhere"),
+            &Keys::generate(),
+        )
+        .expect_err("a group needs a host");
     assert!(
-        rendered.contains("Previous I/O error occurred"),
-        "{rendered}"
+        error
+            .to_string()
+            .contains("no configured NIP-29 group host"),
+        "{error:#}"
     );
-    assert_eq!(submission.receivers.len(), 1);
-
-    let observer = BackgroundReceiptObserver::start_with(2, 1, Duration::from_secs(1)).unwrap();
-    let id = EventId::from_slice(&[9; 32]).unwrap();
-    let permit = observer.reserve("status", id, 2).unwrap();
-    observer.submission_failed("status", id, &error);
-    assert!(
-        first_sender.send(nmp::WriteFact::Signing(nmp::SigningState::Refused {
-            reason: "prior receipt retained".into(),
-        }))
-    );
-    observer
-        .observe(permit, "status", id, submission.receivers, false)
-        .unwrap();
-    observer.wait_idle();
-
-    let snapshot = observer.snapshot();
-    let failure = snapshot.last_failure.unwrap();
-    assert_eq!(failure.source_ref, id.to_hex());
-    assert_eq!(
-        failure.status,
-        BackgroundWriteTerminalStatus::SubmissionFailed
-    );
-    assert!(
-        failure.detail.contains("fault=latched"),
-        "{}",
-        failure.detail
-    );
-    assert!(
-        failure.detail.contains("Previous I/O error occurred"),
-        "{}",
-        failure.detail
-    );
-    assert!(snapshot.recent_failures.iter().any(|evidence| {
-        evidence.status == BackgroundWriteTerminalStatus::SignerRefused
-            && evidence.detail == "prior receipt retained"
-    }));
 }

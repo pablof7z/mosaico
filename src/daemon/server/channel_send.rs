@@ -1,7 +1,6 @@
 use super::chat_target::resolve_chat_target;
 use super::resolution::work_root_for;
 use super::*;
-use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::bail;
 
@@ -205,14 +204,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     };
     let published = state
         .provider
-        .publish_chat_checked(
-            &chat,
-            &chat_signing_keys,
-            &OutboundChatRecord {
-                channel_h: deliver_scope.clone(),
-                direction: "outbound",
-            },
-        )
+        .publish_chat_checked(&chat, &chat_signing_keys)
         .await?;
     let event_id = published.event_id;
     let created_at = published.created_at;

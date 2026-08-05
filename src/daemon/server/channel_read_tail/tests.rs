@@ -10,7 +10,6 @@ fn row(body: String) -> Message {
         author_pubkey: "pubkey-1".into(),
         body,
         created_at: 123,
-        direction: "inbound".into(),
         sync_state: "accepted".into(),
         native_event_id: Some("event-1".into()),
         error: None,

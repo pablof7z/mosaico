@@ -1,18 +1,23 @@
+//! Publishing a kind:9 chat message into a NIP-29 group.
+//!
+//! **Nothing here writes to the local store.** Mosaico used to seed the chat
+//! it had just signed into `relay_events` and `messages` before any relay had
+//! seen it, because the relay does not echo a publication back to the
+//! connection that made it. NMP #1182 ended that need: a locally accepted
+//! write is injected into every live query whose filter it matches,
+//! immediately, reporting the cache and zero relays -- and Mosaico's demux
+//! subscription is exactly such a query. So the message arrives through
+//! `fabric::nip29::materializer`, the single writer, on the same path a
+//! stranger's message takes.
+
 use super::Nip29Provider;
 use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::NostrEventCodec;
-use crate::state::{RecordMessage, RelayEvent, Store};
 use anyhow::Result;
-use nostr::{Event, EventId, Keys, Tag};
+use nostr::{EventId, Keys, Tag};
 
 #[cfg(test)]
 mod tests;
-
-#[derive(Clone)]
-pub(crate) struct OutboundChatRecord {
-    pub channel_h: String,
-    pub direction: &'static str,
-}
 
 pub(crate) struct PublishedChat {
     pub event_id: String,
@@ -20,32 +25,31 @@ pub(crate) struct PublishedChat {
 }
 
 impl Nip29Provider {
-    /// Sign a kind:9 chat event. `reply_to`, when set, appends an `e` tag so the
-    /// message threads as a reply to the triggering event — reusing the wire
-    /// encoder rather than hand-building a parallel event.
-    pub(crate) async fn sign_chat_message(
+    /// Compose a kind:9 chat draft. `reply_to`, when set, appends an `e` tag so
+    /// the message threads as a reply to the triggering event — reusing the
+    /// wire encoder rather than hand-building a parallel event.
+    ///
+    /// The draft carries no `h` row: the group context belongs to NMP's group
+    /// door, which appends it before the bytes are signed and refuses a draft
+    /// that supplies its own.
+    pub(crate) fn chat_draft(
         &self,
         chat: &ChatMessage,
         reply_to: Option<&str>,
-        keys: &Keys,
-    ) -> Result<Event> {
+    ) -> Result<nostr::EventBuilder> {
         let mut builder = self.wire.encode(&DomainEvent::ChatMessage(chat.clone()))?;
         if let Some(id) = reply_to.filter(|id| !id.is_empty()) {
             builder = builder.tags([Tag::parse(["e", id])?]);
         }
-        self.nmp
-            .sign_group_event(&chat.channel, builder, keys)
-            .await
+        Ok(builder)
     }
 
     pub(crate) async fn publish_chat_checked(
         &self,
         chat: &ChatMessage,
         keys: &Keys,
-        record: &OutboundChatRecord,
     ) -> Result<PublishedChat> {
-        let signed = self.sign_chat_message(chat, None, keys).await?;
-        self.publish_signed_chat_checked(&signed, record).await
+        self.publish_chat(chat, None, keys).await
     }
 
     /// Like [`publish_chat_checked`] but threads the kind:9 as a reply to
@@ -55,131 +59,30 @@ impl Nip29Provider {
         chat: &ChatMessage,
         reply_to: &str,
         keys: &Keys,
-        record: &OutboundChatRecord,
     ) -> Result<PublishedChat> {
-        let signed = self.sign_chat_message(chat, Some(reply_to), keys).await?;
-        self.publish_signed_chat_checked(&signed, record).await
+        self.publish_chat(chat, Some(reply_to), keys).await
     }
 
-    pub(crate) async fn publish_signed_chat_checked(
+    async fn publish_chat(
         &self,
-        signed: &Event,
-        record: &OutboundChatRecord,
+        chat: &ChatMessage,
+        reply_to: Option<&str>,
+        keys: &Keys,
     ) -> Result<PublishedChat> {
-        let event_id = self
-            .publish_signed_chat_event_checked(signed, record)
+        let channel = chat.channel.as_str();
+        if channel.is_empty() {
+            anyhow::bail!("a chat message must name the group it is published into");
+        }
+        self.verify_publish_scope(channel, &keys.public_key().to_hex(), true)
             .await?;
-        let created_at = signed.created_at.as_secs();
-        self.with_store(|store| {
-            seed_chat_read_models(
-                store,
-                signed,
-                record,
-                &event_id.to_hex(),
-                created_at,
-                "provider_chat_publish",
-            )
-        });
+        let created_at = crate::util::now_secs();
+        let builder = self
+            .chat_draft(chat, reply_to)?
+            .custom_created_at(nostr::Timestamp::from(created_at));
+        let event_id: EventId = self.nmp.publish_group(channel, builder, keys)?;
         Ok(PublishedChat {
             event_id: event_id.to_hex(),
             created_at,
         })
-    }
-
-    async fn publish_signed_chat_event_checked(
-        &self,
-        signed: &Event,
-        record: &OutboundChatRecord,
-    ) -> Result<EventId> {
-        let channel = &record.channel_h;
-        self.verify_publish_scope(channel, &signed.pubkey.to_hex(), true)
-            .await?;
-        // The bytes name their own group, and NMP's group door is what
-        // compares the two: `signed_intent` refuses a missing, mismatched or
-        // duplicated `h` rather than repairing it. Mosaico re-deriving the
-        // group from the tags to make the same comparison is exactly the
-        // duplication the door removed.
-        self.nmp.enqueue_group_event(channel, signed)
-    }
-}
-
-fn chat_relay_event(
-    signed: &Event,
-    record: &OutboundChatRecord,
-    event_id: &str,
-    created_at: u64,
-) -> RelayEvent {
-    RelayEvent {
-        id: event_id.to_string(),
-        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
-        pubkey: signed.pubkey.to_hex(),
-        created_at,
-        channel_h: record.channel_h.clone(),
-        d_tag: String::new(),
-        content: signed.content.clone(),
-        tags_json: signed_tags_json(signed),
-    }
-}
-
-fn signed_tags_json(signed: &Event) -> String {
-    let raw: Vec<Vec<String>> = signed.tags.iter().map(|t| t.as_slice().to_vec()).collect();
-    serde_json::to_string(&raw).unwrap_or_else(|_| "[]".to_string())
-}
-
-fn seed_chat_read_models(
-    store: &Store,
-    signed: &Event,
-    record: &OutboundChatRecord,
-    event_id: &str,
-    created_at: u64,
-    context: &str,
-) {
-    if let Err(e) = store.insert_event(&chat_relay_event(signed, record, event_id, created_at)) {
-        tracing::error!(
-            event_id,
-            channel = %record.channel_h,
-            error = %e,
-            "{context}: seeding chat into relay_events failed"
-        );
-    }
-    if let Err(e) = store.record_message(&RecordMessage {
-        message_id: event_id.to_string(),
-        thread_id: record.channel_h.clone(),
-        channel_h: record.channel_h.clone(),
-        author_pubkey: signed.pubkey.to_hex(),
-        body: signed.content.clone(),
-        created_at,
-        direction: record.direction.to_string(),
-        sync_state: "accepted".to_string(),
-        native_event_id: Some(event_id.to_string()),
-        error: None,
-    }) {
-        tracing::error!(
-            event_id,
-            channel = %record.channel_h,
-            error = %e,
-            "{context}: seeding chat into messages failed"
-        );
-    }
-    let recipients = signed
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().map(String::as_str) == Some("p"))
-                .then(|| values.get(1).cloned())
-                .flatten()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    for recipient in recipients {
-        if let Err(e) = store.add_message_recipient(event_id, &recipient, None) {
-            tracing::error!(
-                event_id,
-                recipient,
-                channel = %record.channel_h,
-                error = %e,
-                "{context}: seeding message recipient failed"
-            );
-        }
     }
 }

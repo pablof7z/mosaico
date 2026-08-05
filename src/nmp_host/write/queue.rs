@@ -1,12 +1,12 @@
 //! Reading Mosaico's own outstanding writes back out of NMP.
 //!
-//! The background receipt observer watches a stream for a bounded window and
-//! its evidence dies with the process. That was tolerable while the foreground
-//! path blocked and reported failures to the caller; it is not, now that every
-//! write leaves optimistically. NMP's publish queue is the durable half — it
-//! survives restart, and it is the only place a write parked on a missing
-//! signer, or permanently refused at acceptance, is still visible an hour
-//! later.
+//! NMP's publish queue is the ONE account of them. Mosaico used to keep a
+//! process-local receipt observer beside it, watching each stream for a
+//! bounded window; its evidence died with the daemon, which was tolerable only
+//! while the foreground path blocked and reported failures to the caller. This
+//! is durable — it survives restart, and it is the only place a write parked on
+//! a missing signer, or permanently refused at acceptance, is still visible an
+//! hour later.
 //!
 //! This READS and does not remove. Removal is a termination path for an
 //! obligation a person asked for, and a diagnostic is the wrong place to
@@ -46,6 +46,18 @@ pub(crate) struct StuckWrite {
 }
 
 impl NmpHost {
+    /// The frozen event ids NMP currently holds a receipt for.
+    ///
+    /// Test-only: a falsifier that an id Mosaico handed out is one NMP froze
+    /// needs the queue's own ids, not a Mosaico-side recomputation of them.
+    #[cfg(test)]
+    pub(crate) fn publish_queue_entry_ids(&self) -> Result<Vec<String>, String> {
+        self.engine
+            .publish_queue()
+            .map(|entries| entries.into_iter().map(|e| e.event_id.to_hex()).collect())
+            .map_err(|error| error.to_string())
+    }
+
     /// Summarize what this daemon still owes, from NMP's durable queue.
     ///
     /// Deliberately not on any hot path: it enumerates every retained receipt,

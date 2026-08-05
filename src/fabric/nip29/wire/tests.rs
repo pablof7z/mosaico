@@ -93,8 +93,8 @@ fn empty_rel_cwd_emits_no_tag_and_decodes_empty() {
 
 #[test]
 fn status_is_per_group_self_contained_signal() {
-    // The unified shape: `d == status`, `h == group_id`, full tag set,
-    // content = live activity, title persisted as a tag even when busy.
+    // `d == status`, full tag set, content = live activity, title kept when
+    // busy. No `h`: `nip29::Groups` mints one per occupied channel, pre-sign.
     let keys = Keys::generate();
     let signed = Nip29WireCodec
         .encode_event(&status(&keys, true, "worktree1"))
@@ -103,7 +103,7 @@ fn status_is_per_group_self_contained_signal() {
         .unwrap();
     assert_eq!(signed.kind.as_u16(), KIND_STATUS);
     assert!(has_tag(&signed, "d", "status"));
-    assert!(has_tag(&signed, "h", "mosaico"));
+    assert!(!has_tag_name(&signed, "h"));
     // No private runtime id appears as an address or side tag.
     assert!(!has_tag_name(&signed, "session-id"));
     assert!(has_tag(&signed, "title", "fixing the auth bug"));

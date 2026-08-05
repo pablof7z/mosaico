@@ -119,7 +119,7 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
     // own observation is what proves the authenticated session carried the
     // event, so that is what is waited on.
     let written = host
-        .publish_group_builder(
+        .publish_group(
             "auth-room",
             EventBuilder::new(Kind::TextNote, "authenticated agent write"),
             &agent,

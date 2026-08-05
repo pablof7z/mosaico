@@ -15,6 +15,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
     conn.execute("ALTER TABLE relay_status DROP COLUMN state_since", [])
         .unwrap();
     fixture::add_removed_v15_session_columns(&conn);
+    fixture::downgrade_messages_to_v19(&conn);
     conn.pragma_update(None, "user_version", 10).unwrap();
     conn.execute_batch(
         r#"
@@ -32,7 +33,7 @@ fn schema_ten_consumes_only_idle_injected_rows() {
 
     drop(Store::open(&path).expect("schema ten upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 19);
+    assert_eq!(version(&conn), 20);
     let states = conn
         .prepare("SELECT event_id, state FROM inbox ORDER BY event_id")
         .unwrap()

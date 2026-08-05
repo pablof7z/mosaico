@@ -11,9 +11,12 @@ use super::super::*;
 pub(in crate::fabric::nip29::wire) fn signed_as_published(ev: &DomainEvent, keys: &Keys) -> Event {
     let builder = Nip29WireCodec.encode_event(ev).expect("encode");
     match ev {
-        // Already carries its own rows -- the multi-group write no door mints.
-        DomainEvent::Status(_) | DomainEvent::Profile(_) => {
-            builder.sign_with_keys(keys).expect("sign")
+        // A profile is not a group write at all.
+        DomainEvent::Profile(_) => builder.sign_with_keys(keys).expect("sign"),
+        // The several-group write: NMP mints one `h` row per occupied channel.
+        DomainEvent::Status(status) => {
+            let groups: Vec<&str> = status.channels.iter().map(String::as_str).collect();
+            crate::fabric::nip29::signed_into_groups(&groups, builder, keys)
         }
         DomainEvent::ChatMessage(chat) => sign_into(&chat.channel, builder, keys),
         DomainEvent::Reaction(reaction) => sign_into(&reaction.channel, builder, keys),
@@ -25,8 +28,5 @@ pub(in crate::fabric::nip29::wire) fn sign_into(
     builder: EventBuilder,
     keys: &Keys,
 ) -> Event {
-    crate::nmp_host::write::contextualized_draft(group, builder, keys.public_key())
-        .expect("a draft with no context row of its own")
-        .sign_with_keys(keys)
-        .expect("sign")
+    crate::fabric::nip29::signed_into_group(group, builder, keys)
 }

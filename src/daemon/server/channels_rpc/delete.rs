@@ -1,6 +1,5 @@
 use super::*;
 use crate::domain::{AgentRef, ChatMessage};
-use crate::fabric::provider::chat::OutboundChatRecord;
 use crate::session_presence;
 use crate::session_state::SessionState;
 use std::collections::BTreeSet;
@@ -53,7 +52,7 @@ pub(in crate::daemon::server) async fn delete_channel(
     let builder = crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::delete_group());
     let event_id = state
         .nmp
-        .publish_group_builder(channel, builder, &mgmt_keys)?
+        .publish_group(channel, builder, &mgmt_keys)?
         .to_hex();
 
     state.with_store(|s| s.purge_deleted_channel(channel))?;
@@ -158,14 +157,7 @@ async fn publish_deletion_notice(
         mentioned_pubkeys: agents.iter().map(|a| a.pubkey.clone()).collect(),
         attachments: Vec::new(),
     };
-    let record = OutboundChatRecord {
-        channel_h: channel.to_string(),
-        direction: "outbound",
-    };
-    let published = state
-        .provider
-        .publish_chat_checked(&chat, &keys, &record)
-        .await?;
+    let published = state.provider.publish_chat_checked(&chat, &keys).await?;
     Ok(published.event_id)
 }
 

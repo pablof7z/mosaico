@@ -46,7 +46,7 @@ pub(super) async fn rpc_channel_wait(
         &CallerAnchor::from_params(params),
         ResolveScope::Strict,
     )?;
-    let (scopes, mut cursor, reply_to) = wait_scope_and_cursor(state, &rec, &p)?;
+    let (scopes, mut cursor, reply_to) = wait_scope_and_cursor(state, &rec, &p, deadline).await?;
     let channel_refs = state.with_store(|store| {
         scopes
             .iter()
@@ -113,17 +113,26 @@ fn timeout_result(timeout_secs: u64, channels: &[String]) -> serde_json::Value {
     })
 }
 
-fn wait_scope_and_cursor(
+/// How long a reply wait will wait for its OWN message to come back before
+/// giving up on it. The message was published through NMP, which injects the
+/// accepted write into the subscription this daemon already holds (#1182), so
+/// the round trip is local and sub-millisecond -- but it is asynchronous, and
+/// `channel_send` returning is acceptance rather than materialization. Spending
+/// a slice of the wait's own budget on it is honest; failing on a race is not.
+const REPLY_ORIGIN_GRACE: Duration = Duration::from_secs(5);
+
+async fn wait_scope_and_cursor(
     state: &Arc<DaemonState>,
     rec: &Session,
     params: &WaitParams,
+    deadline: tokio::time::Instant,
 ) -> Result<(Vec<String>, i64, Option<String>)> {
     if let Some(reply_to) = params.reply_to.as_deref().filter(|id| !id.is_empty()) {
         if !params.channels.is_empty() || params.from.is_some() {
             anyhow::bail!("reply waits cannot also set channels or --from");
         }
-        let original = state
-            .with_store(|store| store.get_message(reply_to))?
+        let original = await_own_message(state, reply_to, deadline)
+            .await
             .with_context(|| format!("message not found for reply wait: {reply_to}"))?;
         let own = own_pubkeys(rec);
         if !own.contains(&original.author_pubkey) {
@@ -142,6 +151,25 @@ fn wait_scope_and_cursor(
     let scopes = resolve_joined_scopes(state, rec, &params.channels)?;
     let cursor = state.with_store(|store| store.latest_message_rowid())?;
     Ok((scopes, cursor, None))
+}
+
+/// Wait for the message a reply wait is anchored to, up to
+/// [`REPLY_ORIGIN_GRACE`] or the wait's own deadline, whichever is sooner.
+async fn await_own_message(
+    state: &Arc<DaemonState>,
+    message_id: &str,
+    deadline: tokio::time::Instant,
+) -> Option<Message> {
+    let grace = (tokio::time::Instant::now() + REPLY_ORIGIN_GRACE).min(deadline);
+    loop {
+        if let Ok(Some(message)) = state.with_store(|store| store.get_message(message_id)) {
+            return Some(message);
+        }
+        if tokio::time::Instant::now() >= grace {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 fn resolve_joined_scopes(

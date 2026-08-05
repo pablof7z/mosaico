@@ -13,7 +13,7 @@ mod wait_cursor;
 
 pub(super) const MESSAGE_COLS: &str =
     "message_id, thread_id, channel_h, author_pubkey, body, created_at, \
-     direction, sync_state, native_event_id, error, attachment_dir";
+     sync_state, native_event_id, error, attachment_dir";
 const RECIPIENT_COLS: &str = "message_id, recipient_pubkey, delivered_at";
 
 fn opt_text(s: Option<String>) -> Option<String> {
@@ -28,11 +28,10 @@ pub(super) fn row_to_message(row: &rusqlite::Row) -> rusqlite::Result<Message> {
         author_pubkey: row.get(3)?,
         body: row.get(4)?,
         created_at: row.get(5)?,
-        direction: row.get(6)?,
-        sync_state: row.get(7)?,
-        native_event_id: opt_text(row.get(8)?),
-        error: opt_text(row.get(9)?),
-        attachment_dir: row.get(10)?,
+        sync_state: row.get(6)?,
+        native_event_id: opt_text(row.get(7)?),
+        error: opt_text(row.get(8)?),
+        attachment_dir: row.get(9)?,
     })
 }
 
@@ -46,9 +45,11 @@ fn row_to_recipient(row: &rusqlite::Row) -> rusqlite::Result<MessageRecipient> {
 }
 
 impl Store {
-    /// Record or refresh one canonical message row. Idempotent by `message_id`:
-    /// local optimistic writes and relay replay can both materialize the same
-    /// event while preserving local outbound direction.
+    /// Record or refresh one canonical message row, idempotent by `message_id`.
+    ///
+    /// There is ONE writer of a chat row now -- the materializer, fed by the
+    /// subscription -- so this no longer defends any column against a local
+    /// optimistic copy of the same event racing the relay's.
     pub fn record_message(&self, msg: &RecordMessage) -> Result<String> {
         let message_id = msg.message_id.trim();
         if message_id.is_empty() {
@@ -59,18 +60,14 @@ impl Store {
         self.conn.execute(
             "INSERT INTO messages
                  (message_id, thread_id, channel_h, author_pubkey, body,
-                  created_at, direction, sync_state, native_event_id, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(?9, ''), NULLIF(?10, ''))
+                  created_at, sync_state, native_event_id, error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''), NULLIF(?9, ''))
              ON CONFLICT(message_id) DO UPDATE SET
                  thread_id=excluded.thread_id,
                  channel_h=excluded.channel_h,
                  author_pubkey=excluded.author_pubkey,
                  body=excluded.body,
                  created_at=excluded.created_at,
-                 direction=CASE
-                     WHEN messages.direction='outbound' THEN messages.direction
-                     ELSE excluded.direction
-                 END,
                  sync_state=excluded.sync_state,
                  native_event_id=COALESCE(excluded.native_event_id, messages.native_event_id),
                  error=excluded.error,
@@ -82,7 +79,6 @@ impl Store {
                 msg.author_pubkey,
                 msg.body,
                 msg.created_at,
-                msg.direction,
                 msg.sync_state,
                 native_event_id,
                 error
@@ -213,33 +209,21 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<BTreeMap<_, _>>>()?)
     }
 
-    pub fn pubkey_has_outbound_message_since(&self, pubkey: &str, since: u64) -> Result<bool> {
-        let exists: i64 = self.conn.query_row(
-            "SELECT EXISTS(
-                 SELECT 1 FROM messages
-                 WHERE author_pubkey=?1
-                   AND direction='outbound'
-                   AND sync_state='accepted'
-                   AND created_at >= ?2
-             )",
-            params![pubkey, since],
-            |row| row.get(0),
-        )?;
-        Ok(exists != 0)
-    }
-
-    pub fn pubkey_has_outbound_message_after_in_channel(
+    pub fn pubkey_has_own_message_after_in_channel(
         &self,
         pubkey: &str,
         channel_h: &str,
         since: u64,
     ) -> Result<bool> {
         let exists: i64 = self.conn.query_row(
+            // Authored BY this pubkey is the whole question. A `direction`
+            // column used to be conjoined here, and said nothing extra: every
+            // caller passes its own key, so `author_pubkey=?1` already means
+            // "this agent wrote it".
             "SELECT EXISTS(
                  SELECT 1 FROM messages
                  WHERE author_pubkey=?1
                    AND channel_h=?2
-                   AND direction='outbound'
                    AND sync_state='accepted'
                    AND created_at > ?3
              )",
@@ -259,7 +243,7 @@ impl Store {
         if self.has_reaction_from_pubkey_on_message(message_id, author_pubkey)? {
             return Ok(false);
         }
-        if self.pubkey_has_outbound_message_after_in_channel(author_pubkey, channel_h, since)? {
+        if self.pubkey_has_own_message_after_in_channel(author_pubkey, channel_h, since)? {
             return Ok(false);
         }
         Ok(true)

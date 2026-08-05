@@ -29,12 +29,13 @@ fn schema_twelve_backfills_semantic_state_time() {
         [],
     )
     .unwrap();
+    fixture::downgrade_messages_to_v19(&conn);
     conn.pragma_update(None, "user_version", 12).unwrap();
     drop(conn);
 
     drop(Store::open(&path).expect("schema twelve upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 19);
+    assert_eq!(version(&conn), 20);
     assert_eq!(
         conn.query_row(
             "SELECT state_since FROM relay_status WHERE pubkey='peer'",

@@ -16,7 +16,6 @@ fn record_self_message(store: &Store, id: &str, channel: &str, at: u64, body: &s
             author_pubkey: SELF_PK.into(),
             body: body.into(),
             created_at: at,
-            direction: "outbound".into(),
             sync_state: "accepted".into(),
             native_event_id: Some(id.into()),
             error: None,

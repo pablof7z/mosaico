@@ -69,7 +69,6 @@ fn suspended_reply_author_gets_the_same_reminder_contract() {
         author_pubkey: "local-pk".into(),
         body: "hello".into(),
         created_at: 9,
-        direction: "inbound".into(),
         sync_state: "published".into(),
         native_event_id: Some("event".into()),
         error: None,

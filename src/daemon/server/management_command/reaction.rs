@@ -34,7 +34,7 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
             return;
         }
     };
-    if let Err(e) = state.nmp.publish_group_builder(channel_h, builder, &keys) {
+    if let Err(e) = state.nmp.publish_group(channel_h, builder, &keys) {
         tracing::warn!(
             event_id = %short(&event_id),
             channel = %channel_h,
@@ -54,10 +54,10 @@ fn build_thumbs_up(event_id: &str) -> Result<EventBuilder> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::{Keys, UnsignedEvent};
+    use nostr::Keys;
 
-    fn tag_value(event: &UnsignedEvent, name: &str) -> Option<String> {
-        event.tags.iter().find_map(|tag| {
+    fn tag_value<'a>(tags: impl IntoIterator<Item = &'a nostr::Tag>, name: &str) -> Option<String> {
+        tags.into_iter().find_map(|tag| {
             let parts = tag.as_slice();
             (parts.first().map(String::as_str) == Some(name))
                 .then(|| parts.get(1).cloned())
@@ -75,23 +75,22 @@ mod tests {
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👍");
         assert_eq!(
-            tag_value(&unsigned, "e").as_deref(),
+            tag_value(unsigned.tags.iter(), "e").as_deref(),
             Some(event_id.as_str())
         );
         // No context row: the group is named at the publish door.
-        assert_eq!(tag_value(&unsigned, "h"), None);
+        assert_eq!(tag_value(unsigned.tags.iter(), "h"), None);
     }
 
     /// The channel the acknowledgement lands in, proved where it is decided.
     #[test]
     fn the_publish_door_puts_the_acknowledgement_in_the_command_channel() {
         let keys = Keys::generate();
-        let draft = crate::nmp_host::write::contextualized_draft(
+        let draft = crate::fabric::nip29::signed_into_group(
             "nmp",
             build_thumbs_up(&"ab".repeat(32)).unwrap(),
-            keys.public_key(),
-        )
-        .unwrap();
-        assert_eq!(tag_value(&draft, "h").as_deref(), Some("nmp"));
+            &keys,
+        );
+        assert_eq!(tag_value(draft.tags.iter(), "h").as_deref(), Some("nmp"));
     }
 }

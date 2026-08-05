@@ -263,13 +263,9 @@ async fn publish_running_only_moves(
         "Join {child_path} to continue this conversation; existing channel memberships are unchanged"
     );
     let builder = build_admit_running_event(parent, child_h, targets, &prose)?;
-    let signed = state.nmp.sign_group_event(parent, builder, &keys).await?;
-    let event_id = signed.id.to_hex();
-    state.nmp.enqueue_group_event(parent, &signed)?;
-    if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
-        handle_orchestration(state, &signed, op).await;
-    }
-    Ok(event_id)
+    // Delivered to this backend's own orchestration listener through the group
+    // subscription, exactly as a peer's admit-running directive is (NMP #1182).
+    Ok(state.nmp.publish_group(parent, builder, &keys)?.to_hex())
 }
 
 fn pointer_exists(

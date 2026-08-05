@@ -1,9 +1,11 @@
 //! What this daemon still owes, read from NMP's durable publish queue.
 //!
-//! `write.background_*` is process-local evidence over a bounded observation
-//! window. This is the durable complement: it survives a restart, and it is
-//! the only surface on which a write parked since a previous boot — no signer
-//! attached, refused at acceptance — is still visible.
+//! The ONE account of outstanding writes. Mosaico used to run a process-local
+//! receipt observer beside this, over a bounded observation window; two answers
+//! to one question meant a daemon restarted with parked writes could get a
+//! clean bill from the half that had forgotten them. This half is durable: a
+//! write parked since a previous boot — no signer attached, refused at
+//! acceptance — is still visible here.
 
 use super::{Check, CheckStatus};
 

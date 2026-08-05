@@ -1,7 +1,6 @@
 use super::super::*;
 use crate::daemon::protocol::Request;
 use crate::state::RegisterSession;
-use nmp::{SigningState, WriteFact};
 use nostr::{Event, EventBuilder, Keys, Kind, Tag};
 
 #[path = "tests/status.rs"]
@@ -62,51 +61,18 @@ fn register_caller(state: &Arc<DaemonState>, pubkey: &str) {
         .unwrap();
 }
 
+/// NMP's durable publish queue is the doctor's ONE account of outstanding
+/// writes. It replaced a process-local receipt observer that reported the same
+/// question from a second, non-durable source: a daemon restarted with parked
+/// writes used to get a clean bill from the observer it had no basis for.
 #[tokio::test]
-async fn profile_receipt_reaches_actual_doctor_rpc_json() {
+async fn doctor_rpc_reports_the_durable_publish_queue() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
-    let profile = EventBuilder::new(Kind::Metadata, "{}")
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    state.nmp.script_write_facts(vec![
-        WriteFact::Signing(SigningState::Signed {
-            event_id: profile.id,
-        }),
-        WriteFact::Signing(SigningState::Refused {
-            reason: SCRIPTED_CLASSIFIED_FAILURE.into(),
-        }),
-    ]);
-    state.nmp.enqueue_profile_event(&profile).unwrap();
-    state.nmp.wait_background_receipts();
-    state.nmp.script_read_events(Vec::new());
-
-    let response = super::super::dispatch(
-        &state,
-        &Request {
-            id: 701,
-            method: "doctor".into(),
-            params: serde_json::json!({}),
-        },
-    )
-    .await;
-    let json = response.ok.expect("doctor RPC response");
-    let failure = &json["background_writes"]["last_failure"];
-    assert_eq!(failure["status"], "signer_refused");
-    assert_eq!(failure["operation"], "profile");
-    assert_eq!(failure["source_ref"], profile.id.to_hex());
-    assert_eq!(failure["detail"], SCRIPTED_CLASSIFIED_FAILURE);
-    eprintln!(
-        "CORPUS_DOCTOR_JSON={}",
-        serde_json::to_string(&json).unwrap()
-    );
-}
-
-/// The doctor RPC carries the durable queue alongside the process-local
-/// receipt evidence. Without it a daemon restarted with parked writes reports
-/// a clean bill it has no basis for.
-#[tokio::test]
-async fn doctor_rpc_reports_the_durable_publish_queue_alongside_receipt_evidence() {
-    let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
+    let keys = Keys::generate();
+    state
+        .nmp
+        .publish_group("project", EventBuilder::new(Kind::TextNote, "owed"), &keys)
+        .expect("acceptance never depends on a relay");
     state.nmp.script_read_events(Vec::new());
 
     let response = super::super::dispatch(
@@ -126,56 +92,12 @@ async fn doctor_rpc_reports_the_durable_publish_queue_alongside_receipt_evidence
     assert!(queue["stuck"].is_array(), "{queue}");
     // An empty queue must never be spelled the same way as an unreadable one.
     assert!(queue.get("unreadable").is_none(), "{queue}");
-}
-
-#[tokio::test]
-async fn partial_submission_cause_remains_retrievable_from_doctor_rpc() {
-    let state = DaemonState::new_for_test_with_relays(vec![
-        "wss://relay-a.example.com".into(),
-        "wss://relay-b.example.com".into(),
-    ])
-    .await;
-    let profile = EventBuilder::new(Kind::Metadata, "{}")
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    state
-        .nmp
-        .script_write_facts(vec![WriteFact::Signing(SigningState::Refused {
-            reason: "prior receipt retained".into(),
-        })]);
-    state.nmp.script_write_error(
-        "intent 1 durable-store persistence failure [fault=latched durability=absent reopen=required]",
-        "Previous I/O error occurred",
-    );
-    let enqueue = state.nmp.enqueue_profile_event(&profile).unwrap_err();
-    assert!(format!("{enqueue:#}").contains("Previous I/O error occurred"));
-    state.nmp.wait_background_receipts();
-    state.nmp.script_read_events(Vec::new());
-
-    let response = super::super::dispatch(
-        &state,
-        &Request {
-            id: 704,
-            method: "doctor".into(),
-            params: serde_json::json!({}),
-        },
-    )
-    .await;
-    let json = response.ok.expect("doctor RPC response");
-    let writes = &json["background_writes"];
-    assert_eq!(writes["last_failure"]["status"], "submission_failed");
-    assert!(writes["last_failure"]["detail"]
-        .as_str()
-        .unwrap()
-        .contains("Previous I/O error occurred"));
-    let history = writes["recent_failures"].as_array().unwrap();
-    assert!(history.iter().any(|evidence| {
-        evidence["status"] == "signer_refused" && evidence["detail"] == "prior receipt retained"
-    }));
-    eprintln!(
-        "CORPUS_PARTIAL_DOCTOR_JSON={}",
-        serde_json::to_string(&json).unwrap()
-    );
+    // The write just accepted is what the daemon still owes, and the queue is
+    // the only place that is now recorded.
+    assert_eq!(queue["outstanding"], 1, "{queue}");
+    // Nothing about it needs a person: a signer is attached and the route is
+    // explicit, so it is in flight rather than stuck.
+    assert!(queue["stuck"].as_array().unwrap().is_empty(), "{queue}");
 }
 
 #[tokio::test]

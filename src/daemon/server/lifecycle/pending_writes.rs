@@ -1,4 +1,12 @@
 //! Drain writes preserved while schema 7 hands durable publication to NMP.
+//!
+//! These are the one class of event Mosaico still hands NMP already-signed:
+//! bytes an OLDER Mosaico signed for itself, journaled across the v7 migration
+//! and never published. They go out through the plain NIP-01 write door
+//! ([`NmpHost::publish_signed_to`]) rather than a NIP-29 group door, because a
+//! group door composes and signs -- and re-composing these bytes would change
+//! the id whoever sent them already saw. Nothing Mosaico writes TODAY comes
+//! through here.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -72,18 +80,15 @@ async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
                 continue;
             }
         };
-        let groups = group_values(&event);
-        let result = if groups.len() == 1 {
-            nmp.enqueue_group_event(&groups[0], &event).map(|_| ())
-        } else if groups.len() > 1 {
-            nmp.enqueue_multi_group_event(&event).map(|_| ())
-        } else if event.kind.as_u16() == 0 {
+        // Where the bytes go, without reading a single tag out of them. A
+        // kind:0 is NIP-01 metadata and belongs to the profile relays;
+        // everything Mosaico has ever journaled here is a group event and
+        // belongs to the group hosts. Inspecting `h` to decide would be NIP-29
+        // routing logic in the app, and the routing does not need it.
+        let result = if event.kind.as_u16() == 0 {
             nmp.enqueue_profile_event(&event).map(|_| ())
         } else {
-            Err(anyhow::anyhow!(
-                "schema-7 pending event {} has neither one h tag nor profile kind",
-                event.id
-            ))
+            nmp.publish_signed_to(nmp.group_hosts(), &event).map(|_| ())
         };
         match result {
             Ok(()) => imported += 1,
@@ -104,52 +109,5 @@ async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
             count: remaining.len(),
             error: last_error,
         })
-    }
-}
-
-/// The groups a preserved signed event already claims.
-///
-/// Read from the bytes because that is the only place they exist: these are
-/// events signed by an older schema, so nothing else remembers where they were
-/// going. Which of NMP's write doors takes them follows from the count.
-fn group_values(event: &Event) -> Vec<String> {
-    event
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let fields = tag.as_slice();
-            (fields.first().map(String::as_str) == Some("h"))
-                .then(|| fields.get(1).filter(|group| !group.is_empty()).cloned())
-                .flatten()
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-
-    #[test]
-    fn signed_single_and_multi_group_events_are_migration_writes() {
-        for groups in [["one", ""], ["one", "two"]] {
-            let tags = groups
-                .into_iter()
-                .filter(|group| !group.is_empty())
-                .map(|group| Tag::parse(["h", group]).unwrap());
-            let event = EventBuilder::new(Kind::TextNote, "migration")
-                .tags(tags)
-                .sign_with_keys(&Keys::generate())
-                .unwrap();
-            assert!(!group_values(&event).is_empty());
-        }
-    }
-
-    #[test]
-    fn non_group_events_are_not_sent_through_nmp_group_routing() {
-        let event = EventBuilder::new(Kind::Metadata, "{}")
-            .sign_with_keys(&Keys::generate())
-            .unwrap();
-        assert!(group_values(&event).is_empty());
     }
 }

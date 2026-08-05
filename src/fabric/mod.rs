@@ -255,7 +255,6 @@ mod tests {
                 author_pubkey: author_pk.clone(),
                 body: "pushed the fix".into(),
                 created_at: 100,
-                direction: "outbound".into(),
                 sync_state: "accepted".into(),
                 native_event_id: Some(target_id.clone()),
                 error: None,

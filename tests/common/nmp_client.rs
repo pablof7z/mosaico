@@ -221,8 +221,17 @@ fn wait_for_write(
                 anyhow::bail!("NMP test write was refused by the signer: {reason}")
             }
             Ok(WriteFact::Signing(signing)) => last_fact = format!("{signing:?}"),
-            Ok(WriteFact::Destinations { relays, complete }) => {
-                last_fact = format!("destinations {relays:?} complete={complete}");
+            Ok(WriteFact::Destinations {
+                relays,
+                complete,
+                awaiting_author_routes,
+            }) => {
+                // `awaiting_author_routes` is WHY resolution is still open,
+                // as keys. A probe that dropped it would report "still
+                // resolving" with no way to say who it is waiting for.
+                last_fact = format!(
+                    "destinations {relays:?} complete={complete} awaiting={awaiting_author_routes:?}"
+                );
             }
             Ok(WriteFact::Outcome(WriteOutcome::Settled)) => {
                 return Ok(WriteAck {

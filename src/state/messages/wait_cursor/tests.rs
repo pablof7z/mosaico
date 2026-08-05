@@ -8,7 +8,6 @@ fn record(id: &str) -> RecordMessage {
         author_pubkey: "author".into(),
         body: id.into(),
         created_at: 1,
-        direction: "inbound".into(),
         sync_state: "accepted".into(),
         native_event_id: Some(id.into()),
         error: None,

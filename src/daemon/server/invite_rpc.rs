@@ -257,14 +257,8 @@ async fn publish_invite_orchestration(
         std::slice::from_ref(&target),
         &prose,
     )?;
-    let signed = state
-        .nmp
-        .sign_group_event(channel_h, builder, &keys)
-        .await?;
-    let event_id = signed.id.to_hex();
-    state.nmp.enqueue_group_event(channel_h, &signed)?;
-    if let Some(op) = crate::fabric::nip29::orchestration::parse_orchestration(&signed) {
-        handle_orchestration(state, &signed, op).await;
-    }
-    Ok(event_id)
+    // The directive reaches this backend's own orchestration listener through
+    // the group subscription NMP injects the accepted row into (#1182), the
+    // same path a peer's directive takes.
+    Ok(state.nmp.publish_group(channel_h, builder, &keys)?.to_hex())
 }

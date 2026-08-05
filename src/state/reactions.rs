@@ -130,7 +130,6 @@ mod tests {
                 author_pubkey: author.into(),
                 body: body.into(),
                 created_at,
-                direction: "outbound".into(),
                 sync_state: "accepted".into(),
                 native_event_id: Some(id.into()),
                 error: None,

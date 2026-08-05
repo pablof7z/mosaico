@@ -127,20 +127,19 @@ impl Nip29Provider {
         }
         let builder = self.wire.encode(ev)?;
         match ev {
-            // The multi-group write. Its `h` rows are already in the bytes the
-            // wire codec composed -- see `NmpHost::enqueue_multi_group_event`
-            // for why no NMP door can mint them.
-            DomainEvent::Status(_) => {
-                let signed = self.nmp.sign_event(builder, keys).await?;
-                self.nmp.enqueue_multi_group_event(&signed)
+            // The several-group write: one kind:30315 replaceable coordinate,
+            // one `h` row per channel the session occupies. `nip29::Groups`
+            // mints every row (NMP #1281); publishing once per channel would
+            // have each copy replace the last.
+            DomainEvent::Status(status) => {
+                self.nmp
+                    .publish_groups(status.channels.iter().cloned(), builder, keys)
             }
             DomainEvent::ChatMessage(message) => {
-                self.nmp
-                    .publish_group_builder(&message.channel, builder, keys)
+                self.nmp.publish_group(&message.channel, builder, keys)
             }
             DomainEvent::Reaction(reaction) => {
-                self.nmp
-                    .publish_group_builder(&reaction.channel, builder, keys)
+                self.nmp.publish_group(&reaction.channel, builder, keys)
             }
             DomainEvent::Profile(_) => unreachable!("profiles return above"),
         }

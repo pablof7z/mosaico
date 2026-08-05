@@ -19,11 +19,6 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
             store.replace_channel_members("project", std::slice::from_ref(&pubkey), 3)
         })
         .unwrap();
-    state
-        .nmp
-        .script_write_facts(vec![WriteFact::Signing(SigningState::Refused {
-            reason: SCRIPTED_CLASSIFIED_FAILURE.into(),
-        })]);
 
     let now = crate::util::now_secs();
     crate::presence_publisher::drive(
@@ -71,7 +66,6 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     })
     .await
     .expect("presence publisher status receipt");
-    state.nmp.wait_background_receipts();
 
     state.nmp.script_read_events(Vec::new());
     let response = super::super::super::dispatch(
@@ -84,15 +78,22 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     )
     .await;
     let json = response.ok.expect("doctor RPC response");
-    let failure = &json["background_writes"]["last_failure"];
-    assert_eq!(failure["status"], "signer_refused");
-    assert_eq!(failure["operation"], "status");
-    assert_eq!(failure["source_ref"], source_ref);
-    // One group write is now ONE intent routed to the whole scope, so the
-    // stream that reports on it is named by the group rather than by an index
-    // into a per-relay fan-out Mosaico no longer performs.
-    assert_eq!(failure["target"], "every group host");
-    assert_eq!(failure["detail"], SCRIPTED_CLASSIFIED_FAILURE);
+    // The presence publisher recorded an id it got from NMP, and the doctor's
+    // account of what this daemon still owes names the SAME write. The two
+    // used to be able to disagree, because the id was derived by Mosaico and
+    // the evidence came from a process-local observer beside NMP's queue.
+    let queue = &json["publish_queue"];
+    assert!(queue["outstanding"].as_u64().unwrap() >= 1, "{queue}");
+    let stuck = queue["stuck"].as_array().unwrap();
+    assert!(stuck.is_empty(), "a status write needs nobody: {queue}");
+    let entries = state
+        .nmp
+        .publish_queue_entry_ids()
+        .expect("the publish queue is readable");
+    assert!(
+        entries.contains(&source_ref),
+        "the id the presence publisher recorded ({source_ref}) is not one NMP froze: {entries:?}"
+    );
     eprintln!(
         "CORPUS_STATUS_DOCTOR_JSON={}",
         serde_json::to_string(&json).unwrap()
