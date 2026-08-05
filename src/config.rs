@@ -1,8 +1,12 @@
 //! Device-level config + mosaico's own writable home.
 //!
 //! mosaico *reads* `~/.mosaico/config.json` (for `whitelistedPubkeys`,
-//! explicit `relays`, and `backendName` as the host label) and keeps all of its
-//! own writable state under `~/.mosaico`.
+//! explicit `relays`, `mcpRedirectOrigins`, and `backendName` as the host
+//! label) and keeps all of its own writable state under `~/.mosaico`.
+//!
+//! `Config` is a *snapshot*, taken when a process starts. Trust decisions that
+//! must honour a withdrawal without a restart do not read it — see
+//! [`mcp_trust`], which re-reads the same document per request.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -13,6 +17,7 @@ mod attachment_directory;
 mod behavior;
 mod document;
 mod management_key;
+pub(crate) mod mcp_trust;
 pub use behavior::{BoundaryAction, CrossProjectBoundary};
 pub use harness_detection::detect as detect_available_harnesses;
 #[path = "config/harness_detection.rs"]

@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use url::Url;
 
 #[derive(Clone)]
 pub(super) struct AuthCode {
@@ -64,6 +63,13 @@ pub(super) struct TokenForm {
 }
 
 impl AuthorizeParams {
+    /// The protocol-shape checks, and only those.
+    ///
+    /// `redirect_uri` is deliberately not judged here. Nothing carried by the
+    /// request can say whether a redirect target is legitimate — only the
+    /// registration recorded for this `client_id` can, and that check lives in
+    /// `AuthState::accept_authorize`. Parsing the URI here was what made it
+    /// look validated when nothing had validated it.
     pub(super) fn validate(&self, default_resource: &str) -> Result<()> {
         anyhow::ensure!(self.response_type == "code", "response_type must be code");
         anyhow::ensure!(
@@ -74,7 +80,6 @@ impl AuthorizeParams {
             self.resource_url(default_resource) == default_resource,
             "resource does not match this MCP server"
         );
-        Url::parse(&self.redirect_uri).context("redirect_uri must be an absolute URL")?;
         Ok(())
     }
 

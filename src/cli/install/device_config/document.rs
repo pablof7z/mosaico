@@ -7,6 +7,9 @@ use std::path::Path;
 pub(super) fn baseline_document() -> Value {
     json!({
         "whitelistedPubkeys": [],
+        // Which hosted MCP clients may register a redirect target for an
+        // authorization code. Loopback is always allowed and is not listed here.
+        "mcpRedirectOrigins": [],
         "relays": [],
         "indexerRelay": crate::config::DEFAULT_INDEXER_RELAY,
         "backendName": crate::config::hostname(),

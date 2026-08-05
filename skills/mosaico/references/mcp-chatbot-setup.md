@@ -64,9 +64,18 @@ Streamable HTTP endpoint over public HTTPS.
 
 ## Expose Remote HTTP Safely
 
-First ensure `~/.mosaico/config.json` (or `$MOSAICO_CONFIG`) contains the human
-signer's public key in `whitelistedPubkeys`. Then start a standalone,
-localhost-only server:
+Two operator decisions live in `~/.mosaico/config.json` (or `$MOSAICO_CONFIG`)
+and both are read live, on every request:
+
+- `whitelistedPubkeys` — the human signers allowed to log in and to keep
+  holding a token.
+- `mcpRedirectOrigins` — the origins a hosted MCP client may register a
+  callback under, for example `["https://chatgpt.com"]`. A client that runs
+  beside Mosaico and calls back to loopback needs no entry here; a hosted
+  connector does, and its registration is refused without one. `mosaico doctor`
+  reports the approved count.
+
+Set both, then start a standalone, localhost-only server:
 
 ```bash
 mosaico mcp \
@@ -82,13 +91,22 @@ mosaico mcp \
 secure tunnel in front of the local listener and forward the whole origin, not
 only `/mcp`: OAuth also uses `/.well-known/*` and `/oauth/*`. Keep the Mosaico
 listener bound to localhost unless the network design explicitly requires
-otherwise. Restart the MCP server after changing the whitelist because it reads
-that list at startup.
+otherwise. Removing a pubkey from `whitelistedPubkeys` takes effect on that
+operator's next request — no restart, and never by rotating `mosaicoPrivateKey`,
+which is the backend's NIP-29 management identity and would destroy every group
+membership it owns.
 
 Never expose `mosaico mcp --http` publicly without `--oauth`. The unauthenticated
 mode accepts the same write tools as the local server.
 
 ## Connect The Client
+
+Every client below identifies itself by registering at `/oauth/register`, which
+records the exact redirect URIs that `client_id` may receive an authorization
+code at. If registration is refused, the callback origin is not in
+`mcpRedirectOrigins` — add it there rather than working around the refusal. The
+Mosaico authorization page shows the registered client and the exact callback
+before the signer is asked to approve; if either is unfamiliar, do not sign.
 
 - **ChatGPT:** use the current Settings > Apps / developer-mode flow to create a
   custom MCP app, enter `https://mosaico.example.com/mcp`, select OAuth, complete
@@ -146,6 +164,9 @@ from the MCP catalog.
   resolved MCP actor session.
 - Treat the HTTPS proxy, tunnel, MCP server, and its logs as part of the trust
   boundary. Keep access logs redacted and retain them only as needed.
-- Mosaico currently issues one-hour access tokens and no refresh token. A client
-  may require OAuth reauthorization after expiry; do not weaken authentication
-  to avoid reconnecting.
+- Mosaico issues one-hour access tokens and no refresh token. A client may
+  require OAuth reauthorization after expiry; do not weaken authentication to
+  avoid reconnecting.
+- To revoke an operator, remove their pubkey from `whitelistedPubkeys`. Every
+  token verification re-reads that list, so the withdrawal lands on their next
+  request. Never revoke by rotating `mosaicoPrivateKey`.
