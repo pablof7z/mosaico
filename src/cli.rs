@@ -114,6 +114,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Daemon(args)) => match args.action {
             Some(DaemonAction::Restart) => daemon_lifecycle::restart().await,
             Some(DaemonAction::Stop) => daemon_lifecycle::stop(),
+            Some(DaemonAction::DiscardSupersededStore) => {
+                daemon_lifecycle::discard_superseded_store()
+            }
             None => crate::daemon::server::run().await,
         },
         Some(Cmd::Debug { action }) => debug::debug(action).await,

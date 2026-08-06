@@ -43,6 +43,36 @@ daemon; neither path searches another instance or falls back to the default.
 Stopping, restarting, resetting, diagnosing, or purging state targets only the
 selected daemon root.
 
+## When NMP refuses the selected instance's store
+
+Opening the NMP store is the daemon's first irreversible commitment, and a
+refusal there is a daemon that exits before it can answer an RPC. Exactly one
+refusal is fixed by deleting the store — NMP supports one persistent schema
+epoch and migrates nothing across it — and deleting the store in response to any
+*other* refusal destroys the only copy of writes NMP accepted and had not yet
+published. Mosaico branches on `nmp::EngineError` for that distinction and never
+on its message; the vocabulary is `nmp_host::store::StoreCondition`, and the
+condition is the `state` on `mosaico doctor`'s `nmp.store` check.
+
+- **`superseded-epoch`** — the durable bytes are not this build's epoch. NMP
+  reads nothing inside a store it refused, so no tool can say what the file
+  holds; a marker this build cannot read means *not this epoch*, never *no
+  data*.
+- **`held-by-another-owner`** — a daemon is already running for this selected
+  root.
+- **`unusable`** — a refused lock, an unresolvable path, damaged current-epoch
+  bytes. Never discard in response.
+
+Mosaico never recreates the store on its own. The daemon logs the named
+condition and its fix and exits; `mosaico doctor` reports it as `nmp.store` and
+points the `daemon` check at it; and the discard is `mosaico daemon
+discard-superseded-store`, a command a person types for one selected instance.
+That command re-probes and proceeds **only** on `superseded-epoch`, so it cannot
+be aimed at a failing disk even from a stale report — which is why the epoch
+signal has to be a type. It removes the store through
+`Engine::reset_persistent_store` rather than `rm nmp.redb`, because NMP owns what
+the complete store is on disk, including the owner lock beside it.
+
 ## Shared stateless installation
 
 Harness hooks, plugins, runtime skills, the executable, and optional shell

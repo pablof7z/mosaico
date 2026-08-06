@@ -76,6 +76,27 @@ fn daemon_restart_parses() {
     }
 }
 
+/// The discard is a command a person types, never a flag on a repair that runs
+/// unattended — so it has to be reachable, and `doctor` has to not be where it
+/// lives.
+#[test]
+fn daemon_discard_superseded_store_parses_and_is_not_a_doctor_repair() {
+    let cli = Cli::try_parse_from(["mosaico", "daemon", "discard-superseded-store"]).unwrap();
+
+    match cli.cmd.expect("expected daemon command") {
+        Cmd::Daemon(args) => assert!(matches!(
+            args.action,
+            Some(DaemonAction::DiscardSupersededStore)
+        )),
+        _ => panic!("expected daemon discard action"),
+    }
+
+    assert!(
+        Cli::try_parse_from(["mosaico", "doctor", "--discard-superseded-store"]).is_err(),
+        "the destructive door must not be reachable from doctor"
+    );
+}
+
 #[test]
 fn session_end_self_parses() {
     let cli = Cli::try_parse_from(["mosaico", "my", "session", "end", "--self"]).unwrap();

@@ -4,6 +4,7 @@ mod config;
 mod queue;
 mod render;
 mod repair;
+mod store;
 
 use anyhow::{bail, Result};
 use clap::Args;
@@ -228,14 +229,7 @@ async fn inspect_daemon(checks: &mut Vec<Check>) {
     let mut client = match crate::daemon::client::Client::connect_or_spawn().await {
         Ok(client) => client,
         Err(error) => {
-            checks.push(
-                Check::new(
-                    "daemon",
-                    CheckStatus::Error,
-                    format!("cannot connect or start: {error:#}"),
-                )
-                .repair("run `mosaico doctor --fix` for a session-preserving daemon restart"),
-            );
+            checks.extend(store::diagnose_failed_start(&error));
             return;
         }
     };
