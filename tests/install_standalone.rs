@@ -61,6 +61,7 @@ fn binary_outside_checkout_installs_statuses_and_uninstalls_skill_and_hooks() {
         "references/identity-and-capabilities.md",
         "references/mcp-chatbot-setup.md",
         "references/message-search.md",
+        "references/multi-instance-setup.md",
         "references/public-work-status.md",
     ] {
         assert!(skill.join(relative).is_file(), "missing {relative}");

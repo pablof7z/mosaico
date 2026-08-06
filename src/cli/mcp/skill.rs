@@ -67,6 +67,12 @@ const PAGES: &[Page] = &[
         content: include_str!("../../../skills/mosaico/references/message-search.md"),
     },
     Page {
+        name: "multi-instance-setup",
+        title: "Multiple isolated instances",
+        description: "Set up and operate segregated daemon awareness on one host.",
+        content: include_str!("../../../skills/mosaico/references/multi-instance-setup.md"),
+    },
+    Page {
         name: "public-work-status",
         title: "Public work status",
         description: "Session titles, lifecycle states, and self-only lifecycle commands.",
@@ -180,6 +186,9 @@ mod tests {
         let (_, _, search) = content(Some("message-search")).unwrap();
         assert!(search.contains("Omitting `--channel`"));
         assert!(search.contains("mosaico.channel_search"));
+        let (_, _, instances) = content(Some("multi-instance-setup")).unwrap();
+        assert!(instances.contains("MOSAICO=relay1"));
+        assert!(instances.contains("never searches or falls back"));
     }
 
     #[test]
@@ -194,6 +203,7 @@ mod tests {
         let value = tool_result(Some("list")).unwrap();
         let text = value["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("identity-and-capabilities"));
+        assert!(text.contains("multi-instance-setup"));
         assert!(text.contains("mosaico://skill"));
     }
 }
