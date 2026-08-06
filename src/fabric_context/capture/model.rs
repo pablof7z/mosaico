@@ -71,6 +71,8 @@ pub(crate) struct SelfCap {
     #[serde(default)]
     pub(in crate::fabric_context) headless: bool,
     #[serde(default)]
+    pub(in crate::fabric_context) unhosted: bool,
+    #[serde(default)]
     pub(in crate::fabric_context) title: String,
     #[serde(default)]
     pub(in crate::fabric_context) workspace: String,

@@ -66,10 +66,11 @@ also returns the grouped result as structured content.
 ```jsonc
 params: {"message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
-         "channel": "#root/child"|null}
+         "tags": ["agent"], "force": false,
+         "channel": "#root/child"|null, "wait_intent": false}
 result: {"event_id": "hex", "channel": "#root/child",
          "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
-         "recipient_reminders": []}
+         "recipient_reminders": [], "coaching": []}
 ```
 
 Publishes a kind:9 event signed by the caller's session key and succeeds only
@@ -79,6 +80,12 @@ parked under the exact recipient pubkey whether the executor is running,
 stopped, route-less, or revoked. Locality selects the executor; it does not
 decide whether the relay-accepted mention is valid. Remote p-tags cause no
 local action. Untagged channel chat remains ambient awareness.
+
+`wait_intent` is true only when the calling surface will immediately establish
+a correlated wait after acceptance. An unhosted caller's first directed send
+with neither this intent nor an already-active matching wait returns structured
+`unhosted_no_return_path` coaching. The coaching claim is durable for that
+runtime generation; ambient chat never consumes it.
 
 Authored chat is limited to 600 characters and is rejected before any attachment
 upload. The daemon leaves `[label]` markers in content, appends missing markers
@@ -105,6 +112,12 @@ the author. A correlated send-wait additionally requires a native reply tag
 pointing to the outbound event. Backend-management traffic and the caller's own
 messages are excluded.
 
+While the RPC future is live, the daemon records its session generation,
+channel scopes, and resolved author filter in memory. Cancellation, timeout,
+or a matching result removes that observation. Correlated waits are bound to
+their original outbound event and therefore do not count as a return path for
+a different directed send.
+
 The CLI always renders the outcome through the canonical `<mosaico>` envelope.
 Timeout is a successful RPC outcome.
 
@@ -115,7 +128,7 @@ params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
 result: {"event_id": "hex", "reply_to": "hex",
          "channel": "#root/child", "mentioned_pubkey": "hex",
-         "recipient_reminders": []}
+         "recipient_reminders": [], "coaching": []}
 ```
 
 Publishes a threaded NIP-10 reply in the original message's channel and targets

@@ -9,9 +9,9 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
 
     let agent = render_fabric_context(&store, input(Some(&rec), "root", 0, 1_000, false))
         .expect("session view should render");
-    assert!(
-        agent.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\" workspace=\"root\"")
-    );
+    assert!(agent.contains(
+        "<self name=\"@coder\" host=\"laptop\" headless=\"off\" unhosted=\"true\" workspace=\"root\""
+    ));
     assert!(agent.contains("<chatter>"));
     assert!(
         agent.contains("<message from=\"@reviewer\" id=\"m1\" age=\"1m\">post join context"),

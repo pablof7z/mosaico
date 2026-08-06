@@ -10,7 +10,7 @@ fn agent_supplied_title_appears_immediately() {
     let visible = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("explicit context should render");
     assert!(
-        visible.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\" workspace=\"root\" title=\"Researching MCP improvements around resource allocation\" />"),
+        visible.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\" unhosted=\"true\" workspace=\"root\" title=\"Researching MCP improvements around resource allocation\" />"),
         "got: {visible}"
     );
     assert!(

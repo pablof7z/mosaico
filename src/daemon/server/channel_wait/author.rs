@@ -87,6 +87,10 @@ impl AuthorFilter {
     fn is_unrestricted(&self) -> bool {
         self.pubkeys.is_empty() && self.labels.is_empty()
     }
+
+    pub(super) fn expected_pubkeys(&self) -> Option<HashSet<String>> {
+        (!self.is_unrestricted()).then(|| self.pubkeys.clone())
+    }
 }
 
 fn clean_label(label: &str) -> String {

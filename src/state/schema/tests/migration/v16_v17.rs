@@ -38,7 +38,7 @@ fn schema_sixteen_moves_backend_advertisements_into_profiles() {
 
     drop(Store::open(&path).expect("schema sixteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 20);
+    assert_eq!(version(&conn), 21);
     assert!(!fixture::table_exists(&conn, "relay_agent_roster"));
     assert_eq!(
         conn.query_row(

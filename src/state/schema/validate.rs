@@ -24,6 +24,7 @@ const TABLES: &[&str] = &[
     "relay_status",
     "relay_status_sets",
     "session_channels",
+    "session_coaching",
     "session_locators",
     "session_signers",
     "session_standing",
@@ -38,6 +39,7 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "session_signers",
         "mcp_actor_aliases",
         "session_locators",
+        "session_coaching",
         "event_claims",
         "native_turn_attempts",
         "relay_status_sets",
@@ -64,6 +66,13 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
         conn,
         "session_signers",
         &["pubkey", "signer_salt"],
+        &[],
+        path,
+    )?;
+    ensure_columns(
+        conn,
+        "session_coaching",
+        &["pubkey", "runtime_generation", "code", "shown_at"],
         &[],
         path,
     )?;

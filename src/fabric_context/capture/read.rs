@@ -37,6 +37,7 @@ pub(super) fn self_cap(store: &Store, s: &Session, input: &FabricContextInput<'_
         name: input.self_slug.to_string(),
         host: input.local_host.to_string(),
         headless: crate::session_host::session_is_headless(store, s),
+        unhosted: s.admitted_transport.is_empty(),
         title: s.title.clone(),
         workspace,
         branch,

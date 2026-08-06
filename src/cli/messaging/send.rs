@@ -20,6 +20,7 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         session,
         wait,
     } = req;
+    let wait_intent = wait.is_some();
     let params = crate::cli::rpc_params(serde_json::json!({
         "message": message,
         "attachments": attachments,
@@ -29,6 +30,7 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         // Explicit `--channel` is destination targeting only. Caller identity
         // still comes from the session anchors added by `rpc_params`.
         "channel": channel,
+        "wait_intent": wait_intent,
     }));
     let v = daemon_call_async("channel_send", params).await?;
     super::notices::print_recipient_reminders(&v)?;

@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 mod author;
 use author::AuthorFilter;
+mod registry;
+pub(super) use registry::ActiveWaitRegistry;
 #[cfg(test)]
 #[path = "channel_wait/tests.rs"]
 mod tests;
@@ -68,6 +70,8 @@ pub(super) async fn rpc_channel_wait(
             return Ok(timeout_result(p.timeout_secs, &channel_refs));
         }
     }
+    let _active_wait =
+        registry::register(state, &rec, &scopes, &author_filter, reply_to.as_deref());
 
     let timeout = tokio::time::sleep_until(deadline);
     tokio::pin!(timeout);

@@ -141,15 +141,17 @@ pub(crate) fn assemble_turn_start(
     }
 
     if first_turn {
-        // A session without a live daemon delivery endpoint cannot be steered
-        // while idle: mentions remain in its inbox until the next turn. Output
-        // presentation is a separate headless-mode fact above.
-        let delivery_available = {
-            let s = store.lock().expect("store mutex poisoned");
-            crate::session_host::session_has_live_delivery_path(&s, rec)
-        };
-        if !delivery_available {
-            warnings.push("This session cannot be steered while idle.".to_string());
+        // Missing admission is a stable session fact. A hosted endpoint that is
+        // temporarily unavailable has a different recovery path and must not be
+        // mislabeled as unhosted.
+        if rec.admitted_transport.is_empty() {
+            warnings.push(
+                "This session is unhosted. After this turn ends, later mentions will queue but \
+                 cannot start another turn. A pending wait can keep the current invocation \
+                 reachable. Read `~/.agents/skills/mosaico/references/unhosted.md` for risks \
+                 and mitigations."
+                    .to_string(),
+            );
         }
     }
 

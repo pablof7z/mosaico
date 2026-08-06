@@ -139,56 +139,44 @@ fn ended_turn_with_cursor_uses_delta_not_snapshot() {
     );
 }
 
-/// A first turn with no PTY locator for the session (the daemon has no
-/// live PTY endpoint to inject into) carries the not-PTY-wrapped warning, so
-/// the agent learns idle mentions won't reach it until its next turn
-/// (`src/reconcile/delivery/mod.rs` returns `DeferNoEndpoint` and drops them).
+/// An externally discovered session has no admitted transport. Its first turn
+/// names that fact and the exact post-turn delivery consequence.
 #[test]
-fn first_turn_warns_when_session_has_no_live_pty_endpoint() {
+fn first_turn_explains_unhosted_delivery_boundary() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    let rec = test_session("sess-no-pty");
+    let rec = test_session("sess-unhosted");
     let m = Mutex::new(store);
 
     let text = render_turn_start_text_for_test(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
     assert!(
-        text.contains("This session cannot be steered while idle."),
-        "expected the not-PTY-wrapped warning; got: {text:?}"
+        text.contains("unhosted=\"true\""),
+        "the machine-readable self row must expose unhosted state; got: {text:?}"
     );
-    assert!(!text.contains("keep taking turns"), "got: {text:?}");
-    assert!(!text.contains("pty-wrap-me"), "got: {text:?}");
+    assert!(text.contains("This session is unhosted."), "got: {text:?}");
+    assert!(
+        text.contains("mentions will queue but cannot start another turn"),
+        "got: {text:?}"
+    );
+    assert!(text.contains("references/unhosted.md"), "got: {text:?}");
 }
 
-/// The same first turn with a live PTY locator omits the warning: the
-/// daemon has a real endpoint it can inject idle mentions into.
+/// A session admitted to a hosted transport remains hosted even when its
+/// runtime locator is temporarily unavailable. Recovery is a different risk
+/// and must not be mislabeled as unhosted.
 #[test]
-fn first_turn_omits_pty_warning_when_session_has_a_live_endpoint() {
+fn first_turn_does_not_call_an_unavailable_hosted_session_unhosted() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
     let mut rec = test_session("sess-with-pty");
     rec.admitted_transport = "pty".into();
-
-    let dir = tempfile::tempdir().unwrap();
-    let socket_path = dir.path().join("live.sock");
-    let _listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
-    store
-        .put_session_locator(
-            "claude-code",
-            crate::state::LOCATOR_PTY,
-            socket_path.to_str().unwrap(),
-            &rec.pubkey,
-            1,
-        )
-        .unwrap();
     let m = Mutex::new(store);
 
     let text = render_turn_start_text_for_test(&m, &rec, BACKEND, "laptop", 0)
         .expect("first-turn intro expected");
-    assert!(
-        !text.contains("This session cannot be steered while idle."),
-        "a live PTY locator must suppress the not-PTY-wrapped warning; got: {text:?}"
-    );
+    assert!(!text.contains("unhosted=\"true\""), "got: {text:?}");
+    assert!(!text.contains("This session is unhosted."), "got: {text:?}");
 }
 
 /// turn_check returns None when there is no inbox and delta_since=None.

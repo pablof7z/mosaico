@@ -25,5 +25,6 @@ mod inbox_ledger;
 mod nip01_events;
 mod retention;
 mod runtime_admission;
+mod session_coaching;
 mod session_identity;
 mod status_membership;

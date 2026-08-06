@@ -78,6 +78,7 @@ pub(in crate::fabric_context) struct SelfRow {
     pub(in crate::fabric_context) workspace: String,
     pub(in crate::fabric_context) branch: String,
     pub(in crate::fabric_context) headless: bool,
+    pub(in crate::fabric_context) unhosted: bool,
     pub(in crate::fabric_context) title: String,
     pub(in crate::fabric_context) hint: String,
 }

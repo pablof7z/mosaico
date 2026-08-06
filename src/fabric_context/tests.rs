@@ -157,7 +157,27 @@ fn empty_delta_is_silent_unless_forced() {
 
     let forced = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("explicit who context should still render");
-    assert!(forced.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\""));
+    assert!(
+        forced.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\" unhosted=\"true\"")
+    );
+}
+
+#[test]
+fn self_unhosted_fact_depends_on_admitted_transport_not_endpoint_liveness() {
+    let store = seed_store();
+    let unhosted = session(&store);
+    let unhosted_text =
+        render_fabric_context(&store, input(Some(&unhosted), "root", 0, 300, true)).unwrap();
+    assert!(unhosted_text.contains("unhosted=\"true\""));
+
+    let mut hosted_without_locator = unhosted;
+    hosted_without_locator.admitted_transport = "pty".into();
+    let hosted_text = render_fabric_context(
+        &store,
+        input(Some(&hosted_without_locator), "root", 0, 300, true),
+    )
+    .unwrap();
+    assert!(!hosted_text.contains("unhosted=\"true\""));
 }
 
 #[test]
@@ -189,7 +209,9 @@ fn quiet_forced_delta_renders_no_new_activity_note() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, true))
         .expect("forced who should always render");
-    assert!(text.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\""));
+    assert!(
+        text.contains("<self name=\"@coder\" host=\"laptop\" headless=\"off\" unhosted=\"true\"")
+    );
     assert!(text.contains("<no-new-activity workspace=\"root\">"));
     assert!(text.contains("The fabric surfaces only what changed"));
     // The tell-tale empty skeleton must NOT appear: no channel/members blocks.
