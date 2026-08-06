@@ -199,6 +199,10 @@ pub(super) enum DaemonAction {
     Restart,
     /// Stop the daemon and prevent hooks from restarting it.
     Stop,
+    /// Delete the NMP store, and only when NMP refuses it as a superseded
+    /// schema epoch. Permanent: any write NMP accepted and had not yet
+    /// published goes with it. Refused for every other store fault.
+    DiscardSupersededStore,
 }
 
 #[cfg(test)]

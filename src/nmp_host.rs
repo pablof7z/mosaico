@@ -22,6 +22,7 @@ mod auth;
 mod query;
 pub(crate) mod read;
 mod scrub;
+pub(crate) mod store;
 #[cfg(test)]
 mod test_io;
 pub(crate) mod write;
@@ -91,6 +92,14 @@ pub(crate) struct NmpHost {
 }
 
 impl NmpHost {
+    /// Open the durable store and the engine over it.
+    ///
+    /// A store NMP refuses comes back as an error carrying the typed
+    /// [`nmp::EngineError`] as its source, so a caller decides what to do from
+    /// [`store::StoreCondition::of_open_error`] — never by reading the message.
+    /// The distinction that matters is the one between a superseded schema
+    /// epoch, which only discarding the store fixes, and every other refusal,
+    /// which discarding the store makes permanently worse.
     pub(crate) fn open(
         relays: &[String],
         indexer_relay: Option<&str>,
@@ -124,7 +133,7 @@ impl NmpHost {
             config.indexer_relays.push(indexer.to_string());
             profile_relays.insert(parsed_indexer);
         }
-        let engine = Engine::new(config).context("starting NMP engine")?;
+        let engine = Engine::new(config).map_err(store::opening_refused)?;
         let (materialization_tx, materialization_rx) =
             mpsc::channel(MATERIALIZATION_QUEUE_CAPACITY);
         let host = Self {

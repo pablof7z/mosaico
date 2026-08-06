@@ -39,6 +39,45 @@ pub(super) async fn restart() -> Result<()> {
     Ok(())
 }
 
+/// Discard a store NMP refuses as a superseded schema epoch — nothing else.
+///
+/// Deliberately a command a person types, and deliberately not part of
+/// `mosaico doctor --fix`. An epoch bump has exactly one correct response and
+/// Mosaico could apply it unattended, but that response is deleting a
+/// gigabyte-scale file no build can read well enough to say what it holds, and
+/// an irreversible act on someone's data is their call.
+///
+/// The guard is what makes the door safe, not the operator's care: the store is
+/// re-probed here, and any fault that is not the epoch — a refused lock, an
+/// unresolvable path, damaged current-epoch bytes — is refused with its reason.
+/// So this cannot be aimed at a failing disk even by an operator acting on a
+/// stale `mosaico doctor` report, which is exactly why NMP gave the epoch its
+/// own type instead of a message to grep.
+pub(super) fn discard_superseded_store() -> Result<()> {
+    let path = crate::daemon::storage_paths::StoragePaths::current().nmp_store_path;
+    // The daemon holds this for its whole life, so holding it means no daemon
+    // is running or starting — and one that tries to start mid-delete waits
+    // rather than racing the removal. This is also the check that keeps the
+    // door honest about a running owner; asking the socket would miss a daemon
+    // that has started but not yet bound it.
+    let Ok(Some(_startup)) = crate::daemon::client::StartupLock::try_acquire() else {
+        bail!(
+            "a daemon owns {}; run `mosaico daemon stop` first",
+            path.display()
+        );
+    };
+    let discarded = crate::nmp_host::store::discard_superseded(&path)?;
+    eprintln!(
+        "[mosaico] {}\n\
+         [mosaico] discarded it: {}\n\
+         [mosaico] run `mosaico daemon restart` to rebuild the store. The relay-backed read \
+         cache re-acquires; unpublished writes did not survive.",
+        discarded.summary(),
+        path.display()
+    );
+    Ok(())
+}
+
 /// Ask a running daemon to exit without spawning one. Returns whether it is
 /// safe for a caller to start a replacement daemon.
 fn request_shutdown() -> bool {

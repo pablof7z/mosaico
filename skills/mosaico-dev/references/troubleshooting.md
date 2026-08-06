@@ -157,6 +157,31 @@ rm -f .container-state/<profile>/mosaico/nmp.redb
 Never delete these from a live or non-disposable profile without explicit
 authorization.
 
+## Daemon will not start and NMP refuses the store
+
+Run `mosaico doctor`. A refused store is a daemon that exits before it can
+answer an RPC, so `daemon: cannot connect or start` is the symptom; the
+`nmp.store` check is the cause and carries a `state`:
+
+- `superseded-epoch` — the store is not this build's schema epoch. NMP migrates
+  nothing across an epoch and reads **nothing** inside a store it refused, so no
+  tool can tell you what the file holds; "no readable marker" means *not this
+  epoch*, not *empty*. Stop the daemon, run
+  `mosaico daemon discard-superseded-store`, restart. The relay-backed read
+  cache re-acquires; any write NMP had accepted and not yet published is gone
+  with the file. That command refuses every other condition, so it is safe to
+  reach for and useless to reach for wrongly.
+- `unusable` — a refused lock, an unresolvable path, damaged current-epoch
+  bytes. **Do not delete the store.** A fresh file fixes none of these and
+  destroys the only copy of unpublished writes. Check the path, permissions, and
+  disk.
+- `held-by-another-owner` — a daemon is already running for this home; stop it
+  first.
+
+Never diagnose this by reading the refusal text. Mosaico branches on
+`nmp::EngineError`; a message that says "predates the schema marker" once meant
+both of the first two.
+
 ## Management key is not admin
 
 Verify `userNsec` and `mosaicoPrivateKey` are distinct and that the relay-owner

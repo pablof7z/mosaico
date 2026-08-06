@@ -2,6 +2,7 @@ use super::*;
 use crate::reconcile::StatusReconciler;
 mod auth_restore;
 mod host_profile_bootstrap;
+mod nmp_open;
 mod pending_writes;
 mod shutdown;
 
@@ -42,12 +43,7 @@ pub async fn run() -> Result<()> {
         );
     }
     let store = Arc::new(Mutex::new(store));
-    let nmp = Arc::new(crate::nmp_host::NmpHost::open(
-        &cfg.relays,
-        Some(&cfg.indexer_relay),
-        Some(&storage.nmp_store_path),
-        &backend_keys,
-    )?);
+    let nmp = Arc::new(nmp_open::open(&cfg, &storage, &backend_keys)?);
     let provider = Arc::new(Nip29Provider::new(
         nmp.clone(),
         store.clone(),

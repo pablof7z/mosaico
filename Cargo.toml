@@ -42,12 +42,12 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
-nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
-nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
-nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
-nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
-nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "4e12a3465f13feecba5a2523695a6b3f20938d95" }
+nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
+nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
+nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
+nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
+nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "3da38bdb70f9d7c319769138cfffdd7048565a44" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"
@@ -62,5 +62,9 @@ url = "2"
 
 [dev-dependencies]
 cucumber = "0.21"
+# Writes the superseded-epoch store fixture the #920 falsifiers need. A store
+# NMP refuses cannot be produced through NMP, and a byte blob only reproduces
+# the damaged-bytes half — the half that must NOT be discarded.
+redb = "4"
 tempfile = "3"
 tungstenite = "0.29"
