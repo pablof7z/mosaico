@@ -114,7 +114,16 @@ pub(super) async fn inject_planned_messages(
             return Err(error);
         }
     };
-    finalize_injection(state, rec, &prompt)?;
+    // PTY write is best-effort: only mark `submitted` and wait for the
+    // user-prompt-submit hook to corroborate before `injected`. RPC transports
+    // own acceptance and can mark injected immediately.
+    finalize_injection(state, rec, &prompt, &completion)?;
+    if matches!(
+        completion,
+        crate::session_host::transport::DeliveryCompletion::ExternallyObserved
+    ) {
+        schedule_submitted_reenqueue(state.clone(), rec.pubkey.clone());
+    }
     managed_turn::track(
         state,
         rec,
@@ -125,6 +134,39 @@ pub(super) async fn inject_planned_messages(
     )
     .await?;
     Ok(true)
+}
+
+/// If the harness never fires user-prompt-submit for a PTY paste, roll the
+/// submission back so doorbell/hook delivery can retry.
+const PTY_SUBMIT_CONFIRM_TIMEOUT_SECS: u64 = 30;
+
+fn schedule_submitted_reenqueue(state: Arc<DaemonState>, pubkey: String) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(
+            PTY_SUBMIT_CONFIRM_TIMEOUT_SECS,
+        ))
+        .await;
+        let before = now_secs().saturating_sub(PTY_SUBMIT_CONFIRM_TIMEOUT_SECS.saturating_sub(1));
+        let requeued = match state.with_store(|s| s.reenqueue_stale_submitted(&pubkey, before)) {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::error!(
+                    %pubkey,
+                    error = %e,
+                    "failed to reenqueue stale PTY submissions"
+                );
+                return;
+            }
+        };
+        if !requeued.is_empty() {
+            tracing::info!(
+                %pubkey,
+                count = requeued.len(),
+                "requeued unconfirmed PTY submissions after timeout"
+            );
+            crate::session_host::ring_doorbells(state);
+        }
+    });
 }
 
 fn finish_delivery<T>(
@@ -181,30 +223,40 @@ fn reenqueue_after_failure(
     }
 }
 
-/// Post-delivery bookkeeping shared by the PTY and ACP injectors: flip the
-/// delivered rows to `injected` (echo-suppression on PTY; fabric-context de-dup on
-/// both transports — a mention handed to the agent as literal input must not
-/// re-appear as fresh chat context).
+/// Post-delivery bookkeeping: RPC transports that own acceptance mark
+/// `injected` immediately. PTY only records `submitted` until the harness
+/// user-prompt hook corroborates the paste.
 fn finalize_injection(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     prompt: &PendingPrompt,
+    completion: &crate::session_host::transport::DeliveryCompletion,
 ) -> Result<()> {
-    if let Err(e) =
-        state.with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey, now_secs()))
-    {
+    let now = now_secs();
+    let result = match completion {
+        crate::session_host::transport::DeliveryCompletion::ExternallyObserved => {
+            state.with_store(|s| {
+                s.mark_submitted_for_prompt_confirm(&prompt.chat_ids, &rec.pubkey, now)
+            })
+        }
+        crate::session_host::transport::DeliveryCompletion::Managed { .. }
+        | crate::session_host::transport::DeliveryCompletion::ManagedSteer(_) => {
+            state.with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey, now))
+        }
+    };
+    if let Err(e) = result {
         tracing::error!(
             pubkey = %rec.pubkey,
             error = %e,
-            "failed to mark injected inbox rows for echo suppression"
+            "failed to record post-delivery inbox state"
         );
         emit_delivery_failures(
             state,
             rec,
             &prompt.channels,
-            format!("failed to mark injected inbox rows for echo suppression: {e:#}"),
+            format!("failed to record post-delivery inbox state: {e:#}"),
         );
-        anyhow::bail!("failed to mark injected inbox rows for echo suppression: {e:#}");
+        anyhow::bail!("failed to record post-delivery inbox state: {e:#}");
     }
     Ok(())
 }

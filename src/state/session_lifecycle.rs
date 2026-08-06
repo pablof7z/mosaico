@@ -128,7 +128,7 @@ impl Store {
                AND work_state='idle' AND idle_deadline>0 AND idle_deadline<=?1
                AND NOT EXISTS (
                    SELECT 1 FROM inbox item WHERE item.target_pubkey=session.pubkey
-                     AND item.state IN ('pending', 'injected')
+                     AND item.state IN ('pending', 'submitted', 'injected')
                )
              ORDER BY idle_deadline, pubkey",
             super::sessions::COLS
@@ -156,7 +156,7 @@ impl Store {
                AND idle_deadline>0 AND idle_deadline<=?5
                AND NOT EXISTS (
                    SELECT 1 FROM inbox item WHERE item.target_pubkey=sessions.pubkey
-                     AND item.state IN ('pending', 'injected')
+                     AND item.state IN ('pending', 'submitted', 'injected')
                )",
             params![pubkey, generation, lifecycle_epoch, attachment_epoch, now],
         )?;

@@ -154,6 +154,8 @@ result: {
 Hard-deletes a channel by publishing NIP-29 kind:9008 (`delete-group`). Distinct
 from archive: the group is removed, not merely marked `[ARCHIVED]`. Before the
 delete event, a kind:9 notice tags every **online** agent currently present in
-the channel so they see the removal. Refuses workspace roots and channels that
-still have direct children — delete leaves first so hierarchy stays intentional.
-Operator action (management key); no agent session is required.
+the channel so they see the removal. Workspace roots are allowed once empty of
+children; channels with direct children are refused so hierarchy stays
+intentional (delete leaves first). Local workspace filesystem bindings are
+purged with the channel. Operator action (management key); no agent session is
+required.

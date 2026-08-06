@@ -65,6 +65,26 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
 
     schedule_context_profile_warm(state.clone(), rec.clone(), context_warm_since(&rec, now));
 
+    // PTY inject is only confirmed when the harness user-prompt matches a
+    // `submitted` row. Confirmed → `injected` (echo-suppress). Unconfirmed
+    // submissions on a prompt-bearing turn roll back to `pending` so this
+    // turn's hook path can deliver them. Without a prompt we leave
+    // `submitted` alone (stale timeout / later UPS handles it).
+    let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    if !prompt.is_empty() {
+        if let Err(e) = state.with_store(|s| {
+            s.confirm_submitted_from_prompt(&rec.pubkey, prompt, now)?;
+            s.reenqueue_submitted(&rec.pubkey)?;
+            Ok::<(), anyhow::Error>(())
+        }) {
+            tracing::error!(
+                pubkey = %rec.pubkey,
+                error = %e,
+                "turn_start: PTY submission confirm/reenqueue failed"
+            );
+        }
+    }
+
     // Assemble via the shared turn-context module so daemon and hook tests cannot
     // drift. The receipt is the graph's OWN dependency trace — it replaces the
     // hand-rolled turn_start_audit and is consistent with the render by construction.
