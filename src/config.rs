@@ -1,8 +1,9 @@
 //! Device-level config + mosaico's own writable home.
 //!
-//! mosaico *reads* `~/.mosaico/config.json` (for `whitelistedPubkeys`,
+//! Mosaico reads `config.json` from the selected instance root (for `whitelistedPubkeys`,
 //! explicit `relays`, `mcpRedirectOrigins`, and `backendName` as the host
-//! label) and keeps all of its own writable state under `~/.mosaico`.
+//! label) and keeps all of its writable state under that root. Unset `MOSAICO`
+//! uses `~/.mosaico`; named instances use `~/.mosaico-instances/<name>`.
 //!
 //! `Config` is a *snapshot*, taken when a process starts. Trust decisions that
 //! must honour a withdrawal without a restart do not read it — see
@@ -10,25 +11,26 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 mod attachment_directory;
 mod behavior;
 mod document;
+mod home;
 mod management_key;
 pub(crate) mod mcp_trust;
 pub use behavior::{BoundaryAction, CrossProjectBoundary};
 pub use harness_detection::detect as detect_available_harnesses;
 #[path = "config/harness_detection.rs"]
 mod harness_detection;
+pub use home::{
+    config_path, isolated_home_acknowledged, mosaico_home, mosaico_home_selection,
+    selected_instance_env, validate_process_selection, MosaicoHomeSelection, INSTANCE_ENV,
+    ISOLATED_HOME_ACK_ENV,
+};
 pub(crate) use management_key::{ensure_mosaico_private_key, generate_mosaico_private_key};
 
 pub const DEFAULT_INDEXER_RELAY: &str = "wss://purplepag.es";
-pub const ISOLATED_HOME_ACK_ENV: &str = "MOSAICO_ISOLATED_HOME_OK";
-const MISSING_HOME_MESSAGE: &str =
-    "neither MOSAICO_HOME nor HOME is set: refusing to relocate keystore/config/state.db \
-     under ./.mosaico (would mint new agent identities and empty the trust whitelist)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -99,7 +101,7 @@ impl Config {
     }
 }
 
-/// Mirror of the relevant fields in `~/.mosaico/config.json`. Unknown fields are
+/// Mirror of the relevant fields in the selected `config.json`. Unknown fields are
 /// ignored, so we coexist with TENEX's much larger (camelCase) config.
 #[derive(Debug, Deserialize)]
 struct RawConfig {
@@ -159,7 +161,8 @@ impl Config {
         })
     }
 
-    /// Load from `~/.mosaico/config.json` (or `$MOSAICO_CONFIG` override).
+    /// Load from the selected instance config (or the low-level
+    /// `$MOSAICO_CONFIG` override when no named selector is active).
     pub fn load() -> Result<Self> {
         let path = config_path();
         let s = std::fs::read_to_string(&path).map_err(|e| {
@@ -190,83 +193,9 @@ fn require_configured_relay(config: Config) -> Result<Config> {
     Ok(config)
 }
 
-pub fn config_path() -> PathBuf {
-    select_config_path(std::env::var_os("MOSAICO_CONFIG"), mosaico_home())
-}
-
-fn select_config_path(mosaico_config: Option<OsString>, mosaico_home: PathBuf) -> PathBuf {
-    match mosaico_config {
-        Some(p) => PathBuf::from(p),
-        None => mosaico_home.join("config.json"),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MosaicoHomeSelection {
-    pub mosaico_home: PathBuf,
-    pub default_mosaico_home: Option<PathBuf>,
-    pub mosaico_home_set: bool,
-    pub mosaico_home_is_default: bool,
-}
-
-/// mosaico's own writable root. Override with `$MOSAICO_HOME` (tests use
-/// this for isolation). Default: `~/.mosaico`.
-pub fn mosaico_home() -> PathBuf {
-    mosaico_home_selection().mosaico_home
-}
-
-pub fn mosaico_home_selection() -> MosaicoHomeSelection {
-    select_mosaico_home(std::env::var_os("MOSAICO_HOME"), std::env::var_os("HOME"))
-        .unwrap_or_else(|message| panic!("{message}"))
-}
-
-pub fn isolated_home_acknowledged() -> bool {
-    matches!(
-        std::env::var(ISOLATED_HOME_ACK_ENV)
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes"
-    )
-}
-
 pub fn ensure_dir(p: &Path) -> Result<()> {
     std::fs::create_dir_all(p).with_context(|| format!("creating {}", p.display()))?;
     Ok(())
-}
-
-fn select_mosaico_home(
-    mosaico_home: Option<OsString>,
-    home: Option<OsString>,
-) -> std::result::Result<MosaicoHomeSelection, &'static str> {
-    let default_mosaico_home = home
-        .filter(|h| !h.as_os_str().is_empty())
-        .map(PathBuf::from)
-        .map(|h| h.join(".mosaico"));
-
-    if let Some(mosaico_home) = mosaico_home {
-        let mosaico_home = PathBuf::from(mosaico_home);
-        let mosaico_home_is_default = default_mosaico_home
-            .as_ref()
-            .map(|default| default == &mosaico_home)
-            .unwrap_or(false);
-        return Ok(MosaicoHomeSelection {
-            mosaico_home,
-            default_mosaico_home,
-            mosaico_home_set: true,
-            mosaico_home_is_default,
-        });
-    }
-
-    let Some(mosaico_home) = default_mosaico_home.clone() else {
-        return Err(MISSING_HOME_MESSAGE);
-    };
-    Ok(MosaicoHomeSelection {
-        mosaico_home,
-        default_mosaico_home,
-        mosaico_home_set: false,
-        mosaico_home_is_default: true,
-    })
 }
 
 pub fn hostname() -> String {

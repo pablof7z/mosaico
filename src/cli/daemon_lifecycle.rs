@@ -6,7 +6,19 @@ use std::time::{Duration, Instant};
 const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) fn stop() -> Result<()> {
-    request_shutdown();
+    let stopped = request_shutdown();
+    if crate::pty::reap_sessions_on_stop_enabled() {
+        if !stopped {
+            bail!("selected daemon did not stop; refusing to reap its supervisors")
+        }
+        let report = crate::pty::reap_home_supervisors()?;
+        if !report.is_clean() {
+            bail!(
+                "failed to reap selected instance supervisors: {}",
+                report.errors.join("; ")
+            );
+        }
+    }
     crate::daemon::set_inhibit();
     eprintln!(
         "[mosaico] hooks will not restart the daemon; \

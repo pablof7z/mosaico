@@ -10,7 +10,7 @@ impl Store {
         }
         let mut conn =
             Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
-        // WAL + busy timeout + relaxed sync: the per-machine daemon is the sole
+        // WAL + busy timeout + relaxed sync: the selected daemon is the sole
         // writer, but every CLI invocation still opens this file to read. WAL lets
         // readers proceed without blocking the writer; the busy timeout absorbs the
         // brief windows where a reader and the daemon overlap.

@@ -4,7 +4,46 @@
 
 set -euo pipefail
 
-MOSAICO_HOME_DIR="${MOSAICO_HOME:-$HOME/.mosaico}"
+if [[ "${MOSAICO+x}" == x ]]; then
+  if [[ "${MOSAICO_HOME+x}" == x ]]; then
+    echo "MOSAICO cannot be combined with MOSAICO_HOME" >&2
+    exit 2
+  fi
+  if [[ "${MOSAICO_CONFIG+x}" == x ]]; then
+    echo "MOSAICO cannot be combined with MOSAICO_CONFIG" >&2
+    exit 2
+  fi
+  if [[ ! "${MOSAICO}" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]]; then
+    echo "invalid MOSAICO instance name" >&2
+    exit 2
+  fi
+  if [[ -z "${HOME:-}" ]]; then
+    echo "HOME must be set when MOSAICO selects an instance" >&2
+    exit 2
+  fi
+  if [[ "${HOME}" != /* ]]; then
+    echo "HOME must be an absolute path when MOSAICO selects an instance" >&2
+    exit 2
+  fi
+  if [[ "${MOSAICO}" == default ]]; then
+    MOSAICO_HOME_DIR="${HOME}/.mosaico"
+  else
+    MOSAICO_HOME_DIR="${HOME}/.mosaico-instances/${MOSAICO}"
+  fi
+else
+  if [[ "${MOSAICO_HOME+x}" == x ]]; then
+    MOSAICO_HOME_DIR="${MOSAICO_HOME}"
+    if [[ -z "${MOSAICO_HOME_DIR}" ]]; then
+      echo "MOSAICO_HOME cannot be empty" >&2
+      exit 2
+    fi
+  elif [[ -n "${HOME:-}" ]]; then
+    MOSAICO_HOME_DIR="${HOME}/.mosaico"
+  else
+    echo "neither MOSAICO_HOME nor HOME is set" >&2
+    exit 2
+  fi
+fi
 
 case "${1:-}" in
   --yes-i-know-this-wipes-local-state)
@@ -29,27 +68,23 @@ if [[ ! -d "$MOSAICO_HOME_DIR" ]]; then
   exit 1
 fi
 
-# reset.sh is a WIPE tool: it deletes state.db AND the sessions dir, so any
-# surviving PTY supervisor would be orphaned against a wiped DB — hence a reset
-# reaps the supervisors too. Do NOT copy this kill into a plain daemon *restart*:
-# the daemon and every detached PTY supervisor are the SAME binary (`mosaico`),
-# so a bare `pkill -x mosaico` reaps live agent sessions along with the daemon.
-# A restart must kill ONLY the daemon (`pkill -f 'mosaico daemon'`); the daemon
-# then re-adopts the still-running supervisors on boot (reconcile_sessions), and a
-# systemd unit must use `KillMode=process`. Target argv explicitly here instead of
-# the shared binary name so we never reap an unrelated `mosaico` on the box.
-echo "==> Killing local mosaico daemon..."
-pkill -9 -f 'mosaico daemon' 2>/dev/null || true
-echo "==> Killing local mosaico PTY supervisors (state is being wiped)..."
-pkill -9 -f 'mosaico __pty-supervisor' 2>/dev/null || true
-sleep 0.5
+# reset.sh is a WIPE tool: ask only the selected daemon to reap the PTY
+# supervisors recorded in its selected home. Never kill by binary name or argv:
+# another named instance may be running from the same executable.
+if ! command -v mosaico >/dev/null 2>&1; then
+  echo "mosaico is not on PATH; refusing an uncoordinated state wipe" >&2
+  exit 1
+fi
+echo "==> Stopping selected Mosaico daemon and PTY supervisors..."
+MOSAICO_REAP_SESSIONS_ON_STOP=1 mosaico daemon stop
 
 echo "==> Wiping local state..."
 rm -f "$MOSAICO_HOME_DIR/state.db" "$MOSAICO_HOME_DIR/state.db-shm" "$MOSAICO_HOME_DIR/state.db-wal"
 rm -f "$MOSAICO_HOME_DIR/nmp.redb"
 rm -f "$MOSAICO_HOME_DIR/daemon.sock" "$MOSAICO_HOME_DIR/daemon.lock" "$MOSAICO_HOME_DIR/daemon.log"
+rm -f "$MOSAICO_HOME_DIR/daemon.inhibit"
 rm -rf "$MOSAICO_HOME_DIR/sessions"
 echo "    kept:"
 find "$MOSAICO_HOME_DIR" -mindepth 1 -maxdepth 1 -print | sed 's/^/      /'
 
-echo "==> Done. Run: mosaico daemon start"
+echo "==> Done. Run with the same instance selection: mosaico daemon restart"

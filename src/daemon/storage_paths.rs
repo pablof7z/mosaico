@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct StoragePaths {
+    pub(crate) instance: String,
     pub(crate) mosaico_home: PathBuf,
     pub(crate) config_path: PathBuf,
     pub(crate) socket_path: PathBuf,
@@ -26,6 +27,7 @@ impl StoragePaths {
             .map(|cfg| cfg.attachment_receive_directory)
             .unwrap_or_else(|| home.mosaico_home.join("tmp/attachments"));
         Self {
+            instance: home.instance,
             nmp_store_path: home.mosaico_home.join("nmp.redb"),
             attachment_receive_directory,
             mosaico_home: home.mosaico_home,

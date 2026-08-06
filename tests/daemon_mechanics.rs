@@ -10,6 +10,8 @@
 
 #[path = "common/mod.rs"]
 mod common;
+#[path = "daemon_mechanics/named_instances.rs"]
+mod named_instances;
 
 use common::TestRelay;
 use std::io::{BufRead, BufReader, Write};
@@ -44,6 +46,7 @@ impl Home {
         let dir = tempfile::tempdir().unwrap();
         // SAFETY: daemon_mechanics serializes env mutation via ENV_LOCK.
         unsafe {
+            std::env::remove_var("MOSAICO");
             std::env::set_var("MOSAICO_HOME", dir.path());
             std::env::set_var("MOSAICO_CONFIG", dir.path().join("config.json"));
             std::env::set_var("MOSAICO_DAEMON_GRACE_S", "30");
@@ -79,11 +82,7 @@ impl Home {
     }
 }
 
-/// The thin client spawns `current_exe() daemon`. In a test binary that is the
-/// test harness, not mosaico — so point it at the built binary via the env
-/// the client reads. We override by building the real binary path and exporting
-/// it... but the client uses current_exe() directly. Instead, tests that need a
-/// REAL spawned daemon must run the actual binary. We use CARGO_BIN_EXE.
+/// Exact standalone binary; the Cargo test harness cannot act as a daemon.
 fn bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mosaico"))
 }
@@ -93,6 +92,7 @@ fn spawn_real_daemon(home: &Home) -> std::process::Child {
     let log = std::fs::File::create(home.dir.path().join("daemon.log")).unwrap();
     std::process::Command::new(bin())
         .arg("daemon")
+        .env_remove("MOSAICO")
         .env("MOSAICO_HOME", home.dir.path())
         .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
         .env("MOSAICO_DAEMON_GRACE_S", "30")

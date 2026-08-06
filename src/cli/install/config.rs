@@ -91,7 +91,7 @@ fn home_dir_from_env(home: Option<String>) -> Result<PathBuf> {
     let Some(home) = home.filter(|h| !h.is_empty()) else {
         bail!(
             "HOME is not set: refusing to install harness hooks under the current directory. \
-             Set HOME to the real user home; MOSAICO_HOME only controls mosaico daemon state."
+             Set HOME to the real user home; MOSAICO and MOSAICO_HOME only select mosaico daemon state."
         );
     };
     Ok(PathBuf::from(home))
@@ -245,7 +245,7 @@ mod tests {
         for home in [None, Some(String::new())] {
             let err = home_dir_from_env(home).unwrap_err().to_string();
             assert!(err.contains("HOME is not set"));
-            assert!(err.contains("MOSAICO_HOME only controls"));
+            assert!(err.contains("MOSAICO and MOSAICO_HOME only select"));
         }
     }
 

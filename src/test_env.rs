@@ -19,6 +19,15 @@ impl EnvGuard {
         guard
     }
 
+    pub(crate) fn remove<K>(key: K) -> Self
+    where
+        K: AsRef<OsStr>,
+    {
+        let mut guard = Self::lock();
+        guard.remove_var(key);
+        guard
+    }
+
     fn lock() -> Self {
         Self {
             _lock: ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
@@ -32,10 +41,24 @@ impl EnvGuard {
         V: AsRef<OsStr>,
     {
         let key = key.as_ref().to_os_string();
+        if key == "MOSAICO_HOME" || key == "MOSAICO_CONFIG" {
+            self.remove_var("MOSAICO");
+        }
         self.remember(&key);
         // SAFETY: lib unit tests that mutate process-global env use this guard,
         // so mutation is serialized and restored before the guard unlocks.
         unsafe { std::env::set_var(key, value) };
+    }
+
+    pub(crate) fn remove_var<K>(&mut self, key: K)
+    where
+        K: AsRef<OsStr>,
+    {
+        let key = key.as_ref().to_os_string();
+        self.remember(&key);
+        // SAFETY: lib unit tests that mutate process-global env use this guard,
+        // so mutation is serialized and restored before the guard unlocks.
+        unsafe { std::env::remove_var(key) };
     }
 
     fn remember(&mut self, key: &OsStr) {

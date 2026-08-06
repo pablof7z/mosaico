@@ -11,12 +11,12 @@ Treat setup as an inspect, explain, install, configure, and verify workflow. Kee
 
 Mosaico gives coding agents a shared awareness fabric. Each session receives an identity, can see relevant peer presence and status, and can send an addressed message that arrives as a real turn in another agent's native session. Mosaico does not replace the harness, run the model, or read every transcript.
 
-One local daemon owns Mosaico's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, Hermes Agent, and Kimi Code. Relay infrastructure is deployed and operated separately; the Mosaico binary only connects to configured `ws://` or `wss://` URLs. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
+One local daemon per selected `MOSAICO` instance owns that instance's SQLite state and relay connection. Thin, fail-open integrations connect supported harnesses: Claude Code, Codex, OpenCode, Grok Build, Goose, Hermes Agent, and Kimi Code. Relay infrastructure is deployed and operated separately; the Mosaico binary only connects to configured `ws://` or `wss://` URLs. Goose requires Mosaico's Open Plugin hooks and native Top Of Mind for both PTY and ACP launches.
 
 ## Follow the safety contract
 
 1. Work only on macOS or Linux. Stop on Windows.
-2. Inspect before changing anything: OS, architecture, existing binary, installed harnesses, and `MOSAICO_HOME`, `MOSAICO_CONFIG`, `GROK_HOME`, or `HERMES_HOME` overrides.
+2. Inspect before changing anything: OS, architecture, existing binary, installed harnesses, and `MOSAICO`, `MOSAICO_HOME`, `MOSAICO_CONFIG`, `GROK_HOME`, or `HERMES_HOME` overrides.
 3. Explain downloads, commands, credentials, and file changes before running them.
 4. Prefer a verified GitHub release binary. Do not install a package manager, Rust, Go, or another harness without explicit approval.
 5. Do not invent operator pubkeys, secrets, relay URLs, or host labels. Show defaults and ask when the right identity or network choice is unclear.
@@ -36,10 +36,19 @@ command -v mosaico || true
 for harness in claude codex opencode grok goose hermes kimi; do command -v "$harness" || true; done
 printf 'MOSAICO_HOME=%s\n' "${MOSAICO_HOME-}"
 printf 'MOSAICO_CONFIG=%s\n' "${MOSAICO_CONFIG-}"
+printf 'MOSAICO=%s\n' "${MOSAICO-}"
 printf 'KIMI_CODE_HOME=%s\n' "${KIMI_CODE_HOME-}"
 ```
 
 If `mosaico` exists, inspect `mosaico --help` and `mosaico setup --status`. A checkout-local or stale executable can differ from the current contract.
+
+When `MOSAICO` is set, keep that exact selector on every setup, doctor,
+lifecycle, harness-launch, and verification command. Unset selects
+`$HOME/.mosaico`; `default` explicitly selects the same root; other valid names
+select `$HOME/.mosaico-instances/<name>`. Never combine the selector with
+`MOSAICO_HOME` or `MOSAICO_CONFIG`, and never use another instance as a fallback
+when the selected daemon is absent. Hook installation is shared and stateless,
+but config, identity, storage, sockets, PTY metadata, and awareness are not.
 
 ## Install a verified release
 
@@ -146,6 +155,6 @@ Explain that the executable and local state are separate from harness integratio
 mosaico uninstall
 ```
 
-The command removes Mosaico-owned hooks, plugins, and runtime skills from every supported harness, even if the harness is no longer detected. It stops the daemon without killing detached PTY supervisors. It never stops or removes external relay infrastructure.
+The command removes device-global Mosaico-owned hooks, plugins, and runtime skills from every supported harness, even if the harness is no longer detected. It stops only the selected daemon without killing detached PTY supervisors. It never stops or removes external relay infrastructure. With `MOSAICO` set, optional state removal targets only that instance, but shared integration removal affects every instance.
 
 The command shows the resolved `MOSAICO_HOME`, explains that it contains device identity, operator trust, sessions, and logs, and defaults to preserving it. Let the user answer the separate cleanup prompt. In a non-interactive shell, state deletion requires both prior explicit user approval and `mosaico uninstall --purge-state --yes`. Never remove the executable or state directory with an inferred or broad path.

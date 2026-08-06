@@ -101,7 +101,10 @@ fn human_report_shows_repairs_and_verdict() {
     let report = DoctorReport {
         healthy: false,
         fix_attempted: false,
-        storage: serde_json::json!({"mosaico_home": "/tmp/mosaico"}),
+        storage: serde_json::json!({
+            "instance": "relay1",
+            "mosaico_home": "/tmp/mosaico"
+        }),
         repairs: Vec::new(),
         checks: vec![
             Check::new("skill", CheckStatus::Error, "missing").repair("run `mosaico doctor --fix`")
@@ -109,6 +112,7 @@ fn human_report_shows_repairs_and_verdict() {
     };
     let rendered = render::human(&report);
     assert!(rendered.contains("mosaico doctor: needs attention"));
+    assert!(rendered.contains("instance: relay1"));
     assert!(rendered.contains("[error] skill: missing"));
     assert!(rendered.contains("mosaico doctor --fix"));
 }

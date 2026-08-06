@@ -1,7 +1,8 @@
-# mosaico: per-machine daemon design
+# mosaico: isolated daemon-instance design
 
 Status: implemented. Implements the architecture change
-from **per-session process** to **one per-machine daemon** that solely owns
+from **per-session process** to
+[**one daemon per selected instance**](daemon-instances.md) that solely owns
 `state.db`, NMP acquisition and durable group publication, chat delivery, presence,
 NIP-29 membership cache, and peer pruning.
 
@@ -13,8 +14,8 @@ concurrent writers this corrupted `state.db` in a real incident. The root cause
 was multiple independent processes treating the same database as theirs to own,
 alongside one relay stack per session.
 
-The fix: collapse to **one daemon per machine** that is the sole owner of the
-database and relay-facing clients. Every CLI invocation and every
+The fix: collapse each selected instance to **one daemon** that is the sole owner
+of that instance's database and relay-facing clients. Every CLI invocation and every
 per-session engine becomes a **thin client** that talks to the daemon over a
 Unix domain socket. One writer by construction → corruption window goes to
 zero; N per-session network stacks collapse to one daemon-owned acquisition and
@@ -41,7 +42,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 ## 3. Process model
 
 ```
-              ┌──────────────────────────── machine ────────────────────────────┐
+              ┌──────────────────── selected instance ──────────────────────────┐
               │                                                                   │
   hook /      │   ┌─────────────┐   UDS    ┌──────────────────────────────────┐  │
   CLI    ───▶ │   │ thin client │ ───────▶ │  mosaico daemon (single proc) │  │
@@ -71,12 +72,11 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 
 Any invocation that needs state does `Daemon::connect_or_spawn()`:
 
-1. Try to `connect()` to `$MOSAICO_HOME/daemon.sock` (default base
-   `~/.mosaico`).
+1. Resolve the selected instance, then try its `daemon.sock`.
 2. If that succeeds → return the client.
 3. If it fails (no listener, or stale socket) → acquire the startup lock (§4),
    re-check (another racer may have just bound), and if still absent, **spawn**
-   the daemon (double-fork / `setsid`, detach stdio → `~/.mosaico/daemon.log`),
+   the daemon (double-fork / `setsid`, detach stdio to the selected `daemon.log`),
    then poll-connect with a short timeout.
 
 ### Managed-session lifecycle
@@ -140,7 +140,7 @@ left orphaned.
 
 ## 4. Socket, lock, stale-reclaim, version handshake
 
-Files (all under `$MOSAICO_HOME`, default `~/.mosaico`):
+Files (all under the selected instance root):
 
 | file          | role                                                        |
 |---------------|-------------------------------------------------------------|
