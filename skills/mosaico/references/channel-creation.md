@@ -166,8 +166,9 @@ and post or preserve any necessary handoff before using it.
 
 Hard delete (NIP-29 kind:9008) is operator-only via the channel manager TUI
 (`mosaico channel list` outside an agent session). It notifies online agents in
-the channel, then deletes the group. Children must be deleted first; archive is
-the softer alternative when you only need to retire membership.
+the channel, then deletes the group. Children must be deleted first (including
+before deleting a workspace root); archive is the softer alternative when you
+only need to retire membership.
 
 `channel init` registers the current non-git directory as a workspace. Use it
 only when the directory genuinely needs a durable workspace binding; do not use

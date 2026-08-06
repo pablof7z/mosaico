@@ -122,13 +122,7 @@ impl PickerState {
             }
             KeyCode::Char('d' | 'D') => {
                 if let Some(row) = self.current() {
-                    if row.depth == 0 && !row.path.contains('/') {
-                        // Public root paths are `#name` (no slash).
-                        self.notice = Some(format!(
-                            "{} is a workspace root — delete children or archive instead",
-                            row.path
-                        ));
-                    } else if row.has_children {
+                    if row.has_children {
                         self.notice = Some(format!(
                             "{} has {} child channel(s) — delete children first",
                             row.path, row.child_count
