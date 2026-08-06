@@ -55,12 +55,17 @@ pub(super) async fn restart() -> Result<()> {
 /// own type instead of a message to grep.
 pub(super) fn discard_superseded_store() -> Result<()> {
     let path = crate::daemon::storage_paths::StoragePaths::current().nmp_store_path;
-    if crate::daemon::blocking::call_no_spawn("ping", serde_json::json!({})).is_ok() {
+    // The daemon holds this for its whole life, so holding it means no daemon
+    // is running or starting — and one that tries to start mid-delete waits
+    // rather than racing the removal. This is also the check that keeps the
+    // door honest about a running owner; asking the socket would miss a daemon
+    // that has started but not yet bound it.
+    let Ok(Some(_startup)) = crate::daemon::client::StartupLock::try_acquire() else {
         bail!(
-            "a daemon is running and owns {}; run `mosaico daemon stop` first",
+            "a daemon owns {}; run `mosaico daemon stop` first",
             path.display()
         );
-    }
+    };
     let discarded = crate::nmp_host::store::discard_superseded(&path)?;
     eprintln!(
         "[mosaico] {}\n\

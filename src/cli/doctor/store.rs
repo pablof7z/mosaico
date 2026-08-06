@@ -20,7 +20,16 @@ use super::{Check, CheckStatus};
 pub(super) fn diagnose_failed_start(error: &anyhow::Error) -> Vec<Check> {
     let path = crate::daemon::storage_paths::StoragePaths::current().nmp_store_path;
     let mut checks = Vec::new();
-    checks.extend(check_for(&path));
+    // Asking the store takes ownership of it, and a daemon binds its socket
+    // before it opens NMP — so an unguarded probe here could win the race
+    // against a daemon that is merely slow to start and be the reason it dies.
+    // The daemon holds this lock for its whole life, so holding it means no
+    // daemon is running or starting, and one that tries waits instead of losing
+    // the store. A `doctor` that broke a healthy startup would be worse than
+    // the missing diagnosis it came to supply.
+    if let Ok(Some(_startup)) = crate::daemon::client::StartupLock::try_acquire() {
+        checks.extend(check_for(&path));
+    }
     checks.push(
         Check::new(
             "daemon",

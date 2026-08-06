@@ -171,6 +171,12 @@ pub(crate) fn opening_refused(error: EngineError) -> anyhow::Error {
 /// `mosaico doctor` can name why a daemon will not start **without** a daemon
 /// — which is the whole situation, since a store NMP refuses is a daemon that
 /// exits before it can answer an RPC.
+///
+/// **The caller must hold the daemon startup lock for this instance.** Asking
+/// the question takes ownership of the store, and a daemon binds its socket
+/// *before* it opens NMP — so an unguarded probe can win the race against a
+/// daemon that is slow to start and make it exit with `StoreAlreadyOpen`. A
+/// store big enough to be slow is exactly the one someone runs `doctor` at.
 pub(crate) fn probe(path: &Path) -> Option<StoreCondition> {
     if !path.exists() {
         return None;
@@ -213,6 +219,9 @@ pub(crate) fn probe(path: &Path) -> Option<StoreCondition> {
 /// `Engine::reset_persistent_store` is the removal, not `std::fs::remove_file`:
 /// NMP owns what the complete store is on disk, including the lock file beside
 /// it, and an operator deleting the one file they can see leaves the rest.
+///
+/// Like [`probe`], **the caller must hold the daemon startup lock**, so no
+/// daemon can be opening this store while it is being deleted.
 pub(crate) fn discard_superseded(path: &Path) -> anyhow::Result<StoreCondition> {
     if !path.exists() {
         anyhow::bail!("there is no NMP store at {} to discard", path.display());
