@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
-use nmp::{ReceiptId, ReceiptStream, SignEventRequest};
+use nmp::{ReceiptStream, SignEventRequest};
 use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Keys, PublicKey, UnsignedEvent};
 
@@ -132,36 +132,26 @@ impl NmpHost {
         let mut unsigned = builder.build(author);
         scrub_unsigned(&mut unsigned);
         let groups: BTreeSet<String> = groups.into_iter().collect();
-        let receipt = self.publish_through_group_door(&groups, author, draft_of(unsigned))?;
-        self.frozen_id(receipt)
+        self.publish_through_group_door(&groups, author, draft_of(unsigned))
     }
 
-    /// The frozen event id NMP gave this accepted write.
+    /// Publish into the NIP-29 group door and return the event id acceptance
+    /// froze.
     ///
-    /// Read back out of NMP's own publish queue rather than derived here: the
-    /// queue's `event_id` IS the write's identity from acceptance onward, and
-    /// it is the post-restamp value in every case including a replaceable
-    /// edit. Mosaico reimplementing NIP-01's hashing rule to guess it — which
-    /// is what this replaced — was a second authority on the same fact.
-    ///
-    /// O(outstanding writes), and deliberately so: NMP has no by-receipt
-    /// lookup door and a scan of the app's own outstanding writes is small.
-    fn frozen_id(&self, receipt: ReceiptId) -> Result<EventId> {
-        self.engine
-            .publish_queue()
-            .map_err(|error| anyhow::anyhow!("reading NMP's publish queue: {error}"))?
-            .into_iter()
-            .find(|entry| entry.receipt_id == receipt)
-            .map(|entry| entry.event_id)
-            .context("NMP accepted the write but its publish queue does not name the receipt")
-    }
-
+    /// The id comes off the `ReceiptStream` the call already returns, because
+    /// the transaction that issued the receipt decided it: it IS the write's
+    /// identity from acceptance onward, and it is the post-restamp value in
+    /// every case including a replaceable edit (NMP #1315). Mosaico neither
+    /// derives it — reimplementing NIP-01's hashing rule was a second
+    /// authority on the same fact — nor reads it back out of the publish
+    /// queue, which materializes every retained receipt to answer a question
+    /// about one write.
     fn publish_through_group_door(
         &self,
         groups: &BTreeSet<String>,
         author: PublicKey,
         builder: nmp::EventBuilder,
-    ) -> Result<ReceiptId> {
+    ) -> Result<EventId> {
         #[cfg(test)]
         if let Some(refusal) = self.test_io.take_write() {
             refusal?;
@@ -173,7 +163,7 @@ impl NmpHost {
             .map_err(|error| anyhow::anyhow!("naming the groups of a write: {error}"))?
             .publish(&self.engine, author, builder)
             .map_err(|error| anyhow::anyhow!("publishing a NIP-29 group write: {error}"))?;
-        Ok(stream.id)
+        Ok(stream.event_id)
     }
 
     /// Publish exact signed bytes to an exact relay set.
