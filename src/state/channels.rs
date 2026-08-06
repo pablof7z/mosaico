@@ -272,6 +272,12 @@ impl Store {
             "DELETE FROM channel_resolution_intents WHERE channel_h=?1",
             params![channel_h],
         )?;
+        // Workspace filesystem bindings are local-only and must not linger after
+        // a root is hard-deleted (kind:9008).
+        transaction.execute(
+            "DELETE FROM workspace_roots WHERE channel_h=?1",
+            params![channel_h],
+        )?;
         transaction.execute(
             "DELETE FROM relay_channels WHERE channel_h=?1",
             params![channel_h],

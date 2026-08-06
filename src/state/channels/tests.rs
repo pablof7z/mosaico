@@ -80,6 +80,13 @@ fn list_child_channels_and_purge_deleted_channel() {
     assert!(store.get_channel("child").unwrap().is_none());
     assert!(store.list_channel_members("child").unwrap().is_empty());
     assert!(store.list_child_channels("root").unwrap().is_empty());
+
+    store
+        .upsert_workspace("root", "/tmp/root-workspace", 3)
+        .unwrap();
+    store.purge_deleted_channel("root").unwrap();
+    assert!(store.get_channel("root").unwrap().is_none());
+    assert!(store.workspace_path("root").unwrap().is_none());
 }
 
 #[test]

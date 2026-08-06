@@ -27,12 +27,8 @@ pub(in crate::daemon::server) async fn delete_channel(
 ) -> Result<serde_json::Value> {
     let channel_ref = state
         .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
-    let is_root = state.with_store(|s| s.is_root_channel(channel))?;
-    if is_root {
-        anyhow::bail!(
-            "cannot delete workspace root {channel_ref}; delete its children or archive it instead"
-        );
-    }
+    // Workspace roots are deletable once empty of children. Hierarchy still
+    // requires leaves first so subtrees are not promoted into accidental roots.
     let children = state.with_store(|s| s.list_child_channels(channel))?;
     if !children.is_empty() {
         anyhow::bail!(
