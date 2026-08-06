@@ -72,6 +72,7 @@ fn self_row(row: &super::capture::SelfCap) -> SelfRow {
         workspace: row.workspace.clone(),
         branch: row.branch.clone(),
         headless: row.headless,
+        unhosted: row.unhosted,
         title: row.title.clone(),
         hint: hint.to_string(),
     }

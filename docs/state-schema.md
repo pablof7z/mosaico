@@ -17,7 +17,22 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 17
+## Current schema: 21
+
+Schema 21 adds `session_coaching`, a generation-scoped ledger of progressive
+agent guidance already emitted. Its `(pubkey, runtime_generation, code)` key
+makes a coaching decision durable across daemon restarts without suppressing
+the same first-use guidance for a later runtime generation.
+
+Schema 20 removes the redundant `messages.direction` field after accepted NMP
+writes became the single source of local message materialization.
+
+Schema 19 adds `messages.attachment_dir`, the verified local directory for
+received attachment labels.
+
+Schema 18 replaces each session's single current-channel pointer with durable
+multi-channel membership and arrival-sequence join fences, simplifies standing
+to `member` or `absent`, and adds workspace/branch status projection.
 
 Schema 17 moves host capability and workspace discovery into the management
 key's complete kind:0 profile snapshot. `relay_profiles.agents_json` stores the

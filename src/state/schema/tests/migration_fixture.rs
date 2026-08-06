@@ -10,6 +10,7 @@ fn create_current(conn: &Connection) {
     for part in super::super::super::ddl::SCHEMA_PARTS {
         conn.execute_batch(part).unwrap();
     }
+    conn.execute("DROP TABLE session_coaching", []).unwrap();
 }
 
 /// Restore `messages.direction`, which schema 20 deleted.
@@ -18,6 +19,7 @@ fn create_current(conn: &Connection) {
 /// and reverting what changed since, so a column deleted at 20 has to come back
 /// before a database can honestly claim to be stamped 19 or earlier.
 pub(super) fn downgrade_messages_to_v19(conn: &Connection) {
+    conn.execute("DROP TABLE session_coaching", []).unwrap();
     conn.execute_batch(
         r#"
         DROP INDEX IF EXISTS idx_messages_author_pubkey;

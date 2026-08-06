@@ -111,12 +111,21 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
 
     let channel_ref = state
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
+    let coaching = super::unhosted_coaching::notices(
+        state,
+        &rec,
+        &original.channel_h,
+        std::slice::from_ref(&original.author_pubkey),
+        false,
+        now_secs(),
+    );
     Ok(serde_json::json!({
         "event_id": published.event_id,
         "reply_to": reply_to,
         "channel": channel_ref,
         "mentioned_pubkey": original.author_pubkey,
         "recipient_reminders": recipient_reminders,
+        "coaching": coaching,
     }))
 }
 

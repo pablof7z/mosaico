@@ -15,7 +15,7 @@ mod reply;
 mod self_target;
 #[cfg(test)]
 mod tests;
-
+mod unhosted_coaching;
 pub(in crate::daemon::server) use params::caller_params;
 pub(in crate::daemon::server) use react::rpc_channel_react;
 pub(in crate::daemon::server) use recipient::resolve_recipient;
@@ -35,6 +35,8 @@ pub(in crate::daemon::server) struct ChannelSendParams {
     force: bool,
     #[serde(default)]
     channel: Option<String>,
+    #[serde(default)]
+    wait_intent: bool,
 }
 
 fn parse_params(params: &serde_json::Value) -> Result<ChannelSendParams> {
@@ -279,6 +281,14 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     if let Some(notice) = ambient_prefix_notice {
         coaching.push(notice);
     }
+    coaching.extend(unhosted_coaching::notices(
+        state,
+        &rec,
+        &publish_scope,
+        &mentioned_pubkeys,
+        p.wait_intent,
+        now_secs(),
+    ));
     Ok(serde_json::json!({
         "event_id": event_id,
         "channel": channel_ref,

@@ -8,6 +8,7 @@
 //!      (`session_locators`), signer material, public handle leases, the inbound
 //!      delivery ledger (`inbox`), backend replay guards (`event_claims`), the
 //!      pending channel-name reservations,
+//!      generation-scoped progressive coaching claims,
 //!      and on-disk workspace paths (`workspace_roots`).
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
@@ -265,6 +266,7 @@ mod retention;
 pub use retention::{
     RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
 };
+mod session_coaching;
 mod session_context;
 mod session_cursor;
 mod session_lifecycle;

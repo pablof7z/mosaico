@@ -26,7 +26,7 @@ fn schema_eighteen_adds_empty_attachment_directory_without_losing_messages() {
     assert_eq!(message.body, "hello");
     assert!(message.attachment_dir.is_empty());
     drop(store);
-    assert_eq!(version(&Connection::open(path).unwrap()), 20);
+    assert_eq!(version(&Connection::open(path).unwrap()), 21);
 }
 
 #[test]

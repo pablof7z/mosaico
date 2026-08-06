@@ -21,5 +21,6 @@ pub(in crate::cli) async fn channel_reply(
         crate::util::short_id(reply_to)
     );
     super::notices::print_recipient_reminders(&v)?;
+    super::notices::print_send_coaching(&v)?;
     Ok(())
 }

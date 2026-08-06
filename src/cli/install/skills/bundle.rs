@@ -43,4 +43,8 @@ pub(super) const SKILL_FILES: &[(&str, &str)] = &[
         "references/public-work-status.md",
         include_str!("../../../../skills/mosaico/references/public-work-status.md"),
     ),
+    (
+        "references/unhosted.md",
+        include_str!("../../../../skills/mosaico/references/unhosted.md"),
+    ),
 ];

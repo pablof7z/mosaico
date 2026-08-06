@@ -146,6 +146,13 @@ starting or exposing it.
   changes. It covers publication cadence, channel choice, transitions, and
   delivery verification.
 
+## Understand Unhosted Sessions
+
+- When `<self>` contains `unhosted="true"`, read [Unhosted
+  Sessions](references/unhosted.md). It explains why mentions cannot start a
+  later turn after the current invocation ends, how bounded waits provide a
+  temporary return path, and when durable PTY re-homing is appropriate.
+
 ## Manage Your Public Work Status
 
 - Read [Public Work Status](references/public-work-status.md) when choosing or

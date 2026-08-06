@@ -12,8 +12,8 @@ const COORDINATION_GUIDE: &str = "~/.agents/skills/mosaico/references/coordinati
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(super) struct CoachingNotice {
     level: &'static str,
-    code: &'static str,
-    summary: String,
+    pub(super) code: &'static str,
+    pub(super) summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     tagged_agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -24,6 +24,22 @@ pub(super) struct CoachingNotice {
     matched_agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     matched_agent_state: Option<&'static str>,
+}
+
+pub(super) fn unhosted_no_return_path() -> CoachingNotice {
+    CoachingNotice {
+        level: "warn",
+        code: "unhosted_no_return_path",
+        summary: "WARN: This session is unhosted and has no active or requested wait for replies. \
+                  A later response will queue but cannot resume you. Read \
+                  `~/.agents/skills/mosaico/references/unhosted.md`."
+            .to_string(),
+        tagged_agent: None,
+        typed_label: None,
+        candidates: Vec::new(),
+        matched_agent: None,
+        matched_agent_state: None,
+    }
 }
 
 pub(super) fn redundant_prefix(label: String) -> CoachingNotice {

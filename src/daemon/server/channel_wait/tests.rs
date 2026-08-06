@@ -1,4 +1,7 @@
 use super::*;
+
+#[path = "tests/active_registry.rs"]
+mod active_registry;
 use crate::state::{RecordMessage, RegisterSession, RelayEvent};
 
 const SELF_PUBKEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -276,4 +279,9 @@ async fn timeout_is_a_normal_structured_outcome() {
     assert_eq!(result["outcome"], "timeout");
     assert_eq!(result["timeout_secs"], 1);
     assert_eq!(result["channels"], serde_json::json!(["#root/x"]));
+    let rec = state
+        .with_store(|store| store.get_session(SELF_PUBKEY))
+        .unwrap()
+        .unwrap();
+    assert!(!state.has_matching_active_wait(&rec, X_CHANNEL, &["peer-pk".into()]));
 }

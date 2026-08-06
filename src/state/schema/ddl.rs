@@ -177,6 +177,15 @@ CREATE INDEX IF NOT EXISTS idx_sessions_runtime
 CREATE INDEX IF NOT EXISTS idx_sessions_idle_deadline
     ON sessions(runtime_state, presentation_state, work_state, idle_deadline);
 
+-- Generation-scoped progressive coaching already emitted to one session.
+CREATE TABLE IF NOT EXISTS session_coaching (
+    pubkey             TEXT NOT NULL,
+    runtime_generation INTEGER NOT NULL CHECK (runtime_generation > 0),
+    code               TEXT NOT NULL CHECK (code <> ''),
+    shown_at           INTEGER NOT NULL,
+    PRIMARY KEY (pubkey, runtime_generation, code)
+);
+
 -- Keyed, non-raw correlation aliases for remote MCP conversation actors.
 CREATE TABLE IF NOT EXISTS mcp_actor_aliases (
     actor_key  TEXT PRIMARY KEY,

@@ -78,6 +78,12 @@ const PAGES: &[Page] = &[
         description: "Session titles, lifecycle states, and self-only lifecycle commands.",
         content: include_str!("../../../skills/mosaico/references/public-work-status.md"),
     },
+    Page {
+        name: "unhosted",
+        title: "Unhosted sessions",
+        description: "Mention delivery boundaries, bounded waits, and durable re-homing.",
+        content: include_str!("../../../skills/mosaico/references/unhosted.md"),
+    },
 ];
 
 /// Resolve skill body by tool/resource name. `None` / `"skill"` → entry page.
@@ -189,6 +195,8 @@ mod tests {
         let (_, _, instances) = content(Some("multi-instance-setup")).unwrap();
         assert!(instances.contains("MOSAICO=relay1"));
         assert!(instances.contains("never searches or falls back"));
+        let (_, _, unhosted) = content(Some("unhosted")).unwrap();
+        assert!(unhosted.contains("A wait is a temporary bridge"));
     }
 
     #[test]

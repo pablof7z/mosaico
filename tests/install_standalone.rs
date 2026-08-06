@@ -63,6 +63,7 @@ fn binary_outside_checkout_installs_statuses_and_uninstalls_skill_and_hooks() {
         "references/message-search.md",
         "references/multi-instance-setup.md",
         "references/public-work-status.md",
+        "references/unhosted.md",
     ] {
         assert!(skill.join(relative).is_file(), "missing {relative}");
     }

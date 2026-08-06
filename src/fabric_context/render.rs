@@ -37,6 +37,9 @@ fn render_self(out: &mut String, row: Option<&SelfRow>) {
         out,
         "\n  <self name=\"@{name}\" host=\"{host}\" headless=\"{headless}\""
     );
+    if row.unhosted {
+        out.push_str(" unhosted=\"true\"");
+    }
     if !row.workspace.is_empty() {
         let _ = write!(out, " workspace=\"{}\"", attr(&row.workspace));
     }

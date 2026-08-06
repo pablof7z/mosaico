@@ -185,6 +185,7 @@ fn channel_send_params(args: &Value) -> Result<Value> {
             "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
             "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
             "channel": opt_string(args, "channel"),
+            "wait_intent": args.get("wait_seconds").is_some(),
         }),
         args,
     ))
@@ -294,30 +295,5 @@ async fn daemon_raw(method: &str, params: Value) -> Result<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_send_rejects_arguments_outside_its_schema() {
-        let error = channel_send_params(&json!({
-            "message": "hello",
-            "long_message": true,
-        }))
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("unsupported mosaico.channel_send argument"));
-        assert!(error.contains("long_message"));
-    }
-
-    #[test]
-    fn explicit_session_remains_an_operator_override() {
-        let params = caller_params(json!({ "session": "explicit" }), Some("remote-actor"));
-        assert_eq!(params["session"], "explicit");
-    }
-
-    #[test]
-    fn remote_actor_is_the_default_session() {
-        let params = caller_params(json!({}), Some("remote-actor"));
-        assert_eq!(params["session"], "remote-actor");
-    }
-}
+#[path = "tools/tests.rs"]
+mod tests;

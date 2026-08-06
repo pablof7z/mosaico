@@ -46,7 +46,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
     });
     assert!(
         wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("/tmp");
+            crate::channels::refresh_channel_members("#tmp");
             Store::open(&home.store_path())
                 .map(|store| {
                     store
@@ -65,6 +65,24 @@ fn send_publishes_then_returns_structured_message_coaching() {
         .unwrap()
         .unwrap()
         .display_slug();
+    let planned_wait = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_send",
+                serde_json::json!({
+                    "session": &sender,
+                    "channel": "#tmp",
+                    "tags": [&receiver_handle],
+                    "message": "request with an arranged wait",
+                    "wait_intent": true
+                }),
+            )
+            .await
+            .expect("planned-wait chat")
+    });
+    assert!(notice(&planned_wait, "unhosted_no_return_path").is_none());
+
     let redundant = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
@@ -72,7 +90,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "tags": [&receiver_handle],
                     "message": format!("{receiver_handle}: please review")
                 }),
@@ -84,6 +102,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
         notice(&redundant, "redundant_tag_prefix").unwrap()["tagged_agent"],
         receiver_handle
     );
+    assert!(notice(&redundant, "unhosted_no_return_path").is_some());
     let receiver_npub = PublicKey::parse(&receiver).unwrap().to_bech32().unwrap();
     let event_id = redundant["event_id"].as_str().unwrap();
     assert!(
@@ -96,6 +115,22 @@ fn send_publishes_then_returns_structured_message_coaching() {
         "normalized chat did not materialize"
     );
 
+    let reply = rt().block_on(async {
+        let mut client = Client::connect_or_spawn().await.expect("connect");
+        client
+            .call(
+                "channel_reply",
+                serde_json::json!({
+                    "session": &receiver,
+                    "id": event_id,
+                    "message": "reviewing"
+                }),
+            )
+            .await
+            .expect("direct reply")
+    });
+    assert!(notice(&reply, "unhosted_no_return_path").is_some());
+
     let ack = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
@@ -103,7 +138,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": "Got it!"
                 }),
             )
@@ -125,7 +160,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": &ambient_body
                 }),
             )
@@ -143,7 +178,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": &ambient_body,
                     "force": true
                 }),

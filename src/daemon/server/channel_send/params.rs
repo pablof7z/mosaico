@@ -11,7 +11,14 @@ const CALLER_FIELDS: &[&str] = &[
     "agent",
     "cwd",
 ];
-const SEND_FIELDS: &[&str] = &["message", "attachments", "tags", "force", "channel"];
+const SEND_FIELDS: &[&str] = &[
+    "message",
+    "attachments",
+    "tags",
+    "force",
+    "channel",
+    "wait_intent",
+];
 const REPLY_FIELDS: &[&str] = &["id", "message", "attachments"];
 
 pub(super) fn validate_send(params: &Value) -> Result<()> {
@@ -70,6 +77,7 @@ mod tests {
                 "tags": [],
                 "force": false,
                 "channel": "#work",
+                "wait_intent": true,
             })
             .as_object()
             .unwrap()

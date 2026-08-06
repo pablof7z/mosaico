@@ -46,6 +46,7 @@ fn install_writes_complete_bundled_agents_skill() {
         ("message-search", "references/message-search.md"),
         ("multi-instance-setup", "references/multi-instance-setup.md"),
         ("public-work-status", "references/public-work-status.md"),
+        ("unhosted", "references/unhosted.md"),
     ] {
         assert_eq!(
             std::fs::read_to_string(installed.join(relative)).unwrap(),
