@@ -60,10 +60,10 @@ async fn the_returned_id_is_the_one_nmp_froze_and_nothing_derived_it() {
     );
 }
 
-/// The id is matched by RECEIPT, not by scanning for something that looks
-/// right. Two writes accepted back to back must come back as two different
-/// ids, in the order they were made -- which a queue scan keyed on anything
-/// weaker than the receipt id could not guarantee.
+/// Each write's id rides its OWN acceptance answer. Two writes accepted back
+/// to back must come back as two different ids, each naming its own durable
+/// receipt -- which is what makes reading the id off the stream the caller
+/// already holds correct, and not merely cheaper.
 #[tokio::test]
 async fn concurrent_writes_each_get_their_own_frozen_id() {
     let host = one_host();
