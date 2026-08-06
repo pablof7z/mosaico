@@ -123,6 +123,10 @@ The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
   restarts the daemon without killing live PTY supervisors. It never opts the
   user into a merely detected harness. Act on any remaining `error` check's
   exact `repair` guidance, then re-run `mosaico doctor --json`.
+- When the user explicitly asks to configure or operate multiple completely
+  isolated Mosaico instances on one host, read [Multiple Isolated
+  Instances](references/multi-instance-setup.md) before running setup,
+  launching harnesses, or managing either daemon.
 
 Do not use `who`, `sessions`, bare `agents`, `agents add`, `agents remove`,
 `launch`, `daemon`, `harness`, `debug`,
