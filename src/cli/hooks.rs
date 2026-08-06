@@ -336,7 +336,8 @@ async fn hook_dispatch(
                     );
                 }
             }
-            let result = turn_start(sid.clone(), emit, degraded_notice).await?;
+            let user_prompt = extract_user_prompt(obj);
+            let result = turn_start(sid.clone(), emit, degraded_notice, user_prompt).await?;
             if host.name == "goose" {
                 crate::goose_integration::sync_hook_context(&hook_type, result.context.as_deref())?;
             }
@@ -375,4 +376,20 @@ async fn hook_dispatch(
         }
     }
     Ok(())
+}
+
+/// Harness user-prompt text used to corroborate PTY inject acceptance.
+fn extract_user_prompt(obj: Option<&serde_json::Map<String, serde_json::Value>>) -> Option<String> {
+    let obj = obj?;
+    for key in ["prompt", "userPrompt", "user_prompt", "content", "message"] {
+        if let Some(text) = obj
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(text.to_string());
+        }
+    }
+    None
 }

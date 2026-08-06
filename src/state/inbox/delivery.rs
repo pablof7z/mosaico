@@ -104,7 +104,7 @@ impl Store {
             "SELECT {COLS} FROM inbox
              LEFT JOIN messages ON messages.message_id=inbox.event_id
              WHERE inbox.target_pubkey=?1
-               AND inbox.state IN ('delivered', 'injected', 'echo_consumed')
+               AND inbox.state IN ('delivered', 'submitted', 'injected', 'echo_consumed')
                AND inbox.delivered_at>=?2
              ORDER BY inbox.created_at ASC"
         ))?;
@@ -112,8 +112,27 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Mark successfully injected rows as awaiting user-prompt echo
-    /// suppression. These rows are no longer pending for turn context delivery.
+    /// PTY wrote the mention as a user prompt; wait for the harness
+    /// user-prompt-submit hook before treating delivery as confirmed.
+    pub fn mark_submitted_for_prompt_confirm(
+        &self,
+        event_ids: &[String],
+        target_pubkey: &str,
+        now: u64,
+    ) -> Result<()> {
+        for id in event_ids {
+            self.conn.execute(
+                "UPDATE inbox SET state='submitted', delivered_at=?3
+                 WHERE event_id=?1 AND target_pubkey=?2
+                   AND state IN ('delivered', 'pending')",
+                params![id, target_pubkey, now],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Mark rows as confirmed PTY user-prompt input (echo-suppress in fabric
+    /// context). Stages work-start handoffs for the confirmed boundary.
     pub fn mark_injected_for_echo(
         &self,
         event_ids: &[String],
@@ -127,7 +146,8 @@ impl Store {
         for id in event_ids {
             transaction.execute(
                 "UPDATE inbox SET state='injected'
-                 WHERE event_id=?1 AND target_pubkey=?2 AND state='delivered'",
+                 WHERE event_id=?1 AND target_pubkey=?2
+                   AND state IN ('delivered', 'submitted')",
                 params![id, target_pubkey],
             )?;
         }
@@ -147,6 +167,17 @@ impl Store {
         Ok(())
     }
 
+    pub fn submitted_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM inbox
+             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             WHERE inbox.target_pubkey=?1 AND inbox.state='submitted'
+             ORDER BY inbox.delivered_at ASC, inbox.created_at ASC"
+        ))?;
+        let rows = stmt.query_map(params![target_pubkey], row_to_inbox)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn injected_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
@@ -156,6 +187,56 @@ impl Store {
         ))?;
         let rows = stmt.query_map(params![target_pubkey], row_to_inbox)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Promote `submitted` rows whose terminal envelope appears in the harness
+    /// user prompt. Returns confirmed event ids. Remaining submissions are left
+    /// for [`Self::reenqueue_submitted`].
+    pub fn confirm_submitted_from_prompt(
+        &self,
+        target_pubkey: &str,
+        prompt: &str,
+        now: u64,
+    ) -> Result<Vec<String>> {
+        let submitted = self.submitted_for_pubkey(target_pubkey)?;
+        let confirmed: Vec<String> = submitted
+            .into_iter()
+            .filter(|row| prompt_corroborates_submission(prompt, row))
+            .map(|row| row.event_id)
+            .collect();
+        if !confirmed.is_empty() {
+            self.mark_injected_for_echo(&confirmed, target_pubkey, now)?;
+        }
+        Ok(confirmed)
+    }
+
+    /// Roll unconfirmed PTY submissions back to `pending` so hook delivery or a
+    /// later inject can retry. Returns the re-enqueued event ids.
+    pub fn reenqueue_submitted(&self, target_pubkey: &str) -> Result<Vec<String>> {
+        let submitted = self.submitted_for_pubkey(target_pubkey)?;
+        let ids: Vec<String> = submitted.into_iter().map(|row| row.event_id).collect();
+        if !ids.is_empty() {
+            self.reenqueue_pending(&ids, target_pubkey)?;
+        }
+        Ok(ids)
+    }
+
+    /// Re-enqueue `submitted` rows whose write is older than `before` (unix secs).
+    pub fn reenqueue_stale_submitted(
+        &self,
+        target_pubkey: &str,
+        before: u64,
+    ) -> Result<Vec<String>> {
+        let submitted = self.submitted_for_pubkey(target_pubkey)?;
+        let ids: Vec<String> = submitted
+            .into_iter()
+            .filter(|row| row.delivered_at > 0 && row.delivered_at < before)
+            .map(|row| row.event_id)
+            .collect();
+        if !ids.is_empty() {
+            self.reenqueue_pending(&ids, target_pubkey)?;
+        }
+        Ok(ids)
     }
 
     pub fn consume_injected_echo(&self, event_ids: &[String], target_pubkey: &str) -> Result<()> {
@@ -168,4 +249,21 @@ impl Store {
         }
         Ok(())
     }
+}
+
+fn prompt_corroborates_submission(prompt: &str, row: &InboxRow) -> bool {
+    if prompt.is_empty() {
+        return false;
+    }
+    let short = crate::util::short_id(&row.event_id);
+    // Terminal inject envelopes carry `id="<short>"` (see agent_xml::write_message).
+    if !short.is_empty() && prompt.contains(&format!("id=\"{short}\"")) {
+        return true;
+    }
+    if prompt.contains(&row.event_id) {
+        return true;
+    }
+    // Body fallback when the harness strips attributes but keeps content.
+    let body = row.body.trim();
+    !body.is_empty() && body.len() >= 12 && prompt.contains(body)
 }

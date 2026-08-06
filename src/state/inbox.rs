@@ -1,10 +1,16 @@
 //! `inbox` — durable inbound delivery state keyed by recipient pubkey.
 //!
 //! One row per (inbound event, target local agent). An event is "handled"
-//! because a row exists. Direct-message rows start `pending` (parked for the next
-//! hook), become `delivered` when surfaced by turn context, or `injected` when
-//! submitted through a hosted PTY as a prompt awaiting echo suppression. Consumed echoes
-//! become `echo_consumed`. Direct delivery belongs to the exact recipient
+//! because a row exists. States:
+//! - `pending` — parked for the next hook or PTY inject
+//! - `delivered` — claimed by hook turn context (or mid-flight PTY claim)
+//! - `submitted` — written to a PTY; awaiting user-prompt-submit corroboration
+//! - `injected` — confirmed as the harness user prompt (echo-suppress in context)
+//! - `echo_consumed` — turn ended after injection
+//!
+//! PTY write success is not confirmation: only the user-prompt hook promotes
+//! `submitted` → `injected`. Unconfirmed submissions are re-enqueued so the
+//! hook path can surface them. Direct delivery belongs to the exact recipient
 //! identity and is independent of that identity's ambient channel membership.
 //! Runtime ids are locators and never enter this ledger; orchestration and
 //! management replay guards live in `event_claims`.
