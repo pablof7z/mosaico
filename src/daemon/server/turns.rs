@@ -70,10 +70,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     // submissions on a prompt-bearing turn roll back to `pending` so this
     // turn's hook path can deliver them. Without a prompt we leave
     // `submitted` alone (stale timeout / later UPS handles it).
-    let prompt = params
-        .get("prompt")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
     if !prompt.is_empty() {
         if let Err(e) = state.with_store(|s| {
             s.confirm_submitted_from_prompt(&rec.pubkey, prompt, now)?;

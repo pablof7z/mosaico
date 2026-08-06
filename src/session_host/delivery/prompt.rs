@@ -234,13 +234,15 @@ fn finalize_injection(
 ) -> Result<()> {
     let now = now_secs();
     let result = match completion {
-        crate::session_host::transport::DeliveryCompletion::ExternallyObserved => state
-            .with_store(|s| {
+        crate::session_host::transport::DeliveryCompletion::ExternallyObserved => {
+            state.with_store(|s| {
                 s.mark_submitted_for_prompt_confirm(&prompt.chat_ids, &rec.pubkey, now)
-            }),
+            })
+        }
         crate::session_host::transport::DeliveryCompletion::Managed { .. }
-        | crate::session_host::transport::DeliveryCompletion::ManagedSteer(_) => state
-            .with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey, now)),
+        | crate::session_host::transport::DeliveryCompletion::ManagedSteer(_) => {
+            state.with_store(|s| s.mark_injected_for_echo(&prompt.chat_ids, &rec.pubkey, now))
+        }
     };
     if let Err(e) = result {
         tracing::error!(
