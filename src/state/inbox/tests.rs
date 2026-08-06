@@ -140,6 +140,64 @@ fn injected_delivery_stages_work_start_for_a_later_hook() {
 }
 
 #[test]
+fn pty_submission_requires_prompt_corroboration_before_injected() {
+    let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk", 1);
+    insert_chat(&s, "abcdef1234567890", 10);
+    s.enqueue_inbox(
+        "abcdef1234567890",
+        "pk",
+        "human",
+        "room",
+        "please review",
+        10,
+    )
+    .unwrap();
+    s.claim_pending_event_ids_for_pubkey(&["abcdef1234567890".into()], "pk", 11)
+        .unwrap();
+    s.mark_submitted_for_prompt_confirm(&["abcdef1234567890".into()], "pk", 12)
+        .unwrap();
+    assert_eq!(state_for(&s, "abcdef1234567890", "pk"), "submitted");
+    assert!(s.take_work_start_claims("pk", 13).unwrap().is_empty());
+
+    let confirmed = s
+        .confirm_submitted_from_prompt(
+            "pk",
+            r#"<user_query><mosaico><message id="abcdef" from="@human">please review</message></mosaico></user_query>"#,
+            14,
+        )
+        .unwrap();
+    assert_eq!(confirmed, vec!["abcdef1234567890".to_string()]);
+    assert_eq!(state_for(&s, "abcdef1234567890", "pk"), "injected");
+    assert_eq!(s.take_work_start_claims("pk", 15).unwrap().len(), 1);
+}
+
+#[test]
+fn unconfirmed_pty_submission_requeues_for_hook_delivery() {
+    let s = Store::open_memory().unwrap();
+    upsert_runtime(&s, "pk", 1);
+    insert_chat(&s, "evt-unconfirmed", 10);
+    s.enqueue_inbox("evt-unconfirmed", "pk", "human", "room", "hello", 10)
+        .unwrap();
+    s.claim_pending_event_ids_for_pubkey(&["evt-unconfirmed".into()], "pk", 11)
+        .unwrap();
+    s.mark_submitted_for_prompt_confirm(&["evt-unconfirmed".into()], "pk", 12)
+        .unwrap();
+
+    // Human turn with unrelated prompt: confirm misses, reenqueue restores pending.
+    assert!(s
+        .confirm_submitted_from_prompt("pk", "what agents do you see?", 13)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        s.reenqueue_submitted("pk").unwrap(),
+        vec!["evt-unconfirmed".to_string()]
+    );
+    assert_eq!(state_for(&s, "evt-unconfirmed", "pk"), "pending");
+    assert_eq!(s.claim_pending_for_pubkey("pk", 14).unwrap().len(), 1);
+}
+
+#[test]
 fn direct_message_survives_route_removal_and_rejoin() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);

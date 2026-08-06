@@ -37,6 +37,7 @@ pub(super) async fn turn_start(
     session: String,
     emit: EmitFormat,
     degraded_notice: Option<String>,
+    user_prompt: Option<String>,
 ) -> Result<HookContextResult> {
     if session.is_empty() {
         if let Some(notice) = degraded_notice {
@@ -61,6 +62,7 @@ pub(super) async fn turn_start(
     }
     let params = crate::cli::rpc_params(serde_json::json!({
         "harness_session": session,
+        "prompt": user_prompt.unwrap_or_default(),
     }));
     // The daemon RPC can itself fail (daemon down/restarting) — exactly the case a
     // degradation marker exists for. If we have one, don't `?`-return and drop it:

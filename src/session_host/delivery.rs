@@ -47,7 +47,8 @@ pub(crate) fn session_has_live_delivery_path(
 }
 
 /// Don't re-inject into the same session within this window (seconds).
-const MESSAGE_INJECT_DEBOUNCE_SECS: u64 = 20;
+/// Coalesces rapid doorbells / double parks; keep short so directed chat stays snappy.
+const MESSAGE_INJECT_DEBOUNCE_SECS: u64 = 2;
 
 static DEBOUNCE: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 fn debounce() -> &'static Mutex<HashMap<String, u64>> {
