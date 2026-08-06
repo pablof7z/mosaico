@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod auth_harness;
+mod boot_recovery;
 use auth_harness::AuthRequiredRelay;
 
 /// mosaico#744. `RowDelta::event()` returns `Some` only for `Added`, so
