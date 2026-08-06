@@ -19,9 +19,12 @@ test: test-all-local
 
 test-all-local: test-dev-scripts test-site test-unit test-hermetic-integration test-local-relay test-local-nip29 test-behavior-contracts
 
+# Test harnesses own exact temporary homes. Do not let the developer's selected
+# live instance conflict with those low-level isolation overrides.
+
 test-dev-scripts:
-    bash skills/mosaico-dev/tests/scripts.sh
-    bash scripts/tests/install-fleet.sh
+    env -u MOSAICO bash skills/mosaico-dev/tests/scripts.sh
+    env -u MOSAICO bash scripts/tests/install-fleet.sh
 
 test-site:
     node site/build.mjs
@@ -29,41 +32,41 @@ test-site:
 
 # Hermetic unit tests only. This is what CI runs.
 test-unit:
-    cargo test --lib
+    env -u MOSAICO cargo test --lib
 
 # Hermetic real-binary contracts that need no relay or external executable.
 test-hermetic-integration:
-    cargo test --test help
-    cargo test --test install_standalone
+    env -u MOSAICO cargo test --test help
+    env -u MOSAICO cargo test --test install_standalone
 
 # Local plain-Nostr relay tests. Requires `nak` on PATH or at `$HOME/go/bin/nak`.
 test-local-relay:
-    cargo test --test daemon_mechanics
-    cargo test --test e2e_transport
+    env -u MOSAICO cargo test --test daemon_mechanics
+    env -u MOSAICO cargo test --test e2e_transport
 
 # Local NIP-29 relay tests. Requires an external Croissant executable at
 # `$NIP29_RELAY_BIN` or on PATH.
 test-local-nip29:
-    cargo test --test daemon_integration -- --test-threads=1
+    env -u MOSAICO cargo test --test daemon_integration -- --test-threads=1
 
 # Narrow deterministic product contracts expressed through Cucumber. Croissant
 # is an external fixture supplied by exact path; the runner always uses Cargo's
 # exact Mosaico binary.
 test-behavior-contracts:
     : "${NIP29_RELAY_BIN:?set NIP29_RELAY_BIN to a Croissant executable}"
-    cargo test --test bdd
+    env -u MOSAICO cargo test --test bdd
 
 test-live-relay-probe:
     : "${MOSAICO_RELAY:?set MOSAICO_RELAY=wss://relay.tenex.chat}"
-    cargo test --test relay_probe -- --ignored --nocapture
+    env -u MOSAICO cargo test --test relay_probe -- --ignored --nocapture
 
 test-live-nip29-probe:
     : "${MOSAICO_NIP29_RELAY:?set MOSAICO_NIP29_RELAY=wss://nip29.f7z.io}"
-    cargo test --test nip29_probe -- --ignored --nocapture
+    env -u MOSAICO cargo test --test nip29_probe -- --ignored --nocapture
 
 test-live-seed-validation:
     : "${MOSAICO_NIP29_RELAY:?set MOSAICO_NIP29_RELAY=wss://nip29.f7z.io}"
-    cargo test --test seed_validation -- --ignored --nocapture
+    env -u MOSAICO cargo test --test seed_validation -- --ignored --nocapture
 
 fmt-check:
     cargo fmt --check

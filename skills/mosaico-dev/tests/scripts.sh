@@ -43,11 +43,11 @@ assert_json() {
   echo "ok: ${label}"
 }
 
+bash "${SKILL}/tests/named-instance-reset.sh" "${ROOT}"
 launch_tail() {
   awk '$0 == "<mosaico>" || $0 == "<mosaico-hosted>" { seen = 1; next } seen'
 }
 
-# shellcheck source=helpers/kimi.sh
 source "${SKILL}/tests/helpers/kimi.sh"
 mkdir -p "${TMP}/launcher-bin" "${TMP}/work"
 cat >"${TMP}/launcher-bin/env" <<'EOF'

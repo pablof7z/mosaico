@@ -49,6 +49,7 @@ fn isolated_command(home: &std::path::Path, args: &[&str]) -> std::process::Outp
         .args(args)
         .env("HOME", home)
         .env("MOSAICO_HOME", home.join(".mosaico"))
+        .env_remove("MOSAICO")
         .env("MOSAICO_ISOLATED_HOME_OK", "1")
         .env(
             "PATH",
@@ -57,6 +58,19 @@ fn isolated_command(home: &std::path::Path, args: &[&str]) -> std::process::Outp
         .env_remove("MOSAICO_AGENT")
         .output()
         .expect("run isolated mosaico")
+}
+
+fn named_command(home: &std::path::Path, instance: &str, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_mosaico"))
+        .args(args)
+        .env("HOME", home)
+        .env("MOSAICO", instance)
+        .env_remove("MOSAICO_HOME")
+        .env_remove("MOSAICO_CONFIG")
+        .env("MOSAICO_ISOLATED_HOME_OK", "1")
+        .env_remove("MOSAICO_AGENT")
+        .output()
+        .expect("run named Mosaico instance")
 }
 
 fn contextual_help(args: &[&str], agent: bool) -> String {
@@ -166,6 +180,59 @@ fn doctor_json_reports_unconfigured_home_and_exits_unhealthy() {
             .display()
             .to_string()
     );
+}
+
+#[test]
+fn named_instance_doctor_reports_its_exact_isolated_storage() {
+    let home = tempfile::tempdir().unwrap();
+    let output = named_command(home.path(), "alternative1", &["doctor", "--json"]);
+    assert!(!output.status.success());
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let selected = home.path().join(".mosaico-instances/alternative1");
+    assert_eq!(report["storage"]["instance"], "alternative1");
+    assert_eq!(
+        report["storage"]["mosaico_home"],
+        selected.display().to_string()
+    );
+    assert_eq!(
+        report["storage"]["state_db_path"],
+        selected.join("state.db").display().to_string()
+    );
+    assert_eq!(
+        report["storage"]["socket_path"],
+        selected.join("daemon.sock").display().to_string()
+    );
+    assert!(!home.path().join(".mosaico").exists());
+}
+
+#[test]
+fn invalid_instance_name_fails_without_touching_any_instance_home() {
+    let home = tempfile::tempdir().unwrap();
+    let output = named_command(home.path(), "../relay1", &["doctor", "--json"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid MOSAICO instance name"));
+    assert!(!home.path().join(".mosaico").exists());
+    assert!(!home.path().join(".mosaico-instances").exists());
+}
+
+#[test]
+fn named_selector_rejects_path_override_instead_of_choosing_precedence() {
+    let home = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_mosaico"))
+        .args(["doctor", "--json"])
+        .env("HOME", home.path())
+        .env("MOSAICO", "relay1")
+        .env("MOSAICO_HOME", home.path().join("override"))
+        .env_remove("MOSAICO_CONFIG")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("MOSAICO cannot be combined with MOSAICO_HOME"));
+    assert!(!home.path().join(".mosaico-instances").exists());
 }
 
 #[test]

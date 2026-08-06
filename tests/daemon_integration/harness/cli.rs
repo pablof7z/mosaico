@@ -43,6 +43,7 @@ fn cli_command(home: &Home, args: &[&str]) -> std::process::Command {
         .env_remove("MOSAICO_PTY_SOCKET")
         .env_remove("MOSAICO_CHANNEL")
         .env_remove("MOSAICO_EPHEMERAL")
+        .env_remove("MOSAICO")
         .env("MOSAICO_HOME", home.dir.path())
         .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
         .env("MOSAICO_BIN", bin())

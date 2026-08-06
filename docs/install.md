@@ -36,6 +36,33 @@ $ mosaico setup --status
 $ mosaico doctor
 ```
 
+## Multiple isolated daemon instances
+
+Use `MOSAICO` to select a daemon and its complete fabric state. The unset value
+uses `$HOME/.mosaico`; `MOSAICO=default` names that default explicitly. Other
+names live under `$HOME/.mosaico-instances/<name>`.
+
+```console
+$ MOSAICO=relay1 mosaico setup --relay wss://relay1.example
+$ MOSAICO=relay2 mosaico setup --relay wss://relay2.example
+$ MOSAICO=relay1 codex --yolo
+$ MOSAICO=relay2 codex --yolo
+```
+
+Each selection has its own config, relay connection, backend and agent
+identities, database, NMP store and cursors, socket, logs, sessions, and PTY
+metadata. A selected command or hook never connects to or falls back to another
+instance. Run diagnostics and lifecycle commands with the same selector, for
+example `MOSAICO=relay1 mosaico doctor` or
+`MOSAICO=relay1 mosaico daemon stop`.
+
+Names must contain 1-63 lowercase letters, digits, hyphens, or underscores and
+must start with a letter or digit. `MOSAICO_HOME` and `MOSAICO_CONFIG` are exact
+test/lab overrides available only while `MOSAICO` is unset; mixed use fails.
+Harness hooks, plugins, runtime skills, and shell wrappers are shared stateless
+installation surfaces. They inherit `MOSAICO` from the harness process, so one
+installation serves every instance without sharing awareness.
+
 ## Shell wrappers
 
 Setup can optionally route a native harness command through Mosaico, so typing
@@ -92,10 +119,12 @@ anything is written, and `--purge-state` is rejected for a scoped uninstall.
 $ mosaico uninstall
 ```
 
-The bare command removes Mosaico-owned hooks, plugins, wrappers, and runtime
+The bare command removes the device-global Mosaico-owned hooks, plugins, wrappers, and runtime
 skills from every supported harness and stops only the Mosaico daemon. It does
 not stop or delete
 an external relay. It preserves `MOSAICO_HOME` by default and separately offers
 to delete its device identity, trust, sessions, and logs after showing the exact
 path and warning that removal is irreversible. The executable remains installed
 until removed with the package manager or file operation that installed it.
+When `MOSAICO` is set, daemon stop and optional state removal target only that
+instance; shared integration removal still affects every instance.

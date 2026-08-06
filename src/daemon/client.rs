@@ -1,4 +1,4 @@
-//! Thin client: connect to the per-machine daemon, spawning it if absent.
+//! Thin client: connect to the selected daemon, spawning it if absent.
 //!
 //! Mechanics (docs/daemon-design.md §4):
 //!   - try to connect to the UDS; if it answers, handshake and use it.

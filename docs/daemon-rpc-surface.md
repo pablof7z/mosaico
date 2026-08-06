@@ -1,6 +1,6 @@
 # mosaico daemon RPC surface
 
-Companion to [daemon-design.md](daemon-design.md). This file owns the durable wire-method catalog for the per-machine daemon.
+Companion to [daemon-design.md](daemon-design.md). This file owns the durable wire-method catalog for a selected-instance daemon.
 
 ## 6. RPC surface (every method)
 

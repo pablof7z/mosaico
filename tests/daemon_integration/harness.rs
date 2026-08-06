@@ -78,6 +78,7 @@ pub(crate) fn bin() -> PathBuf {
 pub(crate) struct Home {
     pub(crate) dir: tempfile::TempDir,
     original_home: Option<std::ffi::OsString>,
+    original_instance: Option<std::ffi::OsString>,
 }
 
 impl Drop for Home {
@@ -87,6 +88,10 @@ impl Drop for Home {
             match self.original_home.take() {
                 Some(home) => std::env::set_var("HOME", home),
                 None => std::env::remove_var("HOME"),
+            }
+            match self.original_instance.take() {
+                Some(instance) => std::env::set_var("MOSAICO", instance),
+                None => std::env::remove_var("MOSAICO"),
             }
         }
     }
@@ -99,7 +104,11 @@ impl Home {
         scavenge_deleted_tmp_mosaico_processes();
         let dir = tempfile::tempdir().unwrap();
         let original_home = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", dir.path()) };
+        let original_instance = std::env::var_os("MOSAICO");
+        unsafe {
+            std::env::remove_var("MOSAICO");
+            std::env::set_var("HOME", dir.path());
+        };
         install_test_harness_shim(dir.path());
         std::env::set_var("MOSAICO_HOME", dir.path());
         let cfg = dir.path().join("config.json");
@@ -126,7 +135,11 @@ impl Home {
             serde_json::to_string(&workspace_map).unwrap(),
         )
         .unwrap();
-        Home { dir, original_home }
+        Home {
+            dir,
+            original_home,
+            original_instance,
+        }
     }
 
     pub(crate) fn with_wedged_relay(relay_url: &str) -> Self {

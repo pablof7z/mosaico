@@ -164,7 +164,7 @@ pub(super) enum Cmd {
     /// Remove all integrations, or only one named harness integration.
     #[command(hide = true)]
     Uninstall(UninstallArgs),
-    /// Manage the per-machine daemon.
+    /// Manage the selected Mosaico daemon instance.
     #[command(name = "daemon")]
     Daemon(DaemonArgs),
     /// Debug: drive a harness over the ACP / app-server transport end-to-end.

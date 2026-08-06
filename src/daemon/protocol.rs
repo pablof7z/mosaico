@@ -1,4 +1,4 @@
-//! Wire protocol for the per-machine daemon (newline-delimited JSON over a UDS).
+//! Wire protocol for a selected-instance daemon (newline-delimited JSON over a UDS).
 //!
 //! Framing: one JSON object per line. A request carries an `id`, a `method`, and
 //! `params`. A response carries the same `id` and either `ok` (single result),

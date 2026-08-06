@@ -1,6 +1,6 @@
-//! The per-machine daemon (M1 daemon migration, stages 2 & 3).
+//! The selected-instance daemon (M1 daemon migration, stages 2 & 3).
 //!
-//! ONE daemon per machine is the sole owner of `state.db`, the (single) relay
+//! ONE daemon per selected instance is the sole owner of its `state.db` and relay
 //! connection, the inbox, presence, membership cache, and peer pruning. Every CLI
 //! invocation and every per-session engine becomes a thin client that talks to
 //! the daemon over a Unix domain socket. One writer by construction → the

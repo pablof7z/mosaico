@@ -9,6 +9,13 @@ pub(super) fn human(report: &DoctorReport) -> String {
         "needs attention"
     };
     writeln!(out, "mosaico doctor: {verdict}").ok();
+    if let Some(instance) = report
+        .storage
+        .get("instance")
+        .and_then(|value| value.as_str())
+    {
+        writeln!(out, "instance: {instance}").ok();
+    }
     if let Some(home) = report
         .storage
         .get("mosaico_home")

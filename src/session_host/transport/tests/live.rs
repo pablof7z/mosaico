@@ -9,6 +9,7 @@ fn live_home(label: &str) -> Option<std::path::PathBuf> {
     }
     let home = std::env::temp_dir().join(format!("acp-{label}-{}", std::process::id()));
     std::fs::create_dir_all(&home).unwrap();
+    std::env::remove_var("MOSAICO");
     std::env::set_var("MOSAICO_HOME", &home);
     std::fs::write(
         home.join("harnesses.json"),
