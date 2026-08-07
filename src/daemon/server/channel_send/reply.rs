@@ -46,7 +46,8 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
     let uploaded_attachments =
-        crate::attachment::upload_all(&p.attachments, &state.cfg.relays, &state.nmp, &keys).await?;
+        crate::attachment::upload_all(&p.attachments, &state.config().relays, &state.nmp(), &keys)
+            .await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
     let recipient_reminders = state.with_store(|store| {
         recipient_notice::reply_suspension_reminders(store, &original, now_secs())
@@ -59,12 +60,12 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         attachments: uploaded_attachments.clone(),
     };
     let published = state
-        .provider
+        .provider()
         .publish_chat_reply_checked(&chat, &reply_to, &keys)
         .await?;
     state.record_coordination_action(&rec);
     let local_directory = match crate::attachment_receive::copy_local(
-        &state.cfg.attachment_receive_directory,
+        &state.config().attachment_receive_directory,
         &published.event_id,
         &p.attachments,
     ) {

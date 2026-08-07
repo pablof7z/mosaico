@@ -59,7 +59,7 @@ pub(super) fn schedule_admission(
                 continue;
             }
             let outcome = state
-                .provider
+                .provider()
                 .grant_member_confirmed(&channel, &pubkey)
                 .await;
             if !outcome.is_confirmed() {

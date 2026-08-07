@@ -35,7 +35,7 @@ pub(super) async fn materialize(
     // directory. If the files are already on disk under this event's id, adopt
     // them rather than fetching bytes back out of Blossom.
     if let Some(directory) = crate::attachment_receive::existing_complete(
-        &state.cfg.attachment_receive_directory,
+        &state.config().attachment_receive_directory,
         &event_id,
         &chat.attachments,
     ) {
@@ -51,7 +51,7 @@ pub(super) async fn materialize(
         return;
     }
     match crate::attachment_receive::download(
-        &state.cfg.attachment_receive_directory,
+        &state.config().attachment_receive_directory,
         &event_id,
         &chat.attachments,
     )

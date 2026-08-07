@@ -69,7 +69,7 @@ pub(super) async fn handle_orchestration(
         return;
     }
 
-    if let Some(declared) = state.provider.fetch_group_parent(&op.child_h).await {
+    if let Some(declared) = state.provider().fetch_group_parent(&op.child_h).await {
         if declared != op.parent && op.parent != op.child_h {
             tracing::warn!(
                 event_id = %&event_id[..event_id.len().min(8)],

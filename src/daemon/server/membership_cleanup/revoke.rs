@@ -43,7 +43,7 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
             .ok()
             .flatten();
         let outcome = state
-            .provider
+            .provider()
             .remove_member_confirmed(&channel, pubkey)
             .await;
         if let Err(error) =

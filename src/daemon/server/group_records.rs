@@ -118,7 +118,7 @@ pub(in crate::daemon::server) fn sync(
     // Open the replacement BEFORE withdrawing the old one, so a failure to
     // open leaves the daemon watching what it was already watching rather than
     // watching nothing.
-    let observation = state.nmp.observe_group_records(predicate)?;
+    let observation = state.nmp().observe_group_records(predicate)?;
     if let Some(drain) = watch.drain.take() {
         drain.abort();
     }

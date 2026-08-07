@@ -124,7 +124,7 @@ pub(super) async fn invite_agent(
     if target
         .backend
         .as_deref()
-        .is_some_and(|backend| backend != state.host)
+        .is_some_and(|backend| backend != state.host())
     {
         let backend = target.backend.as_deref().unwrap();
         let backend_pubkey = resolve_backend_pubkey(state, backend).await?;
@@ -162,7 +162,7 @@ pub(super) async fn invite_agent(
             "agent": target.slug,
             "online_agent": online,
             "channel": channel_ref,
-            "host": state.host,
+            "host": state.host(),
         }));
     }
 
@@ -187,7 +187,7 @@ pub(super) async fn invite_agent(
         "agent": target.slug,
         "online_agent": online,
         "channel": channel_ref,
-        "host": state.host,
+        "host": state.host(),
     }))
 }
 
@@ -211,15 +211,14 @@ pub(super) async fn ensure_backend_admin(
     let parent = state
         .with_store(|s| s.channel_parent(channel_h).unwrap_or(None))
         .filter(|p| !p.is_empty());
-    let ready = state
-        .provider
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: channel_h,
-            expect_member: &mgmt_hex,
-            parent_hint: parent.as_deref(),
-            name: None,
-            repair_whitelisted_admins: true,
-        });
+    let provider = state.provider();
+    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
+        channel: channel_h,
+        expect_member: &mgmt_hex,
+        parent_hint: parent.as_deref(),
+        name: None,
+        repair_whitelisted_admins: true,
+    });
     let gate = tokio::time::timeout(BACKEND_ADMIN_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -229,8 +228,7 @@ pub(super) async fn ensure_backend_admin(
             )
         })?;
     gate.require_ready(format!("preparing channel {channel} for remote invite"))?;
-    let confirmed = state
-        .provider
+    let confirmed = provider
         .grant_admin_confirmed(channel_h, backend_pubkey)
         .await;
     confirmed.require_confirmed(format!(
@@ -260,5 +258,8 @@ async fn publish_invite_orchestration(
     // The directive reaches this backend's own orchestration listener through
     // the group subscription NMP injects the accepted row into (#1182), the
     // same path a peer's directive takes.
-    Ok(state.nmp.publish_group(channel_h, builder, &keys)?.to_hex())
+    Ok(state
+        .nmp()
+        .publish_group(channel_h, builder, &keys)?
+        .to_hex())
 }

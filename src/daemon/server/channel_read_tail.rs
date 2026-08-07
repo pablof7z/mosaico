@@ -208,7 +208,7 @@ pub(in crate::daemon::server) fn chat_row_to_json(
     let (channel, from_ref, recipient_refs) = state.with_store(|store| {
         let channel = crate::channel_ref::full_channel_ref(store, &row.channel_h);
         let from_ref =
-            crate::fabric_context::refs::pubkey_ref(store, &row.author_pubkey, &state.host);
+            crate::fabric_context::refs::pubkey_ref(store, &row.author_pubkey, &state.host());
         let recipient_refs = store
             .message_recipients(&row.message_id)
             .unwrap_or_default()
@@ -217,7 +217,7 @@ pub(in crate::daemon::server) fn chat_row_to_json(
                 crate::fabric_context::refs::pubkey_ref(
                     store,
                     &recipient.recipient_pubkey,
-                    &state.host,
+                    &state.host(),
                 )
             })
             .collect::<Vec<_>>();
@@ -255,7 +255,7 @@ pub(in crate::daemon::server) fn chat_log_row_to_json(
 }
 
 fn chat_row_refs(state: &Arc<DaemonState>, row: &Message) -> (String, String) {
-    let local_host = state.host.clone();
+    let local_host = state.host().clone();
     state.with_store(|s| {
         let profile = s.get_profile(&row.author_pubkey).ok().flatten();
         let session = s.get_session(&row.author_pubkey).ok().flatten();

@@ -122,15 +122,14 @@ pub async fn rpc_channel_add_member(
     let parent_hint = state
         .with_store(|s| s.channel_parent(&channel_h).unwrap_or(None))
         .filter(|parent| !parent.is_empty());
-    let ready = state
-        .provider
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: &channel_h,
-            expect_member: &pubkey_hex,
-            parent_hint: parent_hint.as_deref(),
-            name: None,
-            repair_whitelisted_admins: true,
-        });
+    let provider = state.provider();
+    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
+        channel: &channel_h,
+        expect_member: &pubkey_hex,
+        parent_hint: parent_hint.as_deref(),
+        name: None,
+        repair_whitelisted_admins: true,
+    });
     let gate = tokio::time::timeout(CHANNEL_MEMBER_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -150,12 +149,12 @@ pub async fn rpc_channel_add_member(
     // published here and read back for confirmation.
     let outcome = if p.admin {
         state
-            .provider
+            .provider()
             .grant_admin_confirmed(&channel_h, &pubkey_hex)
             .await
     } else {
         state
-            .provider
+            .provider()
             .grant_member_confirmed(&channel_h, &pubkey_hex)
             .await
     };
@@ -227,7 +226,7 @@ pub async fn rpc_channel_remove_member(
         };
 
     let outcome = state
-        .provider
+        .provider()
         .remove_member_confirmed(&channel_h, &pubkey_hex)
         .await;
     let confirmed = outcome.is_confirmed();

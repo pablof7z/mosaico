@@ -16,7 +16,7 @@ use crate::state::{InboxRow, Store};
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
 use nostr::{Event, Keys};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -59,11 +59,10 @@ use state::{
 /// Shared daemon state. Store guards span synchronous rusqlite calls, never `.await`.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
-    provider: Arc<Nip29Provider>,
-    nmp: Arc<crate::nmp_host::NmpHost>,
-    cfg: Config,
-    host: String,
-    owners: Vec<String>,
+    provider: Arc<RwLock<Arc<Nip29Provider>>>,
+    nmp: Arc<RwLock<Arc<crate::nmp_host::NmpHost>>>,
+    cfg: RwLock<Config>,
+    config_reload: Mutex<()>,
     /// Serializes lifecycle-owned NIP-29 standing transitions. Relay writes
     /// are asynchronous, so an expired removal finishes before a concurrent
     /// exact-session re-admission decides whether it must add again.
@@ -82,11 +81,11 @@ pub struct DaemonState {
 impl DaemonState {
     /// Hex pubkey of the daemon-owned management identity.
     fn backend_pubkey(&self) -> Option<String> {
-        self.provider.management_pubkey()
+        self.provider().management_pubkey()
     }
     /// Management signer for NIP-29 group ops; provisions `mosaicoPrivateKey`.
     fn management_keys(&self) -> Result<Keys> {
-        self.provider
+        self.provider()
             .management_keys()
             .ok_or_else(|| anyhow::anyhow!("no signing key (mosaicoPrivateKey) set"))
     }
@@ -97,13 +96,8 @@ impl DaemonState {
     pub(crate) fn mutate_agent_config<R>(&self, operation: impl FnOnce() -> R) -> R {
         self.agent_config.mutate(operation)
     }
-    /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`);
-    /// classify a mention's sender as human vs agent for envelope presentation.
-    pub(crate) fn whitelisted_pubkeys(&self) -> &[String] {
-        &self.cfg.whitelisted_pubkeys
-    }
     pub(crate) fn per_session_rooms(&self) -> bool {
-        self.cfg.per_session_rooms
+        self.config().per_session_rooms
     }
     pub(crate) fn emit_delivery_failure(
         &self,
@@ -120,8 +114,8 @@ impl DaemonState {
             detail,
         ));
     }
-    pub(crate) fn fabric_provider(&self) -> &Nip29Provider {
-        self.provider.as_ref()
+    pub(crate) fn fabric_provider(&self) -> Arc<Nip29Provider> {
+        self.provider()
     }
     fn hosted_pubkeys(&self) -> Vec<String> {
         self.runtime
@@ -161,6 +155,8 @@ mod channel_send;
 mod channel_wait;
 mod channels_rpc;
 mod chat_target;
+mod config_reload;
+mod config_state;
 mod coordination_reminder;
 mod cross_project_boundary;
 mod cursor;

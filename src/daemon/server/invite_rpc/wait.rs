@@ -152,7 +152,7 @@ fn label_for_pubkey(
         (slug, is_session)
     });
     let slug = slug.unwrap_or_else(|| crate::util::pubkey_short(pubkey));
-    if is_session || backend.is_empty() || backend == state.host {
+    if is_session || backend.is_empty() || backend == state.host() {
         slug
     } else {
         format!("{slug}@{backend}")

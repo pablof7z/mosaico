@@ -72,7 +72,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     let member = state.backend_pubkey().unwrap_or_default();
 
     let gate = state
-        .provider
+        .provider()
         .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
             channel: &child_h,
             expect_member: &member,

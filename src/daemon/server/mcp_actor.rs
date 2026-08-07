@@ -79,12 +79,12 @@ async fn publish_profile(
     let profile = crate::domain::Profile::agent(
         prepared.identity.agent_ref(),
         prepared.identity.slug.clone(),
-        state.host.clone(),
-        state.owners.clone(),
+        state.host().clone(),
+        state.owners().clone(),
     )
     .with_workspace(workspace.to_string());
     state
-        .provider
+        .provider()
         .enqueue(
             &crate::domain::DomainEvent::Profile(profile),
             &prepared.keys,
@@ -98,7 +98,7 @@ async fn publish_profile(
             &prepared.identity.handle,
             &npub,
             &prepared.identity.slug,
-            &state.host,
+            &state.host(),
             false,
             now_secs(),
         )?;

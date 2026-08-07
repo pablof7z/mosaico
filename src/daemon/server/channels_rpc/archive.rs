@@ -37,11 +37,14 @@ pub(in crate::daemon::server) async fn archive_channel(
             },
         ));
         state
-            .nmp
+            .nmp()
             .publish_group(channel, builder, &mgmt_keys)?
             .to_hex()
     };
-    let _ = state.provider.fetch_and_materialize_channel(channel).await;
+    let _ = state
+        .provider()
+        .fetch_and_materialize_channel(channel)
+        .await;
     let metadata_confirmed = state.with_store(|s| s.is_archived_channel(channel))?;
 
     refresh_channel_members_cache(state, channel).await;
@@ -51,7 +54,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     let mut failures = Vec::new();
     for pubkey in &remove_targets {
         let outcome = state
-            .provider
+            .provider()
             .remove_member_confirmed(channel, pubkey)
             .await;
         if let Err(error) = outcome.require_confirmed(format!(

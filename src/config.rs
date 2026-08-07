@@ -5,9 +5,12 @@
 //! label) and keeps all of its writable state under that root. Unset `MOSAICO`
 //! uses `~/.mosaico`; named instances use `~/.mosaico-instances/<name>`.
 //!
-//! `Config` is a *snapshot*, taken when a process starts. Trust decisions that
-//! must honour a withdrawal without a restart do not read it — see
-//! [`mcp_trust`], which re-reads the same document per request.
+//! The daemon maintains a watched in-memory `Config` snapshot. A valid selected
+//! document replacement applies immediately; relay routing or backend-identity
+//! changes rebuild the relay-facing runtime without a daemon restart. Malformed
+//! or transient edits retain the last good snapshot. Trust decisions that must
+//! honour a withdrawal without a reload still read the document per request —
+//! see [`mcp_trust`].
 
 use anyhow::{Context, Result};
 use serde::Deserialize;

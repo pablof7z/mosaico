@@ -37,7 +37,7 @@ pub(super) async fn rpc_dispatch(
     )
     .context("dispatch must be run from within a mosaico agent session")?;
     let backend_pubkey = match target.backend.as_deref() {
-        Some(backend) if backend != state.host => resolve_backend_pubkey(state, backend).await?,
+        Some(backend) if backend != state.host() => resolve_backend_pubkey(state, backend).await?,
         _ => state
             .backend_pubkey()
             .context("local backend has no management pubkey")?,
@@ -70,10 +70,12 @@ pub(super) async fn rpc_dispatch(
     // The dispatch reaches this backend's own session-dispatch listener through
     // the same group subscription (NMP #1182), so nothing is driven inline.
     let dispatch_event_id = state
-        .nmp
+        .nmp()
         .publish_group(&route_channel, builder, &keys)?
         .to_hex();
-    let ack_events = state.nmp.observe(&dispatch_ack_query(&dispatch_event_id))?;
+    let ack_events = state
+        .nmp()
+        .observe(&dispatch_ack_query(&dispatch_event_id))?;
 
     let ack = wait_dispatch_ack(ack_events, dispatch_event_id.clone()).await?;
     let body = dispatch_message_body(&p.message, &ack.pubkey)?;
@@ -245,7 +247,7 @@ async fn send_dispatch_message(
         mentioned_pubkeys: vec![ack.pubkey.clone()],
         attachments: Vec::new(),
     };
-    let published = state.provider.publish_chat_checked(&chat, &keys).await?;
+    let published = state.provider().publish_chat_checked(&chat, &keys).await?;
     Ok(published.event_id)
 }
 

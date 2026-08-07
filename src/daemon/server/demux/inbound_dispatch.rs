@@ -49,7 +49,7 @@ fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
     hosted.extend(state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()));
     hosted.sort_unstable();
     hosted.dedup();
-    let outcome = state.with_store(|s| state.provider.materialize(&env, s));
+    let outcome = state.with_store(|s| state.provider().materialize(&env, s));
     // Claim before spawning: duplicate observations never race the file writer.
     let first_sight = state.first_sight(&event.id.to_hex());
     Prepared {

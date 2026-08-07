@@ -1,8 +1,8 @@
 use super::*;
 use crate::reconcile::StatusReconciler;
-mod auth_restore;
+pub(super) mod auth_restore;
 mod host_profile_bootstrap;
-mod nmp_open;
+pub(super) mod nmp_open;
 mod pending_writes;
 mod shutdown;
 
@@ -32,8 +32,6 @@ pub async fn run() -> Result<()> {
     );
     tracing::info!(socket = %socket_path().display(), "daemon listening");
     let (cfg, backend_keys) = auth_restore::load_backend()?;
-    let host = cfg.host.clone();
-    let owners = cfg.whitelisted_pubkeys.clone();
     let store = Store::open(&store_path())?;
     let reconciled_attempts = store.reconcile_open_native_turn_attempts(now_secs())?;
     if reconciled_attempts > 0 {
@@ -51,15 +49,16 @@ pub async fn run() -> Result<()> {
         cfg.user_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
     ));
+    let provider = Arc::new(std::sync::RwLock::new(provider));
+    let nmp = Arc::new(std::sync::RwLock::new(nmp));
     let presence_publisher =
         crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
     let state = Arc::new(DaemonState {
         store,
         provider,
         nmp,
-        cfg,
-        host,
-        owners,
+        cfg: std::sync::RwLock::new(cfg),
+        config_reload: Mutex::new(()),
         agent_config: AgentConfigState::new(),
         catalog: CatalogState::new(),
         runtime: SessionRuntimeState::new(),
@@ -74,11 +73,12 @@ pub async fn run() -> Result<()> {
         mcp_actor_sync: tokio::sync::Mutex::new(()),
     });
     auth_restore::restore(&state).context("restoring NIP-42 identities")?;
-    pending_writes::spawn(&storage.state_db_path, &state.nmp);
+    pending_writes::spawn(&storage.state_db_path, state.clone());
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());
     spawn_pruner(state.clone());
     super::managed_lifecycle::spawn(state.clone());
+    let _config_watcher = super::config_reload::watch(state.clone(), storage.clone())?;
 
     // Freeze restart-recovery ownership before accepting RPCs. Relay warmup is
     // intentionally asynchronous, but a session admitted through the accept
@@ -117,7 +117,7 @@ pub async fn run() -> Result<()> {
         // renders them by name instead of raw hex. Members we learn about later are
         // warmed as their 3900x events arrive (see `warm_profiles` in the demux).
         {
-            let mut known = relay_state.owners.clone();
+            let mut known = relay_state.owners();
             known.extend(
                 relay_state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()),
             );
@@ -157,7 +157,7 @@ pub async fn run() -> Result<()> {
     // Mosaico owns the group-records observation, so Mosaico withdraws it —
     // before the engine goes down under it.
     super::group_records::shutdown(&state);
-    state.nmp.shutdown();
+    state.nmp().shutdown();
     drop(lock);
     Ok(())
 }

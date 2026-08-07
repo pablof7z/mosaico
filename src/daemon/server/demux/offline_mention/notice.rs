@@ -25,7 +25,7 @@ pub(super) async fn publish_start_failure_notice(
             return;
         }
     };
-    let from = format!("{} (mosaico)", state.host);
+    let from = format!("{} (mosaico)", state.host());
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), from.clone()),
         channel: channel.to_string(),
@@ -33,7 +33,7 @@ pub(super) async fn publish_start_failure_notice(
         mentioned_pubkeys: requester_pubkey.map(str::to_string).into_iter().collect(),
         attachments: Vec::new(),
     };
-    let published = match state.provider.publish_chat_checked(&chat, &keys).await {
+    let published = match state.provider().publish_chat_checked(&chat, &keys).await {
         Ok(published) => published,
         Err(error) => {
             state.emit_delivery_failure(channel, agent_slug, "spawn", body);

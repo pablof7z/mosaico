@@ -86,7 +86,7 @@ pub(super) fn current_evidence(
         .iter()
         .cloned()
         .collect::<HashSet<_>>();
-    let host = state.host.clone();
+    let host = state.host().clone();
     let (is_root, participants, messages, reactions) = state.with_store(|store| -> Result<_> {
         let is_root = super::root_channel(store, parent)? == parent;
         if !is_root {

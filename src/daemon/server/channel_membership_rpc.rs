@@ -74,7 +74,7 @@ pub(in crate::daemon::server) async fn ensure_joinable(
         // transparent; an agent targeting a channel it isn't yet a member of
         // simply gets added silently rather than hitting an access error.
         let added = state
-            .provider
+            .provider()
             .grant_member_confirmed(channel_h, &rec.pubkey)
             .await;
         added.require_confirmed(format!(
@@ -146,7 +146,7 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
     let left = if was_joined {
         let _lane = state.standing_sync.lock().await;
         let removed = state
-            .provider
+            .provider()
             .remove_member_confirmed(&channel, &rec.pubkey)
             .await;
         removed.require_confirmed(format!(

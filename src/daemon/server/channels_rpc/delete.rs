@@ -47,7 +47,7 @@ pub(in crate::daemon::server) async fn delete_channel(
     let mgmt_keys = state.management_keys()?;
     let builder = crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::delete_group());
     let event_id = state
-        .nmp
+        .nmp()
         .publish_group(channel, builder, &mgmt_keys)?
         .to_hex();
 
@@ -147,13 +147,13 @@ async fn publish_deletion_notice(
         }
     );
     let chat = ChatMessage {
-        from: AgentRef::new(pubkey, format!("{} (mosaico)", state.host)),
+        from: AgentRef::new(pubkey, format!("{} (mosaico)", state.host())),
         channel: channel.to_string(),
         body,
         mentioned_pubkeys: agents.iter().map(|a| a.pubkey.clone()).collect(),
         attachments: Vec::new(),
     };
-    let published = state.provider.publish_chat_checked(&chat, &keys).await?;
+    let published = state.provider().publish_chat_checked(&chat, &keys).await?;
     Ok(published.event_id)
 }
 

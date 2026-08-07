@@ -112,7 +112,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             bail!("tag must not be empty");
         }
         let target = state
-            .with_store(|s| resolve_recipient(s, &destination, &state.host, label))
+            .with_store(|s| resolve_recipient(s, &destination, &state.host(), label))
             .with_context(|| format!("resolving --tag {raw:?}"))?;
         self_target::reject(&rec.pubkey, &target.pubkey, self_target::Action::Tag(label))?;
         let same_work_root = state.with_store(|s| -> Result<bool> {
@@ -185,9 +185,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
     let from_pubkey = instance.pubkey.clone();
-    let relays = &state.cfg.relays;
+    let relays = &state.config().relays;
     let uploaded_attachments =
-        crate::attachment::upload_all(&p.attachments, relays, &state.nmp, &chat_signing_keys)
+        crate::attachment::upload_all(&p.attachments, relays, &state.nmp(), &chat_signing_keys)
             .await?;
     let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
     let body_to_send = formatted.wire;
@@ -205,13 +205,13 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         attachments: uploaded_attachments.clone(),
     };
     let published = state
-        .provider
+        .provider()
         .publish_chat_checked(&chat, &chat_signing_keys)
         .await?;
     let event_id = published.event_id;
     let created_at = published.created_at;
     let local_directory = match crate::attachment_receive::copy_local(
-        &state.cfg.attachment_receive_directory,
+        &state.config().attachment_receive_directory,
         &event_id,
         &p.attachments,
     ) {

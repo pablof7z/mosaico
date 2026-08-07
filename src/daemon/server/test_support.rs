@@ -47,8 +47,6 @@ impl DaemonState {
             cross_project_boundary: crate::config::CrossProjectBoundary::default(),
             attachment_receive_directory,
         };
-        let host = cfg.host.clone();
-        let owners = cfg.whitelisted_pubkeys.clone();
         let store = Arc::new(Mutex::new(Store::open_memory().expect("in-memory store")));
         let nmp = Arc::new(
             crate::nmp_host::NmpHost::open(&relays, None, None, &backend_keys)
@@ -61,6 +59,8 @@ impl DaemonState {
             None,
             Vec::new(),
         ));
+        let provider = Arc::new(std::sync::RwLock::new(provider));
+        let nmp = Arc::new(std::sync::RwLock::new(nmp));
         let presence_publisher =
             crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
         let catalog = CatalogState::new();
@@ -69,9 +69,8 @@ impl DaemonState {
             store,
             provider,
             nmp,
-            cfg,
-            host,
-            owners,
+            cfg: std::sync::RwLock::new(cfg),
+            config_reload: Mutex::new(()),
             agent_config: AgentConfigState::new(),
             catalog,
             runtime: SessionRuntimeState::new(),

@@ -226,13 +226,13 @@ async fn publish_reply(
     let keys = state.management_keys()?;
     let pubkey = keys.public_key().to_hex();
     let chat = ChatMessage {
-        from: AgentRef::new(pubkey, format!("{} (mosaico)", state.host)),
+        from: AgentRef::new(pubkey, format!("{} (mosaico)", state.host())),
         channel: channel_h.to_string(),
         body: body.to_string(),
         mentioned_pubkeys: vec![requester.to_string()],
         attachments: Vec::new(),
     };
-    state.provider.publish_chat_checked(&chat, &keys).await?;
+    state.provider().publish_chat_checked(&chat, &keys).await?;
     Ok(())
 }
 

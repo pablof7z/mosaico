@@ -22,7 +22,7 @@ pub(in crate::daemon::server) fn rpc_statusline(
         Err(_) => return Ok(serde_json::json!({ "error": "stale" })),
     };
     let now = now_secs();
-    let host = state.host.clone();
+    let host = state.host().clone();
     // Issue #98: one authoritative agent-instance identity for label + membership.
     let instance = state.session_instance(&rec);
     state.with_store(|s| {

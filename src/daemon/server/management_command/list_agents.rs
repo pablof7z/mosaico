@@ -7,12 +7,12 @@ use std::sync::Arc;
 pub(super) fn list_agents(state: &Arc<DaemonState>) -> Result<String> {
     let snapshot = super::super::backend_profile::backend_profile_snapshot(state)?;
     if snapshot.agents.is_empty() {
-        return Ok(format!("mgmt ok: no agents known on {}", state.host));
+        return Ok(format!("mgmt ok: no agents known on {}", state.host()));
     }
     let mut lines = vec![format!(
         "mgmt ok: {} agent(s) on {}",
         snapshot.agents.len(),
-        state.host
+        state.host()
     )];
     for agent in snapshot.agents {
         let description = crate::agent_about::for_injection(&agent.about);
