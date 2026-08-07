@@ -10,8 +10,6 @@ use nostr::Event;
 
 use super::NmpHost;
 
-const SNAPSHOT_QUIET_PERIOD: Duration = Duration::from_millis(500);
-
 impl NmpHost {
     /// Read the relay-signed records describing ONE group — kinds
     /// 39000/39001/39002 keyed on `d`. Minted by NMP's NIP-29 discovery
@@ -106,26 +104,23 @@ fn strip_limit(mut filter: nmp::Filter) -> nmp::Filter {
     filter
 }
 
+/// `timeout` is the caller's FAILURE bound and nothing else: it caps how long
+/// a read may hang, and a read that hits it yields a snapshot only if the
+/// evidence independently justifies one. It is never the thing that decides a
+/// read is finished — that is `acquisition_settled`, a fact the relays report.
 fn receive_bounded(subscription: nmp::Subscription, timeout: Duration) -> Result<Vec<Event>> {
     let deadline = Instant::now() + timeout;
     let mut latest = None;
-    let mut quiet_deadline: Option<Instant> = None;
     loop {
-        let now = Instant::now();
-        let next_deadline = quiet_deadline
-            .map(|quiet| quiet.min(deadline))
-            .unwrap_or(deadline);
-        let remaining = next_deadline.saturating_duration_since(now);
+        let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return finish_latest(latest);
         }
         match subscription.recv_timeout(remaining) {
             Ok(frame) => {
-                let ready = acquisition_ready(&frame.evidence);
-                quiet_deadline = acquisition_active(&frame.evidence)
-                    .then(|| Instant::now() + SNAPSHOT_QUIET_PERIOD);
+                let done = read_complete(&frame.evidence);
                 latest = Some(frame);
-                if ready {
+                if done {
                     return finish_latest(latest);
                 }
             }
@@ -140,7 +135,11 @@ fn receive_bounded(subscription: nmp::Subscription, timeout: Duration) -> Result
 fn finish_latest(frame: Option<nmp::Frame>) -> Result<Vec<Event>> {
     let frame = frame.context("NMP read produced no snapshot")?;
     let window = frame.window.context("NMP bounded read had no window")?;
-    if window.rows.is_empty() && !empty_result_usable(&frame.evidence) {
+    // An empty row set is evidence of nothing on its own. It becomes an answer
+    // only once the sources reported one — either they finished answering or
+    // they proved the window. A read that merely ran out of time reports a
+    // failure, so no clock can manufacture an authoritative empty.
+    if window.rows.is_empty() && !read_complete(&frame.evidence) {
         anyhow::bail!(
             "NMP read ended without a usable relay acquisition attempt: {:?}",
             frame.evidence
@@ -149,43 +148,60 @@ fn finish_latest(frame: Option<nmp::Frame>) -> Result<Vec<Event>> {
     Ok(window.rows.into_iter().map(|row| row.event).collect())
 }
 
-/// Every branch of the live query must be ready. Per-branch evidence is
-/// positionally indexed against `LiveQuery::branches()` (#1108); one branch's
-/// shortfall is never masked by a sibling's proof, so readiness is the
-/// conjunction over branches and never a fold that loses which branch failed.
-fn acquisition_ready(evidence: &[AcquisitionEvidence]) -> bool {
-    !evidence.is_empty() && evidence.iter().all(branch_ready)
+/// Per-branch acquisition evidence is positionally indexed against
+/// `LiveQuery::branches()` (#1108). One branch's shortfall is never masked by
+/// a sibling's proof, so every test below is the conjunction over branches and
+/// never a fold that loses which branch failed.
+///
+/// The same rule, verbatim, backs the e2e test client's reads
+/// (`tests/common/nmp_client/read.rs`). The two are separate consumers of the
+/// NMP facade on purpose — the test client stands in for a third-party Nostr
+/// client and must not borrow the daemon's read policy — but the question they
+/// ask is one question, and they answer it identically.
+fn all_branches(
+    evidence: &[AcquisitionEvidence],
+    per_branch: impl Fn(&AcquisitionEvidence) -> bool,
+) -> bool {
+    !evidence.is_empty()
+        && evidence.iter().all(|branch| {
+            branch.shortfall.is_empty() && !branch.sources.is_empty() && per_branch(branch)
+        })
 }
 
-fn branch_ready(evidence: &AcquisitionEvidence) -> bool {
-    evidence.shortfall.is_empty()
-        && !evidence.sources.is_empty()
-        && evidence
+/// A bounded read is over when every source has told us so. Two independent
+/// facts each end it, and NMP keeps them independent in both directions
+/// (nmp#1235), so this is a disjunction rather than a choice:
+///
+/// - `acquisition_settled` — every source reached NIP-01's end of stored
+///   events. It sent everything it had for the question it was asked.
+/// - `acquisition_ready` — every source proved a watermark across the query's
+///   window. A read whose coverage is already proven need not wait for the
+///   wire.
+fn read_complete(evidence: &[AcquisitionEvidence]) -> bool {
+    acquisition_settled(evidence) || acquisition_ready(evidence)
+}
+
+/// Every source finished answering — the fact Mosaico used to guess at with a
+/// 500ms quiet period, because `SourceStatus` could not say it (nmp#1235).
+/// Deliberately NOT a completeness verdict: a source that finishes having sent
+/// nothing, and proved nothing, still finished, and that is precisely what
+/// makes an empty snapshot usable.
+fn acquisition_settled(evidence: &[AcquisitionEvidence]) -> bool {
+    all_branches(evidence, |branch| {
+        branch
+            .sources
+            .iter()
+            .all(|source| matches!(source.status, SourceStatus::FinishedStoredEvents))
+    })
+}
+
+fn acquisition_ready(evidence: &[AcquisitionEvidence]) -> bool {
+    all_branches(evidence, |branch| {
+        branch
             .sources
             .iter()
             .all(|source| source.reconciled_through.is_some())
-}
-
-fn empty_result_usable(evidence: &[AcquisitionEvidence]) -> bool {
-    acquisition_ready(evidence)
-        // NMP intentionally exposes source facts rather than a global
-        // completeness verdict. After an event-driven quiet period, an active
-        // request with no routing shortfall is Mosaico's policy for accepting a
-        // bounded snapshot; connection/AUTH failures still wait and fail.
-        || acquisition_active(evidence)
-}
-
-fn acquisition_active(evidence: &[AcquisitionEvidence]) -> bool {
-    !evidence.is_empty() && evidence.iter().all(branch_active)
-}
-
-fn branch_active(evidence: &AcquisitionEvidence) -> bool {
-    evidence.shortfall.is_empty()
-        && !evidence.sources.is_empty()
-        && evidence
-            .sources
-            .iter()
-            .all(|source| matches!(source.status, SourceStatus::Requesting))
+    })
 }
 
 pub(crate) fn filter(
@@ -211,19 +227,4 @@ pub(crate) fn filter(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn filter_preserves_multiple_indexed_constraints() {
-        let filter = filter(
-            &[1],
-            &["ab".repeat(32)],
-            &[('h', "group".into()), ('t', "marker".into())],
-        )
-        .unwrap();
-        assert_eq!(filter.kinds, Some(BTreeSet::from([1])));
-        assert!(filter.authors.is_some());
-        assert_eq!(filter.tags.len(), 2);
-    }
-}
+mod tests;
