@@ -7,11 +7,14 @@ use anyhow::{Context, Result};
 use nmp::{AccessContext, Binding, Demand, IndexedTagName, LiveQuery, RelayUrl, SourceAuthority};
 use nostr::{Event, Filter};
 
-const SNAPSHOT_QUIET_PERIOD: Duration = Duration::from_millis(500);
-
 /// Per-branch acquisition evidence is positionally indexed against
 /// `LiveQuery::branches()` (#1108). One branch's shortfall is never masked by
 /// a sibling's proof, so every branch must independently satisfy the test.
+///
+/// This is the same rule the daemon's own reads apply
+/// (`src/nmp_host/read.rs`), expressed separately because this client stands
+/// in for a third-party Nostr client and must not borrow the daemon's read
+/// policy to prove the daemon works. Same question, same answer.
 fn all_branches(
     evidence: &[nmp::AcquisitionEvidence],
     per_branch: impl Fn(&nmp::AcquisitionEvidence) -> bool,
@@ -20,6 +23,40 @@ fn all_branches(
         && evidence.iter().all(|branch| {
             branch.shortfall.is_empty() && !branch.sources.is_empty() && per_branch(branch)
         })
+}
+
+/// A bounded read is over when every source has told us so — see
+/// `src/nmp_host/read.rs` for why this is a disjunction of two independent
+/// facts rather than a choice between them.
+///
+/// This file used to carry a LOOSER rule than its production twin: it accepted
+/// a mixed set where some sources had proven a watermark and others were
+/// merely `Requesting`, which production rejected. The divergence was real in
+/// the text and inert in practice — `receive_window`'s only caller,
+/// `NmpRelayClient::fetch_events`, strips the caller's NIP-01 `limit` exactly
+/// as the daemon does, so its requests are coverage-eligible here too, and it
+/// pins a single relay, so "some sources" and "all sources" name the same one
+/// source. Neither copy needs its own rule now, and neither has one.
+fn read_complete(evidence: &[nmp::AcquisitionEvidence]) -> bool {
+    acquisition_settled(evidence) || acquisition_ready(evidence)
+}
+
+fn acquisition_settled(evidence: &[nmp::AcquisitionEvidence]) -> bool {
+    all_branches(evidence, |branch| {
+        branch
+            .sources
+            .iter()
+            .all(|source| matches!(source.status, nmp::SourceStatus::FinishedStoredEvents))
+    })
+}
+
+fn acquisition_ready(evidence: &[nmp::AcquisitionEvidence]) -> bool {
+    all_branches(evidence, |branch| {
+        branch
+            .sources
+            .iter()
+            .all(|source| source.reconciled_through.is_some())
+    })
 }
 
 pub(super) fn pinned_query(
@@ -70,32 +107,16 @@ pub(super) fn receive_window(
 ) -> Result<Vec<Event>> {
     let deadline = Instant::now() + timeout;
     let mut latest = None;
-    let mut quiet_deadline: Option<Instant> = None;
     loop {
-        let next_deadline = quiet_deadline
-            .map(|quiet| quiet.min(deadline))
-            .unwrap_or(deadline);
-        let remaining = next_deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
         match subscription.recv_timeout(remaining) {
             Ok(frame) => {
-                let acquisition_ready = all_branches(&frame.evidence, |evidence| {
-                    evidence
-                        .sources
-                        .iter()
-                        .all(|source| source.reconciled_through.is_some())
-                });
-                let acquisition_active = all_branches(&frame.evidence, |evidence| {
-                    evidence
-                        .sources
-                        .iter()
-                        .all(|source| matches!(source.status, nmp::SourceStatus::Requesting))
-                });
-                quiet_deadline = acquisition_active.then(|| Instant::now() + SNAPSHOT_QUIET_PERIOD);
+                let done = read_complete(&frame.evidence);
                 latest = Some(frame);
-                if acquisition_ready {
+                if done {
                     break;
                 }
             }
@@ -109,13 +130,10 @@ pub(super) fn receive_window(
     let window = frame
         .window
         .context("NMP test bounded read had no window")?;
-    let usable_empty = all_branches(&frame.evidence, |evidence| {
-        evidence.sources.iter().all(|source| {
-            source.reconciled_through.is_some()
-                || matches!(source.status, nmp::SourceStatus::Requesting)
-        })
-    });
-    if window.rows.is_empty() && !usable_empty {
+    // An empty row set is evidence of nothing on its own; it becomes an answer
+    // only once the sources reported one. A read that merely ran out of time
+    // reports a failure rather than an authoritative empty.
+    if window.rows.is_empty() && !read_complete(&frame.evidence) {
         anyhow::bail!(
             "NMP test read ended without relay acquisition evidence: load={:?} evidence={:?}",
             window.load,
