@@ -25,6 +25,12 @@ before filesystem, daemon, hook-forensics, or network activity.
 tests and labs only when `MOSAICO` is unset. Combining either override with
 `MOSAICO` is an error; there is no precedence or compatibility fallback.
 
+The selected daemon watches its configuration directory. A valid `config.json`
+replacement applies immediately; relay routing or backend-identity changes
+rebuild the relay-facing runtime while the daemon and detached PTY supervisors
+remain alive. A malformed or transient edit is logged and leaves the last valid
+runtime configuration in service.
+
 ## Isolation boundary
 
 The selected root owns all mutable state that can produce or reveal awareness:

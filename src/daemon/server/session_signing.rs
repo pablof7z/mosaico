@@ -172,8 +172,8 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
     let profile = crate::domain::Profile::agent(
         crate::domain::AgentRef::new(pubkey.to_string(), npub.clone()),
         session.agent_slug.clone(),
-        state.host.clone(),
-        state.owners.clone(),
+        state.host().clone(),
+        state.owners().clone(),
     );
     let domain = crate::domain::DomainEvent::Profile(profile);
     state.with_store(|store| {
@@ -182,14 +182,14 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
             &npub,
             &npub,
             &session.agent_slug,
-            &state.host,
+            &state.host(),
             false,
             now_secs(),
         )?;
         Ok::<_, anyhow::Error>(())
     })?;
     state
-        .provider
+        .provider()
         .enqueue(&domain, &keys)
         .await
         .with_context(|| format!("queueing reclaimed handle retirement profile for {pubkey}"))?;

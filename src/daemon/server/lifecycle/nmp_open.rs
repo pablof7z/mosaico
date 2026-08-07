@@ -13,7 +13,7 @@ use anyhow::Result;
 use crate::daemon::storage_paths::StoragePaths;
 use crate::nmp_host::{store::StoreCondition, NmpHost};
 
-pub(super) fn open(
+pub(in crate::daemon::server) fn open(
     cfg: &crate::config::Config,
     storage: &StoragePaths,
     backend_keys: &nostr::Keys,

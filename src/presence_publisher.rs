@@ -1,6 +1,6 @@
 //! Ordered, non-blocking publication of reconciled presence effects.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use nostr::Keys;
 use tokio::sync::mpsc;
@@ -29,12 +29,16 @@ pub(crate) struct PresencePublisher {
 
 impl PresencePublisher {
     pub(crate) fn spawn(
-        provider: Arc<Nip29Provider>,
+        provider: Arc<RwLock<Arc<Nip29Provider>>>,
         store: Arc<Mutex<Store>>,
     ) -> PresencePublisher {
         let (tx, mut rx) = mpsc::channel::<PublishJob>(PUBLISH_QUEUE_CAPACITY);
         tokio::spawn(async move {
             while let Some(job) = rx.recv().await {
+                let provider = provider
+                    .read()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .clone();
                 let event_ids =
                     apply_status_effects(&job.outcome, &provider, &job.keys, &job.trigger).await;
                 record_status_receipt(&store, &job.outcome, &event_ids);

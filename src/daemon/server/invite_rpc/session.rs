@@ -52,7 +52,7 @@ async fn pull_live_session(
         "agent": rec.agent_slug,
         "online_agent": online,
         "channel": channel,
-        "host": state.host,
+        "host": state.host(),
     }))
 }
 
@@ -90,7 +90,7 @@ async fn resume_local_session(
         "agent": rec.agent_slug,
         "online_agent": online,
         "channel": channel,
-        "host": state.host,
+        "host": state.host(),
     }))
 }
 
@@ -101,7 +101,7 @@ async fn invite_remote_session(
 ) -> Result<serde_json::Value> {
     let channel = state.with_store(|store| crate::channel_ref::full_channel_ref(store, channel_h));
     let remote = remote_session(state, selector)?;
-    if remote.backend == state.host {
+    if remote.backend == state.host() {
         anyhow::bail!(
             "session {} appears to belong to this backend, but no local identity row exists",
             crate::idref::npub(&remote.pubkey).unwrap_or_else(|| remote.pubkey.clone())
@@ -147,7 +147,7 @@ async fn ensure_live_session_member(
     }
 
     let added = state
-        .provider
+        .provider()
         .grant_member_confirmed(channel_h, &rec.pubkey)
         .await;
     added.require_confirmed(format!(

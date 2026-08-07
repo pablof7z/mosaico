@@ -94,7 +94,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
         if participant.pubkey == caller.pubkey {
             continue;
         }
-        if participant.host == state.host {
+        if participant.host == state.host() {
             match current_local_participant(state, participant, &offer.evidence.parent)? {
                 Some(session) => {
                     if let Err(error) =
@@ -265,7 +265,7 @@ async fn publish_running_only_moves(
     let builder = build_admit_running_event(parent, child_h, targets, &prose)?;
     // Delivered to this backend's own orchestration listener through the group
     // subscription, exactly as a peer's admit-running directive is (NMP #1182).
-    Ok(state.nmp.publish_group(parent, builder, &keys)?.to_hex())
+    Ok(state.nmp().publish_group(parent, builder, &keys)?.to_hex())
 }
 
 fn pointer_exists(

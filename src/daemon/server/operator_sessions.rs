@@ -20,7 +20,7 @@ pub(super) fn rpc_operator_sessions(state: &Arc<DaemonState>) -> Result<serde_js
             (metadata.id.clone(), OperatorEndpoint { metadata, live })
         })
         .collect::<HashMap<_, _>>();
-    let sessions = state.with_store(|store| project_sessions(store, &state.host, &endpoints))?;
+    let sessions = state.with_store(|store| project_sessions(store, &state.host(), &endpoints))?;
     Ok(serde_json::json!({ "sessions": sessions }))
 }
 

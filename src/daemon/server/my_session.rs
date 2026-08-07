@@ -12,7 +12,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
 ) -> Result<serde_json::Value> {
     let rec = resolve_caller(state, params, "my session")?;
     let instance = state.session_instance(&rec);
-    let host = state.host.clone();
+    let host = state.host().clone();
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
     let (fabric, missing_profiles) = state.with_store(|store| {
         crate::fabric_context::render_full_session_state(

@@ -70,10 +70,10 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
     let keys = Keys::generate();
     state
-        .nmp
+        .nmp()
         .publish_group("project", EventBuilder::new(Kind::TextNote, "owed"), &keys)
         .expect("acceptance never depends on a relay");
-    state.nmp.script_read_events(Vec::new());
+    state.nmp().script_read_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,
@@ -117,12 +117,12 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
         })
         .unwrap();
     state
-        .nmp
+        .nmp()
         .script_read_events(group_records("project", &management));
     state
-        .nmp
+        .nmp()
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
-    state.nmp.script_read_events(Vec::new());
+    state.nmp().script_read_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,
@@ -173,11 +173,11 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
             store.replace_channel_members("project", &[], 3)
         })
         .unwrap();
-    state.nmp.script_read_events(Vec::new());
+    state.nmp().script_read_events(Vec::new());
     state
-        .nmp
+        .nmp()
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
-    state.nmp.script_read_events(Vec::new());
+    state.nmp().script_read_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,

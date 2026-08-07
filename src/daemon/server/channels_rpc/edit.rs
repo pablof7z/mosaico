@@ -27,7 +27,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         about: Some(p.about.clone()),
         ..nmp_nip29::GroupMetadataEdit::default()
     }));
-    let event_id = state.nmp.publish_group(&channel_h, builder, &mgmt_keys)?;
+    let event_id = state.nmp().publish_group(&channel_h, builder, &mgmt_keys)?;
     let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
     let channel = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
@@ -46,7 +46,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
 async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about: &str) -> bool {
     for _ in 0..20 {
         state
-            .provider
+            .provider()
             .fetch_and_materialize_channel(channel_h)
             .await;
         let matches = state.with_store(|s| {

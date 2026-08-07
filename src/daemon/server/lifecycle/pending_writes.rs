@@ -9,19 +9,16 @@
 //! through here.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use nostr::{Event, JsonUtil};
 
-use crate::nmp_host::NmpHost;
-pub(super) fn spawn(state_db: &Path, nmp: &Arc<NmpHost>) {
+pub(super) fn spawn(state_db: &Path, state: std::sync::Arc<crate::daemon::server::DaemonState>) {
     let state_db = state_db.to_path_buf();
-    let nmp = nmp.clone();
     tokio::spawn(async move {
         loop {
-            match drain_once(&state_db, &nmp).await {
+            match drain_once(&state_db, &state.nmp()).await {
                 Ok(Drain::Complete { imported }) => {
                     if imported > 0 {
                         tracing::info!(imported, "schema migration pending writes imported");
@@ -63,7 +60,7 @@ enum Drain {
     },
 }
 
-async fn drain_once(state_db: &Path, nmp: &NmpHost) -> Result<Drain> {
+async fn drain_once(state_db: &Path, nmp: &crate::nmp_host::NmpHost) -> Result<Drain> {
     let rows = crate::state::load_pending_writes(state_db)?;
     if rows.is_empty() {
         return Ok(Drain::Complete { imported: 0 });

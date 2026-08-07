@@ -40,7 +40,7 @@ pub(super) fn rpc_classify(
         return Ok(allow());
     };
     let Some(notice) = cross_project_boundary::classify(
-        state.cfg.cross_project_boundary,
+        state.config().cross_project_boundary,
         access,
         &session.work_root,
         Path::new(cwd),

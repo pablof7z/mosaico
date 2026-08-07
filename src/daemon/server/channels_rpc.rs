@@ -18,7 +18,7 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     // member. Best-effort and fail-open — a degraded relay leaves the session
     // running without a relay-backed room.
     let gate = state
-        .provider
+        .provider()
         .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
             channel: room_h,
             expect_member: member_pubkey,
@@ -143,17 +143,16 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // member is. Fail loudly if the relay could not provision it.
     let expect_member = creator.as_deref().unwrap_or(&mgmt_pk);
     let standing_lane = state.standing_sync.lock().await;
-    let ready = state
-        .provider
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: &child_h,
-            expect_member,
-            parent_hint: Some(&parent),
-            // Operator-chosen name rides on the create publish; the relay's
-            // kind:39000 echo lands it in the cache (no local fabrication).
-            name: Some(&name),
-            repair_whitelisted_admins: true,
-        });
+    let provider = state.provider();
+    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
+        channel: &child_h,
+        expect_member,
+        parent_hint: Some(&parent),
+        // Operator-chosen name rides on the create publish; the relay's
+        // kind:39000 echo lands it in the cache (no local fabrication).
+        name: Some(&name),
+        repair_whitelisted_admins: true,
+    });
     let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -192,10 +191,13 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             about: Some(p.about.clone()),
             ..nmp_nip29::GroupMetadataEdit::default()
         }));
-        let _ = state.nmp.publish_group(&child_h, builder, &mgmt_keys);
+        let _ = state.nmp().publish_group(&child_h, builder, &mgmt_keys);
         // Re-read the relay's now-updated kind:39000 so the `about` lands in the
         // cache from relay truth, not a local write.
-        let _ = state.provider.fetch_and_materialize_channel(&child_h).await;
+        let _ = state
+            .provider()
+            .fetch_and_materialize_channel(&child_h)
+            .await;
     }
 
     // The confirmed admin roster, read back from the local cache the shared
@@ -229,7 +231,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         // subscription and `demux::chat_ops` routes it (NMP #1182). There is no
         // local fast-path, because there is no longer anything for it to fix.
         state
-            .nmp
+            .nmp()
             .publish_group(&parent, builder, &mgmt_keys)?
             .to_hex()
     };

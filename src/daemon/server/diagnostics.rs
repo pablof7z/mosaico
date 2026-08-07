@@ -3,17 +3,17 @@ use super::*;
 pub(in crate::daemon::server) async fn rpc_doctor(
     state: &Arc<DaemonState>,
 ) -> Result<serde_json::Value> {
-    let relays = state.cfg.relays.clone();
+    let relays = state.config().relays.clone();
     let probe = state
         .keys_for(&state.hosted_pubkeys().first().cloned().unwrap_or_default())
         .map(|k| k.public_key().to_hex());
-    let write_probe = state.provider.doctor_probe().await;
+    let write_probe = state.provider().doctor_probe().await;
     // NMP's publish queue is the ONE account of what this daemon still owes.
     // It is durable, so it survives a restart, and it is where a write parked
     // on a missing signer or permanently refused at acceptance is still
     // visible an hour later. Mosaico used to keep a second, process-local
     // receipt observer beside it; two answers to one question is one too many.
-    let publish_queue = state.nmp.publish_queue_snapshot();
+    let publish_queue = state.nmp().publish_queue_snapshot();
     Ok(serde_json::json!({
         "storage": crate::daemon::storage_paths::StoragePaths::current(),
         "relays": relays,
@@ -34,7 +34,7 @@ pub(in crate::daemon::server) fn rpc_local_backend(
     let pubkey = state
         .backend_pubkey()
         .ok_or_else(|| anyhow::anyhow!("no signing key (mosaicoPrivateKey) configured"))?;
-    Ok(serde_json::json!({ "pubkey": pubkey, "backend_label": state.host.clone() }))
+    Ok(serde_json::json!({ "pubkey": pubkey, "backend_label": state.host().clone() }))
 }
 
 /// Wait for the channel's relay-signed roster to be present in the cache.

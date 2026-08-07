@@ -54,7 +54,7 @@ fn publish_claims(
     };
 
     let reactor = state.session_instance(rec).agent_ref();
-    let provider = state.provider.clone();
+    let provider = state.provider().clone();
     tokio::spawn(async move {
         for claim in claims {
             let reaction = crate::domain::Reaction {

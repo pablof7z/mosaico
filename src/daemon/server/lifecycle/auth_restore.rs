@@ -10,7 +10,7 @@ use crate::{
     daemon::server::DaemonState,
 };
 
-pub(super) fn load_backend() -> Result<(Config, Keys)> {
+pub(in crate::daemon::server) fn load_backend() -> Result<(Config, Keys)> {
     config::ensure_attachment_receive_directory().context("ensuring attachmentReceiveDirectory")?;
     let mut cfg = Config::load().context("loading config")?;
     let backend_nsec = match cfg.backend_nsec().filter(|key| !key.trim().is_empty()) {
@@ -27,8 +27,8 @@ pub(super) fn load_backend() -> Result<(Config, Keys)> {
     Ok((cfg, keys))
 }
 
-pub(super) fn restore(state: &Arc<DaemonState>) -> Result<()> {
-    if let Some(user_nsec) = state.cfg.user_nsec() {
+pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()> {
+    if let Some(user_nsec) = state.config().user_nsec() {
         match Keys::parse(user_nsec) {
             Ok(keys) => register(state, &keys, "operator")?,
             Err(error) => tracing::warn!(
@@ -53,7 +53,7 @@ pub(super) fn restore(state: &Arc<DaemonState>) -> Result<()> {
 }
 
 fn register(state: &Arc<DaemonState>, keys: &Keys, identity_kind: &'static str) -> Result<()> {
-    state.nmp.ensure_identity(keys).with_context(|| {
+    state.nmp().ensure_identity(keys).with_context(|| {
         format!(
             "registering {identity_kind} NIP-42 identity {}",
             keys.public_key()
@@ -110,8 +110,8 @@ mod tests {
         let pubkey = keys.public_key();
         state.with_store(|store| store.bind_session_signer(&pubkey.to_hex(), &salt).unwrap());
 
-        assert!(!state.nmp.identity_registered(pubkey));
+        assert!(!state.nmp().identity_registered(pubkey));
         restore(&state).unwrap();
-        assert!(state.nmp.identity_registered(pubkey));
+        assert!(state.nmp().identity_registered(pubkey));
     }
 }

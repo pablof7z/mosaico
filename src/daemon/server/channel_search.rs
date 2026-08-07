@@ -228,7 +228,7 @@ fn render_groups(
             let from = crate::fabric_context::refs::pubkey_ref(
                 store,
                 &hit.message.author_pubkey,
-                &state.host,
+                &state.host(),
             );
             let recipients = hit
                 .recipients
@@ -237,7 +237,7 @@ fn render_groups(
                     crate::fabric_context::refs::pubkey_ref(
                         store,
                         &edge.recipient_pubkey,
-                        &state.host,
+                        &state.host(),
                     )
                 })
                 .collect();

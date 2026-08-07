@@ -51,7 +51,7 @@ fn referenced_pubkeys(event: &Event) -> Vec<String> {
 
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     let mut batches = state
-        .nmp
+        .nmp()
         .take_materialization_events()
         .expect("NMP materialization stream has one daemon owner");
     tokio::spawn(async move {

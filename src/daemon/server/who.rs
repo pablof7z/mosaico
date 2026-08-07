@@ -33,7 +33,7 @@ pub(in crate::daemon::server) fn rpc_who(
 ) -> Result<serde_json::Value> {
     let p: WhoParams = serde_json::from_value(params.clone()).unwrap_or_default();
     if p.expired {
-        let host = state.host.clone();
+        let host = state.host().clone();
         let rows = state.with_store(|s| {
             crate::expired_sessions::load_expired_sessions(s, &host, EXPIRED_SESSION_LIMIT)
         });
@@ -60,7 +60,7 @@ pub(in crate::daemon::server) fn rpc_who(
         })
     };
     let now = now_secs();
-    let host = state.host.clone();
+    let host = state.host().clone();
     // This daemon's own management pubkey, excluded from every rendered roster so
     // the backend key never appears as a channel member (its kind:0 is absent on a
     // cold cache, so identity — not a fetched profile — is the reliable signal).

@@ -93,7 +93,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &state.store,
         &rec,
         &backend_pubkey,
-        &state.host,
+        &state.host(),
         prev_started,
         &state.runtime.hook_contexts,
     )?;
@@ -145,7 +145,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
     let mut turn = crate::turn_context::assemble_turn_check(
         &state.store,
         &rec,
-        &state.host,
+        &state.host(),
         delta_since,
         now,
         &state.runtime.hook_contexts,

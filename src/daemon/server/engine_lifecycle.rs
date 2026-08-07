@@ -67,7 +67,7 @@ pub(in crate::daemon::server) async fn spawn_session(
 
     let st = state.clone();
     let task_pubkey = pubkey.clone();
-    let provider = state.provider.clone();
+    let provider = state.provider().clone();
     let store = state.store.clone();
     let status = state.reconcilers.status.clone();
     let presence_publisher = state.reconcilers.presence_publisher.clone();
@@ -295,7 +295,7 @@ pub(in crate::daemon::server) async fn reconcile_sessions(
             }
         };
         let ep = engine_params_for(
-            &state.cfg,
+            &state.config(),
             identity,
             keys,
             runtime_generation,

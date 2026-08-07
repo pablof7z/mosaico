@@ -67,7 +67,7 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     .await
     .expect("presence publisher status receipt");
 
-    state.nmp.script_read_events(Vec::new());
+    state.nmp().script_read_events(Vec::new());
     let response = super::super::super::dispatch(
         &state,
         &Request {
@@ -87,7 +87,7 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     let stuck = queue["stuck"].as_array().unwrap();
     assert!(stuck.is_empty(), "a status write needs nobody: {queue}");
     let entries = state
-        .nmp
+        .nmp()
         .publish_queue_entry_ids()
         .expect("the publish queue is readable");
     assert!(

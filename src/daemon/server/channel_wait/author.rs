@@ -30,7 +30,12 @@ impl AuthorFilter {
             let first_scope = &scopes[0];
             let mut resolved_any = false;
             if let Ok(resolved) = state.with_store(|store| {
-                super::super::channel_send::resolve_recipient(store, first_scope, &state.host, &raw)
+                super::super::channel_send::resolve_recipient(
+                    store,
+                    first_scope,
+                    &state.host(),
+                    &raw,
+                )
             }) {
                 resolved_any = true;
                 filter.pubkeys.insert(resolved.pubkey);

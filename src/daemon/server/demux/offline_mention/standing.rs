@@ -47,7 +47,10 @@ pub(super) async fn confirm(state: &Arc<DaemonState>, pubkey: &str, channel: &st
     let session = state
         .with_store(|store| store.get_session(pubkey))?
         .with_context(|| format!("exact recovery target {pubkey} disappeared"))?;
-    let outcome = state.provider.grant_member_confirmed(channel, pubkey).await;
+    let outcome = state
+        .provider()
+        .grant_member_confirmed(channel, pubkey)
+        .await;
     if !outcome.is_confirmed() {
         anyhow::bail!("relay admission was not confirmed: {outcome:?}");
     }
