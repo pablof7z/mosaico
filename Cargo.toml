@@ -10,9 +10,26 @@ keywords = ["agents", "coding-agents", "nostr", "nip29", "cli"]
 name = "mosaico"
 path = "src/main.rs"
 
+[[bin]]
+name = "nmp-subscription-stress"
+path = "tools/nmp_subscription_stress/main.rs"
+required-features = ["stress-harness"]
+
 [lib]
 name = "mosaico"
 path = "src/lib.rs"
+
+[features]
+# Opt-in only: the stress binary reaches NMP's explicitly benchmark-gated
+# reducer/store counters and pure router seam. Production never enables it.
+stress-harness = [
+    "dep:nmp-router",
+    "dep:nmp-resolver",
+    "dep:nmp-store",
+    "dep:tempfile",
+    "nmp/bench-instrumentation",
+    "nmp-store/bench-instrumentation",
+]
 
 [[test]]
 name = "bdd"
@@ -43,12 +60,15 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
-nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
-nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
-nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
-nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
-nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "23021464efb2b1bc9e25de2dbbedb900ae8af768" }
+nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
+nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
+nmp-resolver = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb", optional = true }
+nmp-router = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb", optional = true }
+nmp-store = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb", optional = true }
+nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
+nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
+nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "bca64d75eeee8496b93ca220976c4fa6046cf6cb" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"
@@ -60,6 +80,7 @@ portable-pty = "0.9"
 toml = "0.9"
 unicode-width = "0.2"
 url = "2"
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 cucumber = "0.21"
