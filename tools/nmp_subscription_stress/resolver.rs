@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use anyhow::{Context, Result};
-use nmp_resolver::Engine;
+use anyhow::{bail, Context, Result};
+use nmp_resolver::{Engine, SubscribeOutcome};
 use nmp_store::RedbStore;
 
 use crate::args::Topology;
@@ -22,10 +22,12 @@ pub(crate) fn run_resolver(
     let mut open_samples = Samples::default();
     let mut handles = Vec::with_capacity(demands.len());
     for demand in demands {
-        let (handle, _) = open_samples
-            .record(|| resolver.subscribe(demand))
-            .context("opening resolver control")?;
-        handles.push(handle);
+        match open_samples.record(|| resolver.subscribe(demand)) {
+            SubscribeOutcome::Opened { handle, .. } => handles.push(handle),
+            SubscribeOutcome::Refused { error, .. } => {
+                bail!("opening resolver control: {error}")
+            }
+        }
     }
     let open_elapsed = started.elapsed();
     let (index_rows, event_values, examined_rows) = resolver.store().query_work();

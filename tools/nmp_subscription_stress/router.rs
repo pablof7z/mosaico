@@ -7,6 +7,7 @@ use nmp_router::{diff_plans, FixtureRoutingFacts, Router, RuleRegistry};
 
 use crate::args::{Args, Topology};
 use crate::measure::{Metric, Samples};
+use crate::router_metrics;
 use crate::workload::Workload;
 
 pub(crate) fn run_router(
@@ -23,9 +24,9 @@ pub(crate) fn run_router(
     let mut incremental_wire_ops = 0usize;
     for atom in &demand {
         incremental_demand.insert(atom.clone());
-        let delta = incremental_samples
+        let outcome = incremental_samples
             .record(|| incremental_router.compile(&incremental_demand, &facts, 8));
-        incremental_wire_ops += wire_ops(&delta);
+        incremental_wire_ops += wire_ops(&outcome.wire);
     }
     let incremental = Metric::new(
         "internal_control",
@@ -39,74 +40,99 @@ pub(crate) fn run_router(
     .note("legacy control: one whole-demand compile after each new atom; not the admission path");
 
     let mut admission_router = Router::new(RuleRegistry::default_widen_only());
+    admission_router.reset_admission_work();
     let started = Instant::now();
     let mut admission_samples = Samples::default();
-    let admission_delta = admission_samples.record(|| admission_router.admit(&demand, &facts, 8));
-    let admission = Metric::new(
-        "internal_control",
-        "router_pending_cohort_admit",
-        topology.label(),
-        started.elapsed(),
-        admission_samples,
-    )
-    .count("demand_atoms", demand.len() as u64)
-    .count("wire_ops", wire_ops(&admission_delta) as u64)
-    .count(
-        "wire_reqs",
-        admission_router
-            .plan()
-            .reqs
-            .values()
-            .map(Vec::len)
-            .sum::<usize>() as u64,
+    let admission_outcome = admission_samples.record(|| admission_router.admit(&demand, &facts, 8));
+    let admission_work = admission_router.admission_work();
+    let admission = router_metrics::admission(
+        Metric::new(
+            "internal_control",
+            "router_pending_cohort_admit",
+            topology.label(),
+            started.elapsed(),
+            admission_samples,
+        )
+        .count("demand_atoms", demand.len() as u64)
+        .count("wire_ops", wire_ops(&admission_outcome.wire) as u64)
+        .count(
+            "changed_coverage_keys",
+            admission_outcome.changed_coverage.len() as u64,
+        )
+        .count(
+            "request_metadata_updates",
+            admission_outcome.request_metadata_updates.len() as u64,
+        )
+        .count(
+            "diagnostics_changed",
+            u64::from(admission_outcome.diagnostics_changed),
+        )
+        .count(
+            "wire_reqs",
+            admission_router
+                .plan()
+                .reqs
+                .values()
+                .map(Vec::len)
+                .sum::<usize>() as u64,
+        ),
+        admission_work,
     )
     .note("one pending cohort routed and coalesced without incumbent rewrites");
 
+    admission_router.reset_admission_work();
     let started = Instant::now();
-    let mut attach_samples = Samples::default();
-    let mut attach_wire_ops = 0usize;
+    let mut readmit_samples = Samples::default();
+    let mut readmit_wire_ops = 0usize;
     for atom in &demand {
-        let delta = attach_samples
+        let outcome = readmit_samples
             .record(|| admission_router.admit(&BTreeSet::from([atom.clone()]), &facts, 8));
-        attach_wire_ops += wire_ops(&delta);
+        readmit_wire_ops += wire_ops(&outcome.wire);
     }
-    let attach = Metric::new(
-        "internal_control",
-        "router_active_attach",
-        topology.label(),
-        started.elapsed(),
-        attach_samples,
+    let readmit_work = admission_router.admission_work();
+    let readmit = router_metrics::admission(
+        Metric::new(
+            "internal_control",
+            "router_existing_demand_readmit",
+            topology.label(),
+            started.elapsed(),
+            readmit_samples,
+        )
+        .count("demand_atoms", demand.len() as u64)
+        .count("wire_ops", readmit_wire_ops as u64),
+        readmit_work,
     )
-    .count("demand_atoms", demand.len() as u64)
-    .count("wire_ops", attach_wire_ops as u64)
-    .note("exact active coverage lookup only; zero compile and zero wire work");
+    .note("router DemandKey re-admission no-op; observation-owner attachment is a core scenario");
 
-    let mut active = demand.clone();
+    admission_router.reset_withdrawal_work();
     let started = Instant::now();
     let mut withdraw_samples = Samples::default();
     let mut withdraw_wire_ops = 0usize;
     for atom in &demand {
-        active.remove(atom);
-        let delta = withdraw_samples.record(|| admission_router.withdraw(&active, 8));
-        withdraw_wire_ops += wire_ops(&delta);
+        let outcome = withdraw_samples.record(|| admission_router.withdraw([atom.clone()], 8));
+        withdraw_wire_ops += wire_ops(&outcome.wire);
     }
-    let withdraw = Metric::new(
-        "internal_control",
-        "router_incremental_withdraw",
-        topology.label(),
-        started.elapsed(),
-        withdraw_samples,
+    let withdrawal_work = admission_router.withdrawal_work();
+    let withdraw = router_metrics::withdrawal(
+        Metric::new(
+            "internal_control",
+            "router_incremental_withdraw",
+            topology.label(),
+            started.elapsed(),
+            withdraw_samples,
+        )
+        .count("demand_atoms", demand.len() as u64)
+        .count("wire_ops", withdraw_wire_ops as u64),
+        withdrawal_work,
     )
-    .count("demand_atoms", demand.len() as u64)
-    .count("wire_ops", withdraw_wire_ops as u64)
-    .note("immutable router withdrawal only; excludes resolver snapshots and core diagnostics");
+    .note("exact delta withdrawal; structural counts are deterministic across machines");
 
     let mut router = Router::new(RuleRegistry::default_widen_only());
     let started = Instant::now();
     let mut initial_samples = Samples::default();
-    let initial_delta = initial_samples.record(|| router.compile(&demand, &facts, 8));
+    let initial_outcome = initial_samples.record(|| router.compile(&demand, &facts, 8));
     let initial_elapsed = started.elapsed();
-    let initial_ops = wire_ops(&initial_delta);
+    let initial_ops = wire_ops(&initial_outcome.wire);
     let wire_reqs = router.plan().reqs.values().map(Vec::len).sum::<usize>();
     let initial = Metric::new(
         "internal_control",
@@ -119,14 +145,22 @@ pub(crate) fn run_router(
     .count("semantic_values", workload.semantic_values() as u64)
     .count("wire_reqs", wire_reqs as u64)
     .count("wire_ops", initial_ops as u64)
+    .count(
+        "request_metadata_updates",
+        initial_outcome.request_metadata_updates.len() as u64,
+    )
+    .count(
+        "request_replacements",
+        initial_outcome.replacements.len() as u64,
+    )
     .note("pure full router compile; all atoms target one .invalid relay partition");
 
     let started = Instant::now();
     let mut stable_samples = Samples::default();
     let mut stable_wire_ops = 0usize;
     for _ in 0..args.iterations {
-        let delta = stable_samples.record(|| router.compile(&demand, &facts, 8));
-        stable_wire_ops += wire_ops(&delta);
+        let outcome = stable_samples.record(|| router.compile(&demand, &facts, 8));
+        stable_wire_ops += wire_ops(&outcome.wire);
     }
     let stable = Metric::new(
         "internal_control",
@@ -187,10 +221,10 @@ pub(crate) fn run_router(
     let mut churn_wire_ops = 0usize;
     for iteration in 0..args.iterations {
         let changed = changed_demand(&demand, iteration);
-        let delta = churn_samples.record(|| router.compile(&changed, &facts, 8));
-        churn_wire_ops += wire_ops(&delta);
-        let delta = churn_samples.record(|| router.compile(&demand, &facts, 8));
-        churn_wire_ops += wire_ops(&delta);
+        let outcome = churn_samples.record(|| router.compile(&changed, &facts, 8));
+        churn_wire_ops += wire_ops(&outcome.wire);
+        let outcome = churn_samples.record(|| router.compile(&demand, &facts, 8));
+        churn_wire_ops += wire_ops(&outcome.wire);
     }
     let churn = Metric::new(
         "internal_control",
@@ -206,7 +240,7 @@ pub(crate) fn run_router(
     Ok(vec![
         incremental,
         admission,
-        attach,
+        readmit,
         withdraw,
         initial,
         stable,

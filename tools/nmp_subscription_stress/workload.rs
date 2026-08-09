@@ -22,7 +22,11 @@ pub(crate) struct Workload {
 
 impl Workload {
     pub(crate) fn new(args: &Args) -> Result<Self> {
-        let identity_count = args.mailboxes.max(args.profile_burst).max(1);
+        let identity_count = args
+            .retained
+            .max(args.mailboxes)
+            .max(args.profile_burst)
+            .max(1);
         let identities = (0..identity_count)
             .map(|index| deterministic_keys(args.seed, index))
             .collect::<Result<Vec<_>>>()?;
@@ -81,13 +85,21 @@ impl Workload {
     }
 
     pub(crate) fn profile_query(&self, index: usize) -> Result<LiveQuery> {
+        self.profile_query_with_freshness(index, Freshness::CacheOnly)
+    }
+
+    pub(crate) fn profile_query_with_freshness(
+        &self,
+        index: usize,
+        freshness: Freshness,
+    ) -> Result<LiveQuery> {
         let author = self.identity_hex[index % self.identity_hex.len()].clone();
         let filter = Filter {
             kinds: Some(BTreeSet::from([0u16])),
             authors: Some(Binding::Literal(BTreeSet::from([author]))),
             ..Filter::default()
         };
-        self.cache_only_query(filter, CacheMode::Agnostic)
+        self.query(filter, CacheMode::Agnostic, freshness)
     }
 
     pub(crate) fn router_atoms(&self, topology: Topology) -> Result<BTreeSet<ContextualAtom>> {
@@ -130,6 +142,19 @@ impl Workload {
     }
 
     fn tag_query(&self, tag: char, values: &[String]) -> Result<LiveQuery> {
+        self.tag_query_with_freshness(tag, values, Freshness::CacheOnly)
+    }
+
+    fn live_tag_query(&self, tag: char, values: &[String]) -> Result<LiveQuery> {
+        self.tag_query_with_freshness(tag, values, Freshness::Live)
+    }
+
+    fn tag_query_with_freshness(
+        &self,
+        tag: char,
+        values: &[String],
+        freshness: Freshness,
+    ) -> Result<LiveQuery> {
         let filter = Filter {
             kinds: Some(BTreeSet::from([9u16])),
             tags: BTreeMap::from([(
@@ -138,17 +163,17 @@ impl Workload {
             )]),
             ..Filter::default()
         };
-        self.cache_only_query(filter, CacheMode::Strict)
+        self.query(filter, CacheMode::Strict, freshness)
     }
 
-    fn cache_only_query(&self, filter: Filter, cache: CacheMode) -> Result<LiveQuery> {
+    fn query(&self, filter: Filter, cache: CacheMode, freshness: Freshness) -> Result<LiveQuery> {
         let mut demand = Demand::new(
             filter,
             SourceAuthority::Pinned(BTreeSet::from([self.relay.clone()])),
             AccessContext::Public,
         )?;
         demand.cache = cache;
-        demand.freshness = Freshness::CacheOnly;
+        demand.freshness = freshness;
         Ok(LiveQuery::single(demand))
     }
 
@@ -188,38 +213,8 @@ fn store_tag_filter(tag: char, values: &[String]) -> nostr::Filter {
 }
 
 #[cfg(test)]
-mod tests {
-    use clap::Parser;
+#[path = "workload/tests.rs"]
+mod tests;
 
-    use super::*;
-
-    #[test]
-    fn sharding_preserves_values_and_reduces_handles() {
-        let args = Args::parse_from([
-            "stress",
-            "--retained",
-            "10",
-            "--mailboxes",
-            "8",
-            "--profile-burst",
-            "1",
-            "--corpus-rows",
-            "10",
-            "--shard-size",
-            "4",
-        ]);
-        let workload = Workload::new(&args).unwrap();
-        assert_eq!(
-            workload
-                .retained_queries(Topology::PerIdentity)
-                .unwrap()
-                .len(),
-            10
-        );
-        assert_eq!(
-            workload.retained_queries(Topology::Sharded).unwrap().len(),
-            3
-        );
-        assert_eq!(workload.semantic_values(), 10);
-    }
-}
+#[path = "workload/scenarios.rs"]
+mod scenarios;

@@ -3,7 +3,8 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use nmp_store::{EventStore, RedbStore, RelayObserved};
-use nostr::{Event, EventBuilder, Kind, Tag, Timestamp};
+use nostr::{Event, EventBuilder, JsonUtil, Kind, Tag, Timestamp};
+use sha2::{Digest, Sha256};
 
 use crate::args::{Args, Topology};
 use crate::measure::{Metric, Samples};
@@ -22,6 +23,12 @@ impl DisposableStore {
             .context("creating disposable stress root")?;
         let path = root.path().join("fixture.redb");
         let events = corpus(args, workload)?;
+        let mut fixture_hasher = Sha256::new();
+        for event in &events {
+            fixture_hasher.update(event.as_json().as_bytes());
+            fixture_hasher.update([0]);
+        }
+        let fixture_hash: [u8; 32] = fixture_hasher.finalize().into();
         let relay = RelayObserved::new(workload.relay().clone(), Timestamp::from(1_800_000_000));
         let mut store = RedbStore::open(&path).context("opening disposable redb store")?;
         let started = Instant::now();
@@ -39,6 +46,22 @@ impl DisposableStore {
         samples.push(elapsed);
         let metric = Metric::new("internal_control", "redb_seed", "corpus", elapsed, samples)
             .count("rows", args.corpus_rows as u64)
+            .count(
+                "fixture_sha256_0",
+                u64::from_be_bytes(fixture_hash[0..8].try_into().unwrap()),
+            )
+            .count(
+                "fixture_sha256_1",
+                u64::from_be_bytes(fixture_hash[8..16].try_into().unwrap()),
+            )
+            .count(
+                "fixture_sha256_2",
+                u64::from_be_bytes(fixture_hash[16..24].try_into().unwrap()),
+            )
+            .count(
+                "fixture_sha256_3",
+                u64::from_be_bytes(fixture_hash[24..32].try_into().unwrap()),
+            )
             .note("fixture construction; excluded from timed read/open phases");
         Ok((Self { _root: root, path }, metric))
     }

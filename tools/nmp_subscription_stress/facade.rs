@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
@@ -6,11 +5,26 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
-use nmp::{Engine, EngineConfig, Subscription, Window};
+use nmp::{Engine, EngineConfig, Subscription};
 
 use crate::args::{Args, Topology};
 use crate::measure::{elapsed_since, process_cpu_time, Metric, Samples};
 use crate::workload::Workload;
+
+#[derive(Clone, Copy)]
+pub(crate) enum RetainedMode {
+    CacheOnly,
+    Live,
+}
+
+impl RetainedMode {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::CacheOnly => "cache_only",
+            Self::Live => "live",
+        }
+    }
+}
 
 pub(crate) fn run_retained(
     args: &Args,
@@ -18,6 +32,7 @@ pub(crate) fn run_retained(
     topology: Topology,
     store_path: Option<&Path>,
     drain_threads: bool,
+    retained_mode: RetainedMode,
 ) -> Result<Vec<Metric>> {
     let store = store_path.map_or("memory", |_| "redb");
     let mode = if drain_threads {
@@ -25,7 +40,11 @@ pub(crate) fn run_retained(
     } else {
         "undrained"
     };
-    let label = format!("{}:{store}:{mode}", topology.label());
+    let label = format!(
+        "{}:{store}:{mode}:{}",
+        topology.label(),
+        retained_mode.label()
+    );
     let config = EngineConfig {
         store_path: store_path.map(|path| path.to_string_lossy().into_owned()),
         ..EngineConfig::default()
@@ -41,7 +60,10 @@ pub(crate) fn run_retained(
             .context("constructing public NMP Engine")?,
     );
     let (construct_elapsed, construct_cpu) = elapsed_since(engine_started, engine_cpu_started);
-    let queries = workload.retained_queries(topology)?;
+    let queries = match retained_mode {
+        RetainedMode::CacheOnly => workload.retained_queries(topology)?,
+        RetainedMode::Live => workload.retained_live_queries(topology)?,
+    };
     let frames = Arc::new(AtomicU64::new(0));
     let (ready_tx, ready_rx) = mpsc::sync_channel(queries.len().max(1));
     let mut subscriptions = Vec::new();
@@ -110,6 +132,14 @@ pub(crate) fn run_retained(
                     0
                 },
             )
+            .count(
+                "live_observations",
+                if matches!(retained_mode, RetainedMode::Live) {
+                    cancels.len() as u64
+                } else {
+                    0
+                },
+            )
     };
     let construct = common(
         Metric::new(
@@ -166,112 +196,6 @@ pub(crate) fn run_retained(
         .note("cancel every observation, shutdown engine, and join every consumer thread"),
     );
     Ok(vec![construct, open, idle, close])
-}
-
-pub(crate) fn run_profile_burst(
-    args: &Args,
-    workload: &Workload,
-    store_path: &Path,
-) -> Result<Vec<Metric>> {
-    if args.profile_burst == 0 {
-        return Ok(Vec::new());
-    }
-    let engine = Engine::new(EngineConfig {
-        store_path: Some(store_path.to_string_lossy().into_owned()),
-        ..EngineConfig::default()
-    })?;
-    let bound = NonZeroUsize::new(1).expect("one is non-zero");
-    let phase_started = Instant::now();
-    let mut open_samples = Samples::default();
-    let mut first_frame_samples = Samples::default();
-    let mut lifecycle_samples = Samples::default();
-    let mut frames = 0usize;
-    for start in (0..args.profile_burst).step_by(args.burst_size) {
-        let end = (start + args.burst_size).min(args.profile_burst);
-        let results = thread::scope(|scope| {
-            let mut workers = Vec::with_capacity(end - start);
-            for index in start..end {
-                let query = workload.profile_query(index);
-                let engine = &engine;
-                workers.push(
-                    scope.spawn(move || -> Result<(Duration, Duration, Duration)> {
-                        let query = query?;
-                        let lifecycle_started = Instant::now();
-                        let open_started = Instant::now();
-                        let subscription = engine.observe(
-                            query,
-                            Some(Window::Expandable {
-                                initial: bound,
-                                max: bound,
-                            }),
-                        )?;
-                        let open = open_started.elapsed();
-                        let frame_started = Instant::now();
-                        subscription
-                            .recv_timeout(Duration::from_secs(5))
-                            .context("waiting for cache-only profile frame")?;
-                        let first_frame = frame_started.elapsed();
-                        drop(subscription);
-                        Ok((open, first_frame, lifecycle_started.elapsed()))
-                    }),
-                );
-            }
-            workers
-                .into_iter()
-                .map(|worker| {
-                    worker
-                        .join()
-                        .map_err(|_| anyhow!("profile worker panicked"))?
-                })
-                .collect::<Result<Vec<_>>>()
-        })?;
-        for (open, first_frame, lifecycle) in results {
-            open_samples.push(open);
-            first_frame_samples.push(first_frame);
-            lifecycle_samples.push(lifecycle);
-            frames += 1;
-        }
-    }
-    let phase_elapsed = phase_started.elapsed();
-    engine.shutdown();
-    let common = |metric: Metric| {
-        metric
-            .count("lookups", args.profile_burst as u64)
-            .count(
-                "peak_workers",
-                args.burst_size.min(args.profile_burst) as u64,
-            )
-            .count("frames", frames as u64)
-    };
-    Ok(vec![
-        common(
-            Metric::new(
-                "public_facade",
-                "profile_window_open",
-                "per_identity:redb",
-                phase_elapsed,
-                open_samples,
-            )
-            .note("call latency excludes worker-thread creation; total elapsed includes burst scheduling"),
-        ),
-        common(Metric::new(
-            "public_facade",
-            "profile_first_frame",
-            "per_identity:redb",
-            phase_elapsed,
-            first_frame_samples,
-        )),
-        common(
-            Metric::new(
-                "public_facade",
-                "profile_open_drain_close",
-                "per_identity:redb",
-                phase_elapsed,
-                lifecycle_samples,
-            )
-            .note("short-lived windowed CacheOnly observation; no relay wait"),
-        ),
-    ])
 }
 
 fn spawn_drain(
