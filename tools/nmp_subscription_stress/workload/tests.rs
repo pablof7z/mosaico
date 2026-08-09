@@ -1,6 +1,7 @@
 use clap::Parser;
 
 use super::*;
+use crate::args::DemandShape;
 
 #[test]
 fn sharding_preserves_values_and_reduces_handles() {

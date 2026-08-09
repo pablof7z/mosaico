@@ -130,7 +130,7 @@ pub(crate) fn run(workload: &Workload) -> Result<Vec<Metric>> {
     let requests = wire_requests(&admitted);
     ensure!(row_ids(&opened) == vec![event.id]);
     ensure!(requests.len() == 1 && requests[0].filter == request.filter);
-    ensure!(reconciled_through(&opened, workload) == Some(WRITTEN_THROUGH));
+    ensure!(reconciled_through(&admitted, workload) == Some(WRITTEN_THROUGH));
     let mut stale_effects = opened;
     stale_effects.extend(admitted);
     let (elapsed, cpu) = elapsed_since(started, cpu_started);
@@ -159,3 +159,7 @@ pub(crate) fn run(workload: &Workload) -> Result<Vec<Metric>> {
         stale_close,
     ])
 }
+
+#[cfg(test)]
+#[path = "durable_coverage/tests.rs"]
+mod tests;

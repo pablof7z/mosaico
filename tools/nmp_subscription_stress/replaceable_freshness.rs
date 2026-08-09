@@ -166,7 +166,7 @@ pub(crate) fn run(workload: &Workload) -> Result<Vec<Metric>> {
     ensure!(row_ids(&opened) == vec![future.id]);
     ensure!(stale_requests.len() == 1);
     ensure!(stale_requests[0].filter == future_request.filter);
-    ensure!(reconciled_through(&opened, workload) == Some(WRITTEN_THROUGH + 60));
+    ensure!(reconciled_through(&admitted, workload) == Some(WRITTEN_THROUGH + 60));
     let mut stale_effects = opened;
     stale_effects.extend(admitted);
     let (elapsed, cpu) = elapsed_since(started, cpu_started);
@@ -197,3 +197,7 @@ pub(crate) fn run(workload: &Workload) -> Result<Vec<Metric>> {
         stale_close,
     ])
 }
+
+#[cfg(test)]
+#[path = "replaceable_freshness/tests.rs"]
+mod tests;
