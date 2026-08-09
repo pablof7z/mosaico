@@ -143,15 +143,12 @@ workspace, membership, or acquisition state. For a disposable lab, rerun:
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" <profile>
 ```
 
-The default reset removes both stores. If manually repairing an already-stopped
-disposable profile, target only that profile:
+The profile writer's default reset recreates the disposable profile. To repair
+an already-stopped disposable profile directly, use Mosaico's owned reset door
+and target only that profile:
 
 ```bash
-rm -f .container-state/<profile>/mosaico/daemon.sock
-rm -f .container-state/<profile>/mosaico/state.db \
-  .container-state/<profile>/mosaico/state.db-shm \
-  .container-state/<profile>/mosaico/state.db-wal
-rm -f .container-state/<profile>/mosaico/nmp.redb
+MOSAICO_HOME=.container-state/<profile>/mosaico mosaico daemon reset-state --yes-i-know-this-wipes-local-state
 ```
 
 Never delete these from a live or non-disposable profile without explicit
@@ -166,17 +163,23 @@ answer an RPC, so `daemon: cannot connect or start` is the symptom; the
 - `superseded-epoch` — the store is not this build's schema epoch. NMP migrates
   nothing across an epoch and reads **nothing** inside a store it refused, so no
   tool can tell you what the file holds; "no readable marker" means *not this
-  epoch*, not *empty*. Stop the daemon, run
-  `mosaico daemon discard-superseded-store`, restart. The relay-backed read
-  cache re-acquires; any write NMP had accepted and not yet published is gone
-  with the file. That command refuses every other condition, so it is safe to
-  reach for and useless to reach for wrongly.
+  epoch*, not *empty*. Run `mosaico daemon reset-state
+  --yes-i-know-this-wipes-local-state`, then restart. This clears all runtime
+  state for the selected instance while preserving configuration. The
+  relay-backed read cache re-acquires; any write NMP had accepted and not yet
+  published is gone with the reset.
 - `unusable` — a refused lock, an unresolvable path, damaged current-epoch
   bytes. **Do not delete the store.** A fresh file fixes none of these and
   destroys the only copy of unpublished writes. Check the path, permissions, and
   disk.
 - `held-by-another-owner` — a daemon is already running for this home; stop it
   first.
+
+The full reset is offered only for `superseded-epoch`. It stops and reaps the
+selected instance under its startup lock, uses NMP's reset API for `nmp.redb`,
+clears SQLite/session/attachment runtime, and leaves configuration and native
+profiles intact. It refuses unsafe attachment targets such as root, HOME, or a
+path overlapping configuration.
 
 Never diagnose this by reading the refusal text. Mosaico branches on
 `nmp::EngineError`; a message that says "predates the schema marker" once meant

@@ -26,7 +26,7 @@ fn superseded_epoch_store(path: &Path) {
 }
 
 #[test]
-fn a_superseded_epoch_is_the_one_condition_that_names_a_discard() {
+fn a_superseded_epoch_is_the_one_condition_that_names_a_full_reset() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
@@ -61,17 +61,17 @@ fn a_superseded_epoch_is_the_one_condition_that_names_a_discard() {
     );
     let remedy = condition.remedy();
     assert!(
-        remedy.contains("mosaico daemon discard-superseded-store"),
-        "the one condition a discard fixes must name the discard: {remedy}"
+        remedy.contains("mosaico daemon reset-state --yes-i-know-this-wipes-local-state"),
+        "the one condition a reset fixes must name the full reset: {remedy}"
     );
     assert!(
-        remedy.contains("lost with the file"),
-        "the remedy must state what the permanent discard costs: {remedy}"
+        remedy.contains("all local Mosaico runtime state"),
+        "the remedy must state the full reset scope: {remedy}"
     );
 }
 
 #[test]
-fn damaged_bytes_are_a_condition_that_forbids_the_discard() {
+fn damaged_bytes_are_a_condition_that_offers_no_reset() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("damaged.redb");
     std::fs::write(&path, b"not a redb database").expect("damaged fixture must write");
@@ -79,63 +79,32 @@ fn damaged_bytes_are_a_condition_that_forbids_the_discard() {
     let condition = probe(&path).expect("damaged bytes must be a reported condition");
     assert!(
         matches!(condition, StoreCondition::Unusable { .. }),
-        "damaged bytes must never be reported as a discardable epoch: {condition:?}"
+        "damaged bytes must never be reported as a resettable epoch: {condition:?}"
     );
     let remedy = condition.remedy();
     assert!(
         remedy.contains("do NOT delete the store"),
-        "the non-epoch remedy must forbid the discard: {remedy}"
+        "the non-epoch remedy must forbid deletion: {remedy}"
     );
     assert!(
-        !remedy.contains("discard-superseded-store"),
-        "no refusal but the epoch one may point at the discard command: {remedy}"
+        !remedy.contains("reset-state"),
+        "no refusal but the epoch one may point at the reset command: {remedy}"
     );
 }
 
 #[test]
-fn the_discard_is_refused_on_anything_but_a_superseded_epoch() {
-    let fixture = tempfile::tempdir().expect("temporary directory");
-
-    let damaged = fixture.path().join("damaged.redb");
-    std::fs::write(&damaged, b"not a redb database").expect("damaged fixture must write");
-    let refusal = discard_superseded(&damaged)
-        .expect_err("a store that is not a superseded epoch must never be deleted");
-    assert!(
-        format!("{refusal:#}").contains("refusing to delete"),
-        "the refusal must say it refused: {refusal:#}"
-    );
-    assert!(
-        damaged.exists(),
-        "the refused discard must leave the operator's bytes on disk"
-    );
-
-    let healthy = fixture.path().join("healthy.redb");
-    Engine::new(probe_config(&healthy))
-        .expect("a fresh store must open")
-        .shutdown();
-    discard_superseded(&healthy).expect_err("a store NMP opens must never be deleted");
-    assert!(healthy.exists(), "a healthy store must survive the attempt");
-
-    let absent = fixture.path().join("absent.redb");
-    discard_superseded(&absent).expect_err("there is nothing to discard");
-}
-
-#[test]
-fn the_discard_a_superseded_epoch_names_is_performable_and_leaves_a_usable_store() {
+fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
 
-    let discarded = discard_superseded(&path).expect("a superseded epoch must be discardable");
-    assert!(
-        matches!(discarded, StoreCondition::SupersededEpoch { .. }),
-        "the discard must report the condition it acted on: {discarded:?}"
-    );
-    assert!(!path.exists(), "the discard must remove the refused store");
+    reset(&path).expect("a closed superseded store must be resettable");
+    assert!(!path.exists(), "NMP's reset must remove the complete store");
     assert!(
         probe(&path).is_none(),
         "the path an operator was told to clear must open afterwards"
     );
+    reset(&path).expect("a missing store is already reset");
 }
 
 /// The daemon's own door, not just the probe: a refusal `NmpHost::open` returns
