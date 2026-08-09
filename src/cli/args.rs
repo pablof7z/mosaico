@@ -199,10 +199,16 @@ pub(super) enum DaemonAction {
     Restart,
     /// Stop the daemon and prevent hooks from restarting it.
     Stop,
-    /// Delete the NMP store, and only when NMP refuses it as a superseded
-    /// schema epoch. Permanent: any write NMP accepted and had not yet
-    /// published goes with it. Refused for every other store fault.
-    DiscardSupersededStore,
+    /// Permanently wipe runtime state for the selected instance while keeping
+    /// its configuration, harness definitions, and agent profile declarations.
+    ResetState(ResetStateArgs),
+}
+
+#[derive(Args)]
+pub(super) struct ResetStateArgs {
+    /// Confirm deletion of SQLite, NMP, sessions, attachments, and logs.
+    #[arg(long, action = clap::ArgAction::SetTrue, required = true)]
+    pub(super) yes_i_know_this_wipes_local_state: bool,
 }
 
 #[cfg(test)]

@@ -48,6 +48,7 @@ test-unit:
 test-hermetic-integration:
     env -u MOSAICO cargo test --test help
     env -u MOSAICO cargo test --test install_standalone
+    env -u MOSAICO cargo test --test state_reset
 
 # Local plain-Nostr relay tests. Requires `nak` on PATH or at `$HOME/go/bin/nak`.
 test-local-relay:

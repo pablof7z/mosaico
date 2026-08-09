@@ -36,7 +36,7 @@ fn a_superseded_epoch_is_a_named_doctor_condition_with_its_own_fix() {
     );
     let repair = check.repair.expect("a named condition must state its fix");
     assert!(
-        repair.contains("mosaico daemon discard-superseded-store"),
+        repair.contains("mosaico daemon reset-state --yes-i-know-this-wipes-local-state"),
         "the fix must be the command, not a description of one: {repair}"
     );
 }
@@ -69,7 +69,7 @@ fn the_rendered_report_names_the_store_the_condition_and_the_command() {
     assert!(rendered.contains("[error] nmp.store:"), "{rendered}");
     assert!(rendered.contains("nmp.redb"), "{rendered}");
     assert!(
-        rendered.contains("mosaico daemon discard-superseded-store"),
+        rendered.contains("mosaico daemon reset-state --yes-i-know-this-wipes-local-state"),
         "the operator must be able to act on what they read: {rendered}"
     );
     assert!(
@@ -80,7 +80,7 @@ fn the_rendered_report_names_the_store_the_condition_and_the_command() {
 
 /// The same check must not send an operator to delete a failing disk.
 #[test]
-fn a_store_fault_that_is_not_the_epoch_names_no_discard() {
+fn a_store_fault_that_is_not_the_epoch_names_no_reset() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("nmp.redb");
     std::fs::write(&path, b"not a redb database").expect("damaged fixture must write");
@@ -89,8 +89,8 @@ fn a_store_fault_that_is_not_the_epoch_names_no_discard() {
     assert_eq!(check.state.as_deref(), Some("unusable"));
     let repair = check.repair.expect("a named condition must state its fix");
     assert!(
-        repair.contains("do NOT delete the store") && !repair.contains("discard-superseded-store"),
-        "a fault a discard cannot fix must never point at the discard: {repair}"
+        repair.contains("do NOT delete the store") && !repair.contains("reset-state"),
+        "a fault a reset cannot fix must never point at the reset: {repair}"
     );
 }
 
