@@ -60,6 +60,15 @@ impl Backend {
         record["secret_key"] = serde_json::json!(secret);
         record["public_key"] = serde_json::json!(public);
         std::fs::write(path, serde_json::to_vec_pretty(&record)?)?;
+        // The fixture edits the durable identity document directly. Make the
+        // daemon rediscover that current document before a relay mention can
+        // race activation against its older in-memory catalog.
+        let refreshed = self.run(&["agents", "list"], None, Duration::from_secs(15))?;
+        anyhow::ensure!(
+            refreshed.success() && refreshed.stdout.contains(agent),
+            "stable agent catalog refresh failed: {}",
+            refreshed.combined()
+        );
         Ok(public)
     }
 
