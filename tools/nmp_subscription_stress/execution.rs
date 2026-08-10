@@ -115,7 +115,7 @@ pub(crate) fn relay_request_witnesses(effects: &[Effect]) -> Vec<RelayRequestWit
                         observation,
                         path: path.clone(),
                         filter_revision: *filter_revision,
-                        filter: filter.clone(),
+                        filter: filter.as_ref().clone(),
                         replay: *replay,
                     }),
                     _ => None,
