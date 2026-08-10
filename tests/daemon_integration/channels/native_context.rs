@@ -156,7 +156,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
         let fabric = briefing["fabric"].as_str().expect("agent briefing");
         assert!(fabric.contains("<mosaico>"), "got: {fabric}");
         assert!(
-            fabric.contains(&format!("name=\"/{parent}\"")),
+            fabric.contains(&format!("name=\"#{parent}\"")),
             "got: {fabric}"
         );
     });

@@ -181,7 +181,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     assert_eq!(public_channels(&before), expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
-    stop_daemon(&home);
+    stop_daemon_for_restart(&home);
     cleanup.assert_exact_processes_live();
     let after = rt().block_on(async {
         let mut client = Client::connect_or_spawn()

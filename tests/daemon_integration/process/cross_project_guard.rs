@@ -87,7 +87,7 @@ fn native_pre_tool_guard_warns_reads_denies_writes_and_ignores_shells() {
     assert!(read["hookSpecificOutput"]["additionalContext"]
         .as_str()
         .unwrap()
-        .contains("Mosaico workspace /beta"));
+        .contains("Mosaico workspace #beta"));
     assert_eq!(write["hookSpecificOutput"]["permissionDecision"], "deny");
     assert!(shell.stdout.is_empty(), "shell text must remain unaffected");
 }

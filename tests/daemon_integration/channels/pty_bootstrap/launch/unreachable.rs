@@ -13,7 +13,7 @@ fn unreachable_supervisor_control_does_not_implicitly_terminate_the_harness() {
     add_workspace_mapping(&home, &channel, &work_dir);
     let agent = "ignore-hup-agent";
     configure_pty_agent(&home, agent, "forever");
-    let shim = home.dir.path().join("bin/opencode");
+    let shim = home.dir.path().join(".local/bin/opencode");
     std::fs::write(&shim, "#!/bin/sh\ntrap '' HUP\nwhile :; do sleep 1; done\n").unwrap();
     std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
 
