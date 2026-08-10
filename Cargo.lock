@@ -2435,7 +2435,7 @@ dependencies = [
 [[package]]
 name = "nmp"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -2465,7 +2465,7 @@ dependencies = [
 [[package]]
 name = "nmp-asset"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "sha2",
 ]
@@ -2473,7 +2473,7 @@ dependencies = [
 [[package]]
 name = "nmp-blossom"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "base64",
  "hickory-resolver",
@@ -2488,12 +2488,12 @@ dependencies = [
 [[package]]
 name = "nmp-executor"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 
 [[package]]
 name = "nmp-grammar"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "blake3",
  "nmp-network-policy",
@@ -2504,7 +2504,7 @@ dependencies = [
 [[package]]
 name = "nmp-local-signer"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "base64",
  "bech32",
@@ -2518,12 +2518,12 @@ dependencies = [
 [[package]]
 name = "nmp-network-policy"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 
 [[package]]
 name = "nmp-nip29"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "nmp-grammar",
  "nostr",
@@ -2532,7 +2532,7 @@ dependencies = [
 [[package]]
 name = "nmp-resolver"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "libc",
  "nmp-grammar",
@@ -2543,7 +2543,7 @@ dependencies = [
 [[package]]
 name = "nmp-router"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "nmp-grammar",
  "nmp-store",
@@ -2553,12 +2553,12 @@ dependencies = [
 [[package]]
 name = "nmp-signer"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 
 [[package]]
 name = "nmp-store"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "blake3",
  "fjall",
@@ -2574,7 +2574,7 @@ dependencies = [
 [[package]]
 name = "nmp-transport"
 version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=a45c895339f403ad1d099b37aec8f45aa1154701#a45c895339f403ad1d099b37aec8f45aa1154701"
+source = "git+https://github.com/pablof7z/nmp.git?rev=e2ac0ae439a9304c2abf52eb629a67cde98f75ef#e2ac0ae439a9304c2abf52eb629a67cde98f75ef"
 dependencies = [
  "blake3",
  "mio",
