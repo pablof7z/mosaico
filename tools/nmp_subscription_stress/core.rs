@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use nmp::mechanism::core::{Effect, EngineCore, EngineMsg};
 use nmp_store::RedbStore;
+use nostr::JsonUtil;
 
 use crate::args::Topology;
 use crate::measure::{elapsed_since, process_cpu_time, Metric, Samples};
@@ -37,7 +39,7 @@ pub(crate) fn run_core(
     let tick = tick_counts.apply(
         Metric::new(
             "internal_control",
-            "core_runtime_presubscribe_tick",
+            "core_counterfactual_tick_sweep",
             topology.label(),
             tick_elapsed,
             tick_samples,
@@ -50,7 +52,7 @@ pub(crate) fn run_core(
         .count("event_values", tick_event_values)
         .count("examined_rows", tick_examined_rows)
         .count("coverage_reads", tick_coverage_reads)
-        .note("runtime executes this durable deadline/write sweep before every public subscribe"),
+        .note("counterfactual control for the pre-#1344 runtime path; candidate opens must not execute this sweep"),
     );
     drop(tick_core);
 
@@ -107,7 +109,8 @@ pub(crate) fn run_core(
     let started = Instant::now();
     let mut samples = Samples::default();
     let mut counts = EffectCounts::default();
-    let effects = samples.record(|| core.handle(EngineMsg::FlushWireAdmission));
+    let effects =
+        samples.record(|| core.handle(EngineMsg::FlushWireAdmission(nostr::Timestamp::from(0u64))));
     counts.add(&effects);
     let admission_elapsed = started.elapsed();
     let (index_rows, event_values, examined_rows) = core.bench_query_work();
@@ -167,26 +170,59 @@ pub(crate) fn run_core(
 }
 
 #[derive(Default)]
-struct EffectCounts {
+pub(crate) struct EffectCounts {
     effects: u64,
     wire_ops: u64,
+    pub(crate) wire_reqs: u64,
+    pub(crate) wire_closes: u64,
     row_frames: u64,
     row_deltas: u64,
     evidence_frames: u64,
     diagnostics: u64,
+    wire_author_occurrences: u64,
+    wire_tag_occurrences: u64,
+    wire_author_values: BTreeSet<String>,
+    wire_tag_values: BTreeSet<String>,
+    wire_reqs_with_limit: u64,
+    wire_filter_bytes: u64,
+    max_wire_filter_bytes: u64,
+    max_authors_per_req: u64,
+    max_tag_values_per_req: u64,
 }
 
 impl EffectCounts {
-    fn add(&mut self, effects: &[Effect]) {
+    pub(crate) fn add(&mut self, effects: &[Effect]) {
         self.effects += effects.len() as u64;
         for effect in effects {
             match effect {
                 Effect::Wire(delta) => {
-                    self.wire_ops += delta
-                        .ops
-                        .iter()
-                        .map(|(_, operations)| operations.len() as u64)
-                        .sum::<u64>();
+                    for operation in delta.ops.iter().flat_map(|(_, operations)| operations) {
+                        self.wire_ops += 1;
+                        match operation {
+                            nmp_router::WireOp::Req(_, filter) => {
+                                self.wire_reqs += 1;
+                                let authors = filter.authors.as_ref().map_or(0, BTreeSet::len);
+                                let tags = filter.tags.values().map(BTreeSet::len).sum::<usize>();
+                                self.max_authors_per_req =
+                                    self.max_authors_per_req.max(authors as u64);
+                                self.max_tag_values_per_req =
+                                    self.max_tag_values_per_req.max(tags as u64);
+                                if let Some(values) = &filter.authors {
+                                    self.wire_author_occurrences += values.len() as u64;
+                                    self.wire_author_values.extend(values.iter().cloned());
+                                }
+                                for values in filter.tags.values() {
+                                    self.wire_tag_occurrences += values.len() as u64;
+                                    self.wire_tag_values.extend(values.iter().cloned());
+                                }
+                                self.wire_reqs_with_limit += u64::from(filter.limit.is_some());
+                                let bytes = filter.to_nostr().as_json().len() as u64;
+                                self.wire_filter_bytes += bytes;
+                                self.max_wire_filter_bytes = self.max_wire_filter_bytes.max(bytes);
+                            }
+                            nmp_router::WireOp::Close(_) => self.wire_closes += 1,
+                        }
+                    }
                 }
                 Effect::EmitRows(_, deltas, _) => {
                     self.row_frames += 1;
@@ -199,13 +235,24 @@ impl EffectCounts {
         }
     }
 
-    fn apply(&self, metric: Metric) -> Metric {
+    pub(crate) fn apply(&self, metric: Metric) -> Metric {
         metric
             .count("effects", self.effects)
             .count("wire_ops", self.wire_ops)
+            .count("wire_reqs", self.wire_reqs)
+            .count("wire_closes", self.wire_closes)
             .count("row_frames", self.row_frames)
             .count("row_deltas", self.row_deltas)
             .count("evidence_frames", self.evidence_frames)
             .count("diagnostics", self.diagnostics)
+            .count("wire_author_occurrences", self.wire_author_occurrences)
+            .count("wire_unique_authors", self.wire_author_values.len() as u64)
+            .count("wire_tag_occurrences", self.wire_tag_occurrences)
+            .count("wire_unique_tag_values", self.wire_tag_values.len() as u64)
+            .count("wire_reqs_with_limit", self.wire_reqs_with_limit)
+            .count("wire_filter_bytes", self.wire_filter_bytes)
+            .count("max_wire_filter_bytes", self.max_wire_filter_bytes)
+            .count("max_authors_per_req", self.max_authors_per_req)
+            .count("max_tag_values_per_req", self.max_tag_values_per_req)
     }
 }

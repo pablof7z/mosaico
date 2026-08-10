@@ -23,6 +23,8 @@ mod query;
 pub(crate) mod read;
 mod scrub;
 pub(crate) mod store;
+#[cfg(feature = "stress-harness")]
+mod stress;
 #[cfg(test)]
 mod test_io;
 pub(crate) mod write;

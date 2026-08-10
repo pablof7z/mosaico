@@ -55,27 +55,28 @@ impl MosaicoWorld {
             .as_ref()
             .expect("an ambient session exists")
             .clone();
-        for pubkey in [&explicit, &ambient] {
-            let deadline = std::time::Instant::now() + Duration::from_secs(25);
-            while std::time::Instant::now() < deadline {
-                if let Ok(output) = std::process::Command::new(nak_bin())
-                    .args(["req", "-k", "39002", "-d", &workspace, self.relay_url()])
-                    .output()
-                {
-                    if output.status.success()
-                        && String::from_utf8_lossy(&output.stdout).contains(pubkey.as_str())
-                    {
-                        break;
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(200));
-            }
-        }
         let cwd = self
             .current_backend()
             .workspace(&workspace)
             .expect("resolve active workspace");
         let channel = format!("#{workspace}");
+        // An idempotent explicit join is the product-owned readiness door: it
+        // returns only after the selected signer is locally publish-ready.
+        let joined = self
+            .current_backend()
+            .run_in(
+                &["channel", "join", &channel, "--session", &explicit],
+                None,
+                Duration::from_secs(25),
+                &cwd,
+                &[],
+            )
+            .expect("confirm explicit session membership");
+        assert!(
+            joined.success(),
+            "explicit session membership was not ready: {}",
+            joined.combined()
+        );
         let result = self
             .current_backend()
             .run_in(

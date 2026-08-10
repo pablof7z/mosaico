@@ -14,10 +14,20 @@ lint:
 stress-nmp *ARGS:
     env -u MOSAICO cargo run --release --features stress-harness --bin nmp-subscription-stress -- {{ARGS}}
 
+# Seeded lifecycle matrix for independent app observations. The 10k cases are
+# reducer/facade loads, never 10k consumer OS threads.
+stress-nmp-matrix *ARGS:
+    env -u MOSAICO cargo run --release --features stress-harness --bin nmp-subscription-stress -- --scenario matrix {{ARGS}}
+
 stress-nmp-check:
     env -u MOSAICO cargo test --features stress-harness --bin nmp-subscription-stress
     env -u MOSAICO cargo clippy --features stress-harness --bin nmp-subscription-stress -- -D warnings
     env -u MOSAICO cargo run --features stress-harness --bin nmp-subscription-stress -- --scenario router --topology sharded --retained 4 --mailboxes 3 --profile-burst 1 --corpus-rows 4 --iterations 1 --format csv
+    env -u MOSAICO cargo run --features stress-harness --bin nmp-subscription-stress -- --scenario matrix --matrix-counts 1,32,207 --format csv
+
+# Real product boundary: standalone daemon, disposable home, counted local relay.
+stress-nmp-daemon:
+    env -u MOSAICO cargo test --features stress-harness --test nmp_daemon_stress -- --nocapture --test-threads=1
 
 # Install the repo's git hooks (currently: a pre-commit `cargo fmt --check`,
 # matching CI's fmt-check). Symlinked so `git pull` picks up hook updates.
