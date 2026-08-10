@@ -18,7 +18,7 @@ fn channel_edit_updates_about_from_relay_truth() {
     let child_name = unique_session("editable");
     let watch_pid = std::process::id() as i32;
 
-    let child_path = format!("/tmp/{child_name}");
+    let child_path = format!("#tmp/{child_name}");
     initialize_workspace_root("tmp", "/tmp");
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -45,7 +45,7 @@ fn channel_edit_updates_about_from_relay_truth() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "channel": format!("/tmp/{child_name}"),
+                "channel": format!("#tmp/{child_name}"),
                 "about": "old about",
                 "agents": [],
                 "harness": "claude-code",

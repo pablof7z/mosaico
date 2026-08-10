@@ -59,7 +59,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         "root channel did not materialize before explicit-destination send"
     );
     let routes_before = session_routes(&Store::open(&home.store_path()).unwrap(), &sender);
-    let child_path = "/tmp/nip29";
+    let child_path = "#tmp/nip29";
     let created = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
@@ -67,7 +67,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_create",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp/nip29",
+                    "channel": "#tmp/nip29",
                     "about": "explicit destination regression"
                 }),
             )
@@ -122,7 +122,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": original_body,
                     "tags": [&receiver_handle, &second_receiver_handle]
                 }),
@@ -177,7 +177,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": &inline_body
                 }),
             )
@@ -195,7 +195,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
                 "channel_send",
                 serde_json::json!({
                     "session": &sender,
-                    "channel": "/tmp",
+                    "channel": "#tmp",
                     "message": &inline_body,
                     "force": true
                 }),

@@ -38,7 +38,7 @@ fn agent_cannot_tag_or_reply_to_its_own_identity() {
         .display_slug();
     assert!(
         wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("/tmp");
+            crate::channels::refresh_channel_members("#tmp");
             Store::open(&home.store_path())
                 .map(|store| {
                     store

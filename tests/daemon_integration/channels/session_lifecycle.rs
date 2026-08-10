@@ -43,7 +43,7 @@ fn session_start_without_mosaico_private_key_generates_key_and_provisions_channe
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members("/tmp");
+            refresh_channel_members("#tmp");
             let members = Store::open(&home.store_path())
                 .and_then(|store| store.list_channel_members("tmp"))
                 .unwrap_or_default();
