@@ -1,6 +1,102 @@
 use super::*;
 use crate::state::ConfirmedAdmissionCommit;
 
+fn route_has_current_member_standing(
+    state: &Arc<DaemonState>,
+    session: &Session,
+    channel: &str,
+) -> Result<bool> {
+    state.with_store(|store| {
+        Ok(store.has_session_route(&session.pubkey, channel)?
+            && store.has_channel_membership_snapshot(channel)?
+            && store.is_channel_member(channel, &session.pubkey)?
+            && store
+                .get_session_standing(&session.pubkey, channel)?
+                .is_some_and(|standing| {
+                    standing.state == crate::state::StandingState::Member
+                        && standing.session_lifecycle_epoch == session.lifecycle_epoch
+                }))
+    })
+}
+
+/// Join relay readiness already authorized by this exact session route.
+///
+/// Session start records the route before its relay confirmation completes so
+/// the new process can resolve its channel immediately. A send on that exact
+/// route waits for the same serialized admission instead of racing the publish
+/// gate or implicitly joining an unrelated destination.
+pub(in crate::daemon::server) async fn ensure_session_route_ready(
+    state: &Arc<DaemonState>,
+    expected: &Session,
+    channel: &str,
+) -> Result<()> {
+    if !state.with_store(|store| store.has_session_route(&expected.pubkey, channel))? {
+        return Ok(());
+    }
+    if route_has_current_member_standing(state, expected, channel)? {
+        return Ok(());
+    }
+
+    let _lane = state.standing_sync.lock().await;
+    let session = state
+        .with_store(|store| store.get_session(&expected.pubkey))?
+        .context("session disappeared while awaiting channel admission")?;
+    anyhow::ensure!(
+        session.runtime_generation == expected.runtime_generation
+            && session.lifecycle_epoch == expected.lifecycle_epoch
+            && session.is_running(),
+        "session changed while awaiting channel admission"
+    );
+    if route_has_current_member_standing(state, &session, channel)? {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        admission_is_current(
+            state,
+            &session.pubkey,
+            channel,
+            session.runtime_generation,
+            session.lifecycle_epoch,
+            false,
+        ),
+        "session channel admission is no longer current"
+    );
+
+    let relay_parent = state.with_store(|store| store.channel_parent(channel))?;
+    let parent = crate::fabric::nip29::readiness::effective_parent_hint(
+        relay_parent,
+        (!session.readiness_parent.is_empty()).then_some(session.readiness_parent.as_str()),
+        channel,
+    );
+    let gate = tokio::time::timeout(
+        Duration::from_secs(45),
+        state
+            .provider()
+            .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
+                channel,
+                expect_member: &session.pubkey,
+                parent_hint: parent.as_deref(),
+                name: None,
+                repair_whitelisted_admins: true,
+            }),
+    )
+    .await
+    .context("session channel admission timed out before send")?;
+    gate.require_ready("session channel admission was not relay-confirmed before send")?;
+    anyhow::ensure!(
+        commit_confirmed_admission(
+            state,
+            &session.pubkey,
+            channel,
+            session.runtime_generation,
+            session.lifecycle_epoch,
+        )
+        .await?,
+        "session channel admission became stale before send"
+    );
+    Ok(())
+}
+
 /// Revalidate a relay-admission task while `standing_sync` is held. Existing
 /// durable routes are always authoritative. A fresh launch may establish a new
 /// route only if this lifecycle has not already recorded an explicit absence.
