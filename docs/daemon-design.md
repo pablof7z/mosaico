@@ -284,10 +284,10 @@ The `session_start` RPC makes the daemon spawn a tokio task running
 - Profile publication, presence-lease renewal, and `watch_pid` death detection
   run in the per-session task. Managed lifecycle edges directly reconcile the
   generation-owned presence projection; there is no periodic semantic-state
-  poll. Reconciled presence effects enter one bounded, ordered background queue,
-  so a stalled relay cannot delay lifecycle RPCs or hooks. Every runtime and
-  kind:0 profile write is signed and accepted through the shared NMP host's
-  durable publish queue.
+  poll. One non-blocking worker keeps first-pending order across pubkeys and
+  only the latest queued full state per pubkey, so a stalled relay cannot delay
+  lifecycle RPCs or form a renewal FIFO. Every runtime and kind:0 profile write
+  is signed and accepted through the shared NMP host's durable publish queue.
 - Peer-staleness pruning is a single daemon-level periodic task.
 
 `EngineParams` is reused largely as-is, minus `store_path` (the task gets the
