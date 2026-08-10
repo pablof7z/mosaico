@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use nmp::mechanism::core::{
     Effect, EngineCore, ObservationFact, ObservationId, RequestAttemptId, RequestHandoffOutcome,
 };
@@ -20,7 +22,7 @@ pub(crate) struct RelayRequestWitness {
     pub(crate) observation: ObservationId,
     pub(crate) path: String,
     pub(crate) filter_revision: u64,
-    pub(crate) filter: ConcreteFilter,
+    pub(crate) filter: Arc<ConcreteFilter>,
     pub(crate) replay: bool,
 }
 
@@ -115,7 +117,7 @@ pub(crate) fn relay_request_witnesses(effects: &[Effect]) -> Vec<RelayRequestWit
                         observation,
                         path: path.clone(),
                         filter_revision: *filter_revision,
-                        filter: filter.as_ref().clone(),
+                        filter: filter.clone(),
                         replay: *replay,
                     }),
                     _ => None,
