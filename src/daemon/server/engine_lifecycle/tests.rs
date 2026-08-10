@@ -119,14 +119,35 @@ fn idle_eviction_and_exact_resume_reopen_presence_under_the_new_generation() {
         .unwrap();
     assert_eq!(second, first + 1);
     let resumed = store.get_session("pk-resume").unwrap().unwrap();
-    let expected = crate::session_presence::publication(&store, &resumed).state;
     let opened = presence.open("pk-resume", second, snapshot(&resumed), 30);
-    let published = opened.effects.iter().find_map(|effect| match effect {
+    assert!(
+        opened.effects.is_empty(),
+        "a new lifecycle must not publish through an unconfirmed route"
+    );
+
+    store
+        .commit_confirmed_session_admission(
+            "pk-resume",
+            "root",
+            second,
+            resumed.lifecycle_epoch,
+            31,
+        )
+        .unwrap();
+    let expected = crate::session_presence::publication(&store, &resumed).state;
+    let admitted = presence.reassert(
+        "pk-resume",
+        second,
+        crate::session_presence::publication(&store, &resumed),
+        31,
+    );
+    let published = admitted.effects.iter().find_map(|effect| match effect {
         StatusEffect::Publish { status, reason } => Some((status, reason)),
         StatusEffect::Expire { .. } => None,
     });
-    let (status, reason) = published.expect("new generation publishes a live presence lease");
-    assert_eq!(*reason, PublishReason::Opened);
+    let (status, reason) =
+        published.expect("confirmed admission publishes the new generation presence lease");
+    assert_eq!(*reason, PublishReason::Admitted);
     assert_eq!(status.state, expected);
     assert_ne!(status.state, SessionState::Offline);
     assert!(presence.close("pk-resume", first, 31).effects.is_empty());
