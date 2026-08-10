@@ -58,7 +58,18 @@ fn delta_metadata() -> Result<Metric> {
         && work.metadata_entries_examined == 3;
     ensure!(
         satisfied,
-        "delta metadata admission revisited incumbent history"
+        "delta metadata mismatch: wire_ops={}, updates={}, owners={}, claims={}, examined={}",
+        wire_ops(&outcome.wire),
+        outcome.request_metadata_updates.len(),
+        outcome
+            .request_metadata_updates
+            .first()
+            .map_or(0, |update| update.added_owner_demands.len()),
+        outcome
+            .request_metadata_updates
+            .first()
+            .map_or(0, |update| update.added_coverage_claims.len()),
+        work.metadata_entries_examined,
     );
     let metric = Metric::new(
         "internal_control",
@@ -132,13 +143,13 @@ fn full_historical_metadata() -> Result<Metric> {
     let satisfied = closes == HISTORICAL_ENTRIES - 1
         && requests_probed == 1
         && candidate_entries_examined == 3
-        && owner_edges_visited == 1
+        && owner_edges_visited == (HISTORICAL_ENTRIES - 1) as u64
         && assignment_edges_visited == 0
         && provenance_author_edges_visited == 0
-        && diagnostic_provenance_edges_visited == 0;
+        && diagnostic_provenance_edges_visited == (HISTORICAL_ENTRIES - 1) as u64;
     ensure!(
         satisfied,
-        "full compile rescanned metadata for retired historical requests"
+        "full metadata mismatch: closes={closes}, probed={requests_probed}, candidate={candidate_entries_examined}, owner={owner_edges_visited}, assignment={assignment_edges_visited}, provenance={provenance_author_edges_visited}, diagnostic={diagnostic_provenance_edges_visited}"
     );
     let metric = Metric::new(
         "internal_control",
@@ -167,7 +178,7 @@ fn full_historical_metadata() -> Result<Metric> {
     )
     .count("contract_satisfied", u64::from(satisfied))
     .contract_status(satisfied)
-    .note("whole-plan recovery may close history, but metadata reconciliation probes only the surviving request");
+    .note("closing 9,999 physical requests releases their exact owner and diagnostic edges; the surviving request probes only its current candidate metadata");
 
     router.withdraw([current], HISTORICAL_ENTRIES);
     ensure!(router.ownership_census() == Default::default());
@@ -206,4 +217,13 @@ fn wire_ops(delta: &nmp_router::WireDelta) -> usize {
         .iter()
         .map(|(_, operations)| operations.len())
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ten_thousand_entry_metadata_controls_remain_candidate_local() {
+        super::delta_metadata().unwrap();
+        super::full_historical_metadata().unwrap();
+    }
 }
