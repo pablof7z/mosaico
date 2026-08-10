@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::admission_matrix;
 use crate::args::Args;
 use crate::attribution_churn;
+use crate::deadline_race;
 use crate::demand_key_matrix;
 use crate::durable_coverage;
 use crate::freshness_matrix;
@@ -11,6 +12,7 @@ use crate::later_active_owner;
 use crate::lifecycle;
 use crate::metadata_load;
 use crate::nested_freshness;
+use crate::read_failure;
 use crate::replaceable_freshness;
 use crate::report::Reporter;
 use crate::semantic_coverage;
@@ -114,6 +116,8 @@ pub(crate) fn run(args: &Args, reporter: &Reporter) -> Result<()> {
             for metric in durable_coverage::run(&workload)? {
                 reporter.metric(&metric);
             }
+            reporter.metric(&read_failure::run(&workload)?);
+            reporter.metric(&deadline_race::run(&workload)?);
             ran_exact_oracles = true;
         }
     }

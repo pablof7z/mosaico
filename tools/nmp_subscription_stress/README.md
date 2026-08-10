@@ -150,11 +150,21 @@ first-arrival grouping window, before every independent observation is
 cancelled. This is the public-facade version of the avatar burst that motivated
 the grouping contract; it never adds a `limit` to the replaceable-event query.
 
-The harness does not yet claim deterministic store-read failure, a command
-ordered at the same instant as a due admission deadline, old-versus-future
-replaceable-document freshness, or reuse of NMP-written durable coverage after
-an engine restart. Reopening the seeded Redb fixture and explicitly flushing
-the headless reducer are not substitutes for those controls.
+The exact matrix also proves four failure/freshness boundaries that fixture
+reopens and ordinary sequential reducer messages cannot stand in for:
+
+- one injected canonical store-read failure returns a typed observation
+  refusal with zero escaped ownership, after which the same runtime opens and
+  tears down a healthy observation;
+- a benchmark-only runtime probe makes a command ready at the exact instant a
+  stored event expires, proving the deadline publishes the removal before the
+  command executes;
+- signed old/new/future kind:0 events prove document replacement independently
+  from freshness: the newest document wins, while EOSE time alone decides
+  whether MaxAge emits wire work; and
+- coverage written by an accepted REQ/EOSE is reopened from a new `RedbStore`
+  and `EngineCore`: fresh MaxAge uses the stored row with zero REQ, while the
+  same row emits an ordinary REQ after its reducer-time age expires.
 
 ## Reading the attribution
 
