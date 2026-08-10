@@ -26,8 +26,15 @@ just stress-nmp --scenario store --corpus-rows 10000 --format csv
 just stress-nmp --scenario freshness --retained 207 --corpus-rows 2000
 just stress-nmp-matrix --matrix-counts 1,32,207,1000 --format csv
 just stress-nmp-matrix --matrix-counts 10000 --demand-shape exact-duplicate --lifecycle-schedule reverse
+just stress-nmp-daemon
 just stress-nmp --help
 ```
+
+`stress-nmp-daemon` is the final product boundary: it starts the real Mosaico
+daemon with a disposable home/database and counted local relay, opens exactly
+207 profile observations through Mosaico's startup policy, records CPU, RSS,
+threads, file descriptors, RPC latency, REQ/CLOSE counts, and proves exact
+process/socket/relay teardown. It never touches the selected live instance.
 
 Every result carries the full NMP commit resolved in `Cargo.lock`. Candidate
 comparisons use isolated Mosaico worktrees whose `Cargo.toml` and `Cargo.lock`

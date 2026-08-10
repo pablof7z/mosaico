@@ -37,6 +37,11 @@ name = "bdd"
 path = "bdd/main.rs"
 harness = false
 
+[[test]]
+name = "nmp_daemon_stress"
+path = "tests/nmp_daemon_stress.rs"
+required-features = ["stress-harness"]
+
 [dependencies]
 nostr = "0.44.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "process", "io-util", "io-std", "net", "fs"] }

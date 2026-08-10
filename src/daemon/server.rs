@@ -1,5 +1,4 @@
 //! The daemon process: sole owner of state.db, NMP acquisition, and provider I/O.
-//!
 use super::client::StartupLock;
 use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
@@ -213,6 +212,8 @@ use who::rpc_who;
 async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
+        #[cfg(feature = "stress-harness")]
+        "stress_nmp_snapshot" => Ok(state.nmp().stress_snapshot()),
         "shutdown" => {
             state.connections.shutdown.notify_waiters();
             Ok(serde_json::json!({"stopped": true}))
@@ -279,9 +280,8 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     match result {
         Ok(v) => Response::ok(req.id, v),
         Err(e) => {
-            // Every RPC failure reaches a caller as a wire response regardless
-            // (`Response::err`), but until now that was the *only* place the
-            // error existed — nothing server-side recorded that a call failed
+            // RPC failures reach the caller as `Response::err`, but that frame was the only record:
+            // nothing server-side recorded that a call failed
             // or why, making a hook-path failure (which itself only logs to a
             // stderr no one durably captures) unrecoverable after the fact.
             tracing::error!(method = %req.method, error = %format!("{e:#}"), "rpc call failed");
