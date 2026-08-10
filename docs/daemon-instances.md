@@ -71,13 +71,30 @@ condition is the `state` on `mosaico doctor`'s `nmp.store` check.
 
 Mosaico never recreates the store on its own. The daemon logs the named
 condition and its fix and exits; `mosaico doctor` reports it as `nmp.store` and
-points the `daemon` check at it; and the discard is `mosaico daemon
-discard-superseded-store`, a command a person types for one selected instance.
-That command re-probes and proceeds **only** on `superseded-epoch`, so it cannot
-be aimed at a failing disk even from a stale report — which is why the epoch
-signal has to be a type. It removes the store through
-`Engine::reset_persistent_store` rather than `rm nmp.redb`, because NMP owns what
-the complete store is on disk, including the owner lock beside it.
+points the `daemon` check at it. The offered recovery is the explicit full-state
+door:
+
+```console
+$ mosaico daemon reset-state --yes-i-know-this-wipes-local-state
+$ mosaico daemon restart
+```
+
+Reset is coherent across the selected instance: it inhibits hook respawn,
+stops the exact daemon, holds its startup lock, reaps only its detached PTY
+supervisors, removes `state.db` and transient session/runtime directories, and
+asks `Engine::reset_persistent_store` to remove NMP's complete store. It also
+clears the resolved `attachmentReceiveDirectory`, including a safely scoped
+external directory. The reset refuses root/home-wide targets and anything that
+overlaps configuration or native profile files.
+
+Configuration survives byte-for-byte: `config.json`, `harnesses.json`,
+`agents/`, `workspaces.json`, registered MCP clients, harness definitions,
+agent profile declarations, and unrecognized files in the selected root.
+Transient `harness-profiles/` materializations are runtime and are deleted.
+Hooks stay inhibited until the explicit restart. On every NMP refusal other
+than `superseded-epoch`, the diagnosis still says not to reset: damaged
+current-epoch bytes or a failing disk may hold the only
+accepted-but-unpublished writes.
 
 ## Shared stateless installation
 

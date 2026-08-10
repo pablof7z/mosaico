@@ -80,12 +80,18 @@ pub(crate) fn rpc_params(extra: serde_json::Value) -> serde_json::Value {
 pub async fn run(cli: Cli) -> Result<()> {
     // Any explicit command (except `harness hook`) signals intent to use mosaico, so
     // clear the daemon stop-inhibit. Hooks honour the sentinel — they must never
-    // restart a daemon the operator explicitly stopped. `daemon stop` re-arms it
-    // unconditionally, so clearing first is harmless.
+    // restart a daemon the operator explicitly stopped. Reset owns and audits
+    // the inhibitor itself, so it must reach that command without mutation.
+    let resetting_state = matches!(
+        cli.cmd.as_ref(),
+        Some(Cmd::Daemon(args))
+            if matches!(args.action.as_ref(), Some(DaemonAction::ResetState(_)))
+    );
     if !matches!(
         cli.cmd.as_ref(),
         Some(Cmd::Harness { action }) if action.is_hook()
-    ) && crate::daemon::is_inhibited()
+    ) && !resetting_state
+        && crate::daemon::is_inhibited()
     {
         crate::daemon::clear_inhibit();
         eprintln!("[mosaico] stop inhibit cleared");
@@ -114,9 +120,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Daemon(args)) => match args.action {
             Some(DaemonAction::Restart) => daemon_lifecycle::restart().await,
             Some(DaemonAction::Stop) => daemon_lifecycle::stop(),
-            Some(DaemonAction::DiscardSupersededStore) => {
-                daemon_lifecycle::discard_superseded_store()
-            }
+            Some(DaemonAction::ResetState(args)) => daemon_lifecycle::reset_state(args),
             None => crate::daemon::server::run().await,
         },
         Some(Cmd::Debug { action }) => debug::debug(action).await,

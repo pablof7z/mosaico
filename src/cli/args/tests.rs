@@ -76,24 +76,26 @@ fn daemon_restart_parses() {
     }
 }
 
-/// The discard is a command a person types, never a flag on a repair that runs
-/// unattended — so it has to be reachable, and `doctor` has to not be where it
-/// lives.
+/// A full state reset is a command a person types with an explicit destructive
+/// confirmation, never a flag on an unattended repair.
 #[test]
-fn daemon_discard_superseded_store_parses_and_is_not_a_doctor_repair() {
-    let cli = Cli::try_parse_from(["mosaico", "daemon", "discard-superseded-store"]).unwrap();
+fn daemon_reset_state_requires_and_parses_destructive_confirmation() {
+    let cli = Cli::try_parse_from([
+        "mosaico",
+        "daemon",
+        "reset-state",
+        "--yes-i-know-this-wipes-local-state",
+    ])
+    .unwrap();
 
     match cli.cmd.expect("expected daemon command") {
-        Cmd::Daemon(args) => assert!(matches!(
-            args.action,
-            Some(DaemonAction::DiscardSupersededStore)
-        )),
-        _ => panic!("expected daemon discard action"),
+        Cmd::Daemon(args) => assert!(matches!(args.action, Some(DaemonAction::ResetState(_)))),
+        _ => panic!("expected daemon reset action"),
     }
 
     assert!(
-        Cli::try_parse_from(["mosaico", "doctor", "--discard-superseded-store"]).is_err(),
-        "the destructive door must not be reachable from doctor"
+        Cli::try_parse_from(["mosaico", "daemon", "reset-state"]).is_err(),
+        "the destructive confirmation must be mandatory"
     );
 }
 

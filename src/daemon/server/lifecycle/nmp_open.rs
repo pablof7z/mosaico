@@ -4,9 +4,8 @@
 //! before it can answer a single RPC, so the named condition has to reach the
 //! daemon log from here — otherwise the operator has a daemon that will not
 //! start and no way to tell a superseded schema epoch from a failing disk.
-//! Mosaico deletes nothing on its own: exactly one of those conditions is fixed
-//! by discarding the store, and the discard is a command a person types
-//! (`mosaico daemon discard-superseded-store`).
+//! Mosaico deletes nothing on its own: exactly one condition offers the
+//! explicit, config-preserving full-state reset a person must confirm.
 
 use anyhow::Result;
 

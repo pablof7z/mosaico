@@ -127,15 +127,15 @@ impl StoreCondition {
         }
     }
 
-    /// What to do about it, exactly. Mosaico never performs the discard on its
-    /// own — see [`discard_superseded`].
+    /// What to do about it, exactly. Mosaico never performs a reset on its own.
     pub(crate) fn remedy(&self) -> String {
         match self {
-            Self::SupersededEpoch { .. } => "stop the daemon, then run `mosaico daemon \
-                 discard-superseded-store` and start it again. The discard is permanent: the \
-                 relay-backed read cache is re-acquired from relays, but any write NMP had \
-                 accepted and not yet published is lost with the file, and no build can read the \
-                 superseded bytes to tell you whether there were any"
+            Self::SupersededEpoch { .. } => "run `mosaico daemon reset-state \
+                 --yes-i-know-this-wipes-local-state`, then `mosaico daemon restart`. The reset \
+                 permanently deletes all local Mosaico runtime state for the selected instance, \
+                 including session history, the relay-backed read cache, and any write NMP \
+                 accepted but had not published. Configuration, harness definitions, and agent \
+                 profile declarations are preserved"
                 .to_string(),
             Self::HeldByAnotherOwner { .. } => "one daemon per home owns the store. Stop the \
                  running owner with `mosaico daemon stop` before starting another"
@@ -206,43 +206,15 @@ pub(crate) fn probe(path: &Path) -> Option<StoreCondition> {
     }
 }
 
-/// Delete a store NMP refuses as a superseded schema epoch, and only that.
+/// Remove one closed NMP store through NMP's owned destructive API.
 ///
-/// This is the one destructive door, and it is deliberately not automatic and
-/// not part of `mosaico doctor --fix`. Deleting a gigabyte of someone's data is
-/// a person's call, so a person types this — but once they do, the discard is
-/// gated on the same typed signal the diagnosis was, re-probed here rather than
-/// carried from an earlier report. It is therefore impossible to reach on a
-/// failing disk, on a locked store, or on a healthy one, regardless of what a
-/// stale `doctor` report on the operator's screen said.
-///
-/// `Engine::reset_persistent_store` is the removal, not `std::fs::remove_file`:
-/// NMP owns what the complete store is on disk, including the lock file beside
-/// it, and an operator deleting the one file they can see leaves the rest.
-///
-/// Like [`probe`], **the caller must hold the daemon startup lock**, so no
-/// daemon can be opening this store while it is being deleted.
-pub(crate) fn discard_superseded(path: &Path) -> anyhow::Result<StoreCondition> {
-    if !path.exists() {
-        anyhow::bail!("there is no NMP store at {} to discard", path.display());
-    }
-    let Some(condition) = probe(path) else {
-        anyhow::bail!(
-            "refusing to delete {}: NMP opens this store, so it is not a superseded epoch",
-            path.display()
-        );
-    };
-    let StoreCondition::SupersededEpoch { .. } = &condition else {
-        anyhow::bail!(
-            "refusing to delete {}: {}. {}",
-            path.display(),
-            condition.summary(),
-            condition.remedy()
-        );
-    };
+/// The caller owns the human confirmation and must hold the selected daemon's
+/// startup lock across this call. NMP independently refuses a store that any
+/// process still owns and removes its full on-disk representation, including
+/// the sidecar lock.
+pub(crate) fn reset(path: &Path) -> anyhow::Result<()> {
     Engine::reset_persistent_store(path)
-        .map_err(|error| anyhow::anyhow!("discarding the superseded NMP store: {error}"))?;
-    Ok(condition)
+        .map_err(|error| anyhow::anyhow!("resetting the NMP persistent store: {error}"))
 }
 
 fn probe_config(path: &Path) -> EngineConfig {
