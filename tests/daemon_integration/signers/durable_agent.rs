@@ -69,7 +69,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             )
             .await
             .expect("send as durable agent");
-        assert_eq!(sent["channel"].as_str(), Some("/tmp"));
+        assert_eq!(sent["channel"].as_str(), Some("#tmp"));
         let chat_event_id = sent["event_id"].as_str().unwrap().to_string();
 
         let isolated_home = home.dir.path().to_string_lossy().into_owned();
