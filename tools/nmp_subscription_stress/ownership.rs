@@ -22,6 +22,7 @@ macro_rules! define_census_mapping {
 define_census_mapping! {
     observations => "active_observations",
     branch_handles => "active_branch_handles",
+    retained_freshness_source_edges => "retained_freshness_source_edges",
     request_target_handles => "request_target_handles",
     request_target_demand_keys => "request_target_demand_keys",
     request_target_edges => "request_target_edges",

@@ -9,6 +9,7 @@ pub(crate) fn reset(core: &mut EngineCore<RedbStore>) {
     core.bench_reset_coverage_reads();
     core.bench_reset_admission_work();
     core.bench_reset_withdrawal_work();
+    core.bench_reset_freshness_work();
 }
 
 pub(crate) fn apply_core_work(core: &EngineCore<RedbStore>, metric: Metric) -> Metric {
@@ -16,6 +17,7 @@ pub(crate) fn apply_core_work(core: &EngineCore<RedbStore>, metric: Metric) -> M
     let (projection_reads, router_compiles, history_reads) = core.bench_lifecycle_work();
     let admission = core.bench_admission_work();
     let withdrawal = core.bench_withdrawal_work();
+    let freshness = core.bench_freshness_work();
     let census = core.bench_ownership_census();
     let metric = metric
         .count("projection_reads", projection_reads)
@@ -25,6 +27,19 @@ pub(crate) fn apply_core_work(core: &EngineCore<RedbStore>, metric: Metric) -> M
         .count("event_values", event_values)
         .count("examined_rows", examined_rows)
         .count("coverage_reads", core.bench_coverage_reads())
+        .count("freshness_candidate_atoms", freshness.candidate_atoms)
+        .count(
+            "freshness_incumbent_demand_edges_visited",
+            freshness.incumbent_demand_edges_visited,
+        )
+        .count(
+            "freshness_plan_request_entries_visited",
+            freshness.plan_request_entries_visited,
+        )
+        .count(
+            "freshness_coalesce_pair_attempts",
+            freshness.coalesce_pair_attempts,
+        )
         .count(
             "admission_pending_atoms_rebuilt",
             admission.pending_atoms_rebuilt,
