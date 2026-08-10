@@ -53,8 +53,8 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
     )
     .unwrap();
     std::os::unix::fs::symlink(
-        home.dir.path().join("bin/opencode"),
-        home.dir.path().join("bin/claude"),
+        home.dir.path().join(".local/bin/opencode"),
+        home.dir.path().join(".local/bin/claude"),
     )
     .unwrap();
     std::fs::write(

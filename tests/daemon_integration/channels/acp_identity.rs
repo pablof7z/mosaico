@@ -66,7 +66,7 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
         .to_string_lossy()
         .into_owned();
     let executable_path = std::env::join_paths([
-        home.dir.path().join("bin"),
+        home.dir.path().join(".local/bin"),
         std::path::PathBuf::from("/usr/bin"),
         std::path::PathBuf::from("/bin"),
     ])

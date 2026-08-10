@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nostr::{Event, Keys};
+use nostr::{Event, EventBuilder, Keys};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::process::{Command, Stdio};
@@ -27,9 +27,10 @@ pub(crate) async fn publish_addressed_chat(
         mentioned_pubkeys: vec![target_pubkey.to_string()],
         attachments: Vec::new(),
     };
-    let event = Nip29WireCodec
+    let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
-        .expect("encode addressed kind:9")
+        .expect("encode addressed kind:9");
+    let event = sign_builder_into_group(channel, builder, &keys)
         .sign_with_keys(&keys)
         .expect("sign addressed kind:9");
     let outcome = client
@@ -43,6 +44,28 @@ pub(crate) async fn publish_addressed_chat(
     );
     client.disconnect().await;
     event.id.to_hex()
+}
+
+pub(crate) fn sign_builder_into_group(
+    group: &str,
+    builder: EventBuilder,
+    keys: &Keys,
+) -> EventBuilder {
+    let unsigned = builder.build(keys.public_key());
+    let contextualized = nmp_nip29::contextualize(
+        &std::collections::BTreeSet::from([group.to_string()]),
+        nmp::EventBuilder {
+            kind: unsigned.kind,
+            tags: unsigned.tags.into_iter().collect(),
+            content: unsigned.content,
+            created_at: Some(unsigned.created_at),
+        },
+    )
+    .expect("a fixture draft carries no context row of its own");
+    EventBuilder::new(contextualized.kind, contextualized.content)
+        .tags(contextualized.tags)
+        .custom_created_at(contextualized.created_at.expect("stated above"))
+        .allow_self_tagging()
 }
 
 /// Compare the complete set of current relay snapshots containing `pubkey`.

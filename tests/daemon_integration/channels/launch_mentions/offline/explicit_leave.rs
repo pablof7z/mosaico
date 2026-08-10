@@ -114,7 +114,7 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
         .display_slug();
 
     let log_boundary = daemon_log_boundary(&home);
-    stop_daemon(&home);
+    stop_daemon_for_restart(&home);
     cleanup.assert_exact_processes_live();
     rt().block_on(async {
         DaemonClient::connect_or_spawn()

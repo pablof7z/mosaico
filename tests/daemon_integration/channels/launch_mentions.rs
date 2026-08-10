@@ -59,7 +59,7 @@ fn install_opencode_shim(
     injected_log: &Path,
 ) -> PathGuard {
     use std::os::unix::fs::PermissionsExt as _;
-    let bin = home.dir.path().join("bin");
+    let bin = home.dir.path().join(".local/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let shim = bin.join("opencode");
     std::fs::write(&shim, harness_script(native_session, cwd, injected_log)).unwrap();
@@ -199,7 +199,9 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .expect("encode kind:9");
-    let signed = builder.sign_with_keys(&keys).expect("sign kind:9");
+    let signed = sign_builder_into_group(channel, builder, &keys)
+        .sign_with_keys(&keys)
+        .expect("sign kind:9");
     let out = client.send_event(&signed).await.expect("publish kind:9");
     assert!(
         !out.success.is_empty(),
