@@ -45,7 +45,7 @@ fn install_goose_shim(
          while IFS= read -r line; do\n\
            printf '{{\"session_id\":\"{}\",\"working_dir\":{},\"pid\":%s}}\\n' \"$$\" \
            | \"$MOSAICO_BIN\" harness hook goose --type user-prompt-submit >>{} 2>&1\n\
-           cat \"$GOOSE_MOIM_MESSAGE_FILE\" > {}\n\
+           cat \"$GOOSE_MOIM_MESSAGE_FILE\" >> {}\n\
          done\n",
         sh_quote(argv_log),
         native_session,
