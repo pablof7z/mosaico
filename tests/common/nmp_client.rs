@@ -249,6 +249,11 @@ fn wait_for_write(
             Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Superseded))) => {
                 anyhow::bail!("NMP test write was superseded by a newer write")
             }
+            Ok(WriteFact::Outcome(WriteOutcome::Superseded)) => {
+                anyhow::bail!(
+                    "NMP test write was superseded after its relay handoff could not be ruled out"
+                )
+            }
             Ok(WriteFact::Outcome(WriteOutcome::Refused(reason))) => {
                 anyhow::bail!("NMP test write was refused at acceptance: {reason:?}")
             }
