@@ -68,6 +68,13 @@ pub(in crate::daemon::server) async fn ensure_session_route_ready(
         (!session.readiness_parent.is_empty()).then_some(session.readiness_parent.as_str()),
         channel,
     );
+    // We reached this branch because the materialized relay roster does not
+    // currently prove membership. Do not let an older in-process readiness TTL
+    // suppress the exact re-check this send is joining.
+    state
+        .provider()
+        .readiness
+        .invalidate(channel, &session.pubkey);
     let gate = tokio::time::timeout(
         Duration::from_secs(45),
         state

@@ -59,19 +59,25 @@ pub(crate) fn shared_relay_url() -> String {
     RELAY.get_or_init(TestRelay::start).url.clone()
 }
 
-/// A shared NIP-29 relay for tests that own groups / mint subgroups
-/// (nak can't do NIP-29). Shared only within one test thread, so relay state
-/// cannot leak between integration tests.
+/// A NIP-29 relay shared by all clients inside one isolated test home.
+///
+/// The integration gate runs tests serially on one thread, so thread-local
+/// storage alone would retain relay state across unrelated tests. Key the relay
+/// by the current test HOME and reap it when the next home asks for one.
 pub(crate) fn shared_nip29_relay_url() -> String {
     thread_local! {
-        static RELAY: RefCell<Option<TestRelay>> = const { RefCell::new(None) };
+        static RELAY: RefCell<Option<(PathBuf, TestRelay)>> = const { RefCell::new(None) };
     }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     RELAY.with(|relay| {
         let mut relay = relay.borrow_mut();
-        relay
-            .get_or_insert_with(TestRelay::start_nip29_relay)
-            .url
-            .clone()
+        if relay
+            .as_ref()
+            .is_none_or(|(relay_home, _)| relay_home != &home)
+        {
+            *relay = Some((home, TestRelay::start_nip29_relay()));
+        }
+        relay.as_ref().expect("NIP-29 relay").1.url.clone()
     })
 }
 
