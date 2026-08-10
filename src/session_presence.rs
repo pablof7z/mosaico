@@ -71,6 +71,16 @@ pub(crate) fn publication(
     let channels = route_rows
         .into_iter()
         .map(|(channel, _)| channel)
+        .filter(|channel| {
+            store
+                .get_session_standing(&session.pubkey, channel)
+                .is_ok_and(|standing| {
+                    standing.is_some_and(|standing| {
+                        standing.state == crate::state::StandingState::Member
+                            && standing.session_lifecycle_epoch == session.lifecycle_epoch
+                    })
+                })
+        })
         .filter(|channel| !store.is_archived_channel(channel).unwrap_or(false))
         .collect::<BTreeSet<_>>();
     crate::reconcile::PresenceProjection {
@@ -137,6 +147,49 @@ fn local_transition_hint(session: &Session, state: SessionState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publication_exposes_only_relay_confirmed_membership_routes() {
+        let store = Store::open_memory().unwrap();
+        let generation = store
+            .reserve_session_with_facts(
+                &crate::state::RegisterSession {
+                    pubkey: "pk".into(),
+                    observed_harness: "codex".into(),
+                    agent_slug: "agent".into(),
+                    launch_channel_h: "room".into(),
+                    work_root: "room".into(),
+                    child_pid: None,
+                    now: 1,
+                },
+                &crate::state::AdmittedRuntimeFacts {
+                    observed_harness: "codex".into(),
+                    claimed_harness: String::new(),
+                    bundle: "codex-pty".into(),
+                    transport: "pty".into(),
+                    endpoint_provenance: "launch".into(),
+                },
+            )
+            .unwrap();
+        let session = store.get_session("pk").unwrap().unwrap();
+
+        assert!(store.has_session_route("pk", "room").unwrap());
+        assert!(publication(&store, &session).channels.is_empty());
+
+        store
+            .commit_confirmed_session_admission(
+                "pk",
+                "room",
+                generation,
+                session.lifecycle_epoch,
+                2,
+            )
+            .unwrap();
+        assert_eq!(
+            publication(&store, &session).channels,
+            BTreeSet::from(["room".to_string()])
+        );
+    }
 
     #[test]
     fn remote_expiry_changes_state_time_without_using_observation_time() {

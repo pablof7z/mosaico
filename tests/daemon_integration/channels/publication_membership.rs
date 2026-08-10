@@ -64,6 +64,12 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
                 .unwrap_or_else(|error| format!("<{error}>")),
         );
     }
+    let admission_log =
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default();
+    assert!(
+        !admission_log.contains("status submission to NMP failed"),
+        "session startup attempted presence before membership confirmation:\n{admission_log}"
+    );
     let before_receipt = Store::open(&home.store_path())
         .unwrap()
         .latest_receipts_for_surface("status", 1)
