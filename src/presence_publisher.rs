@@ -1,5 +1,6 @@
-//! Ordered, non-blocking publication of reconciled presence effects.
+//! Latest-per-pubkey, non-blocking publication of reconciled presence effects.
 
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 
 use nostr::Keys;
@@ -10,7 +11,11 @@ use crate::fabric::provider::Nip29Provider;
 use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
 use crate::state::Store;
 
-const PUBLISH_QUEUE_CAPACITY: usize = 256;
+const PUBLISH_SIGNAL_CAPACITY: usize = 1;
+
+#[cfg(test)]
+#[path = "presence_publisher/tests.rs"]
+mod tests;
 
 pub(crate) struct DriveMeta<'a> {
     pub trigger: &'a str,
@@ -22,9 +27,44 @@ struct PublishJob {
     trigger: String,
 }
 
+#[derive(Default)]
+struct PendingPublishJobs {
+    order: VecDeque<String>,
+    jobs: BTreeMap<String, PublishJob>,
+}
+
+impl PendingPublishJobs {
+    fn push(&mut self, job: PublishJob) {
+        let pubkey = job
+            .outcome
+            .pubkey
+            .clone()
+            .expect("a non-empty status outcome must name its pubkey");
+        if self.jobs.insert(pubkey.clone(), job).is_none() {
+            self.order.push_back(pubkey);
+        }
+    }
+
+    fn pop_front(&mut self) -> Option<PublishJob> {
+        let pubkey = self.order.pop_front()?;
+        self.jobs.remove(&pubkey)
+    }
+
+    fn clear(&mut self) {
+        self.order.clear();
+        self.jobs.clear();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.jobs.len()
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct PresencePublisher {
-    tx: mpsc::Sender<PublishJob>,
+    signal_tx: mpsc::Sender<()>,
+    pending: Arc<Mutex<PendingPublishJobs>>,
 }
 
 impl PresencePublisher {
@@ -32,9 +72,12 @@ impl PresencePublisher {
         provider: Arc<RwLock<Arc<Nip29Provider>>>,
         store: Arc<Mutex<Store>>,
     ) -> PresencePublisher {
-        let (tx, mut rx) = mpsc::channel::<PublishJob>(PUBLISH_QUEUE_CAPACITY);
-        tokio::spawn(async move {
-            while let Some(job) = rx.recv().await {
+        let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
+        let (signal_tx, signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
+        spawn_publish_worker(signal_rx, pending.clone(), move |job| {
+            let provider = provider.clone();
+            let store = store.clone();
+            async move {
                 let provider = provider
                     .read()
                     .unwrap_or_else(|poison| poison.into_inner())
@@ -44,21 +87,56 @@ impl PresencePublisher {
                 record_status_receipt(&store, &job.outcome, &event_ids);
             }
         });
-        PresencePublisher { tx }
+        PresencePublisher { signal_tx, pending }
     }
 
     fn submit(&self, outcome: StatusOutcome, keys: &Keys, trigger: &str) {
         if outcome.effects.is_empty() {
             return;
         }
-        if let Err(error) = self.tx.try_send(PublishJob {
-            outcome,
-            keys: keys.clone(),
-            trigger: trigger.to_string(),
-        }) {
-            tracing::warn!(%error, trigger, "presence publish queue is full or closed");
+        self.pending
+            .lock()
+            .expect("presence publish queue poisoned")
+            .push(PublishJob {
+                outcome,
+                keys: keys.clone(),
+                trigger: trigger.to_string(),
+            });
+        match self.signal_tx.try_send(()) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
+            Err(error @ mpsc::error::TrySendError::Closed(())) => {
+                self.pending
+                    .lock()
+                    .expect("presence publish queue poisoned")
+                    .clear();
+                tracing::warn!(%error, trigger, "presence publish worker is closed");
+            }
         }
     }
+}
+
+fn spawn_publish_worker<F, Fut>(
+    mut signal_rx: mpsc::Receiver<()>,
+    pending: Arc<Mutex<PendingPublishJobs>>,
+    publish: F,
+) where
+    F: Fn(PublishJob) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        while signal_rx.recv().await.is_some() {
+            loop {
+                let job = pending
+                    .lock()
+                    .expect("presence publish queue poisoned")
+                    .pop_front();
+                let Some(job) = job else {
+                    break;
+                };
+                publish(job).await;
+            }
+        }
+    });
 }
 
 pub(crate) fn drive(
