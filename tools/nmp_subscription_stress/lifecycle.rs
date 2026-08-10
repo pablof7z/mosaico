@@ -144,7 +144,30 @@ pub(crate) fn close_phase(
     order: &[usize],
     label: &str,
 ) -> Metric {
-    close_phase_capture(core, ids, order, label).0
+    reset(core);
+    let before = resources();
+    let started = Instant::now();
+    let cpu_started = process_cpu_time();
+    let mut samples = Samples::default();
+    let mut effects = EffectCounts::default();
+    for index in order {
+        let emitted = samples.record(|| core.handle(EngineMsg::Unsubscribe(ids[*index])));
+        effects.add(&emitted);
+    }
+    let (elapsed, cpu) = elapsed_since(started, cpu_started);
+    let after = resources();
+    apply_core_work(
+        core,
+        effects.apply(close_metric(
+            ids.len(),
+            label,
+            elapsed,
+            samples,
+            cpu,
+            before,
+            after,
+        )),
+    )
 }
 
 pub(crate) fn close_phase_capture(
@@ -170,21 +193,39 @@ pub(crate) fn close_phase_capture(
     (
         apply_core_work(
             core,
-            effects.apply(
-                Metric::new("matrix", "observation_close", label, elapsed, samples)
-                    .cpu(cpu)
-                    .count("observations", ids.len() as u64)
-                    .count("fds_before", before.open_fds)
-                    .count("fds_after", after.open_fds)
-                    .count("rss_before_bytes", before.current_rss_bytes)
-                    .count("rss_after_bytes", after.current_rss_bytes)
-                    .count("physical_footprint_bytes", after.physical_footprint_bytes)
-                    .count("nmp_threads_live_after", after.nmp_threads_live)
-                    .count("peak_rss_bytes", after.peak_rss_bytes),
-            ),
+            effects.apply(close_metric(
+                ids.len(),
+                label,
+                elapsed,
+                samples,
+                cpu,
+                before,
+                after,
+            )),
         ),
         emitted,
     )
+}
+
+fn close_metric(
+    observations: usize,
+    label: &str,
+    elapsed: std::time::Duration,
+    samples: Samples,
+    cpu: std::time::Duration,
+    before: crate::measure::ResourceSnapshot,
+    after: crate::measure::ResourceSnapshot,
+) -> Metric {
+    Metric::new("matrix", "observation_close", label, elapsed, samples)
+        .cpu(cpu)
+        .count("observations", observations as u64)
+        .count("fds_before", before.open_fds)
+        .count("fds_after", after.open_fds)
+        .count("rss_before_bytes", before.current_rss_bytes)
+        .count("rss_after_bytes", after.current_rss_bytes)
+        .count("physical_footprint_bytes", after.physical_footprint_bytes)
+        .count("nmp_threads_live_after", after.nmp_threads_live)
+        .count("peak_rss_bytes", after.peak_rss_bytes)
 }
 
 pub(crate) fn flush_phase(
