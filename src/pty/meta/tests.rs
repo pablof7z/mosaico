@@ -54,6 +54,11 @@ fn ownership_requires_exact_endpoint_and_instance_token_arguments() {
     ));
 }
 
+#[test]
+fn signaling_an_already_exited_owned_process_is_success() {
+    signal(i32::MAX, nix::sys::signal::Signal::SIGTERM).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn owned_child_fallback_escalates_past_ignored_hup() {

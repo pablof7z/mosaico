@@ -237,8 +237,12 @@ pub(crate) fn rollback_spawned_supervisor(metadata: &LaunchMetadata) -> Result<(
 }
 
 fn signal(pid: i32, signal: nix::sys::signal::Signal) -> Result<()> {
-    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), Some(signal))
-        .with_context(|| format!("sending {signal:?} to PTY supervisor pid {pid}"))
+    match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), Some(signal)) {
+        Ok(()) | Err(nix::errno::Errno::ESRCH) => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("sending {signal:?} to PTY supervisor pid {pid}"))
+        }
+    }
 }
 
 fn wait_for_exit(pid: i32, attempts: usize) {
