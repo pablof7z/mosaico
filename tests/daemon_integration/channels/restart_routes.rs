@@ -105,7 +105,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     let child_names = [unique_session("implementation"), unique_session("review")];
     let child_paths = child_names
         .iter()
-        .map(|name| format!("/{root}/{name}"))
+        .map(|name| format!("#{root}/{name}"))
         .collect::<Vec<_>>();
     rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
@@ -140,7 +140,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     let expected_routes = std::iter::once(root.clone())
         .chain(child_ids)
         .collect::<BTreeSet<_>>();
-    let expected_paths = std::iter::once(format!("/{root}"))
+    let expected_paths = std::iter::once(format!("#{root}"))
         .chain(child_paths)
         .collect::<BTreeSet<_>>();
     assert!(
@@ -181,7 +181,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     assert_eq!(public_channels(&before), expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
-    stop_daemon(&home);
+    stop_daemon_for_restart(&home);
     cleanup.assert_exact_processes_live();
     let after = rt().block_on(async {
         let mut client = Client::connect_or_spawn()

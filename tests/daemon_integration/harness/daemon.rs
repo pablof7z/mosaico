@@ -40,6 +40,25 @@ pub(crate) fn stop_daemon(home: &Home) {
     scavenge_deleted_tmp_mosaico_processes();
 }
 
+/// Stop only the selected daemon so a test can exercise supervisor adoption.
+/// Detached PTY supervisors deliberately survive this boundary.
+pub(crate) fn stop_daemon_for_restart(home: &Home) {
+    request_version_skew_exit(home);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline && home.sock().exists() {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    force_kill_daemons_for_home(home.dir.path());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && home.sock().exists() {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        !home.sock().exists(),
+        "daemon did not stop before the restart boundary"
+    );
+}
+
 fn request_version_skew_exit(home: &Home) {
     if let Ok(stream) = UnixStream::connect(home.sock()) {
         let mut writer = stream.try_clone().unwrap();

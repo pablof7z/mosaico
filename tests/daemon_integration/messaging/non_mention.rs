@@ -54,7 +54,7 @@ fn non_mention_chat_does_not_route_to_inbox() {
     // channel and wait for relay-authored membership before sending.
     assert!(
         wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("/tmp");
+            crate::channels::refresh_channel_members("#tmp");
             Store::open(&home.store_path())
                 .map(|store| {
                     store

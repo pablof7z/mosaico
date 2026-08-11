@@ -32,7 +32,7 @@ fn install_goose_shim(
 ) -> GooseEnvGuard {
     use std::os::unix::fs::PermissionsExt as _;
 
-    let bin = home.dir.path().join("bin");
+    let bin = home.dir.path().join(".local/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let cwd_json = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
     let hook_log = context_log.with_extension("hook.log");
@@ -45,7 +45,7 @@ fn install_goose_shim(
          while IFS= read -r line; do\n\
            printf '{{\"session_id\":\"{}\",\"working_dir\":{},\"pid\":%s}}\\n' \"$$\" \
            | \"$MOSAICO_BIN\" harness hook goose --type user-prompt-submit >>{} 2>&1\n\
-           cat \"$GOOSE_MOIM_MESSAGE_FILE\" > {}\n\
+           cat \"$GOOSE_MOIM_MESSAGE_FILE\" >> {}\n\
          done\n",
         sh_quote(argv_log),
         native_session,

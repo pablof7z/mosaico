@@ -9,7 +9,9 @@ mod standing;
 #[cfg(test)]
 #[path = "managed_lifecycle/tests.rs"]
 mod tests;
-pub(super) use standing::{admission_is_current, commit_confirmed_admission};
+pub(super) use standing::{
+    admission_is_current, commit_confirmed_admission, ensure_session_route_ready,
+};
 
 pub(super) async fn reconcile_stopping(state: &Arc<DaemonState>) {
     eviction::reconcile_stopping(state).await;

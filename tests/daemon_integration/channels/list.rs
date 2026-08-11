@@ -20,7 +20,7 @@ fn channel_list_explicit_workspace_renders_public_root_path() {
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.lines().any(|line| line.contains("/tmp")),
+        stdout.lines().any(|line| line.contains("#tmp")),
         "channel list should render the resolved root; stdout={stdout}"
     );
 

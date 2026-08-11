@@ -2,7 +2,7 @@ use super::Home;
 use std::os::unix::fs::PermissionsExt as _;
 
 pub(crate) fn install_test_harness_shim(home: &std::path::Path) {
-    let bin = home.join("bin");
+    let bin = home.join(".local/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let body = r#"#!/bin/sh
 if [ "${1:-}" = "--version" ]; then

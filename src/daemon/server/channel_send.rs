@@ -204,6 +204,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         mentioned_pubkeys: mentioned_pubkeys.clone(),
         attachments: uploaded_attachments.clone(),
     };
+    super::managed_lifecycle::ensure_session_route_ready(state, &rec, &publish_scope).await?;
     let published = state
         .provider()
         .publish_chat_checked(&chat, &chat_signing_keys)

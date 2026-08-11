@@ -14,6 +14,22 @@ pub(super) fn schedule_channel_ready(
     };
     tokio::spawn(async move {
         let _lane = state.standing_sync.lock().await;
+        let already_confirmed = state
+            .with_store(|store| {
+                Ok::<_, anyhow::Error>(
+                    store.has_session_route(&check.pubkey, &check.channel_h)?
+                        && store
+                            .get_session_standing(&check.pubkey, &check.channel_h)?
+                            .is_some_and(|standing| {
+                                standing.state == crate::state::StandingState::Member
+                                    && standing.session_lifecycle_epoch == lifecycle_epoch
+                            }),
+                )
+            })
+            .unwrap_or(false);
+        if already_confirmed {
+            return;
+        }
         if !super::super::managed_lifecycle::admission_is_current(
             &state,
             &check.pubkey,

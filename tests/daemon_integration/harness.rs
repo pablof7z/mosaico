@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 #[path = "harness/daemon.rs"]
 mod daemon;
-pub(crate) use daemon::{scavenge_deleted_tmp_mosaico_processes, stop_daemon};
+pub(crate) use daemon::{
+    scavenge_deleted_tmp_mosaico_processes, stop_daemon, stop_daemon_for_restart,
+};
 #[path = "harness/cli.rs"]
 mod cli;
 pub(crate) use cli::{
@@ -26,7 +28,9 @@ mod reconcile_witness;
 pub(crate) use reconcile_witness::{daemon_log_boundary, wait_for_reconciled_session_engine};
 #[path = "harness/relay_witness.rs"]
 mod relay_witness;
-pub(crate) use relay_witness::{publish_addressed_chat, wait_for_exact_relay_groups};
+pub(crate) use relay_witness::{
+    publish_addressed_chat, sign_builder_into_group, wait_for_exact_relay_groups,
+};
 #[path = "harness/wedge_relay.rs"]
 mod wedge_relay;
 pub(crate) use wedge_relay::WedgeRelay;
@@ -55,19 +59,25 @@ pub(crate) fn shared_relay_url() -> String {
     RELAY.get_or_init(TestRelay::start).url.clone()
 }
 
-/// A shared NIP-29 relay for tests that own groups / mint subgroups
-/// (nak can't do NIP-29). Shared only within one test thread, so relay state
-/// cannot leak between integration tests.
+/// A NIP-29 relay shared by all clients inside one isolated test home.
+///
+/// The integration gate runs tests serially on one thread, so thread-local
+/// storage alone would retain relay state across unrelated tests. Key the relay
+/// by the current test HOME and reap it when the next home asks for one.
 pub(crate) fn shared_nip29_relay_url() -> String {
     thread_local! {
-        static RELAY: RefCell<Option<TestRelay>> = const { RefCell::new(None) };
+        static RELAY: RefCell<Option<(PathBuf, TestRelay)>> = const { RefCell::new(None) };
     }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     RELAY.with(|relay| {
         let mut relay = relay.borrow_mut();
-        relay
-            .get_or_insert_with(TestRelay::start_nip29_relay)
-            .url
-            .clone()
+        if relay
+            .as_ref()
+            .is_none_or(|(relay_home, _)| relay_home != &home)
+        {
+            *relay = Some((home, TestRelay::start_nip29_relay()));
+        }
+        relay.as_ref().expect("NIP-29 relay").1.url.clone()
     })
 }
 
@@ -120,10 +130,7 @@ impl Home {
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
         std::env::set_var("MOSAICO_CONFIG", &cfg);
         std::env::set_var("MOSAICO_DAEMON_GRACE_S", "30");
-        // Isolated homes must reap PTY supervisors on daemon stop — production
-        // leaves them alive across restart; tests must not.
         unsafe {
-            std::env::set_var(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1");
             std::env::set_var("MOSAICO_BIN", bin());
         }
         // Register /tmp as a channel so hooks (which all send cwd=/tmp) find a

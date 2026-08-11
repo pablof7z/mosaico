@@ -164,7 +164,9 @@ async fn publish_management_command(channel: &str, body: &str) {
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .unwrap();
-    let event = builder.sign_with_keys(&keys).unwrap();
+    let event = sign_builder_into_group(channel, builder, &keys)
+        .sign_with_keys(&keys)
+        .unwrap();
     let output = client.send_event(&event).await.unwrap();
     assert!(!output.success.is_empty(), "management kind:9 rejected");
 }
@@ -274,7 +276,7 @@ fn management_p_tag_adds_base_native_and_configured_codex_agents_with_restricted
     let interactive_pty = interactive_pty.unwrap();
     let supervisor_pid = interactive_pty.supervisor_pid;
     let child_pid = interactive_pty.child_pid;
-    stop_daemon(&home);
+    stop_daemon_for_restart(&home);
     for slug in ["codex", "native-codex-role", "mosaico-configured-role"] {
         assert!(
             running_session(&home, &channel, slug).is_none(),

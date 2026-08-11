@@ -57,7 +57,7 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "channel": format!("/tmp/{first_name}"),
+                    "channel": format!("#tmp/{first_name}"),
                     "about": "tester",
                     "agents": [{ "slug": "coder", "backend": "test-host" }],
                     "session": &creator,
@@ -69,7 +69,7 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "channel": format!("/tmp/{second_name}"),
+                    "channel": format!("#tmp/{second_name}"),
                     "about": "reviewer",
                     "agents": [],
                     "session": &creator,
@@ -80,8 +80,8 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
         (first, second)
     });
 
-    assert_eq!(first["channel"], format!("/tmp/{first_name}"));
-    assert_eq!(second["channel"], format!("/tmp/{second_name}"));
+    assert_eq!(first["channel"], format!("#tmp/{first_name}"));
+    assert_eq!(second["channel"], format!("#tmp/{second_name}"));
     assert_eq!(first["joined"].as_bool(), Some(true));
     assert_eq!(second["joined"].as_bool(), Some(true));
 
@@ -164,7 +164,7 @@ fn channel_create_no_agents_adds_join_without_replacing_routes() {
         c.call(
             "channel_create",
             serde_json::json!({
-                "channel": format!("/tmp/{child_name}"),
+                "channel": format!("#tmp/{child_name}"),
                 "agents": [],
                 "session": &pubkey,
             }),
@@ -173,7 +173,7 @@ fn channel_create_no_agents_adds_join_without_replacing_routes() {
         .expect("channel_create with no agents should succeed")
     });
 
-    let child_path = format!("/tmp/{child_name}");
+    let child_path = format!("#tmp/{child_name}");
     assert_eq!(v["channel"], child_path);
     assert_eq!(v["joined"].as_bool(), Some(true));
     assert_eq!(
@@ -213,7 +213,7 @@ fn channel_create_errors_when_name_already_exists() {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let mk = || {
             serde_json::json!({
-                "channel": format!("/tmp/{name}"),
+                "channel": format!("#tmp/{name}"),
                 "agents": [{ "slug": "coder", "backend": "test-host" }],
                 "session": &creator,
             })
@@ -249,7 +249,7 @@ fn channel_create_rejects_workspace_self_nesting() {
             .call(
                 "channel_create",
                 serde_json::json!({
-                    "channel": format!("/tmp/{parent}"),
+                    "channel": format!("#tmp/{parent}"),
                     "agents": [],
                     "session": creator,
                 }),
