@@ -66,16 +66,16 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
-nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
-nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
-nmp-resolver = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902", optional = true }
-nmp-router = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902", optional = true }
-nmp-store = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902", optional = true }
-nmp-transport = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902", optional = true }
-nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
-nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
-nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "9ad763cf989855adc38b8b0b5c840b58d45e1902" }
+nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
+nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
+nmp-resolver = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161", optional = true }
+nmp-router = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161", optional = true }
+nmp-store = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161", optional = true }
+nmp-transport = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161", optional = true }
+nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
+nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
+nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "e32a87e4a06b49a2ea16a58009fbfa55a1b02161" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"

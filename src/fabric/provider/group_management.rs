@@ -8,15 +8,15 @@ mod roles;
 mod topology;
 
 impl Nip29Provider {
-    pub(in crate::fabric::provider) async fn try_grant_mgmt_admin_via_user_nsec(
+    pub(in crate::fabric::provider) async fn try_grant_admins_via_user_nsec(
         &self,
         group: &str,
-        mgmt_pubkey: &str,
+        pubkeys: &[String],
     ) -> GroupMutationOutcome {
         let nsec = match &self.user_nsec {
             Some(n) => n.clone(),
             None => {
-                eprintln!("[daemon] try_grant_mgmt_admin: no userNsec configured");
+                eprintln!("[daemon] try_grant_admins: no userNsec configured");
                 return GroupMutationOutcome::Failed(GroupOperationError::new(
                     "management self-grant",
                     GroupOperationStage::Configuration,
@@ -27,7 +27,7 @@ impl Nip29Provider {
         let user_keys = match Keys::parse(&nsec) {
             Ok(k) => k,
             Err(e) => {
-                eprintln!("[daemon] try_grant_mgmt_admin: userNsec parse failed: {e}");
+                eprintln!("[daemon] try_grant_admins: userNsec parse failed: {e}");
                 return GroupMutationOutcome::Failed(GroupOperationError::new(
                     "management self-grant",
                     GroupOperationStage::Configuration,
@@ -36,70 +36,29 @@ impl Nip29Provider {
             }
         };
 
-        let operation = "9000 put-admin (self-grant via userNsec)";
-        let subject = match nostr::PublicKey::parse(mgmt_pubkey) {
-            Ok(subject) => subject,
-            Err(e) => {
-                eprintln!("[daemon] try_grant_mgmt_admin: management pubkey unparseable: {e}");
+        let operation = "9000 put-admins (authority bootstrap via userNsec)";
+        let users = match roles::group_users(pubkeys, Some("admin".into())) {
+            Ok(users) => users,
+            Err(error) => {
                 return GroupMutationOutcome::Failed(GroupOperationError::new(
                     operation,
                     GroupOperationStage::Build,
-                    e,
+                    error,
                 ));
             }
         };
 
-        for attempt in 0..6u32 {
-            let outcome = self
-                .publish_group_management_outcome(
-                    group,
-                    crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::add_user(
-                        subject,
-                        Some("admin"),
-                    )),
-                    &user_keys,
-                    operation,
-                )
-                .await;
-            // Confirmed by presence on the relay's kind:39001, not by that
-            // record spelling the role "admin" — see `confirm_role_grant`.
-            match self.with_store(|s| s.is_channel_admin(group, mgmt_pubkey)) {
-                Ok(true) => {
-                    self.with_store(|s| {
-                        if let Err(e) = s.upsert_channel_member(
-                            group,
-                            mgmt_pubkey,
-                            "admin",
-                            crate::util::now_secs(),
-                        ) {
-                            tracing::error!(
-                                channel = group,
-                                pubkey = mgmt_pubkey,
-                                error = %e,
-                                "try_grant_mgmt_admin: local mirror write failed after confirmed relay grant"
-                            );
-                        }
-                    });
-                    return GroupMutationOutcome::Confirmed;
-                }
-                Ok(false) => {}
-                Err(e) => {
-                    tracing::error!(
-                        channel = group,
-                        pubkey = mgmt_pubkey,
-                        attempt,
-                        error = %e,
-                        "try_grant_mgmt_admin: roster read-back failed; cannot confirm self-grant"
-                    );
-                }
-            }
-            if let GroupPublishOutcome::Failed(error) = outcome {
-                return GroupMutationOutcome::Failed(error);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt as u64 + 1))).await;
-        }
-        GroupMutationOutcome::Unconfirmed {
-            detail: "roster read-back never showed the management admin grant".into(),
+        match self
+            .nmp
+            .add_group_users_and_wait(group, users, &user_keys)
+            .await
+        {
+            Ok(_) => GroupMutationOutcome::Published,
+            Err(error) => GroupMutationOutcome::Failed(GroupOperationError::from_anyhow(
+                operation,
+                GroupOperationStage::Publish,
+                &error,
+            )),
         }
     }
 
@@ -121,8 +80,8 @@ impl Nip29Provider {
         keys: &nostr::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
-        match self.nmp.publish_group(group, builder, keys) {
-            Ok(_) => GroupPublishOutcome::Applied,
+        match self.nmp.publish_group_and_wait(group, builder, keys).await {
+            Ok(_) => GroupPublishOutcome::Published,
             Err(e) => {
                 let outcome = GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                     label,

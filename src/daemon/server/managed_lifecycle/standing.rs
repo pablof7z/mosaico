@@ -217,9 +217,9 @@ async fn reconcile_admission(state: &Arc<DaemonState>, pubkey: &str, generation:
 async fn compensate_due_admission(state: &Arc<DaemonState>, due: &crate::state::SessionStanding) {
     let removal = state
         .provider()
-        .remove_member_confirmed(&due.channel_h, &due.pubkey)
+        .remove_member_published(&due.channel_h, &due.pubkey)
         .await;
-    if !removal.is_confirmed() {
+    if !removal.is_published() {
         tracing::warn!(
             pubkey = %pubkey_short(&due.pubkey),
             channel = %due.channel_h,

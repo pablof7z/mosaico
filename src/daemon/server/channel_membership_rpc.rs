@@ -75,9 +75,9 @@ pub(in crate::daemon::server) async fn ensure_joinable(
         // simply gets added silently rather than hitting an access error.
         let added = state
             .provider()
-            .grant_member_confirmed(channel_h, &rec.pubkey)
+            .grant_member_published(channel_h, &rec.pubkey)
             .await;
-        added.require_confirmed(format!(
+        added.require_published(format!(
             "joining agent {} to channel {}",
             rec.agent_slug, channel_ref
         ))?;
@@ -147,9 +147,9 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
         let _lane = state.standing_sync.lock().await;
         let removed = state
             .provider()
-            .remove_member_confirmed(&channel, &rec.pubkey)
+            .remove_member_published(&channel, &rec.pubkey)
             .await;
-        removed.require_confirmed(format!(
+        removed.require_published(format!(
             "leaving agent {} from channel {}",
             rec.agent_slug, channel_ref
         ))?;

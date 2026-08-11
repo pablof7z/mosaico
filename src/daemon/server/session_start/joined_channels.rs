@@ -60,10 +60,10 @@ pub(super) fn schedule_admission(
             }
             let outcome = state
                 .provider()
-                .grant_member_confirmed(&channel, &pubkey)
+                .grant_member_published(&channel, &pubkey)
                 .await;
-            if !outcome.is_confirmed() {
-                tracing::warn!(pubkey, %channel, ?outcome, "session_start passive admission was not confirmed");
+            if !outcome.is_published() {
+                tracing::warn!(pubkey, %channel, ?outcome, "session_start passive admission was not published");
                 continue;
             }
             match super::super::managed_lifecycle::commit_confirmed_admission(
@@ -77,10 +77,10 @@ pub(super) fn schedule_admission(
             {
                 Ok(true) => {}
                 Ok(false) => {
-                    tracing::warn!(pubkey, %channel, "confirmed passive admission became stale")
+                    tracing::warn!(pubkey, %channel, "published passive admission became stale")
                 }
                 Err(error) => {
-                    tracing::error!(pubkey, %channel, %error, "confirmed passive admission could not be persisted")
+                    tracing::error!(pubkey, %channel, %error, "published passive admission could not be recorded")
                 }
             }
         }

@@ -156,9 +156,15 @@ mod tests {
     #[test]
     fn converting_an_nmp_draft_preserves_a_p_row_naming_the_signer() {
         let keys = Keys::generate();
-        let event = as_nostr(nmp_nip29::add_user(keys.public_key(), Some("admin")))
-            .sign_with_keys(&keys)
-            .unwrap();
+        let event = as_nostr(
+            nmp::nip29::add_users([nmp::nip29::GroupUser::new(
+                keys.public_key(),
+                Some("admin".into()),
+            )])
+            .unwrap(),
+        )
+        .sign_with_keys(&keys)
+        .unwrap();
         assert!(event.tags.iter().any(|t| {
             let s = t.as_slice();
             s.first().map(String::as_str) == Some("p")

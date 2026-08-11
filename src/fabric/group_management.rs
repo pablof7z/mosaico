@@ -18,9 +18,9 @@ impl fmt::Display for GroupOperationStage {
     }
 }
 
-/// Exact provenance for a group-management operation that could not be
-/// submitted. The detail is captured at the failing boundary and is never
-/// reclassified from display text.
+/// Exact provenance for a group-management operation that did not complete.
+/// The detail may come from pre-publication setup or from NMP's typed terminal
+/// result, and is never reclassified by polling Mosaico's projected roster.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GroupOperationError {
     operation: String,
@@ -68,34 +68,30 @@ impl std::error::Error for GroupOperationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GroupPublishOutcome {
-    Applied,
+    Published,
     Failed(GroupOperationError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GroupMutationOutcome {
-    Confirmed,
-    Unconfirmed { detail: String },
+    Published,
     Failed(GroupOperationError),
 }
 
 impl GroupPublishOutcome {
-    pub(crate) fn is_applied(&self) -> bool {
-        matches!(self, Self::Applied)
+    pub(crate) fn is_published(&self) -> bool {
+        matches!(self, Self::Published)
     }
 }
 
 impl GroupMutationOutcome {
-    pub(crate) fn is_confirmed(&self) -> bool {
-        matches!(self, Self::Confirmed)
+    pub(crate) fn is_published(&self) -> bool {
+        matches!(self, Self::Published)
     }
 
-    pub(crate) fn require_confirmed(self, action: impl fmt::Display) -> anyhow::Result<()> {
+    pub(crate) fn require_published(self, action: impl fmt::Display) -> anyhow::Result<()> {
         match self {
-            Self::Confirmed => Ok(()),
-            Self::Unconfirmed { detail } => {
-                anyhow::bail!("{action} was not confirmed: {detail}")
-            }
+            Self::Published => Ok(()),
             Self::Failed(error) => Err(anyhow::Error::new(error).context(action.to_string())),
         }
     }
@@ -118,12 +114,12 @@ mod tests {
             format!("{receipt_error:#}"),
         ));
         let mutation = match publish {
-            GroupPublishOutcome::Applied => GroupMutationOutcome::Confirmed,
+            GroupPublishOutcome::Published => GroupMutationOutcome::Published,
             GroupPublishOutcome::Failed(error) => GroupMutationOutcome::Failed(error),
         };
 
         let error = mutation
-            .require_confirmed("joining /mosaico/dev")
+            .require_published("joining /mosaico/dev")
             .unwrap_err();
         let rendered = format!("{error:#}");
         assert!(

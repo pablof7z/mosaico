@@ -115,6 +115,7 @@ fn ensure_channel_ready_inner<'a>(
             }
         };
         let mut repaired = false;
+        let mut admins_published_this_attempt = Vec::new();
         if !group_exists {
             match provision::missing_group(provider, &ctx, parent_hint, &mgmt_pubkey).await {
                 Ok(created) => repaired |= created,
@@ -134,18 +135,17 @@ fn ensure_channel_ready_inner<'a>(
             s.is_channel_admin(ctx.channel, &mgmt_pubkey)
                 .unwrap_or(false)
         }) {
+            let required_admins = verify::required_admins(
+                provider,
+                &mgmt_pubkey,
+                &parent_admins,
+                ctx.repair_whitelisted_admins,
+            );
             let granted = provider
-                .try_grant_mgmt_admin_via_user_nsec(ctx.channel, &mgmt_pubkey)
+                .try_grant_admins_via_user_nsec(ctx.channel, &required_admins)
                 .await;
             match granted {
-                GroupMutationOutcome::Confirmed => {}
-                GroupMutationOutcome::Unconfirmed { detail } => {
-                    return attempt::degraded(
-                        provider,
-                        &ctx,
-                        format!("management self-grant was not confirmed: {detail}"),
-                    );
-                }
+                GroupMutationOutcome::Published => {}
                 GroupMutationOutcome::Failed(error) => {
                     return attempt::degraded_error(
                         provider,
@@ -154,9 +154,9 @@ fn ensure_channel_ready_inner<'a>(
                     );
                 }
             }
-            // No optimistic local patch is needed: a CONFIRMED self-grant has
-            // already written the management admin row through the same store
-            // every check below reads.
+            // No optimistic local patch is needed: the relay accepted the
+            // mutation, and the retained group observation owns roster state.
+            admins_published_this_attempt = required_admins;
             repaired = true;
         }
 
@@ -216,8 +216,14 @@ fn ensure_channel_ready_inner<'a>(
             provider.fetch_and_materialize_channel(ctx.channel).await;
         }
 
-        let invariant =
-            verify::ensure_invariants(provider, &ctx, &mgmt_pubkey, &parent_admins).await;
+        let invariant = verify::ensure_invariants(
+            provider,
+            &ctx,
+            &mgmt_pubkey,
+            &parent_admins,
+            &admins_published_this_attempt,
+        )
+        .await;
         if let Some(error) = invariant.degraded {
             return attempt::degraded_error(provider, &ctx, error);
         }

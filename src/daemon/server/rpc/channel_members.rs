@@ -84,8 +84,8 @@ pub async fn rpc_channel_members(
 /// `channel add <pubkey|npub|nip05> <channel> [--admin]` — add a human member to
 /// a channel. Resolves its full path globally to the internal group id, ensures
 /// the channel is ready (management is admin), then publishes an explicit
-/// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), read
-/// back for confirmation.
+/// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), then
+/// waits for NMP's terminal per-relay publication result.
 pub async fn rpc_channel_add_member(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -116,7 +116,7 @@ pub async fn rpc_channel_add_member(
         &channel_h,
         &pubkey_hex,
         role,
-        "rpc_channel_add_member manual add via confirmed provider mutation",
+        "rpc_channel_add_member manual add via published provider mutation",
     );
 
     let parent_hint = state
@@ -125,7 +125,9 @@ pub async fn rpc_channel_add_member(
     let provider = state.provider();
     let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
         channel: &channel_h,
-        expect_member: &pubkey_hex,
+        // This readiness pass establishes only group manageability. The one
+        // explicit role mutation below owns the requested user addition.
+        expect_member: "",
         parent_hint: parent_hint.as_deref(),
         name: None,
         repair_whitelisted_admins: true,
@@ -145,20 +147,20 @@ pub async fn rpc_channel_add_member(
     ))?;
 
     // Explicit grant of the requested role. `ensure_channel_ready` above only
-    // guarantees the management key is admin; the member/admin put-user is
-    // published here and read back for confirmation.
+    // guarantees the management key is admin. NMP's terminal result answers
+    // publication; the retained group observation alone updates the roster.
     let outcome = if p.admin {
         state
             .provider()
-            .grant_admin_confirmed(&channel_h, &pubkey_hex)
+            .grant_admin_published(&channel_h, &pubkey_hex)
             .await
     } else {
         state
             .provider()
-            .grant_member_confirmed(&channel_h, &pubkey_hex)
+            .grant_member_published(&channel_h, &pubkey_hex)
             .await
     };
-    outcome.require_confirmed(format!(
+    outcome.require_published(format!(
         "updating channel {} participant {}",
         channel,
         crate::util::pubkey_short(&pubkey_hex)
@@ -168,7 +170,7 @@ pub async fn rpc_channel_add_member(
         "channel": channel,
         "pubkey": pubkey_hex,
         "role": role,
-        "confirmed": true,
+        "published": true,
     }))
 }
 
@@ -227,10 +229,10 @@ pub async fn rpc_channel_remove_member(
 
     let outcome = state
         .provider()
-        .remove_member_confirmed(&channel_h, &pubkey_hex)
+        .remove_member_published(&channel_h, &pubkey_hex)
         .await;
-    let confirmed = outcome.is_confirmed();
-    outcome.require_confirmed(format!(
+    let published = outcome.is_published();
+    outcome.require_published(format!(
         "removing channel {} participant {}",
         p.channel,
         crate::util::pubkey_short(&pubkey_hex)
@@ -239,6 +241,6 @@ pub async fn rpc_channel_remove_member(
     Ok(serde_json::json!({
         "channel": p.channel,
         "pubkey": pubkey_hex,
-        "confirmed": confirmed,
+        "published": published,
     }))
 }

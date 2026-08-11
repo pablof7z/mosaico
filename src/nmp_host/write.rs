@@ -7,13 +7,11 @@
 //! group (NMP #1182). There is no app-side signing step, no app-side event id
 //! derivation, and no app-local copy of the event.
 //!
-//! **Publishing is optimistic.** `publish` returning `Ok` is NMP taking
-//! custody: the write is durably recorded and whatever becomes of it is
-//! recorded with it. Nothing here waits for a relay, because settlement is
-//! something an app INSPECTS — through NMP's own publish queue — never
-//! something it awaits. The 12-second foreground deadline this module used to
-//! run was the mechanism behind mosaico#745, where a terminal AUTH denial
-//! reached the operator as a timeout.
+//! Ordinary fabric writes are optimistic: acceptance transfers durable
+//! delivery ownership to NMP and returns immediately. Group-management
+//! commands are different because their caller needs the relay's answer.
+//! Those commands consume NMP's terminal [`ReceiptResult`](nmp::ReceiptResult)
+//! instead of polling Mosaico's projected roster or reducing receipt frames.
 
 use std::collections::BTreeSet;
 
@@ -26,6 +24,7 @@ use super::scrub::scrub_unsigned;
 use super::NmpHost;
 
 mod compose;
+mod group_management;
 mod queue;
 use compose::draft_of;
 
@@ -127,6 +126,15 @@ impl NmpHost {
         builder: EventBuilder,
         keys: &Keys,
     ) -> Result<EventId> {
+        Ok(self.publish_groups_receipt(groups, builder, keys)?.event_id)
+    }
+
+    pub(super) fn publish_groups_receipt(
+        &self,
+        groups: impl IntoIterator<Item = String>,
+        builder: EventBuilder,
+        keys: &Keys,
+    ) -> Result<ReceiptStream> {
         self.ensure_identity(keys)?;
         let author = keys.public_key();
         let mut unsigned = builder.build(author);
@@ -151,7 +159,7 @@ impl NmpHost {
         groups: &BTreeSet<String>,
         author: PublicKey,
         builder: nmp::EventBuilder,
-    ) -> Result<EventId> {
+    ) -> Result<ReceiptStream> {
         #[cfg(test)]
         if let Some(refusal) = self.test_io.take_write() {
             refusal?;
@@ -163,7 +171,7 @@ impl NmpHost {
             .map_err(|error| anyhow::anyhow!("naming the groups of a write: {error}"))?
             .publish(&self.engine, author, builder)
             .map_err(|error| anyhow::anyhow!("publishing a NIP-29 group write: {error}"))?;
-        Ok(stream.event_id)
+        Ok(stream)
     }
 
     /// Publish exact signed bytes to an exact relay set.
